@@ -78,7 +78,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const ref: OriginRef | undefined = from && { originId: from.originId, originLabel: from.originLabel };
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
           if (designMdChanged) {
-            const author: DesignMdAuthor = from ? { origin: from.kind, ...ref } : { origin: "user" };
+            const author: DesignMdAuthor = from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" };
             store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author);
           }
           return reply.code(201).send(result.merged ? { ...version, merged: true } : version);

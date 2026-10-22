@@ -17,8 +17,8 @@ export interface DesignMdResponse {
   content: string;
 }
 
-/** Who saved a DESIGN.md version: a thread or conversation run (Claude), or the user in the editor. Versions from before origins existed are "user". */
-export type DesignMdOrigin = "thread" | "conversation" | "user";
+/** Who saved a DESIGN.md version: a thread or conversation run (Claude), the user's own Claude Code (terminal mode), or the user in the editor. Versions from before origins existed are "user". */
+export type DesignMdOrigin = "thread" | "conversation" | "terminal" | "user";
 
 export interface DesignMdAuthor {
   origin: DesignMdOrigin;

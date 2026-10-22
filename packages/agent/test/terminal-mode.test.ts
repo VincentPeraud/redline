@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { AgentTokenResponse, PageVersionSummary } from "@redline/shared";
+import type { AgentTokenResponse, DesignMdInfo, PageVersionSummary } from "@redline/shared";
 import { ServerApi } from "../src/server-api.js";
 import { createTerminalMcpServer } from "../src/terminal-mcp.js";
 import { FakeEngine, startSeam2, type Seam2 } from "./support/seam2.js";
@@ -109,6 +109,22 @@ describe("terminal mode (redline mcp)", () => {
     await call("publish_page", { message: "Add checkout" });
 
     expect(await seam.readFile(page.id, "checkout.html")).toBe("<h1>Checkout</h1>");
+  });
+
+  it("publishes a DESIGN.md edited in the working copy as a terminal DESIGN.md version", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+
+    writeFileSync(join(seam.folder, ".redline", page.id, "DESIGN.md"), "- Rounded buttons\n");
+    expect(await call("publish_page", { message: "Rounded buttons" })).toMatch(/Published/);
+
+    const designMd = (await (await seam.server.get(`/api/projects/${seam.project.id}/design-md`)).json()) as { content: string };
+    expect(designMd.content).toBe("- Rounded buttons\n");
+    const info = (await (await seam.server.get(`/api/projects/${seam.project.id}/design-md/info`)).json()) as DesignMdInfo;
+    expect(info.lastModified).toMatchObject({ origin: "terminal" });
+    expect(await call("publish_page", { message: "Again" })).toMatch(/Nothing changed/);
   });
 
   it("publish waits for the page lock while a session runs on the page", async () => {

@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import type { ServerApi } from "./server-api.js";
 import { createRedlineMcpServer } from "./session-mcp.js";
-import { readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
+import { readDesignMd, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
 
 export const CHECKOUT_PAGE_TOOL = "checkout_page";
 export const PUBLISH_PAGE_TOOL = "publish_page";
@@ -15,6 +15,8 @@ interface Checkout {
   dir: string;
   /** The files as published or downloaded last: what "changed" is measured against. */
   files: Record<string, string>;
+  /** DESIGN.md as published or downloaded last. */
+  designMd: string;
   versionId: string;
 }
 
@@ -52,7 +54,7 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
         workingCopyDir(folder, pageId);
         const checkout = await api.checkout(pageId);
         const dir = writeWorkingCopy(folder, pageId, checkout);
-        current = { pageId, dir, files: checkout.files, versionId: checkout.versionId };
+        current = { pageId, dir, files: checkout.files, designMd: checkout.project.designMd, versionId: checkout.versionId };
         return text(`Page checked out into .redline/${pageId}/. Edit its files, then call publish_page.`);
       } catch (error) {
         return text((error as Error).message, true);
@@ -67,18 +69,22 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
     },
     async ({ message }) => {
       try {
-        const { pageId, dir, files: base, versionId } = checkedOut();
+        const { pageId, dir, files: base, designMd: baseDesignMd, versionId } = checkedOut();
         const files = readWorkingCopy(dir);
-        if (sameFiles(files, base)) return text("Nothing changed; no version published.");
-        const version = await api.publish(pageId, files, message, "terminal", versionId);
+        // DESIGN.md is published with the page, as in a session run (a deleted file counts as unchanged).
+        const designMd = readDesignMd(dir) ?? baseDesignMd;
+        if (sameFiles(files, base) && designMd === baseDesignMd) return text("Nothing changed; no version published.");
+        const version = await api.publish(pageId, files, message, "terminal", versionId, {
+          ...(designMd !== baseDesignMd ? { designMd: { content: designMd, base: baseDesignMd } } : {}),
+        });
         if (!version.merged) {
-          current = { pageId, dir, files, versionId: version.id };
+          current = { pageId, dir, files, designMd, versionId: version.id };
           return text(`Published version ${version.id}.`);
         }
         // The page moved on since the checkout: the new version also holds those changes, so download it again.
         const fresh = await api.checkout(pageId);
         writeWorkingCopy(folder, pageId, fresh);
-        current = { pageId, dir, files: fresh.files, versionId: fresh.versionId };
+        current = { pageId, dir, files: fresh.files, designMd: fresh.project.designMd, versionId: fresh.versionId };
         return text(`Published version ${version.id}, merged with changes made to the page since the checkout. The working copy was refreshed.`);
       } catch (error) {
         return text((error as Error).message, true);
