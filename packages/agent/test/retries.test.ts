@@ -42,7 +42,7 @@ describe("retries and failure", () => {
 
     expect(engine.runs).toHaveLength(2);
     expect(runStatuses(seam)).toContain("retrying");
-    expect(lastRun(seam)?.status).toBe("answered");
+    await until(() => lastRun(seam!)?.status === "answered", "the answered run");
     expect(await seam.versions(pageId)).toHaveLength(2);
   });
 
