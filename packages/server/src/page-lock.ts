@@ -100,17 +100,23 @@ export class PageLock {
     const stillWaiting: Queued[] = [];
     for (const queued of this.queue) {
       const { pageId } = queued.item;
-      const agentId = queued.onGranted ? "" : (queued.agentId ?? this.store.findOnlineProjectAgentId(queued.projectId));
-      if (blockedPages.has(pageId) || this.isPageLocked(pageId) || (!queued.onGranted && !agentId)) {
+      if (queued.onGranted) {
+        if (blockedPages.has(pageId) || this.isPageLocked(pageId)) {
+          blockedPages.add(pageId);
+          stillWaiting.push(queued);
+          continue;
+        }
+        this.active.set(queued.item.id, { queued, agentId: "" });
+        queued.onGranted();
+        continue;
+      }
+      const agentId = queued.agentId ?? this.store.findOnlineProjectAgentId(queued.projectId);
+      if (blockedPages.has(pageId) || this.isPageLocked(pageId) || !agentId) {
         blockedPages.add(pageId);
         stillWaiting.push(queued);
         continue;
       }
-      this.active.set(queued.item.id, { queued, agentId: agentId! });
-      if (queued.onGranted) {
-        queued.onGranted();
-        continue;
-      }
+      this.active.set(queued.item.id, { queued, agentId });
       if (this.hub.send(agentId, { type: "work", item: queued.item })) {
         queued.onDispatched?.(agentId);
         const { item } = queued;
