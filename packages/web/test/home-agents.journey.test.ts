@@ -33,7 +33,7 @@ it("shows recent pages, running work and agents on the home, with live sidebar c
   const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Landing", type: "prototype", files })).json()) as Page;
 
   const tab = await browser.newPage();
-  await tab.goto(server.url);
+  await tab.goto(`${server.url}/#/nowhere/1`);
   await tab.getByRole("heading", { name: "Accueil" }).waitFor();
   await tab.getByTestId("home-recent").getByText("Landing").waitFor();
   await expect.poll(() => tab.getByTestId("sidebar-online").textContent()).toBe("Aucun agent connecté");

@@ -1,7 +1,7 @@
 // Design systems (ticket 26). A design system is a special project with one page whose files
 // include `tokens.css`; artboards read it live from the artboard origin.
 
-import type { Effort } from "./work.js";
+import type { ModelChoice } from "./work.js";
 
 export const DESIGN_SYSTEM_TOKENS_PATH = "tokens.css";
 
@@ -36,7 +36,7 @@ export interface DesignSystemSummary extends DesignSystem {
   usedBy: { id: string; title: string }[];
 }
 
-export interface CreateDesignSystemRequest {
+export interface CreateDesignSystemRequest extends ModelChoice {
   title: string;
   /** File path -> UTF-8 content; must include `tokens.css` defining every core token. Omitted = the neutral starter files. */
   files?: Record<string, string>;
@@ -44,8 +44,6 @@ export interface CreateDesignSystemRequest {
   fromProjectId?: string;
   /** Optional instructions: the first message of the design system's first conversation. */
   instructions?: string;
-  model?: string;
-  effort?: Effort;
 }
 
 /** Core tokens that `css` does not declare. */

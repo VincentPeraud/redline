@@ -20,6 +20,7 @@ import type {
   AgentStatus,
   Page,
   PageType,
+  ModelChoice,
   PageVersionSummary,
   Project,
   ServerEvent,
@@ -666,7 +667,7 @@ export class Store {
     conversationId: string,
     author: ConversationMessage["author"],
     body: string,
-    choice: { model?: string; effort?: Effort } = {},
+    choice: ModelChoice = {},
   ): ConversationMessage | undefined {
     const conversation = this.getConversation(conversationId);
     if (!conversation) return undefined;

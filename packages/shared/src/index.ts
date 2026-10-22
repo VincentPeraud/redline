@@ -1,4 +1,4 @@
-import type { AgentWorkMessage, Effort, ThreadContext, ThreadReply, WorkItem } from "./work.js";
+import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply, WorkItem } from "./work.js";
 
 export * from "./work.js";
 export * from "./sessions.js";
@@ -124,7 +124,7 @@ export interface Thread {
   newSession?: "summarizing" | "ready";
 }
 
-export interface CreateThreadRequest {
+export interface CreateThreadRequest extends ModelChoice {
   artboard: string;
   selector: string;
   xPct: number;
@@ -132,9 +132,6 @@ export interface CreateThreadRequest {
   body: string;
   /** "Plus tard": store the comment without sending it. */
   held?: boolean;
-  /** Model and effort of the thread's first run; absent = the agent's default. Ignored for a held comment (its batch has its own choice). */
-  model?: string;
-  effort?: Effort;
 }
 
 /** `PATCH /api/threads/:id`: edits a held comment. */
@@ -143,9 +140,7 @@ export interface UpdateThreadRequest {
 }
 
 /** `POST /api/pages/:pageId/send-held`: sends the held comments of that page as one message. Model and effort apply to it. */
-export interface SendHeldRequest {
-  model?: string;
-  effort?: Effort;
+export interface SendHeldRequest extends ModelChoice {
 }
 
 export interface SendHeldResponse {
@@ -322,7 +317,7 @@ export const AgentCloseCode = {
 export type AgentKind = "project" | "global";
 
 /** First message an agent sends after the socket opens. */
-export interface AgentHello {
+export interface AgentHello extends ModelChoice {
   type: "hello";
   token: string;
   protocolVersion: number;
@@ -331,9 +326,6 @@ export interface AgentHello {
   kind: AgentKind;
   /** The project a project agent serves (the link recorded in its folder). */
   projectId?: string;
-  /** The agent's default model and effort (`redline agent --model --effort`); absent = Claude Code's own configuration. */
-  model?: string;
-  effort?: Effort;
 }
 
 export type AgentToServerMessage = AgentHello | AgentWorkMessage;
@@ -346,7 +338,7 @@ export type ServerToAgentMessage =
 
 export type AgentStatus = "online" | "offline";
 
-export interface AgentInfo {
+export interface AgentInfo extends ModelChoice {
   id: string;
   machine: string;
   folder: string;
@@ -354,9 +346,6 @@ export interface AgentInfo {
   status: AgentStatus;
   /** ISO timestamp of the last connection or disconnection. */
   lastSeenAt: string;
-  /** Default model and effort the agent was started with. */
-  model?: string;
-  effort?: Effort;
 }
 
 export interface AgentTokenResponse {

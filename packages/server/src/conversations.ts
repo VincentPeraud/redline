@@ -164,7 +164,7 @@ export function registerConversationRoutes(
     const page = store.getPage(req.params.pageId);
     if (!page) return reply.code(404).send({ error: "page not found" });
     const title = req.body?.title;
-    if (title !== undefined && (typeof title !== "string" || title.trim() === "")) {
+    if (title !== undefined && !requiredString(title)) {
       return reply.code(400).send({ error: "title must be a non-empty string" });
     }
     const first = !store.projectHasConversation(page.projectId);

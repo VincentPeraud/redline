@@ -1,5 +1,5 @@
 import type { AgentKind } from "./index.js";
-import type { Effort, QueueReason, ThreadContext } from "./work.js";
+import type { ModelChoice, QueueReason, ThreadContext } from "./work.js";
 
 export type SessionKind = "thread" | "conversation";
 
@@ -32,7 +32,7 @@ export function sessionMatchesFilter(status: SessionStatus, filter: SessionFilte
 }
 
 /** One row of the Sessions screen: a thread or a conversation. `id` is the thread or conversation id. */
-export interface SessionRow {
+export interface SessionRow extends ModelChoice {
   id: string;
   kind: SessionKind;
   name: string;
@@ -45,8 +45,6 @@ export interface SessionRow {
   agent?: { id: string; machine: string; kind: AgentKind };
   /** Engine session id; absent until the first run was sent. */
   sessionId?: string;
-  model?: string;
-  effort?: Effort;
   context?: ThreadContext;
   /** Why the session waits, when `status` is "queued" or "waiting-agent". */
   waitingReason?: QueueReason | "retrying";

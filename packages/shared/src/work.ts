@@ -43,7 +43,7 @@ export interface WorkThread {
 }
 
 /** One unit of work pushed by the server to the agent that serves the project. */
-export interface WorkItem {
+export interface WorkItem extends ModelChoice {
   id: string;
   /** "summary": asks a thread's session for a summary (no thread is answered). */
   kind: "thread" | "summary" | "conversation";
@@ -59,8 +59,6 @@ export interface WorkItem {
   /** Engine session id to start, or to resume when `resume` is true. */
   sessionId: string;
   resume: boolean;
-  model?: string;
-  effort?: Effort;
 }
 
 /** Messages an agent sends about a work item. */
@@ -95,11 +93,8 @@ export interface ThreadReply {
   createdAt: string;
 }
 
-export interface CreateReplyRequest {
+export interface CreateReplyRequest extends ModelChoice {
   body: string;
-  /** Model for this message; absent = the agent's default. The web form sends its current choice with every message. */
-  model?: string;
-  effort?: Effort;
 }
 
 /** Server-sent events on `GET /api/events`, so the web UI refreshes without polling. */
@@ -174,24 +169,18 @@ export interface Conversation {
   createdAt: string;
 }
 
-export interface ConversationMessage {
+export interface ConversationMessage extends ModelChoice {
   id: string;
   author: "user" | "claude";
   body: string;
-  /** Model and effort chosen for a user message; absent = the agent's default. */
-  model?: string;
-  effort?: Effort;
   createdAt: string;
 }
 
 /** `GET /api/conversations/:id` and the result of creating one. */
-export interface ConversationDetail extends Conversation {
+export interface ConversationDetail extends Conversation, ModelChoice {
   messages: ConversationMessage[];
   /** Work item of the latest message, to find its live run in `GET /api/pages/:id/runs`. */
   runWorkId?: string;
-  /** Model and effort of the latest user message, for the "model · effort · context %" line. */
-  model?: string;
-  effort?: Effort;
   /** Context of the conversation's session after the last usage report; absent before any run. */
   context?: ThreadContext;
 }
@@ -202,10 +191,8 @@ export interface CreateConversationRequest {
 }
 
 /** Body of `POST /api/conversations/:id/messages`; model and effort apply from this message on. */
-export interface CreateConversationMessageRequest {
+export interface CreateConversationMessageRequest extends ModelChoice {
   body: string;
-  model?: string;
-  effort?: Effort;
 }
 
 /**

@@ -52,6 +52,8 @@ it("lists threads and conversations, filters by status and opens a session's mes
   const text = (await threadRow.textContent())!;
   for (const part of ["Fil", "Acme › Onboarding", "Résolu", "test-machine", "opus · high · 20 %"]) expect(text).toContain(part);
   expect(await rows.filter({ hasText: "Error pages" }).textContent()).toContain("Conversation");
+  expect(text).toMatch(/[0-9a-f]{4}…[0-9a-f]{3}/);
+  expect(text).toContain("à l'instant");
 
   await tab.getByRole("button", { name: /^Résolues/ }).click();
   await expect.poll(() => rows.allTextContents().then((all) => all.length)).toBe(1);
@@ -67,4 +69,17 @@ it("lists threads and conversations, filters by status and opens a session's mes
     "Claude — Button is now filled.",
   ]);
   expect(tab.url()).toContain("#/sessions");
+
+  // The activity column words the time since the last message relative to now.
+  const later = async (ms: number) => {
+    const clock = await browser.newPage();
+    await clock.clock.setFixedTime(Date.now() + ms);
+    await clock.goto(`${seam.server.url}/#/sessions`);
+    await expect.poll(() => rows.count()).toBe(2);
+    return clock.getByTestId("session-row").filter({ hasText: "Button too discreet" }).textContent();
+  };
+  expect(await later(5 * 60_000)).toContain("il y a 5 min");
+  expect(await later(3 * 3_600_000)).toContain("il y a 3 h");
+  expect(await later(30 * 3_600_000)).toContain("hier");
+  expect(await later(50 * 3_600_000)).toContain("il y a 2 jours");
 }, 60_000);

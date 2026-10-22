@@ -1,11 +1,8 @@
-import { EFFORTS, MODEL_CHOICES, type Effort } from "@redline/shared";
+import { EFFORTS, MODEL_CHOICES, type ModelChoice } from "@redline/shared";
 
 const AGENT_DEFAULT = "défaut de l'agent";
 
-export interface ModelEffortChoice {
-  model?: string;
-  effort?: Effort;
-}
+export type ModelEffortChoice = ModelChoice;
 
 /** A model list and a separate segmented effort control; each reads "défaut de l'agent" until changed. */
 export function ModelEffortControls({ value, onChange }: { value: ModelEffortChoice; onChange: (value: ModelEffortChoice) => void }) {
