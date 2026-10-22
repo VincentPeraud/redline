@@ -51,7 +51,7 @@ it("adjusts every tweak type on the canvas and in play mode, versions each chang
   ).json()) as Page;
 
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-  await tab.goto(server.url);
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
   const canvasFrame = tab.frameLocator('iframe[title$="home.html"]');
   const attr = (name: string) => () => canvasFrame.locator("html").getAttribute(`data-tweak-${name}`);
 
