@@ -60,7 +60,7 @@ export function HomeScreen() {
 
   const running = home.work.filter((w) => w.state === "running").length;
   return (
-    <PageContent>
+    <PageContent className={styles.page}>
       <PageHeader
         title="Accueil"
         subtitle={

@@ -29,9 +29,3 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
-
-.create:disabled {
-  opacity: 1;
-  background: var(--color-border);
-  color: var(--color-text-body);
-}

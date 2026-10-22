@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cx } from "./cx.js";
 import styles from "./PageHeader.module.css";
 
 export interface PageHeaderProps {
@@ -22,6 +23,6 @@ export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
 }
 
 /** The `main` of a screen: 40px / 48px padding, children stacked with a 24px gap. */
-export function PageContent({ children }: { children: ReactNode }) {
-  return <main className={styles.content}>{children}</main>;
+export function PageContent({ children, className }: { children: ReactNode; className?: string }) {
+  return <main className={cx(styles.content, className)}>{children}</main>;
 }

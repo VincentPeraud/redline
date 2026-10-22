@@ -87,7 +87,7 @@ export function NewPageDialog({
           <Button size="lg" onClick={onClose}>
             Annuler
           </Button>
-          <Button type="submit" variant="accent" size="lg" disabled={!canCreate} className={styles.create}>
+          <Button type="submit" variant="accent" size="lg" disabled={!canCreate}>
             Créer la page
           </Button>
         </DialogActions>

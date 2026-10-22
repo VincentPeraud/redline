@@ -56,6 +56,13 @@
   background: var(--color-accent-hover);
 }
 
+.accent:disabled,
+.accent[aria-disabled="true"] {
+  opacity: 1;
+  background: var(--color-border);
+  color: var(--color-text-body);
+}
+
 .secondary {
   background: var(--color-surface);
   border-color: var(--color-border-strong);
