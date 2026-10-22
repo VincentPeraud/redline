@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { CreateProjectRequest, Project } from "@redline/shared";
+import { NEUTRAL_DESIGN_SYSTEM_ID, type CreateProjectRequest, type DesignSystem, type Project } from "@redline/shared";
+import { agentLabel } from "./agentLabel.js";
 import { Dialog } from "./Dialog.js";
 import { routeHref } from "./router.js";
 
@@ -7,6 +8,13 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
   const [designSystem, setDesignSystem] = useState("");
+  const [designSystems, setDesignSystems] = useState<DesignSystem[]>([]);
+
+  useEffect(() => {
+    fetch("/api/design-systems")
+      .then((res) => res.json() as Promise<DesignSystem[]>)
+      .then(setDesignSystems);
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -47,7 +55,14 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         <label>
           Design system
           <select value={designSystem} onChange={(e) => setDesignSystem(e.target.value)} style={{ display: "block" }}>
-            <option value="">None for now (neutral style)</option>
+            <option value="">Neutral (default)</option>
+            {designSystems
+              .filter((ds) => ds.id !== NEUTRAL_DESIGN_SYSTEM_ID)
+              .map((ds) => (
+                <option key={ds.id} value={ds.id}>
+                  {ds.title}
+                </option>
+              ))}
           </select>
         </label>
         <div>
@@ -86,6 +101,7 @@ export function ProjectsScreen() {
         {projects?.map((project) => (
           <li key={project.id}>
             <a href={routeHref({ name: "project", projectId: project.id })}>{project.title}</a>
+            <small data-testid="project-agent"> {agentLabel(project)}</small>
           </li>
         ))}
       </ul>

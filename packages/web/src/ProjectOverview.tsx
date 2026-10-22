@@ -2,14 +2,17 @@ import { useEffect, useState, type FormEvent } from "react";
 import { starterPageFiles, type CreatePageRequest, type Page, type PageType, type Project } from "@redline/shared";
 import { Dialog } from "./Dialog.js";
 import { PageThumbnail } from "./PageThumbnail.js";
+import { agentLabel } from "./agentLabel.js";
 import { routeHref } from "./router.js";
 
 function NewPageDialog({
   projectId,
+  designSystem,
   onClose,
   onCreated,
 }: {
   projectId: string;
+  designSystem: string | null;
   onClose: () => void;
   onCreated: (page: Page) => void;
 }) {
@@ -19,7 +22,7 @@ function NewPageDialog({
   async function submit(event: FormEvent) {
     event.preventDefault();
     const pageTitle = title.trim();
-    const body: CreatePageRequest = { title: pageTitle, type, files: starterPageFiles(pageTitle, type) };
+    const body: CreatePageRequest = { title: pageTitle, type, files: starterPageFiles(pageTitle, type, designSystem) };
     const res = await fetch(`/api/projects/${projectId}/pages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -88,6 +91,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
         <a href={routeHref({ name: "projects" })}>Projects</a>
       </nav>
       <h1>{project.title}</h1>
+      <p data-testid="project-agent">{agentLabel(project)}</p>
       <button onClick={() => setCreating(true)}>New page</button>
       {pages.length === 0 && <p>No page yet.</p>}
       <ul style={{ listStyle: "none", padding: 0, display: "flex", flexWrap: "wrap", gap: 16 }}>
@@ -105,6 +109,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
       {creating && (
         <NewPageDialog
           projectId={projectId}
+          designSystem={project.designSystem}
           onClose={() => setCreating(false)}
           onCreated={(page) => {
             window.location.hash = routeHref({ name: "page", pageId: page.id });

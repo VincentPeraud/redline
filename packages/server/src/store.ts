@@ -2,10 +2,18 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
+import {
+  DESIGN_SYSTEM_TOKENS_PATH,
+  NEUTRAL_DESIGN_SYSTEM_ID,
+  NEUTRAL_TOKENS_CSS,
+  NEUTRAL_TOKENS_PAGE_HTML,
+  type DesignSystem,
+} from "@redline/shared";
 import type {
   CreateThreadRequest,
   AgentInfo,
   AgentKind,
+  AgentStatus,
   Page,
   PageType,
   PageVersionSummary,
@@ -74,8 +82,45 @@ export class Store {
         last_seen_at TEXT NOT NULL,
         UNIQUE (machine, folder)
       );
+      CREATE TABLE IF NOT EXISTS design_systems (
+        project_id TEXT PRIMARY KEY REFERENCES projects(id),
+        page_id TEXT NOT NULL REFERENCES pages(id)
+      );
       UPDATE agents SET status = 'offline';
     `);
+    const agentColumns = this.db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
+    if (!agentColumns.some((c) => c.name === "project_id")) this.db.exec("ALTER TABLE agents ADD COLUMN project_id TEXT");
+    if (!this.getDesignSystem(NEUTRAL_DESIGN_SYSTEM_ID)) {
+      this.createDesignSystem("Neutral", { [DESIGN_SYSTEM_TOKENS_PATH]: NEUTRAL_TOKENS_CSS, "index.html": NEUTRAL_TOKENS_PAGE_HTML }, NEUTRAL_DESIGN_SYSTEM_ID);
+    }
+  }
+
+  /** A design system is a project (same id) with one page holding its tokens and components. */
+  createDesignSystem(title: string, files: Record<string, string>, id: string = randomUUID()): DesignSystem {
+    this.createProject(title, id);
+    const page = this.createPage(id, title, "prototype", files);
+    this.db.prepare("INSERT INTO design_systems (project_id, page_id) VALUES (?, ?)").run(id, page.id);
+    return { id, title, pageId: page.id };
+  }
+
+  getDesignSystem(id: string): DesignSystem | undefined {
+    return this.db
+      .prepare(
+        "SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id WHERE p.id = ?",
+      )
+      .get(id) as DesignSystem | undefined;
+  }
+
+  listDesignSystems(): DesignSystem[] {
+    return this.db
+      .prepare(
+        "SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id ORDER BY p.created_at, p.rowid",
+      )
+      .all() as DesignSystem[];
+  }
+
+  isDesignSystemPage(pageId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM design_systems WHERE page_id = ?").get(pageId) !== undefined;
   }
 
   close(): void {
@@ -99,18 +144,28 @@ export class Store {
   }
 
   /** Records an agent as online; one entry per machine and folder. */
-  markAgentOnline(machine: string, folder: string, kind: AgentKind): string {
+  markAgentOnline(machine: string, folder: string, kind: AgentKind, projectId?: string): string {
+    if (projectId) this.db.prepare("UPDATE agents SET project_id = NULL WHERE project_id = ?").run(projectId);
     this.db
       .prepare(
-        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at) VALUES (?, ?, ?, ?, 'online', ?)
-         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at`,
+        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, project_id) VALUES (?, ?, ?, ?, 'online', ?, ?)
+         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, project_id = excluded.project_id`,
       )
-      .run(randomUUID(), machine, folder, kind, now());
+      .run(randomUUID(), machine, folder, kind, now(), projectId ?? null);
     return (this.db.prepare("SELECT id FROM agents WHERE machine = ? AND folder = ?").get(machine, folder) as { id: string }).id;
   }
 
   markAgentOffline(id: string): void {
     this.db.prepare("UPDATE agents SET status = 'offline', last_seen_at = ? WHERE id = ?").run(now(), id);
+  }
+
+  /** The online project agent serving a project, other than the given machine and folder. */
+  findOtherOnlineProjectAgent(projectId: string, machine: string, folder: string): { machine: string; folder: string } | undefined {
+    return this.db
+      .prepare(
+        "SELECT machine, folder FROM agents WHERE project_id = ? AND status = 'online' AND NOT (machine = ? AND folder = ?)",
+      )
+      .get(projectId, machine, folder) as { machine: string; folder: string } | undefined;
   }
 
   listAgents(): AgentInfo[] {
@@ -119,8 +174,7 @@ export class Store {
       .all() as AgentInfo[];
   }
 
-  createProject(title: string, instructions = "", designSystem: string | null = null): Project {
-    const id = randomUUID();
+  createProject(title: string, id: string = randomUUID(), instructions = "", designSystem: string | null = null): Project {
     this.db
       .prepare("INSERT INTO projects (id, title, instructions, design_system, created_at) VALUES (?, ?, ?, ?, ?)")
       .run(id, title, instructions, designSystem, now());
@@ -128,11 +182,34 @@ export class Store {
   }
 
   listProjects(): Project[] {
-    return this.db.prepare(`${PROJECT_SELECT} ORDER BY created_at, rowid`).all() as Project[];
+    const rows = this.db
+      .prepare(
+        `SELECT p.id, p.title, p.instructions, p.design_system AS designSystem, a.id AS agentId, a.machine, a.folder, a.status
+         FROM projects p LEFT JOIN agents a ON a.project_id = p.id
+         WHERE p.id NOT IN (SELECT project_id FROM design_systems)
+         ORDER BY p.created_at, p.rowid`,
+      )
+      .all() as {
+      id: string;
+      title: string;
+      instructions: string;
+      designSystem: string | null;
+      agentId: string | null;
+      machine: string;
+      folder: string;
+      status: AgentStatus;
+    }[];
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      instructions: r.instructions,
+      designSystem: r.designSystem,
+      ...(r.agentId ? { agent: { id: r.agentId, machine: r.machine, folder: r.folder, status: r.status } } : {}),
+    }));
   }
 
   getProject(id: string): Project | undefined {
-    return this.db.prepare(`${PROJECT_SELECT} WHERE id = ?`).get(id) as Project | undefined;
+    return this.listProjects().find((p) => p.id === id);
   }
 
   projectExists(id: string): boolean {

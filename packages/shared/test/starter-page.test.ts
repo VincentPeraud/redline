@@ -18,6 +18,11 @@ describe("starter page files", () => {
     expect(Object.keys(files).sort()).toEqual([MANIFEST_PATH, "variant-a.html", "variant-b.html"].sort());
   });
 
+  it("names the project's design system in the manifest", () => {
+    const files = starterPageFiles("Home", "prototype", "acme");
+    expect(parseManifest(files[MANIFEST_PATH]).designSystem).toBe("acme");
+  });
+
   it("escapes the title in the HTML", () => {
     expect(starterPageFiles("<b>&", "prototype")["screen-1.html"]).toContain("&lt;b&gt;&amp;");
   });

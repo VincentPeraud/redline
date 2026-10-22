@@ -3,16 +3,20 @@ import { extname } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
+  DESIGN_SYSTEM_TOKENS_PATH,
   MANIFEST_PATH,
+  NEUTRAL_DESIGN_SYSTEM_ID,
   VERSION_ORIGINS,
+  missingCoreTokens,
   parseManifest,
+  type CreateDesignSystemRequest,
   type CreatePageRequest,
   type CreateProjectRequest,
   type CreateThreadRequest,
   type CreateVersionRequest,
   type ServerConfig,
 } from "@redline/shared";
-import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge } from "./bridge.js";
+import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 
@@ -39,6 +43,28 @@ function manifestError(files: Record<string, string>): string | null {
   }
 }
 
+/** Error message when a design system's files miss `tokens.css` or a core token, else null. */
+function designSystemError(files: Record<string, string>): string | null {
+  const css = files[DESIGN_SYSTEM_TOKENS_PATH];
+  if (css === undefined) return `${DESIGN_SYSTEM_TOKENS_PATH} is required`;
+  const missing = missingCoreTokens(css);
+  return missing.length === 0 ? null : `Missing core tokens: ${missing.join(", ")}`;
+}
+
+/** Design system a page uses: the one its manifest names if it exists, else the neutral one. */
+function designSystemIdOf(store: Store, pageId: string): string {
+  const text = store.readPageFile(pageId, MANIFEST_PATH)?.toString("utf8");
+  if (text !== undefined) {
+    try {
+      const id = parseManifest(text).designSystem;
+      if (id !== undefined && store.getDesignSystem(id)) return id;
+    } catch {
+      // An invalid stored manifest must not break serving the artboard.
+    }
+  }
+  return NEUTRAL_DESIGN_SYSTEM_ID;
+}
+
 function isSafePath(path: string): boolean {
   return path !== "" && !path.startsWith("/") && !path.split("/").includes("..");
 }
@@ -59,7 +85,7 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
     if (designSystem != null && typeof designSystem !== "string") {
       return reply.code(400).send({ error: "designSystem must be a string" });
     }
-    return reply.code(201).send(store.createProject(title, instructions, designSystem ?? null));
+    return reply.code(201).send(store.createProject(title, undefined, instructions, designSystem ?? null));
   });
 
   app.get("/api/projects", async () => store.listProjects());
@@ -85,6 +111,33 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
       return reply.code(201).send(store.createPage(req.params.projectId, title, type, files));
     },
   );
+
+  app.get("/api/design-systems", async () => store.listDesignSystems());
+
+  app.post<{ Body: CreateDesignSystemRequest }>("/api/design-systems", async (req, reply) => {
+    const { title, files } = req.body ?? ({} as Partial<CreateDesignSystemRequest>);
+    if (typeof title !== "string" || title.trim() === "") return reply.code(400).send({ error: "title is required" });
+    if (!files || typeof files !== "object") return reply.code(400).send({ error: "files are required" });
+    if (Object.entries(files).some(([path, content]) => !isSafePath(path) || typeof content !== "string")) {
+      return reply.code(400).send({ error: "invalid files" });
+    }
+    const invalid = designSystemError(files);
+    if (invalid) return reply.code(400).send({ error: invalid });
+    return reply.code(201).send(store.createDesignSystem(title, files));
+  });
+
+  app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/working-copy", async (req, reply) => {
+    const page = store.getPage(req.params.pageId);
+    if (!page) return reply.code(404).send({ error: "page not found" });
+    const read = (pageId: string, hashes: Record<string, string>) =>
+      Object.fromEntries(Object.keys(hashes).map((path) => [path, store.readPageFile(pageId, path)!.toString("utf8")]));
+    const designSystem = store.getDesignSystem(designSystemIdOf(store, page.id))!;
+    const designSystemPage = store.getPage(designSystem.pageId)!;
+    return {
+      files: read(page.id, page.version.files),
+      designSystem: { id: designSystem.id, files: read(designSystem.pageId, designSystemPage.version.files) },
+    };
+  });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/pages", async (req) =>
     store.listPages(req.params.projectId),
@@ -136,6 +189,10 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
       }
       const invalidManifest = manifestError(files);
       if (invalidManifest) return reply.code(400).send({ error: invalidManifest });
+      if (store.isDesignSystemPage(req.params.pageId)) {
+        const invalidDesignSystem = designSystemError(files);
+        if (invalidDesignSystem) return reply.code(400).send({ error: invalidDesignSystem });
+      }
       if (typeof message !== "string" || message.trim() === "") {
         return reply.code(400).send({ error: "message is required" });
       }
@@ -182,6 +239,17 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(BRIDGE_SOURCE),
   );
 
+  app.get<{ Params: { designSystemId: string; "*": string } }>("/design-systems/:designSystemId/*", async (req, reply) => {
+    const designSystem = store.getDesignSystem(req.params.designSystemId);
+    const content = designSystem && store.readPageFile(designSystem.pageId, req.params["*"]);
+    if (!content) return reply.code(404).send("not found");
+    return reply
+      .header("content-security-policy", "sandbox allow-scripts")
+      .header("cache-control", "no-cache")
+      .type(MIME[extname(req.params["*"])] ?? "application/octet-stream")
+      .send(content);
+  });
+
   app.get<{ Params: { pageId: string; "*": string } }>("/pages/:pageId/*", async (req, reply) => {
     const path = req.params["*"];
     const content = store.readPageFile(req.params.pageId, path);
@@ -190,7 +258,7 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[extname(path)] ?? "application/octet-stream")
-      .send(isHtml ? injectBridge(content.toString("utf8")) : content);
+      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), designSystemIdOf(store, req.params.pageId))) : content);
   });
 
   return app;

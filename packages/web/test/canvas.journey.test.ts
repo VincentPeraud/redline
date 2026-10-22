@@ -123,3 +123,45 @@ it("still shows every html file side by side when a page has no manifest", async
   expect(two.x).toBeGreaterThan(one.x + one.width);
   expect(two.y).toBe(one.y);
 }, 60_000);
+
+it("is interactive by default, pins with C or Alt+click, and returns to interactive with P", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Modes" })).json()) as { id: string };
+  const modesPage = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Modes page",
+      type: "prototype",
+      files: {
+        "app.html": `<!doctype html><body style="margin:0"><button id="go" style="margin:40px;width:120px;height:40px" onclick="this.textContent='Clicked'">Go</button></body>`,
+      },
+    })
+  ).json()) as Page;
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${modesPage.id}`);
+  const section = tab.locator("section", { has: tab.getByRole("heading", { name: "Modes page" }) });
+  const button = section.frameLocator('iframe[title$="app.html"]').locator("#go");
+  const mode = section.getByTestId("mode-indicator");
+  const draft = section.getByText("Comment on");
+  const cancel = section.getByRole("button", { name: "Cancel" });
+  await button.waitFor();
+  await expect.poll(async () => (await mode.textContent())?.includes("Interactive")).toBe(true);
+
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await button.click();
+  await expect.poll(() => button.textContent()).toBe("Clicked");
+  expect(await draft.count()).toBe(0);
+
+  await button.click({ modifiers: ["Alt"] });
+  await draft.waitFor();
+  expect(await mode.textContent()).toContain("Interactive");
+  await cancel.click();
+
+  await tab.keyboard.press("c");
+  expect(await mode.textContent()).toContain("Comment");
+  await button.click();
+  await draft.waitFor();
+  await cancel.click();
+  expect(await mode.textContent()).toContain("Comment");
+
+  await tab.keyboard.press("p");
+  expect(await mode.textContent()).toContain("Interactive");
+}, 60_000);
