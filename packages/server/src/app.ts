@@ -16,6 +16,7 @@ import {
   type CreateDesignSystemRequest,
   type CreatePageRequest,
   type CreateProjectRequest,
+  type CreateReplyRequest,
   type CreateThreadRequest,
   type CreateVersionRequest,
   type ServerConfig,
@@ -26,7 +27,8 @@ import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
 import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
-import { dispatchThread } from "./work.js";
+import { registerRunRoutes } from "./runs.js";
+import { dispatchReply, dispatchThread } from "./work.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -74,6 +76,7 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
   await registerAgentApi(app, store);
   await registerProjectFileRoutes(app, store);
   registerEventRoutes(app, store);
+  registerRunRoutes(app, store);
 
   app.get("/api/config", async () => config);
 
@@ -164,6 +167,17 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/threads", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
     return store.listThreads(req.params.pageId);
+  });
+
+  // The user's reply in a thread: resumes the thread's session on the agent that opened it.
+  app.post<{ Params: { threadId: string }; Body: CreateReplyRequest }>("/api/threads/:threadId/messages", async (req, reply) => {
+    const thread = store.getThread(req.params.threadId);
+    if (!thread) return reply.code(404).send({ error: "thread not found" });
+    const body = req.body?.body;
+    if (typeof body !== "string" || !body.trim()) return reply.code(400).send({ error: "body is required" });
+    const message = store.addReply(thread.id, body, "user")!;
+    dispatchReply(store, agents, thread, body);
+    return reply.code(201).send(message);
   });
 
   // The only way to resolve a thread: a user action of the web UI. Agents get no such route.
