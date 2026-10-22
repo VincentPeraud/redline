@@ -21,10 +21,12 @@ export interface TableProps<Row> {
   /** Shown instead of the rows when there are none. */
   empty?: ReactNode;
   ariaLabel?: string;
+  /** `data-testid` put on every data row. */
+  rowTestId?: string;
 }
 
 /** Card-style table drawn with a CSS grid: uppercase header row, one row per item. */
-export function Table<Row>({ columns, rows, rowKey, onRowClick, selectedKey, empty, ariaLabel }: TableProps<Row>) {
+export function Table<Row>({ columns, rows, rowKey, onRowClick, selectedKey, empty, ariaLabel, rowTestId }: TableProps<Row>) {
   const template = columns.map((column) => column.width).join(" ");
   return (
     <div className={styles.table} aria-label={ariaLabel}>
@@ -38,7 +40,7 @@ export function Table<Row>({ columns, rows, rowKey, onRowClick, selectedKey, emp
         const cells = columns.map((column) => <span key={column.key}>{column.render(row)}</span>);
         if (!onRowClick) {
           return (
-            <div key={key} className={styles.row} style={{ gridTemplateColumns: template }}>
+            <div key={key} data-testid={rowTestId} className={styles.row} style={{ gridTemplateColumns: template }}>
               {cells}
             </div>
           );
@@ -48,6 +50,7 @@ export function Table<Row>({ columns, rows, rowKey, onRowClick, selectedKey, emp
           <button
             key={key}
             type="button"
+            data-testid={rowTestId}
             aria-pressed={selected}
             className={cx(styles.row, styles.clickable, selected && styles.selected)}
             style={{ gridTemplateColumns: template }}

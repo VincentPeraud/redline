@@ -5,9 +5,11 @@ import {
   type DesignSystemSummary,
   type Project,
 } from "@redline/shared";
-import { Dialog } from "./Dialog.js";
+import { Button, Dialog, DialogActions, Field, PageContent, PageHeader, Select, Textarea, TextInput } from "./ui/index.js";
 import { usedByLabel } from "./designSystemLabel.js";
+import { relativeTime } from "./relativeTime.js";
 import { routeHref } from "./router.js";
+import styles from "./DesignSystemsScreen.module.css";
 
 function NewDesignSystemDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (designSystem: DesignSystem) => void }) {
   const [title, setTitle] = useState("");
@@ -38,48 +40,89 @@ function NewDesignSystemDialog({ onClose, onCreated }: { onClose: () => void; on
 
   return (
     <Dialog title="Ajouter un design system" onClose={onClose}>
-      <p>
-        Le design system est créé avec le socle de variables commun (<code>--color-primary</code>, <code>--font-heading</code>…), que
-        Claude remplit. Tu peux lui demander de s'inspirer du code d'un projet : son agent de projet y a accès.
+      <p className={styles.intro}>
+        Le design system est créé avec le socle de variables commun (<span className={styles.mono}>--color-primary</span>,{" "}
+        <span className={styles.mono}>--font-heading</span>…), que Claude remplit. Tu peux lui demander de s'inspirer du code d'un
+        projet : son agent de projet y a accès.
       </p>
-      <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
-        <label>
-          Nom
-          <input value={title} onChange={(e) => setTitle(e.target.value)} required style={{ display: "block", width: "100%" }} />
-        </label>
-        <label>
-          Partir des pages d'un projet (facultatif)
-          <select value={fromProjectId} onChange={(e) => setFromProjectId(e.target.value)} style={{ display: "block" }}>
+      <form onSubmit={submit} className={styles.form}>
+        <Field label="Nom">
+          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex. DS Lumora Marketing" required />
+        </Field>
+        <Field
+          label="Partir des pages d'un projet"
+          optional
+          hint="Claude reprend les couleurs, la typo et les composants déjà utilisés dans ce projet."
+        >
+          <Select size="lg" value={fromProjectId} onChange={(e) => setFromProjectId(e.target.value)}>
             <option value="">Aucun, partir de zéro</option>
             {projects.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.title}
               </option>
             ))}
-          </select>
-        </label>
-        {fromProjectId && <small>Claude reprend les couleurs, la typo et les composants déjà utilisés dans ce projet.</small>}
-        <label>
-          Instructions pour Claude (facultatif)
-          <textarea
+          </Select>
+        </Field>
+        <Field
+          label="Instructions pour Claude"
+          optional
+          hint="Si tu en donnes, ce sera le premier message de la première conversation du design system."
+        >
+          <Textarea
             aria-label="Instructions"
             value={instructions}
             onChange={(e) => setInstructions(e.target.value)}
-            rows={4}
-            style={{ display: "block", width: "100%" }}
+            rows={3}
+            placeholder="L'esprit de la marque, les couleurs imposées, ce que le design system doit couvrir…"
           />
-        </label>
-        <small>Si tu en donnes, ce sera le premier message de la première conversation du design system.</small>
-        <div>
-          <button type="button" onClick={onClose}>
+        </Field>
+        <DialogActions>
+          <Button size="lg" onClick={onClose}>
             Annuler
-          </button>{" "}
-          <button type="submit" disabled={title.trim() === ""}>
+          </Button>
+          <Button size="lg" variant="accent" type="submit" className={styles.create} disabled={title.trim() === ""}>
             Créer le design system
-          </button>
-        </div>
+          </Button>
+        </DialogActions>
       </form>
     </Dialog>
+  );
+}
+
+/** Schematic page sketch, alternating between the board's two layouts. */
+function PreviewSheet({ variant }: { variant: number }) {
+  return (
+    <div className={styles.preview} aria-hidden="true">
+      {variant % 2 === 0 ? (
+        <div className={styles.sheet}>
+          <div className={styles.row}>
+            <div className={styles.logoMark} />
+            <div className={styles.bar} style={{ height: 5, width: 56 }} />
+            <div className={styles.grow} />
+            <div className={styles.line} style={{ width: 20 }} />
+            <div className={styles.line} style={{ width: 20 }} />
+          </div>
+          <div className={styles.bar} style={{ height: 9, width: "60%", marginTop: 4 }} />
+          <div className={styles.line} style={{ width: "85%" }} />
+          <div className={styles.row} style={{ marginTop: 6 }}>
+            <div className={styles.tile} />
+            <div className={styles.tile} />
+            <div className={styles.tile} />
+          </div>
+        </div>
+      ) : (
+        <div className={styles.sheet}>
+          <div className={styles.barLight} />
+          <div className={styles.row} style={{ marginTop: 4 }}>
+            <div className={styles.block} style={{ flex: "2 1 0" }} />
+            <div className={styles.block} style={{ flex: "1 1 0" }} />
+          </div>
+          <div className={styles.line} style={{ width: "80%" }} />
+          <div className={styles.line} style={{ width: "65%" }} />
+          <div className={styles.ghostButton} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -94,23 +137,40 @@ export function DesignSystemsScreen() {
   }, []);
 
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
-      <nav>
-        <a href={routeHref({ name: "projects" })}>Projets</a>
-      </nav>
-      <h1>Design systems</h1>
-      <p>
-        Un design system est un projet comme les autres : sa page principale sert d'aperçu, et tu le fais évoluer en commentant ses
-        pages.
-      </p>
-      <button onClick={() => setCreating(true)}>Ajouter un design system</button>
-      <ul style={{ listStyle: "none", padding: 0 }} data-testid="design-systems">
-        {designSystems?.map((ds) => (
-          <li key={ds.id} data-testid="design-system">
-            <a href={routeHref({ name: "page", pageId: ds.pageId })}>{ds.title}</a> <small>{usedByLabel(ds)}</small>
-          </li>
+    <PageContent>
+      <PageHeader
+        title="Design systems"
+        subtitle={
+          <span className={styles.subtitle}>
+            Un design system est un projet comme les autres : sa page principale sert d'aperçu, et tu le fais évoluer en commentant ses
+            pages.
+          </span>
+        }
+        actions={
+          <Button variant="accent" size="lg" onClick={() => setCreating(true)}>
+            Ajouter un design system
+          </Button>
+        }
+      />
+      <div className={styles.grid} data-testid="design-systems">
+        {designSystems?.map((ds, index) => (
+          <a key={ds.id} className={styles.card} data-testid="design-system" href={routeHref({ name: "page", pageId: ds.pageId })}>
+            <PreviewSheet variant={index} />
+            <div className={styles.body}>
+              <div className={styles.name}>{ds.title}</div>
+              <div className={styles.usedBy}>{usedByLabel(ds)}</div>
+              {ds.updatedAt && <div className={styles.modified}>Modifié {relativeTime(ds.updatedAt)}</div>}
+            </div>
+          </a>
         ))}
-      </ul>
+        <button type="button" className={styles.add} onClick={() => setCreating(true)}>
+          <span className={styles.plus} aria-hidden="true">
+            +
+          </span>
+          <span className={styles.addTitle}>Ajouter un design system</span>
+          <span className={styles.addHint}>De zéro, ou à partir des pages d'un projet</span>
+        </button>
+      </div>
       {creating && (
         <NewDesignSystemDialog
           onClose={() => setCreating(false)}
@@ -119,6 +179,6 @@ export function DesignSystemsScreen() {
           }}
         />
       )}
-    </main>
+    </PageContent>
   );
 }

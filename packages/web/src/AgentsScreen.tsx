@@ -1,27 +1,27 @@
 import { useEffect, useState } from "react";
-import type { AgentOverview, AgentTokenResponse, UpdateProjectRequest } from "@redline/shared";
+import type { AgentOverview, AgentTokenResponse, CoveredProject, UpdateProjectRequest } from "@redline/shared";
 import { routeHref } from "./router.js";
 import { relativeTime } from "./relativeTime.js";
+import { Button, Card, PageContent, PageHeader, SidePanel, StatusBadge, cx } from "./ui/index.js";
 import { useHome } from "./useHome.js";
+import styles from "./AgentsScreen.module.css";
 
 function maskToken(token: string): string {
   return token.length <= 8 ? "••••" : `${token.slice(0, 4)}••••••••••${token.slice(-4)}`;
 }
 
-const card = { background: "#FFFFFF", border: "1px solid #E4E2DC", borderRadius: 12, padding: 18 } as const;
-const mono = { fontFamily: "'JetBrains Mono', monospace", fontSize: 13 } as const;
-
-function statusOf(agent: AgentOverview): { label: string; color: string } {
-  if (agent.status === "offline") return { label: "Hors ligne", color: "#A1A1AA" };
-  return agent.running > 0 ? { label: "Occupé", color: "#D97706" } : { label: "Libre", color: "#16A34A" };
+function agentName(agent: AgentOverview): string {
+  if (agent.kind === "global") return "global";
+  return agent.folder.split("/").filter(Boolean).pop() ?? agent.folder;
 }
 
-function activity(agent: AgentOverview): string {
+function activity(agent: AgentOverview): { text: string; warn: boolean } {
   if (agent.status === "offline") {
-    return agent.waitingThreads > 0 ? `${agent.waitingThreads} ${agent.waitingThreads === 1 ? "fil attend" : "fils attendent"} son retour` : "";
+    const text = agent.waitingThreads > 0 ? `${agent.waitingThreads} ${agent.waitingThreads === 1 ? "fil attend" : "fils attendent"} son retour` : "";
+    return { text, warn: true };
   }
   const running = agent.running === 0 ? "Aucune session en cours" : `${agent.running} ${agent.running === 1 ? "session en cours" : "sessions en cours"}`;
-  return agent.waitingThreads > 0 ? `${running} · ${agent.waitingThreads} en file` : running;
+  return { text: agent.waitingThreads > 0 ? `${running} · ${agent.waitingThreads} en file` : running, warn: false };
 }
 
 const TAKEOVER_OPTIONS = [
@@ -29,108 +29,108 @@ const TAKEOVER_OPTIONS = [
   { allow: true, title: "L'agent global prend le relais", description: "Le fil repart dans une nouvelle session, sans le contexte du projet." },
 ];
 
-function TakeoverChoice({ projectId, projectTitle, allow, onChange }: { projectId: string; projectTitle: string; allow: boolean; onChange: () => void }) {
+function TakeoverChoice({ project, showProject, onChange }: { project: CoveredProject; showProject: boolean; onChange: () => void }) {
   async function choose(next: boolean) {
     const body: UpdateProjectRequest = { allowGlobalTakeover: next };
-    await fetch(`/api/projects/${projectId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    await fetch(`/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     onChange();
   }
   return (
-    <fieldset style={{ border: "none", padding: 0, margin: "12px 0 0", display: "grid", gap: 8 }}>
-      <legend style={{ fontSize: 13, fontWeight: 600, padding: 0, marginBottom: 8 }}>Quand l'agent de {projectTitle} est hors ligne</legend>
-      {TAKEOVER_OPTIONS.map((option) => (
-        <label
-          key={option.title}
-          style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: 10, borderRadius: 8, border: allow === option.allow ? "2px solid #D92D20" : "1px solid #D4D2CC", cursor: "pointer" }}
-        >
-          <input type="radio" name={`takeover-${projectId}`} checked={allow === option.allow} onChange={() => void choose(option.allow)} />
-          <span>
-            <span style={{ display: "block", fontSize: 14, fontWeight: 500 }}>{option.title}</span>
-            <span style={{ display: "block", fontSize: 12, color: "#5F5F68" }}>{option.description}</span>
-          </span>
-        </label>
-      ))}
-    </fieldset>
-  );
-}
-
-function AgentCard({ agent, onChange }: { agent: AgentOverview; onChange: () => void }) {
-  const status = statusOf(agent);
-  const global = agent.kind === "global";
-  return (
-    <article data-testid="agent-card" style={{ ...card, display: "grid", gap: 6 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span role="img" aria-label={agent.status === "online" ? "En ligne" : "Hors ligne"} style={{ width: 8, height: 8, borderRadius: "50%", background: status.color }} />
-        <strong style={{ fontSize: 15 }}>{agent.machine}</strong>
-        <span style={{ fontSize: 12, color: "#5F5F68" }}>{global ? "Agent global" : "Agent de projet"}</span>
-        <span style={{ flexGrow: 1 }} />
-        <span data-testid="agent-status" style={{ fontSize: 13, fontWeight: 500 }}>{status.label}</span>
-      </div>
-      <div style={mono}>
-        {agent.folder}
-        {agent.status === "offline" && <span style={{ color: "#5F5F68" }}> · vu {relativeTime(agent.lastSeenAt)}</span>}
-      </div>
-      <div data-testid="agent-defaults" style={{ fontSize: 12 }}>
-        {agent.model ?? "modèle par défaut"} · {agent.effort ?? "effort par défaut"}
-      </div>
-      <div style={{ fontSize: 13 }}>
-        <span style={{ color: "#5F5F68" }}>{global ? "Projets sans agent : " : "Projet : "}</span>
-        {agent.projects.length === 0 ? (
-          <span data-testid="agent-projects">{global ? "aucun" : "aucun projet lié"}</span>
-        ) : (
-          <span data-testid="agent-projects">
-            {agent.projects.map((project, index) => (
-              <span key={project.id}>
-                {index > 0 && ", "}
-                <a href={routeHref({ name: "project", projectId: project.id })}>{project.title}</a>
+    <>
+      {showProject && <div className={styles.projectLabel}>{project.title}</div>}
+      <div role="radiogroup" aria-label={`Quand l'agent de ${project.title} est hors ligne`} className={styles.options}>
+        {TAKEOVER_OPTIONS.map((option) => {
+          const on = project.allowGlobalTakeover === option.allow;
+          return (
+            <label key={option.title} className={cx(styles.option, on && styles.optionOn)}>
+              <input type="radio" className={styles.radio} name={`takeover-${project.id}`} checked={on} onChange={() => void choose(option.allow)} />
+              <span className={styles.optionText}>
+                <span className={styles.optionTitle}>{option.title}</span>
+                <span className={styles.optionDesc}>{option.description}</span>
               </span>
-            ))}
-          </span>
-        )}
+            </label>
+          );
+        })}
       </div>
-      <div style={{ fontSize: 12, color: "#5F5F68" }}>{activity(agent)}</div>
-      {!global &&
-        agent.projects.map((project) => (
-          <TakeoverChoice key={project.id} projectId={project.id} projectTitle={project.title} allow={project.allowGlobalTakeover} onChange={onChange} />
-        ))}
-    </article>
+    </>
   );
 }
 
-function Command({ children }: { children: string }) {
-  return <pre style={{ ...mono, margin: 0, background: "#F3F2EE", borderRadius: 8, padding: "8px 10px", overflowX: "auto" }}>{children}</pre>;
+function AgentCard({ agent }: { agent: AgentOverview }) {
+  const [open, setOpen] = useState(false);
+  const global = agent.kind === "global";
+  const offline = agent.status === "offline";
+  const busy = agent.running > 0;
+  const { text: activityText, warn } = activity(agent);
+  return (
+    <Card as="article" padding="lg" data-testid="agent-card">
+      <div className={styles.row}>
+        <div className={styles.cell}>
+          <div className={styles.nameLine}>
+            <span role="img" aria-label={offline ? "Hors ligne" : "En ligne"} className={cx(styles.dot, !offline && styles.dotOnline)} />
+            <span className={styles.name}>{agentName(agent)}</span>
+          </div>
+          <span className={styles.secondary}>{global ? "Agent global" : "Agent de projet"}</span>
+        </div>
+        <div className={styles.cell}>
+          <span className={styles.folder}>{agent.folder}</span>
+          <span className={styles.secondary}>
+            {agent.machine}
+            {offline && ` · vu ${relativeTime(agent.lastSeenAt)}`}
+          </span>
+          <span className={styles.secondary} data-testid="agent-defaults">
+            {agent.model ?? "modèle par défaut"} · {agent.effort ?? "effort par défaut"}
+          </span>
+        </div>
+        <div className={styles.cell}>
+          <span className={styles.projects}>
+            <span data-testid="agent-projects">
+              {agent.projects.length === 0
+                ? global
+                  ? "aucun"
+                  : "aucun projet lié"
+                : agent.projects.map((project, index) => (
+                    <span key={project.id}>
+                      {index > 0 && ", "}
+                      <a className={styles.projectLink} href={routeHref({ name: "project", projectId: project.id })}>{project.title}</a>
+                    </span>
+                  ))}
+            </span>
+            {global && ", projets sans agent"}
+          </span>
+          {activityText && <span className={cx(styles.secondary, warn && styles.warn)}>{activityText}</span>}
+        </div>
+        <div>
+          <StatusBadge tone={offline ? "neutral" : busy ? "running" : "success"} data-testid="agent-status">
+            {offline ? "Hors ligne" : busy ? "Occupé" : "Libre"}
+          </StatusBadge>
+        </div>
+        <Button aria-expanded={open} onClick={() => setOpen(!open)}>
+          Projets couverts
+        </Button>
+      </div>
+      {open && (
+        <ul className={styles.covered} aria-label="Projets couverts">
+          {agent.projects.length === 0 && <li>{global ? "Aucun projet sans agent" : "Aucun projet lié"}</li>}
+          {agent.projects.map((project) => (
+            <li key={project.id} className={styles.coveredItem}>
+              <a href={routeHref({ name: "project", projectId: project.id })}>{project.title}</a>
+              {!global && <span className={styles.secondary}>{project.allowGlobalTakeover ? "L'agent global prend le relais" : "Le fil attend son retour"}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
 }
 
-function LaunchCommands() {
-  const login = `npm i -g redline-cli\nredline login ${window.location.origin}`;
+function Step({ title, text, command }: { title: string; text: string; command: string }) {
   return (
-    <section aria-label="Lancer un agent" style={{ ...card, display: "grid", gap: 14 }}>
-      <h2 style={{ margin: 0, fontSize: 16 }}>Lancer un agent</h2>
-      <div style={{ display: "grid", gap: 6 }}>
-        <strong style={{ fontSize: 14 }}>Une fois par machine</strong>
-        <span style={{ fontSize: 13, color: "#5F5F68" }}>
-          Installe la commande (Claude Code doit être installé et connecté), puis indique l'adresse du serveur et colle le jeton : ils sont enregistrés pour tous les agents de la machine.
-        </span>
-        <Command>{login}</Command>
-      </div>
-      <div style={{ display: "grid", gap: 6 }}>
-        <strong style={{ fontSize: 14 }}>Agent de projet</strong>
-        <span style={{ fontSize: 13, color: "#5F5F68" }}>
-          Dans le dossier du projet. --model et --effort donnent les valeurs par défaut de ses fils (sinon, ta configuration Claude Code). S'il n'est lié à aucun projet, la commande te propose d'en choisir un ou d'en créer un. Les sessions auront son CLAUDE.md, son code et ses MCP.
-        </span>
-        <Command>{"cd ~/projets/mon-projet\nredline agent"}</Command>
-      </div>
-      <div style={{ display: "grid", gap: 6 }}>
-        <strong style={{ fontSize: 14 }}>Agent global</strong>
-        <span style={{ fontSize: 13, color: "#5F5F68" }}>N'importe où. Il prend les projets qui n'ont pas d'agent.</span>
-        <Command>redline agent --global</Command>
-      </div>
-      <div style={{ display: "grid", gap: 6 }}>
-        <strong style={{ fontSize: 14 }}>Depuis ta session Claude Code</strong>
-        <span style={{ fontSize: 13, color: "#5F5F68" }}>Une fois : Claude pilote alors Redline depuis n'importe quel dossier.</span>
-        <Command>claude mcp add redline -- redline mcp</Command>
-      </div>
-    </section>
+    <div className={styles.step}>
+      <div className={styles.stepTitle}>{title}</div>
+      <div className={styles.stepText}>{text}</div>
+      <pre className={styles.code}>{command}</pre>
+    </div>
   );
 }
 
@@ -157,42 +157,78 @@ function TokenSection() {
   }
 
   return (
-    <section aria-label="Jeton des agents" style={{ ...card, display: "grid", gap: 8 }}>
-      <h2 style={{ margin: 0, fontSize: 16 }}>Jeton des agents</h2>
-      <span style={{ fontSize: 13, color: "#5F5F68" }}>Demandé par redline login. Le régénérer déconnecte tous les agents.</span>
-      <div>
-        <code data-testid="token">{token ? maskToken(token) : ""}</code>{" "}
-        <button type="button" onClick={copy} disabled={!token}>
+    <section aria-label="Jeton des agents" className={styles.token}>
+      <div className={styles.stepTitle}>Jeton des agents</div>
+      <div className={styles.tokenHint}>Demandé par redline login. Le régénérer déconnecte tous les agents.</div>
+      <div className={styles.tokenValue}>
+        <code data-testid="token">{token ? maskToken(token) : ""}</code>
+      </div>
+      <div className={styles.tokenActions}>
+        <Button onClick={copy} disabled={!token}>
           {copied ? "Copié" : "Copier"}
-        </button>{" "}
-        <button type="button" onClick={regenerate}>
+        </Button>
+        <Button variant="danger" onClick={regenerate}>
           Régénérer
-        </button>
+        </Button>
       </div>
     </section>
+  );
+}
+
+function LaunchPanel() {
+  return (
+    <SidePanel label="Lancer un agent" width={360}>
+      <div className={styles.panelWrap}>
+        <div className={styles.setup}>
+          <h2 className={styles.setupTitle}>Lancer un agent</h2>
+          <Step
+            title="Une fois par machine"
+            text="Installe la commande (Claude Code doit être installé et connecté), puis indique l'adresse du serveur et colle le jeton : ils sont enregistrés pour tous les agents de la machine."
+            command={`npm i -g redline-cli\nredline login ${window.location.origin}`}
+          />
+          <Step
+            title="Agent de projet"
+            text="Dans le dossier du projet. --model et --effort donnent les valeurs par défaut de ses fils (sinon, ta configuration Claude Code). S'il n'est lié à aucun projet, la commande te propose d'en choisir un ou d'en créer un. Les sessions auront son CLAUDE.md, son code et ses MCP."
+            command={"cd ~/projets/mon-projet\nredline agent"}
+          />
+          <Step title="Agent global" text="N'importe où. Il prend les projets qui n'ont pas d'agent." command="redline agent --global" />
+          <Step title="Depuis ta session Claude Code" text="Une fois : Claude pilote alors Redline depuis n'importe quel dossier." command="claude mcp add redline -- redline mcp" />
+          <div className={styles.spacer} />
+          <TokenSection />
+        </div>
+      </div>
+    </SidePanel>
   );
 }
 
 export function AgentsScreen() {
   const { home, refresh } = useHome();
   const agents = home?.agents ?? [];
+  const covered = agents.filter((agent) => agent.kind !== "global").flatMap((agent) => agent.projects);
 
   return (
-    <main style={{ padding: "36px 44px", display: "grid", gap: 20, maxWidth: 900 }}>
-      <div>
-        <h1 style={{ margin: 0, fontSize: 28 }}>Agents</h1>
-        <p style={{ margin: "6px 0 0", fontSize: 14, color: "#5F5F68" }}>
-          Un agent tourne sur ta machine, dans un dossier, avec le compte Claude connecté dans le terminal. C'est lui qui lance les sessions.
-        </p>
-      </div>
-      <section aria-label="Agents" style={{ display: "grid", gap: 14 }}>
-        {home && agents.length === 0 && <p>Aucun agent ne s'est encore connecté.</p>}
-        {agents.map((agent) => (
-          <AgentCard key={agent.id} agent={agent} onChange={refresh} />
-        ))}
-      </section>
-      <LaunchCommands />
-      <TokenSection />
-    </main>
+    <>
+      <PageContent>
+        <PageHeader
+          title="Agents"
+          subtitle="Un agent tourne sur ta machine, dans un dossier, avec le compte Claude connecté dans le terminal. C'est lui qui lance les sessions."
+        />
+        <section aria-label="Agents" className={styles.list}>
+          {home && agents.length === 0 && <p className={styles.empty}>Aucun agent ne s'est encore connecté.</p>}
+          {agents.map((agent) => (
+            <AgentCard key={agent.id} agent={agent} />
+          ))}
+        </section>
+        {covered.length > 0 && (
+          <Card as="section" padding="md" aria-label="Relais hors ligne">
+            <h2 className={styles.fallbackTitle}>Quand l'agent d'un projet est hors ligne</h2>
+            {covered.map((project) => (
+              <TakeoverChoice key={project.id} project={project} showProject={covered.length > 1} onChange={refresh} />
+            ))}
+          </Card>
+        )}
+      </PageContent>
+      <LaunchPanel />
+    </>
   );
 }
