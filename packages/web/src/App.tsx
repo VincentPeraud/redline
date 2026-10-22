@@ -4,6 +4,7 @@ import { PageCanvas } from "./PageCanvas.js";
 interface Project {
   id: string;
   title: string;
+  agent?: { machine: string; folder: string; status: string };
 }
 interface Page {
   id: string;
@@ -76,6 +77,9 @@ export function App() {
       {projects.map((project) => (
         <section key={project.id}>
           <h2>{project.title}</h2>
+          <p data-testid="project-agent">
+            {project.agent ? `Served by ${project.agent.machine} (${project.agent.folder}), ${project.agent.status}` : "No agent serves this project"}
+          </p>
         </section>
       ))}
       {pages.map((page) => (

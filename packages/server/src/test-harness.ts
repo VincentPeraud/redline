@@ -70,6 +70,7 @@ export async function startTestServer(options: { webDir?: string } = {}): Promis
         machine: options.machine ?? "test-machine",
         folder: options.folder ?? "/test/folder",
         kind: options.kind ?? "project",
+        projectId: options.projectId,
       };
       socket.send(JSON.stringify(message));
       return { hello, messages, send: (m) => socket.send(JSON.stringify(m)), closed, close: () => socket.close() };

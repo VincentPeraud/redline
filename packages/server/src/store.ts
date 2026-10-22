@@ -6,6 +6,7 @@ import type {
   CreateThreadRequest,
   AgentInfo,
   AgentKind,
+  AgentStatus,
   Page,
   PageType,
   PageVersionSummary,
@@ -74,6 +75,8 @@ export class Store {
       );
       UPDATE agents SET status = 'offline';
     `);
+    const agentColumns = this.db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
+    if (!agentColumns.some((c) => c.name === "project_id")) this.db.exec("ALTER TABLE agents ADD COLUMN project_id TEXT");
   }
 
   close(): void {
@@ -97,18 +100,28 @@ export class Store {
   }
 
   /** Records an agent as online; one entry per machine and folder. */
-  markAgentOnline(machine: string, folder: string, kind: AgentKind): string {
+  markAgentOnline(machine: string, folder: string, kind: AgentKind, projectId?: string): string {
+    if (projectId) this.db.prepare("UPDATE agents SET project_id = NULL WHERE project_id = ?").run(projectId);
     this.db
       .prepare(
-        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at) VALUES (?, ?, ?, ?, 'online', ?)
-         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at`,
+        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, project_id) VALUES (?, ?, ?, ?, 'online', ?, ?)
+         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, project_id = excluded.project_id`,
       )
-      .run(randomUUID(), machine, folder, kind, now());
+      .run(randomUUID(), machine, folder, kind, now(), projectId ?? null);
     return (this.db.prepare("SELECT id FROM agents WHERE machine = ? AND folder = ?").get(machine, folder) as { id: string }).id;
   }
 
   markAgentOffline(id: string): void {
     this.db.prepare("UPDATE agents SET status = 'offline', last_seen_at = ? WHERE id = ?").run(now(), id);
+  }
+
+  /** The online project agent serving a project, other than the given machine and folder. */
+  findOtherOnlineProjectAgent(projectId: string, machine: string, folder: string): { machine: string; folder: string } | undefined {
+    return this.db
+      .prepare(
+        "SELECT machine, folder FROM agents WHERE project_id = ? AND status = 'online' AND NOT (machine = ? AND folder = ?)",
+      )
+      .get(projectId, machine, folder) as { machine: string; folder: string } | undefined;
   }
 
   listAgents(): AgentInfo[] {
@@ -126,7 +139,18 @@ export class Store {
   }
 
   listProjects(): Project[] {
-    return this.db.prepare("SELECT id, title FROM projects ORDER BY created_at, rowid").all() as Project[];
+    const rows = this.db
+      .prepare(
+        `SELECT p.id, p.title, a.id AS agentId, a.machine, a.folder, a.status
+         FROM projects p LEFT JOIN agents a ON a.project_id = p.id
+         ORDER BY p.created_at, p.rowid`,
+      )
+      .all() as { id: string; title: string; agentId: string | null; machine: string; folder: string; status: AgentStatus }[];
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      ...(r.agentId ? { agent: { id: r.agentId, machine: r.machine, folder: r.folder, status: r.status } } : {}),
+    }));
   }
 
   projectExists(id: string): boolean {

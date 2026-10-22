@@ -5,6 +5,8 @@ export type PageType = "prototype" | "comparison";
 export interface Project {
   id: string;
   title: string;
+  /** The project agent serving it, once an agent has linked the project. */
+  agent?: { id: string; machine: string; folder: string; status: AgentStatus };
 }
 
 export type VersionOrigin = "thread" | "conversation" | "terminal" | "tweak" | "restore";
@@ -92,6 +94,10 @@ export const AgentCloseCode = {
   IncompatibleProtocol: 4426,
   /** Malformed first message. */
   BadHello: 4400,
+  /** The hello names a project that does not exist. */
+  UnknownProject: 4404,
+  /** Another project agent already serves the project. */
+  ProjectTaken: 4409,
 } as const;
 
 export type AgentKind = "project" | "global";
@@ -104,6 +110,8 @@ export interface AgentHello {
   machine: string;
   folder: string;
   kind: AgentKind;
+  /** The project a project agent serves (the link recorded in its folder). */
+  projectId?: string;
 }
 
 export type AgentToServerMessage = AgentHello;
@@ -111,7 +119,7 @@ export type AgentToServerMessage = AgentHello;
 /** Messages the server sends on the agent endpoint. */
 export type ServerToAgentMessage =
   | { type: "welcome"; agentId: string }
-  | { type: "error"; code: "unauthorized" | "incompatible_protocol" | "bad_hello"; message: string };
+  | { type: "error"; code: "unauthorized" | "incompatible_protocol" | "bad_hello" | "unknown_project" | "project_taken"; message: string };
 
 export type AgentStatus = "online" | "offline";
 
