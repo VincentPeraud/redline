@@ -1,6 +1,8 @@
 // Design systems (ticket 26). A design system is a special project with one page whose files
 // include `tokens.css`; artboards read it live from the artboard origin.
 
+import type { Effort } from "./work.js";
+
 export const DESIGN_SYSTEM_TOKENS_PATH = "tokens.css";
 
 /** Id of the design system seeded on first start and used when a page names none. */
@@ -29,10 +31,21 @@ export interface DesignSystem {
   pageId: string;
 }
 
+/** A design system as listed: with the projects whose `designSystem` it is. */
+export interface DesignSystemSummary extends DesignSystem {
+  usedBy: { id: string; title: string }[];
+}
+
 export interface CreateDesignSystemRequest {
   title: string;
-  /** File path -> UTF-8 content; must include `tokens.css` defining every core token. */
-  files: Record<string, string>;
+  /** File path -> UTF-8 content; must include `tokens.css` defining every core token. Omitted = the neutral starter files. */
+  files?: Record<string, string>;
+  /** Project whose pages Claude derives the design system from (dispatched like a conversation message). */
+  fromProjectId?: string;
+  /** Optional instructions: the first message of the design system's first conversation. */
+  instructions?: string;
+  model?: string;
+  effort?: Effort;
 }
 
 /** Core tokens that `css` does not declare. */
@@ -87,3 +100,8 @@ ${SWATCHES.map((token) => `  <div class="swatch"><div style="background: var(${t
 </body>
 </html>
 `;
+
+/** Files of a design system created from scratch: the core tokens at their neutral values plus a preview page. */
+export function starterDesignSystemFiles(): Record<string, string> {
+  return { [DESIGN_SYSTEM_TOKENS_PATH]: NEUTRAL_TOKENS_CSS, "index.html": NEUTRAL_TOKENS_PAGE_HTML };
+}

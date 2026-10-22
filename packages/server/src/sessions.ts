@@ -41,7 +41,13 @@ export function registerSessionRoutes(
         ...thread.replies.map((r): SessionMessage => ({ author: r.author, body: r.body, createdAt: r.createdAt })),
       ];
       const idleStatus: SessionStatus =
-        thread.status === "resolved" ? "resolved" : thread.replies.some((r) => r.author === "claude") ? "answered" : "waiting-agent";
+        thread.status === "resolved"
+          ? "resolved"
+          : thread.status === "held"
+            ? "held"
+            : thread.replies.some((r) => r.author === "claude")
+              ? "answered"
+              : "waiting-agent";
       return {
         name: thread.title,
         sessionId: session?.sessionId,

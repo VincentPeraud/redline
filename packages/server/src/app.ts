@@ -11,6 +11,7 @@ import {
   VERSION_ORIGINS,
   missingCoreTokens,
   parseManifest,
+  starterDesignSystemFiles,
   parseTweaks,
   tweakValueError,
   type SetTweakRequest,
@@ -20,7 +21,12 @@ import {
   type CreateReplyRequest,
   type CreateThreadRequest,
   type CreateVersionRequest,
+  type SendHeldRequest,
+  type SendHeldResponse,
+  type UpdateThreadRequest,
   type ServerConfig,
+  type UpdateProjectRequest,
+  type Thread,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import type { Store } from "./store.js";
@@ -28,12 +34,14 @@ import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
 import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
+import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
 import { registerContextTracking } from "./context.js";
+import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerSessionRoutes } from "./sessions.js";
-import { dispatchReply, dispatchThread } from "./work.js";
+import { dispatchBatch, dispatchReply, dispatchThread } from "./work.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -91,7 +99,7 @@ export async function buildMainApp(
   const runs = registerRunRoutes(app, store);
   const knownWindows = new Map<string, number>();
   registerContextTracking(app, store, pageLock, knownWindows);
-  const lastConversationWork = registerConversationRoutes(app, store, pageLock, knownWindows);
+  const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
   registerSessionRoutes(app, store, pageLock, runs, lastConversationWork);
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {
@@ -118,10 +126,22 @@ export async function buildMainApp(
     return reply.code(201).send(store.createProject(title, undefined, instructions, designSystem ?? null));
   });
 
-  app.get("/api/projects", async () => store.listProjects());
+  app.get("/api/projects", async () => store.listProjects().map((project) => withServedBy(store, project)));
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId", async (req, reply) => {
-    return store.getProject(req.params.projectId) ?? reply.code(404).send({ error: "project not found" });
+    const project = store.getProject(req.params.projectId);
+    return project ? withServedBy(store, project) : reply.code(404).send({ error: "project not found" });
+  });
+
+  app.patch<{ Params: { projectId: string }; Body: UpdateProjectRequest }>("/api/projects/:projectId", async (req, reply) => {
+    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    const { allowGlobalTakeover } = req.body ?? ({} as Partial<UpdateProjectRequest>);
+    if (allowGlobalTakeover !== undefined) {
+      if (typeof allowGlobalTakeover !== "boolean") return reply.code(400).send({ error: "allowGlobalTakeover must be a boolean" });
+      store.setAllowGlobalTakeover(req.params.projectId, allowGlobalTakeover);
+      pageLock.reconsider();
+    }
+    return withServedBy(store, store.getProject(req.params.projectId)!);
   });
 
   app.post<{ Params: { projectId: string }; Body: CreatePageRequest }>(
@@ -142,18 +162,37 @@ export async function buildMainApp(
     },
   );
 
-  app.get("/api/design-systems", async () => store.listDesignSystems());
+  app.get("/api/design-systems", async () =>
+    store.listDesignSystems().map((designSystem) => ({ ...designSystem, usedBy: store.projectsUsingDesignSystem(designSystem.id) })),
+  );
 
   app.post<{ Body: CreateDesignSystemRequest }>("/api/design-systems", async (req, reply) => {
-    const { title, files } = req.body ?? ({} as Partial<CreateDesignSystemRequest>);
+    const { title, files = starterDesignSystemFiles(), fromProjectId, instructions, model, effort } =
+      req.body ?? ({} as Partial<CreateDesignSystemRequest>);
     if (typeof title !== "string" || title.trim() === "") return reply.code(400).send({ error: "title is required" });
-    if (!files || typeof files !== "object") return reply.code(400).send({ error: "files are required" });
+    if (typeof files !== "object" || files === null) return reply.code(400).send({ error: "files must be an object" });
     if (Object.entries(files).some(([path, content]) => !isSafePath(path) || typeof content !== "string")) {
       return reply.code(400).send({ error: "invalid files" });
     }
+    if (instructions !== undefined && typeof instructions !== "string") return reply.code(400).send({ error: "instructions must be a string" });
+    if (model !== undefined && typeof model !== "string") return reply.code(400).send({ error: "model must be a string" });
+    if (effort !== undefined && !(EFFORTS as readonly string[]).includes(effort)) return reply.code(400).send({ error: "invalid effort" });
+    const source = fromProjectId === undefined ? undefined : store.getProject(fromProjectId);
+    if (fromProjectId !== undefined && !source) return reply.code(404).send({ error: "project not found" });
     const invalid = designSystemError(files);
     if (invalid) return reply.code(400).send({ error: invalid });
-    return reply.code(201).send(store.createDesignSystem(title, files));
+    const designSystem = store.createDesignSystem(title, files);
+    const brief = instructions?.trim() ?? "";
+    if (source || brief !== "") {
+      const conversation = store.createConversation(designSystem.pageId, "Création du design system");
+      const body = brief !== "" ? brief : `Derive this design system from the pages of the project "${source!.title}".`;
+      // The source project's agent serves the run: it has the project's code.
+      sendMessage(conversation, body, { model, effort }, {
+        projectId: source?.id,
+        extraContext: source && sourcePagesMessage(store, source),
+      });
+    }
+    return reply.code(201).send(designSystem);
   });
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/working-copy", async (req, reply) => {
@@ -184,7 +223,9 @@ export async function buildMainApp(
       if (typeof pin.selector !== "string" || pin.selector === "") return reply.code(400).send({ error: "selector is required" });
       if (typeof pin.artboard !== "string" || !isSafePath(pin.artboard)) return reply.code(400).send({ error: "invalid artboard" });
       if (!isPct(pin.xPct) || !isPct(pin.yPct)) return reply.code(400).send({ error: "position must be a percentage" });
+      if (pin.held !== undefined && typeof pin.held !== "boolean") return reply.code(400).send({ error: "held must be a boolean" });
       const thread = store.createThread(req.params.pageId, pin as CreateThreadRequest);
+      if (thread.status === "held") return reply.code(201).send(thread);
       dispatchThread(store, pageLock, store.getPage(req.params.pageId)!.projectId, thread);
       return reply.code(201).send(thread);
     },
@@ -207,6 +248,41 @@ export async function buildMainApp(
     const message = store.addReply(thread.id, body, "user")!;
     dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, { model, effort });
     return reply.code(201).send(message);
+  });
+
+  app.patch<{ Params: { threadId: string }; Body: UpdateThreadRequest }>("/api/threads/:threadId", async (req, reply) => {
+    const body = req.body?.body;
+    if (typeof body !== "string" || !body.trim()) return reply.code(400).send({ error: "body is required" });
+    const thread = store.updateHeldThread(req.params.threadId, body);
+    return thread ?? reply.code(409).send({ error: "only a held comment can be edited" });
+  });
+
+  app.delete<{ Params: { threadId: string } }>("/api/threads/:threadId", async (req, reply) => {
+    if (!store.deleteHeldThread(req.params.threadId)) return reply.code(409).send({ error: "only a held comment can be deleted" });
+    return reply.code(204).send();
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/held", async (req, reply) => {
+    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    return store.listHeldThreads(req.params.projectId);
+  });
+
+  // "Tout envoyer": the held comments of each page leave as one message to one session per page.
+  app.post<{ Params: { projectId: string }; Body: SendHeldRequest }>("/api/projects/:projectId/send-held", async (req, reply) => {
+    const { projectId } = req.params;
+    if (!store.projectExists(projectId)) return reply.code(404).send({ error: "project not found" });
+    const { model, effort } = req.body ?? {};
+    if (model !== undefined && (typeof model !== "string" || model.trim() === "")) return reply.code(400).send({ error: "invalid model" });
+    if (effort !== undefined && !(EFFORTS as readonly unknown[]).includes(effort)) return reply.code(400).send({ error: "invalid effort" });
+    const held = store.listHeldThreads(projectId);
+    const byPage = new Map<string, Thread[]>();
+    for (const thread of held) byPage.set(thread.pageId, [...(byPage.get(thread.pageId) ?? []), thread]);
+    for (const threads of byPage.values()) {
+      for (const thread of threads) store.releaseHeldThread(thread.id);
+      dispatchBatch(store, pageLock, projectId, threads, { model, effort });
+    }
+    const response: SendHeldResponse = { items: byPage.size, threads: held.length };
+    return response;
   });
 
   // The only way to resolve a thread: a user action of the web UI. Agents get no such route.

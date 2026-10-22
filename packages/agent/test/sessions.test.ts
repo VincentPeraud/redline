@@ -91,6 +91,17 @@ describe("sessions list", () => {
     });
   });
 
+  it("shows a held comment as waiting to be sent, then as a normal session once sent", async () => {
+    seam = await startSeam2(new FakeEngine([{ type: "result", summary: "ok" }]));
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "later please", { held: true });
+    expect(byName(await sessions(seam), "later please").status).toBe("held");
+
+    await seam.server.post(`/api/projects/${seam.project.id}/send-held`, {});
+    await seam.waitForWorkEnd(1);
+    expect(byName(await sessions(seam), "later please").status).toBe("answered");
+  });
+
   it("returns the messages of one session", async () => {
     const engine = new FakeEngine(async (run) => {
       const threadId = /thread id: ([0-9a-f-]{36})/.exec(run.message)![1];
