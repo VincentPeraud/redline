@@ -71,9 +71,9 @@ describe("Claude Code argument building", () => {
     expect(valueAfter(args, "--permission-mode")).toBe("dontAsk");
     const allowed = valueAfter(args, "--allowedTools")!.split(",");
     expect(allowed).toEqual([
-      "Read",
-      "Glob",
-      "Grep",
+      "Read(/**)",
+      "Glob(/**)",
+      "Grep(/**)",
       "Edit(/.redline/page-1/**)",
       "Write(/.redline/page-1/**)",
       "mcp__redline",
@@ -81,6 +81,7 @@ describe("Claude Code argument building", () => {
     const denied = valueAfter(args, "--disallowedTools")!.split(",");
     expect(denied).toContain("Bash");
     expect(denied).toContain("NotebookEdit");
+    expect(denied).toEqual(expect.arrayContaining(["Read(**/.env*)", "Read(**/.redline/project.json)", "Read(~/.config/redline/**)", "Read(~/.ssh/**)"]));
     expect(JSON.parse(valueAfter(args, "--mcp-config")!)).toEqual({
       mcpServers: { redline: { type: "http", url: request.mcpUrl } },
     });

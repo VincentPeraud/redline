@@ -9,8 +9,8 @@ One turn = one `claude` process; the message goes through stdin (no length limit
 ```
 claude -p (--session-id <uuid> | --resume <uuid>) --output-format stream-json --verbose --include-partial-messages
   --permission-mode dontAsk
-  --allowedTools "Read,Glob,Grep,Edit(/.redline/<page>/**),Write(/.redline/<page>/**),mcp__redline"
-  --disallowedTools "Bash,PowerShell,NotebookEdit"
+  --allowedTools "Read(/**),Glob(/**),Grep(/**),Edit(/.redline/<page>/**),Write(/.redline/<page>/**),mcp__redline"
+  --disallowedTools "Bash,PowerShell,NotebookEdit,Read(**/.env*),Read(**/.redline/project.json),Read(~/.config/redline/**),Read(~/.ssh/**)"
   --setting-sources ""
   --mcp-config '{"mcpServers":{"redline":{"type":"http","url":"<per-run MCP url>"}}}' [<cwd>/.mcp.json]
   [--model <m>] [--effort <low|medium|high|xhigh|max>]
@@ -23,6 +23,10 @@ claude -p (--session-id <uuid> | --resume <uuid>) --output-format stream-json --
 ## Permissions
 
 `dontAsk` denies everything not explicitly allowed (no prompt). Verified on a real run: a write to `.redline/p1/a.txt` and to `.redline/p1/sub/a.txt` succeeds; a write to `.redline/other/b.txt` or `outside.txt` is denied (`system` event `permission_denied`); Bash is absent from the session's tools. In a path pattern, a leading `/` means "relative to the session's cwd" (the agent's folder), so the rule is the page's working copy only. The MCP server is named `redline`, so its tools are `mcp__redline__<tool>`.
+
+### What a session can read
+
+Reads are limited to the agent's folder: `Read(/**)`, `Glob(/**)` and `Grep(/**)` (a leading `/` means "relative to the session's cwd"), so a prompt injection cannot make a session read `~/.ssh`, `~/.config/redline/login.json` or any file outside the folder. Verified on a real run (Claude Code 2.1.308, Haiku, folder under `$HOME`): `a.txt` is readable, a file next to the folder is denied by `dontAsk`, and the deny rules win over the allow for `.env` and `.redline/project.json` inside the folder. A deny of `~/**` is deliberately not used: deny beats allow, so it would also deny a folder that lives under the home directory; the home-level secrets are denied by name instead. **The whole project folder (source code, DESIGN.md, assets) is readable by a session and can end up in a published artboard**: do not link a folder that holds secrets outside the denied patterns.
 
 ### Settings files
 

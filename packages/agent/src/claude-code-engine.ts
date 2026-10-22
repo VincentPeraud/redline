@@ -7,7 +7,15 @@ import type { Engine, EngineRunRequest } from "./engine.js";
 
 const MCP_SERVER_NAME = "redline";
 
-/** Permission rules: read anywhere, write only in the page's working copy, call Redline's MCP tools. */
+/** Files a session must never read: env files, the folder link, Redline's login and SSH keys. */
+const SECRET_FILES = ["**/.env*", "**/.redline/project.json", "~/.config/redline/**", "~/.ssh/**"];
+
+/**
+ * Permission rules: read only inside the agent's folder (a leading "/" is relative to the session's cwd; anything
+ * else is refused by `dontAsk`), minus the files that hold secrets; write only in the page's working copy;
+ * call Redline's MCP tools. Denying `~/**` would also deny a folder that lives under the home directory, so the
+ * home-level secrets are denied by name.
+ */
 export function claudePermissionRules(request: Pick<EngineRunRequest, "cwd" | "workingCopyDir">): {
   allowed: string[];
   denied: string[];
@@ -19,8 +27,8 @@ export function claudePermissionRules(request: Pick<EngineRunRequest, "cwd" | "w
   // A leading "/" in a permission path pattern means "relative to the project root" (the session's cwd).
   const writable = `/${relative}/**`;
   return {
-    allowed: ["Read", "Glob", "Grep", `Edit(${writable})`, `Write(${writable})`, `mcp__${MCP_SERVER_NAME}`],
-    denied: ["Bash", "PowerShell", "NotebookEdit"],
+    allowed: ["Read(/**)", "Glob(/**)", "Grep(/**)", `Edit(${writable})`, `Write(${writable})`, `mcp__${MCP_SERVER_NAME}`],
+    denied: ["Bash", "PowerShell", "NotebookEdit", ...SECRET_FILES.map((pattern) => `Read(${pattern})`)],
   };
 }
 
