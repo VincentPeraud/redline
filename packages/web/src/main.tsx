@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import "./styles/global.css";
 import { AgentsScreen } from "./AgentsScreen";
 import { App } from "./App";
 import { DesignSystemsScreen } from "./DesignSystemsScreen";

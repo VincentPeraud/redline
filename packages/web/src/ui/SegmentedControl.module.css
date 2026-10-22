@@ -1,0 +1,26 @@
+.track {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-sm);
+}
+
+.segment {
+  height: 26px;
+  padding: 0 7px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-body);
+  cursor: pointer;
+}
+
+.checked {
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
