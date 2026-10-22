@@ -71,6 +71,8 @@ export async function startTestServer(options: { webDir?: string; retryDelaysMs?
         folder: options.folder ?? "/test/folder",
         kind: options.kind ?? "project",
         projectId: options.projectId,
+        model: options.model,
+        effort: options.effort,
       };
       socket.send(JSON.stringify(message));
       return { hello, messages, send: (m) => socket.send(JSON.stringify(m)), closed, close: () => socket.close() };

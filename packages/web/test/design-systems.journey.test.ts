@@ -51,7 +51,7 @@ it("lists design systems with their projects, creates one and shows the hint in 
   const conversations = (await (await server.get(`/api/pages/${created.pageId}/conversations`)).json()) as Conversation[];
   expect(conversations).toHaveLength(1);
 
-  await tab.goto(`${server.url}/#/`);
+  await tab.goto(`${server.url}/#/projects`);
   await tab.getByRole("button", { name: "New project" }).click();
   await expect.poll(async () => tab.getByRole("option", { name: /DS Lumora — Utilisé par Lumora/ }).count()).toBe(1);
   await tab.close();

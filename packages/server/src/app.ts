@@ -41,6 +41,7 @@ import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerSessionRoutes } from "./sessions.js";
+import { registerHomeRoutes } from "./home.js";
 import { dispatchBatch, dispatchReply, dispatchThread } from "./work.js";
 
 const MIME: Record<string, string> = {
@@ -97,6 +98,7 @@ export async function buildMainApp(
   await registerProjectFileRoutes(app, store);
   registerEventRoutes(app, store);
   const runs = registerRunRoutes(app, store);
+  registerHomeRoutes(app, store, pageLock);
   const knownWindows = new Map<string, number>();
   registerContextTracking(app, store, pageLock, knownWindows);
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);

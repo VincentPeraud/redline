@@ -3,8 +3,9 @@ import { parseRoute, routeHref, type Route } from "../src/router";
 
 describe("hash router", () => {
   it("parses each screen", () => {
-    expect(parseRoute("")).toEqual({ name: "projects" });
-    expect(parseRoute("#/")).toEqual({ name: "projects" });
+    expect(parseRoute("")).toEqual({ name: "home" });
+    expect(parseRoute("#/")).toEqual({ name: "home" });
+    expect(parseRoute("#/projects")).toEqual({ name: "projects" });
     expect(parseRoute("#/agents")).toEqual({ name: "agents" });
     expect(parseRoute("#/sessions")).toEqual({ name: "sessions" });
     expect(parseRoute("#/design-systems")).toEqual({ name: "designSystems" });
@@ -13,12 +14,13 @@ describe("hash router", () => {
     expect(parseRoute("#/pages/g1")).toEqual({ name: "page", pageId: "g1" });
   });
 
-  it("falls back to the projects list on unknown hashes", () => {
-    expect(parseRoute("#/nope/1")).toEqual({ name: "projects" });
+  it("falls back to the home on unknown hashes", () => {
+    expect(parseRoute("#/nope/1")).toEqual({ name: "home" });
   });
 
   it("builds hrefs that parse back", () => {
     const routes: Route[] = [
+      { name: "home" },
       { name: "projects" },
       { name: "agents" },
       { name: "sessions" },
