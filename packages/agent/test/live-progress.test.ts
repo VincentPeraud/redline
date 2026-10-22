@@ -57,7 +57,7 @@ describe("following a running thread live", () => {
 
   it("marks the run failed with the engine's message", async () => {
     const { engine, release } = gatedEngine([], [{ type: "error", message: "Engine crashed" }]);
-    seam = await startSeam2(engine);
+    seam = await startSeam2(engine, { retryDelaysMs: [] });
     const page = await seam.createPage({ "home.html": "<h1>Hi</h1>" });
     await seam.pinThread(page.id, "home.html", "Change the title");
     release();

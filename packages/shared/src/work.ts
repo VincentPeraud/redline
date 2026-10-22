@@ -88,11 +88,13 @@ export type ServerEvent =
   | { type: "work"; message: AgentWorkMessage }
   /** A work item was pushed to an agent (the threads it answers are "sent"). */
   | { type: "work-dispatched"; pageId: string; workId: string; threadIds: string[] }
+  /** A work item failed and will be sent again at `retryAt` (ISO time); `message` is why it failed. */
+  | { type: "work-retrying"; pageId: string; workId: string; threadIds: string[]; retryAt: string; limit: boolean; message: string }
   /** Live state of a run, sent after every change (full snapshot, replace by `workId`). */
   | { type: "run-updated"; pageId: string; run: ThreadRun };
 
-/** Where a thread is in its run: sent to the agent, Claude working, answered, or failed. */
-export type RunStatus = "sent" | "running" | "answered" | "failed";
+/** Where a thread is in its run: sent to the agent, Claude working, answered, waiting for a retry, or failed for good. */
+export type RunStatus = "sent" | "running" | "answered" | "retrying" | "failed";
 
 export interface RunStep {
   tool: string;
@@ -109,7 +111,13 @@ export interface ThreadRun {
   /** Claude's streamed text so far. */
   text: string;
   error?: string;
+  /** While `retrying`: when the item is sent again (ISO time), and whether it waits for a subscription limit reset. */
+  retryAt?: string;
+  limit?: boolean;
 }
+
+/** `POST` here puts a failed work item back in its page's queue (204; 404 when the item is not a failed one). */
+export const retryRunPath = (pageId: string, workId: string) => `/api/pages/${pageId}/runs/${workId}/retry`;
 
 /** `GET /api/pages/:pageId/runs` -> ThreadRun[] (oldest first). */
 export const pageRunsPath = (pageId: string) => `/api/pages/${pageId}/runs`;

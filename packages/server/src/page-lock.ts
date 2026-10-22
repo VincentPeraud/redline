@@ -1,5 +1,6 @@
 import type { QueueEntry, QueueReason, WorkItem } from "@redline/shared";
 import type { AgentHub } from "./agents.js";
+import { RETRY_DELAYS_MS, UNKNOWN_RESET_WAIT_MS, isSubscriptionLimit, limitResetAt } from "./retry-policy.js";
 import type { Store } from "./store.js";
 
 export interface SubmitOptions {
@@ -28,14 +29,24 @@ interface Active {
 export class PageLock {
   private queue: Queued[] = [];
   private readonly active = new Map<string, Active>();
+  /** Failed items waiting for their next try; they do not hold the page meanwhile. */
+  private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+  private readonly attempts = new Map<string, number>();
+  /** Items that failed for good, kept so "Relancer" can put them back in the queue. */
+  private readonly failed = new Map<string, Queued>();
 
   constructor(
     private readonly store: Store,
     private readonly hub: AgentHub,
+    private readonly retryDelaysMs: number[] = RETRY_DELAYS_MS,
   ) {
     store.onChange((event) => {
-      if (event.type === "work" && (event.message.type === "work-done" || event.message.type === "work-failed")) {
+      if (event.type !== "work") return;
+      if (event.message.type === "work-done") {
+        this.attempts.delete(event.message.workId);
         this.release(event.message.workId);
+      } else if (event.message.type === "work-failed") {
+        this.fail(event.message.workId, event.message.message);
       }
     });
     hub.onAgentOnline(() => this.pump());
@@ -52,6 +63,58 @@ export class PageLock {
   release(workId: string): void {
     if (!this.active.delete(workId)) return;
     this.pump();
+  }
+
+  /** Puts an item that failed for good back in the queue of its page. False when `workId` is not such an item. */
+  retry(workId: string): boolean {
+    const queued = this.failed.get(workId);
+    if (!queued) return false;
+    this.failed.delete(workId);
+    this.queue.push(queued);
+    this.pump();
+    return true;
+  }
+
+  /** Cancels the pending retries (server shutdown). */
+  dispose(): void {
+    for (const timer of this.timers) clearTimeout(timer);
+    this.timers.clear();
+  }
+
+  /**
+   * A failed item is tried again, nothing having been published: after the reset time of a subscription
+   * limit (not counted as an attempt), else after the next delay of the ladder; past the ladder it fails for good.
+   */
+  private fail(workId: string, message: string): void {
+    const held = this.active.get(workId);
+    this.release(workId);
+    if (!held) return;
+    const { queued } = held;
+    const limit = isSubscriptionLimit(message);
+    const attempt = this.attempts.get(workId) ?? 0;
+    let delayMs: number | undefined;
+    if (limit) {
+      const resetAt = limitResetAt(message);
+      delayMs = resetAt === undefined ? UNKNOWN_RESET_WAIT_MS : Math.max(0, resetAt - Date.now());
+    } else {
+      delayMs = this.retryDelaysMs[attempt];
+      this.attempts.set(workId, attempt + 1);
+    }
+    if (delayMs === undefined) {
+      this.attempts.delete(workId);
+      this.failed.set(workId, queued);
+      return;
+    }
+    const { item } = queued;
+    const retryAt = new Date(Date.now() + delayMs).toISOString();
+    this.store.emit({ type: "work-retrying", pageId: item.pageId, workId, threadIds: item.threads.map((t) => t.threadId), retryAt, limit, message });
+    const timer = setTimeout(() => {
+      this.timers.delete(timer);
+      this.queue = [queued, ...this.queue];
+      this.pump();
+    }, delayMs);
+    timer.unref();
+    this.timers.add(timer);
   }
 
   /** Items of a page still waiting for their turn, oldest first, each with the reason it waits. */

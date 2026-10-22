@@ -10,6 +10,8 @@ export interface StartOptions {
   /** Public origin of the artboard listener, when behind a proxy; defaults to the listener's address. */
   artboardOrigin?: string;
   webDir?: string;
+  /** Waits before each retry of a failed work item; default 1, 5 and 15 minutes. */
+  retryDelaysMs?: number[];
 }
 
 export interface RunningServer {
@@ -24,7 +26,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   await artboardApp.listen({ port: options.artboardPort, host: options.host });
   const artboardOrigin = options.artboardOrigin ?? `http://${options.host}:${portOf(artboardApp.server.address())}`;
 
-  const mainApp = await buildMainApp(store, { artboardOrigin }, options.webDir);
+  const mainApp = await buildMainApp(store, { artboardOrigin }, options.webDir, { retryDelaysMs: options.retryDelaysMs });
   await mainApp.listen({ port: options.port, host: options.host });
 
   return {
