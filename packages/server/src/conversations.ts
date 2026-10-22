@@ -26,8 +26,9 @@ export function conversationMessage(pageTitle: string, pageId: string, bodies: s
 /**
  * Conversation routes and dispatch. A conversation has its own engine session (started with its
  * first message, resumed after), never shared with a thread; every message goes through the page lock.
+ * Returns the work id of each conversation's latest message.
  */
-export function registerConversationRoutes(app: FastifyInstance, store: Store, lock: PageLock, knownWindows: Map<string, number>): void {
+export function registerConversationRoutes(app: FastifyInstance, store: Store, lock: PageLock, knownWindows: Map<string, number>): Map<string, string> {
   const conversationOfWork = new Map<string, string>();
   const lastWorkOf = new Map<string, string>();
   const modelOfWork = new Map<string, string>();
@@ -138,4 +139,5 @@ export function registerConversationRoutes(app: FastifyInstance, store: Store, l
       return reply.code(201).send(message);
     },
   );
+  return lastWorkOf;
 }

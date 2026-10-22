@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 export type Route =
   | { name: "projects" }
   | { name: "agents" }
+  | { name: "sessions" }
   | { name: "project"; projectId: string }
   | { name: "designMd"; projectId: string }
   | { name: "page"; pageId: string };
@@ -10,6 +11,7 @@ export type Route =
 export function parseRoute(hash: string): Route {
   const [, section, id, sub] = hash.split("/").map(decodeURIComponent);
   if (section === "agents") return { name: "agents" };
+  if (section === "sessions") return { name: "sessions" };
   if (section === "projects" && id && sub === "design-md") return { name: "designMd", projectId: id };
   if (section === "projects" && id) return { name: "project", projectId: id };
   if (section === "pages" && id) return { name: "page", pageId: id };
@@ -22,6 +24,8 @@ export function routeHref(route: Route): string {
       return "#/";
     case "agents":
       return "#/agents";
+    case "sessions":
+      return "#/sessions";
     case "project":
       return `#/projects/${encodeURIComponent(route.projectId)}`;
     case "designMd":

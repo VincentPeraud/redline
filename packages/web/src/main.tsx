@@ -5,12 +5,15 @@ import { DesignMdScreen } from "./DesignMdScreen";
 import { ProjectOverview } from "./ProjectOverview";
 import { ProjectsScreen } from "./ProjectsScreen";
 import { useRoute } from "./router";
+import { SessionsScreen } from "./SessionsScreen";
 
 function Root() {
   const route = useRoute();
   switch (route.name) {
     case "agents":
       return <AgentsScreen />;
+    case "sessions":
+      return <SessionsScreen />;
     case "project":
       return <ProjectOverview key={route.projectId} projectId={route.projectId} />;
     case "designMd":

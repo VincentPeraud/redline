@@ -32,6 +32,7 @@ import { PageLock } from "./page-lock.js";
 import { registerContextTracking } from "./context.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
+import { registerSessionRoutes } from "./sessions.js";
 import { dispatchReply, dispatchThread } from "./work.js";
 
 const MIME: Record<string, string> = {
@@ -87,10 +88,11 @@ export async function buildMainApp(
   await registerAgentApi(app, store, pageLock);
   await registerProjectFileRoutes(app, store);
   registerEventRoutes(app, store);
-  registerRunRoutes(app, store);
+  const runs = registerRunRoutes(app, store);
   const knownWindows = new Map<string, number>();
   registerContextTracking(app, store, pageLock, knownWindows);
-  registerConversationRoutes(app, store, pageLock, knownWindows);
+  const lastConversationWork = registerConversationRoutes(app, store, pageLock, knownWindows);
+  registerSessionRoutes(app, store, pageLock, runs, lastConversationWork);
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });

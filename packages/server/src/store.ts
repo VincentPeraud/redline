@@ -23,6 +23,7 @@ import type {
   PageVersionSummary,
   Project,
   ServerEvent,
+  SessionKind,
   Thread,
   ThreadContext,
   ThreadReply,
@@ -165,6 +166,21 @@ export class Store {
         "SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id ORDER BY p.created_at, p.rowid",
       )
       .all() as DesignSystem[];
+  }
+
+  /** Every thread and conversation with the page and project they belong to (design system pages included). */
+  listSessionOrigins(): SessionOrigin[] {
+    const select = (table: "threads" | "conversations") =>
+      `SELECT t.id, '${table === "threads" ? "thread" : "conversation"}' AS kind, t.page_id AS pageId, pg.title AS pageTitle,
+              pg.project_id AS projectId, pr.title AS projectTitle, t.created_at AS createdAt
+       FROM ${table} t JOIN pages pg ON pg.id = t.page_id JOIN projects pr ON pr.id = pg.project_id`;
+    return this.db.prepare(`${select("threads")} UNION ALL ${select("conversations")}`).all() as SessionOrigin[];
+  }
+
+  /** The agent linked to the project, online or not. */
+  projectAgentId(projectId: string): string | undefined {
+    const row = this.db.prepare("SELECT id FROM agents WHERE project_id = ?").get(projectId) as { id: string } | undefined;
+    return row?.id;
   }
 
   isDesignSystemPage(pageId: string): boolean {
@@ -585,6 +601,16 @@ export class Store {
     if (!existsSync(blobPath)) writeFileSync(blobPath, content);
     return hash;
   }
+}
+
+export interface SessionOrigin {
+  id: string;
+  kind: SessionKind;
+  pageId: string;
+  pageTitle: string;
+  projectId: string;
+  projectTitle: string;
+  createdAt: string;
 }
 
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";

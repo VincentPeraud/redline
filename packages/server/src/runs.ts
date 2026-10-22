@@ -4,9 +4,9 @@ import type { Store } from "./store.js";
 
 /**
  * Follows what agents report about work items and keeps the live state of each run in memory
- * (status, steps, streamed text), so a reloaded browser sees what happened so far.
+ * (status, steps, streamed text), so a reloaded browser sees what happened so far. Returns the runs by work id, oldest first.
  */
-export function registerRunRoutes(app: FastifyInstance, store: Store): void {
+export function registerRunRoutes(app: FastifyInstance, store: Store): Map<string, ThreadRun> {
   const runs = new Map<string, ThreadRun>();
 
   function update(workId: string, change: (run: ThreadRun) => void): void {
@@ -65,4 +65,5 @@ export function registerRunRoutes(app: FastifyInstance, store: Store): void {
   app.get<{ Params: { pageId: string } }>(pageRunsPath(":pageId"), async (req) =>
     [...runs.values()].filter((run) => run.pageId === req.params.pageId),
   );
+  return runs;
 }
