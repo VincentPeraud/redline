@@ -216,7 +216,7 @@ async function main(): Promise<void> {
   await post(`/api/threads/${week.id}/resolve`);
 
   await post(`/api/pages/${onboarding.id}/versions`, { message: "Ajuste les marges des écrans", origin: "terminal", files: { ...(await currentFiles(onboarding.id)), "notes.txt": "Marges ajustées depuis le terminal.\n" } });
-  await post(`/api/pages/${onboarding.id}/tweaks`, { id: "accent", value: "#0f766e" });
+  await post(`/api/pages/${onboarding.id}/tweaks`, { id: "accent", value: "#D92D20" });
 
   const hero = await thread(
     lumoraPageByTitle["Landing page"],

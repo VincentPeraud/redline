@@ -322,7 +322,15 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
         <HeldBar pageId={pageId} />
       </div>
       <aside style={{ width: 280 }}>
-        {manifest && <TweaksPanel tweaks={manifest.tweaks} values={tweaks.values} onChange={tweaks.setValue} />}
+        {manifest && (
+          <TweaksPanel
+            heading="Tweaks"
+            tweaks={manifest.tweaks}
+            values={tweaks.values}
+            onChange={tweaks.setValue}
+            previews={manifest.artboards[0] && { pageId, artboardOrigin, artboard: manifest.artboards[0] }}
+          />
+        )}
         <ConversationsPanel pageId={pageId} runs={runs} queue={queue} />
         <h4>Commentaires</h4>
         {threads.map((thread) =>

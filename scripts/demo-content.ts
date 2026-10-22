@@ -89,37 +89,55 @@ function page(title: string, artboards: ArtboardSpec[], extra: Record<string, un
   return { title, files };
 }
 
-const PHONE = { width: 390, height: 780 };
+const PHONE = { width: 390, height: 760 };
+
+/** Onboarding screens follow the page's tweaks: accent colour everywhere, list or grid for the choices. */
+const ONBOARDING_TWEAK_CSS = `
+.choices{display:flex;flex-direction:column;gap:10px}
+.choices .row{border-color:#D4D2CC;height:52px;padding:0 16px;border-radius:12px;font-size:16px}
+.choices .row.on{border:2px solid var(--tweak-accent,var(--color-primary))}
+.choices .dot{width:18px;height:18px;background:#fff}
+.choices .dot.on{border:5px solid var(--tweak-accent,var(--color-primary))}
+.cta{height:54px;border-radius:12px}
+.search{border-color:#D4D2CC;height:46px;border-radius:12px}
+.cta{background:var(--tweak-accent,var(--color-primary))}
+.dot.on{border-color:var(--tweak-accent,var(--color-primary));background:var(--tweak-accent,var(--color-primary))}
+html[data-tweak-layout="Grille + icônes"] .choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+html[data-tweak-layout="Grille + icônes"] .choices .row{flex-direction:column;justify-content:center;height:96px;text-align:center}
+`;
 
 export function onboardingPage(designSystem: string): PageSpec {
   const welcome = screen(
     "Bienvenue",
-    `<main style="padding:72px 28px 32px;display:flex;flex-direction:column;gap:20px;min-height:780px">
+    `<main style="padding:72px 28px 32px;display:flex;flex-direction:column;gap:20px;min-height:760px">
   <p class="muted">Étape 1 sur 3</p>
   <h1>Bienvenue sur Lumora</h1>
   <p class="muted">Trouve un professionnel de santé disponible près de chez toi, et prends rendez-vous en deux minutes.</p>
   <div style="flex-grow:1"></div>
   <button class="cta">Commencer</button>
 </main>`,
+    ONBOARDING_TWEAK_CSS,
   );
   const speciality = screen(
     "Spécialité",
-    `<main style="padding:56px 24px 32px;display:flex;flex-direction:column;gap:16px;min-height:780px">
-  <p class="muted">Étape 2 sur 3</p>
-  <h1>Quelle spécialité ?</h1>
-  <div style="display:flex;flex-direction:column;gap:10px">
-    <div class="row"><span class="dot on"></span>Médecin généraliste</div>
+    `<main style="padding:56px 28px 32px;display:flex;flex-direction:column;gap:14px;min-height:760px">
+  <h1 style="font-size:28px">Votre spécialité</h1>
+  <p class="muted" style="font-size:15px">Pour vous proposer les bons remplacements.</p>
+  <input class="search" type="search" placeholder="Rechercher une spécialité" aria-label="Rechercher une spécialité">
+  <div class="choices">
+    <div class="row on"><span class="dot on"></span><strong>Médecin généraliste</strong></div>
     <div class="row"><span class="dot"></span>Kinésithérapeute</div>
-    <div class="row"><span class="dot"></span>Dentiste</div>
-    <div class="row"><span class="dot"></span>Dermatologue</div>
+    <div class="row"><span class="dot"></span>Infirmier·e</div>
+    <div class="row"><span class="dot"></span>Sage-femme</div>
   </div>
   <div style="flex-grow:1"></div>
   <button class="cta">Continuer</button>
 </main>`,
+    ONBOARDING_TWEAK_CSS,
   );
   const calendar = screen(
     "Calendrier",
-    `<main style="padding:56px 24px 32px;display:flex;flex-direction:column;gap:16px;min-height:780px">
+    `<main style="padding:56px 24px 32px;display:flex;flex-direction:column;gap:16px;min-height:760px">
   <p class="muted">Étape 3 sur 3</p>
   <h1>Choisis un créneau</h1>
   <div class="card" style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;text-align:center;font-size:14px">
@@ -131,6 +149,7 @@ export function onboardingPage(designSystem: string): PageSpec {
   <div style="flex-grow:1"></div>
   <button class="cta">Confirmer</button>
 </main>`,
+    ONBOARDING_TWEAK_CSS,
   );
   return page(
     "Onboarding",
@@ -146,8 +165,8 @@ export function onboardingPage(designSystem: string): PageSpec {
         { from: "screen-2.html", selector: ".cta", to: "screen-3.html" },
       ],
       tweaks: [
-        { id: "accent", type: "color", label: "Couleur d'accent", default: "#d92d20" },
-        { id: "density", type: "choice", label: "Densité", options: ["Confortable", "Compacte"], default: "Confortable" },
+        { id: "accent", type: "color", scope: "element", label: "Couleur principale", options: ["#D92D20", "#0F766E", "#7C3AED", "#18181B"], default: "#D92D20" },
+        { id: "layout", type: "choice", scope: "artboard", display: "buttons", label: "Présentation des spécialités", options: ["Liste", "Grille + icônes"], default: "Liste" },
       ],
     },
     designSystem,

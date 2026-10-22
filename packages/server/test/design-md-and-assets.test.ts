@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Page, Project, ProjectAsset, ProjectContext } from "@redline/shared";
+import type { DesignMdVersion, Page, Project, ProjectAsset, ProjectContext } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 const html = "<!doctype html><html><head></head><body><h1>Hi</h1></body></html>";
@@ -47,6 +47,21 @@ describe("DESIGN.md and project assets over the server HTTP API", () => {
     expect(await (await server.get(`/api/projects/${project.id}/design-md`)).json()).toEqual({
       content: "# Rules\n- One action per screen",
     });
+  });
+
+  it("keeps a version of DESIGN.md at each change, newest first, and skips an unchanged save", async () => {
+    const project = await createProject();
+    const versions = async () =>
+      (await (await server.get(`/api/projects/${project.id}/design-md/versions`)).json()) as DesignMdVersion[];
+    expect(await versions()).toEqual([]);
+    await putDesignMd(project, "# v1");
+    await putDesignMd(project, "# v1");
+    await putDesignMd(project, "# v2");
+    const list = await versions();
+    expect(list.map((v) => v.content)).toEqual(["# v2", "# v1"]);
+    expect(Date.parse(list[0]!.createdAt)).not.toBeNaN();
+    expect(list[0]!.id).not.toBe(list[1]!.id);
+    expect((await server.get("/api/projects/missing/design-md/versions")).status).toBe(404);
   });
 
   it("rejects DESIGN.md without content and unknown projects", async () => {
