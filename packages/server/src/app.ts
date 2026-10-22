@@ -78,6 +78,7 @@ export async function buildMainApp(
   registerContextTracking(app, store, pageLock, knownWindows);
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
   registerSessionRoutes(app, store, pageLock, runs, lastConversationWork);
+  pageLock.restore();
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
@@ -194,9 +195,11 @@ export async function buildMainApp(
       if (typeof pin.artboard !== "string" || !isSafePath(pin.artboard)) return reply.code(400).send({ error: "invalid artboard" });
       if (!isPct(pin.xPct) || !isPct(pin.yPct)) return reply.code(400).send({ error: "position must be a percentage" });
       if (pin.held !== undefined && typeof pin.held !== "boolean") return reply.code(400).send({ error: "held must be a boolean" });
+      const invalidChoice = modelChoiceError(pin);
+      if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
       const thread = store.createThread(req.params.pageId, pin as CreateThreadRequest);
       if (thread.status === "held") return reply.code(201).send(thread);
-      dispatchThread(store, pageLock, store.getPage(req.params.pageId)!.projectId, thread);
+      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(pin));
       return reply.code(201).send(thread);
     },
   );
@@ -247,7 +250,7 @@ export async function buildMainApp(
     for (const thread of held) byPage.set(thread.pageId, [...(byPage.get(thread.pageId) ?? []), thread]);
     for (const threads of byPage.values()) {
       for (const thread of threads) store.releaseHeldThread(thread.id);
-      dispatchBatch(store, pageLock, projectId, threads, modelChoiceOf(req.body ?? {}));
+      dispatchBatch(pageLock, projectId, threads, modelChoiceOf(req.body ?? {}));
     }
     const response: SendHeldResponse = { items: byPage.size, threads: held.length };
     return response;

@@ -29,6 +29,7 @@ import type {
   ThreadReply,
   ThreadStatus,
   VersionOrigin,
+  WorkItem,
 } from "@redline/shared";
 
 export class Store {
@@ -127,6 +128,19 @@ export class Store {
         effort TEXT,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS work_queue (
+        id TEXT PRIMARY KEY,
+        position INTEGER NOT NULL,
+        state TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        agent_id TEXT,
+        item TEXT NOT NULL,
+        takeover_item TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        retry_at TEXT,
+        retry_limit INTEGER,
+        message TEXT
+      );
       UPDATE agents SET status = 'offline';
     `);
     const agentColumns = this.db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
@@ -146,6 +160,57 @@ export class Store {
     if (!this.getDesignSystem(NEUTRAL_DESIGN_SYSTEM_ID)) {
       this.createDesignSystem("Neutral", { [DESIGN_SYSTEM_TOKENS_PATH]: NEUTRAL_TOKENS_CSS, "index.html": NEUTRAL_TOKENS_PAGE_HTML }, NEUTRAL_DESIGN_SYSTEM_ID);
     }
+  }
+
+  /** Replaces the persisted work queue (see `PageLock`) with `rows`, in order. */
+  saveWorkQueue(rows: PersistedWork[]): void {
+    const insert = this.db.prepare(
+      `INSERT INTO work_queue (id, position, state, project_id, agent_id, item, takeover_item, attempts, retry_at, retry_limit, message)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    this.db.transaction(() => {
+      this.db.prepare("DELETE FROM work_queue").run();
+      rows.forEach((row, position) =>
+        insert.run(
+          row.item.id,
+          position,
+          row.state,
+          row.projectId,
+          row.agentId ?? null,
+          JSON.stringify(row.item),
+          row.takeoverItem ? JSON.stringify(row.takeoverItem) : null,
+          row.attempts,
+          row.retryAt ?? null,
+          row.limit === undefined ? null : row.limit ? 1 : 0,
+          row.message ?? null,
+        ),
+      );
+    })();
+  }
+
+  loadWorkQueue(): PersistedWork[] {
+    const rows = this.db.prepare("SELECT * FROM work_queue ORDER BY position").all() as {
+      state: PersistedWork["state"];
+      project_id: string;
+      agent_id: string | null;
+      item: string;
+      takeover_item: string | null;
+      attempts: number;
+      retry_at: string | null;
+      retry_limit: number | null;
+      message: string | null;
+    }[];
+    return rows.map((r) => ({
+      state: r.state,
+      projectId: r.project_id,
+      ...(r.agent_id ? { agentId: r.agent_id } : {}),
+      item: JSON.parse(r.item) as WorkItem,
+      ...(r.takeover_item ? { takeoverItem: JSON.parse(r.takeover_item) as WorkItem } : {}),
+      attempts: r.attempts,
+      ...(r.retry_at ? { retryAt: r.retry_at } : {}),
+      ...(r.retry_limit === null ? {} : { limit: r.retry_limit === 1 }),
+      ...(r.message === null ? {} : { message: r.message }),
+    }));
   }
 
   /** A design system is a project (same id) with one page holding its tokens and components. */
@@ -185,6 +250,11 @@ export class Store {
   projectAgentId(projectId: string): string | undefined {
     const row = this.db.prepare("SELECT id FROM agents WHERE project_id = ?").get(projectId) as { id: string } | undefined;
     return row?.id;
+  }
+
+  /** True while the agent is linked to a project; a project agent replaced by a newer one, and a global agent, are not. */
+  isProjectAgent(agentId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM agents WHERE id = ? AND project_id IS NOT NULL").get(agentId) !== undefined;
   }
 
   /** Projects (design systems excluded) whose design system is `designSystemId`. */
@@ -698,6 +768,20 @@ export class Store {
     if (!existsSync(blobPath)) writeFileSync(blobPath, content);
     return hash;
   }
+}
+
+/** A work item as the page lock keeps it between restarts. */
+export interface PersistedWork {
+  /** "active" ran on an agent when the server stopped; "retrying" waits for `retryAt`; "failed" waits for the user's "Relancer". */
+  state: "active" | "queued" | "retrying" | "failed";
+  projectId: string;
+  agentId?: string;
+  item: WorkItem;
+  takeoverItem?: WorkItem;
+  attempts: number;
+  retryAt?: string;
+  limit?: boolean;
+  message?: string;
 }
 
 export interface SessionOrigin {

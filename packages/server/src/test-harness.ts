@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENT_ENDPOINT, PROTOCOL_VERSION, type AgentHello, type ServerToAgentMessage } from "@redline/shared";
-import { startServer } from "./start.js";
+import { startServer, type RunningServer } from "./start.js";
 
 export interface TestAgent {
   /** The first message the server answers to the hello (welcome or error). */
@@ -18,8 +18,9 @@ export interface TestAgent {
 export type ConnectAgentOptions = Partial<Omit<AgentHello, "type">>;
 
 export interface TestServer {
-  url: string;
-  artboardOrigin: string;
+  /** Changes after `restart()` (new random port). */
+  readonly url: string;
+  readonly artboardOrigin: string;
   dataDir: string;
   get(path: string): Promise<Response>;
   post(path: string, body: unknown): Promise<Response>;
@@ -27,17 +28,25 @@ export interface TestServer {
   connectAgent(options?: ConnectAgentOptions): Promise<TestAgent>;
   /** Number of distinct blobs on disk. */
   blobCount(): number;
+  /** Stops the server (dropping every agent connection) and starts a new one on the same data folder, like a process restart. */
+  restart(): Promise<void>;
   stop(): Promise<void>;
 }
 
 /** Starts a real server on a temporary data folder with random free ports. */
 export async function startTestServer(options: { webDir?: string; retryDelaysMs?: number[] } = {}): Promise<TestServer> {
   const dataDir = mkdtempSync(join(tmpdir(), "redline-test-"));
-  const server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", webDir: options.webDir, retryDelaysMs: options.retryDelaysMs });
+  const start = () =>
+    startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", webDir: options.webDir, retryDelaysMs: options.retryDelaysMs });
+  let server: RunningServer = await start();
   const sockets: WebSocket[] = [];
   return {
-    url: server.url,
-    artboardOrigin: server.artboardOrigin,
+    get url() {
+      return server.url;
+    },
+    get artboardOrigin() {
+      return server.artboardOrigin;
+    },
     dataDir,
     get: (path) => fetch(server.url + path),
     post: (path, body) =>
@@ -78,6 +87,10 @@ export async function startTestServer(options: { webDir?: string; retryDelaysMs?
       return { hello, messages, send: (m) => socket.send(JSON.stringify(m)), closed, close: () => socket.close() };
     },
     blobCount: () => readdirSync(join(dataDir, "blobs")).length,
+    async restart() {
+      await server.close();
+      server = await start();
+    },
     async stop() {
       for (const socket of sockets) socket.close();
       await server.close();

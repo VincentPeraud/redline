@@ -131,6 +131,9 @@ export interface CreateThreadRequest {
   body: string;
   /** "Plus tard": store the comment without sending it. */
   held?: boolean;
+  /** Model and effort of the thread's first run; absent = the agent's default. Ignored for a held comment (its batch has its own choice). */
+  model?: string;
+  effort?: Effort;
 }
 
 /** `PATCH /api/threads/:id`: edits a held comment. */

@@ -1,24 +1,25 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
-  EFFORTS,
   type Conversation,
   type ConversationDetail,
   type ConversationMessage,
   type CreateConversationMessageRequest,
   type CreateConversationRequest,
+  type ModelChoice,
   type ServerEvent,
   type WorkItem,
 } from "@redline/shared";
 import { contextOf, usageContext } from "./context.js";
+import { definedChoice, modelChoiceError, modelChoiceOf, requiredString } from "./validation.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
 export type SendConversationMessage = (
   conversation: Conversation,
   body: string,
-  choice: { model?: string; effort?: CreateConversationMessageRequest["effort"] },
-  options?: { extraContext?: string; projectId?: string },
+  choice: ModelChoice,
+  options?: { extraContext?: string; projectId?: string; brief?: boolean },
 ) => ConversationMessage;
 
 /** The message Claude receives for a conversation message; every message says which page is shown. */
@@ -29,6 +30,22 @@ export function conversationMessage(pageTitle: string, pageId: string, bodies: s
     ...bodies.flatMap((body) => [body, ""]),
     "Make the change in the working copy if the message asks for one, then answer in a short final message.",
   ].join("\n");
+}
+
+/** The first message of a project's first conversation: its brief, to read and keep in mind (cheap: no edit, one line back). */
+export function briefMessage(pageTitle: string, pageId: string, instructions: string): string {
+  return [
+    `Conversation about the page "${pageTitle}" (page id ${pageId}). Before the user writes, here is the project's brief. Read it and keep it in mind for this whole conversation.`,
+    "Do not edit any file and do not call any tool: answer with one short sentence saying you have the brief.",
+    "",
+    instructions,
+  ].join("\n");
+}
+
+/** What a new session is told when it takes over a conversation whose own session is not available. */
+export function conversationHistory(previous: ConversationMessage[]): string {
+  const lines = previous.map((m) => `${m.author === "user" ? "User" : "Claude"}: ${m.body}`);
+  return ["This conversation was already going in an earlier session that is not available now. Conversation so far:", "", ...lines].join("\n");
 }
 
 /**
@@ -42,13 +59,12 @@ export function registerConversationRoutes(
   lock: PageLock,
   knownWindows: Map<string, number>,
 ): { sendMessage: SendConversationMessage; lastWorkOf: Map<string, string> } {
-  const conversationOfWork = new Map<string, string>();
   const lastWorkOf = new Map<string, string>();
   const modelOfWork = new Map<string, string>();
 
   const unsubscribe = store.onChange((event: ServerEvent) => {
     if (event.type !== "work" || event.message.type !== "work-event") return;
-    const conversationId = conversationOfWork.get(event.message.workId);
+    const conversationId = lock.itemOf(event.message.workId)?.conversationId;
     if (!conversationId) return;
     const engineEvent = event.message.event;
     if (engineEvent.type === "usage") {
@@ -81,43 +97,61 @@ export function registerConversationRoutes(
 
   function dispatch(
     conversation: Conversation,
-    unsentBodies: string[],
-    choice: { model?: string; effort?: CreateConversationMessageRequest["effort"] },
+    previous: ConversationMessage[],
+    bodies: string[],
+    choice: ModelChoice,
     projectId: string,
+    firstMessage?: string,
   ): void {
+    // A message sent while an earlier one of the conversation has not left yet (queued, or waiting for a retry) joins it.
+    const joined = lock.amendQueued(
+      (item) => item.conversationId === conversation.id,
+      (item) => ({
+        ...item,
+        message: `${item.message}\n\nFollow-up from the user, sent before the message above was answered:\n\n${bodies.join("\n\n")}`,
+        ...definedChoice(choice),
+      }),
+    );
+    if (joined) return;
     const page = store.getPage(conversation.pageId)!;
     const session = store.getConversationSession(conversation.id);
-    const sessionId = session?.sessionId ?? randomUUID();
+    // Messages never sent to Claude (everything stored, when there is no session yet) go along with this one.
+    const sent = session ? bodies : [...previous.map((m) => m.body), ...bodies];
     const item: WorkItem = {
       id: randomUUID(),
       kind: "conversation",
       conversationId: conversation.id,
       pageId: page.id,
       threads: [],
-      message: conversationMessage(page.title, page.id, unsentBodies),
-      sessionId,
+      message: firstMessage ?? conversationMessage(page.title, page.id, sent),
+      sessionId: session?.sessionId ?? randomUUID(),
       resume: session !== undefined,
-      ...choice,
+      ...definedChoice(choice),
     };
-    conversationOfWork.set(item.id, conversation.id);
     lastWorkOf.set(conversation.id, item.id);
-    lock.submit(
-      {
-        projectId,
-        agentId: session?.agentId,
-        onDispatched: (agentId) => store.setConversationSession(conversation.id, sessionId, agentId),
-      },
-      item,
-    );
+    const takeoverItem: WorkItem | undefined = session && {
+      ...item,
+      id: randomUUID(),
+      sessionId: randomUUID(),
+      resume: false,
+      message: conversationMessage(page.title, page.id, [conversationHistory(previous), ...bodies]),
+    };
+    lock.submit({ projectId, agentId: session?.agentId, takeoverItem }, item);
   }
 
   /** Stores a user message and dispatches it; `extraContext` goes to Claude with it without being stored, and `projectId` overrides the project whose agent serves it. */
   const sendMessage: SendConversationMessage = (conversation, body, choice, options = {}) => {
-    // Messages not yet sent to Claude (the project's instructions on the first send) go along with this one.
-    const unsent = store.getConversationSession(conversation.id) ? [] : store.conversationMessages(conversation.id).map((m) => m.body);
+    const previous = store.conversationMessages(conversation.id);
     const message = store.addConversationMessage(conversation.id, "user", body, choice)!;
-    const bodies = [...(options.extraContext ? [options.extraContext] : []), ...unsent, body];
-    dispatch(conversation, bodies, choice, options.projectId ?? store.getPage(conversation.pageId)!.projectId);
+    const page = store.getPage(conversation.pageId)!;
+    dispatch(
+      conversation,
+      previous,
+      [...(options.extraContext ? [options.extraContext] : []), body],
+      choice,
+      options.projectId ?? page.projectId,
+      options.brief ? briefMessage(page.title, page.id, body) : undefined,
+    );
     return message;
   };
 
@@ -136,7 +170,8 @@ export function registerConversationRoutes(
     const first = !store.projectHasConversation(page.projectId);
     const conversation = store.createConversation(page.id, title ?? "Nouvelle conversation");
     const instructions = store.getProject(page.projectId)?.instructions ?? "";
-    if (first && instructions.trim() !== "") store.addConversationMessage(conversation.id, "user", instructions);
+    // The project's brief opens its first conversation: it is sent now, with a short acknowledgement asked back.
+    if (first && instructions.trim() !== "") sendMessage(conversation, instructions, {}, { brief: true });
     return reply.code(201).send(detail(conversation));
   });
 
@@ -156,11 +191,11 @@ export function registerConversationRoutes(
       const conversation = store.getConversation(req.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "conversation not found" });
       if (conversation.archived) return reply.code(409).send({ error: "conversation is archived" });
-      const { body, model, effort } = req.body ?? ({} as Partial<CreateConversationMessageRequest>);
-      if (typeof body !== "string" || body.trim() === "") return reply.code(400).send({ error: "body is required" });
-      if (model !== undefined && typeof model !== "string") return reply.code(400).send({ error: "model must be a string" });
-      if (effort !== undefined && !(EFFORTS as readonly string[]).includes(effort)) return reply.code(400).send({ error: "invalid effort" });
-      const message = sendMessage(conversation, body, { model, effort });
+      const { body } = req.body ?? ({} as Partial<CreateConversationMessageRequest>);
+      if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
+      const invalidChoice = modelChoiceError(req.body);
+      if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
+      const message = sendMessage(conversation, body, modelChoiceOf(req.body));
       return reply.code(201).send(message);
     },
   );

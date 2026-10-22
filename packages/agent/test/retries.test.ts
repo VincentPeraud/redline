@@ -46,6 +46,32 @@ describe("retries and failure", () => {
     expect(await seam.versions(pageId)).toHaveLength(2);
   });
 
+  it("posts the answers of the attempt that succeeded only, not those of the failed ones", async () => {
+    let threadId = "";
+    const engine = new FakeEngine(() =>
+      engineRuns(engine) < 3
+        ? [{ replyInThread: { threadId, text: "Done!" } }, { type: "error", message: "Overloaded" }]
+        : [{ replyInThread: { threadId, text: "Really done." } }, { type: "result", summary: "Done" }],
+    );
+    seam = await startSeam2(engine, { retryDelaysMs: [20, 20, 20] });
+    const page = await seam.createPage(PAGE_FILES);
+    threadId = (await seam.pinThread(page.id, "home.html", "Change the title")).id;
+    await until(() => lastRun(seam!)?.status === "answered", "the answered run");
+
+    const [thread] = (await (await seam.server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+    expect(thread.replies.map((r) => r.body)).toEqual(["Really done."]);
+  });
+
+  it("starts a new Claude session on each retry of a run that opened one", async () => {
+    const engine = new FakeEngine(() => (engineRuns(engine) < 3 ? [{ type: "error", message: "Overloaded" }] : [{ type: "result", summary: "Done" }]));
+    seam = await startSeam2(engine, { retryDelaysMs: [20, 20, 20] });
+    await openThread(seam);
+    await until(() => lastRun(seam!)?.status === "answered", "the answered run");
+
+    expect(engine.runs.map((r) => r.resume)).toEqual([false, false, false]);
+    expect(new Set(engine.runs.map((r) => r.sessionId)).size).toBe(3);
+  });
+
   it("marks the item failed after the last retry, with nothing published", async () => {
     const engine = new FakeEngine([{ edit: { path: "home.html", content: "<h1>Half</h1>" } }, { type: "error", message: "Crashed" }]);
     seam = await startSeam2(engine, { retryDelaysMs: [20, 20, 20] });

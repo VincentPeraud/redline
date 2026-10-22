@@ -68,6 +68,10 @@ Context % = tokens of the last model call / context window. Per model call, `mes
 
 The adapter emits `inputTokens = input_tokens`, `cacheTokens = cache_creation_input_tokens + cache_read_input_tokens`, `outputTokens = output_tokens`, so context used = their sum. Do not read `assistant` events for this: their `message.usage.output_tokens` is a partial count (3 where the final is 239). The `result` event's `usage` is cumulative over all calls of the turn (do not use it for context %); its `usage.iterations` holds one entry, the last call, and `modelUsage.<model>.contextWindow` gives the window (1,000,000 for claude-haiku-5-5 in the recording).
 
+## Subscription limit messages (unverified)
+
+When the subscription limit is reached, Redline waits for the reset time instead of using its retry ladder (1, 5, 15 minutes). Recognising that case rests on guessed wording: no real limit message was ever captured, so the patterns are unverified. They live in one place, `packages/server/src/retry-policy.ts` (`LIMIT_PATTERN` to detect a limit, `EPOCH_PATTERN` for `limit reached|<epoch seconds>`, `CLOCK_PATTERN` for `resets 3pm` / `resets 15:30`, read in server time). A limit message that matches nothing is treated as any other failure (retry ladder, then "Relancer"); a limit message without a readable reset time waits 15 minutes. To fix: provoke or capture a real limit error from `claude -p`, add it as a fixture, and adjust the patterns.
+
 ## Auto-compaction in `-p` mode
 
 Not observed: a real compaction needs a context far larger than a cheap test can reach. What is known: `claude --help` lists `--autocompact <auto|tokens>` ("Auto-compact window size (auto, or 100k-1M tokens)"), with `auto` as the implied default, and the flag is not restricted to interactive mode. Treat `-p` as auto-compacting by default; the 70 % warning and "Nouvelle session" (ticket 14) still protect quality before that point. To confirm, run a turn with `--autocompact 100k` on a session that goes past 100k tokens and look for a `system` event with subtype `compact_boundary` (the adapter ignores unknown system events, so a compaction would pass unnoticed today).

@@ -4,6 +4,21 @@ import { DEFAULT_CONTEXT_WINDOW, newSessionPath, type EngineEvent, type Thread, 
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
+/** What a new session is told to write the summary of a thread whose own session is not available. */
+function summaryTakeoverRequest(thread: Thread): string {
+  const history = thread.replies.map((r) => `${r.author === "user" ? "User" : "Claude"}: ${r.body}`);
+  return [
+    `Comment ${thread.number} on artboard ${thread.artboard}, element \`${thread.selector}\`:`,
+    "",
+    thread.body,
+    "",
+    "It was discussed in an earlier session that is not available now. Conversation so far:",
+    ...history.flatMap((line) => ["", line]),
+    "",
+    SUMMARY_REQUEST,
+  ].join("\n");
+}
+
 export const SUMMARY_REQUEST =
   "Write a summary of this session for a colleague who takes over in a fresh session: what the page looks like now, the decisions made and why, what the user asked for and what is still open. Do not edit any file and do not call any tool. Answer with the summary only.";
 
@@ -32,7 +47,6 @@ export function usageContext(
  */
 export function registerContextTracking(app: FastifyInstance, store: Store, lock: PageLock, knownWindows: Map<string, number>): void {
   const threadsOfWork = new Map<string, string[]>();
-  const summaryOfWork = new Map<string, string>();
   const modelOfWork = new Map<string, string>();
 
   const unsubscribe = store.onChange((event) => {
@@ -57,17 +71,16 @@ export function registerContextTracking(app: FastifyInstance, store: Store, lock
             if (current?.model === model) store.setThreadContext(id, contextOf(model, current.tokens, engineEvent.contextWindow, current.effort));
           }
         }
-        const summarized = summaryOfWork.get(message.workId);
+        const summarized = lock.itemOf(message.workId)?.summaryForThread;
         if (summarized) startSeededSession(summarized, engineEvent.summary.trim());
       }
     } else {
-      const summarized = summaryOfWork.get(message.workId);
-      if (summarized && message.type === "work-failed" && store.getThread(summarized)?.newSession === "summarizing") store.setNewSession(summarized, null);
-      if (message.type === "work-done" || message.type === "work-failed") {
-        threadsOfWork.delete(message.workId);
-        summaryOfWork.delete(message.workId);
-        modelOfWork.delete(message.workId);
+      if (message.type === "work-failed") {
+        const summarized = lock.itemOf(message.workId)?.summaryForThread;
+        if (summarized && store.getThread(summarized)?.newSession === "summarizing") store.setNewSession(summarized, null);
       }
+      threadsOfWork.delete(message.workId);
+      modelOfWork.delete(message.workId);
     }
   });
   app.addHook("onClose", async () => unsubscribe());
@@ -99,9 +112,10 @@ export function registerContextTracking(app: FastifyInstance, store: Store, lock
       message: SUMMARY_REQUEST,
       sessionId: session.sessionId,
       resume: true,
+      summaryForThread: thread.id,
     };
-    summaryOfWork.set(item.id, thread.id);
     store.setNewSession(thread.id, "summarizing");
-    lock.submit({ projectId: store.getPage(thread.pageId)!.projectId, agentId: session.agentId }, item);
+    const takeoverItem: WorkItem = { ...item, id: randomUUID(), sessionId: randomUUID(), resume: false, message: summaryTakeoverRequest(thread) };
+    lock.submit({ projectId: store.getPage(thread.pageId)!.projectId, agentId: session.agentId, takeoverItem }, item);
   }
 }

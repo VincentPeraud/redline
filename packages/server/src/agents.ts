@@ -52,6 +52,8 @@ export interface AgentHub {
   send(agentId: string, message: ServerToAgentMessage): boolean;
   /** Calls `listener` once an agent has been welcomed and can receive work. */
   onAgentOnline(listener: (agentId: string) => void): void;
+  /** Only work messages for which `owns(agentId, workId)` is true are relayed: an agent cannot report on another agent's work. */
+  acceptWorkMessagesFrom(owns: (agentId: string, workId: string) => boolean): void;
   /** Calls `listener` when an agent's connection ended (closed, or dropped by a token regeneration). */
   onAgentOffline(listener: (agentId: string) => void): void;
 }
@@ -62,6 +64,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
   const connected = new Map<WebSocket, string>();
   const onlineListeners: ((agentId: string) => void)[] = [];
   const offlineListeners: ((agentId: string) => void)[] = [];
+  let ownsWork: (agentId: string, workId: string) => boolean = () => true;
 
   app.addHook("onClose", async () => {
     for (const agentId of connected.values()) store.markAgentOffline(agentId);
@@ -117,7 +120,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
       });
       socket.on("message", (data) => {
         const message = parseWorkMessage(data.toString());
-        if (message) store.emit({ type: "work", message });
+        if (message && ownsWork(agentId, message.workId)) store.emit({ type: "work", message });
       });
       send(socket, { type: "welcome", agentId });
       for (const listener of onlineListeners) listener(agentId);
@@ -143,6 +146,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
   return {
     onAgentOnline: (listener) => void onlineListeners.push(listener),
     onAgentOffline: (listener) => void offlineListeners.push(listener),
+    acceptWorkMessagesFrom: (owns) => void (ownsWork = owns),
     send(agentId, message) {
       for (const [socket, id] of connected) {
         if (id === agentId) {

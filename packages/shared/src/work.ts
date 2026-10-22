@@ -50,6 +50,8 @@ export interface WorkItem {
   pageId: string;
   /** Set for kind "conversation": the conversation this message belongs to. */
   conversationId?: string;
+  /** Set for kind "summary": the thread whose next session is seeded with the answer. */
+  summaryForThread?: string;
   /** The threads this item answers; Claude may reply only in these. */
   threads: WorkThread[];
   /** The message sent to the engine (the agent prepends the working copy location). */

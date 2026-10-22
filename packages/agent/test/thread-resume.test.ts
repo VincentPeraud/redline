@@ -71,7 +71,7 @@ describe("replying in a thread", () => {
     ]);
   });
 
-  it("sends the reply only to the agent that opened the session", async () => {
+  it("answers on the project's new agent, in a new session, when the agent that opened the session was replaced", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
     seam = await startSeam2(engine);
     const page = await seam.createPage(PAGE_FILES);
@@ -100,8 +100,11 @@ describe("replying in a thread", () => {
     expect((await reply(seam, thread.id, "Are you there?")).status).toBe(201);
     await new Promise((resolve) => setTimeout(resolve, 300));
 
-    expect(otherEngine.runs).toHaveLength(0);
+    await otherEngine.finished(1);
     expect(engine.runs).toHaveLength(1);
+    expect(otherEngine.runs[0].resume).toBe(false);
+    expect(otherEngine.runs[0].message).toContain("Look");
+    expect(otherEngine.runs[0].message).toContain("Are you there?");
   });
 });
 

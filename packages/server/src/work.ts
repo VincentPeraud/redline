@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { Effort, Thread, WorkItem, WorkThread } from "@redline/shared";
+import type { ModelChoice, Thread, WorkItem, WorkThread } from "@redline/shared";
 import { seededMessage } from "./context.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
+import { definedChoice } from "./validation.js";
 
 /** The message Claude receives for one thread: the comment with its thread id, artboard, element and position. */
 export function threadMessage(thread: Thread): string {
@@ -41,13 +42,9 @@ export function takeoverMessage(thread: Thread, body: string): string {
   ].join("\n");
 }
 
-/** Queues a work item for a freshly sent thread on its page's lock; the session is remembered once the item is sent. */
-export function dispatchThread(store: Store, lock: PageLock, projectId: string, thread: Thread): void {
-  const sessionId = randomUUID();
-  lock.submit(
-    { projectId, onDispatched: (agentId) => store.setThreadSession(thread.id, sessionId, agentId) },
-    threadItem(thread, threadMessage(thread), sessionId, false),
-  );
+/** Queues a work item for a freshly sent thread on its page's lock; the lock remembers the session once the item is sent. */
+export function dispatchThread(lock: PageLock, projectId: string, thread: Thread, choice: ModelChoice = {}): void {
+  lock.submit({ projectId }, { ...threadItem(thread, threadMessage(thread), randomUUID(), false), ...definedChoice(choice) });
 }
 
 /** The message Claude receives for a batch: every held comment of a page with its thread id, artboard, element and position. */
@@ -65,24 +62,9 @@ export function batchMessage(threads: Thread[]): string {
 }
 
 /** Queues the held comments of one page as a single work item (one message, one new session shared by the threads). */
-export function dispatchBatch(
-  store: Store,
-  lock: PageLock,
-  projectId: string,
-  threads: Thread[],
-  choice: { model?: string; effort?: Effort } = {},
-): void {
-  const sessionId = randomUUID();
-  const item = { ...threadItem(threads[0], batchMessage(threads), sessionId, false), threads: threads.map(workThread), ...choice };
-  lock.submit(
-    {
-      projectId,
-      onDispatched: (agentId) => {
-        for (const thread of threads) store.setThreadSession(thread.id, sessionId, agentId);
-      },
-    },
-    item,
-  );
+export function dispatchBatch(lock: PageLock, projectId: string, threads: Thread[], choice: ModelChoice = {}): void {
+  const item = { ...threadItem(threads[0], batchMessage(threads), randomUUID(), false), threads: threads.map(workThread), ...definedChoice(choice) };
+  lock.submit({ projectId }, item);
 }
 
 /**
@@ -96,7 +78,7 @@ export function dispatchReply(
   projectId: string,
   thread: Thread,
   body: string,
-  choice: { model?: string; effort?: Effort } = {},
+  choice: ModelChoice = {},
 ): void {
   const reply = replyMessage(thread, body);
   const join = (item: WorkItem): WorkItem => ({
@@ -116,27 +98,9 @@ export function dispatchReply(
 
   const seed = store.getSessionSeed(thread.id);
   const message = seed ? seededMessage(seed, reply) : reply;
-  const item = { ...threadItem(thread, message, session.sessionId, !seed), ...choice };
-  const takeoverItem = { ...threadItem(thread, takeoverMessage(thread, body), randomUUID(), false), ...choice };
-  lock.submit(
-    {
-      projectId,
-      agentId: session.agentId,
-      takeoverItem,
-      onDispatched: (agentId, sent) => {
-        if (!sent.resume) store.setThreadSession(thread.id, sent.sessionId, agentId);
-        if (seed) store.setNewSession(thread.id, null);
-      },
-    },
-    item,
-  );
-}
-
-function definedChoice(choice: { model?: string; effort?: Effort }): { model?: string; effort?: Effort } {
-  return {
-    ...(choice.model !== undefined && { model: choice.model }),
-    ...(choice.effort !== undefined && { effort: choice.effort }),
-  };
+  const item = { ...threadItem(thread, message, session.sessionId, !seed), ...definedChoice(choice) };
+  const takeoverItem = { ...threadItem(thread, takeoverMessage(thread, body), randomUUID(), false), ...definedChoice(choice) };
+  lock.submit({ projectId, agentId: session.agentId, takeoverItem }, item);
 }
 
 function workThread(thread: Thread): WorkThread {

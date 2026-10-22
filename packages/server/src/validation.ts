@@ -28,9 +28,14 @@ export function modelChoiceError({ model, effort }: { model?: unknown; effort?: 
   return null;
 }
 
+/** The choice without its absent fields, so it can be spread over a work item without erasing what the item has. */
+export function definedChoice({ model, effort }: ModelChoice): ModelChoice {
+  return { ...(model !== undefined && { model }), ...(effort !== undefined && { effort }) };
+}
+
 /** The validated choice of a request body (call after `modelChoiceError`). */
 export function modelChoiceOf({ model, effort }: { model?: unknown; effort?: unknown }): ModelChoice {
-  return { model: model as string | undefined, effort: effort as Effort | undefined };
+  return definedChoice({ model: model as string | undefined, effort: effort as Effort | undefined });
 }
 
 /** Error message when `files` is not a path -> text map with safe relative paths, else null. */

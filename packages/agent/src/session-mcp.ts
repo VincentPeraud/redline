@@ -22,6 +22,8 @@ export interface RedlineToolsContext {
   /** The page being worked on, and where its working copy is on disk (read when a tool runs, so terminal mode can use getters). */
   pageId: string;
   workingCopyDir: string;
+  /** Where `reply_in_thread` sends the text; default: the thread right away. A run holds replies back until it succeeds. */
+  postReply?: (threadId: string, text: string) => Promise<unknown>;
 }
 
 const text = (message: string, isError = false) => ({ ...(isError ? { isError } : {}), content: [{ type: "text" as const, text: message }] });
@@ -65,6 +67,7 @@ function addArtboardToWorkingCopy(
 /** Redline's tools for a session. Add new tools here: the agent's session server and `redline mcp` both use it. */
 export function createRedlineMcpServer(context: RedlineToolsContext): McpServer {
   const { api, allowedThreadIds } = context;
+  const postReply = context.postReply ?? ((threadId: string, text: string) => api.replyInThread(threadId, text));
   const server = new McpServer({ name: "redline", version: "0.0.0" });
   server.registerTool(
     REPLY_IN_THREAD_TOOL,
@@ -76,7 +79,7 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
       if (allowedThreadIds && !allowedThreadIds.includes(threadId)) {
         return { isError: true, content: [{ type: "text", text: `Thread ${threadId} is not part of this run.` }] };
       }
-      await api.replyInThread(threadId, text);
+      await postReply(threadId, text);
       return { content: [{ type: "text", text: "Reply posted." }] };
     },
   );

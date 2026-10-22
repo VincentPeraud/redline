@@ -26,7 +26,15 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
   try {
     const checkout = await api.checkout(item.pageId);
     const dir = writeWorkingCopy(folder, item.pageId, checkout);
-    const mcp = await startSessionMcp({ api, allowedThreadIds: item.threads.map((t) => t.threadId), pageId: item.pageId, workingCopyDir: dir });
+    // Replies are held back until the run succeeded: a retried run must not leave the first attempt's answers in the threads.
+    const replies = new Map<string, string[]>();
+    const mcp = await startSessionMcp({
+      api,
+      allowedThreadIds: item.threads.map((t) => t.threadId),
+      pageId: item.pageId,
+      workingCopyDir: dir,
+      postReply: async (threadId, text) => void replies.set(threadId, [...(replies.get(threadId) ?? []), text]),
+    });
     let result: EngineEvent | undefined;
     try {
       const request = {
@@ -49,8 +57,15 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
     if (result?.type !== "result") throw new Error("The engine ended without a result.");
 
     const files = readWorkingCopy(dir);
-    if (sameFiles(files, checkout.files)) return send({ type: "work-done", workId: item.id });
+    const postReplies = async () => {
+      for (const [threadId, texts] of replies) for (const text of texts) await api.replyInThread(threadId, text);
+    };
+    if (sameFiles(files, checkout.files)) {
+      await postReplies();
+      return send({ type: "work-done", workId: item.id });
+    }
     const version = await api.publish(item.pageId, files, versionMessage(item, result.summary), item.kind === "conversation" ? "conversation" : "thread", checkout.versionId);
+    await postReplies();
     send({ type: "work-done", workId: item.id, versionId: version.id });
   } catch (error) {
     send({ type: "work-failed", workId: item.id, message: (error as Error).message });
