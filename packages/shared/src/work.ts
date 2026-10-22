@@ -1,5 +1,7 @@
 // Engine events and work items: the contract between server, agent and engine adapters (ticket 07).
 
+import type { ProjectContext } from "./projectFiles.js";
+
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
 /** What an engine emits while a session runs. Streamed to the server as `work-event`. */
@@ -124,4 +126,6 @@ export interface AgentCheckout {
   versionId: string;
   /** File path -> UTF-8 content. */
   files: Record<string, string>;
+  /** DESIGN.md, assets and design system of the page's project (read-only for the session). */
+  project: ProjectContext;
 }

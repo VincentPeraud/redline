@@ -16,19 +16,9 @@ export interface EngineRunRequest {
 
 /**
  * What the agent needs from a coding engine. Each call runs one turn to completion and ends its
- * stream with a `result` or an `error` event. Adapters: Claude Code (ticket 09), scripted fake (tests).
+ * stream with a `result` or an `error` event. Adapters: Claude Code (`claude-code-engine.ts`), scripted fake (tests).
  */
 export interface Engine {
   start(request: EngineRunRequest): AsyncIterable<EngineEvent>;
   resume(request: EngineRunRequest): AsyncIterable<EngineEvent>;
 }
-
-/** Placeholder until the Claude Code adapter lands: every run fails with a clear message. */
-export const unavailableEngine: Engine = {
-  async *start() {
-    yield { type: "error", message: "The Claude Code adapter is not available yet." };
-  },
-  async *resume() {
-    yield { type: "error", message: "The Claude Code adapter is not available yet." };
-  },
-};

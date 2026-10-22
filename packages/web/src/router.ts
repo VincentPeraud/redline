@@ -4,11 +4,13 @@ export type Route =
   | { name: "projects" }
   | { name: "agents" }
   | { name: "project"; projectId: string }
+  | { name: "designMd"; projectId: string }
   | { name: "page"; pageId: string };
 
 export function parseRoute(hash: string): Route {
-  const [, section, id] = hash.split("/").map(decodeURIComponent);
+  const [, section, id, sub] = hash.split("/").map(decodeURIComponent);
   if (section === "agents") return { name: "agents" };
+  if (section === "projects" && id && sub === "design-md") return { name: "designMd", projectId: id };
   if (section === "projects" && id) return { name: "project", projectId: id };
   if (section === "pages" && id) return { name: "page", pageId: id };
   return { name: "projects" };
@@ -22,6 +24,8 @@ export function routeHref(route: Route): string {
       return "#/agents";
     case "project":
       return `#/projects/${encodeURIComponent(route.projectId)}`;
+    case "designMd":
+      return `#/projects/${encodeURIComponent(route.projectId)}/design-md`;
     case "page":
       return `#/pages/${encodeURIComponent(route.pageId)}`;
   }
