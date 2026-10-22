@@ -38,7 +38,7 @@ afterAll(async () => {
 it("pins a comment, then shows Claude's answer in the thread and the reloaded artboard", async () => {
   const page = await seam.createPage({ "home.html": "<!doctype html><h1>Plain title</h1>" });
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-  await tab.goto(seam.server.url);
+  await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
   const artboard = tab.frameLocator("iframe");
   await expect.poll(() => artboard.locator("h1").textContent()).toBe("Plain title");
 

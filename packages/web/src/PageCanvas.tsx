@@ -9,6 +9,7 @@ import {
 } from "@redline/shared";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { fitView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { PlayMode } from "./PlayMode.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 
 const CANVAS_HEIGHT = 520;
@@ -44,6 +45,7 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
   const [text, setText] = useState("");
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   const viewport = useRef<HTMLDivElement>(null);
   const placed = useRef(false);
@@ -129,8 +131,9 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
     function onKey(event: KeyboardEvent) {
       const target = event.target as HTMLElement;
       if (target.tagName === "TEXTAREA" || target.tagName === "INPUT" || event.metaKey || event.ctrlKey) return;
-      if (event.key === "c") setPicking(true);
-      if (event.key === "p") setPicking(false);
+      const key = event.key.toLowerCase();
+      if (key === "c") setPicking(true);
+      if (key === "p") setPicking(false);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -146,13 +149,16 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
     });
     setDraft(null);
     setText("");
-    setPicking(false);
     await refresh();
   }
 
   async function resolve(thread: Thread) {
     await fetch(`/api/threads/${thread.id}/resolve`, { method: "POST" });
     await refresh();
+  }
+
+  if (playing && manifest) {
+    return <PlayMode pageId={pageId} manifest={manifest} artboardOrigin={artboardOrigin} onExit={() => setPlaying(false)} />;
   }
 
   return (
@@ -168,6 +174,9 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
             +
           </button>
           <button onClick={fit}>Fit</button>
+          <button onClick={() => setPlaying(true)} disabled={!manifest}>
+            Play
+          </button>
         </div>
         {manifestError && <div role="alert">{manifestError}</div>}
         <div
@@ -189,6 +198,23 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
             drag.current = null;
           }}
         >
+          <div
+            data-testid="mode-indicator"
+            style={{
+              position: "absolute",
+              right: 8,
+              top: 8,
+              zIndex: 1,
+              padding: "2px 8px",
+              borderRadius: 4,
+              font: "600 12px system-ui",
+              pointerEvents: "none",
+              background: picking ? "#e5484d" : "#222",
+              color: "#fff",
+            }}
+          >
+            {picking ? "Comment mode (P to interact)" : "Interactive (C to comment, Alt+click to pin)"}
+          </div>
           <div
             style={{
               position: "absolute",

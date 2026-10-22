@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
+import type { Project } from "@redline/shared";
 import { PageCanvas } from "./PageCanvas.js";
+import { routeHref } from "./router.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 
-interface Project {
-  id: string;
-  title: string;
-  agent?: { machine: string; folder: string; status: string };
-}
 interface Page {
   id: string;
+  projectId: string;
   title: string;
   version: { id: string; files: Record<string, string> };
 }
@@ -52,59 +50,58 @@ function VersionHistory({ page, onRestored }: { page: Page; onRestored: () => vo
   );
 }
 
-export function App() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [pages, setPages] = useState<Page[]>([]);
+export function App({ pageId }: { pageId: string }) {
+  const [page, setPage] = useState<Page | null>(null);
+  const [project, setProject] = useState<Project | null>(null);
   const [artboardOrigin, setArtboardOrigin] = useState("");
-  const [historyOpen, setHistoryOpen] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
-  async function loadPages(list: Project[]) {
-    const all = await Promise.all(list.map((p) => getJson<Page[]>(`/api/projects/${p.id}/pages`)));
-    setPages(all.flat());
+  async function loadPage() {
+    setPage(await getJson<Page>(`/api/pages/${pageId}`));
   }
 
   useEffect(() => {
     getJson<{ artboardOrigin: string }>("/api/config").then((c) => setArtboardOrigin(c.artboardOrigin));
-    getJson<Project[]>("/api/projects").then(async (list) => {
-      setProjects(list);
-      await loadPages(list);
-    });
-  }, []);
+    void loadPage();
+  }, [pageId]);
+
+  useEffect(() => {
+    if (page) getJson<Project>(`/api/projects/${page.projectId}`).then(setProject);
+  }, [page?.projectId]);
 
   useEffect(
     () =>
       subscribeServerEvents((event) => {
-        if (event.type === "page-updated") void loadPages(projects);
+        if (event.type === "page-updated" && event.pageId === pageId) void loadPage();
       }),
-    [projects],
+    [pageId],
   );
+
+  if (!page) return <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>Loading…</main>;
 
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
-      <h1>Redline</h1>
-      <a href="#/agents">Agents</a>
-      {projects.map((project) => (
-        <section key={project.id}>
-          <h2>{project.title}</h2>
-          <p data-testid="project-agent">
-            {project.agent ? `Served by ${project.agent.machine} (${project.agent.folder}), ${project.agent.status}` : "No agent serves this project"}
-          </p>
-        </section>
-      ))}
-      {pages.map((page) => (
-        <section key={page.id}>
-          <h3>{page.title}</h3>
-          <button onClick={() => setHistoryOpen(historyOpen === page.id ? null : page.id)}>History</button>
-          {historyOpen === page.id && <VersionHistory page={page} onRestored={() => loadPages(projects)} />}
-          <PageCanvas
-            pageId={page.id}
-            pageTitle={page.title}
-            files={page.version.files}
-            artboardOrigin={artboardOrigin}
-            versionId={page.version.id}
-          />
-        </section>
-      ))}
+      <nav>
+        <a href={routeHref({ name: "projects" })}>Projects</a>
+        {project && (
+          <>
+            {" / "}
+            <a href={routeHref({ name: "project", projectId: project.id })}>{project.title}</a>
+          </>
+        )}
+      </nav>
+      <section>
+        <h1>{page.title}</h1>
+        <button onClick={() => setHistoryOpen(!historyOpen)}>History</button>
+        {historyOpen && <VersionHistory page={page} onRestored={loadPage} />}
+        <PageCanvas
+          pageId={page.id}
+          pageTitle={page.title}
+          files={page.version.files}
+          artboardOrigin={artboardOrigin}
+          versionId={page.version.id}
+        />
+      </section>
     </main>
   );
 }

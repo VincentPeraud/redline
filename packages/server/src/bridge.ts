@@ -1,12 +1,16 @@
+import { designSystemTokensUrlPath } from "@redline/shared";
+
 /**
  * Script injected into every served artboard HTML. Artboards run in a sandboxed iframe with an
  * opaque origin, so the web UI cannot touch their DOM: it talks to this bridge by postMessage.
  *
  * Parent -> artboard: { type: "redline:set-mode", picking: boolean }
  *                     { type: "redline:set-pins", pins: [{ id, selector, xPct, yPct }] }
+ *                     { type: "redline:set-links", selectors: string[] | null }  (play mode: clicks on a match are reported, not performed)
  * Artboard -> parent: { type: "redline:ready" }
  *                     { type: "redline:picked", selector, xPct, yPct }
  *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched }] }
+ *                     { type: "redline:link", selector }
  *
  * Plain ES5 on purpose: it is served as-is to the browser.
  */
@@ -15,6 +19,7 @@ export const BRIDGE_PATH = "/__redline/bridge.js";
 export const BRIDGE_SOURCE = `(function () {
   var picking = false;
   var pins = [];
+  var linkSelectors = null;
 
   function docSize() {
     var root = document.documentElement;
@@ -69,7 +74,25 @@ export const BRIDGE_SOURCE = `(function () {
     send({ type: "redline:pin-positions", positions: pins.map(locate) });
   }
 
+  function matchLink(target) {
+    for (var el = target; el && el.nodeType === 1; el = el.parentElement) {
+      for (var i = 0; i < linkSelectors.length; i++) {
+        try { if (el.matches(linkSelectors[i])) return linkSelectors[i]; } catch (e) {}
+      }
+    }
+    return null;
+  }
+
   document.addEventListener("click", function (event) {
+    if (linkSelectors) {
+      var link = matchLink(event.target);
+      if (link !== null) {
+        event.preventDefault();
+        event.stopPropagation();
+        send({ type: "redline:link", selector: link });
+      }
+      return;
+    }
     if (!picking && !event.altKey) return;
     event.preventDefault();
     event.stopPropagation();
@@ -87,6 +110,8 @@ export const BRIDGE_SOURCE = `(function () {
     if (event.data.type === "redline:set-mode") {
       picking = !!event.data.picking;
       document.documentElement.style.cursor = picking ? "crosshair" : "";
+    } else if (event.data.type === "redline:set-links") {
+      linkSelectors = event.data.selectors || null;
     } else if (event.data.type === "redline:set-pins") {
       pins = event.data.pins || [];
       reportPins();
@@ -103,4 +128,12 @@ export function injectBridge(html: string): string {
   const tag = `<script src="${BRIDGE_PATH}"></script>`;
   const end = html.lastIndexOf("</body>");
   return end === -1 ? html + tag : html.slice(0, end) + tag + html.slice(end);
+}
+
+/** Links a design system's live tokens at the start of the document head, before the page's own styles. */
+export function injectDesignSystem(html: string, designSystemId: string): string {
+  const tag = `<link rel="stylesheet" href="${designSystemTokensUrlPath(designSystemId)}">`;
+  const head = /<head[^>]*>/i.exec(html);
+  if (head) return html.slice(0, head.index + head[0].length) + tag + html.slice(head.index + head[0].length);
+  return tag + html;
 }

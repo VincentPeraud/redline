@@ -45,6 +45,7 @@ describe("pages over the server HTTP API", () => {
   });
 
   it("maps each path to a content hash and stores identical content once", async () => {
+    const seededBlobs = server.blobCount();
     const project = await createProject();
     const a = await createPage(project.id, { "home.html": HOME_HTML, "copy.html": HOME_HTML });
     const b = await createPage(project.id, { "home.html": HOME_HTML });
@@ -52,7 +53,7 @@ describe("pages over the server HTTP API", () => {
     expect(a.version.files["home.html"]).toMatch(/^[0-9a-f]{64}$/);
     expect(a.version.files["copy.html"]).toBe(a.version.files["home.html"]);
     expect(b.version.files["home.html"]).toBe(a.version.files["home.html"]);
-    expect(server.blobCount()).toBe(1);
+    expect(server.blobCount() - seededBlobs).toBe(1);
   });
 
   it("serves artboards from a separate origin, sandboxed", async () => {

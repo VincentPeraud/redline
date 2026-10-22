@@ -43,7 +43,7 @@ it("restores an earlier version and the artboard changes back", async () => {
   });
 
   const tab = await browser.newPage();
-  await tab.goto(server.url);
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
   const artboard = tab.frameLocator("iframe");
   await expect.poll(() => artboard.locator("h1").textContent()).toBe("Version two");
 
