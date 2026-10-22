@@ -51,3 +51,30 @@ it("shows which agent serves a project in the top bar, including the global agen
   await tab.reload();
   await expect.poll(() => pill.textContent()).toBe("Agent global iMac connecté");
 }, 60_000);
+
+it("sets the project's takeover exception from the agent pill popover, keyboard friendly", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Blog" })).json()) as Project;
+  const projectAgent = await server.connectAgent({ machine: "MacBook", folder: "/work/blog", projectId: project.id, model: "sonnet", effort: "low" });
+  await projectAgent.hello;
+  const tab = await browser.newPage();
+  await tab.goto(`${server.url}/#/projects/${project.id}`);
+
+  await tab.getByTestId("agent-pill").click();
+  const popover = tab.getByRole("dialog", { name: "Agent du projet" });
+  await popover.getByText("/work/blog").waitFor();
+  await popover.getByText("sonnet · low").waitFor();
+  const group = popover.getByRole("radiogroup");
+  const override = async () => ((await (await server.get(`/api/projects/${project.id}`)).json()) as Project).globalTakeoverOverride;
+  await expect.poll(() => group.getByLabel("Comme le réglage général (le fil attend son retour)").isChecked()).toBe(true);
+
+  await group.getByLabel("Toujours prendre le relais").click();
+  await expect.poll(override).toBe(true);
+  await group.getByLabel("Toujours attendre").click();
+  await expect.poll(override).toBe(false);
+  await group.getByLabel(/Comme le réglage général/).click();
+  await expect.poll(override).toBeNull();
+
+  await tab.keyboard.press("Escape");
+  await popover.waitFor({ state: "detached" });
+  await expect.poll(() => tab.evaluate(() => document.activeElement?.getAttribute("data-testid"))).toBe("agent-pill");
+}, 60_000);

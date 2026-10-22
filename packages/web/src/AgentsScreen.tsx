@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentOverview, AgentTokenResponse, CoveredProject, UpdateProjectRequest } from "@redline/shared";
+import type { AgentOverview, AgentTokenResponse, Settings } from "@redline/shared";
 import { routeHref } from "./router.js";
 import { relativeTime } from "./relativeTime.js";
 import { Button, Card, PageContent, PageHeader, SidePanel, StatusBadge, cx } from "./ui/index.js";
@@ -29,21 +29,31 @@ const TAKEOVER_OPTIONS = [
   { allow: true, title: "L'agent global prend le relais", description: "Le fil repart dans une nouvelle session, sans le contexte du projet." },
 ];
 
-function TakeoverChoice({ project, showProject, onChange }: { project: CoveredProject; showProject: boolean; onChange: () => void }) {
+function GlobalTakeoverSetting({ onChange }: { onChange: () => void }) {
+  const [takeover, setTakeover] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((res) => res.json() as Promise<Settings>)
+      .then((settings) => setTakeover(settings.globalTakeover));
+  }, []);
+
   async function choose(next: boolean) {
-    const body: UpdateProjectRequest = { globalTakeoverOverride: next };
-    await fetch(`/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    setTakeover(next);
+    const body: Partial<Settings> = { globalTakeover: next };
+    await fetch("/api/settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     onChange();
   }
+
   return (
-    <>
-      {showProject && <div className={styles.projectLabel}>{project.title}</div>}
-      <div role="radiogroup" aria-label={`Quand l'agent de ${project.title} est hors ligne`} className={styles.options}>
+    <Card as="section" padding="md" aria-label="Relais hors ligne">
+      <h2 className={styles.fallbackTitle}>Quand l'agent d'un projet est hors ligne</h2>
+      <div role="radiogroup" aria-label="Quand l'agent d'un projet est hors ligne" className={styles.options}>
         {TAKEOVER_OPTIONS.map((option) => {
-          const on = project.globalTakeover === option.allow;
+          const on = takeover === option.allow;
           return (
             <label key={option.title} className={cx(styles.option, on && styles.optionOn)}>
-              <input type="radio" className={styles.radio} name={`takeover-${project.id}`} checked={on} onChange={() => void choose(option.allow)} />
+              <input type="radio" className={styles.radio} name="global-takeover" checked={on} onChange={() => void choose(option.allow)} />
               <span className={styles.optionText}>
                 <span className={styles.optionTitle}>{option.title}</span>
                 <span className={styles.optionDesc}>{option.description}</span>
@@ -52,7 +62,7 @@ function TakeoverChoice({ project, showProject, onChange }: { project: CoveredPr
           );
         })}
       </div>
-    </>
+    </Card>
   );
 }
 
@@ -204,7 +214,6 @@ function LaunchPanel() {
 export function AgentsScreen() {
   const { home, refresh } = useHome();
   const agents = home?.agents ?? [];
-  const covered = agents.filter((agent) => agent.kind !== "global").flatMap((agent) => agent.projects);
 
   return (
     <>
@@ -219,14 +228,7 @@ export function AgentsScreen() {
             <AgentCard key={agent.id} agent={agent} />
           ))}
         </section>
-        {covered.length > 0 && (
-          <Card as="section" padding="md" aria-label="Relais hors ligne">
-            <h2 className={styles.fallbackTitle}>Quand l'agent d'un projet est hors ligne</h2>
-            {covered.map((project) => (
-              <TakeoverChoice key={project.id} project={project} showProject={covered.length > 1} onChange={refresh} />
-            ))}
-          </Card>
-        )}
+        <GlobalTakeoverSetting onChange={refresh} />
       </PageContent>
       <LaunchPanel />
     </>

@@ -9,6 +9,7 @@ import {
   type ProjectAsset,
   type Thread,
 } from "@redline/shared";
+import { AgentPill } from "./AgentPill.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
@@ -28,13 +29,6 @@ const FONT_EXTENSION = /\.(woff2?|ttf|otf)$/i;
 
 const folderName = (path: string) => path.split("/").filter(Boolean).pop() ?? path;
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
-
-function agentPill(project: Project): { tone: "success" | "neutral"; text: string } {
-  const { servedBy } = project;
-  if (servedBy?.kind === "global") return { tone: "success", text: `Agent global ${servedBy.machine} connecté` };
-  if (servedBy) return { tone: "success", text: `Agent ${folderName(servedBy.folder)} connecté` };
-  return { tone: "neutral", text: "Aucun agent connecté" };
-}
 
 function PageCard({
   page,
@@ -261,7 +255,6 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
 
   const openThreads = Object.values(pageStats).reduce((sum, stats) => sum + stats.openThreads, 0);
   const summary = `${plural(pages.length, "page", "pages")} · ${plural(openThreads, "fil ouvert", "fils ouverts")}`;
-  const pill = agentPill(project);
   const assetPreviewPage = pages[0];
   const assetEntries = groupAssets(assets);
 
@@ -277,10 +270,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
           <span className={styles.current}>{project.title}</span>
         </nav>
         <div className={styles.spacer} />
-        <StatusBadge tone={pill.tone} className={styles.agentPill} data-testid="agent-pill">
-          <span className={cx(styles.dot, pill.tone === "success" && styles.dotOnline)} aria-hidden="true" />
-          {pill.text}
-        </StatusBadge>
+        <AgentPill project={project} onProjectChange={setProject} />
         <Button variant="accent" onClick={() => setCreating(true)}>
           Nouvelle page
         </Button>

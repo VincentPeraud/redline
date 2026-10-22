@@ -90,26 +90,6 @@
   color: var(--color-text-muted);
 }
 
-.agentPill {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 6px 12px;
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-regular);
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-offline);
-}
-
-.dotOnline {
-  background: var(--color-online);
-}
-
 .section {
   display: flex;
   flex-direction: column;
