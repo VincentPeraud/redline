@@ -7,7 +7,7 @@ export const HOME_PATH = "/api/home";
 export interface CoveredProject {
   id: string;
   title: string;
-  allowGlobalTakeover: boolean;
+  globalTakeover: boolean;
 }
 
 export interface AgentOverview extends AgentInfo {

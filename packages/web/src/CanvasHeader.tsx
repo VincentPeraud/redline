@@ -102,11 +102,7 @@ function PageMenu({ project, pageId, pageTitle }: { project: Project | null; pag
             >
               {page.title}
               <span className={styles.spacer} />
-              {openThreads > 0 ? (
-                <span className={styles.menuWarn}>{plural(openThreads, "fil", "fils")}</span>
-              ) : page.type === "comparison" ? (
-                <span className={styles.menuMuted}>planche</span>
-              ) : null}
+              {openThreads > 0 ? <span className={styles.menuWarn}>{plural(openThreads, "fil", "fils")}</span> : null}
             </a>
           ))}
           <div className={styles.menuDivider} />

@@ -31,7 +31,7 @@ const TAKEOVER_OPTIONS = [
 
 function TakeoverChoice({ project, showProject, onChange }: { project: CoveredProject; showProject: boolean; onChange: () => void }) {
   async function choose(next: boolean) {
-    const body: UpdateProjectRequest = { allowGlobalTakeover: next };
+    const body: UpdateProjectRequest = { globalTakeoverOverride: next };
     await fetch(`/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     onChange();
   }
@@ -40,7 +40,7 @@ function TakeoverChoice({ project, showProject, onChange }: { project: CoveredPr
       {showProject && <div className={styles.projectLabel}>{project.title}</div>}
       <div role="radiogroup" aria-label={`Quand l'agent de ${project.title} est hors ligne`} className={styles.options}>
         {TAKEOVER_OPTIONS.map((option) => {
-          const on = project.allowGlobalTakeover === option.allow;
+          const on = project.globalTakeover === option.allow;
           return (
             <label key={option.title} className={cx(styles.option, on && styles.optionOn)}>
               <input type="radio" className={styles.radio} name={`takeover-${project.id}`} checked={on} onChange={() => void choose(option.allow)} />
@@ -115,7 +115,7 @@ function AgentCard({ agent }: { agent: AgentOverview }) {
           {agent.projects.map((project) => (
             <li key={project.id} className={styles.coveredItem}>
               <a href={routeHref({ name: "project", projectId: project.id })}>{project.title}</a>
-              {!global && <span className={styles.secondary}>{project.allowGlobalTakeover ? "L'agent global prend le relais" : "Le fil attend son retour"}</span>}
+              {!global && <span className={styles.secondary}>{project.globalTakeover ? "L'agent global prend le relais" : "Le fil attend son retour"}</span>}
             </li>
           ))}
         </ul>

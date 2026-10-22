@@ -29,8 +29,8 @@ afterAll(async () => {
 
 it("shows recent pages, running work and agents on the home, with live sidebar counts", async () => {
   const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
-  const files = starterPageFiles("Landing", "prototype", null);
-  const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Landing", type: "prototype", files })).json()) as Page;
+  const files = starterPageFiles("Landing", null);
+  const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Landing", files })).json()) as Page;
 
   const tab = await browser.newPage();
   await tab.goto(`${server.url}/#/nowhere/1`);
@@ -76,7 +76,7 @@ it("lists every agent on the Agents screen and lets the takeover choice be chang
   const takeover = tab.getByRole("radiogroup", { name: /Blog/ }).getByLabel("L'agent global prend le relais");
   await takeover.click();
   await expect
-    .poll(async () => ((await (await server.get(`/api/projects/${project.id}`)).json()) as Project).allowGlobalTakeover)
+    .poll(async () => ((await (await server.get(`/api/projects/${project.id}`)).json()) as Project).globalTakeover)
     .toBe(true);
   await expect.poll(() => takeover.isChecked()).toBe(true);
 

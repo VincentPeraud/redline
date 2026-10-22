@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
 import { extname } from "node:path";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
   MANIFEST_PATH,
   TWEAKS_PATH,
-  PAGE_TYPES,
+  MAX_ELEMENT_NAME_LENGTH,
+  MAX_TITLE_LENGTH,
   isSafePath,
   parseManifest,
   starterDesignSystemFiles,
@@ -22,6 +23,8 @@ import {
   type SendHeldResponse,
   type UpdateThreadRequest,
   type ServerConfig,
+  type Settings,
+  type UpdatePageRequest,
   type UpdateProjectRequest,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
@@ -37,6 +40,7 @@ import { registerContextTracking } from "./context.js";
 import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
+import { registerArtboardHistoryRoutes } from "./artboard-history.js";
 import { registerRequestHardening } from "./request-hardening.js";
 import { registerDesignSystemReload } from "./design-system-reload.js";
 import { registerSessionRoutes } from "./sessions.js";
@@ -58,6 +62,12 @@ const MIME: Record<string, string> = {
   ".gif": "image/gif",
   ".webp": "image/webp",
 };
+
+/** Error message when a project or page name is not a non-empty string of at most `MAX_TITLE_LENGTH` characters once trimmed, else null. */
+function titleError(title: unknown): string | null {
+  if (!requiredString(title)) return "title is required";
+  return title.trim().length > MAX_TITLE_LENGTH ? `title must be at most ${MAX_TITLE_LENGTH} characters` : null;
+}
 
 /** API and web UI. */
 export async function buildMainApp(
@@ -81,6 +91,7 @@ export async function buildMainApp(
   registerContextTracking(app, store, pageLock, knownWindows);
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
   registerSessionRoutes(app, store, pageLock, runs, lastConversationWork);
+  registerArtboardHistoryRoutes(app, store);
   pageLock.restore();
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {
@@ -116,25 +127,40 @@ export async function buildMainApp(
 
   app.patch<{ Params: { projectId: string }; Body: UpdateProjectRequest }>("/api/projects/:projectId", async (req, reply) => {
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-    const { allowGlobalTakeover } = req.body ?? ({} as Partial<UpdateProjectRequest>);
-    if (allowGlobalTakeover !== undefined) {
-      if (typeof allowGlobalTakeover !== "boolean") return reply.code(400).send({ error: "allowGlobalTakeover must be a boolean" });
-      store.setAllowGlobalTakeover(req.params.projectId, allowGlobalTakeover);
+    const { title, globalTakeoverOverride } = req.body ?? ({} as Partial<UpdateProjectRequest>);
+    if (title !== undefined && titleError(title)) return reply.code(400).send({ error: titleError(title) });
+    if (globalTakeoverOverride !== undefined && globalTakeoverOverride !== null && typeof globalTakeoverOverride !== "boolean") {
+      return reply.code(400).send({ error: "globalTakeoverOverride must be a boolean or null" });
+    }
+    if (title !== undefined) store.renameProject(req.params.projectId, title.trim());
+    if (globalTakeoverOverride !== undefined) {
+      store.setTakeoverOverride(req.params.projectId, globalTakeoverOverride);
       pageLock.reconsider();
     }
     return withServedBy(store, store.getProject(req.params.projectId)!);
+  });
+
+  app.get("/api/settings", async (): Promise<Settings> => ({ globalTakeover: store.getGlobalTakeover() }));
+
+  app.patch<{ Body: Partial<Settings> }>("/api/settings", async (req, reply): Promise<Settings> => {
+    const { globalTakeover } = req.body ?? {};
+    if (globalTakeover !== undefined) {
+      if (typeof globalTakeover !== "boolean") return reply.code(400).send({ error: "globalTakeover must be a boolean" });
+      store.setGlobalTakeover(globalTakeover);
+      pageLock.reconsider();
+    }
+    return { globalTakeover: store.getGlobalTakeover() };
   });
 
   app.post<{ Params: { projectId: string }; Body: CreatePageRequest }>(
     "/api/projects/:projectId/pages",
     async (req, reply) => {
       if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-      const { title, type, files } = req.body ?? ({} as Partial<CreatePageRequest>);
+      const { title, files } = req.body ?? ({} as Partial<CreatePageRequest>);
       if (!requiredString(title)) return reply.code(400).send({ error: "title is required" });
-      if (!(PAGE_TYPES as readonly unknown[]).includes(type)) return reply.code(400).send({ error: "invalid type" });
       const invalidFiles = pageFilesError(files);
       if (invalidFiles) return reply.code(400).send({ error: invalidFiles });
-      return reply.code(201).send(store.createPage(req.params.projectId, title, type!, files!));
+      return reply.code(201).send(store.createPage(req.params.projectId, title, files!));
     },
   );
 
@@ -191,6 +217,15 @@ export async function buildMainApp(
     return page ?? reply.code(404).send({ error: "page not found" });
   });
 
+  app.patch<{ Params: { pageId: string }; Body: UpdatePageRequest }>("/api/pages/:pageId", async (req, reply) => {
+    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+    const title = req.body?.title;
+    const invalid = titleError(title);
+    if (invalid) return reply.code(400).send({ error: invalid });
+    store.renamePage(req.params.pageId, (title as string).trim());
+    return store.getPage(req.params.pageId);
+  });
+
   app.post<{ Params: { pageId: string }; Body: CreateThreadRequest }>(
     "/api/pages/:pageId/threads",
     async (req, reply) => {
@@ -202,6 +237,9 @@ export async function buildMainApp(
       if (typeof pin.artboard !== "string" || !isSafePath(pin.artboard)) return reply.code(400).send({ error: "invalid artboard" });
       if (!isPct(pin.xPct) || !isPct(pin.yPct)) return reply.code(400).send({ error: "position must be a percentage" });
       if (pin.held !== undefined && typeof pin.held !== "boolean") return reply.code(400).send({ error: "held must be a boolean" });
+      if (pin.elementName !== undefined && (typeof pin.elementName !== "string" || pin.elementName.length > MAX_ELEMENT_NAME_LENGTH)) {
+        return reply.code(400).send({ error: `elementName must be a string of at most ${MAX_ELEMENT_NAME_LENGTH} characters` });
+      }
       const invalidChoice = modelChoiceError(pin);
       if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
       const thread = store.createThread(req.params.pageId, pin as CreateThreadRequest);
@@ -353,10 +391,17 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
       .send(content);
   });
 
-  app.get<{ Params: { pageId: string; "*": string } }>("/pages/:pageId/*", async (req, reply) => {
-    const path = req.params["*"];
-    const pageFile = store.readPageFile(req.params.pageId, path);
-    const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, req.params.pageId, path.slice("assets/".length)) : undefined);
+  // A page as it was in one version (history preview): same sandbox and injections as the live artboards, read-only.
+  app.get<{ Params: { pageId: string; versionId: string; "*": string } }>("/page-versions/:pageId/:versionId/*", async (req, reply) =>
+    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"])),
+  );
+
+  app.get<{ Params: { pageId: string; "*": string } }>("/pages/:pageId/*", async (req, reply) =>
+    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readPageFile(req.params.pageId, req.params["*"])),
+  );
+
+  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined) {
+    const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, pageId, path.slice("assets/".length)) : undefined);
     if (!asset) return reply.code(404).send("not found");
     // Artboards are opaque-origin, so fonts of the project assets need CORS to load.
     if (!pageFile) reply.header("access-control-allow-origin", "*");
@@ -365,8 +410,8 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[extname(path)] ?? "application/octet-stream")
-      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), designSystemIdOf(store, req.params.pageId))) : content);
-  });
+      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), designSystemIdOf(store, pageId))) : content);
+  }
 
   return app;
 }

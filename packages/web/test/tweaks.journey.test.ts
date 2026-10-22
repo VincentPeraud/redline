@@ -32,7 +32,6 @@ it("adjusts every tweak type on the canvas and in play mode, versions each chang
   const page = (await (
     await server.post(`/api/projects/${project.id}/pages`, {
       title: "Home",
-      type: "prototype",
       files: {
         "home.html": "<!doctype html><body><h1>Hello</h1></body>",
         "manifest.json": JSON.stringify({

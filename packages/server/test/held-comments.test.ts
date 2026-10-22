@@ -17,7 +17,7 @@ describe("held comments and batches", () => {
     return (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
   }
   async function createPage(project: Project, title: string): Promise<Page> {
-    return (await (await server.post(`/api/projects/${project.id}/pages`, { title, type: "prototype", files: FILES })).json()) as Page;
+    return (await (await server.post(`/api/projects/${project.id}/pages`, { title, files: FILES })).json()) as Page;
   }
   async function hold(page: Page, body: string, selector = "h1"): Promise<Thread> {
     const request = { artboard: "home.html", selector, xPct: 10, yPct: 20, body, held: true };

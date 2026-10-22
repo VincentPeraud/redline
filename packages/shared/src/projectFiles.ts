@@ -17,11 +17,42 @@ export interface DesignMdResponse {
   content: string;
 }
 
+/** Who saved a DESIGN.md version: a thread or conversation run (Claude), or the user in the editor. Versions from before origins existed are "user". */
+export type DesignMdOrigin = "thread" | "conversation" | "user";
+
+export interface DesignMdAuthor {
+  origin: DesignMdOrigin;
+  /** Thread or conversation id (first thread of a batch). */
+  originId?: string;
+  /** Its title when the version was saved. */
+  originLabel?: string;
+}
+
 /** One saved state of DESIGN.md. */
-export interface DesignMdVersion {
+export interface DesignMdVersion extends DesignMdAuthor {
   id: string;
   content: string;
   createdAt: string;
+}
+
+/**
+ * One rule of DESIGN.md: every non-blank line (list item, heading or paragraph line), compared trimmed. `line` is
+ * 1-based in the current text. A rule comes from the oldest version since which a line with that text has been
+ * present in every version up to the current one; editing a line makes it a new rule. When a text appears several
+ * times, the k-th occurrence is matched to the k-th occurrence of earlier versions.
+ */
+export interface DesignMdRule extends DesignMdAuthor {
+  line: number;
+  text: string;
+  versionId: string;
+  createdAt: string;
+}
+
+/** `GET /api/projects/:id/design-md/info`. `lastModified` is null while DESIGN.md was never saved. */
+export interface DesignMdInfo {
+  versionCount: number;
+  lastModified: (DesignMdAuthor & { versionId: string; createdAt: string }) | null;
+  rules: DesignMdRule[];
 }
 
 export interface SaveDesignMdRequest {

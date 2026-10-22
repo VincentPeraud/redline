@@ -60,7 +60,7 @@ describe("state-changing requests to /api", () => {
     const patch = await fetch(`${server.url}/api/projects/${project.id}`, {
       method: "PATCH",
       headers: { "content-type": "text/plain" },
-      body: JSON.stringify({ allowGlobalTakeover: true }),
+      body: JSON.stringify({ globalTakeoverOverride: true }),
     });
     expect(patch.status).toBe(415);
   });
@@ -89,7 +89,7 @@ describe("responses of the web server", () => {
     server = await startTestServer();
     const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
     page = (await (
-      await server.post(`/api/projects/${project.id}/pages`, { title: "Home", type: "prototype", files: { "home.html": "<script>alert(1)</script>" } })
+      await server.post(`/api/projects/${project.id}/pages`, { title: "Home", files: { "home.html": "<script>alert(1)</script>" } })
     ).json()) as Page;
   });
   afterEach(async () => {
@@ -142,7 +142,7 @@ describe("the agent API", () => {
   it("refuses a model name that is not a plain model name", async () => {
     const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
     const page = (await (
-      await server.post(`/api/projects/${project.id}/pages`, { title: "Home", type: "prototype", files: { "home.html": "<h1>Hi</h1>" } })
+      await server.post(`/api/projects/${project.id}/pages`, { title: "Home", files: { "home.html": "<h1>Hi</h1>" } })
     ).json()) as Page;
     const thread = (await (
       await server.post(`/api/pages/${page.id}/threads`, { artboard: "home.html", selector: "h1", xPct: 1, yPct: 2, body: "Hi?" })

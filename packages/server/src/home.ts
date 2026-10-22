@@ -14,7 +14,7 @@ export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock:
     const covered = (agentId: string, kind: string): CoveredProject[] =>
       projects
         .filter((p) => (kind === "global" ? !p.agent : p.agent?.id === agentId))
-        .map((p) => ({ id: p.id, title: p.title, allowGlobalTakeover: p.allowGlobalTakeover }));
+        .map((p) => ({ id: p.id, title: p.title, globalTakeover: p.globalTakeover }));
 
     const agents: AgentOverview[] = store.listAgents().map((agent) => {
       const coveredProjects = covered(agent.id, agent.kind);

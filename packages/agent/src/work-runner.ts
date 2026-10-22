@@ -2,7 +2,7 @@ import type { AgentWorkMessage, EngineEvent, WorkItem } from "@redline/shared";
 import type { Engine } from "./engine.js";
 import { startSessionMcp } from "./session-mcp.js";
 import type { ServerApi } from "./server-api.js";
-import { readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
+import { readDesignMd, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
 
 export interface RunContext {
   folder: string;
@@ -33,6 +33,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
       allowedThreadIds: item.threads.map((t) => t.threadId),
       pageId: item.pageId,
       workingCopyDir: dir,
+      workId: item.id,
       postReply: async (threadId, text) => void replies.set(threadId, [...(replies.get(threadId) ?? []), text]),
     });
     let result: EngineEvent | undefined;
@@ -58,13 +59,19 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
 
     const files = readWorkingCopy(dir);
     const postReplies = async () => {
-      for (const [threadId, texts] of replies) for (const text of texts) await api.replyInThread(threadId, text);
+      for (const [threadId, texts] of replies) for (const text of texts) await api.replyInThread(threadId, text, item.id);
     };
-    if (sameFiles(files, checkout.files)) {
+    // The session may edit DESIGN.md (the rules of the project); a changed one is published with the run.
+    const designMd = readDesignMd(dir);
+    const designMdChanged = designMd !== undefined && designMd !== checkout.project.designMd;
+    if (sameFiles(files, checkout.files) && !designMdChanged) {
       await postReplies();
       return send({ type: "work-done", workId: item.id });
     }
-    const version = await api.publish(item.pageId, files, versionMessage(item, result.summary), item.kind === "conversation" ? "conversation" : "thread", checkout.versionId);
+    const version = await api.publish(item.pageId, files, versionMessage(item, result.summary), item.kind === "conversation" ? "conversation" : "thread", checkout.versionId, {
+      workId: item.id,
+      ...(designMdChanged ? { designMd: { content: designMd, base: checkout.project.designMd } } : {}),
+    });
     await postReplies();
     send({ type: "work-done", workId: item.id, versionId: version.id });
   } catch (error) {

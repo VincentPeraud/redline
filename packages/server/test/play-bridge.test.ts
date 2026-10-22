@@ -16,7 +16,7 @@ beforeEach(async () => {
   server = await startTestServer();
   const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
   const page = (await (
-    await server.post(`/api/projects/${project.id}/pages`, { title: "P", type: "prototype", files: { "home.html": ARTBOARD } })
+    await server.post(`/api/projects/${project.id}/pages`, { title: "P", files: { "home.html": ARTBOARD } })
   ).json()) as Page;
   const html = await (await fetch(`${server.artboardOrigin}/pages/${page.id}/home.html`)).text();
   const src = /<script src="([^"]+)"><\/script>/.exec(html)![1]!;

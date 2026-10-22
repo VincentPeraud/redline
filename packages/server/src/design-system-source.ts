@@ -14,7 +14,7 @@ export function sourcePagesMessage(store: Store, project: Project): string {
       if (shown === "") return `File ${path} (omitted)`;
       return `File ${path}:\n${shown}${shown.length < content.length ? "\n[truncated]" : ""}`;
     });
-    return [`Page "${page.title}" (id ${page.id}, ${page.type})`, ...files].join("\n\n");
+    return [`Page "${page.title}" (id ${page.id})`, ...files].join("\n\n");
   });
   return [
     `This design system is being derived from the pages of the project "${project.title}" (id ${project.id}).`,

@@ -13,7 +13,6 @@ beforeEach(async () => {
   page = (await (
     await server.post(`/api/projects/${project.id}/pages`, {
       title: "Home",
-      type: "prototype",
       files: { "home.html": "<h1>Hi</h1>" },
     })
   ).json()) as Page;

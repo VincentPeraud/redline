@@ -6,7 +6,10 @@ import {
   NEUTRAL_DESIGN_SYSTEM_ID,
   isSafePath,
   parseManifest,
+  type DesignMdAuthor,
+  type DesignMdInfo,
   type DesignMdResponse,
+  type DesignMdRule,
   type DesignMdVersion,
   type ProjectAsset,
   type ProjectContext,
@@ -63,6 +66,41 @@ export function readPageAsset(store: Store, pageId: string, rawName: string): Bu
   return page && name !== undefined ? store.readProjectFile(page.projectId, `${ASSETS_DIR}/${name}`) : undefined;
 }
 
+const authorOf = ({ origin, originId, originLabel }: DesignMdAuthor): DesignMdAuthor => ({
+  origin,
+  ...(originId ? { originId } : {}),
+  ...(originLabel ? { originLabel } : {}),
+});
+
+const linesOf = (content: string): { text: string; line: number }[] =>
+  content
+    .split("\n")
+    .map((raw, i) => ({ text: raw.trim(), line: i + 1 }))
+    .filter((l) => l.text !== "");
+
+/**
+ * Where each rule (non-blank line, see `DesignMdRule`) of the current DESIGN.md comes from. `versions` is newest first.
+ * The k-th occurrence of a text is introduced by the oldest version from which that text occurs at least k times in
+ * every version up to the current one.
+ */
+export function designMdRules(versions: DesignMdVersion[]): DesignMdRule[] {
+  if (versions.length === 0) return [];
+  const counts = versions.map((v) => {
+    const byText = new Map<string, number>();
+    for (const { text } of linesOf(v.content)) byText.set(text, (byText.get(text) ?? 0) + 1);
+    return byText;
+  });
+  const seen = new Map<string, number>();
+  return linesOf(versions[0].content).map(({ text, line }): DesignMdRule => {
+    const occurrence = (seen.get(text) ?? 0) + 1;
+    seen.set(text, occurrence);
+    let introducedBy = 0;
+    while (introducedBy + 1 < versions.length && (counts[introducedBy + 1].get(text) ?? 0) >= occurrence) introducedBy++;
+    const version = versions[introducedBy];
+    return { line, text, versionId: version.id, createdAt: version.createdAt, ...authorOf(version) };
+  });
+}
+
 export async function registerProjectFileRoutes(app: FastifyInstance, store: Store): Promise<void> {
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/design-md", async (req, reply): Promise<DesignMdResponse> => {
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
@@ -80,6 +118,17 @@ export async function registerProjectFileRoutes(app: FastifyInstance, store: Sto
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/design-md/versions", async (req, reply): Promise<DesignMdVersion[]> => {
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
     return store.listDesignMdVersions(req.params.projectId);
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/design-md/info", async (req, reply): Promise<DesignMdInfo> => {
+    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    const versions = store.listDesignMdVersions(req.params.projectId);
+    const last = versions[0];
+    return {
+      versionCount: versions.length,
+      lastModified: last ? { versionId: last.id, createdAt: last.createdAt, ...authorOf(last) } : null,
+      rules: designMdRules(versions),
+    };
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/assets", async (req, reply): Promise<ProjectAsset[]> => {

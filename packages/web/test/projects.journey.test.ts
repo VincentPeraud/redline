@@ -49,15 +49,14 @@ it("creates a project, then a page from its overview, and opens it on the canvas
   await tab.getByRole("button", { name: "Nouvelle page" }).first().click();
   const pageDialog = tab.getByRole("dialog", { name: "Nouvelle page" });
   await pageDialog.getByLabel("Nom de la page").fill("Landing");
-  await pageDialog.getByRole("radio", { name: "Planche" }).click();
   await pageDialog.getByRole("button", { name: "Créer la page" }).click();
 
   await expect.poll(() => tab.url()).toContain("#/pages/");
-  await expect.poll(() => tab.locator("iframe").count()).toBe(2);
+  await expect.poll(() => tab.locator("iframe").count()).toBe(1);
 
   await tab.getByRole("link", { name: "Acme" }).click();
   const card = tab.getByRole("link", { name: /Landing/ });
   await card.waitFor();
-  await expect.poll(() => card.locator("iframe").count()).toBe(2);
-  await card.getByText("planche").waitFor();
+  await expect.poll(() => card.locator("iframe").count()).toBe(1);
+  await card.getByText("1 artboard").waitFor();
 }, 60_000);
