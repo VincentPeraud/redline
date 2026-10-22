@@ -13,6 +13,8 @@ export interface ConnectOptions {
   machine: string;
   folder: string;
   kind: AgentKind;
+  /** The project a project agent serves. */
+  projectId?: string;
   /** Overridable for tests; defaults to this build's protocol version. */
   protocolVersion?: number;
 }
@@ -43,6 +45,7 @@ export function connectToServer(options: ConnectOptions): Promise<AgentConnectio
         machine: options.machine,
         folder: options.folder,
         kind: options.kind,
+        projectId: options.projectId,
       };
       socket.send(JSON.stringify(hello));
     });

@@ -6,9 +6,11 @@ import { designSystemTokensUrlPath } from "@redline/shared";
  *
  * Parent -> artboard: { type: "redline:set-mode", picking: boolean }
  *                     { type: "redline:set-pins", pins: [{ id, selector, xPct, yPct }] }
+ *                     { type: "redline:set-links", selectors: string[] | null }  (play mode: clicks on a match are reported, not performed)
  * Artboard -> parent: { type: "redline:ready" }
  *                     { type: "redline:picked", selector, xPct, yPct }
  *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched }] }
+ *                     { type: "redline:link", selector }
  *
  * Plain ES5 on purpose: it is served as-is to the browser.
  */
@@ -17,6 +19,7 @@ export const BRIDGE_PATH = "/__redline/bridge.js";
 export const BRIDGE_SOURCE = `(function () {
   var picking = false;
   var pins = [];
+  var linkSelectors = null;
 
   function docSize() {
     var root = document.documentElement;
@@ -71,7 +74,25 @@ export const BRIDGE_SOURCE = `(function () {
     send({ type: "redline:pin-positions", positions: pins.map(locate) });
   }
 
+  function matchLink(target) {
+    for (var el = target; el && el.nodeType === 1; el = el.parentElement) {
+      for (var i = 0; i < linkSelectors.length; i++) {
+        try { if (el.matches(linkSelectors[i])) return linkSelectors[i]; } catch (e) {}
+      }
+    }
+    return null;
+  }
+
   document.addEventListener("click", function (event) {
+    if (linkSelectors) {
+      var link = matchLink(event.target);
+      if (link !== null) {
+        event.preventDefault();
+        event.stopPropagation();
+        send({ type: "redline:link", selector: link });
+      }
+      return;
+    }
     if (!picking && !event.altKey) return;
     event.preventDefault();
     event.stopPropagation();
@@ -89,6 +110,8 @@ export const BRIDGE_SOURCE = `(function () {
     if (event.data.type === "redline:set-mode") {
       picking = !!event.data.picking;
       document.documentElement.style.cursor = picking ? "crosshair" : "";
+    } else if (event.data.type === "redline:set-links") {
+      linkSelectors = event.data.selectors || null;
     } else if (event.data.type === "redline:set-pins") {
       pins = event.data.pins || [];
       reportPins();
