@@ -22,7 +22,7 @@ claude -p (--session-id <uuid> | --resume <uuid>) --output-format stream-json --
 
 ## Permissions
 
-`dontAsk` denies everything not explicitly allowed (no prompt). Verified on a real run: a write to `.redline/p1/a.txt` and to `.redline/p1/sub/a.txt` succeeds; a write to `.redline/other/b.txt` or `outside.txt` is denied (`system` event `permission_denied`); Bash is absent from the session's tools. In a path pattern, a leading `/` means "relative to the session's cwd" (the agent's folder), so the rule is the page's working copy only. The MCP server is named `redline`, so its tools are `mcp__redline__<tool>`.
+`dontAsk` denies everything not explicitly allowed (no prompt). Verified on a real run: a write to `.redline/p1/a.txt` and to `.redline/p1/sub/a.txt` succeeds; a write to `.redline/other/b.txt` or `outside.txt` is denied (`system` event `permission_denied`); Bash is absent from the session's tools. DESIGN.md of the project sits at the root of that working copy, so a session may edit it with the same `Edit`/`Write` rules (no extra allowed tool; the runner publishes it, see `docs/conventions.md`). Nothing outside `.redline/<page>/` is writable. In a path pattern, a leading `/` means "relative to the session's cwd" (the agent's folder), so the rule is the page's working copy only. The MCP server is named `redline`, so its tools are `mcp__redline__<tool>`.
 
 ### What a session can read
 
