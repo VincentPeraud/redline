@@ -1,8 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import type { Page, PageType, Project } from "@redline/shared";
+import type { AgentInfo, AgentKind, Page, PageType, Project } from "@redline/shared";
 
 export class Store {
   private readonly db: Database.Database;
@@ -32,11 +32,62 @@ export class Store {
         files TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS agents (
+        id TEXT PRIMARY KEY,
+        machine TEXT NOT NULL,
+        folder TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        UNIQUE (machine, folder)
+      );
+      UPDATE agents SET status = 'offline';
     `);
   }
 
   close(): void {
     this.db.close();
+  }
+
+  /** The agents' token, generated on first read. */
+  getAgentToken(): string {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key = 'agent_token'").get() as
+      | { value: string }
+      | undefined;
+    return row?.value ?? this.regenerateAgentToken();
+  }
+
+  regenerateAgentToken(): string {
+    const token = `abt_${randomBytes(24).toString("hex")}`;
+    this.db
+      .prepare("INSERT INTO settings (key, value) VALUES ('agent_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(token);
+    return token;
+  }
+
+  /** Records an agent as online; one entry per machine and folder. */
+  markAgentOnline(machine: string, folder: string, kind: AgentKind): string {
+    this.db
+      .prepare(
+        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at) VALUES (?, ?, ?, ?, 'online', ?)
+         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at`,
+      )
+      .run(randomUUID(), machine, folder, kind, now());
+    return (this.db.prepare("SELECT id FROM agents WHERE machine = ? AND folder = ?").get(machine, folder) as { id: string }).id;
+  }
+
+  markAgentOffline(id: string): void {
+    this.db.prepare("UPDATE agents SET status = 'offline', last_seen_at = ? WHERE id = ?").run(now(), id);
+  }
+
+  listAgents(): AgentInfo[] {
+    return this.db
+      .prepare("SELECT id, machine, folder, kind, status, last_seen_at AS lastSeenAt FROM agents ORDER BY machine, folder")
+      .all() as AgentInfo[];
   }
 
   createProject(title: string): Project {
