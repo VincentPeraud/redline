@@ -109,7 +109,9 @@ export type ServerEvent =
   /** A work item failed and will be sent again at `retryAt` (ISO time); `message` is why it failed. */
   | { type: "work-retrying"; pageId: string; workId: string; threadIds: string[]; retryAt: string; limit: boolean; message: string }
   /** Live state of a run, sent after every change (full snapshot, replace by `workId`). */
-  | { type: "run-updated"; pageId: string; run: ThreadRun };
+  | { type: "run-updated"; pageId: string; run: ThreadRun }
+  /** An agent connected or disconnected. */
+  | { type: "agents-updated" };
 
 /** Where a thread is in its run: sent to the agent, Claude working, answered, waiting for a retry, or failed for good. */
 export type RunStatus = "sent" | "running" | "answered" | "retrying" | "failed";

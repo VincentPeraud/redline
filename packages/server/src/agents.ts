@@ -108,9 +108,11 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
       }
       const agentId = store.markAgentOnline(hello.machine, hello.folder, hello.kind, hello.projectId, hello.model, hello.effort);
       connected.set(socket, agentId);
+      store.emit({ type: "agents-updated" });
       socket.on("close", () => {
         if (!connected.delete(socket)) return;
         store.markAgentOffline(agentId);
+        store.emit({ type: "agents-updated" });
         for (const listener of offlineListeners) listener(agentId);
       });
       socket.on("message", (data) => {
@@ -129,6 +131,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
     for (const [socket, agentId] of connected) {
       connected.delete(socket);
       store.markAgentOffline(agentId);
+      store.emit({ type: "agents-updated" });
       socket.close(AgentCloseCode.Unauthorized, "token regenerated");
       for (const listener of offlineListeners) listener(agentId);
     }

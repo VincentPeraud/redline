@@ -350,6 +350,18 @@ export class Store {
     return ids.map(({ id }) => this.getPage(id)!);
   }
 
+  /** Pages of regular projects (not design systems), most recently changed first, with the time of their last version. */
+  listRecentPages(limit: number): { page: Page; updatedAt: string }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT p.id, MAX(v.created_at) AS updatedAt FROM pages p JOIN versions v ON v.page_id = p.id
+         WHERE p.project_id NOT IN (SELECT project_id FROM design_systems)
+         GROUP BY p.id ORDER BY updatedAt DESC, p.rowid DESC LIMIT ?`,
+      )
+      .all(limit) as { id: string; updatedAt: string }[];
+    return rows.map(({ id, updatedAt }) => ({ page: this.getPage(id)!, updatedAt }));
+  }
+
   getPage(id: string): Page | undefined {
     const row = this.db
       .prepare("SELECT id, project_id, title, type FROM pages WHERE id = ?")

@@ -1,6 +1,7 @@
 import type { AgentWorkMessage, Effort, ThreadContext, ThreadReply, WorkItem } from "./work.js";
 
 export * from "./work.js";
+export * from "./home.js";
 
 export const PROTOCOL_VERSION = 1;
 

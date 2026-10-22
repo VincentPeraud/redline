@@ -38,6 +38,7 @@ import { PageLock } from "./page-lock.js";
 import { registerContextTracking } from "./context.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
+import { registerHomeRoutes } from "./home.js";
 import { dispatchBatch, dispatchReply, dispatchThread } from "./work.js";
 
 const MIME: Record<string, string> = {
@@ -94,6 +95,7 @@ export async function buildMainApp(
   await registerProjectFileRoutes(app, store);
   registerEventRoutes(app, store);
   registerRunRoutes(app, store);
+  registerHomeRoutes(app, store, pageLock);
   const knownWindows = new Map<string, number>();
   registerContextTracking(app, store, pageLock, knownWindows);
   registerConversationRoutes(app, store, pageLock, knownWindows);

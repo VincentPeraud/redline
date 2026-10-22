@@ -29,7 +29,7 @@ afterAll(async () => {
 
 it("creates a project, then a page from its overview, and opens it on the canvas", async () => {
   const tab = await browser.newPage();
-  await tab.goto(server.url);
+  await tab.goto(`${server.url}/#/projects`);
 
   await tab.getByRole("button", { name: "New project" }).click();
   const dialog = tab.getByRole("dialog", { name: "New project" });

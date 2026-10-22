@@ -91,9 +91,6 @@ export function ProjectsScreen() {
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
       <h1>Redline</h1>
-      <nav>
-        <a href={routeHref({ name: "agents" })}>Agents</a>
-      </nav>
       <h2>Projects</h2>
       <button onClick={() => setCreating(true)}>New project</button>
       {projects?.length === 0 && <p>No project yet.</p>}

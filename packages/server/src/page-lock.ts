@@ -154,6 +154,26 @@ export class PageLock {
     );
   }
 
+  /** Every item running on an agent and every item waiting, across pages (home screen and sidebar). */
+  overview(): { running: { workId: string; pageId: string; agentId: string; threadIds: string[] }[]; waiting: (QueueEntry & { projectId: string })[] } {
+    const running = [...this.active.values()]
+      .filter((held) => held.agentId !== "")
+      .map((held) => ({
+        workId: held.queued.item.id,
+        pageId: held.queued.item.pageId,
+        agentId: held.agentId,
+        threadIds: held.queued.item.threads.map((t) => t.threadId),
+      }));
+    const waiting = this.reasons().map(({ queued, reason }) => ({
+      workId: queued.item.id,
+      pageId: queued.item.pageId,
+      projectId: queued.projectId,
+      threadIds: queued.item.threads.map((t) => t.threadId),
+      reason,
+    }));
+    return { running, waiting };
+  }
+
   private isPageLocked(pageId: string): boolean {
     for (const held of this.active.values()) if (held.queued.item.pageId === pageId) return true;
     return false;
