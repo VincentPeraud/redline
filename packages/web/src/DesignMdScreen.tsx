@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import type { DesignMdResponse, DesignMdVersion, Project, ProjectAsset, SaveDesignMdRequest } from "@redline/shared";
+import { useEffect, useState } from "react";
+import type { DesignMdResponse, DesignMdVersion, Project, SaveDesignMdRequest } from "@redline/shared";
 import { ruleOrigins } from "./designMdRules.js";
 import { relativeTime } from "./relativeTime.js";
 import { routeHref } from "./router.js";
@@ -41,13 +41,7 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
   const [justSaved, setJustSaved] = useState(false);
   const [versions, setVersions] = useState<DesignMdVersion[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const [assets, setAssets] = useState<ProjectAsset[]>([]);
 
-  const loadAssets = () =>
-    fetch(`/api/projects/${projectId}/assets`)
-      .then((res) => res.json() as Promise<ProjectAsset[]>)
-      .then(setAssets);
   const loadVersions = () =>
     fetch(`/api/projects/${projectId}/design-md/versions`)
       .then((res) => res.json() as Promise<DesignMdVersion[]>)
@@ -63,7 +57,6 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
         setSaved(content);
         setText(content);
       });
-    void loadAssets();
     void loadVersions();
   }, [projectId]);
 
@@ -89,19 +82,6 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
     setSaved(text);
     setJustSaved(true);
     await loadVersions();
-  }
-
-  async function upload(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = "";
-    for (const file of files) {
-      await fetch(`/api/projects/${projectId}/assets/${file.name.split("/").map(encodeURIComponent).join("/")}`, {
-        method: "PUT",
-        headers: { "content-type": "application/octet-stream" },
-        body: file,
-      });
-    }
-    await loadAssets();
   }
 
   function restore(version: DesignMdVersion) {
@@ -182,25 +162,6 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
           )}
 
           <div className={styles.grow} />
-
-          <div className={styles.block}>
-            <h2 className={styles.blockTitle}>Assets du projet</h2>
-            <div className={styles.blockText}>
-              Images et polices partagées par tous les artboards. À utiliser comme <code>assets/&lt;nom&gt;</code>.
-            </div>
-            <input ref={fileInput} type="file" multiple hidden onChange={upload} />
-            <Button size="sm" onClick={() => fileInput.current?.click()} className={styles.upload}>
-              Ajouter des assets
-            </Button>
-            {assets.length === 0 && <div className={styles.blockText}>Aucun asset pour l'instant.</div>}
-            <ul data-testid="assets" className={styles.assets}>
-              {assets.map((asset) => (
-                <li key={asset.name}>
-                  {asset.name} <span className={styles.assetSize}>{asset.size} octets</span>
-                </li>
-              ))}
-            </ul>
-          </div>
 
           <div className={styles.block}>
             <div className={styles.blockHeader}>

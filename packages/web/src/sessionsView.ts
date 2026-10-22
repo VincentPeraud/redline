@@ -35,7 +35,7 @@ export function modelLine(row: SessionRow): string {
 
 export function agentName(row: SessionRow): string {
   if (!row.agent) return "—";
-  return row.agent.kind === "global" ? "global" : row.agent.machine;
+  return row.agent.kind === "global" ? "global" : row.agent.folder.split("/").filter(Boolean).pop() ?? row.agent.machine;
 }
 
 /** "à l'instant", "il y a 5 min", "il y a 3 h", "hier", "il y a 4 jours". */

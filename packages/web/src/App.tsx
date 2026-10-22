@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Project } from "@redline/shared";
 import { PageCanvas } from "./PageCanvas.js";
-import { VersionHistory } from "./VersionHistory.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 
 interface Page {
@@ -20,7 +19,6 @@ export function App({ pageId }: { pageId: string }) {
   const [page, setPage] = useState<Page | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [artboardOrigin, setArtboardOrigin] = useState("");
-  const [historyOpen, setHistoryOpen] = useState(false);
 
   async function loadPage() {
     setPage(await getJson<Page>(`/api/pages/${pageId}`));
@@ -56,11 +54,7 @@ export function App({ pageId }: { pageId: string }) {
         artboardOrigin={artboardOrigin}
         versionId={page.version.id}
         onVersionChange={loadPage}
-        onOpenHistory={() => setHistoryOpen(true)}
       />
-      {historyOpen && (
-        <VersionHistory pageId={page.id} pageTitle={page.title} versionId={page.version.id} onRestored={loadPage} onClose={() => setHistoryOpen(false)} />
-      )}
     </>
   );
 }

@@ -49,7 +49,7 @@ const COLUMNS: Record<string, Omit<TableColumn<SessionRow>, "width">> = {
     header: "Statut",
     render: (row) => (
       <span data-testid="session-status">
-        <SessionStatusBadge status={row.status} />
+        <SessionStatusBadge status={row.status} inline />
       </span>
     ),
   },
@@ -95,6 +95,7 @@ function Composer({ session, onSent }: { session: SessionDetail; onSent: () => v
       </label>
       <Textarea
         id="reponse-session"
+        className={styles.composerInput}
         rows={3}
         placeholder="Ta réponse reprend la même session…"
         value={text}

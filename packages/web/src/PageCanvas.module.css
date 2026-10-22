@@ -224,17 +224,6 @@
   color: var(--color-text-secondary);
 }
 
-.fit {
-  height: 32px;
-  padding: 0 var(--space-2);
-  border: none;
-  border-left: 1px solid var(--color-border-subtle);
-  background: transparent;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
 .aside {
   width: 380px;
   flex-shrink: 0;

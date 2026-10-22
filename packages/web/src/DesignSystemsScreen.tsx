@@ -3,6 +3,7 @@ import {
   type CreateDesignSystemRequest,
   type DesignSystem,
   type DesignSystemSummary,
+  NEUTRAL_DESIGN_SYSTEM_ID,
   type Project,
 } from "@redline/shared";
 import { Button, Dialog, DialogActions, Field, PageContent, PageHeader, Select, Textarea, TextInput } from "./ui/index.js";
@@ -80,7 +81,7 @@ function NewDesignSystemDialog({ onClose, onCreated }: { onClose: () => void; on
           <Button size="lg" onClick={onClose}>
             Annuler
           </Button>
-          <Button size="lg" variant="accent" type="submit" className={styles.create} disabled={title.trim() === ""}>
+          <Button size="lg" variant="accent" type="submit" disabled={title.trim() === ""}>
             Créer le design system
           </Button>
         </DialogActions>
@@ -133,7 +134,7 @@ export function DesignSystemsScreen() {
   useEffect(() => {
     fetch("/api/design-systems")
       .then((res) => res.json() as Promise<DesignSystemSummary[]>)
-      .then(setDesignSystems);
+      .then((all) => setDesignSystems(all.filter((ds) => ds.id !== NEUTRAL_DESIGN_SYSTEM_ID)));
   }, []);
 
   return (

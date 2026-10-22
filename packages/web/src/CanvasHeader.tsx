@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Page, Project, Thread } from "@redline/shared";
 import { routeHref } from "./router.js";
-import { Button, Logo, cx } from "./ui/index.js";
+import { Logo, cx } from "./ui/index.js";
 import styles from "./CanvasHeader.module.css";
 
 interface MenuPage {
@@ -124,11 +124,10 @@ interface Props {
   picking: boolean;
   onPickingChange: (picking: boolean) => void;
   runningCount: number;
-  onOpenHistory: () => void;
 }
 
-/** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status, history and the interact / comment toggle. */
-export function CanvasHeader({ project, pageId, pageTitle, picking, onPickingChange, runningCount, onOpenHistory }: Props) {
+/** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
+export function CanvasHeader({ project, pageId, pageTitle, picking, onPickingChange, runningCount }: Props) {
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -146,11 +145,8 @@ export function CanvasHeader({ project, pageId, pageTitle, picking, onPickingCha
         <PageMenu project={project} pageId={pageId} pageTitle={pageTitle} />
       </nav>
       <div className={styles.spacer} />
-      <Button size="sm" onClick={onOpenHistory}>
-        Historique
-      </Button>
       <AgentPill project={project} running={runningCount} />
-      <div role="group" aria-label="Mode de la planche" className={styles.modes}>
+      <div role="group" aria-label="Mode du canvas" className={styles.modes}>
         <button type="button" aria-pressed={!picking} className={cx(styles.mode, !picking && styles.modeInteract)} onClick={() => onPickingChange(false)}>
           Interagir (P)
         </button>

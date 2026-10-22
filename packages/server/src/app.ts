@@ -236,6 +236,7 @@ export async function buildMainApp(
       if (typeof pin.selector !== "string" || pin.selector === "") return reply.code(400).send({ error: "selector is required" });
       if (typeof pin.artboard !== "string" || !isSafePath(pin.artboard)) return reply.code(400).send({ error: "invalid artboard" });
       if (!isPct(pin.xPct) || !isPct(pin.yPct)) return reply.code(400).send({ error: "position must be a percentage" });
+      if (pin.title !== undefined && !requiredString(pin.title)) return reply.code(400).send({ error: "title must be a non-empty string" });
       if (pin.held !== undefined && typeof pin.held !== "boolean") return reply.code(400).send({ error: "held must be a boolean" });
       if (pin.elementName !== undefined && (typeof pin.elementName !== "string" || pin.elementName.length > MAX_ELEMENT_NAME_LENGTH)) {
         return reply.code(400).send({ error: `elementName must be a string of at most ${MAX_ELEMENT_NAME_LENGTH} characters` });

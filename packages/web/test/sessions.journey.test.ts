@@ -50,7 +50,7 @@ it("lists threads and conversations, filters by status and opens a session's mes
 
   const threadRow = rows.filter({ hasText: "Button too discreet" });
   const text = (await threadRow.textContent())!;
-  for (const part of ["Fil", "Acme › Onboarding", "Résolu", "test-machine", "opus · high · 20 %"]) expect(text).toContain(part);
+  for (const part of ["Fil", "Acme › Onboarding", "Résolu", "redline-agent-folder", "opus · high · 20 %"]) expect(text).toContain(part);
   expect(await rows.filter({ hasText: "Error pages" }).textContent()).toContain("Conversation");
   expect(text).toMatch(/[0-9a-f]{4}…[0-9a-f]{3}/);
   expect(text).toContain("à l'instant");

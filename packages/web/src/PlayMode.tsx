@@ -6,6 +6,8 @@ import styles from "./PlayMode.module.css";
 
 /** Artboards up to this width are drawn as a phone: rounded corners and a dark bezel. */
 const PHONE_MAX_WIDTH = 500;
+/** Portrait phone artboards play in a real phone viewport, so responsive designs reflow. */
+const PHONE_VIEWPORT = { width: 390, height: 760 };
 const STAGE_PADDING = 32;
 
 /** Target artboard of the link on `selector` in artboard `from`, if the manifest declares one that exists. */
@@ -18,6 +20,8 @@ export function resolveLink(manifest: Manifest, from: string, selector: string):
 interface Props {
   pageId: string;
   manifest: Manifest;
+  /** Artboard shown first. */
+  start?: string;
   artboardOrigin: string;
   tweaks: TweakValues;
   onTweak: (id: string, value: TweakValue) => void;
@@ -25,15 +29,17 @@ interface Props {
 }
 
 /** One artboard at a time at full size; clicks on elements linked in the manifest switch artboard (via the bridge). */
-export function PlayMode({ pageId, manifest, artboardOrigin, tweaks, onTweak, onExit }: Props) {
-  const [current, setCurrent] = useState(manifest.artboards[0]?.file ?? null);
+export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTweak, onExit }: Props) {
+  const [current, setCurrent] = useState(start ?? manifest.artboards[0]?.file ?? null);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
   const stage = useRef<HTMLElement>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const artboard = manifest.artboards.find((a) => a.file === current);
-  const scale = artboard && stageSize.width > 0
-    ? Math.min(1, Math.max(0.1, (stageSize.width - STAGE_PADDING * 2) / artboard.width), Math.max(0.1, (stageSize.height - STAGE_PADDING * 2) / artboard.height))
+  const isPhone = artboard !== undefined && artboard.width <= PHONE_MAX_WIDTH && artboard.height > artboard.width;
+  const viewport = artboard && (isPhone ? PHONE_VIEWPORT : { width: artboard.width, height: artboard.height });
+  const scale = viewport && stageSize.width > 0
+    ? Math.min(1, Math.max(0.1, (stageSize.width - STAGE_PADDING * 2) / viewport.width), Math.max(0.1, (stageSize.height - STAGE_PADDING * 2) / viewport.height))
     : 1;
 
   useLayoutEffect(() => {
@@ -77,9 +83,9 @@ export function PlayMode({ pageId, manifest, artboardOrigin, tweaks, onTweak, on
   }, [onExit]);
 
   const hasTweaks = manifest.tweaks.length > 0;
-  const frameStyle = artboard && {
-    width: artboard.width,
-    height: artboard.height,
+  const frameStyle = viewport && {
+    width: viewport.width,
+    height: viewport.height,
     transform: `scale(${scale})`,
   };
 
@@ -95,7 +101,7 @@ export function PlayMode({ pageId, manifest, artboardOrigin, tweaks, onTweak, on
         </button>
         <div className={styles.title}>{manifest.title ?? "Sans titre"} · plein écran</div>
         <div className={styles.spacer} />
-        <nav aria-label="Écrans" className={styles.screens}>
+        <nav aria-label="Artboards" className={styles.screens}>
           {manifest.artboards.map((a, index) => (
             <button
               key={a.file}
@@ -105,7 +111,7 @@ export function PlayMode({ pageId, manifest, artboardOrigin, tweaks, onTweak, on
               onClick={() => setCurrent(a.file)}
               className={cx(styles.screen, a.file === current && styles.screenCurrent)}
             >
-              Écran {index + 1}
+              Artboard {index + 1}
             </button>
           ))}
         </nav>
@@ -114,10 +120,10 @@ export function PlayMode({ pageId, manifest, artboardOrigin, tweaks, onTweak, on
       </header>
       <div className={styles.body}>
         <main ref={stage} className={styles.stage}>
-          {artboard && frameStyle ? (
+          {artboard && viewport && frameStyle ? (
             <div
               className={cx(styles.device, artboard.width <= PHONE_MAX_WIDTH && styles.phone)}
-              style={{ width: artboard.width * scale, height: artboard.height * scale }}
+              style={{ width: viewport.width * scale, height: viewport.height * scale }}
             >
               <iframe
                 key={artboard.file}

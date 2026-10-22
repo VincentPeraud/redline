@@ -51,6 +51,10 @@
   cursor: pointer;
 }
 
+.textarea.textarea {
+  line-height: normal;
+}
+
 .textarea:disabled {
   background: var(--color-surface);
   cursor: not-allowed;
@@ -67,4 +71,9 @@
   padding: 0 12px;
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
+}
+
+.actions .action[aria-disabled="true"] {
+  opacity: 1;
+  cursor: default;
 }

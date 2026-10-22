@@ -15,7 +15,7 @@ function plural(count: number, one: string, many: string): string {
 
 function projectMeta(project: HomeProject): string {
   const pages = plural(project.pageCount, "page", "pages");
-  if (project.waitingThreads > 0) return `${pages} · ${plural(project.waitingThreads, "fil en attente", "fils en attente")}`;
+  if (project.waitingThreads > 0 && project.waitingThreads >= project.openThreads) return `${pages} · ${plural(project.waitingThreads, "fil en attente", "fils en attente")}`;
   if (project.openThreads > 0) return `${pages} · ${plural(project.openThreads, "fil ouvert", "fils ouverts")}`;
   return project.updatedAt ? `${pages} · modifié ${relativeTime(project.updatedAt)}` : pages;
 }
@@ -60,7 +60,7 @@ export function HomeScreen() {
 
   const running = home.work.filter((w) => w.state === "running").length;
   return (
-    <PageContent>
+    <PageContent className={styles.page}>
       <PageHeader
         title="Accueil"
         subtitle={

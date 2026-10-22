@@ -577,7 +577,7 @@ export class Store {
     const { next } = this.db
       .prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?")
       .get(pageId) as { next: number };
-    const title = pin.body.trim().split("\n")[0].slice(0, 80);
+    const title = (pin.title?.trim() || pin.body.trim().split("\n")[0]).slice(0, 80);
     this.db
       .prepare(
         `INSERT INTO threads (id, page_id, number, artboard, selector, element_name, x_pct, y_pct, title, body, status, created_at)

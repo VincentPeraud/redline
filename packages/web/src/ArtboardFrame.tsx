@@ -41,7 +41,6 @@ export function ArtboardFrame({ src, title, width, height, zoom, threads, pickin
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
 
-  const open = threads.filter((t) => t.status !== "resolved");
   const pinned = threads;
 
   useEffect(() => {
@@ -66,10 +65,10 @@ export function ArtboardFrame({ src, title, width, height, zoom, threads, pickin
     frame.current?.contentWindow?.postMessage({ type: "redline:set-tweaks", values: tweaks }, "*");
   }, [tweaks, bridgeEpoch]);
 
-  const pinsKey =JSON.stringify(open.map((t) => [t.id, t.selector, t.xPct, t.yPct]));
+  const pinsKey = JSON.stringify(pinned.map((t) => [t.id, t.selector, t.xPct, t.yPct]));
   useEffect(() => {
     if (bridgeEpoch === 0) return;
-    const pins = open.map((t) => ({ id: t.id, selector: t.selector, xPct: t.xPct, yPct: t.yPct }));
+    const pins = pinned.map((t) => ({ id: t.id, selector: t.selector, xPct: t.xPct, yPct: t.yPct }));
     frame.current?.contentWindow?.postMessage({ type: "redline:set-pins", pins }, "*");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinsKey, bridgeEpoch]);

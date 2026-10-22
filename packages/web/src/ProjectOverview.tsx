@@ -8,15 +8,13 @@ import {
   type Project,
   type ProjectAsset,
   type Thread,
-  type UpdateProjectRequest,
 } from "@redline/shared";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
-import { agentLabel } from "./agentLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { routeHref } from "./router.js";
-import { Button, PageContent, PageHeader, SidePanel, SidePanelBody, StatusBadge, cx } from "./ui/index.js";
+import { Button, Logo, PageContent, SidePanel, SidePanelBody, StatusBadge, cx } from "./ui/index.js";
 import styles from "./ProjectOverview.module.css";
 
 interface PageStats {
@@ -37,14 +35,13 @@ function agentPill(project: Project): { tone: "success" | "neutral"; text: strin
   return { tone: "neutral", text: "Aucun agent connecté" };
 }
 
-function PageCard({ page, stats, artboardOrigin }: { page: Page; stats: PageStats | undefined; artboardOrigin: string }) {
+function PageCard({ page, stats, artboardOrigin, current }: { page: Page; stats: PageStats | undefined; artboardOrigin: string; current: boolean }) {
   const artboards = usePageArtboards(page.id, page.version.files);
-  const screens = artboards?.length ?? 0;
-  const count = plural(screens, "artboard", "artboards");
+  const count = plural(artboards?.length ?? 0, "artboard", "artboards");
   const modified = stats?.updatedAt ? ` · modifié ${relativeTime(stats.updatedAt)}` : "";
 
   return (
-    <a href={routeHref({ name: "page", pageId: page.id })} className={styles.pageCard}>
+    <a href={routeHref({ name: "page", pageId: page.id })} className={cx(styles.pageCard, current && styles.pageCardCurrent)}>
       <PageThumbnail pageId={page.id} artboards={artboards} artboardOrigin={artboardOrigin} />
       <div className={styles.pageInfo}>
         <div className={styles.pageTitleRow}>
@@ -92,7 +89,7 @@ function DesignSystemCard({
         <div className={styles.pageTitleRow}>
           <span className={styles.pageTitle}>{designSystem.title}</span>
         </div>
-        <div className={styles.pageMeta}>Utilisé par {plural(pageCount, "page", "pages")} du projet</div>
+        <div className={styles.pageMeta}>{pageCount === 1 ? "Utilisé par la page du projet" : `Utilisé par les ${pageCount} pages du projet`}</div>
       </div>
     </a>
   );
@@ -106,7 +103,16 @@ function DesignSystemPreview({ page, artboardOrigin }: { page: Page; artboardOri
 function AssetTile({ asset, previewUrl }: { asset: AssetEntry; previewUrl: string | null }) {
   let preview: ReactNode;
   if (asset.kind === "folder") {
-    preview = asset.fonts ? <span className={styles.assetFonts}>Aa</span> : <span className={styles.assetGlyph}>/</span>;
+    preview = asset.fonts ? (
+      <span className={styles.assetFonts}>Aa</span>
+    ) : (
+      <span className={styles.assetShapes}>
+        <span className={styles.shapeRound} />
+        <span className={styles.shapeSquare} />
+        <span className={styles.shapeTab} />
+        <span className={styles.shapeDrop} />
+      </span>
+    );
   } else if (previewUrl && IMAGE_EXTENSION.test(asset.name)) {
     preview = <img src={previewUrl} alt="" className={styles.assetImage} />;
   } else {
@@ -195,16 +201,6 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
 
   if (!project) return <PageContent>Chargement…</PageContent>;
 
-  async function toggleTakeover(allowGlobalTakeover: boolean) {
-    const body: UpdateProjectRequest = { globalTakeoverOverride: allowGlobalTakeover };
-    const res = await fetch(`/api/projects/${projectId}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    setProject((await res.json()) as Project);
-  }
-
   async function upload(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
@@ -225,38 +221,40 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
   const assetEntries = groupAssets(assets);
 
   return (
-    <>
-      <PageContent>
+    <div className={styles.screen}>
+      <header className={styles.topbar}>
+        <a href={routeHref({ name: "home" })} aria-label="Accueil" className={styles.logoLink}>
+          <Logo />
+        </a>
         <nav aria-label="Fil d'Ariane" className={styles.breadcrumb}>
           <a href={routeHref({ name: "projects" })}>Projets</a>
           <span aria-hidden="true">/</span>
           <span className={styles.current}>{project.title}</span>
         </nav>
-        <PageHeader
-          title={project.title}
-          subtitle={
-            <span className={styles.summary}>
-              {project.agent ? `Agent ${folderName(project.agent.folder)} · ${project.agent.folder} · ${summary}` : summary}
-            </span>
-          }
-          actions={
-            <>
-              <StatusBadge tone={pill.tone} className={styles.agentPill}>
-                <span className={cx(styles.dot, pill.tone === "success" && styles.dotOnline)} aria-hidden="true" />
-                {pill.text}
-              </StatusBadge>
-              <Button variant="accent" onClick={() => setCreating(true)}>
-                Nouvelle page
-              </Button>
-            </>
-          }
-        />
+        <div className={styles.spacer} />
+        <StatusBadge tone={pill.tone} className={styles.agentPill} data-testid="agent-pill">
+          <span className={cx(styles.dot, pill.tone === "success" && styles.dotOnline)} aria-hidden="true" />
+          {pill.text}
+        </StatusBadge>
+        <Button variant="accent" onClick={() => setCreating(true)}>
+          Nouvelle page
+        </Button>
+      </header>
+
+      <div className={styles.body}>
+      <PageContent className={styles.main}>
+        <div className={styles.heading}>
+          <h1 className={styles.title}>{project.title}</h1>
+          <div className={styles.summary}>
+            {project.agent ? `Agent ${folderName(project.agent.folder)} · ${project.agent.folder} · ${summary}` : summary}
+          </div>
+        </div>
 
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Pages</h2>
           <div className={styles.pageGrid}>
-            {pages.map((page) => (
-              <PageCard key={page.id} page={page} stats={pageStats[page.id]} artboardOrigin={artboardOrigin} />
+            {pages.map((page, index) => (
+              <PageCard key={page.id} page={page} stats={pageStats[page.id]} artboardOrigin={artboardOrigin} current={index === 0} />
             ))}
             <button type="button" className={styles.newPageTile} onClick={() => setCreating(true)}>
               <span aria-hidden="true" className={styles.plus}>
@@ -298,24 +296,8 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
         </section>
       </PageContent>
 
-      <SidePanel label="Contexte du projet" width={380}>
+      <SidePanel label="Contexte du projet" width={380} className={styles.aside}>
         <SidePanelBody className={styles.panelBody}>
-          <section className={styles.panelSection}>
-            <h2 className={styles.panelTitle}>Agent</h2>
-            <div className={styles.agentLabel} data-testid="project-agent">
-              {agentLabel(project)}
-            </div>
-            <label className={styles.takeover}>
-              <input
-                type="checkbox"
-                checked={project.globalTakeover}
-                onChange={(event) => void toggleTakeover(event.target.checked)}
-              />
-              Laisser l'agent global prendre le relais quand l'agent du projet est hors ligne
-            </label>
-            <div className={styles.panelNote}>Les fils repartent alors dans une nouvelle session, sans le contexte du projet.</div>
-          </section>
-
           {designSystem && (
             <section className={styles.panelSection}>
               <div className={styles.panelHeading}>
@@ -343,6 +325,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
           </section>
         </SidePanelBody>
       </SidePanel>
+      </div>
 
       {creating && (
         <NewPageDialog
@@ -355,6 +338,6 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
           }}
         />
       )}
-    </>
+    </div>
   );
 }

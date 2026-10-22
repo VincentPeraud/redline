@@ -169,7 +169,7 @@ function ProjectCard({
       <div className={styles.cardBody}>
         <div className={styles.cardTitleRow}>
           <span className={styles.cardTitle}>{project.title}</span>
-          {activity && activity.waitingThreads > 0 ? (
+          {activity && activity.waitingThreads > 0 && activity.waitingThreads >= activity.openThreads ? (
             <StatusBadge tone="neutral" size="sm" className={styles.cardBadge}>
               {plural(activity.waitingThreads, "fil en attente", "fils en attente")}
             </StatusBadge>

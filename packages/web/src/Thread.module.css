@@ -317,3 +317,49 @@
   color: var(--color-warning-text);
   font-weight: var(--font-weight-medium);
 }
+
+/* Held card: the label gives way to the edit and delete icon buttons on hover or keyboard focus. */
+
+.held .headRight {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.heldActions {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+}
+
+.held:hover .heldLabel,
+.held:focus-within .heldLabel {
+  visibility: hidden;
+}
+
+.held:hover .heldActions,
+.held:focus-within .heldActions {
+  opacity: 1;
+}
+
+.iconAction {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.iconAction:hover {
+  background: var(--color-surface-muted);
+}

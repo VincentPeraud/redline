@@ -125,7 +125,7 @@ export function registerSessionRoutes(
       pageTitle: origin.pageTitle,
       status,
       activityAt: d.activityAt,
-      ...(agent ? { agent: { id: agent.id, machine: agent.machine, kind: agent.kind } } : {}),
+      ...(agent ? { agent: { id: agent.id, machine: agent.machine, folder: agent.folder, kind: agent.kind } } : {}),
       ...(d.sessionId ? { sessionId: d.sessionId } : {}),
       ...(d.model ? { model: d.model } : {}),
       ...(d.effort ? { effort: d.effort } : {}),

@@ -60,14 +60,14 @@ export function NewPageDialog({
             rows={4}
             value={instructions}
             onChange={(e) => setInstructions(e.target.value)}
-            placeholder="Décris ce que la page doit contenir : écrans, contenus, cas à couvrir…"
+            placeholder="Décris ce que la page doit contenir : artboards, contenus, cas à couvrir…"
           />
         </Field>
         <DialogActions>
           <Button size="lg" onClick={onClose}>
             Annuler
           </Button>
-          <Button type="submit" variant="accent" size="lg" disabled={!canCreate} className={styles.create}>
+          <Button type="submit" variant="accent" size="lg" disabled={!canCreate}>
             Créer la page
           </Button>
         </DialogActions>

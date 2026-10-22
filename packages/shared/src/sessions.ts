@@ -42,7 +42,7 @@ export interface SessionRow extends ModelChoice {
   pageTitle: string;
   status: SessionStatus;
   /** The agent running the session, else the project's agent; absent when none. */
-  agent?: { id: string; machine: string; kind: AgentKind };
+  agent?: { id: string; machine: string; folder: string; kind: AgentKind };
   /** Engine session id; absent until the first run was sent. */
   sessionId?: string;
   context?: ThreadContext;

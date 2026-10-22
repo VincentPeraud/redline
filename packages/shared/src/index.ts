@@ -222,6 +222,8 @@ export interface CreateThreadRequest extends ModelChoice {
   xPct: number;
   yPct: number;
   body: string;
+  /** Short name of the thread; defaults to the first line of the body. */
+  title?: string;
   /** "Plus tard": store the comment without sending it. */
   held?: boolean;
   /** Readable name of the element, e.g. `bouton « Continuer »`; at most `MAX_ELEMENT_NAME_LENGTH` characters. */
@@ -306,6 +308,8 @@ export interface ManifestTweak {
   /** `color` only: also offer a free colour picker next to the suggested `options`. */
   allowCustom?: boolean;
   scope?: TweakScope;
+  /** Artboard file the tweak is shown on; page-level tweaks without it go on the first artboard. */
+  artboard?: string;
 }
 
 export interface Manifest {

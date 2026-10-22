@@ -22,7 +22,7 @@ import { startServer } from "../packages/server/src/start.js";
 import { startAgent } from "../packages/agent/src/agent.js";
 import type { Engine, EngineRunRequest } from "../packages/agent/src/engine.js";
 import { FakeEngine, type FakeAction, type FakeRunContext } from "../packages/agent/test/support/fake-engine.js";
-import { blogPages, designSystemFiles, lumoraPages, reelsPages, type PageSpec } from "./demo-content.js";
+import { blogPages, designSystemFiles, lumoraAssets, lumoraDesignMd, lumoraPages, reelsPages, type PageSpec } from "./demo-content.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const webRoot = join(repoRoot, "packages", "web");
@@ -71,7 +71,7 @@ function demoEngine(): Engine {
   const hang = async function* (scenario: Scenario): AsyncGenerator<EngineEvent> {
     const tokens = Math.round(((scenario.contextPercent ?? 10) / 100) * 200_000);
     yield { type: "usage", model: scenario.model ?? "Sonnet 5.5", inputTokens: tokens, cacheTokens: 0, outputTokens: 0, effort: scenario.effort ?? "medium" };
-    yield { type: "step", tool: "Read", summary: "screen-2.html" };
+    yield { type: "step", tool: "Read", summary: "ecran-2.html" };
     yield { type: "text", text: "Je cherche où ajouter le champ de recherche au-dessus de la liste des spécialités…" };
     await new Promise<never>(() => undefined);
   };
@@ -162,14 +162,17 @@ async function main(): Promise<void> {
   const reelsPageByTitle = await createPages(reels, reelsPages);
   const onboarding = lumoraPageByTitle["Onboarding"];
 
-  const thread = async (page: Page, scenario: Scenario, body: string, options: { artboard?: string; selector?: string; held?: boolean } = {}) => {
+  /** `titleAndBody`: the thread name on the first line, the comment itself on the following ones. */
+  const thread = async (page: Page, scenario: Scenario, titleAndBody: string, options: { artboard?: string; selector?: string; held?: boolean } = {}) => {
     scenarios.push(scenario);
+    const [title, ...rest] = titleAndBody.split("\n");
     return post<Thread>(`/api/pages/${page.id}/threads`, {
-      artboard: options.artboard ?? "screen-1.html",
+      title,
+      artboard: options.artboard ?? "ecran-1.html",
       selector: options.selector ?? ".cta",
       xPct: 50,
       yPct: 60,
-      body,
+      body: rest.join("\n"),
       held: options.held,
       model: scenario.model?.toLowerCase().split(" ")[0],
       effort: scenario.effort,
@@ -182,6 +185,15 @@ async function main(): Promise<void> {
     return created;
   };
 
+  logStep("assets and DESIGN.md");
+  for (const [name, content] of Object.entries(lumoraAssets())) {
+    const path = name.split("/").map(encodeURIComponent).join("/");
+    const res = await fetch(`${server.url}/api/projects/${lumora.id}/assets/${path}`, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: typeof content === "string" ? content : new Uint8Array(content) });
+    if (!res.ok) throw new Error(`PUT asset ${name} -> ${res.status}`);
+  }
+  const designMdRes = await fetch(`${server.url}/api/projects/${lumora.id}/design-md`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: lumoraDesignMd }) });
+  if (!designMdRes.ok) throw new Error(`PUT design-md -> ${designMdRes.status}`);
+
   logStep("conversations and threads");
   const errorPages = await conversation(
     onboarding,
@@ -193,7 +205,7 @@ async function main(): Promise<void> {
 
   const button = await thread(
     onboarding,
-    { match: "Bouton trop discret", outcome: "answer", model: "Sonnet 5.5", effort: "medium", contextPercent: 78, text: "Fait : bouton en style plein, couleur primaire. J'ai ajouté la règle dans DESIGN.md.", edit: { path: "screen-1.html", find: "<button class=\"cta\">Commencer", replace: "<button class=\"cta\" style=\"width:100%\">Commencer" } },
+    { match: "bouton est trop discret", outcome: "answer", model: "Sonnet 5.5", effort: "medium", contextPercent: 78, text: "Fait : bouton en style plein, couleur primaire. J'ai ajouté la règle dans DESIGN.md.", edit: { path: "ecran-1.html", find: "<button class=\"cta\">Créer mon compte", replace: "<button class=\"cta\" style=\"width:100%\">Créer mon compte" } },
     "Bouton trop discret\nLe bouton est trop discret, passe-le en plein.",
   );
   await untilStatus(button.id, "Bouton trop discret", "answered");
@@ -208,19 +220,18 @@ async function main(): Promise<void> {
 
   const week = await thread(
     onboarding,
-    { match: "Semaine qui commence lundi", outcome: "answer", model: "Sonnet 5.5", effort: "medium", contextPercent: 9, text: "Corrigé sur l'artboard 3, et noté dans DESIGN.md." },
+    { match: "la semaine doit commencer le lundi", outcome: "answer", model: "Sonnet 5.5", effort: "medium", contextPercent: 9, text: "Corrigé sur l'artboard 3, et noté dans DESIGN.md." },
     "Semaine qui commence lundi\nDans le calendrier, la semaine doit commencer le lundi.",
-    { artboard: "screen-3.html" },
+    { artboard: "ecran-3.html", selector: ".days" },
   );
   await untilStatus(week.id, "Semaine qui commence lundi", "answered");
   await post(`/api/threads/${week.id}/resolve`);
 
   await post(`/api/pages/${onboarding.id}/versions`, { message: "Ajuste les marges des artboards", origin: "terminal", files: { ...(await currentFiles(onboarding.id)), "notes.txt": "Marges ajustées depuis le terminal.\n" } });
-  await post(`/api/pages/${onboarding.id}/tweaks`, { id: "accent", value: "#D92D20" });
 
   const hero = await thread(
     lumoraPageByTitle["Landing page"],
-    { match: "Hero trop chargé", outcome: "fail" },
+    { match: "Allège le hero", outcome: "fail" },
     "Hero trop chargé\nAllège le hero : un seul message et un seul bouton.",
     { selector: "h1" },
   );
@@ -228,15 +239,15 @@ async function main(): Promise<void> {
 
   const search = await thread(
     onboarding,
-    { match: "Recherche dans la liste", outcome: "hang", model: "Opus 5.5", effort: "high", contextPercent: 12 },
+    { match: "recherche au-dessus", outcome: "hang", model: "Opus 5.5", effort: "high", contextPercent: 12 },
     "Recherche dans la liste\nAjoute une recherche au-dessus de la liste des spécialités.",
-    { artboard: "screen-2.html", selector: "h1" },
+    { artboard: "ecran-2.html", selector: ".choices" },
   );
   await untilStatus(search.id, "Recherche dans la liste", "running");
 
   const landing = await thread(
     onboarding,
-    { match: "Titre de la landing", outcome: "answer", text: "Titre raccourci." },
+    { match: "titre de la landing est trop long", outcome: "answer", text: "Titre raccourci." },
     "Titre de la landing\nLe titre de la landing est trop long, propose plus court.",
     { selector: "h1" },
   );
@@ -244,14 +255,14 @@ async function main(): Promise<void> {
 
   await thread(
     onboarding,
-    { match: "Espacement des cartes", outcome: "answer", text: "Fait." },
-    "Espacement des cartes\nAugmente l'espacement entre les cartes de spécialité.",
-    { artboard: "screen-2.html", selector: ".row", held: true },
+    { match: "une ligne maximum", outcome: "answer", text: "Fait." },
+    "Raccourcis le titre\nRaccourcis le titre, une ligne maximum.",
+    { selector: "h1", held: true },
   );
 
   const intro = await thread(
     blogPageByTitle["Article"],
-    { match: "Intro de l'article", outcome: "answer", model: "Sonnet 5.5", effort: "low", contextPercent: 6, text: "Raccourcie à deux phrases ; le reste passe dans le premier paragraphe." },
+    { match: "intro de l'article est trop longue", outcome: "answer", model: "Sonnet 5.5", effort: "low", contextPercent: 6, text: "Raccourcie à deux phrases ; le reste passe dans le premier paragraphe." },
     "Intro de l'article\nL'intro de l'article est trop longue, coupe-la en deux phrases.",
     { selector: "h1" },
   );
@@ -260,7 +271,7 @@ async function main(): Promise<void> {
 
   const miniature = await thread(
     reelsPageByTitle["Miniatures"],
-    { match: "Miniature du réel 12", outcome: "answer", text: "Titre agrandi." },
+    { match: "plus gros sur la miniature", outcome: "answer", text: "Titre agrandi." },
     "Miniature du réel 12\nMets le titre plus gros sur la miniature.",
     { artboard: "thumb-3.html", selector: "h1" },
   );

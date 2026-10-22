@@ -7,6 +7,7 @@ export interface SidePanelProps {
   label: string;
   /** Width in px; 420 for session and thread panels, 360 for the Agents setup panel. */
   width?: number;
+  className?: string;
   children: ReactNode;
 }
 
@@ -14,9 +15,9 @@ export interface SidePanelProps {
  * Right-hand column (white, 1px left border) that stays in view while the page scrolls.
  * Render it as a sibling of `PageContent` inside the screen; compose it from the parts below.
  */
-export function SidePanel({ label, width = 420, children }: SidePanelProps) {
+export function SidePanel({ label, width = 420, className, children }: SidePanelProps) {
   return (
-    <aside aria-label={label} className={styles.panel} style={{ width }}>
+    <aside aria-label={label} className={cx(styles.panel, className)} style={{ width }}>
       {children}
     </aside>
   );

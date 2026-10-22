@@ -42,7 +42,7 @@ it("creates a project, then a page from its overview, and opens it on the canvas
   expect(project).toMatchObject({ title: "Acme", instructions: "Calm and editorial", designSystem: null });
 
   await tab.getByRole("heading", { name: "Acme" }).waitFor();
-  await tab.locator("main nav").getByRole("link", { name: "Projets" }).click();
+  await tab.getByRole("navigation", { name: "Fil d'Ariane" }).getByRole("link", { name: "Projets" }).click();
   await tab.getByRole("link", { name: "Acme" }).click();
   await tab.getByRole("heading", { name: "Acme" }).waitFor();
 
