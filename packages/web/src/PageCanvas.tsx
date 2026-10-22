@@ -7,9 +7,10 @@ interface Props {
   pageTitle: string;
   artboards: string[];
   artboardOrigin: string;
+  versionId: string;
 }
 
-export function PageCanvas({ pageId, pageTitle, artboards, artboardOrigin }: Props) {
+export function PageCanvas({ pageId, pageTitle, artboards, artboardOrigin, versionId }: Props) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [picking, setPicking] = useState(false);
   const [draft, setDraft] = useState<(Pick & { artboard: string }) | null>(null);
@@ -63,7 +64,7 @@ export function PageCanvas({ pageId, pageTitle, artboards, artboardOrigin }: Pro
         </div>
         {artboards.map((path) => (
           <ArtboardFrame
-            key={path}
+            key={`${path}@${versionId}`}
             title={`${pageTitle} / ${path}`}
             src={`${artboardOrigin}/pages/${pageId}/${path}`}
             threads={threads.filter((t) => t.artboard === path)}

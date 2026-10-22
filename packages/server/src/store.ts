@@ -2,7 +2,16 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import type { CreateThreadRequest, Page, PageType, Project, Thread, ThreadStatus } from "@redline/shared";
+import type {
+  CreateThreadRequest,
+  Page,
+  PageType,
+  PageVersionSummary,
+  Project,
+  Thread,
+  ThreadStatus,
+  VersionOrigin,
+} from "@redline/shared";
 
 export class Store {
   private readonly db: Database.Database;
@@ -30,7 +39,9 @@ export class Store {
         id TEXT PRIMARY KEY,
         page_id TEXT NOT NULL REFERENCES pages(id),
         files TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        message TEXT NOT NULL DEFAULT '',
+        origin TEXT NOT NULL DEFAULT 'terminal'
       );
       CREATE TABLE IF NOT EXISTS threads (
         id TEXT PRIMARY KEY,
@@ -74,7 +85,7 @@ export class Store {
     this.db
       .prepare("INSERT INTO pages (id, project_id, title, type, created_at) VALUES (?, ?, ?, ?, ?)")
       .run(id, projectId, title, type, now());
-    this.createVersion(id, files);
+    this.createVersion(id, files, "Page created", "terminal");
     return this.getPage(id)!;
   }
 
@@ -140,14 +151,49 @@ export class Store {
     return hash === undefined ? undefined : readFileSync(join(this.blobDir, hash));
   }
 
-  private createVersion(pageId: string, files: Record<string, string>): void {
+  /** Records a new version of the page from file contents. */
+  addVersion(pageId: string, files: Record<string, string>, message: string, origin: VersionOrigin): PageVersionSummary {
+    return this.createVersion(pageId, files, message, origin);
+  }
+
+  /** Versions of a page, newest first. */
+  listVersions(pageId: string): PageVersionSummary[] {
+    const rows = this.db
+      .prepare(
+        "SELECT id, message, origin, created_at FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC",
+      )
+      .all(pageId) as VersionRow[];
+    return rows.map(toSummary);
+  }
+
+  /** Repoints the page's paths to the hashes of an old version and records that as a new version. */
+  restoreVersion(pageId: string, versionId: string): PageVersionSummary | undefined {
+    const old = this.db
+      .prepare("SELECT files, created_at FROM versions WHERE id = ? AND page_id = ?")
+      .get(versionId, pageId) as { files: string; created_at: string } | undefined;
+    if (!old) return undefined;
+    return this.insertVersion(pageId, old.files, `Restored version of ${old.created_at}`, "restore");
+  }
+
+  private createVersion(
+    pageId: string,
+    files: Record<string, string>,
+    message: string,
+    origin: VersionOrigin,
+  ): PageVersionSummary {
     const hashes: Record<string, string> = {};
     for (const [path, content] of Object.entries(files)) {
       hashes[path] = this.putBlob(Buffer.from(content, "utf8"));
     }
+    return this.insertVersion(pageId, JSON.stringify(hashes), message, origin);
+  }
+
+  private insertVersion(pageId: string, filesJson: string, message: string, origin: VersionOrigin): PageVersionSummary {
+    const row: VersionRow = { id: randomUUID(), message, origin, created_at: now() };
     this.db
-      .prepare("INSERT INTO versions (id, page_id, files, created_at) VALUES (?, ?, ?, ?)")
-      .run(randomUUID(), pageId, JSON.stringify(hashes), now());
+      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(row.id, pageId, filesJson, row.created_at, message, origin);
+    return toSummary(row);
   }
 
   private putBlob(content: Buffer): string {
@@ -187,6 +233,17 @@ function toThread(row: ThreadRow): Thread {
     body: row.body,
     status: row.status,
   };
+}
+
+interface VersionRow {
+  id: string;
+  message: string;
+  origin: VersionOrigin;
+  created_at: string;
+}
+
+function toSummary(row: VersionRow): PageVersionSummary {
+  return { id: row.id, message: row.message, origin: row.origin, createdAt: row.created_at };
 }
 
 function now(): string {

@@ -15,9 +15,9 @@ export interface TestServer {
 }
 
 /** Starts a real server on a temporary data folder with random free ports. */
-export async function startTestServer(): Promise<TestServer> {
+export async function startTestServer(options: { webDir?: string } = {}): Promise<TestServer> {
   const dataDir = mkdtempSync(join(tmpdir(), "redline-test-"));
-  const server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1" });
+  const server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", webDir: options.webDir });
   return {
     url: server.url,
     artboardOrigin: server.artboardOrigin,
