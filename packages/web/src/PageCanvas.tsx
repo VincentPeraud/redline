@@ -219,12 +219,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   }
 
   if (playFrom !== null && manifest) {
-    const first = manifest.artboards.find((a) => a.file === playFrom);
-    const artboards = first ? [first, ...manifest.artboards.filter((a) => a !== first)] : manifest.artboards;
     return (
       <PlayMode
         pageId={pageId}
-        manifest={{ ...manifest, artboards }}
+        manifest={manifest}
+        start={playFrom}
         artboardOrigin={artboardOrigin}
         tweaks={tweaks.values}
         onTweak={tweaks.setValue}

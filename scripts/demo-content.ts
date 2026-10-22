@@ -96,9 +96,9 @@ const PHONE = { width: 390, height: 760 };
 const CARD = { width: 260, height: 540 };
 
 const ONBOARDING_CSS = `
-html{background:transparent}
-body{min-height:0;height:540px;background:var(--color-background)}
-main{height:540px;padding:48px 22px 24px;display:flex;flex-direction:column;gap:12px}
+html{background:transparent;height:100%}
+body{min-height:0;height:100%;background:var(--color-background)}
+main{height:100%;padding:48px 22px 24px;display:flex;flex-direction:column;gap:12px}
 h1{font-size:22px;font-weight:700;line-height:1.2}
 .lead{font-size:13px;line-height:1.5;color:#52525b}
 .field{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#52525b}
@@ -119,6 +119,16 @@ html[data-tweak-layout="Grille + icônes"] .choice:has(input:checked) svg{color:
 .days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-top:8px;font-size:11px;color:#5f5f68;text-align:center}
 .day{height:30px;padding:0;border:none;border-radius:6px;background:#eceae4;cursor:pointer}
 .day.on{background:var(--color-primary)}
+@media (min-width:340px){
+main{padding:56px 28px 32px;gap:14px}
+h1{font-size:28px}
+.lead{font-size:15px}
+.field input{height:46px;border-radius:12px}
+.choice{height:52px;border-radius:12px;font-size:17px;gap:12px}
+.choice input{width:18px;height:18px}
+.cta{height:54px;border-radius:12px;font-size:16px}
+.day{height:40px}
+}
 `;
 
 const ICON = (paths: string) =>
