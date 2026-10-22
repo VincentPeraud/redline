@@ -11,7 +11,8 @@ claude -p (--session-id <uuid> | --resume <uuid>) --output-format stream-json --
   --permission-mode dontAsk
   --allowedTools "Read,Glob,Grep,Edit(/.redline/<page>/**),Write(/.redline/<page>/**),mcp__redline"
   --disallowedTools "Bash,PowerShell,NotebookEdit"
-  --mcp-config '{"mcpServers":{"redline":{"type":"http","url":"<per-run MCP url>"}}}'
+  --setting-sources ""
+  --mcp-config '{"mcpServers":{"redline":{"type":"http","url":"<per-run MCP url>"}}}' [<cwd>/.mcp.json]
   [--model <m>] [--effort <low|medium|high|xhigh|max>]
 ```
 
@@ -23,7 +24,20 @@ claude -p (--session-id <uuid> | --resume <uuid>) --output-format stream-json --
 
 `dontAsk` denies everything not explicitly allowed (no prompt). Verified on a real run: a write to `.redline/p1/a.txt` and to `.redline/p1/sub/a.txt` succeeds; a write to `.redline/other/b.txt` or `outside.txt` is denied (`system` event `permission_denied`); Bash is absent from the session's tools. In a path pattern, a leading `/` means "relative to the session's cwd" (the agent's folder), so the rule is the page's working copy only. The MCP server is named `redline`, so its tools are `mcp__redline__<tool>`.
 
-Known gap: user, project and local settings files still apply, so an `allow` rule there (for example `Edit(src/**)`) would widen what is writable. Not handled yet.
+### Settings files
+
+User, project (`.claude/settings.json`) and local settings files would otherwise apply, and an `allow` rule there (for example `Edit(src/**)`) widens what is writable. Verified (Claude Code 2.1.307, Haiku, temp project with `Edit(src/**)`/`Write(src/**)` allowed in `.claude/settings.json`, a `CLAUDE.md` marker and a stdio server in `.mcp.json`; the folder must be trusted, otherwise `-p` ignores the project's allow rules on its own):
+
+| Option | `src/` write | CLAUDE.md | `.mcp.json` server | User-scope MCP servers (`~/.claude.json`) | claude.ai connectors / login |
+| --- | --- | --- | --- | --- | --- |
+| nothing (default) | allowed (gap) | loaded | available | available | available |
+| `--setting-sources user` | denied | not loaded | not available | available | available |
+| `--setting-sources project` | allowed (gap) | loaded | available | not available | available |
+| `--setting-sources local` | denied | loaded | not available | not available | available |
+| `--setting-sources ""` | denied | loaded | not available | not available | available |
+| `--setting-sources "" --mcp-config <project>/.mcp.json` | denied | loaded | available | not available | available |
+
+The adapter uses the last row: `--setting-sources ""` plus the project's `.mcp.json` passed explicitly to `--mcp-config` (only when the file exists; it comes after the Redline server config, both are kept). Cost: user-scope MCP servers and everything else from the user's settings files (default model, env, hooks, user-level permission rules) no longer apply to Redline sessions; the login keeps working. Not tested: whether the user's global `~/.claude/CLAUDE.md` is still loaded with an empty `--setting-sources`.
 
 ## Stream-json events used
 

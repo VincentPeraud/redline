@@ -86,6 +86,24 @@ describe("Claude Code argument building", () => {
     });
   });
 
+  it("ignores every settings file so no allow rule can widen what is writable", () => {
+    const args = buildClaudeArgs(request, "start");
+    expect(valueAfter(args, "--setting-sources")).toBe("");
+  });
+
+  it("loads the project's .mcp.json explicitly, since dropping settings sources drops it, only when it exists", () => {
+    const folder = mkdtempSync(join(tmpdir(), "redline-args-"));
+    const folderRequest = { ...request, cwd: folder, workingCopyDir: join(folder, ".redline", "page-1") };
+    const without = buildClaudeArgs(folderRequest, "start");
+    expect(without.filter((arg) => arg.endsWith(".mcp.json"))).toEqual([]);
+
+    writeFileSync(join(folder, ".mcp.json"), "{}");
+    const args = buildClaudeArgs(folderRequest, "start");
+    const configs = args.slice(args.indexOf("--mcp-config") + 1, args.indexOf("--mcp-config") + 3);
+    expect(JSON.parse(configs[0]!)).toEqual({ mcpServers: { redline: { type: "http", url: request.mcpUrl } } });
+    expect(configs[1]).toBe(join(folder, ".mcp.json"));
+  });
+
   it("refuses a working copy outside the agent's folder", () => {
     expect(() => buildClaudeArgs({ ...request, workingCopyDir: "/elsewhere/page-1" }, "start")).toThrow(
       "inside the agent's folder",
