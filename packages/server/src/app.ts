@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { extname } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
-import type { CreatePageRequest, ServerConfig } from "@redline/shared";
+import { VERSION_ORIGINS, type CreatePageRequest, type CreateVersionRequest, type ServerConfig } from "@redline/shared";
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 
@@ -60,6 +60,36 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
     const page = store.getPage(req.params.pageId);
     return page ?? reply.code(404).send({ error: "page not found" });
   });
+
+  app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/versions", async (req, reply) => {
+    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+    return store.listVersions(req.params.pageId);
+  });
+
+  app.post<{ Params: { pageId: string }; Body: CreateVersionRequest }>(
+    "/api/pages/:pageId/versions",
+    async (req, reply) => {
+      if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+      const { files, message, origin } = req.body ?? ({} as Partial<CreateVersionRequest>);
+      if (!files || typeof files !== "object") return reply.code(400).send({ error: "files are required" });
+      if (Object.entries(files).some(([path, content]) => !isSafePath(path) || typeof content !== "string")) {
+        return reply.code(400).send({ error: "invalid files" });
+      }
+      if (typeof message !== "string" || message.trim() === "") {
+        return reply.code(400).send({ error: "message is required" });
+      }
+      if (!(VERSION_ORIGINS as readonly string[]).includes(origin)) return reply.code(400).send({ error: "invalid origin" });
+      return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
+    },
+  );
+
+  app.post<{ Params: { pageId: string; versionId: string } }>(
+    "/api/pages/:pageId/versions/:versionId/restore",
+    async (req, reply) => {
+      const restored = store.restoreVersion(req.params.pageId, req.params.versionId);
+      return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });
+    },
+  );
 
   app.get<{ Params: { pageId: string; "*": string } }>("/api/pages/:pageId/files/*", async (req, reply) => {
     const path = req.params["*"];
