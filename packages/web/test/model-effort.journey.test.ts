@@ -38,7 +38,7 @@ it("shows both controls as the agent's default until changed, and applies a chan
   await tab.getByRole("tab", { name: /^Commentaires/ }).click();
   const model = tab.getByLabel("Modèle");
   await expect.poll(() => model.inputValue()).toBe("");
-  expect(await model.locator("option:checked").textContent()).toContain("par défaut");
+  await expect.poll(() => model.locator("option:checked").textContent()).toBe("Sonnet");
   expect(await tab.getByTestId("effort-default").textContent()).toContain("défaut de l'agent");
 
   await model.selectOption("opus");

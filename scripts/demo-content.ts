@@ -288,14 +288,23 @@ export const lumoraPages = (designSystem: string): PageSpec[] => [
   doctorProfilePage(designSystem),
 ];
 
-export const lumoraDesignMd = `# Direction
-Ton rassurant et sobre, pour des professionnels de santé pressés. Mobile d'abord, 390 px.
+export const lumoraDesignMd = `# Lumora — direction de design
 
-# Règles
+## Cible
+Médecins et paramédicaux libéraux qui cherchent ou proposent
+un remplacement. Souvent sur mobile, entre deux consultations.
+
+## Ton
+Rassurant et sobre. Phrases courtes.
+
+## Règles
 - Une seule action principale par écran
-- Boutons principaux pleins, couleur primaire
+- Bouton principal plein, couleur primaire
 - Listes de choix en boutons radio, jamais en menu déroulant
 - La semaine commence le lundi
+
+## Mise en page
+- Mobile d'abord, 390 px de large
 `;
 
 /** A PNG of `width` x `height` pixels, each pixel given by `pixel(x, y)` as [r, g, b, a]. */
