@@ -288,6 +288,7 @@ export const lumoraPages = (designSystem: string): PageSpec[] => [
   doctorProfilePage(designSystem),
 ];
 
+/** DESIGN.md as the user wrote it when creating the project; sessions then add the other rules (see `designMdEdits`). */
 export const lumoraDesignMd = `# Lumora — direction de design
 
 ## Cible
@@ -295,17 +296,64 @@ Médecins et paramédicaux libéraux qui cherchent ou proposent
 un remplacement. Souvent sur mobile, entre deux consultations.
 
 ## Ton
-Rassurant et sobre. Phrases courtes.
+Phrases courtes.
 
 ## Règles
 - Une seule action principale par écran
-- Bouton principal plein, couleur primaire
-- Listes de choix en boutons radio, jamais en menu déroulant
-- La semaine commence le lundi
 
 ## Mise en page
 - Mobile d'abord, 390 px de large
 `;
+
+/** The rules sessions add to DESIGN.md afterwards, one text transformation each (applied to the working copy's file). */
+export const designMdEdits = {
+  tone: (text: string) => text.replace("Phrases courtes.", "Rassurant et sobre. Phrases courtes."),
+  radio: (text: string) => text.replace("- Une seule action principale par écran\n", "- Une seule action principale par écran\n- Listes de choix en boutons radio, jamais en menu déroulant\n"),
+  week: (text: string) => text.replace("- Une seule action principale par écran\n", "- Une seule action principale par écran\n- La semaine commence le lundi\n"),
+  button: (text: string) => text.replace("- Une seule action principale par écran\n", "- Une seule action principale par écran\n- Bouton principal plein, couleur primaire\n"),
+};
+
+/** A fourth onboarding artboard, added then removed by sessions so the deleted-artboards list has an entry. */
+export const onboardingExtraArtboard = {
+  file: "ecran-4.html",
+  title: "Confirmation",
+  ...CARD,
+  html: screen(
+    "Confirmation",
+    `<main style="gap:14px">
+  <h1>Votre compte est prêt</h1>
+  <p class="lead">Nous vous prévenons dès qu'un remplacement correspond.</p>
+  <div class="spacer"></div>
+  <button class="cta dark">Voir les offres</button>
+</main>`,
+    ONBOARDING_CSS,
+  ),
+};
+
+/** The page Claude creates in the "Pages d'erreur" conversation: three error artboards in the style of the onboarding. */
+export function errorsPage(designSystem: string): PageSpec {
+  const error = (title: string, heading: string, text: string, action: string) =>
+    screen(
+      title,
+      `<main style="align-items:center;text-align:center;justify-content:center;gap:14px">
+  <h1>${heading}</h1>
+  <p class="lead">${text}</p>
+  <button class="cta dark" style="margin-top:12px;padding:0 24px">${action}</button>
+</main>`,
+      ONBOARDING_CSS,
+    );
+  return page(
+    "Erreurs",
+    [
+      { file: "erreur-404.html", title: "404", ...CARD, html: error("404", "Page introuvable", "Le lien est peut-être périmé.", "Retour à l'accueil") },
+      { file: "erreur-500.html", title: "500", ...CARD, html: error("500", "Un souci de notre côté", "Réessayez dans un instant.", "Réessayer") },
+      { file: "maintenance.html", title: "Maintenance", ...CARD, html: error("Maintenance", "Maintenance en cours", "Retour prévu à 14 h.", "Me prévenir") },
+    ],
+    {},
+    designSystem,
+    60,
+  );
+}
 
 /** A PNG of `width` x `height` pixels, each pixel given by `pixel(x, y)` as [r, g, b, a]. */
 function png(width: number, height: number, pixel: (x: number, y: number) => [number, number, number, number]): Buffer {

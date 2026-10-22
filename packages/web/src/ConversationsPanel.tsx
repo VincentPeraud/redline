@@ -64,7 +64,8 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
 
   const refreshList = useCallback(async () => {
     const res = await fetch(`/api/pages/${pageId}/conversations`);
-    setConversations(((await res.json()) as Conversation[]).filter((c) => !c.archived));
+    const list = ((await res.json()) as Conversation[]).filter((c) => !c.archived);
+    setConversations(list.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)));
   }, [pageId]);
 
   const refreshDetail = useCallback(async (id: string) => {

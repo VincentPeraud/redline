@@ -76,6 +76,8 @@
   background: transparent;
   font: inherit;
   text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
   color: inherit;
   cursor: pointer;
 }
