@@ -125,8 +125,9 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
     function onKey(event: KeyboardEvent) {
       const target = event.target as HTMLElement;
       if (target.tagName === "TEXTAREA" || target.tagName === "INPUT" || event.metaKey || event.ctrlKey) return;
-      if (event.key === "c") setPicking(true);
-      if (event.key === "p") setPicking(false);
+      const key = event.key.toLowerCase();
+      if (key === "c") setPicking(true);
+      if (key === "p") setPicking(false);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -142,7 +143,6 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
     });
     setDraft(null);
     setText("");
-    setPicking(false);
     await refresh();
   }
 
@@ -185,6 +185,23 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
             drag.current = null;
           }}
         >
+          <div
+            data-testid="mode-indicator"
+            style={{
+              position: "absolute",
+              right: 8,
+              top: 8,
+              zIndex: 1,
+              padding: "2px 8px",
+              borderRadius: 4,
+              font: "600 12px system-ui",
+              pointerEvents: "none",
+              background: picking ? "#e5484d" : "#222",
+              color: "#fff",
+            }}
+          >
+            {picking ? "Comment mode (P to interact)" : "Interactive (C to comment, Alt+click to pin)"}
+          </div>
           <div
             style={{
               position: "absolute",
