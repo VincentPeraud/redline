@@ -1,18 +1,19 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { NEUTRAL_DESIGN_SYSTEM_ID, type CreateProjectRequest, type DesignSystem, type Project } from "@redline/shared";
+import { NEUTRAL_DESIGN_SYSTEM_ID, type CreateProjectRequest, type DesignSystemSummary, type Project } from "@redline/shared";
 import { agentLabel } from "./agentLabel.js";
 import { Dialog } from "./Dialog.js";
+import { usedByLabel } from "./designSystemLabel.js";
 import { routeHref } from "./router.js";
 
 function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (project: Project) => void }) {
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
   const [designSystem, setDesignSystem] = useState("");
-  const [designSystems, setDesignSystems] = useState<DesignSystem[]>([]);
+  const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
 
   useEffect(() => {
     fetch("/api/design-systems")
-      .then((res) => res.json() as Promise<DesignSystem[]>)
+      .then((res) => res.json() as Promise<DesignSystemSummary[]>)
       .then(setDesignSystems);
   }, []);
 
@@ -61,6 +62,7 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
               .map((ds) => (
                 <option key={ds.id} value={ds.id}>
                   {ds.title}
+                  {ds.usedBy.length > 0 && ` — ${usedByLabel(ds)}`}
                 </option>
               ))}
           </select>
@@ -92,6 +94,7 @@ export function ProjectsScreen() {
     <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
       <h1>Redline</h1>
       <nav>
+        <a href={routeHref({ name: "designSystems" })}>Design systems</a>{" "}
         <a href={routeHref({ name: "agents" })}>Agents</a>
       </nav>
       <h2>Projects</h2>

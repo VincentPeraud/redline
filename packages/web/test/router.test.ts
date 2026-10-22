@@ -6,6 +6,7 @@ describe("hash router", () => {
     expect(parseRoute("")).toEqual({ name: "projects" });
     expect(parseRoute("#/")).toEqual({ name: "projects" });
     expect(parseRoute("#/agents")).toEqual({ name: "agents" });
+    expect(parseRoute("#/design-systems")).toEqual({ name: "designSystems" });
     expect(parseRoute("#/projects/p1")).toEqual({ name: "project", projectId: "p1" });
     expect(parseRoute("#/projects/p1/design-md")).toEqual({ name: "designMd", projectId: "p1" });
     expect(parseRoute("#/pages/g1")).toEqual({ name: "page", pageId: "g1" });
@@ -19,6 +20,7 @@ describe("hash router", () => {
     const routes: Route[] = [
       { name: "projects" },
       { name: "agents" },
+      { name: "designSystems" },
       { name: "project", projectId: "a b" },
       { name: "designMd", projectId: "a b" },
       { name: "page", pageId: "g1" },
