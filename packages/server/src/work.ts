@@ -14,11 +14,45 @@ export function threadMessage(thread: Thread): string {
   ].join("\n");
 }
 
+/** The message Claude receives for a user's reply in a thread whose session it resumes. */
+export function replyMessage(thread: Thread, body: string): string {
+  return [
+    `Reply from the user in comment ${thread.number} (thread id: ${thread.id}):`,
+    "",
+    body,
+    "",
+    `Make the change in the working copy if the reply asks for one, then answer in the thread with the reply_in_thread tool (threadId ${thread.id}).`,
+  ].join("\n");
+}
+
 /** Pushes a work item for a freshly sent thread to the project's agent. Returns false when no agent is online. */
 export function dispatchThread(store: Store, hub: AgentHub, projectId: string, thread: Thread): boolean {
   const agentId = store.findOnlineProjectAgentId(projectId);
   if (!agentId) return false;
-  const item: WorkItem = {
+  const sessionId = randomUUID();
+  const sent = sendItem(store, hub, agentId, threadItem(thread, threadMessage(thread), sessionId, false));
+  if (sent) store.setThreadSession(thread.id, sessionId, agentId);
+  return sent;
+}
+
+/** Resumes the thread's session, on the agent that opened it, with the user's reply. False when the thread has no session or its agent is offline. */
+export function dispatchReply(store: Store, hub: AgentHub, thread: Thread, body: string): boolean {
+  const session = store.getThreadSession(thread.id);
+  if (!session) return false;
+  return sendItem(store, hub, session.agentId, threadItem(thread, replyMessage(thread, body), session.sessionId, true));
+}
+
+/** Sends a work item and, once sent, announces it so its run is tracked. */
+function sendItem(store: Store, hub: AgentHub, agentId: string, item: WorkItem): boolean {
+  const sent = hub.send(agentId, { type: "work", item });
+  if (sent) {
+    store.emit({ type: "work-dispatched", pageId: item.pageId, workId: item.id, threadIds: item.threads.map((t) => t.threadId) });
+  }
+  return sent;
+}
+
+function threadItem(thread: Thread, message: string, sessionId: string, resume: boolean): WorkItem {
+  return {
     id: randomUUID(),
     kind: "thread",
     pageId: thread.pageId,
@@ -33,9 +67,8 @@ export function dispatchThread(store: Store, hub: AgentHub, projectId: string, t
         body: thread.body,
       },
     ],
-    message: threadMessage(thread),
-    sessionId: randomUUID(),
-    resume: false,
+    message,
+    sessionId,
+    resume,
   };
-  return hub.send(agentId, { type: "work", item });
 }

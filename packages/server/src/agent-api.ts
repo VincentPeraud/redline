@@ -4,6 +4,8 @@ import {
   type AgentCheckout,
   type CreateReplyRequest,
   type CreateVersionRequest,
+  type PageType,
+  starterPageFiles,
 } from "@redline/shared";
 import { versionRequestError } from "./files.js";
 import type { Store } from "./store.js";
@@ -29,6 +31,20 @@ export async function registerAgentApi(app: FastifyInstance, store: Store): Prom
         const { files, message, origin } = req.body;
         return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
       });
+
+      api.post<{ Params: { pageId: string }; Body: { title?: unknown; type?: unknown } }>(
+        "/pages/:pageId/siblings",
+        async (req, reply) => {
+          const page = store.getPage(req.params.pageId);
+          if (!page) return reply.code(404).send({ error: "page not found" });
+          const { title, type } = req.body ?? {};
+          if (typeof title !== "string" || title.trim() === "") return reply.code(400).send({ error: "title is required" });
+          if (type !== "prototype" && type !== "comparison") return reply.code(400).send({ error: "invalid type" });
+          const designSystem = store.getProject(page.projectId)?.designSystem;
+          const files = starterPageFiles(title, type as PageType, designSystem);
+          return reply.code(201).send(store.createPage(page.projectId, title, type as PageType, files));
+        },
+      );
 
       api.post<{ Params: { threadId: string }; Body: CreateReplyRequest }>("/threads/:threadId/replies", async (req, reply) => {
         const body = req.body?.body;

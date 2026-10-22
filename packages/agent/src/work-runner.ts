@@ -24,7 +24,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
   try {
     const checkout = await api.checkout(item.pageId);
     const dir = writeWorkingCopy(folder, item.pageId, checkout);
-    const mcp = await startSessionMcp({ api, allowedThreadIds: item.threads.map((t) => t.threadId) });
+    const mcp = await startSessionMcp({ api, allowedThreadIds: item.threads.map((t) => t.threadId), pageId: item.pageId, workingCopyDir: dir });
     let result: EngineEvent | undefined;
     try {
       const request = {

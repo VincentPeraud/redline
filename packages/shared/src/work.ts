@@ -52,7 +52,7 @@ export type AgentWorkMessage =
 
 export interface ThreadReply {
   id: string;
-  author: "claude";
+  author: "claude" | "user";
   body: string;
   createdAt: string;
 }
@@ -66,7 +66,34 @@ export type ServerEvent =
   | { type: "page-updated"; pageId: string; versionId: string }
   | { type: "thread-updated"; pageId: string; threadId: string }
   /** What an agent reported about a work item, relayed as is. */
-  | { type: "work"; message: AgentWorkMessage };
+  | { type: "work"; message: AgentWorkMessage }
+  /** A work item was pushed to an agent (the threads it answers are "sent"). */
+  | { type: "work-dispatched"; pageId: string; workId: string; threadIds: string[] }
+  /** Live state of a run, sent after every change (full snapshot, replace by `workId`). */
+  | { type: "run-updated"; pageId: string; run: ThreadRun };
+
+/** Where a thread is in its run: sent to the agent, Claude working, answered, or failed. */
+export type RunStatus = "sent" | "running" | "answered" | "failed";
+
+export interface RunStep {
+  tool: string;
+  summary: string;
+}
+
+/** What the web UI shows of a running (or finished) work item. Kept in server memory. */
+export interface ThreadRun {
+  workId: string;
+  pageId: string;
+  threadIds: string[];
+  status: RunStatus;
+  steps: RunStep[];
+  /** Claude's streamed text so far. */
+  text: string;
+  error?: string;
+}
+
+/** `GET /api/pages/:pageId/runs` -> ThreadRun[] (oldest first). */
+export const pageRunsPath = (pageId: string) => `/api/pages/${pageId}/runs`;
 
 export const SERVER_EVENTS_PATH = "/api/events";
 
@@ -75,6 +102,7 @@ export const SERVER_EVENTS_PATH = "/api/events";
  * meant to stay reachable when a reverse proxy protects `/api`.
  *   GET  /agent-api/pages/:pageId/files          -> AgentCheckout
  *   POST /agent-api/pages/:pageId/versions       (CreateVersionRequest) -> PageVersionSummary
+ *   POST /agent-api/pages/:pageId/siblings       ({title, type}) -> Page, a new page in the same project
  *   POST /agent-api/threads/:threadId/replies    (CreateReplyRequest)   -> ThreadReply
  */
 export const AGENT_API_PREFIX = "/agent-api";
