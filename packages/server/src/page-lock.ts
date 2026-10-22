@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { QueueEntry, QueueReason, WorkItem } from "@redline/shared";
 import type { AgentHub } from "./agents.js";
 import type { Store } from "./store.js";
@@ -12,6 +13,8 @@ export interface SubmitOptions {
 
 interface Queued extends SubmitOptions {
   item: WorkItem;
+  /** Server-side holder (terminal mode): called instead of sending to an agent when the page is granted. */
+  onGranted?(): void;
 }
 
 interface Active {
@@ -46,6 +49,15 @@ export class PageLock {
   submit(options: SubmitOptions, item: WorkItem): void {
     this.queue.push({ ...options, item });
     this.pump();
+  }
+
+  /** Waits for the page's turn like any work item (no agent needed); resolves with the function that releases the page. */
+  acquire(pageId: string): Promise<() => void> {
+    return new Promise((resolve) => {
+      const item: WorkItem = { id: randomUUID(), kind: "thread", pageId, threads: [], message: "", sessionId: "", resume: false };
+      this.queue.push({ projectId: "", item, onGranted: () => resolve(() => this.release(item.id)) });
+      this.pump();
+    });
   }
 
   /** Frees the page held by a finished work item (done or failed) and starts the next one. Unknown ids are ignored. */
@@ -88,13 +100,17 @@ export class PageLock {
     const stillWaiting: Queued[] = [];
     for (const queued of this.queue) {
       const { pageId } = queued.item;
-      const agentId = queued.agentId ?? this.store.findOnlineProjectAgentId(queued.projectId);
-      if (blockedPages.has(pageId) || this.isPageLocked(pageId) || !agentId) {
+      const agentId = queued.onGranted ? "" : (queued.agentId ?? this.store.findOnlineProjectAgentId(queued.projectId));
+      if (blockedPages.has(pageId) || this.isPageLocked(pageId) || (!queued.onGranted && !agentId)) {
         blockedPages.add(pageId);
         stillWaiting.push(queued);
         continue;
       }
-      this.active.set(queued.item.id, { queued, agentId });
+      this.active.set(queued.item.id, { queued, agentId: agentId! });
+      if (queued.onGranted) {
+        queued.onGranted();
+        continue;
+      }
       if (this.hub.send(agentId, { type: "work", item: queued.item })) {
         queued.onDispatched?.(agentId);
         const { item } = queued;

@@ -19,7 +19,7 @@ export interface RedlineToolsContext {
   api: ServerApi;
   /** When set, replies are accepted only for these threads (the threads of the running work item). */
   allowedThreadIds?: readonly string[];
-  /** The page being worked on, and where its working copy is on disk. */
+  /** The page being worked on, and where its working copy is on disk (read when a tool runs, so terminal mode can use getters). */
   pageId: string;
   workingCopyDir: string;
 }
@@ -63,7 +63,8 @@ function addArtboardToWorkingCopy(
 }
 
 /** Redline's tools for a session. Add new tools here: the agent's session server and `redline mcp` both use it. */
-export function createRedlineMcpServer({ api, allowedThreadIds, pageId, workingCopyDir }: RedlineToolsContext): McpServer {
+export function createRedlineMcpServer(context: RedlineToolsContext): McpServer {
+  const { api, allowedThreadIds } = context;
   const server = new McpServer({ name: "redline", version: "0.0.0" });
   server.registerTool(
     REPLY_IN_THREAD_TOOL,
@@ -98,7 +99,7 @@ export function createRedlineMcpServer({ api, allowedThreadIds, pageId, workingC
       const invalid = artboardFileError(artboard.file);
       if (invalid) return text(invalid, true);
       try {
-        addArtboardToWorkingCopy(workingCopyDir, artboard);
+        addArtboardToWorkingCopy(context.workingCopyDir, artboard);
       } catch (error) {
         return text((error as Error).message, true);
       }
@@ -112,7 +113,7 @@ export function createRedlineMcpServer({ api, allowedThreadIds, pageId, workingC
       inputSchema: { title: z.string(), type: z.enum(["prototype", "comparison"]) },
     },
     async ({ title, type }) => {
-      const page = await api.createPageBeside(pageId, title, type);
+      const page = await api.createPageBeside(context.pageId, title, type);
       return text(`Page "${page.title}" created (id ${page.id}).`);
     },
   );

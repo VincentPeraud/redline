@@ -76,7 +76,7 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
   const app = Fastify();
   const agents = await registerAgentRoutes(app, store);
   const pageLock = new PageLock(store, agents);
-  await registerAgentApi(app, store);
+  await registerAgentApi(app, store, pageLock);
   await registerProjectFileRoutes(app, store);
   registerEventRoutes(app, store);
   registerRunRoutes(app, store);
