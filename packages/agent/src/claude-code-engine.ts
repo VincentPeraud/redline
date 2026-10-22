@@ -126,7 +126,9 @@ export function createStreamParser(cwd: string) {
       if (message.is_error === true || message.subtype !== "success") {
         return [{ type: "error", message: text || errors || `Claude Code failed (${String(message.subtype)}).` }];
       }
-      return [{ type: "result", summary: text }];
+      const windows = Object.values(asRecord(message.modelUsage)).map((usage) => Number(asRecord(usage).contextWindow));
+      const contextWindow = Number(asRecord(asRecord(message.modelUsage)[model]).contextWindow) || windows.find((w) => w > 0);
+      return [{ type: "result", summary: text, ...(contextWindow ? { contextWindow } : {}) }];
     }
     return [];
   }

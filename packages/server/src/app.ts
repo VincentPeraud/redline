@@ -29,6 +29,7 @@ import { registerAgentApi } from "./agent-api.js";
 import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
 import { PageLock } from "./page-lock.js";
+import { registerContextTracking } from "./context.js";
 import { registerRunRoutes } from "./runs.js";
 import { dispatchReply, dispatchThread } from "./work.js";
 
@@ -80,6 +81,7 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
   await registerProjectFileRoutes(app, store);
   registerEventRoutes(app, store);
   registerRunRoutes(app, store);
+  registerContextTracking(app, store, pageLock);
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });

@@ -1,4 +1,4 @@
-import type { AgentWorkMessage, Effort, ThreadReply, WorkItem } from "./work.js";
+import type { AgentWorkMessage, Effort, ThreadContext, ThreadReply, WorkItem } from "./work.js";
 
 export * from "./work.js";
 
@@ -86,6 +86,10 @@ export interface Thread {
   status: ThreadStatus;
   /** Claude's answers, oldest first. */
   replies: ThreadReply[];
+  /** Context of the thread's session after the last reply; absent before the first usage or after "Nouvelle session". */
+  context?: ThreadContext;
+  /** "summarizing" while the old session writes its summary; "ready" once the next reply starts a new session. */
+  newSession?: "summarizing" | "ready";
 }
 
 export interface CreateThreadRequest {

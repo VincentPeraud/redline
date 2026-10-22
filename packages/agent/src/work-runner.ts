@@ -37,7 +37,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
         effort: item.effort,
       };
       for await (const event of item.resume ? engine.resume(request) : engine.start(request)) {
-        send({ type: "work-event", workId: item.id, event });
+        send({ type: "work-event", workId: item.id, event: event.type === "usage" && item.effort ? { ...event, effort: item.effort } : event });
         if (event.type === "result" || event.type === "error") result = event;
       }
     } finally {

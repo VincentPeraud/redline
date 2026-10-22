@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Effort, Thread, WorkItem } from "@redline/shared";
+import { seededMessage } from "./context.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -48,8 +49,10 @@ export function dispatchReply(
 ): boolean {
   const session = store.getThreadSession(thread.id);
   if (!session) return false;
-  const item = { ...threadItem(thread, replyMessage(thread, body), session.sessionId, true), ...choice };
-  lock.submit({ projectId, agentId: session.agentId }, item);
+  const seed = store.getSessionSeed(thread.id);
+  const message = seed ? seededMessage(seed, replyMessage(thread, body)) : replyMessage(thread, body);
+  const item = { ...threadItem(thread, message, session.sessionId, !seed), ...choice };
+  lock.submit({ projectId, agentId: session.agentId, onDispatched: seed ? () => store.setNewSession(thread.id, null) : undefined }, item);
   return true;
 }
 

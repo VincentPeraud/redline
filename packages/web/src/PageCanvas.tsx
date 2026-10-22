@@ -13,6 +13,7 @@ import { fitView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { PlayMode } from "./PlayMode.js";
 import { queueLabel } from "./queueLabel.js";
 import { ThreadReplyForm } from "./ThreadReplyForm.js";
+import { ContextLine } from "./ContextLine.js";
 import { RunProgress } from "./RunProgress.js";
 import { useRuns } from "./useRuns.js";
 import { TweaksPanel } from "./TweaksPanel.js";
@@ -329,6 +330,7 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
                   <RunProgress key={run.workId} run={run} />
                 ))
               )}
+              <ContextLine thread={thread} />
               {thread.replies.map((reply) => (
                 <p key={reply.id} data-testid="reply" style={{ background: "#f6f4ff", padding: 6, margin: "6px 0" }}>
                   <em>{reply.author === "user" ? "You" : "Claude"}:</em> {reply.body}
