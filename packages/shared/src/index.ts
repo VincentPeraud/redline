@@ -15,6 +15,14 @@ export interface Project {
   designSystem: string | null;
   /** The project agent serving it, once an agent has linked the project. */
   agent?: { id: string; machine: string; folder: string; status: AgentStatus };
+  /** Whether the global agent may run the project's work, in new sessions, while its project agent is offline. */
+  allowGlobalTakeover: boolean;
+  /** The online agent that would run the project's work now (`GET /api/projects...`); absent when none can. */
+  servedBy?: { id: string; machine: string; folder: string; kind: AgentKind; takeover: boolean };
+}
+
+export interface UpdateProjectRequest {
+  allowGlobalTakeover?: boolean;
 }
 
 export interface CreateProjectRequest {

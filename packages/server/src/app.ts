@@ -21,6 +21,7 @@ import {
   type CreateThreadRequest,
   type CreateVersionRequest,
   type ServerConfig,
+  type UpdateProjectRequest,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import type { Store } from "./store.js";
@@ -28,6 +29,7 @@ import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
 import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
+import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
 import { registerContextTracking } from "./context.js";
 import { registerConversationRoutes } from "./conversations.js";
@@ -116,10 +118,22 @@ export async function buildMainApp(
     return reply.code(201).send(store.createProject(title, undefined, instructions, designSystem ?? null));
   });
 
-  app.get("/api/projects", async () => store.listProjects());
+  app.get("/api/projects", async () => store.listProjects().map((project) => withServedBy(store, project)));
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId", async (req, reply) => {
-    return store.getProject(req.params.projectId) ?? reply.code(404).send({ error: "project not found" });
+    const project = store.getProject(req.params.projectId);
+    return project ? withServedBy(store, project) : reply.code(404).send({ error: "project not found" });
+  });
+
+  app.patch<{ Params: { projectId: string }; Body: UpdateProjectRequest }>("/api/projects/:projectId", async (req, reply) => {
+    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    const { allowGlobalTakeover } = req.body ?? ({} as Partial<UpdateProjectRequest>);
+    if (allowGlobalTakeover !== undefined) {
+      if (typeof allowGlobalTakeover !== "boolean") return reply.code(400).send({ error: "allowGlobalTakeover must be a boolean" });
+      store.setAllowGlobalTakeover(req.params.projectId, allowGlobalTakeover);
+      pageLock.reconsider();
+    }
+    return withServedBy(store, store.getProject(req.params.projectId)!);
   });
 
   app.post<{ Params: { projectId: string }; Body: CreatePageRequest }>(
