@@ -75,6 +75,7 @@ export const SERVER_EVENTS_PATH = "/api/events";
  * meant to stay reachable when a reverse proxy protects `/api`.
  *   GET  /agent-api/pages/:pageId/files          -> AgentCheckout
  *   POST /agent-api/pages/:pageId/versions       (CreateVersionRequest) -> PageVersionSummary
+ *   POST /agent-api/pages/:pageId/siblings       ({title, type}) -> Page, a new page in the same project
  *   POST /agent-api/threads/:threadId/replies    (CreateReplyRequest)   -> ThreadReply
  */
 export const AGENT_API_PREFIX = "/agent-api";
