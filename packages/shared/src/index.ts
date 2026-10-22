@@ -80,6 +80,152 @@ export interface CreateThreadRequest {
   body: string;
 }
 
+// Page manifest (ticket 19). Contract shared by the canvas, play mode, tweaks, design systems and MCP tools.
+
+/** Path of the manifest inside a page's files. */
+export const MANIFEST_PATH = "manifest.json";
+
+export const DEFAULT_ARTBOARD_WIDTH = 800;
+export const DEFAULT_ARTBOARD_HEIGHT = 500;
+/** Horizontal gap between artboards laid out automatically. */
+export const ARTBOARD_GAP = 80;
+
+export interface ManifestArtboard {
+  /** Path of the HTML file; also the artboard's identity (threads reference it). */
+  file: string;
+  title?: string;
+  /** Size and position on the canvas, in canvas pixels. */
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+}
+
+export interface ManifestNote {
+  text: string;
+  x: number;
+  y: number;
+}
+
+/** Play mode: clicking `selector` in artboard `from` goes to artboard `to`. */
+export interface ManifestLink {
+  from: string;
+  selector: string;
+  to: string;
+}
+
+export type TweakType = "color" | "choice" | "toggle" | "range" | "count" | "text";
+
+/** Declaration only; chosen values live in the page's tweaks file, never in the manifest. */
+export interface ManifestTweak {
+  id: string;
+  type: TweakType;
+  label: string;
+  default?: string | number | boolean;
+  /** `choice` only. */
+  options?: string[];
+  /** `range` and `count` only. */
+  min?: number;
+  max?: number;
+}
+
+export interface Manifest {
+  title?: string;
+  type?: PageType;
+  /** Id of the design system the page uses. */
+  designSystem?: string;
+  artboards: ManifestArtboard[];
+  notes: ManifestNote[];
+  links: ManifestLink[];
+  tweaks: ManifestTweak[];
+}
+
+const TWEAK_TYPES: readonly TweakType[] = ["color", "choice", "toggle", "range", "count", "text"];
+
+function fail(message: string): never {
+  throw new Error(`Invalid ${MANIFEST_PATH}: ${message}`);
+}
+
+function list(value: unknown, name: string): Record<string, unknown>[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) fail(`${name} must be a list`);
+  value.forEach((item, i) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) fail(`${name}[${i}] must be an object`);
+  });
+  return value as Record<string, unknown>[];
+}
+
+function str(item: Record<string, unknown>, key: string, name: string): string {
+  const value = item[key];
+  if (typeof value !== "string" || value === "") fail(`${name}.${key} must be a non-empty string`);
+  return value;
+}
+
+function num(item: Record<string, unknown>, key: string, name: string, fallback: number, positive = false): number {
+  const value = item[key];
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !Number.isFinite(value) || (positive && value <= 0)) {
+    fail(`${name}.${key} must be ${positive ? "a positive number" : "a number"}`);
+  }
+  return value;
+}
+
+export function parseManifest(text: string): Manifest {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    fail("not valid JSON");
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) fail("must be a JSON object");
+  const root = raw as Record<string, unknown>;
+
+  let nextX = 0;
+  const artboards = list(root.artboards, "artboards").map((item, i): ManifestArtboard => {
+    const name = `artboards[${i}]`;
+    const width = num(item, "width", name, DEFAULT_ARTBOARD_WIDTH, true);
+    const artboard: ManifestArtboard = {
+      file: str(item, "file", name),
+      width,
+      height: num(item, "height", name, DEFAULT_ARTBOARD_HEIGHT, true),
+      x: num(item, "x", name, nextX),
+      y: num(item, "y", name, 0),
+    };
+    if (typeof item.title === "string") artboard.title = item.title;
+    nextX = artboard.x + width + ARTBOARD_GAP;
+    return artboard;
+  });
+
+  const notes = list(root.notes, "notes").map((item, i): ManifestNote => {
+    const name = `notes[${i}]`;
+    return { text: str(item, "text", name), x: num(item, "x", name, 0), y: num(item, "y", name, 0) };
+  });
+
+  const links = list(root.links, "links").map((item, i): ManifestLink => {
+    const name = `links[${i}]`;
+    return { from: str(item, "from", name), selector: str(item, "selector", name), to: str(item, "to", name) };
+  });
+
+  const tweaks = list(root.tweaks, "tweaks").map((item, i): ManifestTweak => {
+    const name = `tweaks[${i}]`;
+    const type = str(item, "type", name);
+    if (!TWEAK_TYPES.includes(type as TweakType)) fail(`${name}.type must be one of ${TWEAK_TYPES.join(", ")}`);
+    return { ...(item as unknown as ManifestTweak), id: str(item, "id", name), type: type as TweakType, label: str(item, "label", name) };
+  });
+
+  const manifest: Manifest = { artboards, notes, links, tweaks };
+  if (typeof root.title === "string") manifest.title = root.title;
+  if (root.type === "prototype" || root.type === "comparison") manifest.type = root.type;
+  if (typeof root.designSystem === "string") manifest.designSystem = root.designSystem;
+  return manifest;
+}
+
+/** Layout used when a page has no manifest: every HTML file, side by side at the default size. */
+export function defaultManifest(paths: string[]): Manifest {
+  const files = paths.filter((path) => path.endsWith(".html"));
+  return parseManifest(JSON.stringify({ artboards: files.map((file) => ({ file })) }));
+}
+
 /** WebSocket path of the agent endpoint (outside the reverse proxy's protection; guarded by the token). */
 export const AGENT_ENDPOINT = "/agent";
 
