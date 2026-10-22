@@ -73,11 +73,12 @@ it("lists every agent on the Agents screen and lets the takeover choice be chang
   expect(await card.getByTestId("agent-status").textContent()).toBe("Libre");
   await tab.getByText("redline agent --global").waitFor();
 
-  await card.getByLabel("L'agent global prend le relais").click();
+  const takeover = tab.getByRole("radiogroup", { name: /Blog/ }).getByLabel("L'agent global prend le relais");
+  await takeover.click();
   await expect
     .poll(async () => ((await (await server.get(`/api/projects/${project.id}`)).json()) as Project).allowGlobalTakeover)
     .toBe(true);
-  await expect.poll(() => card.getByLabel("L'agent global prend le relais").isChecked()).toBe(true);
+  await expect.poll(() => takeover.isChecked()).toBe(true);
 
   const globalCard = tab.getByTestId("agent-card").filter({ hasText: "/global" });
   expect(await globalCard.getByTestId("agent-projects").textContent()).toBe("Solo");
