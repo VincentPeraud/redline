@@ -11,6 +11,7 @@ import {
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge } from "./bridge.js";
 import type { Store } from "./store.js";
+import { registerAgentRoutes } from "./agents.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -30,6 +31,7 @@ function isSafePath(path: string): boolean {
 /** API and web UI. */
 export async function buildMainApp(store: Store, config: ServerConfig, webDir?: string): Promise<FastifyInstance> {
   const app = Fastify();
+  await registerAgentRoutes(app, store);
 
   app.get("/api/config", async () => config);
 

@@ -72,6 +72,7 @@ export function App() {
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
       <h1>Redline</h1>
+      <a href="#/agents">Agents</a>
       {projects.map((project) => (
         <section key={project.id}>
           <h2>{project.title}</h2>
