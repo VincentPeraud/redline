@@ -274,3 +274,4 @@ export interface AgentInfo {
 export interface AgentTokenResponse {
   token: string;
 }
+export * from "./designSystem.js";

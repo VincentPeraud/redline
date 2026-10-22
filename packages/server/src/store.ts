@@ -2,6 +2,13 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
+import {
+  DESIGN_SYSTEM_TOKENS_PATH,
+  NEUTRAL_DESIGN_SYSTEM_ID,
+  NEUTRAL_TOKENS_CSS,
+  NEUTRAL_TOKENS_PAGE_HTML,
+  type DesignSystem,
+} from "@redline/shared";
 import type {
   CreateThreadRequest,
   AgentInfo,
@@ -72,8 +79,43 @@ export class Store {
         last_seen_at TEXT NOT NULL,
         UNIQUE (machine, folder)
       );
+      CREATE TABLE IF NOT EXISTS design_systems (
+        project_id TEXT PRIMARY KEY REFERENCES projects(id),
+        page_id TEXT NOT NULL REFERENCES pages(id)
+      );
       UPDATE agents SET status = 'offline';
     `);
+    if (!this.getDesignSystem(NEUTRAL_DESIGN_SYSTEM_ID)) {
+      this.createDesignSystem("Neutral", { [DESIGN_SYSTEM_TOKENS_PATH]: NEUTRAL_TOKENS_CSS, "index.html": NEUTRAL_TOKENS_PAGE_HTML }, NEUTRAL_DESIGN_SYSTEM_ID);
+    }
+  }
+
+  /** A design system is a project (same id) with one page holding its tokens and components. */
+  createDesignSystem(title: string, files: Record<string, string>, id: string = randomUUID()): DesignSystem {
+    this.createProject(title, id);
+    const page = this.createPage(id, title, "prototype", files);
+    this.db.prepare("INSERT INTO design_systems (project_id, page_id) VALUES (?, ?)").run(id, page.id);
+    return { id, title, pageId: page.id };
+  }
+
+  getDesignSystem(id: string): DesignSystem | undefined {
+    return this.db
+      .prepare(
+        "SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id WHERE p.id = ?",
+      )
+      .get(id) as DesignSystem | undefined;
+  }
+
+  listDesignSystems(): DesignSystem[] {
+    return this.db
+      .prepare(
+        "SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id ORDER BY p.created_at, p.rowid",
+      )
+      .all() as DesignSystem[];
+  }
+
+  isDesignSystemPage(pageId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM design_systems WHERE page_id = ?").get(pageId) !== undefined;
   }
 
   close(): void {
@@ -117,8 +159,8 @@ export class Store {
       .all() as AgentInfo[];
   }
 
-  createProject(title: string): Project {
-    const project = { id: randomUUID(), title };
+  createProject(title: string, id: string = randomUUID()): Project {
+    const project = { id, title };
     this.db
       .prepare("INSERT INTO projects (id, title, created_at) VALUES (?, ?, ?)")
       .run(project.id, title, now());
@@ -126,7 +168,7 @@ export class Store {
   }
 
   listProjects(): Project[] {
-    return this.db.prepare("SELECT id, title FROM projects ORDER BY created_at, rowid").all() as Project[];
+    return this.db.prepare("SELECT id, title FROM projects WHERE id NOT IN (SELECT project_id FROM design_systems) ORDER BY created_at, rowid").all() as Project[];
   }
 
   projectExists(id: string): boolean {
