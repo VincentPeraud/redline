@@ -139,7 +139,11 @@ export async function buildMainApp(
   );
 
   app.get("/api/design-systems", async () =>
-    store.listDesignSystems().map((designSystem) => ({ ...designSystem, usedBy: store.projectsUsingDesignSystem(designSystem.id) })),
+    store.listDesignSystems().map((designSystem) => ({
+      ...designSystem,
+      usedBy: store.projectsUsingDesignSystem(designSystem.id),
+      updatedAt: store.listVersions(designSystem.pageId)[0]?.createdAt,
+    })),
   );
 
   app.post<{ Body: CreateDesignSystemRequest }>("/api/design-systems", async (req, reply) => {
