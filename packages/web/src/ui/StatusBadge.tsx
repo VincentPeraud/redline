@@ -10,10 +10,12 @@ export interface StatusBadgeProps extends HTMLAttributes<HTMLSpanElement> {
   tone: BadgeTone;
   /** md: table rows and cards; sm: panel headers. */
   size?: "md" | "sm";
+  /** Flows with the text of a table row instead of adding its padding to the row height. */
+  inline?: boolean;
 }
 
-export function StatusBadge({ tone, size = "md", className, ...rest }: StatusBadgeProps) {
-  return <span className={cx(styles.badge, styles[tone], styles[size], className)} {...rest} />;
+export function StatusBadge({ tone, size = "md", inline, className, ...rest }: StatusBadgeProps) {
+  return <span className={cx(styles.badge, styles[tone], styles[size], inline && styles.inline, className)} {...rest} />;
 }
 
 export const SESSION_STATUS_TONE: Record<SessionStatus, BadgeTone> = {

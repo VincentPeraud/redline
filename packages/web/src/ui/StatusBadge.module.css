@@ -43,3 +43,7 @@
   background: var(--badge-danger-bg);
   color: var(--badge-danger-text);
 }
+
+.inline {
+  display: inline;
+}

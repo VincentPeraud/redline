@@ -89,7 +89,7 @@
 }
 
 .message {
-  max-width: 88%;
+  max-width: 95%;
   border-radius: var(--radius-xl);
   padding: 10px 12px;
   font-size: var(--font-size-md);
@@ -153,4 +153,8 @@
 .composerLabel {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
+}
+
+.composerInput.composerInput {
+  line-height: normal;
 }
