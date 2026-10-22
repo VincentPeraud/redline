@@ -92,6 +92,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
       </nav>
       <h1>{project.title}</h1>
       <p data-testid="project-agent">{agentLabel(project)}</p>
+      <a href={routeHref({ name: "designMd", projectId })}>DESIGN.md</a>{" "}
       <button onClick={() => setCreating(true)}>New page</button>
       {pages.length === 0 && <p>No page yet.</p>}
       <ul style={{ listStyle: "none", padding: 0, display: "flex", flexWrap: "wrap", gap: 16 }}>
