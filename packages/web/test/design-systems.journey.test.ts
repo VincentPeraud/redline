@@ -37,7 +37,7 @@ it("lists design systems with their projects, creates one and shows the hint in 
   await expect.poll(async () => tab.getByTestId("design-systems").textContent()).toContain("DS Lumora");
   expect(await tab.getByTestId("design-systems").textContent()).toContain("Utilisé par Lumora");
 
-  await tab.getByRole("button", { name: "Ajouter un design system" }).click();
+  await tab.getByRole("button", { name: "Ajouter un design system" }).first().click();
   await tab.getByLabel("Nom").fill("DS Blog");
   await tab.getByLabel("Partir des pages d'un projet (facultatif)").selectOption(source.id);
   await tab.getByLabel("Instructions").fill("Keep it calm");
@@ -52,7 +52,7 @@ it("lists design systems with their projects, creates one and shows the hint in 
   expect(conversations).toHaveLength(1);
 
   await tab.goto(`${server.url}/#/projects`);
-  await tab.getByRole("button", { name: "Nouveau projet" }).click();
-  await expect.poll(async () => tab.getByRole("option", { name: /DS Lumora — Utilisé par Lumora/ }).count()).toBe(1);
+  await tab.getByRole("button", { name: "Nouveau projet", exact: true }).click();
+  await expect.poll(async () => tab.getByRole("radio", { name: /DS Lumora.*Déjà utilisé par Lumora/ }).count()).toBe(1);
   await tab.close();
 });

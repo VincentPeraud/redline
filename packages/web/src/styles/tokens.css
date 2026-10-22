@@ -21,7 +21,17 @@
   --color-accent: #d92d20;
   --color-accent-hover: #b42318;
   --color-accent-soft: #fdecea;
+  --color-neutral-strong: #27272a;
   --color-accent-ink: #8a1c12;
+
+  /* Colours: accent tint (selected ring on swatches, scope chips) and the dark play-mode chrome */
+  --color-accent-tint: #fde3df;
+  --play-bg: #111113;
+  --play-panel-bg: #18181b;
+  --play-border: #27272a;
+  --play-border-strong: #3f3f46;
+  --play-text: #f4f4f5;
+  --play-text-muted: #a1a1aa;
 
   /* Colours: warm warnings and danger actions */
   --color-warning-bg: #fdebdd;

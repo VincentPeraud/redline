@@ -332,7 +332,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                           ×
                         </button>
                       </div>
-                      <TweaksPanel tweaks={manifest.tweaks} values={tweaks.values} onChange={tweaks.setValue} />
+                      <TweaksPanel tweaks={manifest.tweaks} values={tweaks.values} onChange={tweaks.setValue} previews={{ pageId, artboardOrigin, artboard }} />
                       <div className={styles.popoverHint}>
                         Le choix fait partie du design : il est enregistré avec l'artefact et s'applique ici comme en mode play.
                       </div>

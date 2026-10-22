@@ -10,9 +10,105 @@ import {
 } from "@redline/shared";
 import { routeHref } from "./router";
 import { subscribeServerEvents } from "./serverEvents";
-import { FILTER_LABEL, STATUS_LABEL, WAITING_NOTE, activityLabel, agentName, modelLine, shortSessionId } from "./sessionsView";
+import { FILTER_LABEL, WAITING_NOTE, activityLabel, agentName, modelLine, shortSessionId } from "./sessionsView";
+import {
+  FilterPill,
+  PageContent,
+  PageHeader,
+  SessionStatusBadge,
+  SidePanel,
+  SidePanelBody,
+  SidePanelFooter,
+  SidePanelHeader,
+  StatusBadge,
+  Table,
+  TextInput,
+  Textarea,
+  cx,
+  type TableColumn,
+} from "./ui/index.js";
+import styles from "./SessionsScreen.module.css";
 
-const cell = { padding: "8px 12px", textAlign: "left" as const, borderBottom: "1px solid #E4E2DC", font: "13px system-ui" };
+const kindLabel = (row: SessionRow) => (row.kind === "thread" ? "Fil" : "Conversation");
+const isHot = (row: SessionRow) => (row.context?.percent ?? 0) >= CONTEXT_WARNING_PERCENT;
+
+const COLUMNS: Record<string, Omit<TableColumn<SessionRow>, "width">> = {
+  name: { key: "name", header: "Fil ou conversation", render: (row) => <span className={styles.name}>{row.name}</span> },
+  type: { key: "type", header: "Type", render: (row) => <span className={styles.secondary}>{kindLabel(row)}</span> },
+  where: {
+    key: "where",
+    header: "Projet › page",
+    render: (row) => (
+      <span className={styles.secondary}>
+        {row.projectTitle} › {row.pageTitle}
+      </span>
+    ),
+  },
+  status: {
+    key: "status",
+    header: "Statut",
+    render: (row) => (
+      <span data-testid="session-status">
+        <SessionStatusBadge status={row.status} />
+      </span>
+    ),
+  },
+  agent: { key: "agent", header: "Agent", render: (row) => <span className={styles.secondary}>{agentName(row)}</span> },
+  session: { key: "session", header: "Session", render: (row) => <span className={styles.mono}>{shortSessionId(row.sessionId)}</span> },
+  model: {
+    key: "model",
+    header: "Modèle · effort · contexte",
+    render: (row) => <span className={cx(styles.model, isHot(row) && styles.hot)}>{modelLine(row)}</span>,
+  },
+  when: { key: "when", header: "Activité", render: (row) => <span className={styles.when}>{activityLabel(row.activityAt)}</span> },
+};
+
+/** The board shows every column when no session is open, and only four next to the side panel. */
+const WIDE: [string, string][] = [["name", "1.7fr"], ["type", "1fr"], ["where", "1.5fr"], ["status", "1.2fr"], ["agent", "0.9fr"], ["session", "0.9fr"], ["model", "1.6fr"], ["when", "0.9fr"]];
+const NARROW: [string, string][] = [["name", "1.8fr"], ["where", "1.4fr"], ["status", "1fr"], ["when", "0.8fr"]];
+
+function columnsFor(layout: [string, string][]): TableColumn<SessionRow>[] {
+  return layout.map(([key, width]) => ({ ...COLUMNS[key]!, width }));
+}
+
+const MESSAGES_PATH = { thread: "/api/threads", conversation: "/api/conversations" } as const;
+
+/** Reply composer of the side panel: Enter sends, Shift+Enter adds a line. Sending resumes the session. */
+function Composer({ session, onSent }: { session: SessionDetail; onSent: () => void }) {
+  const [text, setText] = useState("");
+
+  async function send() {
+    if (text.trim() === "") return;
+    await fetch(`${MESSAGES_PATH[session.kind]}/${session.id}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: text }),
+    });
+    setText("");
+    onSent();
+  }
+
+  return (
+    <>
+      <label htmlFor="reponse-session" className={styles.composerLabel}>
+        Répondre
+      </label>
+      <Textarea
+        id="reponse-session"
+        rows={3}
+        placeholder="Ta réponse reprend la même session…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            void send();
+          }
+        }}
+      />
+    </>
+  );
+}
 
 export function SessionsScreen() {
   const [rows, setRows] = useState<SessionRow[]>([]);
@@ -52,92 +148,96 @@ export function SessionsScreen() {
   );
 
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: 24, display: "flex", gap: 24 }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <h1>Sessions</h1>
-        <p>
-          Chaque fil de commentaires et chaque conversation a sa propre session Claude, sur la machine de son agent. Clique sur
-          une ligne pour l'ouvrir.
-        </p>
-        <div role="group" aria-label="Filtrer par statut" style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          {SESSION_FILTERS.map((f) => (
-            <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)}>
-              {FILTER_LABEL[f]} · {rows.filter((row) => sessionMatchesFilter(row.status, f)).length}
-            </button>
-          ))}
-          <input
+    <>
+      <PageContent>
+        <PageHeader
+          title="Sessions"
+          subtitle="Chaque fil de commentaires et chaque conversation a sa propre session Claude, sur la machine de son agent. Clique sur une ligne pour l'ouvrir."
+        />
+        <div className={styles.toolbar}>
+          <div role="group" aria-label="Filtrer par statut" className={styles.filters}>
+            {SESSION_FILTERS.map((f) => (
+              <FilterPill key={f} active={filter === f} count={rows.filter((row) => sessionMatchesFilter(row.status, f)).length} onClick={() => setFilter(f)}>
+                {FILTER_LABEL[f]}
+              </FilterPill>
+            ))}
+          </div>
+          <div className={styles.spacer} />
+          <TextInput
+            type="search"
+            size="md"
+            className={styles.search}
             aria-label="Rechercher une session"
-            placeholder="Rechercher une session"
+            placeholder="Rechercher un fil, une page…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ marginLeft: "auto" }}
           />
         </div>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              {["Fil ou conversation", "Type", "Projet › page", "Statut", "Agent", "Session", "Modèle · effort · contexte", "Activité"].map((h) => (
-                <th key={h} style={{ ...cell, color: "#5F5F68", fontWeight: 600 }}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((row) => {
-              const hot = (row.context?.percent ?? 0) >= CONTEXT_WARNING_PERCENT;
-              return (
-                <tr
-                  key={row.id}
-                  data-testid="session-row"
-                  aria-selected={row.id === openId}
-                  onClick={() => setOpenId(row.id)}
-                  style={{ cursor: "pointer", background: row.id === openId ? "#F3F2EE" : undefined }}
-                >
-                  <td style={cell}>{row.name}</td>
-                  <td style={cell}>{row.kind === "thread" ? "Fil" : "Conversation"}</td>
-                  <td style={cell}>
-                    {row.projectTitle} › {row.pageTitle}
-                  </td>
-                  <td style={cell} data-testid="session-status">
-                    {STATUS_LABEL[row.status]}
-                  </td>
-                  <td style={cell}>{agentName(row)}</td>
-                  <td style={{ ...cell, fontFamily: "monospace" }}>{shortSessionId(row.sessionId)}</td>
-                  <td style={{ ...cell, color: hot ? "#C2410C" : undefined, fontWeight: hot ? 600 : undefined }}>{modelLine(row)}</td>
-                  <td style={cell}>{activityLabel(row.activityAt)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {visible.length === 0 && <p>Aucune session avec ce statut.</p>}
-      </div>
+        <Table
+          columns={columnsFor(detail ? NARROW : WIDE)}
+          rows={visible}
+          rowKey={(row) => row.id}
+          rowTestId="session-row"
+          selectedKey={openId}
+          onRowClick={(row) => setOpenId(row.id)}
+          empty="Aucune session avec ce statut."
+        />
+      </PageContent>
 
       {detail && (
-        <aside aria-label="Session ouverte" style={{ width: 380, flexShrink: 0 }}>
-          <button type="button" aria-label="Fermer" onClick={() => setOpenId(null)} style={{ float: "right" }}>
-            ×
-          </button>
-          <div style={{ font: "12px system-ui", color: "#5F5F68" }}>
-            {detail.kind === "thread" ? "Fil" : "Conversation"} · {STATUS_LABEL[detail.status]}
-          </div>
-          <h2 style={{ margin: "4px 0" }}>{detail.name}</h2>
-          <div>
-            {detail.projectTitle} › {detail.pageTitle} <a href={`${routeHref({ name: "page", pageId: detail.pageId })}`}>Ouvrir sur la page</a>
-          </div>
-          <div style={{ font: "12px system-ui", margin: "4px 0 12px" }}>
-            Agent {agentName(detail)} · {shortSessionId(detail.sessionId)}
-          </div>
-          {detail.messages.map((m, i) => (
-            <p key={i} data-testid="session-message">
-              <strong>{m.author === "user" ? "Toi" : "Claude"}</strong> — {m.body}
-            </p>
-          ))}
-          {detail.status === "running" && <p>Claude travaille sur ce fil…</p>}
-          {detail.waitingReason && <p>{WAITING_NOTE[detail.waitingReason]}</p>}
-        </aside>
+        <SidePanel label="Session sélectionnée">
+          <SidePanelHeader>
+            <div className={styles.badges}>
+              <StatusBadge tone="neutral" size="sm">
+                {kindLabel(detail)}
+              </StatusBadge>
+              <SessionStatusBadge status={detail.status} size="sm" />
+              <span className={styles.spacer} />
+              <button type="button" className={styles.close} aria-label="Fermer le panneau" onClick={() => setOpenId(null)}>
+                ×
+              </button>
+            </div>
+            <h2 className={styles.title}>{detail.name}</h2>
+            <div className={styles.where}>
+              <span>
+                {detail.projectTitle} › {detail.pageTitle}
+              </span>
+              <span className={styles.spacer} />
+              <a href={routeHref({ name: "page", pageId: detail.pageId })}>Ouvrir sur la page</a>
+            </div>
+            <div className={styles.meta}>
+              Agent {agentName(detail)} · <span className={styles.metaMono}>{shortSessionId(detail.sessionId)}</span>
+              {modelLine(detail) !== "—" && (
+                <>
+                  {" · "}
+                  <span className={cx(styles.metaMono, isHot(detail) && styles.hot)}>{modelLine(detail)}</span>
+                </>
+              )}
+            </div>
+          </SidePanelHeader>
+          <SidePanelBody>
+            {detail.messages.map((m, i) => (
+              <div key={i} data-testid="session-message" className={cx(styles.message, m.author === "user" ? styles.fromUser : styles.fromClaude)}>
+                <b>{m.author === "user" ? "Toi" : "Claude"}</b> — {m.body}
+              </div>
+            ))}
+            {detail.status === "running" && (
+              <div className={styles.working}>
+                <span aria-hidden="true" className={styles.dots}>
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                Claude travaille sur ce fil…
+              </div>
+            )}
+            {detail.waitingReason && <div className={styles.note}>{WAITING_NOTE[detail.waitingReason]}</div>}
+          </SidePanelBody>
+          <SidePanelFooter>
+            <Composer key={detail.id} session={detail} onSent={() => void refresh()} />
+          </SidePanelFooter>
+        </SidePanel>
       )}
-    </main>
+    </>
   );
 }

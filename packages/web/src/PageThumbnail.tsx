@@ -1,19 +1,15 @@
-import { useEffect, useState } from "react";
-import { MANIFEST_PATH, defaultManifest, parseManifest } from "@redline/shared";
+import { useEffect, useRef, useState } from "react";
+import { MANIFEST_PATH, defaultManifest, parseManifest, type ManifestArtboard } from "@redline/shared";
+import styles from "./PageThumbnail.module.css";
 
-const THUMB_WIDTH = 240;
+const MAX_ARTBOARDS = 3;
+const AREA_HEIGHT = 150;
+const AREA_PADDING = 16;
+const ARTBOARD_GAP = 12;
 
-/** First artboard of the page, rendered live and scaled down. */
-export function PageThumbnail({
-  pageId,
-  files,
-  artboardOrigin,
-}: {
-  pageId: string;
-  files: Record<string, string>;
-  artboardOrigin: string;
-}) {
-  const [artboard, setArtboard] = useState<{ file: string; width: number; height: number } | null>(null);
+/** Artboards of a page, read from its manifest (or the default one when the page has none). */
+export function usePageArtboards(pageId: string, files: Record<string, string>): ManifestArtboard[] | null {
+  const [artboards, setArtboards] = useState<ManifestArtboard[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -22,40 +18,66 @@ export function PageThumbnail({
         MANIFEST_PATH in files
           ? parseManifest(await (await fetch(`/api/pages/${pageId}/files/${MANIFEST_PATH}`)).text())
           : defaultManifest(Object.keys(files));
-      if (!cancelled) setArtboard(manifest.artboards[0] ?? null);
+      if (!cancelled) setArtboards(manifest.artboards);
     })();
     return () => {
       cancelled = true;
     };
   }, [pageId, files]);
 
-  const scale = artboard ? THUMB_WIDTH / artboard.width : 1;
+  return artboards;
+}
+
+/** First artboards of the page, rendered live and scaled to fit the card's preview area. */
+export function PageThumbnail({
+  pageId,
+  artboards,
+  artboardOrigin,
+}: {
+  pageId: string;
+  artboards: ManifestArtboard[] | null;
+  artboardOrigin: string;
+}) {
+  const areaRef = useRef<HTMLDivElement>(null);
+  const [areaWidth, setAreaWidth] = useState(0);
+
+  useEffect(() => {
+    const area = areaRef.current;
+    if (!area) return;
+    const observer = new ResizeObserver(([entry]) => setAreaWidth(entry!.contentRect.width));
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, []);
+
+  const shown = (artboards ?? []).slice(0, MAX_ARTBOARDS);
+  const totalWidth = shown.reduce((sum, artboard) => sum + artboard.width, 0);
+  const maxHeight = Math.max(0, ...shown.map((artboard) => artboard.height));
+  const availableWidth = areaWidth - 2 * AREA_PADDING - ARTBOARD_GAP * (shown.length - 1);
+  const scale =
+    shown.length === 0 || areaWidth === 0
+      ? 1
+      : Math.min((AREA_HEIGHT - 2 * AREA_PADDING) / maxHeight, availableWidth / totalWidth, 1);
+
   return (
-    <div
-      style={{
-        width: THUMB_WIDTH,
-        height: artboard ? artboard.height * scale : 150,
-        overflow: "hidden",
-        background: "#f4f3ef",
-        border: "1px solid #d4d2cc",
-      }}
-    >
-      {artboard && artboardOrigin && (
-        <iframe
-          sandbox="allow-scripts"
-          tabIndex={-1}
-          title={`Aperçu de ${artboard.file}`}
-          src={`${artboardOrigin}/pages/${pageId}/${artboard.file}`}
-          style={{
-            width: artboard.width,
-            height: artboard.height,
-            border: 0,
-            transform: `scale(${scale})`,
-            transformOrigin: "0 0",
-            pointerEvents: "none",
-          }}
-        />
-      )}
+    <div ref={areaRef} className={styles.area} aria-hidden="true">
+      {artboardOrigin &&
+        areaWidth > 0 &&
+        shown.map((artboard) => (
+          <div
+            key={artboard.file}
+            className={styles.frame}
+            style={{ width: artboard.width * scale, height: artboard.height * scale }}
+          >
+            <iframe
+              sandbox="allow-scripts"
+              tabIndex={-1}
+              title={`Aperçu de ${artboard.file}`}
+              src={`${artboardOrigin}/pages/${pageId}/${artboard.file}`}
+              className={styles.iframe}
+              style={{ width: artboard.width, height: artboard.height, transform: `scale(${scale})` }}
+            />
+          </div>
+        ))}
     </div>
   );
 }
