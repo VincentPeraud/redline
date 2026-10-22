@@ -47,6 +47,7 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
     },
     async ({ pageId }) => {
       try {
+        workingCopyDir(folder, pageId);
         const checkout = await api.checkout(pageId);
         const dir = writeWorkingCopy(folder, pageId, checkout);
         current = { pageId, dir, files: checkout.files };

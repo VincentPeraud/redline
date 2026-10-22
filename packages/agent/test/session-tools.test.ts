@@ -55,6 +55,16 @@ describe("session MCP tools", () => {
     expect(answer).toMatch(/relative path/);
   });
 
+  it.each(["..\\..\\.mcp.json.html", "C:/evil.html", "a/./b.html", "/abs.html", "a//b.html"])("add_artboard refuses %j", async (file) => {
+    let answer = "";
+    const engine = new FakeEngine(async (run) => {
+      answer = await run.callTool("add_artboard", { file, html: "x" });
+      return [{ type: "result", summary: "Nothing" }];
+    });
+    await runOnce(engine);
+    expect(answer).toMatch(/relative path/);
+  });
+
   it("create_page creates a page in the same project", async () => {
     let answer = "";
     const engine = new FakeEngine(async (run) => {

@@ -1,17 +1,27 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import {
   ASSETS_DIR,
   DESIGN_MD_PATH,
   WORKING_COPY_DESIGN_SYSTEM_DIR,
   isProjectContextPath,
+  isSafePath,
+  isUuid,
   type AgentCheckout,
 } from "@redline/shared";
 import { ensureGitignored } from "./link.js";
 
 /** Location of a page's working copy inside the agent's folder: `.redline/<pageId>/`. */
 export function workingCopyDir(folder: string, pageId: string): string {
+  if (!isUuid(pageId)) throw new Error(`Invalid page id: ${pageId}`);
   return join(folder, ".redline", pageId);
+}
+
+/** Absolute path of `path` inside `dir`; refuses anything that is not a safe relative path or would leave `dir`. */
+export function pathInside(dir: string, path: string): string {
+  const target = resolve(dir, path);
+  if (!isSafePath(path) || !target.startsWith(resolve(dir) + sep)) throw new Error(`Unsafe path: ${path}`);
+  return target;
 }
 
 /** Writes a fresh copy of the page's files (any earlier copy is removed) and keeps `.redline/` out of git. */
@@ -19,7 +29,7 @@ export function writeWorkingCopy(folder: string, pageId: string, checkout: Agent
   const dir = workingCopyDir(folder, pageId);
   rmSync(dir, { recursive: true, force: true });
   const write = (path: string, content: string | Buffer) => {
-    const target = join(dir, path);
+    const target = pathInside(dir, path);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, content);
   };

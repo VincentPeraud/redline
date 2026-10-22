@@ -5,9 +5,9 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, parseManifest, type ManifestArtboard } from "@redline/shared";
+import { ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, isSafePath, parseManifest, type ManifestArtboard } from "@redline/shared";
 import { REDLINE_GUIDE } from "./guide.js";
-import { readWorkingCopy } from "./working-copy.js";
+import { pathInside, readWorkingCopy } from "./working-copy.js";
 import type { ServerApi } from "./server-api.js";
 
 export const REPLY_IN_THREAD_TOOL = "reply_in_thread";
@@ -28,7 +28,7 @@ const text = (message: string, isError = false) => ({ ...(isError ? { isError } 
 
 function artboardFileError(file: string): string | null {
   if (!file.endsWith(".html")) return "file must end with .html";
-  if (file.startsWith("/") || file.split("/").includes("..")) return "file must be a relative path inside the page";
+  if (!isSafePath(file)) return "file must be a relative path inside the page";
   return null;
 }
 
@@ -56,7 +56,7 @@ function addArtboardToWorkingCopy(
       ...given,
     } as ManifestArtboard);
   }
-  const target = join(dir, artboard.file);
+  const target = pathInside(dir, artboard.file);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, html);
   writeFileSync(manifestPath, JSON.stringify({ ...manifest, artboards }, null, 2));

@@ -3,13 +3,10 @@ import { extname } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
-  DESIGN_SYSTEM_TOKENS_PATH,
-  EFFORTS,
   MANIFEST_PATH,
   TWEAKS_PATH,
-  NEUTRAL_DESIGN_SYSTEM_ID,
-  VERSION_ORIGINS,
-  missingCoreTokens,
+  PAGE_TYPES,
+  isSafePath,
   parseManifest,
   starterDesignSystemFiles,
   parseTweaks,
@@ -36,6 +33,7 @@ import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRou
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
+import { designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, versionRequestError } from "./validation.js";
 import { registerContextTracking } from "./context.js";
 import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
@@ -59,29 +57,6 @@ const MIME: Record<string, string> = {
   ".gif": "image/gif",
   ".webp": "image/webp",
 };
-
-/** Error message when the files carry a manifest or tweaks file that does not parse, else null. */
-function manifestError(files: Record<string, string>): string | null {
-  try {
-    if (files[MANIFEST_PATH] !== undefined) parseManifest(files[MANIFEST_PATH]);
-    if (files[TWEAKS_PATH] !== undefined) parseTweaks(files[TWEAKS_PATH]);
-    return null;
-  } catch (error) {
-    return (error as Error).message;
-  }
-}
-
-/** Error message when a design system's files miss `tokens.css` or a core token, else null. */
-function designSystemError(files: Record<string, string>): string | null {
-  const css = files[DESIGN_SYSTEM_TOKENS_PATH];
-  if (css === undefined) return `${DESIGN_SYSTEM_TOKENS_PATH} is required`;
-  const missing = missingCoreTokens(css);
-  return missing.length === 0 ? null : `Missing core tokens: ${missing.join(", ")}`;
-}
-
-function isSafePath(path: string): boolean {
-  return path !== "" && !path.startsWith("/") && !path.split("/").includes("..");
-}
 
 /** API and web UI. */
 export async function buildMainApp(
@@ -118,7 +93,7 @@ export async function buildMainApp(
 
   app.post<{ Body: CreateProjectRequest }>("/api/projects", async (req, reply) => {
     const { title, instructions, designSystem } = req.body ?? ({} as Partial<CreateProjectRequest>);
-    if (typeof title !== "string" || title.trim() === "") return reply.code(400).send({ error: "title is required" });
+    if (!requiredString(title)) return reply.code(400).send({ error: "title is required" });
     if (instructions !== undefined && typeof instructions !== "string") {
       return reply.code(400).send({ error: "instructions must be a string" });
     }
@@ -151,16 +126,11 @@ export async function buildMainApp(
     async (req, reply) => {
       if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
       const { title, type, files } = req.body ?? ({} as Partial<CreatePageRequest>);
-      if (typeof title !== "string" || title.trim() === "") return reply.code(400).send({ error: "title is required" });
-      if (type !== "prototype" && type !== "comparison") return reply.code(400).send({ error: "invalid type" });
-      if (!files || typeof files !== "object") return reply.code(400).send({ error: "files are required" });
-      const entries = Object.entries(files);
-      if (entries.some(([path, content]) => !isSafePath(path) || typeof content !== "string")) {
-        return reply.code(400).send({ error: "invalid files" });
-      }
-      const invalidManifest = manifestError(files);
-      if (invalidManifest) return reply.code(400).send({ error: invalidManifest });
-      return reply.code(201).send(store.createPage(req.params.projectId, title, type, files));
+      if (!requiredString(title)) return reply.code(400).send({ error: "title is required" });
+      if (!(PAGE_TYPES as readonly unknown[]).includes(type)) return reply.code(400).send({ error: "invalid type" });
+      const invalidFiles = pageFilesError(files);
+      if (invalidFiles) return reply.code(400).send({ error: invalidFiles });
+      return reply.code(201).send(store.createPage(req.params.projectId, title, type!, files!));
     },
   );
 
@@ -171,14 +141,12 @@ export async function buildMainApp(
   app.post<{ Body: CreateDesignSystemRequest }>("/api/design-systems", async (req, reply) => {
     const { title, files = starterDesignSystemFiles(), fromProjectId, instructions, model, effort } =
       req.body ?? ({} as Partial<CreateDesignSystemRequest>);
-    if (typeof title !== "string" || title.trim() === "") return reply.code(400).send({ error: "title is required" });
-    if (typeof files !== "object" || files === null) return reply.code(400).send({ error: "files must be an object" });
-    if (Object.entries(files).some(([path, content]) => !isSafePath(path) || typeof content !== "string")) {
-      return reply.code(400).send({ error: "invalid files" });
-    }
+    if (!requiredString(title)) return reply.code(400).send({ error: "title is required" });
+    const invalidFiles = filesError(files);
+    if (invalidFiles) return reply.code(400).send({ error: invalidFiles });
     if (instructions !== undefined && typeof instructions !== "string") return reply.code(400).send({ error: "instructions must be a string" });
-    if (model !== undefined && typeof model !== "string") return reply.code(400).send({ error: "model must be a string" });
-    if (effort !== undefined && !(EFFORTS as readonly string[]).includes(effort)) return reply.code(400).send({ error: "invalid effort" });
+    const invalidChoice = modelChoiceError({ model, effort });
+    if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
     const source = fromProjectId === undefined ? undefined : store.getProject(fromProjectId);
     if (fromProjectId !== undefined && !source) return reply.code(404).send({ error: "project not found" });
     const invalid = designSystemError(files);
@@ -189,7 +157,7 @@ export async function buildMainApp(
       const conversation = store.createConversation(designSystem.pageId, "Création du design system");
       const body = brief !== "" ? brief : `Derive this design system from the pages of the project "${source!.title}".`;
       // The source project's agent serves the run: it has the project's code.
-      sendMessage(conversation, body, { model, effort }, {
+      sendMessage(conversation, body, modelChoiceOf({ model, effort }), {
         projectId: source?.id,
         extraContext: source && sourcePagesMessage(store, source),
       });
@@ -221,7 +189,7 @@ export async function buildMainApp(
       if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
       const pin = req.body ?? ({} as Partial<CreateThreadRequest>);
       const isPct = (v: unknown) => typeof v === "number" && v >= 0 && v <= 100;
-      if (typeof pin.body !== "string" || pin.body.trim() === "") return reply.code(400).send({ error: "body is required" });
+      if (!requiredString(pin.body)) return reply.code(400).send({ error: "body is required" });
       if (typeof pin.selector !== "string" || pin.selector === "") return reply.code(400).send({ error: "selector is required" });
       if (typeof pin.artboard !== "string" || !isSafePath(pin.artboard)) return reply.code(400).send({ error: "invalid artboard" });
       if (!isPct(pin.xPct) || !isPct(pin.yPct)) return reply.code(400).send({ error: "position must be a percentage" });
@@ -243,18 +211,17 @@ export async function buildMainApp(
     const thread = store.getThread(req.params.threadId);
     if (!thread) return reply.code(404).send({ error: "thread not found" });
     const body = req.body?.body;
-    if (typeof body !== "string" || !body.trim()) return reply.code(400).send({ error: "body is required" });
-    const { model, effort } = req.body;
-    if (model !== undefined && (typeof model !== "string" || model.trim() === "")) return reply.code(400).send({ error: "invalid model" });
-    if (effort !== undefined && !(EFFORTS as readonly unknown[]).includes(effort)) return reply.code(400).send({ error: "invalid effort" });
+    if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
+    const invalidChoice = modelChoiceError(req.body);
+    if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
     const message = store.addReply(thread.id, body, "user")!;
-    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, { model, effort });
+    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body));
     return reply.code(201).send(message);
   });
 
   app.patch<{ Params: { threadId: string }; Body: UpdateThreadRequest }>("/api/threads/:threadId", async (req, reply) => {
     const body = req.body?.body;
-    if (typeof body !== "string" || !body.trim()) return reply.code(400).send({ error: "body is required" });
+    if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
     const thread = store.updateHeldThread(req.params.threadId, body);
     return thread ?? reply.code(409).send({ error: "only a held comment can be edited" });
   });
@@ -273,15 +240,14 @@ export async function buildMainApp(
   app.post<{ Params: { projectId: string }; Body: SendHeldRequest }>("/api/projects/:projectId/send-held", async (req, reply) => {
     const { projectId } = req.params;
     if (!store.projectExists(projectId)) return reply.code(404).send({ error: "project not found" });
-    const { model, effort } = req.body ?? {};
-    if (model !== undefined && (typeof model !== "string" || model.trim() === "")) return reply.code(400).send({ error: "invalid model" });
-    if (effort !== undefined && !(EFFORTS as readonly unknown[]).includes(effort)) return reply.code(400).send({ error: "invalid effort" });
+    const invalidChoice = modelChoiceError(req.body ?? {});
+    if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
     const held = store.listHeldThreads(projectId);
     const byPage = new Map<string, Thread[]>();
     for (const thread of held) byPage.set(thread.pageId, [...(byPage.get(thread.pageId) ?? []), thread]);
     for (const threads of byPage.values()) {
       for (const thread of threads) store.releaseHeldThread(thread.id);
-      dispatchBatch(store, pageLock, projectId, threads, { model, effort });
+      dispatchBatch(store, pageLock, projectId, threads, modelChoiceOf(req.body ?? {}));
     }
     const response: SendHeldResponse = { items: byPage.size, threads: held.length };
     return response;
@@ -302,21 +268,9 @@ export async function buildMainApp(
     "/api/pages/:pageId/versions",
     async (req, reply) => {
       if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-      const { files, message, origin } = req.body ?? ({} as Partial<CreateVersionRequest>);
-      if (!files || typeof files !== "object") return reply.code(400).send({ error: "files are required" });
-      if (Object.entries(files).some(([path, content]) => !isSafePath(path) || typeof content !== "string")) {
-        return reply.code(400).send({ error: "invalid files" });
-      }
-      const invalidManifest = manifestError(files);
-      if (invalidManifest) return reply.code(400).send({ error: invalidManifest });
-      if (store.isDesignSystemPage(req.params.pageId)) {
-        const invalidDesignSystem = designSystemError(files);
-        if (invalidDesignSystem) return reply.code(400).send({ error: invalidDesignSystem });
-      }
-      if (typeof message !== "string" || message.trim() === "") {
-        return reply.code(400).send({ error: "message is required" });
-      }
-      if (!(VERSION_ORIGINS as readonly string[]).includes(origin)) return reply.code(400).send({ error: "invalid origin" });
+      const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId));
+      if (invalid) return reply.code(400).send({ error: invalid });
+      const { files, message, origin } = req.body;
       return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
     },
   );

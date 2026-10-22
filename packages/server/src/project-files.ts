@@ -4,13 +4,13 @@ import {
   DESIGN_MD_PATH,
   MANIFEST_PATH,
   NEUTRAL_DESIGN_SYSTEM_ID,
+  isSafePath,
   parseManifest,
   type DesignMdResponse,
   type ProjectAsset,
   type ProjectContext,
   type SaveDesignMdRequest,
 } from "@redline/shared";
-import { isSafePath } from "./files.js";
 import type { Store } from "./store.js";
 
 /** Design system a page uses: the one its manifest names if it exists, else the neutral one. */

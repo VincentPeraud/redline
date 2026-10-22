@@ -5,6 +5,12 @@ import type { ProjectContext } from "./projectFiles.js";
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type Effort = (typeof EFFORTS)[number];
 
+/** The model and effort picked for one message; absent fields fall back to the agent's default. */
+export interface ModelChoice {
+  model?: string;
+  effort?: Effort;
+}
+
 /** Models offered in a thread's model list (Claude Code aliases). */
 export const MODEL_CHOICES = [
   { id: "opus", label: "Opus" },

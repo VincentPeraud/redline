@@ -6,7 +6,20 @@ export * from "./home.js";
 
 export const PROTOCOL_VERSION = 1;
 
-export type PageType = "prototype" | "comparison";
+export const PAGE_TYPES = ["prototype", "comparison"] as const;
+export type PageType = (typeof PAGE_TYPES)[number];
+
+/**
+ * True for a relative, forward-slash path that stays inside a page: no empty, `.` or `..` segment, no backslash,
+ * colon (drive letters, streams) or NUL. One implementation for the server and for agents writing to disk.
+ */
+export function isSafePath(path: string): boolean {
+  if (path === "" || path.startsWith("/") || /[\\:\0]/.test(path)) return false;
+  return path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
+}
+
+/** `UUID` v1-v8 as produced by `randomUUID()`; page ids are used to build folder names on agents. */
+export const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 export interface Project {
   id: string;

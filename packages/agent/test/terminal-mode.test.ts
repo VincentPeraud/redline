@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -71,8 +71,20 @@ describe("terminal mode (redline mcp)", () => {
     const call = await connectTerminal(seam.folder);
 
     expect(await call("publish_page", { message: "x" })).toMatch(/checkout_page/);
-    expect(await call("checkout_page", { pageId: "nope" })).toMatch(/page not found/);
-    expect(existsSync(join(seam.folder, ".redline", "nope"))).toBe(false);
+    const unknown = "00000000-0000-4000-8000-000000000000";
+    expect(await call("checkout_page", { pageId: unknown })).toMatch(/page not found/);
+    expect(existsSync(join(seam.folder, ".redline", unknown))).toBe(false);
+  });
+
+  it("refuses a page id that is not a UUID before touching the disk", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const call = await connectTerminal(seam.folder);
+    mkdirSync(join(seam.folder, "keep"));
+    writeFileSync(join(seam.folder, "keep", "file.txt"), "precious");
+
+    expect(await call("checkout_page", { pageId: "../keep" })).toMatch(/Invalid page id/);
+    expect(await call("checkout_page", { pageId: "..\\..\\keep" })).toMatch(/Invalid page id/);
+    expect(readFileSync(join(seam.folder, "keep", "file.txt"), "utf8")).toBe("precious");
   });
 
   it("creates no conversation or thread", async () => {
