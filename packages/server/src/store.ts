@@ -376,9 +376,9 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO threads (id, page_id, number, artboard, selector, x_pct, y_pct, title, body, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, pin.artboard, pin.selector, pin.xPct, pin.yPct, title, pin.body, now());
+      .run(id, pageId, next, pin.artboard, pin.selector, pin.xPct, pin.yPct, title, pin.body, pin.held ? "held" : "open", now());
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -393,6 +393,44 @@ export class Store {
   getThread(id: string): Thread | undefined {
     const row = this.db.prepare(`${THREAD_SELECT} WHERE id = ?`).get(id) as ThreadRow | undefined;
     return row && toThread(row, this.repliesOf(id));
+  }
+
+  /** Held comments of every page of the project, oldest first. */
+  listHeldThreads(projectId: string): Thread[] {
+    const rows = this.db
+      .prepare(
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.x_pct, t.y_pct, t.title, t.body, t.status
+         FROM threads t JOIN pages p ON p.id = t.page_id
+         WHERE p.project_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
+      )
+      .all(projectId) as ThreadRow[];
+    return rows.map((row) => toThread(row, []));
+  }
+
+  /** Edits the text of a held comment; undefined when the thread does not exist or is not held. */
+  updateHeldThread(id: string, body: string): Thread | undefined {
+    const title = body.trim().split("\n")[0].slice(0, 80);
+    const { changes } = this.db.prepare("UPDATE threads SET body = ?, title = ? WHERE id = ? AND status = 'held'").run(body, title, id);
+    if (changes === 0) return undefined;
+    const thread = this.getThread(id)!;
+    this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
+    return thread;
+  }
+
+  /** Deletes a held comment; false when the thread does not exist or is not held. */
+  deleteHeldThread(id: string): boolean {
+    const thread = this.getThread(id);
+    if (!thread || thread.status !== "held") return false;
+    this.db.prepare("DELETE FROM threads WHERE id = ?").run(id);
+    this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
+    return true;
+  }
+
+  /** A held comment leaves: it becomes a regular open thread. */
+  releaseHeldThread(id: string): void {
+    this.db.prepare("UPDATE threads SET status = 'open' WHERE id = ? AND status = 'held'").run(id);
+    const thread = this.getThread(id);
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
   }
 
   resolveThread(id: string): Thread | undefined {

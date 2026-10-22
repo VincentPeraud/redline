@@ -39,7 +39,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, threads, pickin
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
 
-  const open = threads.filter((t) => t.status === "open");
+  const open = threads.filter((t) => t.status !== "resolved");
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -95,7 +95,8 @@ export function ArtboardFrame({ src, title, width, height, zoom, threads, pickin
               width: 24,
               height: 24,
               borderRadius: "50%",
-              background: "#e5484d",
+              background: thread.status === "held" ? "#fff" : "#e5484d",
+              ...(thread.status === "held" && { border: "2px dashed #e5484d", color: "#e5484d", boxSizing: "border-box" as const }),
               color: "#fff",
               font: "600 12px system-ui",
               display: "grid",

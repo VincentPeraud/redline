@@ -13,6 +13,7 @@ import { fitView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { PlayMode } from "./PlayMode.js";
 import { queueLabel } from "./queueLabel.js";
 import { ConversationsPanel } from "./ConversationsPanel.js";
+import { HeldBar, HeldThreadCard } from "./HeldComments.js";
 import { ThreadReplyForm } from "./ThreadReplyForm.js";
 import { ContextLine } from "./ContextLine.js";
 import { RunProgress } from "./RunProgress.js";
@@ -41,6 +42,7 @@ function manifestBounds(manifest: Manifest) {
 interface Props {
   pageId: string;
   pageTitle: string;
+  projectId: string;
   /** Path -> content hash of the current version. */
   files: Record<string, string>;
   artboardOrigin: string;
@@ -49,7 +51,7 @@ interface Props {
   onVersionChange: () => void;
 }
 
-export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId, onVersionChange }: Props) {
+export function PageCanvas({ pageId, pageTitle, projectId, files, artboardOrigin, versionId, onVersionChange }: Props) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
@@ -160,9 +162,10 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  async function send() {
+  /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
+  async function send(held = false) {
     if (!draft || text.trim() === "") return;
-    const request: CreateThreadRequest = { ...draft, body: text };
+    const request: CreateThreadRequest = { ...draft, body: text, ...(held && { held }) };
     await fetch(`/api/pages/${pageId}/threads`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -291,14 +294,15 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  void send();
+                  void send(e.metaKey || e.ctrlKey);
                 }
               }}
               rows={3}
               style={{ width: 400 }}
             />
             <div>
-              <button onClick={() => void send()}>Send</button>{" "}
+              <button onClick={() => void send()}>Envoyer</button>{" "}
+              <button onClick={() => void send(true)}>Plus tard</button>{" "}
               <button
                 onClick={() => {
                   setDraft(null);
@@ -310,13 +314,16 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
             </div>
           </div>
         )}
+        <HeldBar projectId={projectId} />
       </div>
       <aside style={{ width: 280 }}>
         {manifest && <TweaksPanel tweaks={manifest.tweaks} values={tweaks.values} onChange={tweaks.setValue} />}
         <ConversationsPanel pageId={pageId} runs={runs} queue={queue} />
         <h4>Threads</h4>
         {threads.map((thread) =>
-          thread.status === "resolved" ? (
+          thread.status === "held" ? (
+            <HeldThreadCard key={thread.id} thread={thread} />
+          ) : thread.status === "resolved" ? (
             <div key={thread.id} style={{ color: "#888", padding: "4px 0" }}>
               {thread.number}. <s>{thread.title}</s> (resolved)
             </div>
