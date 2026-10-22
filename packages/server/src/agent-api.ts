@@ -9,10 +9,11 @@ import {
 } from "@redline/shared";
 import { versionRequestError } from "./files.js";
 import { projectContext } from "./project-files.js";
+import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
 /** HTTP API for agents and their sessions' MCP tools, guarded by the agent token (see `AGENT_API_PREFIX`). */
-export async function registerAgentApi(app: FastifyInstance, store: Store): Promise<void> {
+export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock): Promise<void> {
   await app.register(
     async (api) => {
       api.addHook("preHandler", async (req, reply) => {
@@ -32,7 +33,14 @@ export async function registerAgentApi(app: FastifyInstance, store: Store): Prom
         const invalid = versionRequestError(req.body);
         if (invalid) return reply.code(400).send({ error: invalid });
         const { files, message, origin } = req.body;
-        return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
+        if (origin !== "terminal") return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
+        // Terminal mode takes its turn on the page like a thread: wait while a session runs on it.
+        const release = await pageLock.acquire(req.params.pageId);
+        try {
+          return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
+        } finally {
+          release();
+        }
       });
 
       api.post<{ Params: { pageId: string }; Body: { title?: unknown; type?: unknown } }>(

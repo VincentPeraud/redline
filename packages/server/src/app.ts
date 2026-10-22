@@ -82,7 +82,7 @@ export async function buildMainApp(
   const agents = await registerAgentRoutes(app, store);
   const pageLock = new PageLock(store, agents, options.retryDelaysMs);
   app.addHook("onClose", async () => pageLock.dispose());
-  await registerAgentApi(app, store);
+  await registerAgentApi(app, store, pageLock);
   await registerProjectFileRoutes(app, store);
   registerEventRoutes(app, store);
   registerRunRoutes(app, store);

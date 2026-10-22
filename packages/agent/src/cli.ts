@@ -7,6 +7,8 @@ import { startAgent } from "./agent.js";
 import { claudeCodeEngine } from "./claude-code-engine.js";
 import { linkFolder, type LinkChoice } from "./link.js";
 import { defaultConfigDir, login, readLogin } from "./login.js";
+import { ServerApi } from "./server-api.js";
+import { serveTerminalMcp } from "./terminal-mcp.js";
 
 const RECONNECT_DELAY_MS = 3000;
 
@@ -85,12 +87,19 @@ async function runAgent(args: string[]): Promise<void> {
   }
 }
 
+/** Terminal mode: an MCP server on stdio for the user's own Claude Code (`claude mcp add redline -- redline mcp`). */
+async function runMcp(): Promise<void> {
+  const { serverUrl, token } = readLogin(defaultConfigDir());
+  await serveTerminalMcp({ api: new ServerApi(serverUrl, token), folder: process.cwd() });
+}
+
 const [command, ...args] = process.argv.slice(2);
 try {
   if (command === "login") await runLogin(args[0]);
   else if (command === "init") await runInit();
   else if (command === "agent") await runAgent(args);
-  else throw new Error("Usage: redline login <server-url> | redline init | redline agent [--global] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
+  else if (command === "mcp") await runMcp();
+  else throw new Error("Usage: redline login <server-url> | redline init | redline mcp | redline agent [--global] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
 } catch (error) {
   console.error((error as Error).message);
   process.exit(1);
