@@ -48,6 +48,18 @@ export class PageLock {
     this.pump();
   }
 
+  /**
+   * Rewrites the first still-queued item that `match` accepts (an item already sent cannot change). False when none matches.
+   * Used to merge messages that leave together.
+   */
+  amendQueued(match: (item: WorkItem) => boolean, amend: (item: WorkItem) => WorkItem): boolean {
+    const queued = this.queue.find((q) => match(q.item));
+    if (!queued) return false;
+    queued.item = amend(queued.item);
+    this.store.emit({ type: "queue-updated", pageId: queued.item.pageId });
+    return true;
+  }
+
   /** Frees the page held by a finished work item (done or failed) and starts the next one. Unknown ids are ignored. */
   release(workId: string): void {
     if (!this.active.delete(workId)) return;

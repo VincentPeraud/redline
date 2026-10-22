@@ -20,7 +20,11 @@ import {
   type CreateReplyRequest,
   type CreateThreadRequest,
   type CreateVersionRequest,
+  type SendHeldRequest,
+  type SendHeldResponse,
+  type UpdateThreadRequest,
   type ServerConfig,
+  type Thread,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import type { Store } from "./store.js";
@@ -30,7 +34,7 @@ import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRou
 import { registerEventRoutes } from "./events.js";
 import { PageLock } from "./page-lock.js";
 import { registerRunRoutes } from "./runs.js";
-import { dispatchReply, dispatchThread } from "./work.js";
+import { dispatchBatch, dispatchReply, dispatchThread } from "./work.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -166,7 +170,9 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
       if (typeof pin.selector !== "string" || pin.selector === "") return reply.code(400).send({ error: "selector is required" });
       if (typeof pin.artboard !== "string" || !isSafePath(pin.artboard)) return reply.code(400).send({ error: "invalid artboard" });
       if (!isPct(pin.xPct) || !isPct(pin.yPct)) return reply.code(400).send({ error: "position must be a percentage" });
+      if (pin.held !== undefined && typeof pin.held !== "boolean") return reply.code(400).send({ error: "held must be a boolean" });
       const thread = store.createThread(req.params.pageId, pin as CreateThreadRequest);
+      if (thread.status === "held") return reply.code(201).send(thread);
       dispatchThread(store, pageLock, store.getPage(req.params.pageId)!.projectId, thread);
       return reply.code(201).send(thread);
     },
@@ -189,6 +195,41 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
     const message = store.addReply(thread.id, body, "user")!;
     dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, { model, effort });
     return reply.code(201).send(message);
+  });
+
+  app.patch<{ Params: { threadId: string }; Body: UpdateThreadRequest }>("/api/threads/:threadId", async (req, reply) => {
+    const body = req.body?.body;
+    if (typeof body !== "string" || !body.trim()) return reply.code(400).send({ error: "body is required" });
+    const thread = store.updateHeldThread(req.params.threadId, body);
+    return thread ?? reply.code(409).send({ error: "only a held comment can be edited" });
+  });
+
+  app.delete<{ Params: { threadId: string } }>("/api/threads/:threadId", async (req, reply) => {
+    if (!store.deleteHeldThread(req.params.threadId)) return reply.code(409).send({ error: "only a held comment can be deleted" });
+    return reply.code(204).send();
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/held", async (req, reply) => {
+    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    return store.listHeldThreads(req.params.projectId);
+  });
+
+  // "Tout envoyer": the held comments of each page leave as one message to one session per page.
+  app.post<{ Params: { projectId: string }; Body: SendHeldRequest }>("/api/projects/:projectId/send-held", async (req, reply) => {
+    const { projectId } = req.params;
+    if (!store.projectExists(projectId)) return reply.code(404).send({ error: "project not found" });
+    const { model, effort } = req.body ?? {};
+    if (model !== undefined && (typeof model !== "string" || model.trim() === "")) return reply.code(400).send({ error: "invalid model" });
+    if (effort !== undefined && !(EFFORTS as readonly unknown[]).includes(effort)) return reply.code(400).send({ error: "invalid effort" });
+    const held = store.listHeldThreads(projectId);
+    const byPage = new Map<string, Thread[]>();
+    for (const thread of held) byPage.set(thread.pageId, [...(byPage.get(thread.pageId) ?? []), thread]);
+    for (const threads of byPage.values()) {
+      for (const thread of threads) store.releaseHeldThread(thread.id);
+      dispatchBatch(store, pageLock, projectId, threads, { model, effort });
+    }
+    const response: SendHeldResponse = { items: byPage.size, threads: held.length };
+    return response;
   });
 
   // The only way to resolve a thread: a user action of the web UI. Agents get no such route.

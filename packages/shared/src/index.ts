@@ -66,7 +66,8 @@ export interface ServerConfig {
   artboardOrigin: string;
 }
 
-export type ThreadStatus = "open" | "resolved";
+/** `held`: a finished comment kept back ("Plus tard") until "Tout envoyer"; not yet sent to any session. */
+export type ThreadStatus = "held" | "open" | "resolved";
 
 export interface Thread {
   id: string;
@@ -94,6 +95,26 @@ export interface CreateThreadRequest {
   xPct: number;
   yPct: number;
   body: string;
+  /** "Plus tard": store the comment without sending it. */
+  held?: boolean;
+}
+
+/** `PATCH /api/threads/:id`: edits a held comment. */
+export interface UpdateThreadRequest {
+  body: string;
+}
+
+/** `POST /api/projects/:projectId/send-held`: sends every held comment, one message per page. Model and effort apply to each message. */
+export interface SendHeldRequest {
+  model?: string;
+  effort?: Effort;
+}
+
+export interface SendHeldResponse {
+  /** Work items queued (one per page that had held comments). */
+  items: number;
+  /** Held comments sent. */
+  threads: number;
 }
 
 // Page manifest (ticket 19). Contract shared by the canvas, play mode, tweaks, design systems and MCP tools.
