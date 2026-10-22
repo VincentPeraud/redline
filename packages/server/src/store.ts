@@ -28,6 +28,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
+        instructions TEXT NOT NULL DEFAULT '',
+        design_system TEXT,
         created_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS pages (
@@ -117,16 +119,20 @@ export class Store {
       .all() as AgentInfo[];
   }
 
-  createProject(title: string): Project {
-    const project = { id: randomUUID(), title };
+  createProject(title: string, instructions = "", designSystem: string | null = null): Project {
+    const id = randomUUID();
     this.db
-      .prepare("INSERT INTO projects (id, title, created_at) VALUES (?, ?, ?)")
-      .run(project.id, title, now());
-    return project;
+      .prepare("INSERT INTO projects (id, title, instructions, design_system, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(id, title, instructions, designSystem, now());
+    return { id, title, instructions, designSystem };
   }
 
   listProjects(): Project[] {
-    return this.db.prepare("SELECT id, title FROM projects ORDER BY created_at, rowid").all() as Project[];
+    return this.db.prepare(`${PROJECT_SELECT} ORDER BY created_at, rowid`).all() as Project[];
+  }
+
+  getProject(id: string): Project | undefined {
+    return this.db.prepare(`${PROJECT_SELECT} WHERE id = ?`).get(id) as Project | undefined;
   }
 
   projectExists(id: string): boolean {
@@ -256,6 +262,8 @@ export class Store {
     return hash;
   }
 }
+
+const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
   "SELECT id, page_id, number, artboard, selector, x_pct, y_pct, title, body, status FROM threads";

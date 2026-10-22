@@ -62,7 +62,7 @@ it("lays artboards out from the manifest, shows notes, and zooms and pans with p
   });
 
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-  await tab.goto(server.url);
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
   const cart = tab.locator('iframe[title$="cart.html"]');
   const pay = tab.locator('iframe[title$="pay.html"]');
   await tab.getByText("Checkout flow").waitFor();
@@ -109,13 +109,15 @@ it("lays artboards out from the manifest, shows notes, and zooms and pans with p
 
 it("still shows every html file side by side when a page has no manifest", async () => {
   const project = (await (await server.post("/api/projects", { title: "Bare" })).json()) as { id: string };
-  await server.post(`/api/projects/${project.id}/pages`, {
-    title: "Bare page",
-    type: "comparison",
-    files: { "one.html": "<!doctype html><h1>One</h1>", "two.html": "<!doctype html><h1>Two</h1>" },
-  });
+  const barePage = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Bare page",
+      type: "comparison",
+      files: { "one.html": "<!doctype html><h1>One</h1>", "two.html": "<!doctype html><h1>Two</h1>" },
+    })
+  ).json()) as Page;
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-  await tab.goto(server.url);
+  await tab.goto(`${server.url}/#/pages/${barePage.id}`);
   const one = await box(tab.locator('iframe[title$="one.html"]'));
   const two = await box(tab.locator('iframe[title$="two.html"]'));
   expect(two.x).toBeGreaterThan(one.x + one.width);

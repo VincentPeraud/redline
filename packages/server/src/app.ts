@@ -7,6 +7,7 @@ import {
   VERSION_ORIGINS,
   parseManifest,
   type CreatePageRequest,
+  type CreateProjectRequest,
   type CreateThreadRequest,
   type CreateVersionRequest,
   type ServerConfig,
@@ -49,13 +50,23 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
 
   app.get("/api/config", async () => config);
 
-  app.post<{ Body: { title: string } }>("/api/projects", async (req, reply) => {
-    const { title } = req.body ?? {};
+  app.post<{ Body: CreateProjectRequest }>("/api/projects", async (req, reply) => {
+    const { title, instructions, designSystem } = req.body ?? ({} as Partial<CreateProjectRequest>);
     if (typeof title !== "string" || title.trim() === "") return reply.code(400).send({ error: "title is required" });
-    return reply.code(201).send(store.createProject(title));
+    if (instructions !== undefined && typeof instructions !== "string") {
+      return reply.code(400).send({ error: "instructions must be a string" });
+    }
+    if (designSystem != null && typeof designSystem !== "string") {
+      return reply.code(400).send({ error: "designSystem must be a string" });
+    }
+    return reply.code(201).send(store.createProject(title, instructions, designSystem ?? null));
   });
 
   app.get("/api/projects", async () => store.listProjects());
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId", async (req, reply) => {
+    return store.getProject(req.params.projectId) ?? reply.code(404).send({ error: "project not found" });
+  });
 
   app.post<{ Params: { projectId: string }; Body: CreatePageRequest }>(
     "/api/projects/:projectId/pages",
