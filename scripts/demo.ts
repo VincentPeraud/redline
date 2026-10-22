@@ -154,7 +154,7 @@ async function main(): Promise<void> {
   logStep("pages");
   const createPages = async (project: Project, specs: PageSpec[]): Promise<Record<string, Page>> => {
     const pages: Record<string, Page> = {};
-    for (const spec of specs) pages[spec.title] = await post<Page>(`/api/projects/${project.id}/pages`, { title: spec.title, type: "prototype", files: spec.files });
+    for (const spec of specs) pages[spec.title] = await post<Page>(`/api/projects/${project.id}/pages`, { title: spec.title, files: spec.files });
     return pages;
   };
   const lumoraPageByTitle = await createPages(lumora, lumoraPages(dsLumora.id));
@@ -212,7 +212,7 @@ async function main(): Promise<void> {
 
   const warmer = await conversation(
     onboarding,
-    { match: "plus chaleureux", outcome: "answer", model: "Sonnet 5.5", effort: "medium", contextPercent: 51, text: "J'ai réécrit les titres et sous-titres des 3 écrans, et ajouté la règle de ton dans DESIGN.md." },
+    { match: "plus chaleureux", outcome: "answer", model: "Sonnet 5.5", effort: "medium", contextPercent: 51, text: "J'ai réécrit les titres et sous-titres des 3 artboards, et ajouté la règle de ton dans DESIGN.md." },
     "Écrans plus chaleureux",
     "Les textes font trop administratif, rends-les plus chaleureux.",
   );
@@ -220,14 +220,14 @@ async function main(): Promise<void> {
 
   const week = await thread(
     onboarding,
-    { match: "la semaine doit commencer le lundi", outcome: "answer", model: "Sonnet 5.5", effort: "medium", contextPercent: 9, text: "Corrigé sur l'écran 3, et noté dans DESIGN.md." },
+    { match: "la semaine doit commencer le lundi", outcome: "answer", model: "Sonnet 5.5", effort: "medium", contextPercent: 9, text: "Corrigé sur l'artboard 3, et noté dans DESIGN.md." },
     "Semaine qui commence lundi\nDans le calendrier, la semaine doit commencer le lundi.",
     { artboard: "ecran-3.html", selector: ".days" },
   );
   await untilStatus(week.id, "Semaine qui commence lundi", "answered");
   await post(`/api/threads/${week.id}/resolve`);
 
-  await post(`/api/pages/${onboarding.id}/versions`, { message: "Ajuste les marges des écrans", origin: "terminal", files: { ...(await currentFiles(onboarding.id)), "notes.txt": "Marges ajustées depuis le terminal.\n" } });
+  await post(`/api/pages/${onboarding.id}/versions`, { message: "Ajuste les marges des artboards", origin: "terminal", files: { ...(await currentFiles(onboarding.id)), "notes.txt": "Marges ajustées depuis le terminal.\n" } });
 
   const hero = await thread(
     lumoraPageByTitle["Landing page"],

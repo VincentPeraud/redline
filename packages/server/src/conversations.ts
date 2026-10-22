@@ -77,7 +77,9 @@ export function registerConversationRoutes(
         knownWindows.set(model, engineEvent.contextWindow);
         if (current?.model === model) store.setConversationContext(conversationId, contextOf(model, current.tokens, engineEvent.contextWindow, current.effort));
       }
-      if (engineEvent.summary.trim() !== "") store.addConversationMessage(conversationId, "claude", engineEvent.summary);
+      // Pages the run created with create_page are shown under its answer.
+      const createdPageIds = store.takeCreatedPages(event.message.workId);
+      if (engineEvent.summary.trim() !== "") store.addConversationMessage(conversationId, "claude", engineEvent.summary, {}, createdPageIds);
     }
   });
   app.addHook("onClose", async () => unsubscribe());

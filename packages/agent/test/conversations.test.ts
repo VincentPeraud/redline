@@ -116,7 +116,7 @@ describe("page conversations", () => {
     seam = await startSeam2(engine);
     const project = (await (await seam.server.post("/api/projects", { title: "Briefed", instructions: "Use a calm tone." })).json()) as Project;
     const page = (await (
-      await seam.server.post(`/api/projects/${project.id}/pages`, { title: "P", type: "prototype", files: PAGE_FILES })
+      await seam.server.post(`/api/projects/${project.id}/pages`, { title: "P", files: PAGE_FILES })
     ).json()) as Page;
 
     const first = await newConversation(seam, page.id);

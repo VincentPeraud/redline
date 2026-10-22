@@ -6,7 +6,6 @@ describe("page manifest", () => {
     const manifest = parseManifest(
       JSON.stringify({
         title: "Checkout",
-        type: "prototype",
         designSystem: "acme",
         artboards: [{ file: "cart.html", title: "Cart", width: 390, height: 844, x: 100, y: 40 }],
         notes: [{ text: "Happy path", x: 100, y: -60 }],

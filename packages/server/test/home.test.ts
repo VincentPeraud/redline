@@ -21,8 +21,8 @@ describe("home overview", () => {
   }
 
   async function createPage(projectId: string, title: string) {
-    const files = starterPageFiles(title, "prototype", null);
-    return (await (await server.post(`/api/projects/${projectId}/pages`, { title, type: "prototype", files })).json()) as Page;
+    const files = starterPageFiles(title, null);
+    return (await (await server.post(`/api/projects/${projectId}/pages`, { title, files })).json()) as Page;
   }
 
   it("lists the most recently changed pages first, with their project", async () => {
@@ -30,7 +30,7 @@ describe("home overview", () => {
     const first = await createPage(acme.id, "First");
     await createPage(acme.id, "Second");
     await new Promise((resolve) => setTimeout(resolve, 5));
-    await server.post(`/api/pages/${first.id}/versions`, { files: starterPageFiles("First again", "prototype", null), message: "edit", origin: "terminal" });
+    await server.post(`/api/pages/${first.id}/versions`, { files: starterPageFiles("First again", null), message: "edit", origin: "terminal" });
     const overview = await home();
     expect(overview.projectCount).toBe(1);
     expect(overview.recentPages.map((r) => [r.page.title, r.projectTitle])).toEqual([

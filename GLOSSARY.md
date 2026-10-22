@@ -10,12 +10,12 @@ Redline is a mock-up tool for Claude Code: pages and comments live on a server, 
 A set of pages sharing one DESIGN.md, one asset folder and one design system.
 
 **Page**:
-A canvas grouping one or more artboards, described by a manifest; its type is `prototype` or `comparison`.
-_Avoid_: Planche, board, artefact
+A canvas grouping one or more artboards, described by a manifest. A page has no type: it is just a canvas of artboards.
+_Avoid_: Planche (also for a page of variants), board, artefact, page type, prototype / comparison
 
 **Artboard**:
 One HTML file placed on a page's canvas.
-_Avoid_: Écran, screen, planche
+_Avoid_: Écran, screen, planche (in the UI: always "artboard")
 
 **Design system**:
 A special project whose tokens, components and pages define a style that other projects use.

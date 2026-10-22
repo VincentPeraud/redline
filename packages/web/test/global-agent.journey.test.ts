@@ -47,7 +47,7 @@ it("shows which agent serves a project in the top bar, including the global agen
   await tab.reload();
   await expect.poll(() => pill.textContent()).toBe("Aucun agent connecté");
 
-  await fetch(`${server.url}/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ allowGlobalTakeover: true }) });
+  await fetch(`${server.url}/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ globalTakeoverOverride: true }) });
   await tab.reload();
   await expect.poll(() => pill.textContent()).toBe("Agent global iMac connecté");
 }, 60_000);

@@ -85,7 +85,7 @@ function page(title: string, artboards: ArtboardSpec[], extra: Record<string, un
     return entry;
   });
   const files: Record<string, string> = {
-    "manifest.json": JSON.stringify({ title, type: "prototype", ...(designSystem ? { designSystem } : {}), artboards: manifestArtboards, notes: [], links: [], tweaks: [], ...extra }, null, 2),
+    "manifest.json": JSON.stringify({ title, ...(designSystem ? { designSystem } : {}), artboards: manifestArtboards, notes: [], links: [], tweaks: [], ...extra }, null, 2),
   };
   for (const a of artboards) files[a.file] = a.html;
   return { title, files };

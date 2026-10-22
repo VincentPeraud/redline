@@ -11,7 +11,6 @@ describe("pinned threads over the server HTTP API", () => {
     const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
     const res = await server.post(`/api/projects/${project.id}/pages`, {
       title: "Landing",
-      type: "prototype",
       files: { "home.html": "<h1>Hi</h1>" },
     });
     page = (await res.json()) as Page;

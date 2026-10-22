@@ -15,7 +15,7 @@ export function chooseAgent(store: Store, projectId: string): AgentChoice | unde
   const projectAgentId = store.findOnlineProjectAgentId(projectId);
   if (projectAgentId) return { agentId: projectAgentId, takeover: false };
   const hasProjectAgent = store.hasProjectAgent(projectId);
-  if (hasProjectAgent && !store.getProject(projectId)?.allowGlobalTakeover) return undefined;
+  if (hasProjectAgent && !store.getProject(projectId)?.globalTakeover) return undefined;
   const globalId = store.findOnlineGlobalAgentId();
   return globalId ? { agentId: globalId, takeover: hasProjectAgent } : undefined;
 }

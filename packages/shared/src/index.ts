@@ -6,9 +6,6 @@ export * from "./home.js";
 
 export const PROTOCOL_VERSION = 1;
 
-export const PAGE_TYPES = ["prototype", "comparison"] as const;
-export type PageType = (typeof PAGE_TYPES)[number];
-
 /**
  * True for a relative, forward-slash path that stays inside a page: no empty, `.` or `..` segment, no backslash,
  * colon (drive letters, streams) or NUL. One implementation for the server and for agents writing to disk.
@@ -30,14 +27,34 @@ export interface Project {
   designSystem: string | null;
   /** The project agent serving it, once an agent has linked the project. */
   agent?: { id: string; machine: string; folder: string; status: AgentStatus };
-  /** Whether the global agent may run the project's work, in new sessions, while its project agent is offline. */
-  allowGlobalTakeover: boolean;
+  /** Effective takeover: whether the global agent may run the project's work, in new sessions, while its project agent is offline (`globalTakeoverOverride ?? Settings.globalTakeover`). */
+  globalTakeover: boolean;
+  /** The project's own choice; null follows the global setting. */
+  globalTakeoverOverride: boolean | null;
   /** The online agent that would run the project's work now (`GET /api/projects...`); absent when none can. */
   servedBy?: { id: string; machine: string; folder: string; kind: AgentKind; takeover: boolean };
 }
 
+/** `PATCH /api/projects/:id`: any field may be sent alone. */
 export interface UpdateProjectRequest {
-  allowGlobalTakeover?: boolean;
+  /** Rename the project (trimmed, 1 to `MAX_TITLE_LENGTH` characters). */
+  title?: string;
+  /** true / false overrides the global takeover setting for this project, null goes back to following it. */
+  globalTakeoverOverride?: boolean | null;
+}
+
+/** `PATCH /api/pages/:id`: rename the page. */
+export interface UpdatePageRequest {
+  title: string;
+}
+
+/** Longest project or page name accepted. */
+export const MAX_TITLE_LENGTH = 120;
+
+/** Instance-wide settings, `GET|PATCH /api/settings`. */
+export interface Settings {
+  /** Whether the global agent takes over a project's work while its project agent is offline, unless the project overrides it. */
+  globalTakeover: boolean;
 }
 
 export interface CreateProjectRequest {
@@ -55,6 +72,10 @@ export interface PageVersionSummary {
   id: string;
   message: string;
   origin: VersionOrigin;
+  /** Thread or conversation that produced the version (first thread of a batch); absent for other origins and for versions recorded before this field. */
+  originId?: string;
+  /** Title of that thread or conversation, as it was when the version was recorded. */
+  originLabel?: string;
   createdAt: string;
   /** Only in the answer to an agent's publish: the page had moved since `baseVersionId` and the changes were merged onto its current version. */
   merged?: boolean;
@@ -70,6 +91,66 @@ export interface CreateVersionRequest {
    * records what changed relative to it on top of the page's current version, and answers 409 when the same file changed on both sides.
    */
   baseVersionId?: string;
+  /** `/agent-api` only: the work item publishing; the server derives the version's origin id and label (thread or conversation title) from it. */
+  workId?: string;
+  /**
+   * `/agent-api` only: the DESIGN.md of the working copy, sent when the session changed it. `base` is the DESIGN.md the
+   * working copy started from; the server answers 409 when DESIGN.md changed meanwhile (nothing is published).
+   */
+  designMd?: { content: string; base: string };
+}
+
+// Per-artboard history (decision 3 of 2026-10-22). Storage is the page versions; these are derived views.
+
+/** One state of one artboard file: a page version in which that file's content changed. */
+export interface ArtboardVersion {
+  /** The page version that introduced this content; pass it to the preview path and to restore. */
+  versionId: string;
+  /** Claude's run summary / terminal message; fixed texts "Artboard créé", "Version du … restaurée", "Remis depuis les artboards supprimés". */
+  title: string;
+  origin: VersionOrigin;
+  originId?: string;
+  originLabel?: string;
+  createdAt: string;
+  /** The content the page shows now. At most one entry per artboard is current. */
+  current: boolean;
+}
+
+/** `GET /api/pages/:pageId/artboard-versions?file=<artboard file>` -> ArtboardVersion[], newest first (tweaks excluded). */
+export const artboardVersionsPath = (pageId: string, file: string) => `/api/pages/${pageId}/artboard-versions?file=${encodeURIComponent(file)}`;
+
+/** Path on the ARTBOARD origin that serves any file of a page as it was in a version (read-only preview, same sandbox as live artboards). */
+export const versionPreviewPath = (pageId: string, versionId: string, file: string) => `/page-versions/${pageId}/${versionId}/${file}`;
+
+/** An artboard that is no longer on the page, with what is needed to list it and to put it back. */
+export interface DeletedArtboard {
+  file: string;
+  title?: string;
+  /** Who removed it: sessions (threads, conversations, terminal) = "claude", undoing an action = "user". */
+  deletedBy: "claude" | "user";
+  origin: VersionOrigin;
+  originId?: string;
+  originLabel?: string;
+  deletedAt: string;
+  /** Last page version that still had it: preview it with `versionPreviewPath` for the thumbnail, and pass it to restore to put it back. */
+  lastVersionId: string;
+  width: number;
+  height: number;
+}
+
+/** Body of `POST /api/pages/:pageId/artboards/restore`. */
+export interface RestoreArtboardRequest {
+  file: string;
+  /** Put `file` back as it was in this page version (file content, and its manifest entry when it is not on the page now). Absent in that version = the artboard is removed. */
+  versionId: string;
+  /** IANA time zone used to write the date in the version message ("Version du 21 octobre à 14:32 restaurée"); default: the server's. */
+  timeZone?: string;
+}
+
+export interface RestoreArtboardResponse {
+  version: PageVersionSummary;
+  /** To undo: POST the same request with `versionId = previousVersionId`. */
+  previousVersionId: string;
 }
 
 export interface PageVersion {
@@ -82,13 +163,22 @@ export interface Page {
   id: string;
   projectId: string;
   title: string;
-  type: PageType;
+  /** Who made the page: a session through `create_page`, or the user. Pages from before this field are "user". */
+  createdBy: PageCreator;
   version: PageVersion;
+}
+
+export type PageCreator = "claude" | "user";
+
+/** A page a run created through `create_page`, shown as a link card under the answer. */
+export interface CreatedPage {
+  pageId: string;
+  name: string;
+  artboardCount: number;
 }
 
 export interface CreatePageRequest {
   title: string;
-  type: PageType;
   /** File path -> UTF-8 content. */
   files: Record<string, string>;
 }
@@ -112,6 +202,8 @@ export interface Thread {
   /** Fallback position, in percent of the artboard document size. */
   xPct: number;
   yPct: number;
+  /** Short readable name of the commented element (role + visible text), computed by the artboard bridge; null on old threads. */
+  elementName: string | null;
   /** First line of the comment, kept visible when the thread is resolved. */
   title: string;
   body: string;
@@ -134,7 +226,11 @@ export interface CreateThreadRequest extends ModelChoice {
   title?: string;
   /** "Plus tard": store the comment without sending it. */
   held?: boolean;
+  /** Readable name of the element, e.g. `bouton « Continuer »`; at most `MAX_ELEMENT_NAME_LENGTH` characters. */
+  elementName?: string;
 }
+
+export const MAX_ELEMENT_NAME_LENGTH = 200;
 
 /** `PATCH /api/threads/:id`: edits a held comment. */
 export interface UpdateThreadRequest {
@@ -218,7 +314,6 @@ export interface ManifestTweak {
 
 export interface Manifest {
   title?: string;
-  type?: PageType;
   /** Id of the design system the page uses. */
   designSystem?: string;
   artboards: ManifestArtboard[];
@@ -306,7 +401,6 @@ export function parseManifest(text: string): Manifest {
 
   const manifest: Manifest = { artboards, notes, links, tweaks };
   if (typeof root.title === "string") manifest.title = root.title;
-  if (root.type === "prototype" || root.type === "comparison") manifest.type = root.type;
   if (typeof root.designSystem === "string") manifest.designSystem = root.designSystem;
   return manifest;
 }
@@ -478,10 +572,10 @@ function starterArtboard(title: string): string {
 `;
 }
 
-/** Files of a new page: a manifest plus one artboard (prototype) or two variants (comparison). */
-export function starterPageFiles(title: string, type: PageType, designSystem?: string | null): Record<string, string> {
-  const artboards = type === "comparison" ? ["variant-a.html", "variant-b.html"] : ["screen-1.html"];
-  const manifest = { title, type, ...(designSystem ? { designSystem } : {}), artboards: artboards.map((file) => ({ file })) };
+/** Files of a new page: a manifest plus ONE artboard. */
+export function starterPageFiles(title: string, designSystem?: string | null): Record<string, string> {
+  const artboards = ["artboard-1.html"];
+  const manifest = { title, ...(designSystem ? { designSystem } : {}), artboards: artboards.map((file) => ({ file })) };
   const files: Record<string, string> = { [MANIFEST_PATH]: JSON.stringify(manifest, null, 2) };
   for (const file of artboards) files[file] = starterArtboard(escapeHtml(title));
   return files;

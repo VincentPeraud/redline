@@ -312,7 +312,7 @@ export class PageLock {
       const choice = chooseAgent(this.store, projectId);
       return choice && { agentId: choice.agentId, item: taken };
     }
-    const globalId = this.store.getProject(projectId)?.allowGlobalTakeover ? this.store.findOnlineGlobalAgentId() : undefined;
+    const globalId = this.store.getProject(projectId)?.globalTakeover ? this.store.findOnlineGlobalAgentId() : undefined;
     return globalId ? { agentId: globalId, item: taken } : undefined;
   }
 

@@ -82,7 +82,7 @@ describe("sessions list", () => {
   it("shows a thread whose project has no agent as waiting for the agent", async () => {
     seam = await startSeam2(new FakeEngine([{ type: "result", summary: "ok" }]));
     const other = (await (await seam.server.post("/api/projects", { title: "Lonely" })).json()) as Project;
-    const page = (await (await seam.server.post(`/api/projects/${other.id}/pages`, { title: "P", type: "prototype", files: PAGE_FILES })).json()) as Page;
+    const page = (await (await seam.server.post(`/api/projects/${other.id}/pages`, { title: "P", files: PAGE_FILES })).json()) as Page;
     await seam.pinThread(page.id, "home.html", "nobody listens");
     expect(byName(await sessions(seam), "nobody listens")).toMatchObject({
       status: "waiting-agent",

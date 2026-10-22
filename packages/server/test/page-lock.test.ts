@@ -17,7 +17,7 @@ describe("page lock and queue", () => {
     return (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
   }
   async function createPage(project: Project, title: string): Promise<Page> {
-    return (await (await server.post(`/api/projects/${project.id}/pages`, { title, type: "prototype", files: FILES })).json()) as Page;
+    return (await (await server.post(`/api/projects/${project.id}/pages`, { title, files: FILES })).json()) as Page;
   }
   async function pin(page: Page, body: string): Promise<Thread> {
     const request = { artboard: "home.html", selector: "h1", xPct: 10, yPct: 10, body };

@@ -39,7 +39,6 @@ it("lays artboards out from the manifest, shows notes, and zooms and pans with p
   const page = (await (
     await server.post(`/api/projects/${project.id}/pages`, {
       title: "Flow",
-      type: "prototype",
       files: {
         "cart.html": html("Cart"),
         "pay.html": html("Pay"),
@@ -112,7 +111,6 @@ it("still shows every html file side by side when a page has no manifest", async
   const barePage = (await (
     await server.post(`/api/projects/${project.id}/pages`, {
       title: "Bare page",
-      type: "comparison",
       files: { "one.html": "<!doctype html><h1>One</h1>", "two.html": "<!doctype html><h1>Two</h1>" },
     })
   ).json()) as Page;
@@ -129,7 +127,6 @@ it("is interactive by default, pins with C or Alt+click, and returns to interact
   const modesPage = (await (
     await server.post(`/api/projects/${project.id}/pages`, {
       title: "Modes page",
-      type: "prototype",
       files: {
         "app.html": `<!doctype html><body style="margin:0"><button id="go" style="margin:40px;width:120px;height:40px" onclick="this.textContent='Clicked'">Go</button></body>`,
       },

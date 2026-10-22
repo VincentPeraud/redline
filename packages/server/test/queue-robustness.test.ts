@@ -24,7 +24,7 @@ afterEach(async () => {
 async function setup(options: { retryDelaysMs?: number[] } = {}) {
   server = await startTestServer(options);
   const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
-  const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Home", type: "prototype", files: FILES })).json()) as Page;
+  const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Home", files: FILES })).json()) as Page;
   return { project, page };
 }
 async function pin(page: Page, body: string): Promise<Thread> {
@@ -128,7 +128,7 @@ describe("the project's brief", () => {
   it("is sent when the project's first conversation is created, and only once", async () => {
     server = await startTestServer();
     const project = (await (await server.post("/api/projects", { title: "Acme", instructions: "Always use the brand blue." })).json()) as Project;
-    const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Home", type: "prototype", files: FILES })).json()) as Page;
+    const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Home", files: FILES })).json()) as Page;
     const agent = await connect({ projectId: project.id });
 
     const conversation = (await (await server.post(`/api/pages/${page.id}/conversations`, {})).json()) as Conversation;
@@ -151,7 +151,7 @@ describe("the project's brief", () => {
   it("is not sent twice when the user writes before the agent is online", async () => {
     server = await startTestServer();
     const project = (await (await server.post("/api/projects", { title: "Acme", instructions: "Always use the brand blue." })).json()) as Project;
-    const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Home", type: "prototype", files: FILES })).json()) as Page;
+    const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Home", files: FILES })).json()) as Page;
     const conversation = (await (await server.post(`/api/pages/${page.id}/conversations`, {})).json()) as Conversation;
     await server.post(`/api/conversations/${conversation.id}/messages`, { body: "Add a footer" });
 

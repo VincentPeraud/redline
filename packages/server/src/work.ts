@@ -5,10 +5,15 @@ import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 import { definedChoice } from "./validation.js";
 
+/** "element `selector` (the user calls it « bouton « Continuer » »)": the exact selector, plus the readable name when the bridge computed one. */
+function elementText(thread: Pick<Thread, "selector" | "elementName">): string {
+  return `element \`${thread.selector}\`${thread.elementName ? ` (named « ${thread.elementName} »)` : ""}`;
+}
+
 /** The message Claude receives for one thread: the comment with its thread id, artboard, element and position. */
 export function threadMessage(thread: Thread): string {
   return [
-    `Comment ${thread.number} (thread id: ${thread.id}) on artboard ${thread.artboard}, element \`${thread.selector}\` (position ${thread.xPct}% / ${thread.yPct}% of the artboard):`,
+    `Comment ${thread.number} (thread id: ${thread.id}) on artboard ${thread.artboard}, ${elementText(thread)} (position ${thread.xPct}% / ${thread.yPct}% of the artboard):`,
     "",
     thread.body,
     "",
@@ -53,7 +58,7 @@ export function batchMessage(threads: Thread[]): string {
     `${threads.length} comments on this page, sent together. Handle each one, then answer in each thread separately with the reply_in_thread tool (use the thread id of that comment).`,
     "",
     ...threads.flatMap((thread) => [
-      `Comment ${thread.number} (thread id: ${thread.id}) on artboard ${thread.artboard}, element \`${thread.selector}\` (position ${thread.xPct}% / ${thread.yPct}% of the artboard):`,
+      `Comment ${thread.number} (thread id: ${thread.id}) on artboard ${thread.artboard}, ${elementText(thread)} (position ${thread.xPct}% / ${thread.yPct}% of the artboard):`,
       "",
       thread.body,
       "",
@@ -109,6 +114,7 @@ function workThread(thread: Thread): WorkThread {
     number: thread.number,
     artboard: thread.artboard,
     selector: thread.selector,
+    ...(thread.elementName ? { elementName: thread.elementName } : {}),
     xPct: thread.xPct,
     yPct: thread.yPct,
     body: thread.body,

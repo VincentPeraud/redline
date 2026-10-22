@@ -102,7 +102,7 @@ export async function startSeam2(engine: Engine, options: { webDir?: string; ret
     project,
     agent,
     async createPage(files, title = "Home") {
-      return (await (await server.post(`/api/projects/${project.id}/pages`, { title, type: "prototype", files })).json()) as Page;
+      return (await (await server.post(`/api/projects/${project.id}/pages`, { title, files })).json()) as Page;
     },
     async pinThread(pageId, artboard, body, pin = {}) {
       const request: CreateThreadRequest = { artboard, selector: "h1", xPct: 20, yPct: 30, body, ...pin };
