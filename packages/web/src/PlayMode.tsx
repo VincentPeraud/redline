@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { Manifest } from "@redline/shared";
+import type { Manifest, TweakValue, TweakValues } from "@redline/shared";
+import { TweaksPanel } from "./TweaksPanel.js";
 
 /** Target artboard of the link on `selector` in artboard `from`, if the manifest declares one that exists. */
 export function resolveLink(manifest: Manifest, from: string, selector: string): string | null {
@@ -12,14 +13,22 @@ interface Props {
   pageId: string;
   manifest: Manifest;
   artboardOrigin: string;
+  tweaks: TweakValues;
+  onTweak: (id: string, value: TweakValue) => void;
   onExit: () => void;
 }
 
 /** One artboard at a time at full size; clicks on elements linked in the manifest switch artboard (via the bridge). */
-export function PlayMode({ pageId, manifest, artboardOrigin, onExit }: Props) {
+export function PlayMode({ pageId, manifest, artboardOrigin, tweaks, onTweak, onExit }: Props) {
   const [current, setCurrent] = useState(manifest.artboards[0]?.file ?? null);
+  const [bridgeEpoch, setBridgeEpoch] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
   const artboard = manifest.artboards.find((a) => a.file === current);
+
+  useEffect(() => {
+    if (bridgeEpoch === 0) return;
+    frame.current?.contentWindow?.postMessage({ type: "redline:set-tweaks", values: tweaks }, "*");
+  }, [tweaks, bridgeEpoch]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -28,6 +37,7 @@ export function PlayMode({ pageId, manifest, artboardOrigin, onExit }: Props) {
       if (data.type === "redline:ready") {
         const selectors = manifest.links.filter((l) => l.from === current).map((l) => l.selector);
         frame.current?.contentWindow?.postMessage({ type: "redline:set-links", selectors }, "*");
+        setBridgeEpoch((n) => n + 1);
       } else if (data.type === "redline:link" && data.selector !== undefined) {
         const target = resolveLink(manifest, current, data.selector);
         if (target !== null) setCurrent(target);
@@ -51,8 +61,10 @@ export function PlayMode({ pageId, manifest, artboardOrigin, onExit }: Props) {
         <button onClick={onExit}>Exit play (Esc)</button>
         <span>{artboard?.title ?? artboard?.file ?? "No artboard"}</span>
       </div>
-      {artboard && (
-        <div style={{ overflow: "auto" }}>
+      <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
+        <TweaksPanel tweaks={manifest.tweaks} values={tweaks} onChange={onTweak} />
+        {artboard && (
+        <div style={{ overflow: "auto", flex: 1 }}>
           <iframe
             key={artboard.file}
             ref={frame}
@@ -62,7 +74,8 @@ export function PlayMode({ pageId, manifest, artboardOrigin, onExit }: Props) {
             style={{ width: artboard.width, height: artboard.height, border: 0, background: "#fff", display: "block", margin: "0 auto" }}
           />
         </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

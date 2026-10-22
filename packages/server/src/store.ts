@@ -233,6 +233,12 @@ export class Store {
     return this.createVersion(pageId, files, message, origin);
   }
 
+  /** Records a new version identical to the current one except for one file. */
+  setPageFile(pageId: string, path: string, content: string, message: string, origin: VersionOrigin): PageVersionSummary {
+    const hashes = { ...this.getPage(pageId)!.version.files, [path]: this.putBlob(Buffer.from(content, "utf8")) };
+    return this.insertVersion(pageId, JSON.stringify(hashes), message, origin);
+  }
+
   /** Versions of a page, newest first. */
   listVersions(pageId: string): PageVersionSummary[] {
     const rows = this.db

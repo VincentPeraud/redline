@@ -5,6 +5,7 @@
  * Parent -> artboard: { type: "redline:set-mode", picking: boolean }
  *                     { type: "redline:set-pins", pins: [{ id, selector, xPct, yPct }] }
  *                     { type: "redline:set-links", selectors: string[] | null }  (play mode: clicks on a match are reported, not performed)
+ *                     { type: "redline:set-tweaks", values: { [tweakId]: string | number | boolean } }  (full set; applied as --tweak-<id> CSS variables, data-tweak-<id> attributes on <html>, window.redlineTweaks and a "redline:tweaks" window event)
  * Artboard -> parent: { type: "redline:ready" }
  *                     { type: "redline:picked", selector, xPct, yPct }
  *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched }] }
@@ -72,6 +73,24 @@ export const BRIDGE_SOURCE = `(function () {
     send({ type: "redline:pin-positions", positions: pins.map(locate) });
   }
 
+  var tweakIds = [];
+
+  function applyTweaks(values) {
+    var root = document.documentElement;
+    tweakIds.forEach(function (id) {
+      root.style.removeProperty("--tweak-" + id);
+      root.removeAttribute("data-tweak-" + id);
+    });
+    tweakIds = Object.keys(values);
+    tweakIds.forEach(function (id) {
+      var value = values[id];
+      root.style.setProperty("--tweak-" + id, typeof value === "boolean" ? (value ? "1" : "0") : String(value));
+      root.setAttribute("data-tweak-" + id, String(value));
+    });
+    window.redlineTweaks = values;
+    window.dispatchEvent(new CustomEvent("redline:tweaks", { detail: values }));
+  }
+
   function matchLink(target) {
     for (var el = target; el && el.nodeType === 1; el = el.parentElement) {
       for (var i = 0; i < linkSelectors.length; i++) {
@@ -110,6 +129,8 @@ export const BRIDGE_SOURCE = `(function () {
       document.documentElement.style.cursor = picking ? "crosshair" : "";
     } else if (event.data.type === "redline:set-links") {
       linkSelectors = event.data.selectors || null;
+    } else if (event.data.type === "redline:set-tweaks") {
+      applyTweaks(event.data.values || {});
     } else if (event.data.type === "redline:set-pins") {
       pins = event.data.pins || [];
       reportPins();

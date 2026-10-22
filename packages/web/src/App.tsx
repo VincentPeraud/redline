@@ -93,6 +93,7 @@ export function App() {
             files={page.version.files}
             artboardOrigin={artboardOrigin}
             versionId={page.version.id}
+            onVersionChange={() => loadPages(projects)}
           />
         </section>
       ))}

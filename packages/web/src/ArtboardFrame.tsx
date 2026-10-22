@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Thread } from "@redline/shared";
+import type { Thread, TweakValues } from "@redline/shared";
 
 export interface Pick {
   selector: string;
@@ -23,6 +23,7 @@ interface Props {
   zoom: number;
   threads: Thread[];
   picking: boolean;
+  tweaks: TweakValues;
   onPick: (pick: Pick) => void;
 }
 
@@ -31,7 +32,7 @@ interface Props {
  * and pin placement go through the bridge script the server injects (see conventions.md).
  * Messages are trusted only when `event.source` is this iframe's window.
  */
-export function ArtboardFrame({ src, title, width, height, zoom, threads, picking, onPick }: Props) {
+export function ArtboardFrame({ src, title, width, height, zoom, threads, picking, tweaks, onPick }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [positions, setPositions] = useState<PinPosition[]>([]);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
@@ -57,7 +58,12 @@ export function ArtboardFrame({ src, title, width, height, zoom, threads, pickin
     frame.current?.contentWindow?.postMessage({ type: "redline:set-mode", picking }, "*");
   }, [picking, bridgeEpoch]);
 
-  const pinsKey = JSON.stringify(open.map((t) => [t.id, t.selector, t.xPct, t.yPct]));
+  useEffect(() => {
+    if (bridgeEpoch === 0) return;
+    frame.current?.contentWindow?.postMessage({ type: "redline:set-tweaks", values: tweaks }, "*");
+  }, [tweaks, bridgeEpoch]);
+
+  const pinsKey =JSON.stringify(open.map((t) => [t.id, t.selector, t.xPct, t.yPct]));
   useEffect(() => {
     if (bridgeEpoch === 0) return;
     const pins = open.map((t) => ({ id: t.id, selector: t.selector, xPct: t.xPct, yPct: t.yPct }));

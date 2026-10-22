@@ -10,6 +10,8 @@ import {
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { fitView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { PlayMode } from "./PlayMode.js";
+import { TweaksPanel } from "./TweaksPanel.js";
+import { useTweaks } from "./useTweaks.js";
 
 const CANVAS_HEIGHT = 520;
 const ZOOM_STEP = 1.25;
@@ -35,9 +37,11 @@ interface Props {
   files: Record<string, string>;
   artboardOrigin: string;
   versionId: string;
+  /** Called after the page got a new version from this canvas (a saved tweak). */
+  onVersionChange: () => void;
 }
 
-export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId }: Props) {
+export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId, onVersionChange }: Props) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [picking, setPicking] = useState(false);
   const [draft, setDraft] = useState<(Pick & { artboard: string }) | null>(null);
@@ -50,6 +54,7 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
   const placed = useRef(false);
   const drag = useRef<{ x: number; y: number } | null>(null);
 
+  const tweaks = useTweaks(pageId, manifest, files, onVersionChange);
   const hasManifest = MANIFEST_PATH in files;
   const htmlPaths = Object.keys(files).filter((path) => path.endsWith(".html"));
   const pathsKey = htmlPaths.join("\n");
@@ -154,7 +159,16 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
   }
 
   if (playing && manifest) {
-    return <PlayMode pageId={pageId} manifest={manifest} artboardOrigin={artboardOrigin} onExit={() => setPlaying(false)} />;
+    return (
+      <PlayMode
+        pageId={pageId}
+        manifest={manifest}
+        artboardOrigin={artboardOrigin}
+        tweaks={tweaks.values}
+        onTweak={tweaks.setValue}
+        onExit={() => setPlaying(false)}
+      />
+    );
   }
 
   return (
@@ -226,7 +240,7 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
               </div>
             ))}
             {manifest?.artboards.map((artboard) => (
-              <div key={`${artboard.file}@${versionId}`} style={{ position: "absolute", left: artboard.x, top: artboard.y }}>
+              <div key={`${artboard.file}@${files[artboard.file]}`}style={{ position: "absolute", left: artboard.x, top: artboard.y }}>
                 <div style={{ position: "absolute", bottom: "100%", font: "12px system-ui", color: "#666", whiteSpace: "nowrap" }}>
                   {artboard.title ?? artboard.file}
                 </div>
@@ -238,6 +252,7 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
                   zoom={view.zoom}
                   threads={threads.filter((t) => t.artboard === artboard.file)}
                   picking={picking}
+                  tweaks={tweaks.values}
                   onPick={(pick) => setDraft({ ...pick, artboard: artboard.file })}
                 />
               </div>
@@ -277,6 +292,7 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
         )}
       </div>
       <aside style={{ width: 280 }}>
+        {manifest && <TweaksPanel tweaks={manifest.tweaks} values={tweaks.values} onChange={tweaks.setValue} />}
         <h4>Threads</h4>
         {threads.map((thread) =>
           thread.status === "resolved" ? (

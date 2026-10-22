@@ -282,3 +282,87 @@ export interface AgentInfo {
 export interface AgentTokenResponse {
   token: string;
 }
+
+// Tweaks (ticket 22). Declarations are in the manifest; chosen values are in the tweaks file.
+
+/** Path of the tweaks file inside a page's files: a flat JSON object of tweak id to chosen value. */
+export const TWEAKS_PATH = "tweaks.json";
+
+export type TweakValue = string | number | boolean;
+export type TweakValues = Record<string, TweakValue>;
+
+export const DEFAULT_TWEAK_MIN = 0;
+export const DEFAULT_TWEAK_MAX = 100;
+
+/** Body of `POST /api/pages/:id/tweaks`: sets one tweak value and records a version with origin "tweak". */
+export interface SetTweakRequest {
+  id: string;
+  value: TweakValue;
+}
+
+export function parseTweaks(text: string): TweakValues {
+  const fail = (message: string): never => {
+    throw new Error(`Invalid ${TWEAKS_PATH}: ${message}`);
+  };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return fail("not valid JSON");
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return fail("must be a JSON object");
+  for (const [id, value] of Object.entries(raw)) {
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+      fail(`${id} must be a string, number or boolean`);
+    }
+  }
+  return raw as TweakValues;
+}
+
+/** Error message when `value` does not fit the tweak's declaration, else null. */
+export function tweakValueError(tweak: ManifestTweak, value: unknown): string | null {
+  const min = tweak.min ?? DEFAULT_TWEAK_MIN;
+  const max = tweak.max ?? DEFAULT_TWEAK_MAX;
+  switch (tweak.type) {
+    case "color":
+      return typeof value === "string" && /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(value) ? null : "value must be a color like #1a2b3c";
+    case "choice":
+      return typeof value === "string" && (tweak.options ?? []).includes(value) ? null : "value must be one of the options";
+    case "toggle":
+      return typeof value === "boolean" ? null : "value must be a boolean";
+    case "range":
+    case "count":
+      if (typeof value !== "number" || !Number.isFinite(value)) return "value must be a number";
+      if (tweak.type === "count" && !Number.isInteger(value)) return "value must be an integer";
+      return value >= min && value <= max ? null : `value must be between ${min} and ${max}`;
+    case "text":
+      return typeof value === "string" ? null : "value must be a string";
+  }
+}
+
+function typeDefault(tweak: ManifestTweak): TweakValue {
+  switch (tweak.type) {
+    case "color":
+      return "#000000";
+    case "choice":
+      return tweak.options?.[0] ?? "";
+    case "toggle":
+      return false;
+    case "range":
+    case "count":
+      return tweak.min ?? DEFAULT_TWEAK_MIN;
+    case "text":
+      return "";
+  }
+}
+
+/** Value of every declared tweak: stored value, else declared default, else the type's default. Undeclared or invalid stored values are ignored. */
+export function resolveTweakValues(manifest: Manifest, stored: TweakValues): TweakValues {
+  const values: TweakValues = {};
+  for (const tweak of manifest.tweaks) {
+    const candidates: unknown[] = [stored[tweak.id], tweak.default];
+    values[tweak.id] =
+      (candidates.find((v) => v !== undefined && tweakValueError(tweak, v) === null) as TweakValue | undefined) ?? typeDefault(tweak);
+  }
+  return values;
+}

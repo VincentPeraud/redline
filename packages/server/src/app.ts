@@ -4,9 +4,13 @@ import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
   MANIFEST_PATH,
+  TWEAKS_PATH,
   VERSION_ORIGINS,
   parseManifest,
+  parseTweaks,
+  tweakValueError,
   type CreatePageRequest,
+  type SetTweakRequest,
   type CreateThreadRequest,
   type CreateVersionRequest,
   type ServerConfig,
@@ -26,12 +30,11 @@ const MIME: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
-/** Error message when the files carry a manifest that does not parse, else null. */
+/** Error message when the files carry a manifest or tweaks file that does not parse, else null. */
 function manifestError(files: Record<string, string>): string | null {
-  const text = files[MANIFEST_PATH];
-  if (text === undefined) return null;
   try {
-    parseManifest(text);
+    if (files[MANIFEST_PATH] !== undefined) parseManifest(files[MANIFEST_PATH]);
+    if (files[TWEAKS_PATH] !== undefined) parseTweaks(files[TWEAKS_PATH]);
     return null;
   } catch (error) {
     return (error as Error).message;
@@ -132,6 +135,22 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
       return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
     },
   );
+
+  app.post<{ Params: { pageId: string }; Body: SetTweakRequest }>("/api/pages/:pageId/tweaks", async (req, reply) => {
+    const page = store.getPage(req.params.pageId);
+    if (!page) return reply.code(404).send({ error: "page not found" });
+    const { id, value } = req.body ?? ({} as Partial<SetTweakRequest>);
+    const manifestText = store.readPageFile(page.id, MANIFEST_PATH)?.toString("utf8");
+    const tweak = manifestText === undefined ? undefined : parseManifest(manifestText).tweaks.find((t) => t.id === id);
+    if (!tweak) return reply.code(400).send({ error: "unknown tweak" });
+    const invalid = tweakValueError(tweak, value);
+    if (invalid) return reply.code(400).send({ error: invalid });
+    const stored = store.readPageFile(page.id, TWEAKS_PATH)?.toString("utf8");
+    const values = { ...(stored === undefined ? {} : parseTweaks(stored)), [tweak.id]: value };
+    return reply
+      .code(201)
+      .send(store.setPageFile(page.id, TWEAKS_PATH, JSON.stringify(values, null, 2), `Tweak: ${tweak.label} = ${value}`, "tweak"));
+  });
 
   app.post<{ Params: { pageId: string; versionId: string } }>(
     "/api/pages/:pageId/versions/:versionId/restore",
