@@ -52,7 +52,7 @@ export type AgentWorkMessage =
 
 export interface ThreadReply {
   id: string;
-  author: "claude";
+  author: "claude" | "user";
   body: string;
   createdAt: string;
 }

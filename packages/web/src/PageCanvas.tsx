@@ -10,6 +10,7 @@ import {
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { fitView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { PlayMode } from "./PlayMode.js";
+import { ThreadReplyForm } from "./ThreadReplyForm.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { useTweaks } from "./useTweaks.js";
 import { subscribeServerEvents } from "./serverEvents.js";
@@ -308,9 +309,10 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
               <strong>{thread.number}.</strong> {thread.body}
               {thread.replies.map((reply) => (
                 <p key={reply.id} data-testid="reply" style={{ background: "#f6f4ff", padding: 6, margin: "6px 0" }}>
-                  <em>Claude:</em> {reply.body}
+                  <em>{reply.author === "user" ? "You" : "Claude"}:</em> {reply.body}
                 </p>
               ))}
+              <ThreadReplyForm threadId={thread.id} />
               <div>
                 <button onClick={() => void resolve(thread)}>Resolve</button>
               </div>
