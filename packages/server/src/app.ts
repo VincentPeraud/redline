@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
   DESIGN_SYSTEM_TOKENS_PATH,
+  EFFORTS,
   MANIFEST_PATH,
   TWEAKS_PATH,
   NEUTRAL_DESIGN_SYSTEM_ID,
@@ -186,8 +187,11 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
     if (!thread) return reply.code(404).send({ error: "thread not found" });
     const body = req.body?.body;
     if (typeof body !== "string" || !body.trim()) return reply.code(400).send({ error: "body is required" });
+    const { model, effort } = req.body;
+    if (model !== undefined && (typeof model !== "string" || model.trim() === "")) return reply.code(400).send({ error: "invalid model" });
+    if (effort !== undefined && !(EFFORTS as readonly unknown[]).includes(effort)) return reply.code(400).send({ error: "invalid effort" });
     const message = store.addReply(thread.id, body, "user")!;
-    dispatchReply(store, agents, thread, body);
+    dispatchReply(store, agents, thread, body, { model, effort });
     return reply.code(201).send(message);
   });
 

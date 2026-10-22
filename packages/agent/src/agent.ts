@@ -14,7 +14,8 @@ export async function startAgent({ engine, ...connect }: AgentOptions): Promise<
     ...connect,
     onMessage(message) {
       if (message.type === "work") {
-        void runWorkItem(message.item, { folder: connect.folder, api, engine, send: (m) => connection.send(m) });
+        const item = { ...message.item, model: message.item.model ?? connect.model, effort: message.item.effort ?? connect.effort };
+        void runWorkItem(item, { folder: connect.folder, api, engine, send: (m) => connection.send(m) });
       }
     },
   });

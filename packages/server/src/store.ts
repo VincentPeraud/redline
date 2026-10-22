@@ -13,6 +13,7 @@ import type {
   CreateThreadRequest,
   AgentInfo,
   AgentKind,
+  Effort,
   AgentStatus,
   Page,
   PageType,
@@ -100,6 +101,8 @@ export class Store {
     `);
     const agentColumns = this.db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
     if (!agentColumns.some((c) => c.name === "project_id")) this.db.exec("ALTER TABLE agents ADD COLUMN project_id TEXT");
+    if (!agentColumns.some((c) => c.name === "model")) this.db.exec("ALTER TABLE agents ADD COLUMN model TEXT");
+    if (!agentColumns.some((c) => c.name === "effort")) this.db.exec("ALTER TABLE agents ADD COLUMN effort TEXT");
     const threadColumns = this.db.prepare("PRAGMA table_info(threads)").all() as { name: string }[];
     if (!threadColumns.some((c) => c.name === "session_id")) this.db.exec("ALTER TABLE threads ADD COLUMN session_id TEXT");
     if (!threadColumns.some((c) => c.name === "agent_id")) this.db.exec("ALTER TABLE threads ADD COLUMN agent_id TEXT");
@@ -175,14 +178,14 @@ export class Store {
   }
 
   /** Records an agent as online; one entry per machine and folder. */
-  markAgentOnline(machine: string, folder: string, kind: AgentKind, projectId?: string): string {
+  markAgentOnline(machine: string, folder: string, kind: AgentKind, projectId?: string, model?: string, effort?: Effort): string {
     if (projectId) this.db.prepare("UPDATE agents SET project_id = NULL WHERE project_id = ?").run(projectId);
     this.db
       .prepare(
-        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, project_id) VALUES (?, ?, ?, ?, 'online', ?, ?)
-         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, project_id = excluded.project_id`,
+        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, project_id, model, effort) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?)
+         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, project_id = excluded.project_id, model = excluded.model, effort = excluded.effort`,
       )
-      .run(randomUUID(), machine, folder, kind, now(), projectId ?? null);
+      .run(randomUUID(), machine, folder, kind, now(), projectId ?? null, model ?? null, effort ?? null);
     return (this.db.prepare("SELECT id FROM agents WHERE machine = ? AND folder = ?").get(machine, folder) as { id: string }).id;
   }
 
@@ -200,9 +203,10 @@ export class Store {
   }
 
   listAgents(): AgentInfo[] {
-    return this.db
-      .prepare("SELECT id, machine, folder, kind, status, last_seen_at AS lastSeenAt FROM agents ORDER BY machine, folder")
-      .all() as AgentInfo[];
+    const rows = this.db
+      .prepare("SELECT id, machine, folder, kind, status, last_seen_at AS lastSeenAt, model, effort FROM agents ORDER BY machine, folder")
+      .all() as (Omit<AgentInfo, "model" | "effort"> & { model: string | null; effort: Effort | null })[];
+    return rows.map(({ model, effort, ...agent }) => ({ ...agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}) }));
   }
 
   createProject(title: string, id: string = randomUUID(), instructions = "", designSystem: string | null = null): Project {

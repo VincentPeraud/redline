@@ -1,4 +1,4 @@
-import type { AgentWorkMessage, ThreadReply, WorkItem } from "./work.js";
+import type { AgentWorkMessage, Effort, ThreadReply, WorkItem } from "./work.js";
 
 export * from "./work.js";
 
@@ -274,6 +274,9 @@ export interface AgentHello {
   kind: AgentKind;
   /** The project a project agent serves (the link recorded in its folder). */
   projectId?: string;
+  /** The agent's default model and effort (`redline agent --model --effort`); absent = Claude Code's own configuration. */
+  model?: string;
+  effort?: Effort;
 }
 
 export type AgentToServerMessage = AgentHello | AgentWorkMessage;
@@ -294,6 +297,9 @@ export interface AgentInfo {
   status: AgentStatus;
   /** ISO timestamp of the last connection or disconnection. */
   lastSeenAt: string;
+  /** Default model and effort the agent was started with. */
+  model?: string;
+  effort?: Effort;
 }
 
 export interface AgentTokenResponse {

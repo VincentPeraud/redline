@@ -55,6 +55,9 @@ export function AgentsScreen() {
             <span style={{ flex: 1 }}>
               <strong>{agent.machine}</strong>
               <div style={{ fontFamily: "monospace", fontSize: 13 }}>{agent.folder}</div>
+              <div data-testid="agent-defaults" style={{ fontSize: 12 }}>
+                {agent.model ?? "default model"} · {agent.effort ?? "default effort"}
+              </div>
             </span>
             <span>{agent.kind === "global" ? "Global agent" : "Project agent"}</span>
             <span>{agent.status === "online" ? "Online" : "Offline"}</span>

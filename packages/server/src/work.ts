@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Thread, WorkItem } from "@redline/shared";
+import type { Effort, Thread, WorkItem } from "@redline/shared";
 import type { AgentHub } from "./agents.js";
 import type { Store } from "./store.js";
 
@@ -35,11 +35,15 @@ export function dispatchThread(store: Store, hub: AgentHub, projectId: string, t
   return sent;
 }
 
-/** Resumes the thread's session, on the agent that opened it, with the user's reply. False when the thread has no session or its agent is offline. */
-export function dispatchReply(store: Store, hub: AgentHub, thread: Thread, body: string): boolean {
+/**
+ * Resumes the thread's session, on the agent that opened it, with the user's reply. False when the thread has no session or its agent is offline.
+ * `choice` is the model and effort picked for this message; what is absent falls back to the agent's default.
+ */
+export function dispatchReply(store: Store, hub: AgentHub, thread: Thread, body: string, choice: { model?: string; effort?: Effort } = {}): boolean {
   const session = store.getThreadSession(thread.id);
   if (!session) return false;
-  return sendItem(store, hub, session.agentId, threadItem(thread, replyMessage(thread, body), session.sessionId, true));
+  const item = { ...threadItem(thread, replyMessage(thread, body), session.sessionId, true), ...choice };
+  return sendItem(store, hub, session.agentId, item);
 }
 
 /** Sends a work item and, once sent, announces it so its run is tracked. */
