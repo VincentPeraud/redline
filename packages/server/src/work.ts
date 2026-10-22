@@ -37,5 +37,7 @@ export function dispatchThread(store: Store, hub: AgentHub, projectId: string, t
     sessionId: randomUUID(),
     resume: false,
   };
-  return hub.send(agentId, { type: "work", item });
+  const sent = hub.send(agentId, { type: "work", item });
+  if (sent) store.emit({ type: "work-dispatched", pageId: item.pageId, workId: item.id, threadIds: [thread.id] });
+  return sent;
 }

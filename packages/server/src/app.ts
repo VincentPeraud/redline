@@ -25,6 +25,7 @@ import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
 import { registerEventRoutes } from "./events.js";
+import { registerRunRoutes } from "./runs.js";
 import { dispatchThread } from "./work.js";
 
 const MIME: Record<string, string> = {
@@ -81,6 +82,7 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
   const agents = await registerAgentRoutes(app, store);
   await registerAgentApi(app, store);
   registerEventRoutes(app, store);
+  registerRunRoutes(app, store);
 
   app.get("/api/config", async () => config);
 
