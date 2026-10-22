@@ -34,6 +34,8 @@ export interface DesignSystem {
 /** A design system as listed: with the projects whose `designSystem` it is. */
 export interface DesignSystemSummary extends DesignSystem {
   usedBy: { id: string; title: string }[];
+  /** Time of the last version of the design system's page. */
+  updatedAt?: string;
 }
 
 export interface CreateDesignSystemRequest extends ModelChoice {

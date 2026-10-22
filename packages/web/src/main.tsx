@@ -23,7 +23,7 @@ function Root() {
     case "project":
       return <Shell><ProjectOverview key={route.projectId} projectId={route.projectId} /></Shell>;
     case "designMd":
-      return <Shell><DesignMdScreen key={route.projectId} projectId={route.projectId} /></Shell>;
+      return <DesignMdScreen key={route.projectId} projectId={route.projectId} />;
     case "designSystems":
       return <Shell><DesignSystemsScreen /></Shell>;
     case "projects":

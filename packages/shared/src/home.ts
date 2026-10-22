@@ -37,8 +37,22 @@ export interface WorkOverview {
   agentMachine?: string;
 }
 
+/** A project as the home shows it. */
+export interface HomeProject {
+  id: string;
+  title: string;
+  pageCount: number;
+  /** Open threads, all pages. */
+  openThreads: number;
+  /** Threads of the project in waiting work items. */
+  waitingThreads: number;
+  /** ISO time of the latest version of any page; absent for a project without pages. */
+  updatedAt?: string;
+}
+
 export interface HomeOverview {
   projectCount: number;
+  projects: HomeProject[];
   agents: AgentOverview[];
   recentPages: RecentPage[];
   work: WorkOverview[];

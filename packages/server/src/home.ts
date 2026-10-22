@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { HOME_PATH, type AgentOverview, type CoveredProject, type HomeOverview, type WorkOverview } from "@redline/shared";
+import { HOME_PATH, type AgentOverview, type CoveredProject, type HomeOverview, type HomeProject, type WorkOverview } from "@redline/shared";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -51,8 +51,25 @@ export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock:
       })),
     ];
 
+    const lastUpdate = new Map<string, string>();
+    for (const { page, updatedAt } of store.listRecentPages(Number.MAX_SAFE_INTEGER)) {
+      if (!lastUpdate.has(page.projectId)) lastUpdate.set(page.projectId, updatedAt);
+    }
+    const homeProjects: HomeProject[] = projects.map((p) => {
+      const pages = store.listPages(p.id);
+      return {
+        id: p.id,
+        title: p.title,
+        pageCount: pages.length,
+        openThreads: pages.reduce((sum, page) => sum + store.listThreads(page.id).filter((t) => t.status === "open").length, 0),
+        waitingThreads: waiting.filter((w) => w.projectId === p.id).reduce((sum, w) => sum + w.threadIds.length, 0),
+        ...(lastUpdate.has(p.id) ? { updatedAt: lastUpdate.get(p.id) } : {}),
+      };
+    });
+
     return {
       projectCount: projects.length,
+      projects: homeProjects,
       agents,
       recentPages: store.listRecentPages(RECENT_PAGES).map(({ page, updatedAt }) => ({
         page,

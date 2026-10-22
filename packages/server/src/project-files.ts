@@ -7,6 +7,7 @@ import {
   isSafePath,
   parseManifest,
   type DesignMdResponse,
+  type DesignMdVersion,
   type ProjectAsset,
   type ProjectContext,
   type SaveDesignMdRequest,
@@ -72,8 +73,13 @@ export async function registerProjectFileRoutes(app: FastifyInstance, store: Sto
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
     const content = req.body?.content;
     if (typeof content !== "string") return reply.code(400).send({ error: "content is required" });
-    store.setProjectFile(req.params.projectId, DESIGN_MD_PATH, Buffer.from(content, "utf8"));
+    store.saveDesignMd(req.params.projectId, DESIGN_MD_PATH, Buffer.from(content, "utf8"));
     return { content };
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/design-md/versions", async (req, reply): Promise<DesignMdVersion[]> => {
+    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    return store.listDesignMdVersions(req.params.projectId);
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/assets", async (req, reply): Promise<ProjectAsset[]> => {
