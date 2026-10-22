@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { DEFAULT_CONTEXT_WINDOW, newSessionPath, type Thread, type ThreadContext, type WorkItem } from "@redline/shared";
+import { DEFAULT_CONTEXT_WINDOW, newSessionPath, type EngineEvent, type Thread, type ThreadContext, type WorkItem } from "@redline/shared";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -12,19 +12,28 @@ export function seededMessage(summary: string, message: string): string {
   return `You continue the work of a previous session. Its summary:\n\n${summary}\n\n---\n\n${message}`;
 }
 
-function contextOf(model: string, tokens: number, window: number, effort: ThreadContext["effort"]): ThreadContext {
+export function contextOf(model: string, tokens: number, window: number, effort: ThreadContext["effort"]): ThreadContext {
   return { model, ...(effort ? { effort } : {}), tokens, window, percent: Math.round((tokens / window) * 100) };
+}
+
+/** Context after a usage event: the model's real window once a result reported it, else the previous one or the default. */
+export function usageContext(
+  event: Extract<EngineEvent, { type: "usage" }>,
+  knownWindows: Map<string, number>,
+  previous: ThreadContext | undefined,
+): ThreadContext {
+  const window = knownWindows.get(event.model) ?? (previous?.model === event.model ? previous.window : DEFAULT_CONTEXT_WINDOW);
+  return contextOf(event.model, event.inputTokens + event.cacheTokens + event.outputTokens, window, event.effort ?? previous?.effort);
 }
 
 /**
  * Keeps each thread's context % from the usage events of its runs (live, then frozen once the run
  * ends) and drives "Nouvelle session": ask the old session for a summary, then seed the next one.
  */
-export function registerContextTracking(app: FastifyInstance, store: Store, lock: PageLock): void {
+export function registerContextTracking(app: FastifyInstance, store: Store, lock: PageLock, knownWindows: Map<string, number>): void {
   const threadsOfWork = new Map<string, string[]>();
   const summaryOfWork = new Map<string, string>();
   const modelOfWork = new Map<string, string>();
-  const knownWindows = new Map<string, number>();
 
   const unsubscribe = store.onChange((event) => {
     if (event.type === "work-dispatched") {
@@ -38,12 +47,7 @@ export function registerContextTracking(app: FastifyInstance, store: Store, lock
       const engineEvent = message.event;
       if (engineEvent.type === "usage") {
         modelOfWork.set(message.workId, engineEvent.model);
-        const tokens = engineEvent.inputTokens + engineEvent.cacheTokens + engineEvent.outputTokens;
-        for (const id of threadIds) {
-          const previous = store.getThread(id)?.context;
-          const window = knownWindows.get(engineEvent.model) ?? (previous?.model === engineEvent.model ? previous.window : DEFAULT_CONTEXT_WINDOW);
-          store.setThreadContext(id, contextOf(engineEvent.model, tokens, window, engineEvent.effort ?? previous?.effort));
-        }
+        for (const id of threadIds) store.setThreadContext(id, usageContext(engineEvent, knownWindows, store.getThread(id)?.context));
       } else if (engineEvent.type === "result") {
         const model = modelOfWork.get(message.workId);
         if (model && engineEvent.contextWindow) {

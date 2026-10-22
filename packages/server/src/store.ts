@@ -11,6 +11,8 @@ import {
   type ProjectAsset,
 } from "@redline/shared";
 import type {
+  Conversation,
+  ConversationMessage,
   CreateThreadRequest,
   AgentInfo,
   AgentKind,
@@ -104,6 +106,25 @@ export class Store {
         path TEXT NOT NULL,
         hash TEXT NOT NULL,
         PRIMARY KEY (project_id, path)
+      );
+      CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY,
+        page_id TEXT NOT NULL REFERENCES pages(id),
+        title TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0,
+        session_id TEXT,
+        agent_id TEXT,
+        context TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS conversation_messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id),
+        author TEXT NOT NULL,
+        body TEXT NOT NULL,
+        model TEXT,
+        effort TEXT,
+        created_at TEXT NOT NULL
       );
       UPDATE agents SET status = 'offline';
     `);
@@ -399,6 +420,90 @@ export class Store {
     return reply;
   }
 
+  createConversation(pageId: string, title: string): Conversation {
+    const conversation: Conversation = { id: randomUUID(), pageId, title, archived: false, createdAt: now() };
+    this.db
+      .prepare("INSERT INTO conversations (id, page_id, title, created_at) VALUES (?, ?, ?, ?)")
+      .run(conversation.id, pageId, title, conversation.createdAt);
+    this.emit({ type: "conversation-updated", pageId, conversationId: conversation.id });
+    return conversation;
+  }
+
+  getConversation(id: string): Conversation | undefined {
+    const row = this.db.prepare(`${CONVERSATION_SELECT} WHERE id = ?`).get(id) as ConversationRow | undefined;
+    return row && toConversation(row);
+  }
+
+  /** Conversations of a page, oldest first (archived ones included). */
+  listConversations(pageId: string): Conversation[] {
+    const rows = this.db.prepare(`${CONVERSATION_SELECT} WHERE page_id = ? ORDER BY created_at, rowid`).all(pageId) as ConversationRow[];
+    return rows.map(toConversation);
+  }
+
+  /** True once any page of the project has a conversation. */
+  projectHasConversation(projectId: string): boolean {
+    return (
+      this.db
+        .prepare("SELECT 1 FROM conversations c JOIN pages p ON p.id = c.page_id WHERE p.project_id = ? LIMIT 1")
+        .get(projectId) !== undefined
+    );
+  }
+
+  archiveConversation(id: string): Conversation | undefined {
+    this.db.prepare("UPDATE conversations SET archived = 1 WHERE id = ?").run(id);
+    const conversation = this.getConversation(id);
+    if (conversation) this.emit({ type: "conversation-updated", pageId: conversation.pageId, conversationId: id });
+    return conversation;
+  }
+
+  /** The engine session of the conversation and the agent that owns it; undefined until a first message was sent. */
+  getConversationSession(id: string): { sessionId: string; agentId: string } | undefined {
+    const row = this.db.prepare("SELECT session_id, agent_id FROM conversations WHERE id = ?").get(id) as
+      | { session_id: string | null; agent_id: string | null }
+      | undefined;
+    return row?.session_id && row.agent_id ? { sessionId: row.session_id, agentId: row.agent_id } : undefined;
+  }
+
+  setConversationSession(id: string, sessionId: string, agentId: string): void {
+    this.db.prepare("UPDATE conversations SET session_id = ?, agent_id = ? WHERE id = ?").run(sessionId, agentId, id);
+  }
+
+  getConversationContext(id: string): ThreadContext | undefined {
+    const row = this.db.prepare("SELECT context FROM conversations WHERE id = ?").get(id) as { context: string | null } | undefined;
+    return row?.context ? (JSON.parse(row.context) as ThreadContext) : undefined;
+  }
+
+  setConversationContext(id: string, context: ThreadContext): void {
+    this.db.prepare("UPDATE conversations SET context = ? WHERE id = ?").run(JSON.stringify(context), id);
+    const conversation = this.getConversation(id);
+    if (conversation) this.emit({ type: "conversation-updated", pageId: conversation.pageId, conversationId: id });
+  }
+
+  addConversationMessage(
+    conversationId: string,
+    author: ConversationMessage["author"],
+    body: string,
+    choice: { model?: string; effort?: Effort } = {},
+  ): ConversationMessage | undefined {
+    const conversation = this.getConversation(conversationId);
+    if (!conversation) return undefined;
+    const message: ConversationMessage = { id: randomUUID(), author, body, ...choice, createdAt: now() };
+    this.db
+      .prepare("INSERT INTO conversation_messages (id, conversation_id, author, body, model, effort, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(message.id, conversationId, author, body, choice.model ?? null, choice.effort ?? null, message.createdAt);
+    this.emit({ type: "conversation-updated", pageId: conversation.pageId, conversationId });
+    return message;
+  }
+
+  conversationMessages(conversationId: string): ConversationMessage[] {
+    const rows = this.db
+      .prepare(
+        "SELECT id, author, body, model, effort, created_at AS createdAt FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at, rowid",
+      )
+      .all(conversationId) as (ConversationMessage & { model: string | null; effort: Effort | null })[];
+    return rows.map(({ model, effort, ...rest }) => ({ ...rest, ...(model ? { model } : {}), ...(effort ? { effort } : {}) }));
+  }
+
   private repliesOf(threadId: string): ThreadReply[] {
     return this.db
       .prepare("SELECT id, author, body, created_at AS createdAt FROM thread_replies WHERE thread_id = ? ORDER BY created_at, rowid")
@@ -518,6 +623,16 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     ...(row.context ? { context: JSON.parse(row.context) as ThreadContext } : {}),
     ...(row.new_session ? { newSession: row.new_session } : {}),
   };
+}
+
+const CONVERSATION_SELECT = "SELECT id, page_id AS pageId, title, archived, created_at AS createdAt FROM conversations";
+
+interface ConversationRow extends Omit<Conversation, "archived"> {
+  archived: number;
+}
+
+function toConversation(row: ConversationRow): Conversation {
+  return { ...row, archived: row.archived === 1 };
 }
 
 interface VersionRow {

@@ -30,6 +30,7 @@ import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRou
 import { registerEventRoutes } from "./events.js";
 import { PageLock } from "./page-lock.js";
 import { registerContextTracking } from "./context.js";
+import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { dispatchReply, dispatchThread } from "./work.js";
 
@@ -87,7 +88,9 @@ export async function buildMainApp(
   await registerProjectFileRoutes(app, store);
   registerEventRoutes(app, store);
   registerRunRoutes(app, store);
-  registerContextTracking(app, store, pageLock);
+  const knownWindows = new Map<string, number>();
+  registerContextTracking(app, store, pageLock, knownWindows);
+  registerConversationRoutes(app, store, pageLock, knownWindows);
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });

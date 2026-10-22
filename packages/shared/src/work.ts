@@ -40,8 +40,10 @@ export interface WorkThread {
 export interface WorkItem {
   id: string;
   /** "summary": asks a thread's session for a summary (no thread is answered). */
-  kind: "thread" | "summary";
+  kind: "thread" | "summary" | "conversation";
   pageId: string;
+  /** Set for kind "conversation": the conversation this message belongs to. */
+  conversationId?: string;
   /** The threads this item answers; Claude may reply only in these. */
   threads: WorkThread[];
   /** The message sent to the engine (the agent prepends the working copy location). */
@@ -96,6 +98,8 @@ export interface CreateReplyRequest {
 export type ServerEvent =
   | { type: "page-updated"; pageId: string; versionId: string }
   | { type: "thread-updated"; pageId: string; threadId: string }
+  /** A conversation of the page, or one of its messages, changed. */
+  | { type: "conversation-updated"; pageId: string; conversationId: string }
   /** The waiting work items of the page changed (`GET /api/pages/:id/queue`). */
   | { type: "queue-updated"; pageId: string }
   /** What an agent reported about a work item, relayed as is. */
@@ -148,6 +152,49 @@ export interface QueueEntry {
 }
 
 export const SERVER_EVENTS_PATH = "/api/events";
+
+/** A page-level conversation (no pin). Its session is never shared with a thread's. */
+export interface Conversation {
+  id: string;
+  pageId: string;
+  title: string;
+  archived: boolean;
+  createdAt: string;
+}
+
+export interface ConversationMessage {
+  id: string;
+  author: "user" | "claude";
+  body: string;
+  /** Model and effort chosen for a user message; absent = the agent's default. */
+  model?: string;
+  effort?: Effort;
+  createdAt: string;
+}
+
+/** `GET /api/conversations/:id` and the result of creating one. */
+export interface ConversationDetail extends Conversation {
+  messages: ConversationMessage[];
+  /** Work item of the latest message, to find its live run in `GET /api/pages/:id/runs`. */
+  runWorkId?: string;
+  /** Model and effort of the latest user message, for the "model · effort · context %" line. */
+  model?: string;
+  effort?: Effort;
+  /** Context of the conversation's session after the last usage report; absent before any run. */
+  context?: ThreadContext;
+}
+
+/** Body of `POST /api/pages/:pageId/conversations`. */
+export interface CreateConversationRequest {
+  title?: string;
+}
+
+/** Body of `POST /api/conversations/:id/messages`; model and effort apply from this message on. */
+export interface CreateConversationMessageRequest {
+  body: string;
+  model?: string;
+  effort?: Effort;
+}
 
 /**
  * Token-guarded HTTP API for agents (`Authorization: Bearer <agent token>`). Like `/agent`, it is

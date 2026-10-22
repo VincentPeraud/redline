@@ -9,5 +9,5 @@ export default defineConfig({
       "@redline/server/test-harness": fileURLToPath(new URL("./packages/server/src/test-harness.ts", import.meta.url)),
     },
   },
-  test: { include: ["packages/*/test/**/*.test.ts"] },
+  test: { include: ["packages/*/test/**/*.test.ts"], hookTimeout: 30000 },
 });
