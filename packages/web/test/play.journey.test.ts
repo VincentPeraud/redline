@@ -52,7 +52,7 @@ it("plays a prototype: one artboard at full size, links switch artboard, exit re
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   await tab.goto(`${server.url}/#/pages/${page.id}`);
   await tab.locator('iframe[title$="cart.html"]').waitFor();
-  await tab.getByRole("button", { name: "Play" }).click();
+  await tab.getByRole("button", { name: "Plein écran" }).click();
 
   const play = tab.getByTestId("play");
   const frame = play.locator("iframe");
@@ -73,7 +73,7 @@ it("plays a prototype: one artboard at full size, links switch artboard, exit re
   await inner.locator("#back").click();
   await expect.poll(() => frame.getAttribute("title")).toMatch(/cart\.html$/);
 
-  await tab.getByRole("button", { name: /Exit play/ }).click();
+  await tab.getByRole("button", { name: /Canvas/ }).click();
   await expect.poll(() => play.count()).toBe(0);
   await tab.locator('iframe[title$="cart.html"]').waitFor();
   await tab.locator('iframe[title$="done.html"]').waitFor();

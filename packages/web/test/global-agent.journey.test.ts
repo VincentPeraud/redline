@@ -32,7 +32,7 @@ it("shows which agent serves a project, including the global agent taking over o
   const tab = await browser.newPage();
   await tab.goto(`${server.url}/#/projects/${project.id}`);
   const label = tab.getByTestId("project-agent");
-  await expect.poll(() => label.textContent()).toBe("No agent serves this project");
+  await expect.poll(() => label.textContent()).toBe("Aucun agent ne sert ce projet");
 
   const projectAgent = await server.connectAgent({ machine: "MacBook", folder: "/work/acme", projectId: project.id });
   await projectAgent.hello;
@@ -42,10 +42,10 @@ it("shows which agent serves a project, including the global agent taking over o
   await projectAgent.closed;
 
   await tab.reload();
-  await expect.poll(() => label.textContent()).toBe("Project agent MacBook (/work/acme) is offline, threads wait");
+  await expect.poll(() => label.textContent()).toBe("L'agent du projet MacBook (/work/acme) est hors ligne, les fils attendent");
 
-  await tab.getByLabel("Let the global agent take over when the project agent is offline").click();
+  await tab.getByLabel("Laisser l'agent global prendre le relais quand l'agent du projet est hors ligne").click();
   await expect
     .poll(() => label.textContent())
-    .toBe("Served by the global agent iMac (/home/neutral), taking over while the project agent is offline");
+    .toBe("Servi par l'agent global iMac (/home/neutral), en remplacement de l'agent du projet hors ligne");
 }, 60_000);

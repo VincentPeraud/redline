@@ -37,14 +37,14 @@ it("creates a conversation, talks to Claude with model and effort, shows the ses
   const panel = tab.getByTestId("conversations");
 
   await panel.getByRole("button", { name: "Nouvelle conversation" }).click();
-  await panel.getByLabel("Model").selectOption("opus");
+  await panel.getByLabel("Modèle").selectOption("opus");
   await panel.getByRole("radio", { name: "high", exact: true }).click();
   await panel.getByLabel("Message").fill("Add an error screen");
   await panel.getByRole("button", { name: "Envoyer" }).click();
 
   await engine.finished(1);
   await expect.poll(() => panel.getByTestId("conversation-message").allTextContents()).toEqual([
-    "You: Add an error screen",
+    "Toi: Add an error screen",
     "Claude: Added the error screen",
   ]);
   expect(engine.runs[0].message).toContain(page.id);

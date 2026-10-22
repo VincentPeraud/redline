@@ -31,7 +31,7 @@ describe("held comments and batches", () => {
   const patch = (path: string, body: unknown) =>
     fetch(server.url + path, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const remove = (path: string) => fetch(server.url + path, { method: "DELETE" });
-  const sendHeld = (project: Project, body: unknown = {}) => server.post(`/api/projects/${project.id}/send-held`, body);
+  const sendHeld = (page: Page, body: unknown = {}) => server.post(`/api/pages/${page.id}/send-held`, body);
   async function connect(project: Project): Promise<TestAgent> {
     const agent = await server.connectAgent({ projectId: project.id });
     await agent.hello;
@@ -54,7 +54,7 @@ describe("held comments and batches", () => {
     expect(held.status).toBe("held");
     expect(received(agent)).toEqual([]);
     expect((await threadsOf(page)).map((t) => [t.body, t.status])).toEqual([["Later", "held"]]);
-    const listed = (await (await server.get(`/api/projects/${project.id}/held`)).json()) as Thread[];
+    const listed = (await (await server.get(`/api/pages/${page.id}/held`)).json()) as Thread[];
     expect(listed.map((t) => t.id)).toEqual([held.id]);
   });
 
@@ -69,12 +69,12 @@ describe("held comments and batches", () => {
     expect((await remove(`/api/threads/${second.id}`)).status).toBe(204);
     expect((await threadsOf(page)).map((t) => t.id)).toEqual([first.id]);
 
-    await sendHeld(project);
+    await sendHeld(page);
     expect((await patch(`/api/threads/${first.id}`, { body: "Too late" })).status).toBe(409);
     expect((await remove(`/api/threads/${first.id}`)).status).toBe(409);
   });
 
-  it("sends the held comments of each page as one work item per page, listing every comment", async () => {
+  it("sends the held comments of the page as one work item, listing every comment, and leaves the other pages' held comments alone", async () => {
     const project = await createProject();
     const home = await createPage(project, "Home");
     const about = await createPage(project, "About");
@@ -83,11 +83,14 @@ describe("held comments and batches", () => {
     const b = await hold(home, "Rounder button", "button");
     const c = await hold(about, "Fix footer", "footer");
 
-    const response = (await (await sendHeld(project, { model: "sonnet", effort: "high" })).json()) as SendHeldResponse;
-    expect(response).toEqual({ items: 2, threads: 3 });
-    await until(() => received(agent).length === 2);
+    const response = (await (await sendHeld(home, { model: "sonnet", effort: "high" })).json()) as SendHeldResponse;
+    expect(response).toEqual({ threads: 2 });
+    await until(() => received(agent).length === 1);
+    await settle();
+    expect(received(agent)).toHaveLength(1);
 
-    const homeItem = received(agent).find((i) => i.pageId === home.id)!;
+    const homeItem = received(agent)[0];
+    expect(homeItem.pageId).toBe(home.id);
     expect(homeItem.threads.map((t) => t.threadId)).toEqual([a.id, b.id]);
     expect([homeItem.model, homeItem.effort]).toEqual(["sonnet", "high"]);
     for (const thread of [a, b]) {
@@ -98,9 +101,14 @@ describe("held comments and batches", () => {
       expect(homeItem.message).toContain(thread.body);
     }
     expect(homeItem.message).not.toContain(c.id);
-    expect(received(agent).find((i) => i.pageId === about.id)!.threads.map((t) => t.threadId)).toEqual([c.id]);
     expect((await threadsOf(home)).map((t) => t.status)).toEqual(["open", "open"]);
-    expect((await (await server.get(`/api/projects/${project.id}/held`)).json()) as Thread[]).toEqual([]);
+    expect((await (await server.get(`/api/pages/${home.id}/held`)).json()) as Thread[]).toEqual([]);
+    expect((await threadsOf(about)).map((t) => t.status)).toEqual(["held"]);
+
+    expect(await (await sendHeld(about)).json()).toEqual({ threads: 1 });
+    await until(() => received(agent).length === 2);
+    expect(received(agent)[1].threads.map((t) => t.threadId)).toEqual([c.id]);
+    expect(await (await sendHeld(about)).json()).toEqual({ threads: 0 });
   });
 
   it("answers a reply in a batched thread by resuming the shared session for that thread only", async () => {
@@ -109,7 +117,7 @@ describe("held comments and batches", () => {
     const agent = await connect(project);
     const a = await hold(page, "One");
     await hold(page, "Two");
-    await sendHeld(project);
+    await sendHeld(page);
     await until(() => received(agent).length === 1);
     const batch = received(agent)[0];
     agent.send({ type: "work-done", workId: batch.id });
@@ -129,7 +137,7 @@ describe("held comments and batches", () => {
     const agent = await connect(project);
     const a = await hold(page, "One");
     const b = await hold(page, "Two");
-    await sendHeld(project);
+    await sendHeld(page);
     await until(() => received(agent).length === 1);
     const batch = received(agent)[0];
 

@@ -47,14 +47,14 @@ it("restores an earlier version and the artboard changes back", async () => {
   const artboard = tab.frameLocator("iframe");
   await expect.poll(() => artboard.locator("h1").textContent()).toBe("Version two");
 
-  await tab.getByRole("button", { name: "History" }).click();
-  const items = tab.getByRole("list", { name: "Versions of Landing" }).getByRole("listitem");
+  await tab.getByRole("button", { name: "Historique" }).click();
+  const items = tab.getByRole("list", { name: "Versions de Landing" }).getByRole("listitem");
   await expect.poll(() => items.count()).toBe(2);
   await expect(items.first().textContent()).resolves.toContain("Second title");
 
-  await items.nth(1).getByRole("button", { name: "Restore" }).click();
+  await items.nth(1).getByRole("button", { name: "Restaurer" }).click();
 
   await expect.poll(() => artboard.locator("h1").textContent()).toBe("Version one");
   await expect.poll(() => items.count()).toBe(3);
-  await expect(items.first().textContent()).resolves.toContain("restore");
+  await expect(items.first().textContent()).resolves.toContain("Restauration");
 }, 60_000);

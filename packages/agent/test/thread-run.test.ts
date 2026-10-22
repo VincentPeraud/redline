@@ -34,7 +34,7 @@ describe("running a thread with the fake engine", () => {
     const versions = await seam.versions(page.id);
     expect(versions.map((v) => [v.origin, v.message])).toEqual([
       ["thread", "Update the title"],
-      ["terminal", "Page created"],
+      ["creation", "Page created"],
     ]);
     expect(await seam.readFile(page.id, "home.html")).toContain("New title");
     expect(await seam.readFile(page.id, "notes.md")).toBe("# Design\nBlue.");

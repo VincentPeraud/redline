@@ -23,7 +23,6 @@ import {
   type UpdateThreadRequest,
   type ServerConfig,
   type UpdateProjectRequest,
-  type Thread,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import type { Store } from "./store.js";
@@ -38,6 +37,7 @@ import { registerContextTracking } from "./context.js";
 import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
+import { registerDesignSystemReload } from "./design-system-reload.js";
 import { registerSessionRoutes } from "./sessions.js";
 import { registerHomeRoutes } from "./home.js";
 import { dispatchBatch, dispatchReply, dispatchThread } from "./work.js";
@@ -72,6 +72,7 @@ export async function buildMainApp(
   await registerAgentApi(app, store, pageLock);
   await registerProjectFileRoutes(app, store);
   registerEventRoutes(app, store);
+  registerDesignSystemReload(app, store);
   const runs = registerRunRoutes(app, store);
   registerHomeRoutes(app, store, pageLock);
   const knownWindows = new Map<string, number>();
@@ -234,25 +235,23 @@ export async function buildMainApp(
     return reply.code(204).send();
   });
 
-  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/held", async (req, reply) => {
-    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-    return store.listHeldThreads(req.params.projectId);
+  app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/held", async (req, reply) => {
+    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+    return store.listHeldThreads(req.params.pageId);
   });
 
-  // "Tout envoyer": the held comments of each page leave as one message to one session per page.
-  app.post<{ Params: { projectId: string }; Body: SendHeldRequest }>("/api/projects/:projectId/send-held", async (req, reply) => {
-    const { projectId } = req.params;
-    if (!store.projectExists(projectId)) return reply.code(404).send({ error: "project not found" });
+  // "Tout envoyer": the held comments of the page leave as one message to one session.
+  app.post<{ Params: { pageId: string }; Body: SendHeldRequest }>("/api/pages/:pageId/send-held", async (req, reply) => {
+    const page = store.getPage(req.params.pageId);
+    if (!page) return reply.code(404).send({ error: "page not found" });
     const invalidChoice = modelChoiceError(req.body ?? {});
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
-    const held = store.listHeldThreads(projectId);
-    const byPage = new Map<string, Thread[]>();
-    for (const thread of held) byPage.set(thread.pageId, [...(byPage.get(thread.pageId) ?? []), thread]);
-    for (const threads of byPage.values()) {
-      for (const thread of threads) store.releaseHeldThread(thread.id);
-      dispatchBatch(pageLock, projectId, threads, modelChoiceOf(req.body ?? {}));
+    const held = store.listHeldThreads(page.id);
+    if (held.length > 0) {
+      for (const thread of held) store.releaseHeldThread(thread.id);
+      dispatchBatch(pageLock, page.projectId, held, modelChoiceOf(req.body ?? {}));
     }
-    const response: SendHeldResponse = { items: byPage.size, threads: held.length };
+    const response: SendHeldResponse = { threads: held.length };
     return response;
   });
 

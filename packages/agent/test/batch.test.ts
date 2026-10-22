@@ -34,7 +34,7 @@ describe("sending held comments", () => {
     const second = await held("Exclaim the button");
     expect(engine.runs).toHaveLength(0);
 
-    await seam.server.post(`/api/projects/${seam.project.id}/send-held`, {});
+    await seam.server.post(`/api/pages/${page.id}/send-held`, {});
     await seam.waitForVersions(page.id, 2);
     await seam.waitForWorkEnd(1);
 

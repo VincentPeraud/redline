@@ -21,13 +21,13 @@ export function ThreadReplyForm({ threadId }: { threadId: string }) {
   return (
     <div>
       <textarea
-        aria-label="Reply"
+        aria-label="Répondre"
         value={text}
         onChange={(e) => setText(e.target.value)}
         style={{ width: "100%", boxSizing: "border-box" }}
       />
       <ModelEffortControls value={choice} onChange={setChoice} />
-      <button onClick={() => void send()}>Reply</button>
+      <button onClick={() => void send()}>Répondre</button>
     </div>
   );
 }

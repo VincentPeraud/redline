@@ -1,8 +1,17 @@
 import { useEffect, useState } from "react";
-import type { Project } from "@redline/shared";
+import type { Project, VersionOrigin } from "@redline/shared";
 import { PageCanvas } from "./PageCanvas.js";
 import { routeHref } from "./router.js";
 import { subscribeServerEvents } from "./serverEvents.js";
+
+const ORIGIN_LABEL: Record<VersionOrigin, string> = {
+  creation: "Création",
+  thread: "Commentaire",
+  conversation: "Conversation",
+  terminal: "Terminal",
+  tweak: "Tweak",
+  restore: "Restauration",
+};
 
 interface Page {
   id: string;
@@ -35,14 +44,14 @@ function VersionHistory({ page, onRestored }: { page: Page; onRestored: () => vo
   }
 
   return (
-    <ol aria-label={`Versions of ${page.title}`}>
+    <ol aria-label={`Versions de ${page.title}`}>
       {versions.map((version) => (
         <li key={version.id}>
-          <span>{version.message}</span> <small>{version.origin}</small>{" "}
+          <span>{version.message}</span> <small>{ORIGIN_LABEL[version.origin as VersionOrigin] ?? version.origin}</small>{" "}
           {version.id === page.version.id ? (
-            <em>current</em>
+            <em>actuelle</em>
           ) : (
-            <button onClick={() => restore(version.id)}>Restore</button>
+            <button onClick={() => restore(version.id)}>Restaurer</button>
           )}
         </li>
       ))}
@@ -77,12 +86,12 @@ export function App({ pageId }: { pageId: string }) {
     [pageId],
   );
 
-  if (!page) return <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>Loading…</main>;
+  if (!page) return <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>Chargement…</main>;
 
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
       <nav>
-        <a href={routeHref({ name: "projects" })}>Projects</a>
+        <a href={routeHref({ name: "projects" })}>Projets</a>
         {project && (
           <>
             {" / "}
@@ -92,12 +101,11 @@ export function App({ pageId }: { pageId: string }) {
       </nav>
       <section>
         <h1>{page.title}</h1>
-        <button onClick={() => setHistoryOpen(!historyOpen)}>History</button>
+        <button onClick={() => setHistoryOpen(!historyOpen)}>Historique</button>
         {historyOpen && <VersionHistory page={page} onRestored={loadPage} />}
         <PageCanvas
           pageId={page.id}
           pageTitle={page.title}
-          projectId={page.projectId}
           files={page.version.files}
           artboardOrigin={artboardOrigin}
           versionId={page.version.id}

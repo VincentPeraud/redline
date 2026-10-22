@@ -12,7 +12,7 @@ export function ModelEffortControls({ value, onChange }: { value: ModelEffortCho
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 12 }}>
       <select
-        aria-label="Model"
+        aria-label="Modèle"
         value={value.model ?? ""}
         onChange={(e) => onChange({ ...value, model: e.target.value || undefined })}
       >

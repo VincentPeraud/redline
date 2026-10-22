@@ -41,7 +41,7 @@ describe("version history and restore over the server HTTP API", () => {
     expect(list.map((v) => [v.message, v.origin])).toEqual([
       ["Blue button", "tweak"],
       ["Bigger title", "thread"],
-      ["Page created", "terminal"],
+      ["Page created", "creation"],
     ]);
   });
 

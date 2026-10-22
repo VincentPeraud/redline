@@ -34,11 +34,11 @@ function Control({ tweak, value, onChange }: { tweak: ManifestTweak; value: Twea
     case "count":
       return (
         <span role="group" aria-label={tweak.label} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button aria-label={`Decrease ${tweak.label}`} disabled={Number(value) <= min} onClick={() => onChange(Number(value) - 1)}>
+          <button aria-label={`Diminuer ${tweak.label}`} disabled={Number(value) <= min} onClick={() => onChange(Number(value) - 1)}>
             -
           </button>
           <output>{String(value)}</output>
-          <button aria-label={`Increase ${tweak.label}`} disabled={Number(value) >= max} onClick={() => onChange(Number(value) + 1)}>
+          <button aria-label={`Augmenter ${tweak.label}`} disabled={Number(value) >= max} onClick={() => onChange(Number(value) + 1)}>
             +
           </button>
         </span>

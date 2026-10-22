@@ -47,8 +47,8 @@ it("shows model, effort and context %, turns orange from 70 % and starts a new s
   await expect.poll(() => context.textContent()).toContain("Nouvelle session prête");
   expect(await tab.getByRole("button", { name: "Nouvelle session" }).count()).toBe(0);
 
-  await tab.getByLabel("Reply").fill("Continue");
-  await tab.getByRole("button", { name: "Reply" }).click();
+  await tab.getByLabel("Répondre").fill("Continue");
+  await tab.getByRole("button", { name: "Répondre" }).click();
   await engine.finished(3);
   expect(engine.runs[2].resume).toBe(false);
   expect(engine.runs[2].message).toContain("Summary of the session");

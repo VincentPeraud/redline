@@ -26,7 +26,7 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
     void loadAssets();
   }, [projectId]);
 
-  if (!project || saved === null) return <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>Loading…</main>;
+  if (!project || saved === null) return <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>Chargement…</main>;
 
   const dirty = text !== saved;
 
@@ -56,33 +56,33 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
       <nav>
-        <a href={routeHref({ name: "projects" })}>Projects</a> /{" "}
+        <a href={routeHref({ name: "projects" })}>Projets</a> /{" "}
         <a href={routeHref({ name: "project", projectId })}>{project.title}</a> / DESIGN.md
       </nav>
       <h1>DESIGN.md</h1>
-      <p>This file applies to every session of the project. A rule changed here holds from the next comment or message.</p>
+      <p>Ce fichier s'applique à toutes les sessions du projet. Une règle modifiée ici vaut dès le prochain commentaire ou message.</p>
       <textarea
-        aria-label="DESIGN.md content"
+        aria-label="Contenu de DESIGN.md"
         value={text}
         onChange={(e) => setText(e.target.value)}
         style={{ display: "block", width: "100%", minHeight: 320, fontFamily: "ui-monospace, monospace" }}
       />
       <p>
-        <span data-testid="design-md-status">{dirty ? "Unsaved changes" : "Saved"}</span>{" "}
+        <span data-testid="design-md-status">{dirty ? "Modifications non enregistrées" : "Enregistré"}</span>{" "}
         <button onClick={save} disabled={!dirty}>
-          Save
+          Enregistrer
         </button>
       </p>
-      <h2>Assets</h2>
-      <p>Images and fonts shared by every artboard of the project. Use them as <code>assets/&lt;name&gt;</code>.</p>
+      <h2>Assets du projet</h2>
+      <p>Images et polices partagées par tous les artboards du projet. À utiliser comme <code>assets/&lt;nom&gt;</code>.</p>
       <label>
-        Add assets <input type="file" multiple onChange={upload} />
+        Ajouter des assets <input type="file" multiple onChange={upload} />
       </label>
-      {assets.length === 0 && <p>No asset yet.</p>}
+      {assets.length === 0 && <p>Aucun asset pour l'instant.</p>}
       <ul data-testid="assets">
         {assets.map((asset) => (
           <li key={asset.name}>
-            {asset.name} <small>{asset.size} bytes</small>
+            {asset.name} <small>{asset.size} octets</small>
           </li>
         ))}
       </ul>

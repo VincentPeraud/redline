@@ -3,26 +3,26 @@ import type { SendHeldRequest, Thread, UpdateThreadRequest } from "@redline/shar
 import { ModelEffortControls, type ModelEffortChoice } from "./ModelEffortControls.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 
-/** Bar "N en attente d'envoi · Tout envoyer": the held comments of the whole project leave together, one message per page. */
-export function HeldBar({ projectId }: { projectId: string }) {
+/** Bar "N en attente d'envoi · Tout envoyer": the held comments of the open page leave together, as one message. */
+export function HeldBar({ pageId }: { pageId: string }) {
   const [count, setCount] = useState(0);
   const [choice, setChoice] = useState<ModelEffortChoice>({});
 
   const refresh = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}/held`);
+    const res = await fetch(`/api/pages/${pageId}/held`);
     setCount(((await res.json()) as Thread[]).length);
-  }, [projectId]);
+  }, [pageId]);
 
   useEffect(() => {
     void refresh();
     return subscribeServerEvents((event) => {
-      if (event.type === "thread-updated") void refresh();
+      if (event.type === "thread-updated" && event.pageId === pageId) void refresh();
     });
-  }, [refresh]);
+  }, [refresh, pageId]);
 
   async function sendAll() {
     const request: SendHeldRequest = choice;
-    await fetch(`/api/projects/${projectId}/send-held`, {
+    await fetch(`/api/pages/${pageId}/send-held`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(request),
@@ -61,7 +61,7 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
       <strong>{thread.number}.</strong>{" "}
       {editing ? (
         <>
-          <textarea aria-label="Edit comment" value={text} onChange={(e) => setText(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+          <textarea aria-label="Modifier le commentaire" value={text} onChange={(e) => setText(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
           <button onClick={() => void save()}>Enregistrer</button>{" "}
           <button
             onClick={() => {

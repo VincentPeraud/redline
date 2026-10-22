@@ -105,6 +105,8 @@ export interface CreateReplyRequest {
 /** Server-sent events on `GET /api/events`, so the web UI refreshes without polling. */
 export type ServerEvent =
   | { type: "page-updated"; pageId: string; versionId: string }
+  /** A design system got a new version: the pages that use it (`pageIds`) reload their artboards to pick up the tokens. */
+  | { type: "design-system-updated"; designSystemId: string; pageIds: string[] }
   | { type: "thread-updated"; pageId: string; threadId: string }
   /** A conversation of the page, or one of its messages, changed. */
   | { type: "conversation-updated"; pageId: string; conversationId: string }

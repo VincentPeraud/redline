@@ -33,18 +33,18 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
   }
 
   return (
-    <Dialog title="New project" onClose={onClose}>
+    <Dialog title="Nouveau projet" onClose={onClose}>
       <p>
-        Recommended: start from a code folder. Run <code>redline agent</code> in your project folder to link it to a
-        project or create one.
+        Conseillé : partir d'un dossier de code. Lance <code>redline agent</code> dans le dossier de ton projet pour le
+        lier à un projet existant ou en créer un.
       </p>
       <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
         <label>
-          Title
+          Titre
           <input value={title} onChange={(e) => setTitle(e.target.value)} required style={{ display: "block", width: "100%" }} />
         </label>
         <label>
-          Instructions for Claude (optional)
+          Instructions pour Claude (facultatif)
           <textarea
             aria-label="Instructions"
             value={instructions}
@@ -56,7 +56,7 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         <label>
           Design system
           <select value={designSystem} onChange={(e) => setDesignSystem(e.target.value)} style={{ display: "block" }}>
-            <option value="">Neutral (default)</option>
+            <option value="">Neutre (par défaut)</option>
             {designSystems
               .filter((ds) => ds.id !== NEUTRAL_DESIGN_SYSTEM_ID)
               .map((ds) => (
@@ -69,10 +69,10 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         </label>
         <div>
           <button type="button" onClick={onClose}>
-            Cancel
+            Annuler
           </button>{" "}
           <button type="submit" disabled={title.trim() === ""}>
-            Create project
+            Créer le projet
           </button>
         </div>
       </form>
@@ -93,9 +93,9 @@ export function ProjectsScreen() {
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
       <h1>Redline</h1>
-      <h2>Projects</h2>
-      <button onClick={() => setCreating(true)}>New project</button>
-      {projects?.length === 0 && <p>No project yet.</p>}
+      <h2>Projets</h2>
+      <button onClick={() => setCreating(true)}>Nouveau projet</button>
+      {projects?.length === 0 && <p>Aucun projet pour l'instant.</p>}
       <ul style={{ listStyle: "none", padding: 0 }}>
         {projects?.map((project) => (
           <li key={project.id}>

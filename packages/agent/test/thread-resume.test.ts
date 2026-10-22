@@ -61,7 +61,7 @@ describe("replying in a thread", () => {
     expect((await seam.versions(page.id)).map((v) => [v.origin, v.message])).toEqual([
       ["thread", "Bigger title"],
       ["thread", "Update the title"],
-      ["terminal", "Page created"],
+      ["creation", "Page created"],
     ]);
     expect(await seam.readFile(page.id, "home.html")).toContain("Bigger title");
     expect((await threadOf(seam, page.id)).replies.map((r) => [r.author, r.body])).toEqual([

@@ -84,7 +84,7 @@ it("lays artboards out from the manifest, shows notes, and zooms and pans with p
   await expect.poll(async () => Math.round((await relativePin()).x * 100)).toBeGreaterThan(0);
   const before = await relativePin();
 
-  await tab.getByRole("button", { name: "Zoom in" }).click();
+  await tab.getByRole("button", { name: "Zoomer", exact: true }).click();
   await expect.poll(async () => (await box(cart)).width).toBeGreaterThan(400);
   const zoomedPay = await box(pay);
   expect(zoomedPay.width).toBeGreaterThan(300);
@@ -140,10 +140,10 @@ it("is interactive by default, pins with C or Alt+click, and returns to interact
   const section = tab.locator("section", { has: tab.getByRole("heading", { name: "Modes page" }) });
   const button = section.frameLocator('iframe[title$="app.html"]').locator("#go");
   const mode = section.getByTestId("mode-indicator");
-  const draft = section.getByText("Comment on");
-  const cancel = section.getByRole("button", { name: "Cancel" });
+  const draft = section.getByText("Commentaire sur");
+  const cancel = section.getByRole("button", { name: "Annuler" });
   await button.waitFor();
-  await expect.poll(async () => (await mode.textContent())?.includes("Interactive")).toBe(true);
+  await expect.poll(async () => (await mode.textContent())?.includes("Planche interactive")).toBe(true);
 
   await new Promise((resolve) => setTimeout(resolve, 300));
   await button.click();
@@ -152,16 +152,16 @@ it("is interactive by default, pins with C or Alt+click, and returns to interact
 
   await button.click({ modifiers: ["Alt"] });
   await draft.waitFor();
-  expect(await mode.textContent()).toContain("Interactive");
+  expect(await mode.textContent()).toContain("Planche interactive");
   await cancel.click();
 
   await tab.keyboard.press("c");
-  expect(await mode.textContent()).toContain("Comment");
+  expect(await mode.textContent()).toContain("Mode commentaire");
   await button.click();
   await draft.waitFor();
   await cancel.click();
-  expect(await mode.textContent()).toContain("Comment");
+  expect(await mode.textContent()).toContain("Mode commentaire");
 
   await tab.keyboard.press("p");
-  expect(await mode.textContent()).toContain("Interactive");
+  expect(await mode.textContent()).toContain("Planche interactive");
 }, 60_000);

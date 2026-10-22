@@ -157,6 +157,7 @@ export class Store {
     for (const column of ["context", "new_session", "session_seed"]) {
       if (!threadColumns.some((c) => c.name === column)) this.db.exec(`ALTER TABLE threads ADD COLUMN ${column} TEXT`);
     }
+    this.db.exec("UPDATE versions SET origin = 'creation' WHERE origin = 'terminal' AND message = 'Page created'");
     if (!this.getDesignSystem(NEUTRAL_DESIGN_SYSTEM_ID)) {
       this.createDesignSystem("Neutral", { [DESIGN_SYSTEM_TOKENS_PATH]: NEUTRAL_TOKENS_CSS, "index.html": NEUTRAL_TOKENS_PAGE_HTML }, NEUTRAL_DESIGN_SYSTEM_ID);
     }
@@ -264,6 +265,17 @@ export class Store {
         "SELECT id, title FROM projects WHERE design_system = ? AND id NOT IN (SELECT project_id FROM design_systems) ORDER BY created_at, rowid",
       )
       .all(designSystemId) as { id: string; title: string }[];
+  }
+
+  /** The design system a page belongs to as its own page (the page that holds its tokens), if any. */
+  designSystemOfPage(pageId: string): DesignSystem | undefined {
+    return this.db
+      .prepare("SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id WHERE d.page_id = ?")
+      .get(pageId) as DesignSystem | undefined;
+  }
+
+  listPageIds(): string[] {
+    return (this.db.prepare("SELECT id FROM pages ORDER BY created_at, rowid").all() as { id: string }[]).map((r) => r.id);
   }
 
   isDesignSystemPage(pageId: string): boolean {
@@ -434,7 +446,7 @@ export class Store {
     this.db
       .prepare("INSERT INTO pages (id, project_id, title, type, created_at) VALUES (?, ?, ?, ?, ?)")
       .run(id, projectId, title, type, now());
-    this.createVersion(id, files, "Page created", "terminal");
+    this.createVersion(id, files, "Page created", "creation");
     return this.getPage(id)!;
   }
 
@@ -502,15 +514,14 @@ export class Store {
     return row && toThread(row, this.repliesOf(id));
   }
 
-  /** Held comments of every page of the project, oldest first. */
-  listHeldThreads(projectId: string): Thread[] {
+  /** Held comments of a page, oldest first. */
+  listHeldThreads(pageId: string): Thread[] {
     const rows = this.db
       .prepare(
         `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.x_pct, t.y_pct, t.title, t.body, t.status
-         FROM threads t JOIN pages p ON p.id = t.page_id
-         WHERE p.project_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
+         FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
       )
-      .all(projectId) as ThreadRow[];
+      .all(pageId) as ThreadRow[];
     return rows.map((row) => toThread(row, []));
   }
 

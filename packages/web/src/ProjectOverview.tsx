@@ -5,6 +5,8 @@ import { PageThumbnail } from "./PageThumbnail.js";
 import { agentLabel } from "./agentLabel.js";
 import { routeHref } from "./router.js";
 
+const PAGE_TYPE_LABEL: Record<PageType, string> = { prototype: "prototype", comparison: "planche" };
+
 function NewPageDialog({
   projectId,
   designSystem,
@@ -32,10 +34,10 @@ function NewPageDialog({
   }
 
   return (
-    <Dialog title="New page" onClose={onClose}>
+    <Dialog title="Nouvelle page" onClose={onClose}>
       <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
         <label>
-          Title
+          Titre
           <input value={title} onChange={(e) => setTitle(e.target.value)} required style={{ display: "block", width: "100%" }} />
         </label>
         <fieldset>
@@ -44,20 +46,20 @@ function NewPageDialog({
             <input type="radio" name="type" checked={type === "prototype"} onChange={() => setType("prototype")} />
             Prototype
           </label>{" "}
-          <small>Chain screens into a flow.</small>
+          <small>Enchaîne des écrans en parcours.</small>
           <br />
           <label>
             <input type="radio" name="type" checked={type === "comparison"} onChange={() => setType("comparison")} />
-            Comparison
+            Planche
           </label>{" "}
-          <small>Compare variants side by side.</small>
+          <small>Compare des variantes côte à côte.</small>
         </fieldset>
         <div>
           <button type="button" onClick={onClose}>
-            Cancel
+            Annuler
           </button>{" "}
           <button type="submit" disabled={title.trim() === ""}>
-            Create page
+            Créer la page
           </button>
         </div>
       </form>
@@ -83,12 +85,12 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
       .then(setPages);
   }, [projectId]);
 
-  if (!project) return <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>Loading…</main>;
+  if (!project) return <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>Chargement…</main>;
 
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
       <nav>
-        <a href={routeHref({ name: "projects" })}>Projects</a>
+        <a href={routeHref({ name: "projects" })}>Projets</a>
       </nav>
       <h1>{project.title}</h1>
       <p data-testid="project-agent">{agentLabel(project)}</p>
@@ -105,20 +107,20 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
             setProject((await res.json()) as Project);
           }}
         />
-        Let the global agent take over when the project agent is offline
+        Laisser l'agent global prendre le relais quand l'agent du projet est hors ligne
       </label>{" "}
-      <small>Threads then restart in a new session, without the project's context.</small>
+      <small>Les fils repartent alors dans une nouvelle session, sans le contexte du projet.</small>
       <br />
       <a href={routeHref({ name: "designMd", projectId })}>DESIGN.md</a>{" "}
-      <button onClick={() => setCreating(true)}>New page</button>
-      {pages.length === 0 && <p>No page yet.</p>}
+      <button onClick={() => setCreating(true)}>Nouvelle page</button>
+      {pages.length === 0 && <p>Aucune page pour l'instant.</p>}
       <ul style={{ listStyle: "none", padding: 0, display: "flex", flexWrap: "wrap", gap: 16 }}>
         {pages.map((page) => (
           <li key={page.id}>
             <a href={routeHref({ name: "page", pageId: page.id })} style={{ textDecoration: "none", color: "inherit" }}>
               <PageThumbnail pageId={page.id} files={page.version.files} artboardOrigin={artboardOrigin} />
               <div>
-                <strong>{page.title}</strong> <small>{page.type}</small>
+                <strong>{page.title}</strong> <small>{PAGE_TYPE_LABEL[page.type]}</small>
               </div>
             </a>
           </li>

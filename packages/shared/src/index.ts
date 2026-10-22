@@ -46,9 +46,10 @@ export interface CreateProjectRequest {
   designSystem?: string | null;
 }
 
-export type VersionOrigin = "thread" | "conversation" | "terminal" | "tweak" | "restore";
+/** "creation": the first version of a page (new page, design system, page created by Claude); "terminal": a publish from the user's own Claude Code. */
+export type VersionOrigin = "creation" | "thread" | "conversation" | "terminal" | "tweak" | "restore";
 
-export const VERSION_ORIGINS: readonly VersionOrigin[] = ["thread", "conversation", "terminal", "tweak", "restore"];
+export const VERSION_ORIGINS: readonly VersionOrigin[] = ["creation", "thread", "conversation", "terminal", "tweak", "restore"];
 
 export interface PageVersionSummary {
   id: string;
@@ -141,16 +142,14 @@ export interface UpdateThreadRequest {
   body: string;
 }
 
-/** `POST /api/projects/:projectId/send-held`: sends every held comment, one message per page. Model and effort apply to each message. */
+/** `POST /api/pages/:pageId/send-held`: sends the held comments of that page as one message. Model and effort apply to it. */
 export interface SendHeldRequest {
   model?: string;
   effort?: Effort;
 }
 
 export interface SendHeldResponse {
-  /** Work items queued (one per page that had held comments). */
-  items: number;
-  /** Held comments sent. */
+  /** Held comments sent (0 when the page had none). */
   threads: number;
 }
 

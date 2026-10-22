@@ -58,8 +58,8 @@ export function PlayMode({ pageId, manifest, artboardOrigin, tweaks, onTweak, on
   return (
     <div data-testid="play" style={{ background: "#f2f2f0", padding: 16 }}>
       <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
-        <button onClick={onExit}>Exit play (Esc)</button>
-        <span>{artboard?.title ?? artboard?.file ?? "No artboard"}</span>
+        <button onClick={onExit}>← Canvas (Échap)</button>
+        <span>{artboard?.title ?? artboard?.file ?? "Aucun artboard"}</span>
       </div>
       <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
         <TweaksPanel tweaks={manifest.tweaks} values={tweaks} onChange={onTweak} />
@@ -68,7 +68,7 @@ export function PlayMode({ pageId, manifest, artboardOrigin, tweaks, onTweak, on
           <iframe
             key={artboard.file}
             ref={frame}
-            title={`Play / ${artboard.file}`}
+            title={`Plein écran / ${artboard.file}`}
             src={`${artboardOrigin}/pages/${pageId}/${artboard.file}`}
             sandbox="allow-scripts"
             style={{ width: artboard.width, height: artboard.height, border: 0, background: "#fff", display: "block", margin: "0 auto" }}

@@ -107,7 +107,7 @@ export function ConversationsPanel({ pageId, runs, queue }: { pageId: string; ru
           <SessionLine conversation={detail} />
           {detail.messages.map((m) => (
             <p key={m.id} data-testid="conversation-message" style={{ background: m.author === "user" ? "#fff" : "#f6f4ff", padding: 6, margin: "6px 0", whiteSpace: "pre-wrap" }}>
-              <em>{m.author === "user" ? "You" : "Claude"}:</em> {m.body}
+              <em>{m.author === "user" ? "Toi" : "Claude"}:</em> {m.body}
             </p>
           ))}
           {queued ? (

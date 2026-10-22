@@ -97,7 +97,7 @@ describe("sessions list", () => {
     await seam.pinThread(page.id, "home.html", "later please", { held: true });
     expect(byName(await sessions(seam), "later please").status).toBe("held");
 
-    await seam.server.post(`/api/projects/${seam.project.id}/send-held`, {});
+    await seam.server.post(`/api/pages/${page.id}/send-held`, {});
     await seam.waitForWorkEnd(1);
     expect(byName(await sessions(seam), "later please").status).toBe("answered");
   });

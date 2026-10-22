@@ -1,9 +1,9 @@
 import { retryRunPath, type RunStatus, type ThreadRun } from "@redline/shared";
 
 const STATUS_LABEL: Record<RunStatus, string> = {
-  sent: "Sent",
-  running: "Running",
-  answered: "Answered",
+  sent: "Envoyé",
+  running: "En cours",
+  answered: "Répondu",
   retrying: "Nouvelle tentative",
   failed: "Échec",
 };
@@ -39,7 +39,7 @@ export function RunProgress({ run }: { run: ThreadRun }) {
       )}
       {run.text !== "" && (
         <details>
-          <summary>Claude's text</summary>
+          <summary>Texte de Claude</summary>
           <div data-testid="run-text" style={{ whiteSpace: "pre-wrap" }}>
             {run.text}
           </div>

@@ -70,7 +70,7 @@ it("adjusts every tweak type on the canvas and in play mode, versions each chang
   await expect.poll(attr("search")).toBe("false");
   await tab.getByLabel("Gap").fill("12");
   await expect.poll(attr("gap")).toBe("12");
-  await tab.getByRole("button", { name: "Increase Cards" }).click();
+  await tab.getByRole("button", { name: "Augmenter Cards" }).click();
   await expect.poll(attr("cards")).toBe("4");
   await tab.getByLabel("Title").fill("Hi there");
   await expect.poll(attr("title")).toBe("Hi there");
@@ -85,14 +85,14 @@ it("adjusts every tweak type on the canvas and in play mode, versions each chang
   const html = await (await server.get(`/api/pages/${page.id}/files/home.html`)).text();
   expect(html).toBe("<!doctype html><body><h1>Hello</h1></body>");
 
-  await tab.getByRole("button", { name: "Play" }).click();
+  await tab.getByRole("button", { name: "Plein écran" }).click();
   const playFrame = tab.frameLocator('[data-testid="play"] iframe');
   const playAttr = (name: string) => () => playFrame.locator("html").getAttribute(`data-tweak-${name}`);
   await expect.poll(playAttr("accent")).toBe("#0f766e");
   await tab.getByLabel("Search").check();
   await expect.poll(playAttr("search")).toBe("true");
   await expect.poll(async () => (await versions())[0]?.message, { timeout: 10_000 }).toBe("Tweak: Search = true");
-  await tab.getByRole("button", { name: /Exit play/ }).click();
+  await tab.getByRole("button", { name: /Canvas/ }).click();
 
   const accentVersion = (await versions()).find((v) => v.message === "Tweak: Accent = #0f766e")!;
   await server.post(`/api/pages/${page.id}/versions/${accentVersion.id}/restore`, {});

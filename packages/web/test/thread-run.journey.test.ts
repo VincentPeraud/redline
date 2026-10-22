@@ -49,5 +49,5 @@ it("pins a comment, then shows Claude's answer in the thread and the reloaded ar
 
   await expect.poll(() => tab.getByTestId("reply").textContent()).toContain("Made the title bolder.");
   await expect.poll(() => artboard.locator("h1").textContent()).toBe("Bolder title");
-  expect((await seam.versions(page.id)).map((v) => v.origin)).toEqual(["thread", "terminal"]);
+  expect((await seam.versions(page.id)).map((v) => v.origin)).toEqual(["thread", "creation"]);
 }, 60_000);

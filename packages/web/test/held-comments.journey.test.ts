@@ -62,6 +62,6 @@ it("holds two comments with Plus tard, keeps them over a reload, then sends them
   ]);
   await expect.poll(() => artboard.locator("h1").textContent()).toBe("Bolder title");
   expect(engine.runs).toHaveLength(1);
-  expect((await seam.versions(page.id)).map((v) => v.origin)).toEqual(["thread", "terminal"]);
+  expect((await seam.versions(page.id)).map((v) => v.origin)).toEqual(["thread", "creation"]);
   expect(await tab.getByTestId("held-bar").count()).toBe(0);
 }, 60_000);

@@ -15,6 +15,7 @@ import { queueLabel } from "./queueLabel.js";
 import { ConversationsPanel } from "./ConversationsPanel.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
 import { ThreadReplyForm } from "./ThreadReplyForm.js";
+import { ModelEffortControls, type ModelEffortChoice } from "./ModelEffortControls.js";
 import { ContextLine } from "./ContextLine.js";
 import { RunProgress } from "./RunProgress.js";
 import { useRuns } from "./useRuns.js";
@@ -42,7 +43,6 @@ function manifestBounds(manifest: Manifest) {
 interface Props {
   pageId: string;
   pageTitle: string;
-  projectId: string;
   /** Path -> content hash of the current version. */
   files: Record<string, string>;
   artboardOrigin: string;
@@ -51,12 +51,15 @@ interface Props {
   onVersionChange: () => void;
 }
 
-export function PageCanvas({ pageId, pageTitle, projectId, files, artboardOrigin, versionId, onVersionChange }: Props) {
+export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId, onVersionChange }: Props) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
   const [draft, setDraft] = useState<(Pick & { artboard: string }) | null>(null);
   const [text, setText] = useState("");
+  const [choice, setChoice] = useState<ModelEffortChoice>({});
+  /** Bumped when the page's design system changed: artboards remount to load the new tokens. */
+  const [tokensVersion, setTokensVersion] = useState(0);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -146,6 +149,7 @@ export function PageCanvas({ pageId, pageTitle, projectId, files, artboardOrigin
     return subscribeServerEvents((event) => {
       if (event.type === "thread-updated" && event.pageId === pageId) void refresh();
       if (event.type === "queue-updated" && event.pageId === pageId) void refreshQueue();
+      if (event.type === "design-system-updated" && event.pageIds.includes(pageId)) setTokensVersion((v) => v + 1);
     });
   }, [refresh, refreshQueue, pageId]);
 
@@ -165,7 +169,7 @@ export function PageCanvas({ pageId, pageTitle, projectId, files, artboardOrigin
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
   async function send(held = false) {
     if (!draft || text.trim() === "") return;
-    const request: CreateThreadRequest = { ...draft, body: text, ...(held && { held }) };
+    const request: CreateThreadRequest = { ...draft, body: text, ...(held ? { held } : choice) };
     await fetch(`/api/pages/${pageId}/threads`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -198,17 +202,17 @@ export function PageCanvas({ pageId, pageTitle, projectId, files, artboardOrigin
     <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={() => setPicking(!picking)}>{picking ? "Comment mode (P to leave)" : "Interactive (C to comment)"}</button>
-          <button aria-label="Zoom out" onClick={() => zoomFromCenter(1 / ZOOM_STEP)}>
+          <button onClick={() => setPicking(!picking)}>{picking ? "Interagir (P)" : "Commenter (C)"}</button>
+          <button aria-label="Dézoomer" onClick={() => zoomFromCenter(1 / ZOOM_STEP)}>
             -
           </button>
           <span>{Math.round(view.zoom * 100)}%</span>
-          <button aria-label="Zoom in" onClick={() => zoomFromCenter(ZOOM_STEP)}>
+          <button aria-label="Zoomer" onClick={() => zoomFromCenter(ZOOM_STEP)}>
             +
           </button>
-          <button onClick={fit}>Fit</button>
+          <button onClick={fit}>Ajuster</button>
           <button onClick={() => setPlaying(true)} disabled={!manifest}>
-            Play
+            Plein écran
           </button>
         </div>
         {manifestError && <div role="alert">{manifestError}</div>}
@@ -246,7 +250,7 @@ export function PageCanvas({ pageId, pageTitle, projectId, files, artboardOrigin
               color: "#fff",
             }}
           >
-            {picking ? "Comment mode (P to interact)" : "Interactive (C to comment, Alt+click to pin)"}
+            {picking ? "Mode commentaire : clique sur un élément pour y épingler un commentaire" : "Planche interactive : les clics déclenchent les actions. Alt+clic pour commenter."}
           </div>
           <div
             style={{
@@ -263,7 +267,7 @@ export function PageCanvas({ pageId, pageTitle, projectId, files, artboardOrigin
               </div>
             ))}
             {manifest?.artboards.map((artboard) => (
-              <div key={`${artboard.file}@${files[artboard.file]}`}style={{ position: "absolute", left: artboard.x, top: artboard.y }}>
+              <div key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`} style={{ position: "absolute", left: artboard.x, top: artboard.y }}>
                 <div style={{ position: "absolute", bottom: "100%", font: "12px system-ui", color: "#666", whiteSpace: "nowrap" }}>
                   {artboard.title ?? artboard.file}
                 </div>
@@ -285,7 +289,7 @@ export function PageCanvas({ pageId, pageTitle, projectId, files, artboardOrigin
         {draft && (
           <div style={{ marginTop: 8 }}>
             <div>
-              Comment on <code>{draft.selector}</code>
+              Commentaire sur <code>{draft.selector}</code>
             </div>
             <textarea
               autoFocus
@@ -300,6 +304,7 @@ export function PageCanvas({ pageId, pageTitle, projectId, files, artboardOrigin
               rows={3}
               style={{ width: 400 }}
             />
+            <ModelEffortControls value={choice} onChange={setChoice} />
             <div>
               <button onClick={() => void send()}>Envoyer</button>{" "}
               <button onClick={() => void send(true)}>Plus tard</button>{" "}
@@ -309,23 +314,23 @@ export function PageCanvas({ pageId, pageTitle, projectId, files, artboardOrigin
                   setText("");
                 }}
               >
-                Cancel
+                Annuler
               </button>
             </div>
           </div>
         )}
-        <HeldBar projectId={projectId} />
+        <HeldBar pageId={pageId} />
       </div>
       <aside style={{ width: 280 }}>
         {manifest && <TweaksPanel tweaks={manifest.tweaks} values={tweaks.values} onChange={tweaks.setValue} />}
         <ConversationsPanel pageId={pageId} runs={runs} queue={queue} />
-        <h4>Threads</h4>
+        <h4>Commentaires</h4>
         {threads.map((thread) =>
           thread.status === "held" ? (
             <HeldThreadCard key={thread.id} thread={thread} />
           ) : thread.status === "resolved" ? (
             <div key={thread.id} style={{ color: "#888", padding: "4px 0" }}>
-              {thread.number}. <s>{thread.title}</s> (resolved)
+              {thread.number}. <s>{thread.title}</s> (résolu)
             </div>
           ) : (
             <div key={thread.id} style={{ border: "1px solid #ddd", padding: 8, marginBottom: 8 }}>
@@ -342,12 +347,12 @@ export function PageCanvas({ pageId, pageTitle, projectId, files, artboardOrigin
               <ContextLine thread={thread} />
               {thread.replies.map((reply) => (
                 <p key={reply.id} data-testid="reply" style={{ background: "#f6f4ff", padding: 6, margin: "6px 0" }}>
-                  <em>{reply.author === "user" ? "You" : "Claude"}:</em> {reply.body}
+                  <em>{reply.author === "user" ? "Toi" : "Claude"}:</em> {reply.body}
                 </p>
               ))}
               <ThreadReplyForm threadId={thread.id} />
               <div>
-                <button onClick={() => void resolve(thread)}>Resolve</button>
+                <button onClick={() => void resolve(thread)}>Résoudre</button>
               </div>
             </div>
           ),

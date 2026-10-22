@@ -134,7 +134,7 @@ describe("terminal mode (redline mcp)", () => {
     finishSession();
     await published;
     await seam.waitForWorkEnd();
-    expect(await origins(page.id)).toEqual(["terminal", "thread", "terminal"]);
+    expect(await origins(page.id)).toEqual(["terminal", "thread", "creation"]);
     rmSync(terminalFolder, { recursive: true, force: true });
   });
 });

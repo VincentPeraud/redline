@@ -35,7 +35,7 @@ it("shows both controls as the agent's default until changed, and applies a chan
 
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
-  const model = tab.getByLabel("Model");
+  const model = tab.getByLabel("Modèle");
   await expect.poll(() => model.inputValue()).toBe("");
   expect(await model.locator("option:checked").textContent()).toContain("défaut de l'agent");
   expect(await tab.getByTestId("effort-default").textContent()).toContain("défaut de l'agent");
@@ -47,8 +47,8 @@ it("shows both controls as the agent's default until changed, and applies a chan
   await expect.poll(() => tab.getByTestId("effort-default").count()).toBe(0);
   expect(engine.runs).toHaveLength(1);
 
-  await tab.getByLabel("Reply").fill("Think harder");
-  await tab.getByRole("button", { name: "Reply" }).click();
+  await tab.getByLabel("Répondre").fill("Think harder");
+  await tab.getByRole("button", { name: "Répondre" }).click();
   await engine.finished(2);
   expect([engine.runs[1].model, engine.runs[1].effort]).toEqual(["opus", "xhigh"]);
   expect([engine.runs[0].model, engine.runs[0].effort]).toEqual(["sonnet", "low"]);

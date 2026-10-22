@@ -93,6 +93,37 @@ describe("design systems over the server HTTP API", () => {
     expect(res.status).toBe(400);
   });
 
+  it("announces a new design system version to the pages that use it, and only to them", async () => {
+    const ds = await createDesignSystem();
+    const using = await createPage({ designSystem: ds.id, artboards: [{ file: "a.html" }] });
+    const other = await createPage();
+    const frames: string[] = [];
+    const abort = new AbortController();
+    const reader = (await fetch(server.url + "/api/events", { signal: abort.signal })).body!.getReader();
+    void (async () => {
+      const decoder = new TextDecoder();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        frames.push(decoder.decode(value));
+      }
+    })().catch(() => undefined);
+
+    await server.post(`/api/pages/${ds.pageId}/versions`, {
+      files: { "tokens.css": tokensCss({ "--color-primary": "#f00" }) },
+      message: "Warmer",
+      origin: "thread",
+    });
+    for (let i = 0; i < 100 && !frames.join("").includes("design-system-updated"); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    abort.abort();
+
+    const frame = frames.join("").split("\n\n").find((f) => f.includes("design-system-updated"))!;
+    const event = JSON.parse(frame.slice(frame.indexOf("{"))) as { designSystemId: string; pageIds: string[] };
+    expect(event.designSystemId).toBe(ds.id);
+    expect(event.pageIds).toEqual([using.id]);
+    expect(event.pageIds).not.toContain(other.id);
+  });
+
   it("includes the design system files in the working copy", async () => {
     const page = await createPage();
     const copy = (await (await server.get(`/api/pages/${page.id}/working-copy`)).json()) as {

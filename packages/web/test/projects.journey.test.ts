@@ -31,26 +31,26 @@ it("creates a project, then a page from its overview, and opens it on the canvas
   const tab = await browser.newPage();
   await tab.goto(`${server.url}/#/projects`);
 
-  await tab.getByRole("button", { name: "New project" }).click();
-  const dialog = tab.getByRole("dialog", { name: "New project" });
-  await dialog.getByLabel("Title").fill("Acme");
+  await tab.getByRole("button", { name: "Nouveau projet" }).click();
+  const dialog = tab.getByRole("dialog", { name: "Nouveau projet" });
+  await dialog.getByLabel("Titre").fill("Acme");
   await dialog.getByLabel("Instructions").fill("Calm and editorial");
-  await dialog.getByRole("button", { name: "Create project" }).click();
+  await dialog.getByRole("button", { name: "Créer le projet" }).click();
 
   await expect.poll(async () => ((await (await server.get("/api/projects")).json()) as Project[]).length).toBe(1);
   const [project] = (await (await server.get("/api/projects")).json()) as Project[];
   expect(project).toMatchObject({ title: "Acme", instructions: "Calm and editorial", designSystem: null });
 
   await tab.getByRole("heading", { name: "Acme" }).waitFor();
-  await tab.getByRole("link", { name: "Projects" }).click();
+  await tab.locator("main nav").getByRole("link", { name: "Projets" }).click();
   await tab.getByRole("link", { name: "Acme" }).click();
   await tab.getByRole("heading", { name: "Acme" }).waitFor();
 
-  await tab.getByRole("button", { name: "New page" }).click();
-  const pageDialog = tab.getByRole("dialog", { name: "New page" });
-  await pageDialog.getByLabel("Title").fill("Landing");
-  await pageDialog.getByLabel("Comparison").check();
-  await pageDialog.getByRole("button", { name: "Create page" }).click();
+  await tab.getByRole("button", { name: "Nouvelle page" }).click();
+  const pageDialog = tab.getByRole("dialog", { name: "Nouvelle page" });
+  await pageDialog.getByLabel("Titre").fill("Landing");
+  await pageDialog.getByLabel("Planche").check();
+  await pageDialog.getByRole("button", { name: "Créer la page" }).click();
 
   await expect.poll(() => tab.url()).toContain("#/pages/");
   await expect.poll(() => tab.locator("iframe").count()).toBe(2);
@@ -59,5 +59,5 @@ it("creates a project, then a page from its overview, and opens it on the canvas
   const card = tab.getByRole("link", { name: /Landing/ });
   await card.waitFor();
   await expect.poll(() => card.locator("iframe").count()).toBe(1);
-  await card.getByText("comparison").waitFor();
+  await card.getByText("planche").waitFor();
 }, 60_000);

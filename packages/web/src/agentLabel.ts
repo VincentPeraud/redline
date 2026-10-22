@@ -5,10 +5,10 @@ export function agentLabel(project: Project): string {
   if (servedBy?.kind === "global") {
     const where = `${servedBy.machine} (${servedBy.folder})`;
     return servedBy.takeover
-      ? `Served by the global agent ${where}, taking over while the project agent is offline`
-      : `Served by the global agent ${where}`;
+      ? `Servi par l'agent global ${where}, en remplacement de l'agent du projet hors ligne`
+      : `Servi par l'agent global ${where}`;
   }
-  if (servedBy) return `Served by ${servedBy.machine} (${servedBy.folder}), online`;
-  if (agent) return `Project agent ${agent.machine} (${agent.folder}) is offline, threads wait`;
-  return "No agent serves this project";
+  if (servedBy) return `Servi par ${servedBy.machine} (${servedBy.folder}), en ligne`;
+  if (agent) return `L'agent du projet ${agent.machine} (${agent.folder}) est hors ligne, les fils attendent`;
+  return "Aucun agent ne sert ce projet";
 }

@@ -52,7 +52,7 @@ it("lists design systems with their projects, creates one and shows the hint in 
   expect(conversations).toHaveLength(1);
 
   await tab.goto(`${server.url}/#/projects`);
-  await tab.getByRole("button", { name: "New project" }).click();
+  await tab.getByRole("button", { name: "Nouveau projet" }).click();
   await expect.poll(async () => tab.getByRole("option", { name: /DS Lumora — Utilisé par Lumora/ }).count()).toBe(1);
   await tab.close();
 });

@@ -44,7 +44,7 @@ export function PageThumbnail({
         <iframe
           sandbox="allow-scripts"
           tabIndex={-1}
-          title={`Thumbnail of ${artboard.file}`}
+          title={`Aperçu de ${artboard.file}`}
           src={`${artboardOrigin}/pages/${pageId}/${artboard.file}`}
           style={{
             width: artboard.width,

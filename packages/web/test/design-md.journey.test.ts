@@ -33,18 +33,18 @@ it("edits and saves DESIGN.md and adds an asset from the DESIGN.md screen", asyn
   await tab.goto(`${server.url}/#/projects/${project.id}`);
   await tab.getByRole("link", { name: "DESIGN.md" }).click();
 
-  const editor = tab.getByLabel("DESIGN.md content");
-  const save = tab.getByRole("button", { name: "Save" });
+  const editor = tab.getByLabel("Contenu de DESIGN.md");
+  const save = tab.getByRole("button", { name: "Enregistrer" });
   await editor.waitFor();
   expect(await save.isDisabled()).toBe(true);
 
   await editor.fill("# Acme\n- One action per screen");
-  expect(await tab.getByTestId("design-md-status").textContent()).toBe("Unsaved changes");
+  expect(await tab.getByTestId("design-md-status").textContent()).toBe("Modifications non enregistrées");
   await save.click();
   await expect
     .poll(async () => ((await (await server.get(`/api/projects/${project.id}/design-md`)).json()) as DesignMdResponse).content)
     .toBe("# Acme\n- One action per screen");
-  await expect.poll(async () => tab.getByTestId("design-md-status").textContent()).toBe("Saved");
+  await expect.poll(async () => tab.getByTestId("design-md-status").textContent()).toBe("Enregistré");
 
   await tab.locator('input[type="file"]').setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: Buffer.from([1, 2, 3]) });
   await expect.poll(async () => tab.getByTestId("assets").textContent()).toContain("logo.png");
