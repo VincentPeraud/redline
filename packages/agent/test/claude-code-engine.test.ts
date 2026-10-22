@@ -125,7 +125,7 @@ describe("Claude Code stream-json parsing (recorded fixtures)", () => {
 
   it("maps a resumed turn the same way", () => {
     const events = parseFixture("resume-ok");
-    expect(events.at(-1)).toEqual({ type: "result", summary: "readme.txt" });
+    expect(events.at(-1)).toEqual({ type: "result", summary: "readme.txt", contextWindow: 1_000_000 });
     expect(events.filter((e) => e.type === "usage")).toHaveLength(1);
   });
 
@@ -180,7 +180,7 @@ describe("Claude Code process", () => {
 
     const events = await collect(engine.resume({ ...request, cwd, workingCopyDir: join(cwd, ".redline", "page-1") }));
 
-    expect(events.at(-1)).toEqual({ type: "result", summary: "readme.txt" });
+    expect(events.at(-1)).toEqual({ type: "result", summary: "readme.txt", contextWindow: 1_000_000 });
     const record = readFileSync(seen, "utf8");
     expect(record.startsWith("Make the button red")).toBe(true);
     expect(record).toContain("redline-cwd-");

@@ -19,9 +19,9 @@ export type EngineEvent =
   /** A chunk of Claude's own text. */
   | { type: "text"; text: string }
   /** Token usage of the last model call. */
-  | { type: "usage"; model: string; inputTokens: number; cacheTokens: number; outputTokens: number }
-  /** The run ended successfully; `summary` becomes the version message. */
-  | { type: "result"; summary: string }
+  | { type: "usage"; model: string; inputTokens: number; cacheTokens: number; outputTokens: number; effort?: Effort }
+  /** The run ended successfully; `summary` becomes the version message. `contextWindow` is the model's window when the engine knows it. */
+  | { type: "result"; summary: string; contextWindow?: number }
   /** The run failed; nothing is published. */
   | { type: "error"; message: string };
 
@@ -39,7 +39,8 @@ export interface WorkThread {
 /** One unit of work pushed by the server to the agent that serves the project. */
 export interface WorkItem {
   id: string;
-  kind: "thread";
+  /** "summary": asks a thread's session for a summary (no thread is answered). */
+  kind: "thread" | "summary";
   pageId: string;
   /** The threads this item answers; Claude may reply only in these. */
   threads: WorkThread[];
@@ -59,6 +60,23 @@ export type AgentWorkMessage =
   | { type: "work-done"; workId: string; versionId?: string }
   /** Sent when the run failed; nothing was published. */
   | { type: "work-failed"; workId: string; message: string };
+
+/** Used for the context % until the engine reported the model's real window. */
+export const DEFAULT_CONTEXT_WINDOW = 200_000;
+/** From this share of the window the context indicator warns and offers "Nouvelle session". */
+export const CONTEXT_WARNING_PERCENT = 70;
+
+/** Context of a thread's session after Claude's last reply: tokens of the last model call over the model's window. */
+export interface ThreadContext {
+  model: string;
+  effort?: Effort;
+  tokens: number;
+  window: number;
+  percent: number;
+}
+
+/** `POST` -> 202; asks the thread's session for a summary, the next reply starts a new session seeded with it. */
+export const newSessionPath = (threadId: string) => `/api/threads/${threadId}/new-session`;
 
 export interface ThreadReply {
   id: string;

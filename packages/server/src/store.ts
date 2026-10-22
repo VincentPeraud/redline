@@ -22,6 +22,7 @@ import type {
   Project,
   ServerEvent,
   Thread,
+  ThreadContext,
   ThreadReply,
   ThreadStatus,
   VersionOrigin,
@@ -113,6 +114,9 @@ export class Store {
     const threadColumns = this.db.prepare("PRAGMA table_info(threads)").all() as { name: string }[];
     if (!threadColumns.some((c) => c.name === "session_id")) this.db.exec("ALTER TABLE threads ADD COLUMN session_id TEXT");
     if (!threadColumns.some((c) => c.name === "agent_id")) this.db.exec("ALTER TABLE threads ADD COLUMN agent_id TEXT");
+    for (const column of ["context", "new_session", "session_seed"]) {
+      if (!threadColumns.some((c) => c.name === column)) this.db.exec(`ALTER TABLE threads ADD COLUMN ${column} TEXT`);
+    }
     if (!this.getDesignSystem(NEUTRAL_DESIGN_SYSTEM_ID)) {
       this.createDesignSystem("Neutral", { [DESIGN_SYSTEM_TOKENS_PATH]: NEUTRAL_TOKENS_CSS, "index.html": NEUTRAL_TOKENS_PAGE_HTML }, NEUTRAL_DESIGN_SYSTEM_ID);
     }
@@ -362,6 +366,27 @@ export class Store {
     this.db.prepare("UPDATE threads SET session_id = ?, agent_id = ? WHERE id = ?").run(sessionId, agentId, threadId);
   }
 
+  setThreadContext(threadId: string, context: ThreadContext | null): void {
+    this.db.prepare("UPDATE threads SET context = ? WHERE id = ?").run(context && JSON.stringify(context), threadId);
+    this.emitThreadUpdated(threadId);
+  }
+
+  /** "Nouvelle session" progress: summarizing, ready (the next reply starts `sessionId` seeded with `seed`), or cleared. */
+  setNewSession(threadId: string, state: "summarizing" | "ready" | null, seed: string | null = null): void {
+    this.db.prepare("UPDATE threads SET new_session = ?, session_seed = ? WHERE id = ?").run(state, seed, threadId);
+    this.emitThreadUpdated(threadId);
+  }
+
+  getSessionSeed(threadId: string): string | undefined {
+    const row = this.db.prepare("SELECT session_seed FROM threads WHERE id = ?").get(threadId) as { session_seed: string | null } | undefined;
+    return row?.session_seed ?? undefined;
+  }
+
+  private emitThreadUpdated(threadId: string): void {
+    const thread = this.getThread(threadId);
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
+  }
+
   /** Records an answer of Claude or a message of the user in a thread; undefined if the thread does not exist. */
   addReply(threadId: string, body: string, author: ThreadReply["author"] = "claude"): ThreadReply | undefined {
     const thread = this.getThread(threadId);
@@ -460,7 +485,7 @@ export class Store {
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, x_pct, y_pct, title, body, status FROM threads";
+  "SELECT id, page_id, number, artboard, selector, x_pct, y_pct, title, body, status, context, new_session FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -473,6 +498,8 @@ interface ThreadRow {
   title: string;
   body: string;
   status: ThreadStatus;
+  context: string | null;
+  new_session: "summarizing" | "ready" | null;
 }
 
 function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
@@ -488,6 +515,8 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     body: row.body,
     status: row.status,
     replies,
+    ...(row.context ? { context: JSON.parse(row.context) as ThreadContext } : {}),
+    ...(row.new_session ? { newSession: row.new_session } : {}),
   };
 }
 
