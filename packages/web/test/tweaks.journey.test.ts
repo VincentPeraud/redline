@@ -62,6 +62,7 @@ it("adjusts every tweak type on the canvas and in play mode, versions each chang
     (window as unknown as { alive: boolean }).alive = true;
   });
 
+  await tab.getByRole("button", { name: "Tweaks", exact: true }).click();
   await tab.getByLabel("Accent").fill("#0f766e");
   await expect.poll(attr("accent")).toBe("#0f766e");
   await tab.getByRole("button", { name: "grid" }).click();

@@ -1,11 +1,12 @@
 import { useState } from "react";
 import type { CreateReplyRequest } from "@redline/shared";
-import { ModelEffortControls, type ModelEffortChoice } from "./ModelEffortControls.js";
+import type { ModelEffortChoice } from "./ModelEffortControls.js";
+import { Button, Textarea } from "./ui/index.js";
+import styles from "./Thread.module.css";
 
-/** Composer for the user's reply in a thread; sending resumes the thread's session. */
-export function ThreadReplyForm({ threadId }: { threadId: string }) {
+/** Composer for the user's reply in a thread; sending resumes the thread's session with the panel's model and effort. */
+export function ThreadReplyForm({ threadId, choice, onDone }: { threadId: string; choice: ModelEffortChoice; onDone: () => void }) {
   const [text, setText] = useState("");
-  const [choice, setChoice] = useState<ModelEffortChoice>({});
 
   async function send() {
     if (text.trim() === "") return;
@@ -16,18 +17,32 @@ export function ThreadReplyForm({ threadId }: { threadId: string }) {
       body: JSON.stringify(request),
     });
     setText("");
+    onDone();
   }
 
   return (
-    <div>
-      <textarea
+    <div className={styles.replyForm}>
+      <Textarea
         aria-label="Répondre"
+        autoFocus
+        rows={2}
         value={text}
         onChange={(e) => setText(e.target.value)}
-        style={{ width: "100%", boxSizing: "border-box" }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            void send();
+          }
+        }}
       />
-      <ModelEffortControls value={choice} onChange={setChoice} />
-      <button onClick={() => void send()}>Répondre</button>
+      <div className={styles.replyActions}>
+        <Button size="sm" onClick={onDone}>
+          Annuler
+        </Button>
+        <Button size="sm" variant="primary" onClick={() => void send()} disabled={text.trim() === ""}>
+          Envoyer la réponse
+        </Button>
+      </div>
     </div>
   );
 }

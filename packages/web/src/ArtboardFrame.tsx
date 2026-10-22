@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Thread, TweakValues } from "@redline/shared";
+import { cx } from "./ui/index.js";
+import styles from "./ArtboardFrame.module.css";
 
 export interface Pick {
   selector: string;
@@ -40,6 +42,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, threads, pickin
   onPickRef.current = onPick;
 
   const open = threads.filter((t) => t.status !== "resolved");
+  const pinned = threads;
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -72,39 +75,22 @@ export function ArtboardFrame({ src, title, width, height, zoom, threads, pickin
   }, [pinsKey, bridgeEpoch]);
 
   return (
-    <div style={{ position: "relative", width, height }}>
-      <iframe
-        ref={frame}
-        title={title}
-        src={src}
-        sandbox="allow-scripts"
-        style={{ width, height, border: 0, background: "#fff", display: "block" }}
-      />
-      {open.map((thread) => {
+    <div className={styles.frame} style={{ width, height }}>
+      <div className={styles.clip} style={{ width, height }}>
+        <iframe ref={frame} title={title} src={src} sandbox="allow-scripts" className={styles.iframe} style={{ width, height }} />
+      </div>
+      {pinned.map((thread) => {
         const position = positions.find((p) => p.id === thread.id) ?? thread;
+        const resolved = thread.status === "resolved";
         return (
           <span
             key={thread.id}
             data-pin={thread.number}
             title={thread.title}
-            style={{
-              position: "absolute",
-              left: `${position.xPct}%`,
-              top: `${position.yPct}%`,
-              transform: `translate(-50%, -50%) scale(${1 / zoom})`,
-              width: 24,
-              height: 24,
-              borderRadius: "50%",
-              background: thread.status === "held" ? "#fff" : "#e5484d",
-              ...(thread.status === "held" && { border: "2px dashed #e5484d", color: "#e5484d", boxSizing: "border-box" as const }),
-              color: "#fff",
-              font: "600 12px system-ui",
-              display: "grid",
-              placeItems: "center",
-              pointerEvents: "none",
-            }}
+            className={cx(styles.pin, thread.status === "held" && styles.pinHeld, resolved && styles.pinResolved)}
+            style={{ left: `${position.xPct}%`, top: `${position.yPct}%`, transform: `translate(-50%, -50%) scale(${1 / zoom})` }}
           >
-            {thread.number}
+            {resolved ? "✓" : thread.number}
           </span>
         );
       })}

@@ -36,21 +36,21 @@ it("creates a conversation, talks to Claude with model and effort, shows the ses
   await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
   const panel = tab.getByTestId("conversations");
 
-  await panel.getByRole("button", { name: "Nouvelle conversation" }).click();
+  await panel.getByRole("button", { name: "+ Nouvelle" }).click();
   await panel.getByLabel("Modèle").selectOption("opus");
   await panel.getByRole("radio", { name: "high", exact: true }).click();
-  await panel.getByLabel("Message").fill("Add an error screen");
-  await panel.getByRole("button", { name: "Envoyer" }).click();
+  await panel.getByLabel("Message à Claude").fill("Add an error screen");
+  await panel.getByLabel("Message à Claude").press("Enter");
 
   await engine.finished(1);
   await expect.poll(() => panel.getByTestId("conversation-message").allTextContents()).toEqual([
-    "Toi: Add an error screen",
-    "Claude: Added the error screen",
+    "Add an error screen",
+    "Claude — Added the error screen",
   ]);
   expect(engine.runs[0].message).toContain(page.id);
   await expect.poll(() => panel.getByTestId("conversation-session").textContent()).toBe("opus · high · 80 %");
   expect(await panel.getByTestId("conversation-session").evaluate((el) => getComputedStyle(el).color)).toBe("rgb(194, 65, 12)");
 
-  await panel.getByRole("button", { name: "Archiver" }).click();
-  await expect.poll(() => panel.getByLabel("Conversation").locator("option").allTextContents()).toEqual(["Aucune conversation"]);
+  await panel.getByRole("button", { name: "Supprimer cette conversation" }).click();
+  await expect.poll(() => panel.getByRole("button", { name: "Conversation", exact: true }).textContent()).toContain("Aucune conversation");
 }, 60_000);

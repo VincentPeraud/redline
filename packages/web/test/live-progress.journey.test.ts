@@ -52,14 +52,15 @@ it("shows status, steps and streamed text as a run goes, and still shows them af
   await tab.getByRole("textbox").press("Enter");
 
   await expect.poll(() => tab.getByTestId("run-status").getAttribute("data-status")).toBe("running");
-  await expect.poll(() => tab.getByTestId("run-steps").textContent()).toContain("Read");
+  await expect.poll(() => tab.getByTestId("run-steps").textContent()).toContain("Lit");
 
   await tab.reload();
-  await expect.poll(() => tab.getByTestId("run-steps").textContent()).toContain("Read");
+  await tab.getByRole("tab", { name: /^Commentaires/ }).click();
+  await expect.poll(() => tab.getByTestId("run-steps").textContent()).toContain("Lit");
   await tab.getByText("Texte de Claude").click();
   await expect.poll(() => tab.getByTestId("run-text").textContent()).toBe("Checking the title.");
 
   release();
   await expect.poll(() => tab.getByTestId("run-status").getAttribute("data-status")).toBe("answered");
-  expect(await tab.getByTestId("run-steps").textContent()).toContain("Edit");
+  expect(await tab.getByTestId("run-steps").textContent()).toContain("Modifie");
 }, 60_000);

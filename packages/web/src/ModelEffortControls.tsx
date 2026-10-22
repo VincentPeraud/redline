@@ -1,4 +1,6 @@
-import { EFFORTS, MODEL_CHOICES, type ModelChoice } from "@redline/shared";
+import { EFFORTS, MODEL_CHOICES, type Effort, type ModelChoice } from "@redline/shared";
+import { SegmentedControl } from "./ui/index.js";
+import styles from "./ModelEffortControls.module.css";
 
 const AGENT_DEFAULT = "défaut de l'agent";
 
@@ -7,34 +9,36 @@ export type ModelEffortChoice = ModelChoice;
 /** A model list and a separate segmented effort control; each reads "défaut de l'agent" until changed. */
 export function ModelEffortControls({ value, onChange }: { value: ModelEffortChoice; onChange: (value: ModelEffortChoice) => void }) {
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 12 }}>
-      <select
-        aria-label="Modèle"
-        value={value.model ?? ""}
-        onChange={(e) => onChange({ ...value, model: e.target.value || undefined })}
-      >
-        <option value="">Modèle : {AGENT_DEFAULT}</option>
-        {MODEL_CHOICES.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label}
-          </option>
-        ))}
-      </select>
-      <div role="radiogroup" aria-label="Effort" style={{ display: "inline-flex" }}>
-        {EFFORTS.map((effort) => (
-          <button
-            key={effort}
-            type="button"
-            role="radio"
-            aria-checked={value.effort === effort}
-            onClick={() => onChange({ ...value, effort: value.effort === effort ? undefined : effort })}
-            style={{ fontWeight: value.effort === effort ? 700 : 400 }}
-          >
-            {effort}
-          </button>
-        ))}
-      </div>
-      {value.effort === undefined && <span data-testid="effort-default">Effort : {AGENT_DEFAULT}</span>}
+    <div className={styles.row}>
+      <span className={styles.selectWrap}>
+        <select
+          aria-label="Modèle"
+          className={styles.select}
+          value={value.model ?? ""}
+          onChange={(e) => onChange({ ...value, model: e.target.value || undefined })}
+        >
+          <option value="">Modèle par défaut</option>
+          {MODEL_CHOICES.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+        <span aria-hidden="true" className={styles.chevron}>
+          ▼
+        </span>
+      </span>
+      <SegmentedControl<string>
+        ariaLabel="Effort"
+        options={EFFORTS.map((effort) => ({ value: effort, label: effort }))}
+        value={value.effort ?? ""}
+        onChange={(effort) => onChange({ ...value, effort: effort === value.effort ? undefined : (effort as Effort) })}
+      />
+      {value.effort === undefined && (
+        <span data-testid="effort-default" className={styles.default}>
+          {AGENT_DEFAULT}
+        </span>
+      )}
     </div>
   );
 }

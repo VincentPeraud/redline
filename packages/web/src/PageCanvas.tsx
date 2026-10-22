@@ -5,33 +5,34 @@ import {
   parseManifest,
   type CreateThreadRequest,
   type Manifest,
+  type Project,
   type QueueEntry,
   type Thread,
 } from "@redline/shared";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
+import { CanvasHeader } from "./CanvasHeader.js";
 import { fitView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
-import { PlayMode } from "./PlayMode.js";
-import { queueLabel } from "./queueLabel.js";
+import { CommentsPanel, type Draft } from "./CommentsPanel.js";
 import { ConversationsPanel } from "./ConversationsPanel.js";
-import { HeldBar, HeldThreadCard } from "./HeldComments.js";
-import { ThreadReplyForm } from "./ThreadReplyForm.js";
-import { ModelEffortControls, type ModelEffortChoice } from "./ModelEffortControls.js";
-import { ContextLine } from "./ContextLine.js";
-import { RunProgress } from "./RunProgress.js";
-import { useRuns } from "./useRuns.js";
+import type { ModelEffortChoice } from "./ModelEffortControls.js";
+import { PlayMode } from "./PlayMode.js";
 import { TweaksPanel } from "./TweaksPanel.js";
-import { useTweaks } from "./useTweaks.js";
 import { subscribeServerEvents } from "./serverEvents.js";
+import { cx } from "./ui/index.js";
+import { usePageSessions } from "./usePageSessions.js";
+import { useRuns } from "./useRuns.js";
+import { useTweaks } from "./useTweaks.js";
+import styles from "./PageCanvas.module.css";
 
-const CANVAS_HEIGHT = 520;
 const ZOOM_STEP = 1.25;
-const START_MARGIN = 48;
+/** Where the artboards start on screen at the initial view: left margin, and room above for the group title and artboard labels. */
+const START_LEFT = 80;
+const START_TOP = 190;
+const START_BOTTOM = 40;
 
-function manifestBounds(manifest: Manifest) {
-  const boxes = [
-    ...manifest.artboards.map((a) => ({ x: a.x, y: a.y, width: a.width, height: a.height })),
-    ...manifest.notes.map((n) => ({ x: n.x, y: n.y, width: 0, height: 0 })),
-  ];
+type SideTab = "conversation" | "comments";
+
+function boundsOf(boxes: { x: number; y: number; width: number; height: number }[]) {
   if (boxes.length === 0) return { x: 0, y: 0, width: 1, height: 1 };
   const left = Math.min(...boxes.map((b) => b.x));
   const top = Math.min(...boxes.map((b) => b.y));
@@ -40,35 +41,73 @@ function manifestBounds(manifest: Manifest) {
   return { x: left, y: top, width: Math.max(right - left, 1), height: Math.max(bottom - top, 1) };
 }
 
+function manifestBounds(manifest: Manifest) {
+  return boundsOf([
+    ...manifest.artboards.map((a) => ({ x: a.x, y: a.y, width: a.width, height: a.height })),
+    ...manifest.notes.map((n) => ({ x: n.x, y: n.y, width: 0, height: 0 })),
+  ]);
+}
+
+/** Initial view: artboards at 100 % under the group titles, shrunk when they would not fit the stage height. */
+function initialView(manifest: Manifest, stage: { width: number; height: number }): CanvasView {
+  const bounds = boundsOf(manifest.artboards.map((a) => ({ x: a.x, y: a.y, width: a.width, height: a.height })));
+  const zoom = Math.min(1, (stage.height - START_TOP - START_BOTTOM) / bounds.height);
+  return { zoom, x: START_LEFT - bounds.x * zoom, y: START_TOP - bounds.y * zoom };
+}
+
+/** Artboards a group title heads: those from its x up to the next title's x. */
+function groupArtboardCount(manifest: Manifest, index: number): number {
+  const xs = manifest.notes.map((n) => n.x).sort((a, b) => a - b);
+  const from = manifest.notes[index]!.x;
+  const next = xs.find((x) => x > from) ?? Infinity;
+  return manifest.artboards.filter((a) => a.x >= from && a.x < next).length;
+}
+
+function FullscreenIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M15 3h6v6" />
+      <path d="M9 21H3v-6" />
+      <path d="M21 3l-7 7" />
+      <path d="M3 21l7-7" />
+    </svg>
+  );
+}
+
 interface Props {
   pageId: string;
   pageTitle: string;
+  project: Project | null;
   /** Path -> content hash of the current version. */
   files: Record<string, string>;
   artboardOrigin: string;
   versionId: string;
   /** Called after the page got a new version from this canvas (a saved tweak). */
   onVersionChange: () => void;
+  onOpenHistory: () => void;
 }
 
-export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId, onVersionChange }: Props) {
+export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange, onOpenHistory }: Props) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
   const [draft, setDraft] = useState<(Pick & { artboard: string }) | null>(null);
   const [text, setText] = useState("");
   const [choice, setChoice] = useState<ModelEffortChoice>({});
+  const [tab, setTab] = useState<SideTab>("conversation");
+  const [tweaksOpen, setTweaksOpen] = useState(false);
   /** Bumped when the page's design system changed: artboards remount to load the new tokens. */
   const [tokensVersion, setTokensVersion] = useState(0);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState<string | null>(null);
-  const [playing, setPlaying] = useState(false);
+  const [playFrom, setPlayFrom] = useState<string | null>(null);
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   const viewport = useRef<HTMLDivElement>(null);
   const placed = useRef(false);
   const drag = useRef<{ x: number; y: number } | null>(null);
 
   const runs = useRuns(pageId);
+  const sessions = usePageSessions(pageId);
   const tweaks = useTweaks(pageId, manifest, files, onVersionChange);
   const hasManifest = MANIFEST_PATH in files;
   const htmlPaths = Object.keys(files).filter((path) => path.endsWith(".html"));
@@ -88,10 +127,10 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
         if (cancelled) return;
         setManifestError(null);
         setManifest(next);
-        if (!placed.current) {
+        const rect = viewport.current?.getBoundingClientRect();
+        if (!placed.current && rect) {
           placed.current = true;
-          const bounds = manifestBounds(next);
-          setView({ zoom: 1, x: START_MARGIN - bounds.x, y: START_MARGIN - bounds.y });
+          setView(initialView(next, rect));
         }
       } catch (error) {
         if (!cancelled) setManifestError((error as Error).message);
@@ -119,7 +158,7 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
     }
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [playFrom]);
 
   function zoomFromCenter(factor: number) {
     const rect = viewport.current?.getBoundingClientRect();
@@ -167,7 +206,7 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
   }, []);
 
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
-  async function send(held = false) {
+  async function send(held: boolean) {
     if (!draft || text.trim() === "") return;
     const request: CreateThreadRequest = { ...draft, body: text, ...(held ? { held } : choice) };
     await fetch(`/api/pages/${pageId}/threads`, {
@@ -180,184 +219,180 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
     await refresh();
   }
 
-  async function resolve(thread: Thread) {
-    await fetch(`/api/threads/${thread.id}/resolve`, { method: "POST" });
-    await refresh();
-  }
-
-  if (playing && manifest) {
+  if (playFrom !== null && manifest) {
+    const first = manifest.artboards.find((a) => a.file === playFrom);
+    const artboards = first ? [first, ...manifest.artboards.filter((a) => a !== first)] : manifest.artboards;
     return (
       <PlayMode
         pageId={pageId}
-        manifest={manifest}
+        manifest={{ ...manifest, artboards }}
         artboardOrigin={artboardOrigin}
         tweaks={tweaks.values}
         onTweak={tweaks.setValue}
-        onExit={() => setPlaying(false)}
+        onExit={() => setPlayFrom(null)}
       />
     );
   }
 
+  const openCount = threads.filter((t) => t.status !== "resolved").length;
+  const runningCount = runs.filter((r) => r.status === "running" || r.status === "sent" || r.status === "retrying").length;
+  const firstArtboard = manifest?.artboards[0]?.file;
+  const draftInfo: Draft | null = draft;
+
   return (
-    <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={() => setPicking(!picking)}>{picking ? "Interagir (P)" : "Commenter (C)"}</button>
-          <button aria-label="Dézoomer" onClick={() => zoomFromCenter(1 / ZOOM_STEP)}>
-            -
-          </button>
-          <span>{Math.round(view.zoom * 100)}%</span>
-          <button aria-label="Zoomer" onClick={() => zoomFromCenter(ZOOM_STEP)}>
-            +
-          </button>
-          <button onClick={fit}>Ajuster</button>
-          <button onClick={() => setPlaying(true)} disabled={!manifest}>
-            Plein écran
-          </button>
-        </div>
-        {manifestError && <div role="alert">{manifestError}</div>}
-        <div
-          ref={viewport}
-          data-testid="canvas"
-          style={{ position: "relative", height: CANVAS_HEIGHT, overflow: "hidden", background: "#f2f2f0", cursor: "grab", touchAction: "none" }}
-          onPointerDown={(e) => {
-            drag.current = { x: e.clientX, y: e.clientY };
-            e.currentTarget.setPointerCapture(e.pointerId);
-          }}
-          onPointerMove={(e) => {
-            if (!drag.current) return;
-            const dx = e.clientX - drag.current.x;
-            const dy = e.clientY - drag.current.y;
-            drag.current = { x: e.clientX, y: e.clientY };
-            setView((v) => panBy(v, dx, dy));
-          }}
-          onPointerUp={() => {
-            drag.current = null;
-          }}
-        >
+    <div className={styles.page}>
+      <CanvasHeader
+        project={project}
+        pageId={pageId}
+        pageTitle={pageTitle}
+        picking={picking}
+        onPickingChange={setPicking}
+        runningCount={runningCount}
+        onOpenHistory={onOpenHistory}
+      />
+      <div className={styles.body}>
+        <main className={styles.stage}>
+          {manifestError && <div role="alert" className={styles.error}>{manifestError}</div>}
           <div
-            data-testid="mode-indicator"
-            style={{
-              position: "absolute",
-              right: 8,
-              top: 8,
-              zIndex: 1,
-              padding: "2px 8px",
-              borderRadius: 4,
-              font: "600 12px system-ui",
-              pointerEvents: "none",
-              background: picking ? "#e5484d" : "#222",
-              color: "#fff",
+            ref={viewport}
+            data-testid="canvas"
+            className={styles.viewport}
+            style={{ backgroundPosition: `${view.x}px ${view.y}px` }}
+            onPointerDown={(e) => {
+              if ((e.target as HTMLElement).closest("button, a, [data-no-pan]")) return;
+              drag.current = { x: e.clientX, y: e.clientY };
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              if (!drag.current) return;
+              const dx = e.clientX - drag.current.x;
+              const dy = e.clientY - drag.current.y;
+              drag.current = { x: e.clientX, y: e.clientY };
+              setView((v) => panBy(v, dx, dy));
+            }}
+            onPointerUp={() => {
+              drag.current = null;
             }}
           >
-            {picking ? "Mode commentaire : clique sur un élément pour y épingler un commentaire" : "Planche interactive : les clics déclenchent les actions. Alt+clic pour commenter."}
-          </div>
-          <div
-            style={{
-              position: "absolute",
-              left: 0,
-              top: 0,
-              transformOrigin: "0 0",
-              transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
-            }}
-          >
-            {manifest?.notes.map((note, i) => (
-              <div key={i} style={{ position: "absolute", left: note.x, top: note.y, whiteSpace: "nowrap", font: "600 20px system-ui" }}>
-                {note.text}
-              </div>
-            ))}
-            {manifest?.artboards.map((artboard) => (
-              <div key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`} style={{ position: "absolute", left: artboard.x, top: artboard.y }}>
-                <div style={{ position: "absolute", bottom: "100%", font: "12px system-ui", color: "#666", whiteSpace: "nowrap" }}>
-                  {artboard.title ?? artboard.file}
+            <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
+              {manifest?.notes.map((note, i) => (
+                <div key={i} className={styles.note} style={{ left: note.x, top: note.y }}>
+                  <h2 className={styles.noteTitle}>{note.text}</h2>
+                  <div className={styles.noteSubtitle}>
+                    Titre de groupe · {groupArtboardCount(manifest, i)} artboards · modifiable par toi ou par Claude
+                  </div>
                 </div>
-                <ArtboardFrame
-                  title={`${pageTitle} / ${artboard.file}`}
-                  src={`${artboardOrigin}/pages/${pageId}/${artboard.file}`}
-                  width={artboard.width}
-                  height={artboard.height}
-                  zoom={view.zoom}
-                  threads={threads.filter((t) => t.artboard === artboard.file)}
-                  picking={picking}
-                  tweaks={tweaks.values}
-                  onPick={(pick) => setDraft({ ...pick, artboard: artboard.file })}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-        {draft && (
-          <div style={{ marginTop: 8 }}>
-            <div>
-              Commentaire sur <code>{draft.selector}</code>
-            </div>
-            <textarea
-              autoFocus
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void send(e.metaKey || e.ctrlKey);
-                }
-              }}
-              rows={3}
-              style={{ width: 400 }}
-            />
-            <ModelEffortControls value={choice} onChange={setChoice} />
-            <div>
-              <button onClick={() => void send()}>Envoyer</button>{" "}
-              <button onClick={() => void send(true)}>Plus tard</button>{" "}
-              <button
-                onClick={() => {
-                  setDraft(null);
-                  setText("");
-                }}
-              >
-                Annuler
-              </button>
-            </div>
-          </div>
-        )}
-        <HeldBar pageId={pageId} />
-      </div>
-      <aside style={{ width: 280 }}>
-        {manifest && <TweaksPanel tweaks={manifest.tweaks} values={tweaks.values} onChange={tweaks.setValue} />}
-        <ConversationsPanel pageId={pageId} runs={runs} queue={queue} />
-        <h4>Commentaires</h4>
-        {threads.map((thread) =>
-          thread.status === "held" ? (
-            <HeldThreadCard key={thread.id} thread={thread} />
-          ) : thread.status === "resolved" ? (
-            <div key={thread.id} style={{ color: "#888", padding: "4px 0" }}>
-              {thread.number}. <s>{thread.title}</s> (résolu)
-            </div>
-          ) : (
-            <div key={thread.id} style={{ border: "1px solid #ddd", padding: 8, marginBottom: 8 }}>
-              <strong>{thread.number}.</strong> {thread.body}
-              {queueLabel(queue, thread.id) ? (
-                <div data-testid="queued" style={{ color: "#8a6d00", fontSize: 12 }}>
-                  {queueLabel(queue, thread.id)}
-                </div>
-              ) : (
-                runs.filter((r) => r.threadIds.includes(thread.id)).slice(-1).map((run) => (
-                  <RunProgress key={run.workId} run={run} />
-                ))
-              )}
-              <ContextLine thread={thread} />
-              {thread.replies.map((reply) => (
-                <p key={reply.id} data-testid="reply" style={{ background: "#f6f4ff", padding: 6, margin: "6px 0" }}>
-                  <em>{reply.author === "user" ? "Toi" : "Claude"}:</em> {reply.body}
-                </p>
               ))}
-              <ThreadReplyForm threadId={thread.id} />
-              <div>
-                <button onClick={() => void resolve(thread)}>Résoudre</button>
-              </div>
+              {manifest?.artboards.map((artboard) => (
+                <div key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`} className={styles.artboard} style={{ left: artboard.x, top: artboard.y }}>
+                  <div data-no-pan className={styles.label} style={{ width: artboard.width * view.zoom, transform: `scale(${1 / view.zoom})` }}>
+                    <span className={styles.labelName}>{artboard.title ?? artboard.file}</span>
+                    <span className={styles.spacer} />
+                    {artboard.file === firstArtboard && manifest.tweaks.length > 0 && (
+                      <button type="button" aria-expanded={tweaksOpen} className={styles.tweaksButton} onClick={() => setTweaksOpen(!tweaksOpen)}>
+                        Tweaks
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      aria-label={`Lancer ${artboard.file} en plein écran`}
+                      title="Plein écran"
+                      className={styles.iconButton}
+                      onClick={() => setPlayFrom(artboard.file)}
+                    >
+                      <FullscreenIcon />
+                    </button>
+                  </div>
+                  <ArtboardFrame
+                    title={`${pageTitle} / ${artboard.file}`}
+                    src={`${artboardOrigin}/pages/${pageId}/${artboard.file}`}
+                    width={artboard.width}
+                    height={artboard.height}
+                    zoom={view.zoom}
+                    threads={threads.filter((t) => t.artboard === artboard.file)}
+                    picking={picking}
+                    tweaks={tweaks.values}
+                    onPick={(pick) => {
+                      setDraft({ ...pick, artboard: artboard.file });
+                      setTab("comments");
+                    }}
+                  />
+                  {tweaksOpen && artboard.file === firstArtboard && (
+                    <div
+                      data-no-pan
+                      role="dialog"
+                      aria-label="Tweaks de la page"
+                      className={styles.tweaksPopover}
+                      style={{ left: artboard.width + 12, transform: `scale(${1 / view.zoom})` }}
+                    >
+                      <div className={styles.popoverHead}>
+                        <span className={styles.popoverTitle}>Tweaks</span>
+                        <span className={styles.spacer} />
+                        <button type="button" aria-label="Fermer les tweaks" className={styles.popoverClose} onClick={() => setTweaksOpen(false)}>
+                          ×
+                        </button>
+                      </div>
+                      <TweaksPanel tweaks={manifest.tweaks} values={tweaks.values} onChange={tweaks.setValue} />
+                      <div className={styles.popoverHint}>
+                        Le choix fait partie du design : il est enregistré avec l'artefact et s'applique ici comme en mode play.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-          ),
-        )}
-      </aside>
+          </div>
+          <div className={styles.hintWrap}>
+            <div data-testid="mode-indicator" className={cx(styles.hint, picking && styles.hintComment)}>
+              {picking ? "Mode commentaire : clique sur un élément pour y épingler un commentaire" : "Planche interactive : les clics déclenchent les actions. Alt+clic pour commenter."}
+            </div>
+          </div>
+          <div className={styles.zoom}>
+            <button type="button" aria-label="Dézoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(1 / ZOOM_STEP)}>
+              −
+            </button>
+            <span className={styles.zoomValue}>{Math.round(view.zoom * 100)} %</span>
+            <button type="button" aria-label="Zoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(ZOOM_STEP)}>
+              +
+            </button>
+            <button type="button" className={styles.fit} onClick={fit}>
+              Ajuster
+            </button>
+          </div>
+        </main>
+
+        <aside aria-label="Commentaires" className={styles.aside}>
+          <div role="tablist" aria-label="Panneau latéral" className={styles.tabs}>
+            <button type="button" role="tab" aria-selected={tab === "conversation"} className={cx(styles.tab, tab === "conversation" && styles.tabActive)} onClick={() => setTab("conversation")}>
+              Conversation
+            </button>
+            <button type="button" role="tab" aria-selected={tab === "comments"} className={cx(styles.tab, tab === "comments" && styles.tabActive)} onClick={() => setTab("comments")}>
+              Commentaires · {openCount}
+            </button>
+          </div>
+          {tab === "conversation" ? (
+            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} runs={runs} queue={queue} sessions={sessions} />
+          ) : (
+            <CommentsPanel
+              pageId={pageId}
+              threads={threads}
+              queue={queue}
+              runs={runs}
+              sessions={sessions}
+              choice={choice}
+              onChoice={setChoice}
+              draft={draftInfo}
+              text={text}
+              onText={setText}
+              onSend={(held) => void send(held)}
+              onCancel={() => {
+                setDraft(null);
+                setText("");
+              }}
+            />
+          )}
+        </aside>
+      </div>
     </div>
   );
 }

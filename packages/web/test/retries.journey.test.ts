@@ -34,11 +34,13 @@ it("shows 'Échec' with nothing published, and 'Relancer' runs it again", async 
 
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
+  await tab.getByRole("tab", { name: /^Commentaires/ }).click();
   await expect.poll(() => tab.getByTestId("run-status").textContent()).toContain("Échec");
   expect(await tab.getByTestId("run-failed").textContent()).toContain("Rien n'a été publié");
   expect(await seam.versions(page.id)).toHaveLength(1);
 
   failing = false;
   await tab.getByRole("button", { name: "Relancer" }).click();
+  await tab.getByRole("tab", { name: /^Commentaires/ }).click();
   await expect.poll(() => tab.getByTestId("run-status").getAttribute("data-status")).toBe("answered");
 }, 60_000);

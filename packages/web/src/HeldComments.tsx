@@ -1,25 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import type { SendHeldRequest, Thread, UpdateThreadRequest } from "@redline/shared";
-import { ModelEffortControls, type ModelEffortChoice } from "./ModelEffortControls.js";
-import { subscribeServerEvents } from "./serverEvents.js";
+import type { ModelEffortChoice } from "./ModelEffortControls.js";
+import { Button, Textarea, cx } from "./ui/index.js";
+import styles from "./Thread.module.css";
 
 /** Bar "N en attente d'envoi · Tout envoyer": the held comments of the open page leave together, as one message. */
-export function HeldBar({ pageId }: { pageId: string }) {
-  const [count, setCount] = useState(0);
-  const [choice, setChoice] = useState<ModelEffortChoice>({});
-
-  const refresh = useCallback(async () => {
-    const res = await fetch(`/api/pages/${pageId}/held`);
-    setCount(((await res.json()) as Thread[]).length);
-  }, [pageId]);
-
-  useEffect(() => {
-    void refresh();
-    return subscribeServerEvents((event) => {
-      if (event.type === "thread-updated" && event.pageId === pageId) void refresh();
-    });
-  }, [refresh, pageId]);
-
+export function HeldBar({ pageId, count, choice }: { pageId: string; count: number; choice: ModelEffortChoice }) {
   async function sendAll() {
     const request: SendHeldRequest = choice;
     await fetch(`/api/pages/${pageId}/send-held`, {
@@ -27,15 +13,17 @@ export function HeldBar({ pageId }: { pageId: string }) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(request),
     });
-    await refresh();
   }
 
   if (count === 0) return null;
   return (
-    <div data-testid="held-bar" style={{ marginTop: 8, padding: 8, border: "1px dashed #8a6d00", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-      <span>{count} en attente d'envoi</span>
-      <ModelEffortControls value={choice} onChange={setChoice} />
-      <button onClick={() => void sendAll()}>Tout envoyer</button>
+    <div data-testid="held-bar" className={styles.heldBar}>
+      <span className={styles.heldCount}>{count} en attente d'envoi</span>
+      <span className={styles.heldHint}>part avec les suivants</span>
+      <span className={styles.spacer} />
+      <Button variant="accent" size="sm" onClick={() => void sendAll()}>
+        Tout envoyer
+      </Button>
     </div>
   );
 }
@@ -57,29 +45,48 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
   }
 
   return (
-    <div data-testid="held-thread" style={{ border: "1px dashed #8a6d00", padding: 8, marginBottom: 8 }}>
-      <strong>{thread.number}.</strong>{" "}
+    <article data-testid="held-thread" className={cx(styles.card, styles.held)}>
+      <div className={styles.head}>
+        <span className={cx(styles.badge, styles.badgeHeld)}>{thread.number}</span>
+        <span className={styles.where}>
+          {thread.artboard} · {thread.selector}
+        </span>
+        <span className={styles.spacer} />
+        <span className={styles.headRight}>En attente d'envoi</span>
+      </div>
       {editing ? (
         <>
-          <textarea aria-label="Modifier le commentaire" value={text} onChange={(e) => setText(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
-          <button onClick={() => void save()}>Enregistrer</button>{" "}
-          <button
-            onClick={() => {
-              setText(thread.body);
-              setEditing(false);
-            }}
-          >
-            Annuler
-          </button>
+          <Textarea aria-label="Modifier le commentaire" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
+          <div className={styles.replyActions}>
+            <Button
+              size="sm"
+              onClick={() => {
+                setText(thread.body);
+                setEditing(false);
+              }}
+            >
+              Annuler
+            </Button>
+            <Button size="sm" variant="primary" onClick={() => void save()}>
+              Enregistrer
+            </Button>
+          </div>
         </>
       ) : (
         <>
-          {thread.body}
-          <div style={{ color: "#8a6d00", fontSize: 12 }}>En attente d'envoi</div>
-          <button onClick={() => setEditing(true)}>Modifier</button>{" "}
-          <button onClick={() => void fetch(`/api/threads/${thread.id}`, { method: "DELETE" })}>Supprimer</button>
+          <div className={styles.message}>
+            <span className={styles.author}>Toi</span> — {thread.body}
+          </div>
+          <div className={styles.replyActions}>
+            <Button size="sm" onClick={() => setEditing(true)}>
+              Modifier
+            </Button>
+            <Button size="sm" onClick={() => void fetch(`/api/threads/${thread.id}`, { method: "DELETE" })}>
+              Supprimer
+            </Button>
+          </div>
         </>
       )}
-    </div>
+    </article>
   );
 }

@@ -37,5 +37,6 @@ it("shows 'En file' with the reason on a thread whose agent is offline", async (
 
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
+  await tab.getByRole("tab", { name: /^Commentaires/ }).click();
   await expect.poll(() => tab.getByTestId("queued").textContent()).toBe("En file · agent hors ligne");
 }, 60_000);

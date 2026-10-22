@@ -94,7 +94,7 @@ it("lays artboards out from the manifest, shows notes, and zooms and pans with p
 
   const canvas = tab.getByTestId("canvas");
   const canvasBox = await box(canvas);
-  const start = { x: canvasBox.x + 20, y: canvasBox.y + canvasBox.height - 20 };
+  const start = { x: canvasBox.x + 400, y: canvasBox.y + canvasBox.height - 120 };
   const panStart = await box(cart);
   await tab.mouse.move(start.x, start.y);
   await tab.mouse.down();
@@ -137,7 +137,7 @@ it("is interactive by default, pins with C or Alt+click, and returns to interact
   ).json()) as Page;
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   await tab.goto(`${server.url}/#/pages/${modesPage.id}`);
-  const section = tab.locator("section", { has: tab.getByRole("heading", { name: "Modes page" }) });
+  const section = tab;
   const button = section.frameLocator('iframe[title$="app.html"]').locator("#go");
   const mode = section.getByTestId("mode-indicator");
   const draft = section.getByText("Commentaire sur");

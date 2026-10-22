@@ -53,6 +53,7 @@ it("holds two comments with Plus tard, keeps them over a reload, then sends them
   expect(engine.runs).toHaveLength(0);
 
   await tab.reload();
+  await tab.getByRole("tab", { name: /^Commentaires/ }).click();
   await expect.poll(() => tab.getByTestId("held-thread").count()).toBe(2);
 
   await tab.getByRole("button", { name: "Tout envoyer" }).click();

@@ -39,6 +39,7 @@ it("shows model, effort and context %, turns orange from 70 % and starts a new s
 
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
+  await tab.getByRole("tab", { name: /^Commentaires/ }).click();
   const context = tab.getByTestId("context");
   await expect.poll(() => context.textContent()).toContain("sonnet-x · low · 75 %");
   expect(await context.getAttribute("data-warn")).toBe("true");
@@ -47,8 +48,9 @@ it("shows model, effort and context %, turns orange from 70 % and starts a new s
   await expect.poll(() => context.textContent()).toContain("Nouvelle session prête");
   expect(await tab.getByRole("button", { name: "Nouvelle session" }).count()).toBe(0);
 
-  await tab.getByLabel("Répondre").fill("Continue");
   await tab.getByRole("button", { name: "Répondre" }).click();
+  await tab.getByLabel("Répondre").fill("Continue");
+  await tab.getByRole("button", { name: "Envoyer la réponse" }).click();
   await engine.finished(3);
   expect(engine.runs[2].resume).toBe(false);
   expect(engine.runs[2].message).toContain("Summary of the session");
