@@ -100,6 +100,9 @@ export class Store {
     `);
     const agentColumns = this.db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
     if (!agentColumns.some((c) => c.name === "project_id")) this.db.exec("ALTER TABLE agents ADD COLUMN project_id TEXT");
+    const threadColumns = this.db.prepare("PRAGMA table_info(threads)").all() as { name: string }[];
+    if (!threadColumns.some((c) => c.name === "session_id")) this.db.exec("ALTER TABLE threads ADD COLUMN session_id TEXT");
+    if (!threadColumns.some((c) => c.name === "agent_id")) this.db.exec("ALTER TABLE threads ADD COLUMN agent_id TEXT");
     if (!this.getDesignSystem(NEUTRAL_DESIGN_SYSTEM_ID)) {
       this.createDesignSystem("Neutral", { [DESIGN_SYSTEM_TOKENS_PATH]: NEUTRAL_TOKENS_CSS, "index.html": NEUTRAL_TOKENS_PAGE_HTML }, NEUTRAL_DESIGN_SYSTEM_ID);
     }
@@ -312,11 +315,23 @@ export class Store {
     return thread;
   }
 
-  /** Records Claude's answer in a thread; undefined if the thread does not exist. */
-  addReply(threadId: string, body: string): ThreadReply | undefined {
+  /** The engine session that opened the thread and the agent that owns it; undefined until a work item was sent. */
+  getThreadSession(threadId: string): { sessionId: string; agentId: string } | undefined {
+    const row = this.db.prepare("SELECT session_id, agent_id FROM threads WHERE id = ?").get(threadId) as
+      | { session_id: string | null; agent_id: string | null }
+      | undefined;
+    return row?.session_id && row.agent_id ? { sessionId: row.session_id, agentId: row.agent_id } : undefined;
+  }
+
+  setThreadSession(threadId: string, sessionId: string, agentId: string): void {
+    this.db.prepare("UPDATE threads SET session_id = ?, agent_id = ? WHERE id = ?").run(sessionId, agentId, threadId);
+  }
+
+  /** Records an answer of Claude or a message of the user in a thread; undefined if the thread does not exist. */
+  addReply(threadId: string, body: string, author: ThreadReply["author"] = "claude"): ThreadReply | undefined {
     const thread = this.getThread(threadId);
     if (!thread) return undefined;
-    const reply: ThreadReply = { id: randomUUID(), author: "claude", body, createdAt: now() };
+    const reply: ThreadReply = { id: randomUUID(), author, body, createdAt: now() };
     this.db
       .prepare("INSERT INTO thread_replies (id, thread_id, author, body, created_at) VALUES (?, ?, ?, ?, ?)")
       .run(reply.id, threadId, reply.author, body, reply.createdAt);
