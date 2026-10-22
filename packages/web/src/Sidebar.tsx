@@ -5,6 +5,7 @@ import { HomeProvider, useHome } from "./useHome.js";
 const NAV: { label: string; route: Route; active: Route["name"][] }[] = [
   { label: "Accueil", route: { name: "home" }, active: ["home"] },
   { label: "Projets", route: { name: "projects" }, active: ["projects", "project", "designMd"] },
+  { label: "Design systems", route: { name: "designSystems" }, active: ["designSystems"] },
   { label: "Agents", route: { name: "agents" }, active: ["agents"] },
 ];
 

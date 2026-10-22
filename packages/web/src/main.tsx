@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { AgentsScreen } from "./AgentsScreen";
 import { App } from "./App";
+import { DesignSystemsScreen } from "./DesignSystemsScreen";
 import { DesignMdScreen } from "./DesignMdScreen";
 import { HomeScreen } from "./HomeScreen";
 import { ProjectOverview } from "./ProjectOverview";
@@ -21,6 +22,8 @@ function Root() {
       return <Shell><ProjectOverview key={route.projectId} projectId={route.projectId} /></Shell>;
     case "designMd":
       return <Shell><DesignMdScreen key={route.projectId} projectId={route.projectId} /></Shell>;
+    case "designSystems":
+      return <Shell><DesignSystemsScreen /></Shell>;
     case "projects":
       return <Shell><ProjectsScreen /></Shell>;
   }

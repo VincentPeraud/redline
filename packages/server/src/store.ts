@@ -171,6 +171,15 @@ export class Store {
       .all() as DesignSystem[];
   }
 
+  /** Projects (design systems excluded) whose design system is `designSystemId`. */
+  projectsUsingDesignSystem(designSystemId: string): { id: string; title: string }[] {
+    return this.db
+      .prepare(
+        "SELECT id, title FROM projects WHERE design_system = ? AND id NOT IN (SELECT project_id FROM design_systems) ORDER BY created_at, rowid",
+      )
+      .all(designSystemId) as { id: string; title: string }[];
+  }
+
   isDesignSystemPage(pageId: string): boolean {
     return this.db.prepare("SELECT 1 FROM design_systems WHERE page_id = ?").get(pageId) !== undefined;
   }

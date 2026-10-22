@@ -11,6 +11,7 @@ import {
   VERSION_ORIGINS,
   missingCoreTokens,
   parseManifest,
+  starterDesignSystemFiles,
   parseTweaks,
   tweakValueError,
   type SetTweakRequest,
@@ -36,6 +37,7 @@ import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
 import { registerContextTracking } from "./context.js";
+import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerHomeRoutes } from "./home.js";
@@ -98,7 +100,7 @@ export async function buildMainApp(
   registerHomeRoutes(app, store, pageLock);
   const knownWindows = new Map<string, number>();
   registerContextTracking(app, store, pageLock, knownWindows);
-  registerConversationRoutes(app, store, pageLock, knownWindows);
+  const { sendMessage } = registerConversationRoutes(app, store, pageLock, knownWindows);
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
@@ -160,18 +162,37 @@ export async function buildMainApp(
     },
   );
 
-  app.get("/api/design-systems", async () => store.listDesignSystems());
+  app.get("/api/design-systems", async () =>
+    store.listDesignSystems().map((designSystem) => ({ ...designSystem, usedBy: store.projectsUsingDesignSystem(designSystem.id) })),
+  );
 
   app.post<{ Body: CreateDesignSystemRequest }>("/api/design-systems", async (req, reply) => {
-    const { title, files } = req.body ?? ({} as Partial<CreateDesignSystemRequest>);
+    const { title, files = starterDesignSystemFiles(), fromProjectId, instructions, model, effort } =
+      req.body ?? ({} as Partial<CreateDesignSystemRequest>);
     if (typeof title !== "string" || title.trim() === "") return reply.code(400).send({ error: "title is required" });
-    if (!files || typeof files !== "object") return reply.code(400).send({ error: "files are required" });
+    if (typeof files !== "object" || files === null) return reply.code(400).send({ error: "files must be an object" });
     if (Object.entries(files).some(([path, content]) => !isSafePath(path) || typeof content !== "string")) {
       return reply.code(400).send({ error: "invalid files" });
     }
+    if (instructions !== undefined && typeof instructions !== "string") return reply.code(400).send({ error: "instructions must be a string" });
+    if (model !== undefined && typeof model !== "string") return reply.code(400).send({ error: "model must be a string" });
+    if (effort !== undefined && !(EFFORTS as readonly string[]).includes(effort)) return reply.code(400).send({ error: "invalid effort" });
+    const source = fromProjectId === undefined ? undefined : store.getProject(fromProjectId);
+    if (fromProjectId !== undefined && !source) return reply.code(404).send({ error: "project not found" });
     const invalid = designSystemError(files);
     if (invalid) return reply.code(400).send({ error: invalid });
-    return reply.code(201).send(store.createDesignSystem(title, files));
+    const designSystem = store.createDesignSystem(title, files);
+    const brief = instructions?.trim() ?? "";
+    if (source || brief !== "") {
+      const conversation = store.createConversation(designSystem.pageId, "Création du design system");
+      const body = brief !== "" ? brief : `Derive this design system from the pages of the project "${source!.title}".`;
+      // The source project's agent serves the run: it has the project's code.
+      sendMessage(conversation, body, { model, effort }, {
+        projectId: source?.id,
+        extraContext: source && sourcePagesMessage(store, source),
+      });
+    }
+    return reply.code(201).send(designSystem);
   });
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/working-copy", async (req, reply) => {

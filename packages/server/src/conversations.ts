@@ -4,6 +4,7 @@ import {
   EFFORTS,
   type Conversation,
   type ConversationDetail,
+  type ConversationMessage,
   type CreateConversationMessageRequest,
   type CreateConversationRequest,
   type ServerEvent,
@@ -12,6 +13,13 @@ import {
 import { contextOf, usageContext } from "./context.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
+
+export type SendConversationMessage = (
+  conversation: Conversation,
+  body: string,
+  choice: { model?: string; effort?: CreateConversationMessageRequest["effort"] },
+  options?: { extraContext?: string; projectId?: string },
+) => ConversationMessage;
 
 /** The message Claude receives for a conversation message; every message says which page is shown. */
 export function conversationMessage(pageTitle: string, pageId: string, bodies: string[]): string {
@@ -27,7 +35,12 @@ export function conversationMessage(pageTitle: string, pageId: string, bodies: s
  * Conversation routes and dispatch. A conversation has its own engine session (started with its
  * first message, resumed after), never shared with a thread; every message goes through the page lock.
  */
-export function registerConversationRoutes(app: FastifyInstance, store: Store, lock: PageLock, knownWindows: Map<string, number>): void {
+export function registerConversationRoutes(
+  app: FastifyInstance,
+  store: Store,
+  lock: PageLock,
+  knownWindows: Map<string, number>,
+): { sendMessage: SendConversationMessage } {
   const conversationOfWork = new Map<string, string>();
   const lastWorkOf = new Map<string, string>();
   const modelOfWork = new Map<string, string>();
@@ -65,7 +78,12 @@ export function registerConversationRoutes(app: FastifyInstance, store: Store, l
     };
   }
 
-  function dispatch(conversation: Conversation, unsentBodies: string[], choice: { model?: string; effort?: CreateConversationMessageRequest["effort"] }): void {
+  function dispatch(
+    conversation: Conversation,
+    unsentBodies: string[],
+    choice: { model?: string; effort?: CreateConversationMessageRequest["effort"] },
+    projectId: string,
+  ): void {
     const page = store.getPage(conversation.pageId)!;
     const session = store.getConversationSession(conversation.id);
     const sessionId = session?.sessionId ?? randomUUID();
@@ -84,13 +102,23 @@ export function registerConversationRoutes(app: FastifyInstance, store: Store, l
     lastWorkOf.set(conversation.id, item.id);
     lock.submit(
       {
-        projectId: page.projectId,
+        projectId,
         agentId: session?.agentId,
         onDispatched: (agentId) => store.setConversationSession(conversation.id, sessionId, agentId),
       },
       item,
     );
   }
+
+  /** Stores a user message and dispatches it; `extraContext` goes to Claude with it without being stored, and `projectId` overrides the project whose agent serves it. */
+  const sendMessage: SendConversationMessage = (conversation, body, choice, options = {}) => {
+    // Messages not yet sent to Claude (the project's instructions on the first send) go along with this one.
+    const unsent = store.getConversationSession(conversation.id) ? [] : store.conversationMessages(conversation.id).map((m) => m.body);
+    const message = store.addConversationMessage(conversation.id, "user", body, choice)!;
+    const bodies = [...(options.extraContext ? [options.extraContext] : []), ...unsent, body];
+    dispatch(conversation, bodies, choice, options.projectId ?? store.getPage(conversation.pageId)!.projectId);
+    return message;
+  };
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/conversations", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
@@ -131,11 +159,10 @@ export function registerConversationRoutes(app: FastifyInstance, store: Store, l
       if (typeof body !== "string" || body.trim() === "") return reply.code(400).send({ error: "body is required" });
       if (model !== undefined && typeof model !== "string") return reply.code(400).send({ error: "model must be a string" });
       if (effort !== undefined && !(EFFORTS as readonly string[]).includes(effort)) return reply.code(400).send({ error: "invalid effort" });
-      // Messages not yet sent to Claude (the project's instructions on the first send) go along with this one.
-      const unsent = store.getConversationSession(conversation.id) ? [] : store.conversationMessages(conversation.id).map((m) => m.body);
-      const message = store.addConversationMessage(conversation.id, "user", body, { model, effort })!;
-      dispatch(conversation, [...unsent, body], { model, effort });
+      const message = sendMessage(conversation, body, { model, effort });
       return reply.code(201).send(message);
     },
   );
+
+  return { sendMessage };
 }
