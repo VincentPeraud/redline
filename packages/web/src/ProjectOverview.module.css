@@ -78,6 +78,12 @@
   letter-spacing: -0.01em;
 }
 
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .summary {
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
@@ -143,8 +149,12 @@
   text-decoration: none;
 }
 
+.pageCard {
+  position: relative;
+}
+
 .pageCard:hover,
-.pageCard:focus-visible {
+.pageCard:focus-within {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 1px var(--color-accent);
 }
@@ -165,12 +175,22 @@
 .pageTitleRow {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
   min-width: 0;
 }
 
+.pageTitleLink {
+  color: inherit;
+  text-decoration: none;
+}
+
+.pageTitleLink::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
 .pageTitle {
-  flex-grow: 1;
   min-width: 0;
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);

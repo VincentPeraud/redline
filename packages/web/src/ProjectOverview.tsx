@@ -13,6 +13,7 @@ import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
 import { relativeTime } from "./relativeTime.js";
+import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
 import { routeHref } from "./router.js";
 import { Button, Logo, PageContent, SidePanel, SidePanelBody, StatusBadge, cx } from "./ui/index.js";
 import styles from "./ProjectOverview.module.css";
@@ -35,29 +36,60 @@ function agentPill(project: Project): { tone: "success" | "neutral"; text: strin
   return { tone: "neutral", text: "Aucun agent connecté" };
 }
 
-function PageCard({ page, stats, artboardOrigin, current }: { page: Page; stats: PageStats | undefined; artboardOrigin: string; current: boolean }) {
+function PageCard({
+  page,
+  stats,
+  artboardOrigin,
+  current,
+  onRename,
+}: {
+  page: Page;
+  stats: PageStats | undefined;
+  artboardOrigin: string;
+  current: boolean;
+  onRename: (title: string) => Promise<void>;
+}) {
   const artboards = usePageArtboards(page.id, page.version.files);
+  const [renaming, setRenaming] = useState(false);
   const count = plural(artboards?.length ?? 0, "artboard", "artboards");
   const modified = stats?.updatedAt ? ` · modifié ${relativeTime(stats.updatedAt)}` : "";
 
   return (
-    <a href={routeHref({ name: "page", pageId: page.id })} className={cx(styles.pageCard, current && styles.pageCardCurrent)}>
+    <div data-testid="page-card" className={cx(styles.pageCard, renameHost, current && styles.pageCardCurrent)}>
       <PageThumbnail pageId={page.id} artboards={artboards} artboardOrigin={artboardOrigin} />
       <div className={styles.pageInfo}>
-        <div className={styles.pageTitleRow}>
-          <span className={styles.pageTitle}>{page.title}</span>
-          {stats && stats.openThreads > 0 && (
-            <StatusBadge tone="warning" className={styles.chip}>
-              {plural(stats.openThreads, "fil", "fils")}
-            </StatusBadge>
-          )}
-        </div>
+        {renaming ? (
+          <RenameForm
+            label="Nom de la page"
+            value={page.title}
+            size="page"
+            saveLabel="OK"
+            onSave={async (title) => {
+              await onRename(title);
+              setRenaming(false);
+            }}
+            onCancel={() => setRenaming(false)}
+          />
+        ) : (
+          <div className={styles.pageTitleRow}>
+            <a href={routeHref({ name: "page", pageId: page.id })} className={cx(styles.pageTitle, styles.pageTitleLink)}>
+              {page.title}
+            </a>
+            <RenamePencil label="Renommer la page" size="page" onClick={() => setRenaming(true)} />
+            <span className={styles.spacer} />
+            {stats && stats.openThreads > 0 && (
+              <StatusBadge tone="warning" className={styles.chip}>
+                {plural(stats.openThreads, "fil", "fils")}
+              </StatusBadge>
+            )}
+          </div>
+        )}
         <div className={styles.pageMeta}>
           {count}
           {modified}
         </div>
       </div>
-    </a>
+    </div>
   );
 }
 
@@ -156,6 +188,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
   const [designMd, setDesignMd] = useState<string | null>(null);
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
   const [creating, setCreating] = useState(false);
+  const [renamingProject, setRenamingProject] = useState(false);
   const uploadInput = useRef<HTMLInputElement>(null);
 
   const loadAssets = () =>
@@ -214,6 +247,18 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
     await loadAssets();
   }
 
+  async function renameProject(title: string) {
+    const res = await fetch(`/api/projects/${projectId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) });
+    if (!res.ok) throw new Error(`Rename refused (${res.status})`);
+    setProject({ ...project!, title });
+  }
+
+  async function renamePage(pageId: string, title: string) {
+    const res = await fetch(`/api/pages/${pageId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) });
+    if (!res.ok) throw new Error(`Rename refused (${res.status})`);
+    setPages((current) => current.map((page) => (page.id === pageId ? { ...page, title } : page)));
+  }
+
   const openThreads = Object.values(pageStats).reduce((sum, stats) => sum + stats.openThreads, 0);
   const summary = `${plural(pages.length, "page", "pages")} · ${plural(openThreads, "fil ouvert", "fils ouverts")}`;
   const pill = agentPill(project);
@@ -244,7 +289,24 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
       <div className={styles.body}>
       <PageContent className={styles.main}>
         <div className={styles.heading}>
-          <h1 className={styles.title}>{project.title}</h1>
+          {renamingProject ? (
+            <RenameForm
+              label="Nom du projet"
+              value={project.title}
+              size="project"
+              saveLabel="Renommer"
+              onSave={async (title) => {
+                await renameProject(title);
+                setRenamingProject(false);
+              }}
+              onCancel={() => setRenamingProject(false)}
+            />
+          ) : (
+            <div className={cx(styles.titleRow, renameHost)}>
+              <h1 className={styles.title}>{project.title}</h1>
+              <RenamePencil label="Renommer le projet" size="project" onClick={() => setRenamingProject(true)} />
+            </div>
+          )}
           <div className={styles.summary}>
             {project.agent ? `Agent ${folderName(project.agent.folder)} · ${project.agent.folder} · ${summary}` : summary}
           </div>
@@ -254,7 +316,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
           <h2 className={styles.sectionTitle}>Pages</h2>
           <div className={styles.pageGrid}>
             {pages.map((page, index) => (
-              <PageCard key={page.id} page={page} stats={pageStats[page.id]} artboardOrigin={artboardOrigin} current={index === 0} />
+              <PageCard key={page.id} page={page} stats={pageStats[page.id]} artboardOrigin={artboardOrigin} current={index === 0} onRename={(title) => renamePage(page.id, title)} />
             ))}
             <button type="button" className={styles.newPageTile} onClick={() => setCreating(true)}>
               <span aria-hidden="true" className={styles.plus}>

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { Page, Project, Thread } from "@redline/shared";
+import type { DeletedArtboard, Page, Project, Thread } from "@redline/shared";
+import { DeletedArtboardsList } from "./DeletedArtboardsList.js";
+import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
 import { routeHref } from "./router.js";
 import { Logo, cx } from "./ui/index.js";
 import styles from "./CanvasHeader.module.css";
@@ -30,8 +32,20 @@ function AgentPill({ project, running }: { project: Project | null; running: num
   );
 }
 
-function PageMenu({ project, pageId, pageTitle }: { project: Project | null; pageId: string; pageTitle: string }) {
+interface PageMenuProps {
+  project: Project | null;
+  pageId: string;
+  pageTitle: string;
+  artboardOrigin: string;
+  deleted: DeletedArtboard[];
+  onPutBack: (item: DeletedArtboard) => Promise<void>;
+  onRenamePage: (title: string) => Promise<void>;
+}
+
+function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBack, onRenamePage }: PageMenuProps) {
   const [open, setOpen] = useState(false);
+  const [deletedOpen, setDeletedOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const [pages, setPages] = useState<MenuPage[]>([]);
   const root = useRef<HTMLDivElement>(null);
 
@@ -81,14 +95,45 @@ function PageMenu({ project, pageId, pageTitle }: { project: Project | null; pag
     return () => window.removeEventListener("keydown", onKey);
   }, [project]);
 
+  if (renaming) {
+    return (
+      <RenameForm
+        label="Nom de la page"
+        value={pageTitle}
+        size="bare"
+        onSave={async (title) => {
+          await onRenamePage(title);
+          setRenaming(false);
+        }}
+        onCancel={() => setRenaming(false)}
+      />
+    );
+  }
+
   return (
-    <div ref={root} className={styles.menuRoot}>
-      <button type="button" aria-haspopup="menu" aria-expanded={open} className={styles.pageButton} onClick={() => setOpen(!open)}>
-        {pageTitle}
-        <span aria-hidden="true" className={styles.chevron}>
-          ▼
-        </span>
-      </button>
+    <div ref={root} className={cx(styles.menuRoot, renameHost)}>
+      <div className={styles.pageRow}>
+        <button type="button" aria-haspopup="menu" aria-expanded={open} className={styles.pageButton} onClick={() => setOpen(!open)}>
+          {pageTitle}
+          <span aria-hidden="true" className={styles.chevron}>
+            ▼
+          </span>
+        </button>
+        <RenamePencil label="Renommer la page" size="bare" onClick={() => setRenaming(true)} />
+      </div>
+      {deletedOpen && (
+        <DeletedArtboardsList
+          pageId={pageId}
+          pageTitle={pageTitle}
+          artboardOrigin={artboardOrigin}
+          items={deleted}
+          onPutBack={async (item) => {
+            await onPutBack(item);
+            setDeletedOpen(false);
+          }}
+          onClose={() => setDeletedOpen(false)}
+        />
+      )}
       {open && project && (
         <div role="menu" aria-label={`Pages du projet ${project.title}`} className={styles.menu}>
           <div className={styles.menuTitle}>Pages du projet</div>
@@ -102,10 +147,26 @@ function PageMenu({ project, pageId, pageTitle }: { project: Project | null; pag
             >
               {page.title}
               <span className={styles.spacer} />
+              {page.createdBy === "claude" ? <span className={styles.menuMuted}>créée par Claude</span> : null}
               {openThreads > 0 ? <span className={styles.menuWarn}>{plural(openThreads, "fil", "fils")}</span> : null}
             </a>
           ))}
           <div className={styles.menuDivider} />
+          {deleted.length > 0 && (
+            <button
+              type="button"
+              role="menuitem"
+              className={cx(styles.menuItem, styles.menuButton)}
+              onClick={() => {
+                setOpen(false);
+                setDeletedOpen(true);
+              }}
+            >
+              Artboards supprimés
+              <span className={styles.spacer} />
+              <span className={styles.menuMuted}>{deleted.length}</span>
+            </button>
+          )}
           <a role="menuitem" href={routeHref({ name: "project", projectId: project.id })} className={cx(styles.menuItem, styles.menuItemPlain)}>
             Vue du projet
             <span className={styles.spacer} />
@@ -124,10 +185,14 @@ interface Props {
   picking: boolean;
   onPickingChange: (picking: boolean) => void;
   runningCount: number;
+  artboardOrigin: string;
+  deleted: DeletedArtboard[];
+  onPutBack: (item: DeletedArtboard) => Promise<void>;
+  onRenamePage: (title: string) => Promise<void>;
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, pageId, pageTitle, picking, onPickingChange, runningCount }: Props) {
+export function CanvasHeader({ project, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage }: Props) {
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -142,7 +207,15 @@ export function CanvasHeader({ project, pageId, pageTitle, picking, onPickingCha
             <span aria-hidden="true">/</span>
           </>
         )}
-        <PageMenu project={project} pageId={pageId} pageTitle={pageTitle} />
+        <PageMenu
+          project={project}
+          pageId={pageId}
+          pageTitle={pageTitle}
+          artboardOrigin={artboardOrigin}
+          deleted={deleted}
+          onPutBack={onPutBack}
+          onRenamePage={onRenamePage}
+        />
       </nav>
       <div className={styles.spacer} />
       <AgentPill project={project} running={runningCount} />
