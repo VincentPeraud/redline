@@ -2,10 +2,16 @@
   "name": "redline",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/shared", "packages/server", "packages/agent", "packages/web"],
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/agent",
+    "packages/web"
+  ],
   "scripts": {
     "build": "npm run build --workspaces",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:docker": "REDLINE_DOCKER_TEST=1 vitest run packages/server/test/docker.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
