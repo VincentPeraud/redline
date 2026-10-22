@@ -1,0 +1,130 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import type { Thread } from "@redline/shared";
+import { FakeEngine, startSeam2, type Seam2 } from "./support/seam2.js";
+
+const PAGE_FILES = {
+  "home.html": "<!doctype html><h1>Old title</h1>",
+  "manifest.json": JSON.stringify({ artboards: [{ file: "home.html" }] }),
+  "DESIGN.md": "# Design\nBlue.",
+};
+
+let seam: Seam2 | undefined;
+afterEach(async () => {
+  await seam?.stop();
+  seam = undefined;
+});
+
+describe("running a thread with the fake engine", () => {
+  it("downloads the page, publishes the edits as one thread version, and shows Claude's answer in the thread", async () => {
+    let threadId = "";
+    const engine = new FakeEngine(() => [
+      { type: "step", tool: "Read", summary: "home.html" },
+      { edit: { path: "home.html", content: "<!doctype html><h1>New title</h1>" } },
+      { replyInThread: { threadId, text: "Done, the title is updated." } },
+      { type: "result", summary: "Update the title" },
+    ]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+
+    threadId = (await seam.pinThread(page.id, "home.html", "Change the title")).id;
+    await seam.waitForVersions(page.id, 2);
+
+    const versions = await seam.versions(page.id);
+    expect(versions.map((v) => [v.origin, v.message])).toEqual([
+      ["thread", "Update the title"],
+      ["terminal", "Page created"],
+    ]);
+    expect(await seam.readFile(page.id, "home.html")).toContain("New title");
+    expect(await seam.readFile(page.id, "DESIGN.md")).toBe("# Design\nBlue.");
+
+    const [thread] = (await (await seam.server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+    expect(thread.replies.map((r) => [r.author, r.body])).toEqual([["claude", "Done, the title is updated."]]);
+  });
+
+  it("gives the session the working copy of the page under .redline/<page>/ and the thread's details", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    const thread = await seam.pinThread(page.id, "home.html", "Make it pop");
+    await engine.finished(1);
+
+    const [run] = engine.runs;
+    expect(run.workingCopyDir).toBe(join(seam.folder, ".redline", page.id));
+    expect(run.resume).toBe(false);
+    expect(run.message).toContain(thread.id);
+    expect(run.message).toContain("Make it pop");
+    expect(run.message).toContain("home.html");
+    expect(run.message).toContain(`.redline/${page.id}/`);
+    expect(run.filesAtStart).toEqual(PAGE_FILES);
+    expect(run.mcpTools).toContain("reply_in_thread");
+    expect(readFileSync(join(seam.folder, ".gitignore"), "utf8")).toContain(".redline/");
+  });
+
+  it("publishes nothing when the run leaves the working copy unchanged", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "Is this fine?");
+    await engine.finished(1);
+    await seam.waitForWorkEnd();
+
+    expect(await seam.versions(page.id)).toHaveLength(1);
+  });
+
+  it("publishes nothing when the run fails, even after edits", async () => {
+    const engine = new FakeEngine([
+      { edit: { path: "home.html", content: "<h1>Half done</h1>" } },
+      { type: "error", message: "Subscription limit reached" },
+    ]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "Change it");
+    await engine.finished(1);
+    await seam.waitForWorkEnd();
+
+    expect(await seam.versions(page.id)).toHaveLength(1);
+    expect(await seam.readFile(page.id, "home.html")).toContain("Old title");
+  });
+
+  it("streams the engine's events to the server as work messages", async () => {
+    const engine = new FakeEngine([
+      { type: "step", tool: "Read", summary: "home.html" },
+      { type: "text", text: "Looking at the title" },
+      { type: "result", summary: "Nothing to change" },
+    ]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "Look");
+    await engine.finished(1);
+    await seam.waitForWorkEnd();
+
+    expect(seam.workMessages().map((m) => m.type)).toEqual(["work-event", "work-event", "work-event", "work-done"]);
+  });
+
+  it("refuses a reply in a thread that is not part of the running work item", async () => {
+    let outcome = "";
+    const engine = new FakeEngine(async (run) => {
+      outcome = await run.tryReplyInThread("not-a-thread-of-this-run", "sneaky");
+      return [{ type: "result", summary: "Nothing to change" }];
+    });
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "Look");
+    await engine.finished(1);
+
+    expect(outcome).toMatch(/not part of this run/);
+  });
+
+  it("removes a file deleted from the working copy in the published version", async () => {
+    const engine = new FakeEngine([{ remove: "DESIGN.md" }, { type: "result", summary: "Drop design notes" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "Drop the notes");
+    await seam.waitForVersions(page.id, 2);
+
+    expect(existsSync(join(seam.folder, ".redline", page.id, "DESIGN.md"))).toBe(false);
+    expect((await seam.server.get(`/api/pages/${page.id}/files/DESIGN.md`)).status).toBe(404);
+  });
+});

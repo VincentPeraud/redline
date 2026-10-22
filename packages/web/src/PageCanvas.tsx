@@ -9,6 +9,7 @@ import {
 } from "@redline/shared";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { fitView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { subscribeServerEvents } from "./serverEvents.js";
 
 const CANVAS_HEIGHT = 520;
 const ZOOM_STEP = 1.25;
@@ -118,7 +119,10 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    return subscribeServerEvents((event) => {
+      if (event.type === "thread-updated" && event.pageId === pageId) void refresh();
+    });
+  }, [refresh, pageId]);
 
   // C: comment mode, P: back to interactive.
   useEffect(() => {
@@ -260,6 +264,11 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
           ) : (
             <div key={thread.id} style={{ border: "1px solid #ddd", padding: 8, marginBottom: 8 }}>
               <strong>{thread.number}.</strong> {thread.body}
+              {thread.replies.map((reply) => (
+                <p key={reply.id} data-testid="reply" style={{ background: "#f6f4ff", padding: 6, margin: "6px 0" }}>
+                  <em>Claude:</em> {reply.body}
+                </p>
+              ))}
               <div>
                 <button onClick={() => void resolve(thread)}>Resolve</button>
               </div>

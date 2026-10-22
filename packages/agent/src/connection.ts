@@ -4,6 +4,7 @@ import {
   PROTOCOL_VERSION,
   type AgentHello,
   type AgentKind,
+  type AgentToServerMessage,
   type ServerToAgentMessage,
 } from "@redline/shared";
 
@@ -17,12 +18,15 @@ export interface ConnectOptions {
   projectId?: string;
   /** Overridable for tests; defaults to this build's protocol version. */
   protocolVersion?: number;
+  /** Called for every message after the welcome (work items). */
+  onMessage?(message: ServerToAgentMessage): void;
 }
 
 export interface AgentConnection {
   agentId: string;
   /** Resolves when the connection ends; `unauthorized` means the token is no longer valid. */
   closed: Promise<{ reason: "unauthorized" | "closed" }>;
+  send(message: AgentToServerMessage): void;
   close(): void;
 }
 
@@ -52,7 +56,9 @@ export function connectToServer(options: ConnectOptions): Promise<AgentConnectio
     socket.addEventListener("message", (event) => {
       const message = JSON.parse(String(event.data)) as ServerToAgentMessage;
       if (message.type === "error") return reject(new Error(message.message));
-      if (message.type === "welcome") resolve({ agentId: message.agentId, closed, close: () => socket.close() });
+      if (message.type === "welcome") {
+        resolve({ agentId: message.agentId, closed, send: (m) => socket.send(JSON.stringify(m)), close: () => socket.close() });
+      } else options.onMessage?.(message);
     });
   });
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { PageCanvas } from "./PageCanvas.js";
+import { subscribeServerEvents } from "./serverEvents.js";
 
 interface Project {
   id: string;
@@ -69,6 +70,14 @@ export function App() {
       await loadPages(list);
     });
   }, []);
+
+  useEffect(
+    () =>
+      subscribeServerEvents((event) => {
+        if (event.type === "page-updated") void loadPages(projects);
+      }),
+    [projects],
+  );
 
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
