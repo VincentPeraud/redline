@@ -2,6 +2,13 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
+import {
+  DESIGN_SYSTEM_TOKENS_PATH,
+  NEUTRAL_DESIGN_SYSTEM_ID,
+  NEUTRAL_TOKENS_CSS,
+  NEUTRAL_TOKENS_PAGE_HTML,
+  type DesignSystem,
+} from "@redline/shared";
 import type {
   CreateThreadRequest,
   AgentInfo,
@@ -29,6 +36,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
+        instructions TEXT NOT NULL DEFAULT '',
+        design_system TEXT,
         created_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS pages (
@@ -73,10 +82,45 @@ export class Store {
         last_seen_at TEXT NOT NULL,
         UNIQUE (machine, folder)
       );
+      CREATE TABLE IF NOT EXISTS design_systems (
+        project_id TEXT PRIMARY KEY REFERENCES projects(id),
+        page_id TEXT NOT NULL REFERENCES pages(id)
+      );
       UPDATE agents SET status = 'offline';
     `);
     const agentColumns = this.db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
     if (!agentColumns.some((c) => c.name === "project_id")) this.db.exec("ALTER TABLE agents ADD COLUMN project_id TEXT");
+    if (!this.getDesignSystem(NEUTRAL_DESIGN_SYSTEM_ID)) {
+      this.createDesignSystem("Neutral", { [DESIGN_SYSTEM_TOKENS_PATH]: NEUTRAL_TOKENS_CSS, "index.html": NEUTRAL_TOKENS_PAGE_HTML }, NEUTRAL_DESIGN_SYSTEM_ID);
+    }
+  }
+
+  /** A design system is a project (same id) with one page holding its tokens and components. */
+  createDesignSystem(title: string, files: Record<string, string>, id: string = randomUUID()): DesignSystem {
+    this.createProject(title, id);
+    const page = this.createPage(id, title, "prototype", files);
+    this.db.prepare("INSERT INTO design_systems (project_id, page_id) VALUES (?, ?)").run(id, page.id);
+    return { id, title, pageId: page.id };
+  }
+
+  getDesignSystem(id: string): DesignSystem | undefined {
+    return this.db
+      .prepare(
+        "SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id WHERE p.id = ?",
+      )
+      .get(id) as DesignSystem | undefined;
+  }
+
+  listDesignSystems(): DesignSystem[] {
+    return this.db
+      .prepare(
+        "SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id ORDER BY p.created_at, p.rowid",
+      )
+      .all() as DesignSystem[];
+  }
+
+  isDesignSystemPage(pageId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM design_systems WHERE page_id = ?").get(pageId) !== undefined;
   }
 
   close(): void {
@@ -130,27 +174,42 @@ export class Store {
       .all() as AgentInfo[];
   }
 
-  createProject(title: string): Project {
-    const project = { id: randomUUID(), title };
+  createProject(title: string, id: string = randomUUID(), instructions = "", designSystem: string | null = null): Project {
     this.db
-      .prepare("INSERT INTO projects (id, title, created_at) VALUES (?, ?, ?)")
-      .run(project.id, title, now());
-    return project;
+      .prepare("INSERT INTO projects (id, title, instructions, design_system, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(id, title, instructions, designSystem, now());
+    return { id, title, instructions, designSystem };
   }
 
   listProjects(): Project[] {
     const rows = this.db
       .prepare(
-        `SELECT p.id, p.title, a.id AS agentId, a.machine, a.folder, a.status
+        `SELECT p.id, p.title, p.instructions, p.design_system AS designSystem, a.id AS agentId, a.machine, a.folder, a.status
          FROM projects p LEFT JOIN agents a ON a.project_id = p.id
+         WHERE p.id NOT IN (SELECT project_id FROM design_systems)
          ORDER BY p.created_at, p.rowid`,
       )
-      .all() as { id: string; title: string; agentId: string | null; machine: string; folder: string; status: AgentStatus }[];
+      .all() as {
+      id: string;
+      title: string;
+      instructions: string;
+      designSystem: string | null;
+      agentId: string | null;
+      machine: string;
+      folder: string;
+      status: AgentStatus;
+    }[];
     return rows.map((r) => ({
       id: r.id,
       title: r.title,
+      instructions: r.instructions,
+      designSystem: r.designSystem,
       ...(r.agentId ? { agent: { id: r.agentId, machine: r.machine, folder: r.folder, status: r.status } } : {}),
     }));
+  }
+
+  getProject(id: string): Project | undefined {
+    return this.listProjects().find((p) => p.id === id);
   }
 
   projectExists(id: string): boolean {
@@ -286,6 +345,8 @@ export class Store {
     return hash;
   }
 }
+
+const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
   "SELECT id, page_id, number, artboard, selector, x_pct, y_pct, title, body, status FROM threads";

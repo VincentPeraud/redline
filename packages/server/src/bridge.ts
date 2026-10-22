@@ -1,3 +1,5 @@
+import { designSystemTokensUrlPath } from "@redline/shared";
+
 /**
  * Script injected into every served artboard HTML. Artboards run in a sandboxed iframe with an
  * opaque origin, so the web UI cannot touch their DOM: it talks to this bridge by postMessage.
@@ -147,4 +149,12 @@ export function injectBridge(html: string): string {
   const tag = `<script src="${BRIDGE_PATH}"></script>`;
   const end = html.lastIndexOf("</body>");
   return end === -1 ? html + tag : html.slice(0, end) + tag + html.slice(end);
+}
+
+/** Links a design system's live tokens at the start of the document head, before the page's own styles. */
+export function injectDesignSystem(html: string, designSystemId: string): string {
+  const tag = `<link rel="stylesheet" href="${designSystemTokensUrlPath(designSystemId)}">`;
+  const head = /<head[^>]*>/i.exec(html);
+  if (head) return html.slice(0, head.index + head[0].length) + tag + html.slice(head.index + head[0].length);
+  return tag + html;
 }

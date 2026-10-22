@@ -30,7 +30,7 @@ it("plays a prototype: one artboard at full size, links switch artboard, exit re
   const project = (await (await server.post("/api/projects", { title: "Shop" })).json()) as { id: string };
   const html = (title: string, body = "") =>
     `<!doctype html><body style="margin:0"><h1>${title}</h1>${body}</body>`;
-  await server.post(`/api/projects/${project.id}/pages`, {
+  const page = (await server.post(`/api/projects/${project.id}/pages`, {
     title: "Checkout",
     type: "prototype",
     files: {
@@ -47,10 +47,10 @@ it("plays a prototype: one artboard at full size, links switch artboard, exit re
         ],
       }),
     },
-  });
+  }).then((res) => res.json())) as { id: string };
 
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-  await tab.goto(server.url);
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
   await tab.locator('iframe[title$="cart.html"]').waitFor();
   await tab.getByRole("button", { name: "Play" }).click();
 

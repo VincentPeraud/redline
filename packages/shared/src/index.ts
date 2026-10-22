@@ -5,8 +5,18 @@ export type PageType = "prototype" | "comparison";
 export interface Project {
   id: string;
   title: string;
+  /** Brief that becomes the first message of the project's first conversation. */
+  instructions: string;
+  /** Design system id, or null for the neutral default. */
+  designSystem: string | null;
   /** The project agent serving it, once an agent has linked the project. */
   agent?: { id: string; machine: string; folder: string; status: AgentStatus };
+}
+
+export interface CreateProjectRequest {
+  title: string;
+  instructions?: string;
+  designSystem?: string | null;
 }
 
 export type VersionOrigin = "thread" | "conversation" | "terminal" | "tweak" | "restore";
@@ -366,3 +376,33 @@ export function resolveTweakValues(manifest: Manifest, stored: TweakValues): Twe
   }
   return values;
 }
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function starterArtboard(title: string): string {
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${title}</title>
+    <style>body { font-family: system-ui, sans-serif; margin: 0; padding: 32px; }</style>
+  </head>
+  <body>
+    <h1>${title}</h1>
+  </body>
+</html>
+`;
+}
+
+/** Files of a new page: a manifest plus one artboard (prototype) or two variants (comparison). */
+export function starterPageFiles(title: string, type: PageType, designSystem?: string | null): Record<string, string> {
+  const artboards = type === "comparison" ? ["variant-a.html", "variant-b.html"] : ["screen-1.html"];
+  const manifest = { title, type, ...(designSystem ? { designSystem } : {}), artboards: artboards.map((file) => ({ file })) };
+  const files: Record<string, string> = { [MANIFEST_PATH]: JSON.stringify(manifest, null, 2) };
+  for (const file of artboards) files[file] = starterArtboard(escapeHtml(title));
+  return files;
+}
+
+export * from "./designSystem.js";

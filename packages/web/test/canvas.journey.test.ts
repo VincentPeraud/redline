@@ -62,7 +62,7 @@ it("lays artboards out from the manifest, shows notes, and zooms and pans with p
   });
 
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-  await tab.goto(server.url);
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
   const cart = tab.locator('iframe[title$="cart.html"]');
   const pay = tab.locator('iframe[title$="pay.html"]');
   await tab.getByText("Checkout flow").waitFor();
@@ -109,13 +109,15 @@ it("lays artboards out from the manifest, shows notes, and zooms and pans with p
 
 it("still shows every html file side by side when a page has no manifest", async () => {
   const project = (await (await server.post("/api/projects", { title: "Bare" })).json()) as { id: string };
-  await server.post(`/api/projects/${project.id}/pages`, {
-    title: "Bare page",
-    type: "comparison",
-    files: { "one.html": "<!doctype html><h1>One</h1>", "two.html": "<!doctype html><h1>Two</h1>" },
-  });
+  const barePage = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Bare page",
+      type: "comparison",
+      files: { "one.html": "<!doctype html><h1>One</h1>", "two.html": "<!doctype html><h1>Two</h1>" },
+    })
+  ).json()) as Page;
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-  await tab.goto(server.url);
+  await tab.goto(`${server.url}/#/pages/${barePage.id}`);
   const one = await box(tab.locator('iframe[title$="one.html"]'));
   const two = await box(tab.locator('iframe[title$="two.html"]'));
   expect(two.x).toBeGreaterThan(one.x + one.width);
@@ -124,15 +126,17 @@ it("still shows every html file side by side when a page has no manifest", async
 
 it("is interactive by default, pins with C or Alt+click, and returns to interactive with P", async () => {
   const project = (await (await server.post("/api/projects", { title: "Modes" })).json()) as { id: string };
-  await server.post(`/api/projects/${project.id}/pages`, {
-    title: "Modes page",
-    type: "prototype",
-    files: {
-      "app.html": `<!doctype html><body style="margin:0"><button id="go" style="margin:40px;width:120px;height:40px" onclick="this.textContent='Clicked'">Go</button></body>`,
-    },
-  });
+  const modesPage = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Modes page",
+      type: "prototype",
+      files: {
+        "app.html": `<!doctype html><body style="margin:0"><button id="go" style="margin:40px;width:120px;height:40px" onclick="this.textContent='Clicked'">Go</button></body>`,
+      },
+    })
+  ).json()) as Page;
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-  await tab.goto(server.url);
+  await tab.goto(`${server.url}/#/pages/${modesPage.id}`);
   const section = tab.locator("section", { has: tab.getByRole("heading", { name: "Modes page" }) });
   const button = section.frameLocator('iframe[title$="app.html"]').locator("#go");
   const mode = section.getByTestId("mode-indicator");
