@@ -13,7 +13,9 @@ const text = (message: string, isError = false) => ({ ...(isError ? { isError } 
 interface Checkout {
   pageId: string;
   dir: string;
+  /** The files as published or downloaded last: what "changed" is measured against. */
   files: Record<string, string>;
+  versionId: string;
 }
 
 /**
@@ -50,7 +52,7 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
         workingCopyDir(folder, pageId);
         const checkout = await api.checkout(pageId);
         const dir = writeWorkingCopy(folder, pageId, checkout);
-        current = { pageId, dir, files: checkout.files };
+        current = { pageId, dir, files: checkout.files, versionId: checkout.versionId };
         return text(`Page checked out into .redline/${pageId}/. Edit its files, then call publish_page.`);
       } catch (error) {
         return text((error as Error).message, true);
@@ -65,12 +67,19 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
     },
     async ({ message }) => {
       try {
-        const { pageId, dir, files: base } = checkedOut();
+        const { pageId, dir, files: base, versionId } = checkedOut();
         const files = readWorkingCopy(dir);
         if (sameFiles(files, base)) return text("Nothing changed; no version published.");
-        const version = await api.publish(pageId, files, message, "terminal");
-        current = { pageId, dir, files };
-        return text(`Published version ${version.id}.`);
+        const version = await api.publish(pageId, files, message, "terminal", versionId);
+        if (!version.merged) {
+          current = { pageId, dir, files, versionId: version.id };
+          return text(`Published version ${version.id}.`);
+        }
+        // The page moved on since the checkout: the new version also holds those changes, so download it again.
+        const fresh = await api.checkout(pageId);
+        writeWorkingCopy(folder, pageId, fresh);
+        current = { pageId, dir, files: fresh.files, versionId: fresh.versionId };
+        return text(`Published version ${version.id}, merged with changes made to the page since the checkout. The working copy was refreshed.`);
       } catch (error) {
         return text((error as Error).message, true);
       }

@@ -55,6 +55,8 @@ export interface PageVersionSummary {
   message: string;
   origin: VersionOrigin;
   createdAt: string;
+  /** Only in the answer to an agent's publish: the page had moved since `baseVersionId` and the changes were merged onto its current version. */
+  merged?: boolean;
 }
 
 export interface CreateVersionRequest {
@@ -62,6 +64,11 @@ export interface CreateVersionRequest {
   files: Record<string, string>;
   message: string;
   origin: VersionOrigin;
+  /**
+   * `POST /agent-api/pages/:id/versions` only (required there): the version the files were checked out from. The server
+   * records what changed relative to it on top of the page's current version, and answers 409 when the same file changed on both sides.
+   */
+  baseVersionId?: string;
 }
 
 export interface PageVersion {

@@ -50,7 +50,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
 
     const files = readWorkingCopy(dir);
     if (sameFiles(files, checkout.files)) return send({ type: "work-done", workId: item.id });
-    const version = await api.publish(item.pageId, files, versionMessage(item, result.summary), item.kind === "conversation" ? "conversation" : "thread");
+    const version = await api.publish(item.pageId, files, versionMessage(item, result.summary), item.kind === "conversation" ? "conversation" : "thread", checkout.versionId);
     send({ type: "work-done", workId: item.id, versionId: version.id });
   } catch (error) {
     send({ type: "work-failed", workId: item.id, message: (error as Error).message });

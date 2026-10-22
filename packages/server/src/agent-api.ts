@@ -8,6 +8,7 @@ import {
   type PageType,
   starterPageFiles,
 } from "@redline/shared";
+import { mergeOntoCurrent } from "./publish.js";
 import { requiredString, versionRequestError } from "./validation.js";
 import { projectContext } from "./project-files.js";
 import type { PageLock } from "./page-lock.js";
@@ -33,12 +34,21 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
         const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId));
         if (invalid) return reply.code(400).send({ error: invalid });
-        const { files, message, origin } = req.body;
-        if (origin !== "terminal") return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
+        const { files, message, origin, baseVersionId } = req.body;
+        if (!requiredString(baseVersionId)) return reply.code(400).send({ error: "baseVersionId is required" });
+        const record = () => {
+          const result = mergeOntoCurrent(store, req.params.pageId, files, baseVersionId);
+          if ("error" in result) return reply.code(result.conflict ? 409 : 400).send({ error: result.error });
+          const invalidMerged = versionRequestError({ ...req.body, files: result.files }, store.isDesignSystemPage(req.params.pageId));
+          if (invalidMerged) return reply.code(409).send({ error: invalidMerged });
+          const version = store.addVersion(req.params.pageId, result.files, message, origin);
+          return reply.code(201).send(result.merged ? { ...version, merged: true } : version);
+        };
+        if (origin !== "terminal") return record();
         // Terminal mode takes its turn on the page like a thread: wait while a session runs on it.
         const release = await pageLock.acquire(req.params.pageId);
         try {
-          return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
+          return record();
         } finally {
           release();
         }

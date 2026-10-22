@@ -623,6 +623,17 @@ export class Store {
     return { versionId: version.id, files };
   }
 
+  /** Every file of one version of a page as UTF-8 text, or undefined if the version is unknown. */
+  readVersionFiles(pageId: string, versionId: string): Record<string, string> | undefined {
+    const row = this.db.prepare("SELECT files FROM versions WHERE id = ? AND page_id = ?").get(versionId, pageId) as { files: string } | undefined;
+    if (!row) return undefined;
+    const files: Record<string, string> = {};
+    for (const [path, hash] of Object.entries(JSON.parse(row.files) as Record<string, string>)) {
+      files[path] = readFileSync(join(this.blobDir, hash), "utf8");
+    }
+    return files;
+  }
+
   /** Reads a file of the page's current version, or undefined if the page or path is unknown. */
   readPageFile(pageId: string, path: string): Buffer | undefined {
     const hash = this.getPage(pageId)?.version.files[path];

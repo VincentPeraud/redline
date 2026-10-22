@@ -21,8 +21,9 @@ export class ServerApi {
     return this.request("GET", `/pages/${pageId}/files`);
   }
 
-  publish(pageId: string, files: Record<string, string>, message: string, origin: VersionOrigin): Promise<PageVersionSummary> {
-    const body: CreateVersionRequest = { files, message, origin };
+  /** Publishes the working copy checked out from `baseVersionId`; the server applies only what changed since then. */
+  publish(pageId: string, files: Record<string, string>, message: string, origin: VersionOrigin, baseVersionId: string): Promise<PageVersionSummary> {
+    const body: CreateVersionRequest = { files, message, origin, baseVersionId };
     return this.request("POST", `/pages/${pageId}/versions`, body);
   }
 

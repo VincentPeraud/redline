@@ -26,7 +26,7 @@ describe("file paths of pages", () => {
     fetch(server.url + `${AGENT_API_PREFIX}/pages/${page.id}/versions`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ files, message: "x", origin: "thread" }),
+      body: JSON.stringify({ files, message: "x", origin: "thread", baseVersionId: page.version.id }),
     });
 
   it.each(UNSAFE)("refuses %j in a new page, a published version and an agent's publish", async (path) => {

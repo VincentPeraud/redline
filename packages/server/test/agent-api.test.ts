@@ -41,7 +41,7 @@ it("lets an agent check out a page's files and publish a version", async () => {
 
   const res = await agentCall(`/pages/${page.id}/versions`, {
     method: "POST",
-    body: { files: { "home.html": "<h1>Bye</h1>" }, message: "Change", origin: "thread" },
+    body: { files: { "home.html": "<h1>Bye</h1>" }, message: "Change", origin: "thread", baseVersionId: checkout.versionId },
   });
   expect(res.status).toBe(201);
   expect((await server.get(`/api/pages/${page.id}/files/home.html`)).status).toBe(200);
