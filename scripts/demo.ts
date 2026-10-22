@@ -22,7 +22,7 @@ import { startServer } from "../packages/server/src/start.js";
 import { startAgent } from "../packages/agent/src/agent.js";
 import type { Engine, EngineRunRequest } from "../packages/agent/src/engine.js";
 import { FakeEngine, type FakeAction, type FakeRunContext } from "../packages/agent/test/support/fake-engine.js";
-import { blogPages, designSystemFiles, lumoraPages, reelsPages, type PageSpec } from "./demo-content.js";
+import { blogPages, designSystemFiles, lumoraAssets, lumoraDesignMd, lumoraPages, reelsPages, type PageSpec } from "./demo-content.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const webRoot = join(repoRoot, "packages", "web");
@@ -181,6 +181,15 @@ async function main(): Promise<void> {
     await post(`/api/conversations/${created.id}/messages`, { body, model: scenario.model?.toLowerCase().split(" ")[0], effort: scenario.effort });
     return created;
   };
+
+  logStep("assets and DESIGN.md");
+  for (const [name, content] of Object.entries(lumoraAssets())) {
+    const path = name.split("/").map(encodeURIComponent).join("/");
+    const res = await fetch(`${server.url}/api/projects/${lumora.id}/assets/${path}`, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: typeof content === "string" ? content : new Uint8Array(content) });
+    if (!res.ok) throw new Error(`PUT asset ${name} -> ${res.status}`);
+  }
+  const designMdRes = await fetch(`${server.url}/api/projects/${lumora.id}/design-md`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: lumoraDesignMd }) });
+  if (!designMdRes.ok) throw new Error(`PUT design-md -> ${designMdRes.status}`);
 
   logStep("conversations and threads");
   const errorPages = await conversation(

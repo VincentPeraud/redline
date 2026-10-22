@@ -1,8 +1,35 @@
+.screen {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.topbar {
+  height: 56px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 0 var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.logoLink {
+  display: flex;
+  color: inherit;
+  text-decoration: none;
+}
+
 .breadcrumb {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: -12px;
   font-size: var(--font-size-md);
   color: var(--color-text-muted);
 }
@@ -21,9 +48,40 @@
   color: var(--color-text);
 }
 
+.body {
+  flex-grow: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.main {
+  --page-padding-y: 32px;
+  --page-padding-x: 40px;
+  --page-gap: 28px;
+}
+
+.aside.aside {
+  position: static;
+  align-self: stretch;
+  height: auto;
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.title {
+  font-size: 32px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.01em;
+}
+
 .summary {
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
 }
 
 .agentPill {
@@ -89,6 +147,12 @@
 .pageCard:focus-visible {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.pageCardCurrent,
+.pageCardCurrent:hover {
+  border: 2px solid var(--color-accent);
+  box-shadow: none;
 }
 
 .pageInfo {
@@ -181,6 +245,7 @@
 }
 
 .assetPreview {
+  box-sizing: content-box;
   height: 72px;
   display: flex;
   align-items: center;
@@ -191,9 +256,37 @@
 }
 
 .assetImage {
-  width: 100%;
-  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
+}
+
+.assetShapes {
+  display: grid;
+  grid-template-columns: repeat(4, 14px);
+  gap: var(--space-2);
+}
+
+.assetShapes > span {
+  height: 14px;
+  box-sizing: border-box;
+  border: 2px solid var(--color-text-secondary);
+}
+
+.shapeRound {
+  border-radius: 50%;
+}
+
+.shapeSquare {
+  border-radius: 3px;
+}
+
+.shapeTab {
+  border-radius: 3px 3px 7px 7px;
+}
+
+.shapeDrop {
+  border-radius: 50% 50% 2px 2px;
 }
 
 .assetGlyph {

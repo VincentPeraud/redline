@@ -27,25 +27,27 @@ afterAll(async () => {
   rmSync(webDir, { recursive: true, force: true });
 });
 
-it("shows which agent serves a project, including the global agent taking over once allowed", async () => {
+it("shows which agent serves a project in the top bar, including the global agent taking over once allowed", async () => {
   const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
   const tab = await browser.newPage();
   await tab.goto(`${server.url}/#/projects/${project.id}`);
-  const label = tab.getByTestId("project-agent");
-  await expect.poll(() => label.textContent()).toBe("Aucun agent ne sert ce projet");
+  const pill = tab.getByTestId("agent-pill");
+  await expect.poll(() => pill.textContent()).toBe("Aucun agent connecté");
 
   const projectAgent = await server.connectAgent({ machine: "MacBook", folder: "/work/acme", projectId: project.id });
   await projectAgent.hello;
+  await tab.reload();
+  await expect.poll(() => pill.textContent()).toBe("Agent acme connecté");
+
   const global = await server.connectAgent({ machine: "iMac", folder: "/home/neutral", kind: "global" });
   await global.hello;
   projectAgent.close();
   await projectAgent.closed;
 
   await tab.reload();
-  await expect.poll(() => label.textContent()).toBe("L'agent du projet MacBook (/work/acme) est hors ligne, les fils attendent");
+  await expect.poll(() => pill.textContent()).toBe("Aucun agent connecté");
 
-  await tab.getByLabel("Laisser l'agent global prendre le relais quand l'agent du projet est hors ligne").click();
-  await expect
-    .poll(() => label.textContent())
-    .toBe("Servi par l'agent global iMac (/home/neutral), en remplacement de l'agent du projet hors ligne");
+  await fetch(`${server.url}/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ allowGlobalTakeover: true }) });
+  await tab.reload();
+  await expect.poll(() => pill.textContent()).toBe("Agent global iMac connecté");
 }, 60_000);
