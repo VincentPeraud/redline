@@ -12,6 +12,7 @@ import {
   type AgentTokenResponse,
   type ServerToAgentMessage,
 } from "@redline/shared";
+import { tokensEqual } from "./request-hardening.js";
 import type { Store } from "./store.js";
 
 function send(socket: WebSocket, message: ServerToAgentMessage): void {
@@ -78,7 +79,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         send(socket, { type: "error", code: "bad_hello", message: "Expected a hello message." });
         return socket.close(AgentCloseCode.BadHello, "bad hello");
       }
-      if (hello.token !== store.getAgentToken()) {
+      if (!tokensEqual(hello.token, store.getAgentToken())) {
         send(socket, {
           type: "error",
           code: "unauthorized",

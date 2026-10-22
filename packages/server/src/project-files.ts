@@ -13,6 +13,9 @@ import {
 } from "@redline/shared";
 import type { Store } from "./store.js";
 
+/** Largest asset (image, font) accepted by `PUT /api/projects/:id/assets/*`; every other request body keeps Fastify's 1 MB limit. */
+export const MAX_ASSET_BYTES = 20 * 1024 * 1024;
+
 /** Design system a page uses: the one its manifest names if it exists, else the neutral one. */
 export function designSystemIdOf(store: Store, pageId: string): string {
   const text = store.readPageFile(pageId, MANIFEST_PATH)?.toString("utf8");
@@ -81,7 +84,7 @@ export async function registerProjectFileRoutes(app: FastifyInstance, store: Sto
   // Raw bytes: `PUT /api/projects/:id/assets/<name>` with the file as body, any content type.
   await app.register(async (scope) => {
     scope.addContentTypeParser("*", { parseAs: "buffer" }, (_req, body, done) => done(null, body));
-    scope.put<{ Params: { projectId: string; "*": string }; Body: Buffer }>("/api/projects/:projectId/assets/*", async (req, reply) => {
+    scope.put<{ Params: { projectId: string; "*": string }; Body: Buffer }>("/api/projects/:projectId/assets/*", { bodyLimit: MAX_ASSET_BYTES }, async (req, reply) => {
       if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
       const name = assetNameOf(req.params["*"]);
       if (name === undefined) return reply.code(400).send({ error: "invalid asset name" });

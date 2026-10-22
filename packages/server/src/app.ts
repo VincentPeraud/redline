@@ -37,6 +37,7 @@ import { registerContextTracking } from "./context.js";
 import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
+import { registerRequestHardening } from "./request-hardening.js";
 import { registerDesignSystemReload } from "./design-system-reload.js";
 import { registerSessionRoutes } from "./sessions.js";
 import { registerHomeRoutes } from "./home.js";
@@ -66,6 +67,7 @@ export async function buildMainApp(
   options: { retryDelaysMs?: number[] } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify();
+  registerRequestHardening(app);
   const agents = await registerAgentRoutes(app, store);
   const pageLock = new PageLock(store, agents, options.retryDelaysMs);
   app.addHook("onClose", async () => pageLock.dispose());
@@ -305,7 +307,12 @@ export async function buildMainApp(
     const path = req.params["*"];
     const content = store.readPageFile(req.params.pageId, path);
     if (!content) return reply.code(404).send({ error: "file not found" });
-    return reply.type("application/octet-stream").send(content);
+    // Stored files can be anything a session wrote: served as a download, never rendered on the UI's origin.
+    return reply
+      .type("application/octet-stream")
+      .header("x-content-type-options", "nosniff")
+      .header("content-disposition", "attachment")
+      .send(content);
   });
 
   if (webDir && existsSync(webDir)) {

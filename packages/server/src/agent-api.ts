@@ -9,6 +9,7 @@ import {
   starterPageFiles,
 } from "@redline/shared";
 import { mergeOntoCurrent } from "./publish.js";
+import { tokensEqual } from "./request-hardening.js";
 import { requiredString, versionRequestError } from "./validation.js";
 import { projectContext } from "./project-files.js";
 import type { PageLock } from "./page-lock.js";
@@ -19,9 +20,19 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
   await app.register(
     async (api) => {
       api.addHook("preHandler", async (req, reply) => {
-        if (req.headers.authorization !== `Bearer ${store.getAgentToken()}`) {
+        const given = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice("Bearer ".length) : undefined;
+        if (!tokensEqual(given, store.getAgentToken())) {
           return reply.code(401).send({ error: "Wrong or missing agent token." });
         }
+      });
+
+      // `redline init` / `redline agent` pick or create the project a folder serves, before they have anything else to call.
+      api.get("/projects", async () => store.listProjects());
+
+      api.post<{ Body: { title?: unknown } }>("/projects", async (req, reply) => {
+        const title = req.body?.title;
+        if (!requiredString(title)) return reply.code(400).send({ error: "title is required" });
+        return reply.code(201).send(store.createProject(title.trim()));
       });
 
       api.get<{ Params: { pageId: string } }>("/pages/:pageId/files", async (req, reply): Promise<AgentCheckout> => {

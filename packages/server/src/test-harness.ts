@@ -28,17 +28,32 @@ export interface TestServer {
   connectAgent(options?: ConnectAgentOptions): Promise<TestAgent>;
   /** Number of distinct blobs on disk. */
   blobCount(): number;
-  /** Stops the server (dropping every agent connection) and starts a new one on the same data folder, like a process restart. */
-  restart(): Promise<void>;
+  /**
+   * Stops the server (dropping every agent connection) and starts a new one on the same data folder and the same
+   * ports, like a process restart; it stays down for `downForMs` first.
+   */
+  restart(options?: { downForMs?: number }): Promise<void>;
   stop(): Promise<void>;
+}
+
+/** After a restart on the same port, fetch may still try a kept-alive connection to the old process: one more try opens a new one. */
+async function sturdyFetch(send: () => Promise<Response>): Promise<Response> {
+  try {
+    return await send();
+  } catch (error) {
+    const code = ((error as { cause?: { code?: string } }).cause ?? {}).code;
+    if (code !== "ECONNRESET" && code !== "UND_ERR_SOCKET") throw error;
+    return send();
+  }
 }
 
 /** Starts a real server on a temporary data folder with random free ports. */
 export async function startTestServer(options: { webDir?: string; retryDelaysMs?: number[] } = {}): Promise<TestServer> {
   const dataDir = mkdtempSync(join(tmpdir(), "redline-test-"));
-  const start = () =>
-    startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", webDir: options.webDir, retryDelaysMs: options.retryDelaysMs });
-  let server: RunningServer = await start();
+  const start = (ports: { port: number; artboardPort: number }) =>
+    startServer({ dataDir, ...ports, host: "127.0.0.1", webDir: options.webDir, retryDelaysMs: options.retryDelaysMs });
+  let server: RunningServer = await start({ port: 0, artboardPort: 0 });
+  const ports = { port: Number(new URL(server.url).port), artboardPort: Number(new URL(server.artboardOrigin).port) };
   const sockets: WebSocket[] = [];
   return {
     get url() {
@@ -48,13 +63,15 @@ export async function startTestServer(options: { webDir?: string; retryDelaysMs?
       return server.artboardOrigin;
     },
     dataDir,
-    get: (path) => fetch(server.url + path),
+    get: (path) => sturdyFetch(() => fetch(server.url + path)),
     post: (path, body) =>
-      fetch(server.url + path, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }),
+      sturdyFetch(() =>
+        fetch(server.url + path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      ),
     async connectAgent(options = {}) {
       const token = options.token ?? ((await (await fetch(server.url + "/api/agent-token")).json()) as { token: string }).token;
       const socket = new WebSocket(server.url.replace(/^http/, "ws") + AGENT_ENDPOINT);
@@ -87,9 +104,10 @@ export async function startTestServer(options: { webDir?: string; retryDelaysMs?
       return { hello, messages, send: (m) => socket.send(JSON.stringify(m)), closed, close: () => socket.close() };
     },
     blobCount: () => readdirSync(join(dataDir, "blobs")).length,
-    async restart() {
+    async restart({ downForMs = 0 } = {}) {
       await server.close();
-      server = await start();
+      if (downForMs > 0) await new Promise((resolve) => setTimeout(resolve, downForMs));
+      server = await start(ports);
     },
     async stop() {
       for (const socket of sockets) socket.close();

@@ -3,14 +3,12 @@ import { EFFORTS, type Effort, type Project } from "@redline/shared";
 import { hostname } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { checkClaude } from "./claude.js";
-import { startAgent } from "./agent.js";
 import { claudeCodeEngine } from "./claude-code-engine.js";
 import { linkFolder, type LinkChoice } from "./link.js";
 import { defaultConfigDir, login, readLogin } from "./login.js";
 import { ServerApi } from "./server-api.js";
+import { serveAgent } from "./serve-agent.js";
 import { serveTerminalMcp } from "./terminal-mcp.js";
-
-const RECONNECT_DELAY_MS = 3000;
 
 async function runLogin(serverUrl: string | undefined): Promise<void> {
   if (!serverUrl) throw new Error("Usage: redline login <server-url>");
@@ -43,8 +41,8 @@ async function askLinkChoice(projects: Project[]): Promise<LinkChoice> {
 }
 
 async function runInit(): Promise<void> {
-  const { serverUrl } = readLogin(defaultConfigDir());
-  await linkFolder({ folder: process.cwd(), serverUrl, choose: askLinkChoice });
+  const { serverUrl, token } = readLogin(defaultConfigDir());
+  await linkFolder({ folder: process.cwd(), serverUrl, token, choose: askLinkChoice });
   console.log("Folder linked. Run `redline agent` to start serving it.");
 }
 
@@ -69,22 +67,15 @@ async function runAgent(args: string[]): Promise<void> {
   const { serverUrl, token } = readLogin(defaultConfigDir());
   const kind = args.includes("--global") ? "global" : "project";
   const folder = process.cwd();
-  const projectId = kind === "project" ? await linkFolder({ folder, serverUrl, choose: askLinkChoice }) : undefined;
+  const projectId = kind === "project" ? await linkFolder({ folder, serverUrl, token, choose: askLinkChoice }) : undefined;
   const identity = { serverUrl, token, machine: hostname(), folder, kind, projectId } as const;
 
+  const service = serveAgent({ ...identity, engine: claudeCodeEngine(), model, effort, log: console.log });
   process.on("SIGINT", () => {
     console.log("\nAgent stopped.");
-    process.exit(0);
+    service.stop();
   });
-
-  for (;;) {
-    const connection = await startAgent({ ...identity, engine: claudeCodeEngine(), model, effort });
-    console.log(`Connected to ${serverUrl} as ${kind} agent in ${identity.folder}. Ctrl-C to stop.`);
-    const { reason } = await connection.closed;
-    if (reason === "unauthorized") throw new Error("The token was regenerated. Run `redline login <server-url>` again.");
-    console.log(`Connection lost, retrying in ${RECONNECT_DELAY_MS / 1000}s...`);
-    await new Promise((resolve) => setTimeout(resolve, RECONNECT_DELAY_MS));
-  }
+  await service.done;
 }
 
 /** Terminal mode: an MCP server on stdio for the user's own Claude Code (`claude mcp add redline -- redline mcp`). */

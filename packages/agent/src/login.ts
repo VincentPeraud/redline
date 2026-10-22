@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -15,7 +15,10 @@ export function defaultConfigDir(): string {
 export function login({ configDir, serverUrl, token }: Login & { configDir: string }): void {
   mkdirSync(configDir, { recursive: true });
   const stored: Login = { serverUrl: serverUrl.replace(/\/+$/, ""), token: token.trim() };
-  writeFileSync(join(configDir, "login.json"), JSON.stringify(stored, null, 2), { mode: 0o600 });
+  const file = join(configDir, "login.json");
+  writeFileSync(file, JSON.stringify(stored, null, 2), { mode: 0o600 });
+  // `mode` only applies when the file is created: tighten one that already existed.
+  chmodSync(file, 0o600);
 }
 
 export function readLogin(configDir: string): Login {

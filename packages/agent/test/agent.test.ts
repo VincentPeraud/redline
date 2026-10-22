@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -26,6 +26,13 @@ describe("redline login", () => {
     const configDir = tempDir();
     login({ configDir, serverUrl: "https://redline.example.fr/", token: "abt_123" });
     expect(readLogin(configDir)).toEqual({ serverUrl: "https://redline.example.fr", token: "abt_123" });
+  });
+
+  it("keeps the login file readable by its owner only, even when it already existed", () => {
+    const configDir = tempDir();
+    writeFileSync(join(configDir, "login.json"), "{}", { mode: 0o644 });
+    login({ configDir, serverUrl: "https://redline.example.fr", token: "abt_123" });
+    expect(statSync(join(configDir, "login.json")).mode & 0o777).toBe(0o600);
   });
 
   it("tells the user to log in when nothing is stored", () => {

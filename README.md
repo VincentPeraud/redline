@@ -21,6 +21,11 @@ Environment variables (all optional):
 | `REDLINE_ARTBOARD_PORT` | `3001` | Host port of the artboard origin |
 | `REDLINE_ARTBOARD_ORIGIN` | `http://localhost:$REDLINE_ARTBOARD_PORT` | Public origin of the artboard listener; set it when behind a proxy |
 
+### Limits
+
+- Project assets (images, fonts) uploaded from the DESIGN.md screen: 20 MB each. Every other request body: 1 MB.
+- Data (SQLite database and blobs) has no quota; watch the volume if you upload large assets.
+
 ### Exposing the server
 
 Redline has no login, and `GET /api/agent-token` hands out the agents' token to whoever reaches the API. That is why `docker-compose.yml` publishes both ports on `127.0.0.1` by default. To use Redline from other machines, keep the default and put a reverse proxy on the same host (it reaches `127.0.0.1:3000` and `127.0.0.1:3001`) that authenticates users. Set `REDLINE_BIND=0.0.0.0` only on a network where everyone who can connect may administer Redline.

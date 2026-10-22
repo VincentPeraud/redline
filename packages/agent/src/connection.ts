@@ -34,6 +34,9 @@ export interface AgentConnection {
   close(): void;
 }
 
+/** The server could not be reached at all (down, restarting, wrong address): worth retrying, unlike a refusal by the server. */
+export class ServerUnreachableError extends Error {}
+
 /** Opens the persistent outbound connection. Rejects with the server's message if it refuses the agent. */
 export function connectToServer(options: ConnectOptions): Promise<AgentConnection> {
   const socket = new WebSocket(options.serverUrl.replace(/^http/, "ws") + AGENT_ENDPOINT);
@@ -44,7 +47,7 @@ export function connectToServer(options: ConnectOptions): Promise<AgentConnectio
   });
 
   return new Promise((resolve, reject) => {
-    socket.addEventListener("error", () => reject(new Error(`Cannot reach the server at ${options.serverUrl}.`)));
+    socket.addEventListener("error", () => reject(new ServerUnreachableError(`Cannot reach the server at ${options.serverUrl}.`)));
     socket.addEventListener("open", () => {
       const hello: AgentHello = {
         type: "hello",
