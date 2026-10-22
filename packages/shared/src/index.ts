@@ -419,3 +419,4 @@ export function starterPageFiles(title: string, type: PageType, designSystem?: s
 }
 
 export * from "./designSystem.js";
+export * from "./projectFiles.js";

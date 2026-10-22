@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import {
@@ -8,6 +8,7 @@ import {
   NEUTRAL_TOKENS_CSS,
   NEUTRAL_TOKENS_PAGE_HTML,
   type DesignSystem,
+  type ProjectAsset,
 } from "@redline/shared";
 import type {
   CreateThreadRequest,
@@ -96,6 +97,12 @@ export class Store {
       CREATE TABLE IF NOT EXISTS design_systems (
         project_id TEXT PRIMARY KEY REFERENCES projects(id),
         page_id TEXT NOT NULL REFERENCES pages(id)
+      );
+      CREATE TABLE IF NOT EXISTS project_files (
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        path TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        PRIMARY KEY (project_id, path)
       );
       UPDATE agents SET status = 'offline';
     `);
@@ -249,6 +256,30 @@ export class Store {
 
   projectExists(id: string): boolean {
     return this.db.prepare("SELECT 1 FROM projects WHERE id = ?").get(id) !== undefined;
+  }
+
+  /** Stores a project-level file (DESIGN.md or `assets/<name>`) under its content hash. */
+  setProjectFile(projectId: string, path: string, content: Buffer): string {
+    const hash = this.putBlob(content);
+    this.db
+      .prepare("INSERT INTO project_files (project_id, path, hash) VALUES (?, ?, ?) ON CONFLICT(project_id, path) DO UPDATE SET hash = excluded.hash")
+      .run(projectId, path, hash);
+    return hash;
+  }
+
+  readProjectFile(projectId: string, path: string): Buffer | undefined {
+    const row = this.db.prepare("SELECT hash FROM project_files WHERE project_id = ? AND path = ?").get(projectId, path) as
+      | { hash: string }
+      | undefined;
+    return row && readFileSync(join(this.blobDir, row.hash));
+  }
+
+  /** Project-level files under `prefix`, as `{name (prefix removed), hash, size}`. */
+  listProjectFiles(projectId: string, prefix: string): ProjectAsset[] {
+    const rows = this.db
+      .prepare("SELECT path, hash FROM project_files WHERE project_id = ? AND substr(path, 1, ?) = ? ORDER BY path")
+      .all(projectId, prefix.length, prefix) as { path: string; hash: string }[];
+    return rows.map((r) => ({ name: r.path.slice(prefix.length), hash: r.hash, size: statSync(join(this.blobDir, r.hash)).size }));
   }
 
   createPage(projectId: string, title: string, type: PageType, files: Record<string, string>): Page {

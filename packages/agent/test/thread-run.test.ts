@@ -7,7 +7,7 @@ import { FakeEngine, startSeam2, type Seam2 } from "./support/seam2.js";
 const PAGE_FILES = {
   "home.html": "<!doctype html><h1>Old title</h1>",
   "manifest.json": JSON.stringify({ artboards: [{ file: "home.html" }] }),
-  "DESIGN.md": "# Design\nBlue.",
+  "notes.md": "# Design\nBlue.",
 };
 
 let seam: Seam2 | undefined;
@@ -37,7 +37,7 @@ describe("running a thread with the fake engine", () => {
       ["terminal", "Page created"],
     ]);
     expect(await seam.readFile(page.id, "home.html")).toContain("New title");
-    expect(await seam.readFile(page.id, "DESIGN.md")).toBe("# Design\nBlue.");
+    expect(await seam.readFile(page.id, "notes.md")).toBe("# Design\nBlue.");
 
     const [thread] = (await (await seam.server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
     expect(thread.replies.map((r) => [r.author, r.body])).toEqual([["claude", "Done, the title is updated."]]);
@@ -118,13 +118,35 @@ describe("running a thread with the fake engine", () => {
   });
 
   it("removes a file deleted from the working copy in the published version", async () => {
-    const engine = new FakeEngine([{ remove: "DESIGN.md" }, { type: "result", summary: "Drop design notes" }]);
+    const engine = new FakeEngine([{ remove: "notes.md" }, { type: "result", summary: "Drop design notes" }]);
     seam = await startSeam2(engine);
     const page = await seam.createPage(PAGE_FILES);
     await seam.pinThread(page.id, "home.html", "Drop the notes");
     await seam.waitForVersions(page.id, 2);
 
-    expect(existsSync(join(seam.folder, ".redline", page.id, "DESIGN.md"))).toBe(false);
-    expect((await seam.server.get(`/api/pages/${page.id}/files/DESIGN.md`)).status).toBe(404);
+    expect(existsSync(join(seam.folder, ".redline", page.id, "notes.md"))).toBe(false);
+    expect((await seam.server.get(`/api/pages/${page.id}/files/notes.md`)).status).toBe(404);
+  });
+});
+
+describe("project context in the working copy", () => {
+  it("writes DESIGN.md, assets and design system files for the session, and never publishes them", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
+    seam = await startSeam2(engine);
+    const bytes = Buffer.from([0, 255, 128, 7]);
+    const base = `${seam.server.url}/api/projects/${seam.project.id}`;
+    await fetch(`${base}/design-md`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "# Rules" }) });
+    await fetch(`${base}/assets/logo.png`, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: bytes });
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "Check the rules");
+    await engine.finished(1);
+    await seam.waitForWorkEnd();
+
+    const dir = join(seam.folder, ".redline", page.id);
+    expect(readFileSync(join(dir, "DESIGN.md"), "utf8")).toBe("# Rules");
+    expect(readFileSync(join(dir, "assets", "logo.png")).equals(bytes)).toBe(true);
+    expect(readFileSync(join(dir, "design-system", "tokens.css"), "utf8")).toContain("--color-primary");
+    expect(engine.runs[0].filesAtStart).toEqual(PAGE_FILES);
+    expect(await seam.versions(page.id)).toHaveLength(1);
   });
 });
