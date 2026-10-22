@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import {
   NEUTRAL_DESIGN_SYSTEM_ID,
+  type DesignMdInfo,
   type DesignMdResponse,
   type DesignSystemSummary,
   type Page,
@@ -10,6 +11,7 @@ import {
   type Thread,
 } from "@redline/shared";
 import { AgentPill } from "./AgentPill.js";
+import { dayLabel, designMdAuthor } from "./historyLabels.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
@@ -180,6 +182,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
   const [artboardOrigin, setArtboardOrigin] = useState("");
   const [designSystem, setDesignSystem] = useState<DesignSystemSummary | null>(null);
   const [designMd, setDesignMd] = useState<string | null>(null);
+  const [designMdInfo, setDesignMdInfo] = useState<DesignMdInfo | null>(null);
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
   const [creating, setCreating] = useState(false);
   const [renamingProject, setRenamingProject] = useState(false);
@@ -223,6 +226,9 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
     fetch(`/api/projects/${projectId}/design-md`)
       .then((res) => res.json() as Promise<DesignMdResponse>)
       .then(({ content }) => setDesignMd(content));
+    fetch(`/api/projects/${projectId}/design-md/info`)
+      .then((res) => res.json() as Promise<DesignMdInfo>)
+      .then(setDesignMdInfo);
     void loadAssets();
   }, [projectId]);
 
@@ -373,6 +379,11 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
               <MarkdownPreview source={designMd} />
             ) : (
               <p className={styles.empty}>Aucune consigne pour l'instant.</p>
+            )}
+            {designMdInfo?.lastModified && (
+              <div data-testid="design-md-last-modified" className={styles.designMdMeta}>
+                Dernière modification par {designMdAuthor(designMdInfo.lastModified.origin, designMdInfo.lastModified.originLabel)} · {dayLabel(designMdInfo.lastModified.createdAt)}
+              </div>
             )}
           </section>
         </SidePanelBody>

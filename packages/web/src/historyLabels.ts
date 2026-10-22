@@ -20,9 +20,30 @@ export function originLabel(origin: AuthorOrigin, title?: string): string {
   return FIXED_LABELS[origin];
 }
 
+/** "Claude · fil « … »", "Claude · conversation « … »", "Terminal", "toi": who last changed DESIGN.md, to sit after "par". */
+export function designMdAuthor(origin: AuthorOrigin, title?: string): string {
+  if (origin === "thread" || origin === "conversation") {
+    const kind = origin === "thread" ? "fil" : "conversation";
+    return title ? `Claude · ${kind} « ${title} »` : `Claude · ${kind}`;
+  }
+  return origin === "user" ? "toi" : originLabel(origin);
+}
+
+/** Origin line of a DESIGN.md rule; the user's rules from the project's first version read "création du projet". */
+export function ruleOrigin(origin: AuthorOrigin, title: string | undefined, fromFirstVersion: boolean): string {
+  if (origin === "user") return fromFirstVersion ? "Toi · création du projet" : "Toi";
+  return originLabel(origin, title);
+}
+
 const dayNumber = (date: Date) => Math.floor(new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() / 86_400_000);
 
 const clock = (date: Date) => date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+
+/** "aujourd'hui", "hier", "mar. 20 oct.", "3 déc. 2025". */
+export function dayLabel(iso: string, now: number = Date.now()): string {
+  const days = dayNumber(new Date(now)) - dayNumber(new Date(iso));
+  return days === 0 ? "aujourd'hui" : historyDate(iso, { now });
+}
 
 /** "il y a 2 min", "il y a 3 h" within the day, "hier" (", 16:40" with `withTime`), "lun. 20 oct.", "3 déc. 2025". */
 export function historyDate(iso: string, { now = Date.now(), withTime = false }: { now?: number; withTime?: boolean } = {}): string {

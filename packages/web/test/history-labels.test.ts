@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { historyDate, originLabel } from "../src/historyLabels.js";
+import { dayLabel, designMdAuthor, historyDate, originLabel, ruleOrigin } from "../src/historyLabels.js";
 
 describe("originLabel", () => {
   it("names the thread or conversation that produced a version", () => {
@@ -18,6 +18,32 @@ describe("originLabel", () => {
     expect(originLabel("restore")).toBe("Restauration");
     expect(originLabel("creation")).toBe("Création");
     expect(originLabel("user")).toBe("Toi");
+  });
+});
+
+describe("DESIGN.md authors", () => {
+  it("names the author in the header: Claude with its thread or conversation, the terminal, or the user", () => {
+    expect(designMdAuthor("thread", "Bouton trop discret")).toBe("Claude · fil « Bouton trop discret »");
+    expect(designMdAuthor("conversation", "Écrans plus chaleureux")).toBe("Claude · conversation « Écrans plus chaleureux »");
+    expect(designMdAuthor("terminal")).toBe("Terminal");
+    expect(designMdAuthor("user")).toBe("toi");
+  });
+
+  it("names the origin of a rule, 'création du projet' for the user's first version", () => {
+    expect(ruleOrigin("thread", "Calendrier", false)).toBe("Fil « Calendrier »");
+    expect(ruleOrigin("conversation", "Parcours", false)).toBe("Conversation « Parcours »");
+    expect(ruleOrigin("terminal", undefined, false)).toBe("Terminal");
+    expect(ruleOrigin("user", undefined, true)).toBe("Toi · création du projet");
+    expect(ruleOrigin("user", undefined, false)).toBe("Toi");
+  });
+});
+
+describe("dayLabel", () => {
+  const now = new Date(2026, 9, 22, 15, 0).getTime();
+  it("says today, yesterday, or the date", () => {
+    expect(dayLabel(new Date(2026, 9, 22, 9, 0).toISOString(), now)).toBe("aujourd'hui");
+    expect(dayLabel(new Date(2026, 9, 21, 9, 0).toISOString(), now)).toBe("hier");
+    expect(dayLabel(new Date(2026, 9, 20, 9, 0).toISOString(), now)).toBe("mar. 20 oct.");
   });
 });
 
