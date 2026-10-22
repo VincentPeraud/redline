@@ -3,6 +3,8 @@ import {
   type AgentCheckout,
   type CreateReplyRequest,
   type CreateVersionRequest,
+  type Page,
+  type PageType,
   type PageVersionSummary,
   type ThreadReply,
   type VersionOrigin,
@@ -27,6 +29,11 @@ export class ServerApi {
   replyInThread(threadId: string, text: string): Promise<ThreadReply> {
     const body: CreateReplyRequest = { body: text };
     return this.request("POST", `/threads/${threadId}/replies`, body);
+  }
+
+  /** Creates a page (starter files) in the same project as `pageId`. */
+  createPageBeside(pageId: string, title: string, type: PageType): Promise<Page> {
+    return this.request("POST", `/pages/${pageId}/siblings`, { title, type });
   }
 
   private async request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {

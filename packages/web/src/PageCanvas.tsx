@@ -12,6 +12,9 @@ import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { fitView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { PlayMode } from "./PlayMode.js";
 import { queueLabel } from "./queueLabel.js";
+import { ThreadReplyForm } from "./ThreadReplyForm.js";
+import { RunProgress } from "./RunProgress.js";
+import { useRuns } from "./useRuns.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { useTweaks } from "./useTweaks.js";
 import { subscribeServerEvents } from "./serverEvents.js";
@@ -58,6 +61,7 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
   const placed = useRef(false);
   const drag = useRef<{ x: number; y: number } | null>(null);
 
+  const runs = useRuns(pageId);
   const tweaks = useTweaks(pageId, manifest, files, onVersionChange);
   const hasManifest = MANIFEST_PATH in files;
   const htmlPaths = Object.keys(files).filter((path) => path.endsWith(".html"));
@@ -316,16 +320,21 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
           ) : (
             <div key={thread.id} style={{ border: "1px solid #ddd", padding: 8, marginBottom: 8 }}>
               <strong>{thread.number}.</strong> {thread.body}
-              {queueLabel(queue, thread.id) && (
+              {queueLabel(queue, thread.id) ? (
                 <div data-testid="queued" style={{ color: "#8a6d00", fontSize: 12 }}>
                   {queueLabel(queue, thread.id)}
                 </div>
+              ) : (
+                runs.filter((r) => r.threadIds.includes(thread.id)).slice(-1).map((run) => (
+                  <RunProgress key={run.workId} run={run} />
+                ))
               )}
               {thread.replies.map((reply) => (
                 <p key={reply.id} data-testid="reply" style={{ background: "#f6f4ff", padding: 6, margin: "6px 0" }}>
-                  <em>Claude:</em> {reply.body}
+                  <em>{reply.author === "user" ? "You" : "Claude"}:</em> {reply.body}
                 </p>
               ))}
+              <ThreadReplyForm threadId={thread.id} />
               <div>
                 <button onClick={() => void resolve(thread)}>Resolve</button>
               </div>
