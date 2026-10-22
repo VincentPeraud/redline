@@ -1,6 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Manifest, TweakValue, TweakValues } from "@redline/shared";
 import { TweaksPanel } from "./TweaksPanel.js";
+import { cx } from "./ui/index.js";
+import styles from "./PlayMode.module.css";
+
+/** Artboards up to this width are drawn as a phone: rounded corners and a dark bezel. */
+const PHONE_MAX_WIDTH = 500;
+const STAGE_PADDING = 32;
 
 /** Target artboard of the link on `selector` in artboard `from`, if the manifest declares one that exists. */
 export function resolveLink(manifest: Manifest, from: string, selector: string): string | null {
@@ -23,7 +29,22 @@ export function PlayMode({ pageId, manifest, artboardOrigin, tweaks, onTweak, on
   const [current, setCurrent] = useState(manifest.artboards[0]?.file ?? null);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
+  const stage = useRef<HTMLElement>(null);
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const artboard = manifest.artboards.find((a) => a.file === current);
+  const scale = artboard && stageSize.width > 0
+    ? Math.min(1, Math.max(0.1, (stageSize.width - STAGE_PADDING * 2) / artboard.width), Math.max(0.1, (stageSize.height - STAGE_PADDING * 2) / artboard.height))
+    : 1;
+
+  useLayoutEffect(() => {
+    const node = stage.current;
+    if (!node) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setStageSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (bridgeEpoch === 0) return;
@@ -55,25 +76,79 @@ export function PlayMode({ pageId, manifest, artboardOrigin, tweaks, onTweak, on
     return () => window.removeEventListener("keydown", onKey);
   }, [onExit]);
 
+  const hasTweaks = manifest.tweaks.length > 0;
+  const frameStyle = artboard && {
+    width: artboard.width,
+    height: artboard.height,
+    transform: `scale(${scale})`,
+  };
+
   return (
-    <div data-testid="play" style={{ background: "#f2f2f0", padding: 16 }}>
-      <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
-        <button onClick={onExit}>← Canvas (Échap)</button>
-        <span>{artboard?.title ?? artboard?.file ?? "Aucun artboard"}</span>
-      </div>
-      <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
-        <TweaksPanel tweaks={manifest.tweaks} values={tweaks} onChange={onTweak} />
-        {artboard && (
-        <div style={{ overflow: "auto", flex: 1 }}>
-          <iframe
-            key={artboard.file}
-            ref={frame}
-            title={`Plein écran / ${artboard.file}`}
-            src={`${artboardOrigin}/pages/${pageId}/${artboard.file}`}
-            sandbox="allow-scripts"
-            style={{ width: artboard.width, height: artboard.height, border: 0, background: "#fff", display: "block", margin: "0 auto" }}
-          />
-        </div>
+    <div data-testid="play" className={styles.play}>
+      <header className={styles.topbar}>
+        <button type="button" onClick={onExit} title="Échap" className={styles.back}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M19 12H5" />
+            <path d="M12 19l-7-7 7-7" />
+          </svg>
+          Canvas
+        </button>
+        <div className={styles.title}>{manifest.title ?? "Sans titre"} · plein écran</div>
+        <div className={styles.spacer} />
+        <nav aria-label="Écrans" className={styles.screens}>
+          {manifest.artboards.map((a, index) => (
+            <button
+              key={a.file}
+              type="button"
+              title={a.title ?? a.file}
+              aria-current={a.file === current ? "page" : undefined}
+              onClick={() => setCurrent(a.file)}
+              className={cx(styles.screen, a.file === current && styles.screenCurrent)}
+            >
+              Écran {index + 1}
+            </button>
+          ))}
+        </nav>
+        <div className={styles.spacer} />
+        {hasTweaks && <div className={styles.tweaksState}>Tweaks ouverts</div>}
+      </header>
+      <div className={styles.body}>
+        <main ref={stage} className={styles.stage}>
+          {artboard && frameStyle ? (
+            <div
+              className={cx(styles.device, artboard.width <= PHONE_MAX_WIDTH && styles.phone)}
+              style={{ width: artboard.width * scale, height: artboard.height * scale }}
+            >
+              <iframe
+                key={artboard.file}
+                ref={frame}
+                title={`Plein écran / ${artboard.file}`}
+                src={`${artboardOrigin}/pages/${pageId}/${artboard.file}`}
+                sandbox="allow-scripts"
+                className={styles.frame}
+                style={frameStyle}
+              />
+            </div>
+          ) : (
+            <p className={styles.empty}>Aucun artboard</p>
+          )}
+        </main>
+        {hasTweaks && (
+          <aside aria-label="Tweaks" className={styles.aside}>
+            <div className={styles.asideHead}>
+              <div className={styles.asideTitle}>Tweaks</div>
+              <div className={styles.asideHint}>Réglages déclarés par Claude dans le manifeste. Ils s'appliquent tout de suite, sans session.</div>
+            </div>
+            <TweaksPanel
+              theme="dark"
+              tweaks={manifest.tweaks}
+              values={tweaks}
+              onChange={onTweak}
+              previews={manifest.artboards[0] && { pageId, artboardOrigin, artboard: manifest.artboards[0] }}
+            />
+            <div className={styles.spacer} />
+            <div className={styles.asideNote}>Les valeurs choisies font partie du design : elles sont enregistrées avec l'artefact et s'appliquent aussi sur le canvas.</div>
+          </aside>
         )}
       </div>
     </div>

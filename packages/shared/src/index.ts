@@ -184,17 +184,32 @@ export interface ManifestLink {
 
 export type TweakType = "color" | "choice" | "toggle" | "range" | "count" | "text";
 
+/** How a `choice` tweak is drawn: segmented buttons (default), a dropdown, or live thumbnails of the artboard. */
+export type TweakDisplay = "buttons" | "dropdown" | "previews";
+export const TWEAK_DISPLAYS: readonly TweakDisplay[] = ["buttons", "dropdown", "previews"];
+
+/** What a tweak touches. The tweaks panel lists them in this order; a tweak without a scope counts as "page". */
+export type TweakScope = "element" | "artboard" | "page";
+export const TWEAK_SCOPES: readonly TweakScope[] = ["element", "artboard", "page"];
+
 /** Declaration only; chosen values live in the page's tweaks file, never in the manifest. */
 export interface ManifestTweak {
   id: string;
   type: TweakType;
   label: string;
   default?: string | number | boolean;
-  /** `choice` only. */
+  /** `choice`: the choices. `color`: suggested colours. `text`: suggested phrasings. */
   options?: string[];
   /** `range` and `count` only. */
   min?: number;
   max?: number;
+  /** `range` and `count`: shown after the value ("px", "cartes"). */
+  unit?: string;
+  /** `choice` only. */
+  display?: TweakDisplay;
+  /** `color` only: also offer a free colour picker next to the suggested `options`. */
+  allowCustom?: boolean;
+  scope?: TweakScope;
 }
 
 export interface Manifest {
@@ -209,6 +224,7 @@ export interface Manifest {
 }
 
 const TWEAK_TYPES: readonly TweakType[] = ["color", "choice", "toggle", "range", "count", "text"];
+const TWEAK_TYPE_ALIASES: Record<string, TweakType> = { boolean: "toggle", int: "count" };
 
 function fail(message: string): never {
   throw new Error(`Invalid ${MANIFEST_PATH}: ${message}`);
@@ -276,8 +292,11 @@ export function parseManifest(text: string): Manifest {
 
   const tweaks = list(root.tweaks, "tweaks").map((item, i): ManifestTweak => {
     const name = `tweaks[${i}]`;
-    const type = str(item, "type", name);
-    if (!TWEAK_TYPES.includes(type as TweakType)) fail(`${name}.type must be one of ${TWEAK_TYPES.join(", ")}`);
+    const declared = str(item, "type", name);
+    const type = TWEAK_TYPE_ALIASES[declared] ?? declared;
+    if (!TWEAK_TYPES.includes(type as TweakType)) fail(`${name}.type must be one of ${[...TWEAK_TYPES, ...Object.keys(TWEAK_TYPE_ALIASES)].join(", ")}`);
+    if (item.display !== undefined && !TWEAK_DISPLAYS.includes(item.display as TweakDisplay)) fail(`${name}.display must be one of ${TWEAK_DISPLAYS.join(", ")}`);
+    if (item.scope !== undefined && !TWEAK_SCOPES.includes(item.scope as TweakScope)) fail(`${name}.scope must be one of ${TWEAK_SCOPES.join(", ")}`);
     return { ...(item as unknown as ManifestTweak), id: str(item, "id", name), type: type as TweakType, label: str(item, "label", name) };
   });
 
@@ -412,7 +431,7 @@ export function tweakValueError(tweak: ManifestTweak, value: unknown): string | 
 function typeDefault(tweak: ManifestTweak): TweakValue {
   switch (tweak.type) {
     case "color":
-      return "#000000";
+      return tweak.options?.[0] ?? "#000000";
     case "choice":
       return tweak.options?.[0] ?? "";
     case "toggle":
