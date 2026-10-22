@@ -8,6 +8,7 @@ import {
   NEUTRAL_TOKENS_CSS,
   NEUTRAL_TOKENS_PAGE_HTML,
   type DesignSystem,
+  type DesignMdVersion,
   type ProjectAsset,
 } from "@redline/shared";
 import type {
@@ -109,6 +110,12 @@ export class Store {
         path TEXT NOT NULL,
         hash TEXT NOT NULL,
         PRIMARY KEY (project_id, path)
+      );
+      CREATE TABLE IF NOT EXISTS design_md_versions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        hash TEXT NOT NULL,
+        created_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS conversations (
         id TEXT PRIMARY KEY,
@@ -425,6 +432,24 @@ export class Store {
       .prepare("INSERT INTO project_files (project_id, path, hash) VALUES (?, ?, ?) ON CONFLICT(project_id, path) DO UPDATE SET hash = excluded.hash")
       .run(projectId, path, hash);
     return hash;
+  }
+
+  /** Saves DESIGN.md and records a version, unless the content is the one already stored. */
+  saveDesignMd(projectId: string, path: string, content: Buffer): void {
+    const unchanged = this.readProjectFile(projectId, path)?.equals(content) ?? false;
+    const hash = this.setProjectFile(projectId, path, content);
+    if (unchanged) return;
+    this.db
+      .prepare("INSERT INTO design_md_versions (id, project_id, hash, created_at) VALUES (?, ?, ?, ?)")
+      .run(randomUUID(), projectId, hash, now());
+  }
+
+  /** DESIGN.md versions, newest first. */
+  listDesignMdVersions(projectId: string): DesignMdVersion[] {
+    const rows = this.db
+      .prepare("SELECT id, hash, created_at FROM design_md_versions WHERE project_id = ? ORDER BY created_at DESC, rowid DESC")
+      .all(projectId) as { id: string; hash: string; created_at: string }[];
+    return rows.map((r) => ({ id: r.id, content: readFileSync(join(this.blobDir, r.hash), "utf8"), createdAt: r.created_at }));
   }
 
   readProjectFile(projectId: string, path: string): Buffer | undefined {

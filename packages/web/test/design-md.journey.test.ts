@@ -46,6 +46,18 @@ it("edits and saves DESIGN.md and adds an asset from the DESIGN.md screen", asyn
     .toBe("# Acme\n- One action per screen");
   await expect.poll(async () => tab.getByTestId("design-md-status").textContent()).toBe("Enregistré");
 
+  await tab.getByRole("button", { name: "1 version" }).click();
+  await tab.getByRole("dialog", { name: "Historique de DESIGN.md" }).waitFor();
+  await tab.keyboard.press("Escape");
+  expect(await tab.getByTestId("rules").textContent()).toContain("One action per screen");
+
+  await editor.fill("# Acme\n- Two actions per screen");
+  await save.click();
+  await tab.getByRole("button", { name: "2 versions" }).click();
+  await tab.getByRole("button", { name: "Restaurer" }).click();
+  expect(await editor.inputValue()).toBe("# Acme\n- One action per screen");
+  expect(await tab.getByTestId("design-md-status").textContent()).toBe("Modifications non enregistrées");
+
   await tab.locator('input[type="file"]').setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: Buffer.from([1, 2, 3]) });
   await expect.poll(async () => tab.getByTestId("assets").textContent()).toContain("logo.png");
   await tab.close();

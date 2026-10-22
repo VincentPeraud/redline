@@ -17,6 +17,13 @@ export interface DesignMdResponse {
   content: string;
 }
 
+/** One saved state of DESIGN.md. */
+export interface DesignMdVersion {
+  id: string;
+  content: string;
+  createdAt: string;
+}
+
 export interface SaveDesignMdRequest {
   content: string;
 }
