@@ -1,3 +1,7 @@
+import type { AgentWorkMessage, ThreadReply, WorkItem } from "./work.js";
+
+export * from "./work.js";
+
 export const PROTOCOL_VERSION = 1;
 
 export type PageType = "prototype" | "comparison";
@@ -80,6 +84,8 @@ export interface Thread {
   title: string;
   body: string;
   status: ThreadStatus;
+  /** Claude's answers, oldest first. */
+  replies: ThreadReply[];
 }
 
 export interface CreateThreadRequest {
@@ -270,11 +276,12 @@ export interface AgentHello {
   projectId?: string;
 }
 
-export type AgentToServerMessage = AgentHello;
+export type AgentToServerMessage = AgentHello | AgentWorkMessage;
 
 /** Messages the server sends on the agent endpoint. */
 export type ServerToAgentMessage =
   | { type: "welcome"; agentId: string }
+  | { type: "work"; item: WorkItem }
   | { type: "error"; code: "unauthorized" | "incompatible_protocol" | "bad_hello" | "unknown_project" | "project_taken"; message: string };
 
 export type AgentStatus = "online" | "offline";

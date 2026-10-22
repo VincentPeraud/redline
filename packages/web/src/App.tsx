@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Project } from "@redline/shared";
 import { PageCanvas } from "./PageCanvas.js";
 import { routeHref } from "./router.js";
+import { subscribeServerEvents } from "./serverEvents.js";
 
 interface Page {
   id: string;
@@ -67,6 +68,14 @@ export function App({ pageId }: { pageId: string }) {
   useEffect(() => {
     if (page) getJson<Project>(`/api/projects/${page.projectId}`).then(setProject);
   }, [page?.projectId]);
+
+  useEffect(
+    () =>
+      subscribeServerEvents((event) => {
+        if (event.type === "page-updated" && event.pageId === pageId) void loadPage();
+      }),
+    [pageId],
+  );
 
   if (!page) return <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>Loading…</main>;
 

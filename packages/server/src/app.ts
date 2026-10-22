@@ -23,6 +23,9 @@ import {
 import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
+import { registerAgentApi } from "./agent-api.js";
+import { registerEventRoutes } from "./events.js";
+import { dispatchThread } from "./work.js";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -75,7 +78,9 @@ function isSafePath(path: string): boolean {
 /** API and web UI. */
 export async function buildMainApp(store: Store, config: ServerConfig, webDir?: string): Promise<FastifyInstance> {
   const app = Fastify();
-  await registerAgentRoutes(app, store);
+  const agents = await registerAgentRoutes(app, store);
+  await registerAgentApi(app, store);
+  registerEventRoutes(app, store);
 
   app.get("/api/config", async () => config);
 
@@ -161,7 +166,9 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
       if (typeof pin.selector !== "string" || pin.selector === "") return reply.code(400).send({ error: "selector is required" });
       if (typeof pin.artboard !== "string" || !isSafePath(pin.artboard)) return reply.code(400).send({ error: "invalid artboard" });
       if (!isPct(pin.xPct) || !isPct(pin.yPct)) return reply.code(400).send({ error: "position must be a percentage" });
-      return reply.code(201).send(store.createThread(req.params.pageId, pin as CreateThreadRequest));
+      const thread = store.createThread(req.params.pageId, pin as CreateThreadRequest);
+      dispatchThread(store, agents, store.getPage(req.params.pageId)!.projectId, thread);
+      return reply.code(201).send(thread);
     },
   );
 

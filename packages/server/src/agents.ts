@@ -7,6 +7,7 @@ import {
   AgentCloseCode,
   PROTOCOL_VERSION,
   type AgentHello,
+  type AgentWorkMessage,
   type AgentTokenResponse,
   type ServerToAgentMessage,
 } from "@redline/shared";
@@ -33,8 +34,23 @@ function parseHello(raw: string): AgentHello | undefined {
   }
 }
 
+function parseWorkMessage(raw: string): AgentWorkMessage | undefined {
+  try {
+    const m = JSON.parse(raw) as Partial<AgentWorkMessage>;
+    const known = m.type === "work-event" || m.type === "work-done" || m.type === "work-failed";
+    return known && typeof m.workId === "string" ? (m as AgentWorkMessage) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export interface AgentHub {
+  /** Sends a message to a connected agent; false when that agent is not connected. */
+  send(agentId: string, message: ServerToAgentMessage): boolean;
+}
+
 /** Agent endpoint (WebSocket) plus the token and agent-list API. */
-export async function registerAgentRoutes(app: FastifyInstance, store: Store): Promise<void> {
+export async function registerAgentRoutes(app: FastifyInstance, store: Store): Promise<AgentHub> {
   await app.register(websocket);
   const connected = new Map<WebSocket, string>();
 
@@ -86,6 +102,10 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
       socket.on("close", () => {
         if (connected.delete(socket)) store.markAgentOffline(agentId);
       });
+      socket.on("message", (data) => {
+        const message = parseWorkMessage(data.toString());
+        if (message) store.emit({ type: "work", message });
+      });
       send(socket, { type: "welcome", agentId });
     });
   });
@@ -103,4 +123,16 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
   });
 
   app.get("/api/agents", async () => store.listAgents());
+
+  return {
+    send(agentId, message) {
+      for (const [socket, id] of connected) {
+        if (id === agentId) {
+          send(socket, message);
+          return true;
+        }
+      }
+      return false;
+    },
+  };
 }

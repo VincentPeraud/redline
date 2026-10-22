@@ -22,7 +22,7 @@ function readLinkedProjectId(folder: string): string | undefined {
   }
 }
 
-function ensureGitignored(folder: string): void {
+export function ensureGitignored(folder: string): void {
   const file = join(folder, ".gitignore");
   const content = existsSync(file) ? readFileSync(file, "utf8") : "";
   const already = content.split(/\r?\n/).some((line) => /^\/?\.redline\/?$/.test(line.trim()));

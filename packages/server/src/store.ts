@@ -18,7 +18,9 @@ import type {
   PageType,
   PageVersionSummary,
   Project,
+  ServerEvent,
   Thread,
+  ThreadReply,
   ThreadStatus,
   VersionOrigin,
 } from "@redline/shared";
@@ -26,6 +28,7 @@ import type {
 export class Store {
   private readonly db: Database.Database;
   private readonly blobDir: string;
+  private readonly listeners = new Set<(event: ServerEvent) => void>();
 
   constructor(dataDir: string) {
     this.blobDir = join(dataDir, "blobs");
@@ -68,6 +71,13 @@ export class Store {
         status TEXT NOT NULL,
         created_at TEXT NOT NULL,
         UNIQUE (page_id, number)
+      );
+      CREATE TABLE IF NOT EXISTS thread_replies (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL REFERENCES threads(id),
+        author TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
@@ -125,6 +135,24 @@ export class Store {
 
   close(): void {
     this.db.close();
+  }
+
+  /** Calls `listener` after every change the web UI shows (new thread or reply, new version). Returns the unsubscribe function. */
+  onChange(listener: (event: ServerEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  emit(event: ServerEvent): void {
+    for (const listener of this.listeners) listener(event);
+  }
+
+  /** Id of the online project agent serving the project. */
+  findOnlineProjectAgentId(projectId: string): string | undefined {
+    const row = this.db.prepare("SELECT id FROM agents WHERE project_id = ? AND status = 'online'").get(projectId) as
+      | { id: string }
+      | undefined;
+    return row?.id;
   }
 
   /** The agents' token, generated on first read. */
@@ -261,6 +289,7 @@ export class Store {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
       )
       .run(id, pageId, next, pin.artboard, pin.selector, pin.xPct, pin.yPct, title, pin.body, now());
+    this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
 
@@ -268,17 +297,48 @@ export class Store {
     const rows = this.db
       .prepare(`${THREAD_SELECT} WHERE page_id = ? ORDER BY number`)
       .all(pageId) as ThreadRow[];
-    return rows.map(toThread);
+    return rows.map((row) => toThread(row, this.repliesOf(row.id)));
   }
 
   getThread(id: string): Thread | undefined {
     const row = this.db.prepare(`${THREAD_SELECT} WHERE id = ?`).get(id) as ThreadRow | undefined;
-    return row && toThread(row);
+    return row && toThread(row, this.repliesOf(id));
   }
 
   resolveThread(id: string): Thread | undefined {
     this.db.prepare("UPDATE threads SET status = 'resolved' WHERE id = ?").run(id);
-    return this.getThread(id);
+    const thread = this.getThread(id);
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
+    return thread;
+  }
+
+  /** Records Claude's answer in a thread; undefined if the thread does not exist. */
+  addReply(threadId: string, body: string): ThreadReply | undefined {
+    const thread = this.getThread(threadId);
+    if (!thread) return undefined;
+    const reply: ThreadReply = { id: randomUUID(), author: "claude", body, createdAt: now() };
+    this.db
+      .prepare("INSERT INTO thread_replies (id, thread_id, author, body, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(reply.id, threadId, reply.author, body, reply.createdAt);
+    this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
+    return reply;
+  }
+
+  private repliesOf(threadId: string): ThreadReply[] {
+    return this.db
+      .prepare("SELECT id, author, body, created_at AS createdAt FROM thread_replies WHERE thread_id = ? ORDER BY created_at, rowid")
+      .all(threadId) as ThreadReply[];
+  }
+
+  /** Every file of the page's current version as UTF-8 text, or undefined if the page is unknown. */
+  readPageFiles(pageId: string): { versionId: string; files: Record<string, string> } | undefined {
+    const version = this.getPage(pageId)?.version;
+    if (!version) return undefined;
+    const files: Record<string, string> = {};
+    for (const [path, hash] of Object.entries(version.files)) {
+      files[path] = readFileSync(join(this.blobDir, hash), "utf8");
+    }
+    return { versionId: version.id, files };
   }
 
   /** Reads a file of the page's current version, or undefined if the page or path is unknown. */
@@ -335,6 +395,7 @@ export class Store {
     this.db
       .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin) VALUES (?, ?, ?, ?, ?, ?)")
       .run(row.id, pageId, filesJson, row.created_at, message, origin);
+    this.emit({ type: "page-updated", pageId, versionId: row.id });
     return toSummary(row);
   }
 
@@ -364,7 +425,7 @@ interface ThreadRow {
   status: ThreadStatus;
 }
 
-function toThread(row: ThreadRow): Thread {
+function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
   return {
     id: row.id,
     pageId: row.page_id,
@@ -376,6 +437,7 @@ function toThread(row: ThreadRow): Thread {
     title: row.title,
     body: row.body,
     status: row.status,
+    replies,
   };
 }
 
