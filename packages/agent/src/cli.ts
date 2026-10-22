@@ -4,7 +4,7 @@ import { hostname } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { checkClaude } from "./claude.js";
 import { startAgent } from "./agent.js";
-import { unavailableEngine } from "./engine.js";
+import { claudeCodeEngine } from "./claude-code-engine.js";
 import { linkFolder, type LinkChoice } from "./link.js";
 import { defaultConfigDir, login, readLogin } from "./login.js";
 
@@ -60,7 +60,7 @@ async function runAgent(args: string[]): Promise<void> {
   });
 
   for (;;) {
-    const connection = await startAgent({ ...identity, engine: unavailableEngine });
+    const connection = await startAgent({ ...identity, engine: claudeCodeEngine() });
     console.log(`Connected to ${serverUrl} as ${kind} agent in ${identity.folder}. Ctrl-C to stop.`);
     const { reason } = await connection.closed;
     if (reason === "unauthorized") throw new Error("The token was regenerated. Run `redline login <server-url>` again.");
