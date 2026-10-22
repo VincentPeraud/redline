@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import type { QueueEntry, SessionRow, Thread, ThreadRun } from "@redline/shared";
+import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
@@ -7,6 +8,7 @@ import { queueLabel } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
+import { threadWhere } from "./threadLabel.js";
 import { ThreadReplyForm } from "./ThreadReplyForm.js";
 import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./Thread.module.css";
@@ -15,6 +17,7 @@ import panel from "./CommentsPanel.module.css";
 export interface Draft {
   artboard: string;
   selector: string;
+  elementName?: string;
 }
 
 interface Props {
@@ -40,9 +43,7 @@ function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNo
   return (
     <div className={styles.head}>
       <span className={styles.badge}>{thread.number}</span>
-      <span className={styles.where}>
-        {thread.artboard} · {thread.selector}
-      </span>
+      <span className={styles.where}>{threadWhere(thread)}</span>
       <span className={styles.spacer} />
       {children}
     </div>
@@ -74,9 +75,12 @@ function ThreadCard({
         <span className={styles.author}>Toi</span> — {thread.body}
       </div>
       {thread.replies.map((reply) => (
-        <div key={reply.id} data-testid="reply" className={cx(styles.message, reply.author === "claude" && styles.claudeReply)}>
-          <span className={styles.author}>{reply.author === "user" ? "Toi" : "Claude"}</span> — {reply.body}
-        </div>
+        <Fragment key={reply.id}>
+          <div data-testid="reply" className={cx(styles.message, reply.author === "claude" && styles.claudeReply)}>
+            <span className={styles.author}>{reply.author === "user" ? "Toi" : "Claude"}</span> — {reply.body}
+          </div>
+          <CreatedPageCards pages={reply.createdPages} />
+        </Fragment>
       ))}
     </>
   );
@@ -86,9 +90,7 @@ function ThreadCard({
       <article className={cx(styles.card, styles.failed)}>
         <div className={styles.head}>
           <span className={cx(styles.badge, styles.badgeFailed)}>{thread.number}</span>
-          <span className={styles.where}>
-            {thread.artboard} · {thread.selector}
-          </span>
+          <span className={styles.where}>{threadWhere(thread)}</span>
           <span className={styles.spacer} />
           <span data-testid="run-status" data-status="failed" className={styles.headFailed}>
             Échec
@@ -182,7 +184,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
         {draft && (
           <div className={panel.draft}>
             <span>
-              Commentaire sur <code>{draft.selector}</code>
+              Commentaire sur <code>{draft.elementName ?? draft.selector}</code>
             </span>
             <button type="button" className={panel.cancel} onClick={onCancel}>
               Annuler

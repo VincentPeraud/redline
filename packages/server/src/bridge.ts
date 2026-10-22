@@ -9,7 +9,7 @@ import { designSystemTokensUrlPath } from "@redline/shared";
  *                     { type: "redline:set-links", selectors: string[] | null }  (play mode: clicks on a match are reported, not performed)
  *                     { type: "redline:set-tweaks", values: { [tweakId]: string | number | boolean } }  (full set; applied as --tweak-<id> CSS variables, data-tweak-<id> attributes on <html>, window.redlineTweaks and a "redline:tweaks" window event)
  * Artboard -> parent: { type: "redline:ready" }
- *                     { type: "redline:picked", selector, xPct, yPct }
+ *                     { type: "redline:picked", selector, elementName, xPct, yPct }  (elementName: role + short visible text, e.g. bouton « Continuer »)
  *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched }] }
  *                     { type: "redline:link", selector }
  *
@@ -51,6 +51,72 @@ export const BRIDGE_SOURCE = `(function () {
       el = el.parentElement;
     }
     return parts.join(" > ");
+  }
+
+  var NAME_MAX = 30;
+
+  function clean(text) {
+    return String(text || "").replace(/\\s+/g, " ").trim();
+  }
+
+  function shorten(text) {
+    var value = clean(text);
+    return value.length > NAME_MAX ? value.slice(0, NAME_MAX).replace(/\\s+$/, "") + "\\u2026" : value;
+  }
+
+  function labelOf(el) {
+    var aria = el.getAttribute("aria-label");
+    if (clean(aria)) return aria;
+    if (el.id) {
+      var labels = document.getElementsByTagName("label");
+      for (var i = 0; i < labels.length; i++) {
+        if (labels[i].getAttribute("for") === el.id && clean(labels[i].textContent)) return labels[i].textContent;
+      }
+    }
+    var wrapping = el.closest("label");
+    if (wrapping && clean(wrapping.textContent)) return wrapping.textContent;
+    return el.getAttribute("placeholder");
+  }
+
+  function ownText(el) {
+    var text = "";
+    for (var i = 0; i < el.childNodes.length; i++) {
+      if (el.childNodes[i].nodeType === 3) text += el.childNodes[i].nodeValue;
+    }
+    return text;
+  }
+
+  function nameOf(target) {
+    var el = target.closest ? target.closest("button, a[href], h1, h2, h3, h4, h5, h6, input, textarea, select, img, svg, [role=button]") : null;
+    var role = "bloc";
+    var text = "";
+    if (!el) {
+      el = target;
+      text = ownText(el);
+    } else {
+      var tag = el.tagName.toLowerCase();
+      var type = (el.getAttribute("type") || "").toLowerCase();
+      if (tag === "img" || tag === "svg") {
+        role = "image";
+      } else if (tag === "input" && ["button", "submit", "reset"].indexOf(type) !== -1) {
+        role = "bouton";
+        text = el.value || el.getAttribute("aria-label");
+      } else if (tag === "input" || tag === "textarea" || tag === "select") {
+        role = "champ";
+        text = labelOf(el);
+      } else if (tag === "a") {
+        role = "lien";
+        text = el.textContent;
+      } else if (/^h[1-6]$/.test(tag)) {
+        role = "titre";
+        text = el.textContent;
+      } else {
+        role = "bouton";
+        text = el.textContent || el.getAttribute("aria-label");
+      }
+    }
+    var short = shorten(text);
+    return short === "" ? role : role + " \\u00ab " + short + " \\u00bb";
   }
 
   function send(message) {
@@ -119,6 +185,7 @@ export const BRIDGE_SOURCE = `(function () {
     send({
       type: "redline:picked",
       selector: selectorFor(event.target),
+      elementName: nameOf(event.target),
       xPct: pct(event.clientX + (window.scrollX || 0), size.w),
       yPct: pct(event.clientY + (window.scrollY || 0), size.h)
     });

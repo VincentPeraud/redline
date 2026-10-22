@@ -42,6 +42,22 @@
   position: relative;
 }
 
+.pageRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.menuButton {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .pageButton {
   height: 32px;
   display: flex;

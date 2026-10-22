@@ -3,6 +3,7 @@ import {
   MANIFEST_PATH,
   defaultManifest,
   parseManifest,
+  versionPreviewPath,
   type AgentInfo,
   type CreateThreadRequest,
   type Manifest,
@@ -11,6 +12,9 @@ import {
   type Thread,
 } from "@redline/shared";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
+import { ArtboardHistory } from "./ArtboardHistory.js";
+import { restoreArtboard, useDeletedArtboards } from "./restoreArtboard.js";
+import { UndoToast } from "./UndoToast.js";
 import { CanvasHeader } from "./CanvasHeader.js";
 import { panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
@@ -95,6 +99,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState<string | null>(null);
   const [playFrom, setPlayFrom] = useState<string | null>(null);
+  const [historyOpenFor, setHistoryOpenFor] = useState<string | null>(null);
+  /** An old version shown in place of one artboard, read-only, until restored or cancelled. */
+  const [preview, setPreview] = useState<{ file: string; versionId: string } | null>(null);
+  const [toast, setToast] = useState<{ message: string; undo: () => Promise<void> } | null>(null);
+  const deleted = useDeletedArtboards(pageId, versionId);
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   const viewport = useRef<HTMLDivElement>(null);
   const placed = useRef(false);
@@ -218,6 +227,27 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     await refresh();
   }
 
+  /** Restores one artboard (history or deleted list) and offers to undo it for a few seconds. */
+  async function restore(file: string, restoreVersionId: string) {
+    const { version, previousVersionId } = await restoreArtboard(pageId, file, restoreVersionId);
+    setPreview(null);
+    setHistoryOpenFor(null);
+    setToast({
+      message: version.message,
+      undo: async () => {
+        await restoreArtboard(pageId, file, previousVersionId);
+        onVersionChange();
+      },
+    });
+    onVersionChange();
+  }
+
+  async function renamePage(title: string) {
+    const res = await fetch(`/api/pages/${pageId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) });
+    if (!res.ok) throw new Error(`Rename refused (${res.status})`);
+    onVersionChange();
+  }
+
   if (playFrom !== null && manifest) {
     return (
       <PlayMode
@@ -247,6 +277,10 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
         picking={picking}
         onPickingChange={setPicking}
         runningCount={runningCount}
+        artboardOrigin={artboardOrigin}
+        deleted={deleted}
+        onPutBack={(item) => restore(item.file, item.lastVersionId)}
+        onRenamePage={renamePage}
       />
       <div className={styles.body}>
         <main className={styles.stage}>
@@ -282,10 +316,24 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                 </div>
               ))}
               {manifest?.artboards.map((artboard) => (
-                <div key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`} className={styles.artboard} style={{ left: artboard.x, top: artboard.y }}>
+                <div
+                  key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`}
+                  className={cx(styles.artboard, (historyOpenFor === artboard.file || tweaksOpenFor === artboard.file) && styles.artboardRaised)}
+                  style={{ left: artboard.x, top: artboard.y }}
+                >
                   <div data-no-pan className={styles.label} style={{ width: artboard.width * view.zoom, transform: `scale(${1 / view.zoom})` }}>
                     <span className={styles.labelName}>{artboard.title ?? artboard.file}</span>
                     <span className={styles.spacer} />
+                    <ArtboardHistory
+                      pageId={pageId}
+                      file={artboard.file}
+                      pageVersionId={versionId}
+                      open={historyOpenFor === artboard.file}
+                      onOpenChange={(open) => setHistoryOpenFor(open ? artboard.file : null)}
+                      previewVersionId={preview?.file === artboard.file ? preview.versionId : null}
+                      onPreview={(previewId) => setPreview(previewId ? { file: artboard.file, versionId: previewId } : null)}
+                      onRestore={(restoreId) => restore(artboard.file, restoreId)}
+                    />
                     {artboardTweaks(artboard.file).length > 0 && (
                       <button type="button" aria-expanded={tweaksOpenFor === artboard.file} className={styles.tweaksButton} onClick={() => setTweaksOpenFor(tweaksOpenFor === artboard.file ? null : artboard.file)}>
                         Tweaks
@@ -302,13 +350,18 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                     </button>
                   </div>
                   <ArtboardFrame
+                    key={preview?.file === artboard.file ? preview.versionId : "live"}
                     title={`${pageTitle} / ${artboard.file}`}
-                    src={`${artboardOrigin}/pages/${pageId}/${artboard.file}`}
+                    src={
+                      preview?.file === artboard.file
+                        ? `${artboardOrigin}${versionPreviewPath(pageId, preview.versionId, artboard.file)}`
+                        : `${artboardOrigin}/pages/${pageId}/${artboard.file}`
+                    }
                     width={artboard.width}
                     height={artboard.height}
                     zoom={view.zoom}
-                    threads={threads.filter((t) => t.artboard === artboard.file)}
-                    picking={picking}
+                    threads={preview?.file === artboard.file ? [] : threads.filter((t) => t.artboard === artboard.file)}
+                    picking={picking && preview?.file !== artboard.file}
                     tweaks={tweaks.values}
                     onPick={(pick) => {
                       setDraft({ ...pick, artboard: artboard.file });
@@ -345,6 +398,15 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               {picking ? "Mode commentaire : clique sur un élément pour y épingler un commentaire" : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
             </div>
           </div>
+          {toast && (
+            <UndoToast
+              message={toast.message}
+              onUndo={() => {
+                void toast.undo().then(() => setToast(null));
+              }}
+              onExpire={() => setToast(null)}
+            />
+          )}
           <div className={styles.zoom}>
             <button type="button" aria-label="Dézoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(1 / ZOOM_STEP)}>
               −

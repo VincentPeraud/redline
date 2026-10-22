@@ -55,7 +55,7 @@ it("creates a project, then a page from its overview, and opens it on the canvas
   await expect.poll(() => tab.locator("iframe").count()).toBe(1);
 
   await tab.getByRole("link", { name: "Acme" }).click();
-  const card = tab.getByRole("link", { name: /Landing/ });
+  const card = tab.getByTestId("page-card").filter({ hasText: "Landing" });
   await card.waitFor();
   await expect.poll(() => card.locator("iframe").count()).toBe(1);
   await card.getByText("1 artboard").waitFor();

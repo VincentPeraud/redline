@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { SendHeldRequest, Thread, UpdateThreadRequest } from "@redline/shared";
 import type { ModelEffortChoice } from "./ModelEffortControls.js";
+import { threadWhere } from "./threadLabel.js";
 import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./Thread.module.css";
 
@@ -48,9 +49,7 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
     <article data-testid="held-thread" className={cx(styles.card, styles.held)}>
       <div className={styles.head}>
         <span className={cx(styles.badge, styles.badgeHeld)}>{thread.number}</span>
-        <span className={styles.where}>
-          {thread.artboard} · {thread.selector}
-        </span>
+        <span className={styles.where}>{threadWhere(thread)}</span>
         <span className={styles.spacer} />
         <span className={styles.headRight}>
           <span className={styles.heldLabel}>En attente d'envoi</span>

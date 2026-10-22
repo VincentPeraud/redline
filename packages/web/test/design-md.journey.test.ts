@@ -46,6 +46,10 @@ it("edits and saves DESIGN.md and adds an asset from the DESIGN.md screen", asyn
     .toBe("# Acme\n- One action per screen");
   await expect.poll(async () => tab.getByTestId("design-md-status").textContent()).toBe("Enregistré");
 
+  expect(await tab.getByTestId("rules").textContent()).toContain("Toi · création du projet");
+  await tab.reload();
+  await expect.poll(() => tab.getByTestId("design-md-status").textContent()).toBe("Dernière modification par toi · aujourd'hui");
+
   await tab.getByRole("button", { name: "1 version" }).click();
   await tab.getByRole("dialog", { name: "Historique de DESIGN.md" }).waitFor();
   await tab.keyboard.press("Escape");

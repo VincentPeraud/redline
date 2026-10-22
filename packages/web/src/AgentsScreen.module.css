@@ -96,12 +96,6 @@
   font-weight: var(--font-weight-semibold);
 }
 
-.projectLabel {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-secondary);
-}
-
 .options {
   display: flex;
   gap: var(--space-3);

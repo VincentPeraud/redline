@@ -77,6 +77,10 @@
   position: absolute;
 }
 
+.artboardRaised {
+  z-index: 20;
+}
+
 /* Counter-scaled by the canvas zoom so the label keeps its size; the 10px gap is padding so it scales with it. */
 .label {
   position: absolute;
@@ -89,6 +93,7 @@
   align-items: center;
   gap: var(--space-2);
   transform-origin: 0 100%;
+  z-index: 5;
 }
 
 .labelName {

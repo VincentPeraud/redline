@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   CONTEXT_WARNING_PERCENT,
   type Conversation,
@@ -10,7 +10,8 @@ import {
 } from "@redline/shared";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
 import { workQueueLabel } from "./queueLabel.js";
-import { relativeTime } from "./relativeTime.js";
+import { CreatedPageCards } from "./CreatedPageCards.js";
+import { activityLabel } from "./sessionsView.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
 import { subscribeServerEvents } from "./serverEvents.js";
@@ -63,7 +64,8 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
 
   const refreshList = useCallback(async () => {
     const res = await fetch(`/api/pages/${pageId}/conversations`);
-    setConversations(((await res.json()) as Conversation[]).filter((c) => !c.archived));
+    const list = ((await res.json()) as Conversation[]).filter((c) => !c.archived);
+    setConversations(list.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)));
   }, [pageId]);
 
   const refreshDetail = useCallback(async (id: string) => {
@@ -170,7 +172,9 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
                   }}
                 >
                   <span className={styles.optionTitle}>{c.title}</span>
-                  <span className={styles.optionMeta}>{relativeTime(c.createdAt)}</span>
+                  <span className={styles.optionMeta}>
+                    {c.exchangeCount} {c.exchangeCount === 1 ? "échange" : "échanges"} · {activityLabel(c.lastActivityAt)}
+                  </span>
                 </button>
                 <button type="button" aria-label={`Supprimer la conversation ${c.title}`} className={styles.optionDelete} onClick={() => void archive(c.id)}>
                   <TrashIcon />
@@ -197,9 +201,12 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
                 {m.body}
               </div>
             ) : (
-              <div key={m.id} data-testid="conversation-message" className={styles.claudeMessage}>
-                <span className={styles.author}>Claude</span> — {m.body}
-              </div>
+              <Fragment key={m.id}>
+                <div data-testid="conversation-message" className={styles.claudeMessage}>
+                  <span className={styles.author}>Claude</span> — {m.body}
+                </div>
+                <CreatedPageCards pages={m.createdPages} />
+              </Fragment>
             ),
           )}
           {queued ? (

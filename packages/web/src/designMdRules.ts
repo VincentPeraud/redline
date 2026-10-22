@@ -1,23 +1,28 @@
-import type { DesignMdVersion } from "@redline/shared";
+import type { DesignMdAuthor, DesignMdRule } from "@redline/shared";
 
-export interface RuleOrigin {
-  rule: string;
-  /** When the rule entered DESIGN.md; undefined while it is only in the editor. */
-  createdAt: string | undefined;
+/** A line of DESIGN.md shown in "Origine des règles"; `versionId` is undefined while the line is only in the editor. */
+export interface ShownRule extends Partial<DesignMdAuthor> {
+  text: string;
+  versionId: string | undefined;
+  createdAt?: string;
 }
 
-const bulletRules = (content: string): string[] =>
-  content
-    .split("\n")
-    .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2).trim());
-
-/** The rules (bullet lines) of `content`, each dated by the oldest version of its latest unbroken run. `versions` is newest first. */
-export function ruleOrigins(content: string, versions: DesignMdVersion[]): RuleOrigin[] {
-  const rulesPerVersion = versions.map((version) => ({ createdAt: version.createdAt, rules: new Set(bulletRules(version.content)) }));
-  return bulletRules(content).map((rule) => {
-    const run = rulesPerVersion.findIndex((version) => !version.rules.has(rule));
-    const introducer = rulesPerVersion[(run === -1 ? rulesPerVersion.length : run) - 1];
-    return { rule, createdAt: introducer?.createdAt };
-  });
+/**
+ * The lines of the editor text (blank lines and headings left out, the dash of a bullet dropped) with the origin the
+ * server computed for the saved text. Repeated lines are matched to the saved rules of the same text in order.
+ */
+export function rulesToShow(text: string, saved: DesignMdRule[]): ShownRule[] {
+  const used = new Map<string, number>();
+  const shown: ShownRule[] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line === "") continue;
+    const occurrence = used.get(line) ?? 0;
+    used.set(line, occurrence + 1);
+    if (line.startsWith("#")) continue;
+    const display = line.startsWith("- ") ? line.slice(2).trim() : line;
+    const match = saved.filter((rule) => rule.text === line)[occurrence];
+    shown.push(match ? { text: display, versionId: match.versionId, origin: match.origin, originLabel: match.originLabel, createdAt: match.createdAt } : { text: display, versionId: undefined });
+  }
+  return shown;
 }

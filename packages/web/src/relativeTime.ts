@@ -6,5 +6,5 @@ export function relativeTime(iso: string, now: number = Date.now()): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `il y a ${hours} h`;
   const days = Math.floor(hours / 24);
-  return `il y a ${days} ${days === 1 ? "jour" : "jours"}`;
+  return days === 1 ? "hier" : `il y a ${days} jours`;
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import type { DesignMdResponse, DesignMdVersion, Project, SaveDesignMdRequest } from "@redline/shared";
-import { ruleOrigins } from "./designMdRules.js";
+import type { DesignMdInfo, DesignMdResponse, DesignMdVersion, Project, SaveDesignMdRequest } from "@redline/shared";
+import { rulesToShow } from "./designMdRules.js";
+import { dayLabel, designMdAuthor, originLabel, ruleOrigin } from "./historyLabels.js";
 import { relativeTime } from "./relativeTime.js";
 import { routeHref } from "./router.js";
 import { Button, Dialog, Logo, cx } from "./ui/index.js";
@@ -17,7 +18,7 @@ function HistoryDialog({ versions, onRestore, onClose }: { versions: DesignMdVer
             <span className={styles.versionText}>
               <span>{relativeTime(version.createdAt)}</span>
               <span className={styles.versionMeta}>
-                Toi · {version.content.split("\n").length} lignes
+                {originLabel(version.origin, version.originLabel)} · {version.content.split("\n").length} lignes
               </span>
             </span>
             {index === 0 ? (
@@ -40,12 +41,17 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
   const [text, setText] = useState("");
   const [justSaved, setJustSaved] = useState(false);
   const [versions, setVersions] = useState<DesignMdVersion[]>([]);
+  const [info, setInfo] = useState<DesignMdInfo | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const loadVersions = () =>
-    fetch(`/api/projects/${projectId}/design-md/versions`)
-      .then((res) => res.json() as Promise<DesignMdVersion[]>)
-      .then(setVersions);
+    Promise.all([
+      fetch(`/api/projects/${projectId}/design-md/versions`).then((res) => res.json() as Promise<DesignMdVersion[]>),
+      fetch(`/api/projects/${projectId}/design-md/info`).then((res) => res.json() as Promise<DesignMdInfo>),
+    ]).then(([list, loaded]) => {
+      setVersions(list);
+      setInfo(loaded);
+    });
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}`)
@@ -63,13 +69,13 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
   if (!project || saved === null) return <main className={styles.screen}>Chargement…</main>;
 
   const dirty = text !== saved;
-  const latest = versions[0];
+  const latest = info?.lastModified;
   const status = dirty
     ? "Modifications non enregistrées"
     : justSaved
       ? "Enregistré"
       : latest
-        ? `Dernière modification par toi · ${relativeTime(latest.createdAt)}`
+        ? `Dernière modification par ${designMdAuthor(latest.origin, latest.originLabel)} · ${dayLabel(latest.createdAt)}`
         : "";
 
   async function save() {
@@ -90,7 +96,8 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
     setHistoryOpen(false);
   }
 
-  const rules = ruleOrigins(text, versions);
+  const rules = rulesToShow(text, info?.rules ?? []);
+  const firstVersionId = versions[versions.length - 1]?.id;
 
   return (
     <div className={styles.screen}>
@@ -149,13 +156,19 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
           </div>
 
           {rules.length === 0 ? (
-            <div className={styles.sideText}>Aucune règle pour l'instant : les lignes qui commencent par « - » apparaissent ici.</div>
+            <div className={styles.sideText}>Aucune règle pour l'instant : chaque ligne du fichier apparaît ici avec son origine.</div>
           ) : (
             <ul data-testid="rules" className={styles.rules}>
-              {rules.map(({ rule, createdAt }, index) => (
+              {rules.map((rule, index) => (
                 <li key={index} className={styles.rule}>
-                  <div className={styles.ruleText}>{rule}</div>
-                  <div className={styles.ruleOrigin}>Toi · {createdAt ? relativeTime(createdAt) : "pas encore enregistrée"}</div>
+                  <div className={styles.ruleText}>{rule.text}</div>
+                  <div className={styles.ruleOrigin}>
+                    {rule.versionId === undefined || rule.origin === undefined || rule.createdAt === undefined
+                      ? "pas encore enregistrée"
+                      : rule.origin === "user" && rule.versionId === firstVersionId
+                        ? ruleOrigin(rule.origin, rule.originLabel, true)
+                        : `${ruleOrigin(rule.origin, rule.originLabel, false)} · ${dayLabel(rule.createdAt)}`}
+                  </div>
                 </li>
               ))}
             </ul>

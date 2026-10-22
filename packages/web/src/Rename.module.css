@@ -1,0 +1,153 @@
+.renameHost {
+  position: relative;
+}
+
+.pencil {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+  position: relative;
+  z-index: 1;
+}
+
+.renameHost:hover .pencil,
+.pencil:focus-visible {
+  opacity: 1;
+}
+
+.pencil-project {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+}
+
+.pencil-page {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+}
+
+.pencil-bare {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+}
+
+.form {
+  display: flex;
+  align-items: center;
+  position: relative;
+  z-index: 1;
+}
+
+.form-project {
+  gap: var(--space-2);
+}
+
+.form-page {
+  gap: 6px;
+}
+
+.form-bare {
+  gap: 6px;
+}
+
+.input {
+  box-sizing: border-box;
+  border: 2px solid var(--color-accent);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: var(--font-weight-semibold);
+}
+
+.input:focus-visible {
+  outline: none;
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--color-danger-text);
+}
+
+.input-project {
+  height: 44px;
+  width: 360px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  font-size: 24px;
+  font-weight: var(--font-weight-bold);
+}
+
+.input-page {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-md);
+}
+
+.input-bare {
+  height: 32px;
+  width: 200px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
+}
+
+.save,
+.cancel {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font: inherit;
+  cursor: pointer;
+}
+
+.save {
+  border: none;
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: var(--font-weight-semibold);
+}
+
+.save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.cancel {
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.save-project,
+.cancel-project {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
+}
+
+.save-page,
+.cancel-page {
+  height: 32px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+}
+
+.save-page {
+  padding: 0 10px;
+}
+
+.cancel-page {
+  padding: 0 8px;
+}
