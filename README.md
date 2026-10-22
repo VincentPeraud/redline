@@ -22,7 +22,7 @@ Environment variables (all optional):
 
 ### Behind a reverse proxy
 
-Redline has no login of its own. The proxy must protect everything (web UI, API, artboard origin) except the agent endpoint, which is guarded by the agents' token. Serve the artboard port on its own host name (a different origin from the UI) and set `REDLINE_ARTBOARD_ORIGIN` to it.
+Redline has no login of its own. The proxy must protect everything (web UI, API, artboard origin) except the agent endpoint `/agent` (a WebSocket on the main port), which is guarded by the agents' token. Serve the artboard port on its own host name (a different origin from the UI) and set `REDLINE_ARTBOARD_ORIGIN` to it.
 
 ## Development
 
