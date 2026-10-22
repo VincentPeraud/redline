@@ -9,6 +9,7 @@ import {
 } from "@redline/shared";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { fitView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { PlayMode } from "./PlayMode.js";
 
 const CANVAS_HEIGHT = 520;
 const ZOOM_STEP = 1.25;
@@ -43,6 +44,7 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
   const [text, setText] = useState("");
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   const viewport = useRef<HTMLDivElement>(null);
   const placed = useRef(false);
@@ -151,6 +153,10 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
     await refresh();
   }
 
+  if (playing && manifest) {
+    return <PlayMode pageId={pageId} manifest={manifest} artboardOrigin={artboardOrigin} onExit={() => setPlaying(false)} />;
+  }
+
   return (
     <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -164,6 +170,9 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
             +
           </button>
           <button onClick={fit}>Fit</button>
+          <button onClick={() => setPlaying(true)} disabled={!manifest}>
+            Play
+          </button>
         </div>
         {manifestError && <div role="alert">{manifestError}</div>}
         <div
