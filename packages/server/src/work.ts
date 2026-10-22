@@ -25,6 +25,21 @@ export function replyMessage(thread: Thread, body: string): string {
   ].join("\n");
 }
 
+/** The message for a new session the global agent starts in place of the agent that opened the thread: the conversation so far, then the user's reply. */
+export function takeoverMessage(thread: Thread, body: string): string {
+  const history = thread.replies.map((r) => `${r.author === "user" ? "User" : "Claude"}: ${r.body}`);
+  return [
+    threadMessage(thread),
+    "",
+    "This comment was already discussed in an earlier session that is not available now. Conversation so far:",
+    ...history.flatMap((line) => ["", line]),
+    "",
+    "New reply from the user:",
+    "",
+    body,
+  ].join("\n");
+}
+
 /** Queues a work item for a freshly sent thread on its page's lock; the session is remembered once the item is sent. */
 export function dispatchThread(store: Store, lock: PageLock, projectId: string, thread: Thread): void {
   const sessionId = randomUUID();
@@ -49,7 +64,18 @@ export function dispatchReply(
   const session = store.getThreadSession(thread.id);
   if (!session) return false;
   const item = { ...threadItem(thread, replyMessage(thread, body), session.sessionId, true), ...choice };
-  lock.submit({ projectId, agentId: session.agentId }, item);
+  const takeoverItem = { ...threadItem(thread, takeoverMessage(thread, body), randomUUID(), false), ...choice };
+  lock.submit(
+    {
+      projectId,
+      agentId: session.agentId,
+      takeoverItem,
+      onDispatched: (agentId, sent) => {
+        if (!sent.resume) store.setThreadSession(thread.id, sent.sessionId, agentId);
+      },
+    },
+    item,
+  );
   return true;
 }
 

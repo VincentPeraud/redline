@@ -1,4 +1,5 @@
 import type { QueueEntry, QueueReason, WorkItem } from "@redline/shared";
+import { chooseAgent } from "./agent-selection.js";
 import type { AgentHub } from "./agents.js";
 import type { Store } from "./store.js";
 
@@ -6,8 +7,10 @@ export interface SubmitOptions {
   projectId: string;
   /** Only this agent may run the item (a resumed session lives on the agent that opened it). Default: the project's online agent. */
   agentId?: string;
-  /** Called each time the item is sent to an agent. */
-  onDispatched?(agentId: string): void;
+  /** What to send instead (a fresh session) when the pinned agent is offline and the global agent takes over. Without it a pinned item just waits. */
+  takeoverItem?: WorkItem;
+  /** Called each time an item is sent to an agent, with the item actually sent (`takeoverItem` or the original). */
+  onDispatched?(agentId: string, item: WorkItem): void;
 }
 
 interface Queued extends SubmitOptions {
@@ -88,16 +91,16 @@ export class PageLock {
     const stillWaiting: Queued[] = [];
     for (const queued of this.queue) {
       const { pageId } = queued.item;
-      const agentId = queued.agentId ?? this.store.findOnlineProjectAgentId(queued.projectId);
-      if (blockedPages.has(pageId) || this.isPageLocked(pageId) || !agentId) {
+      const target = this.pickTarget(queued);
+      if (blockedPages.has(pageId) || this.isPageLocked(pageId) || !target) {
         blockedPages.add(pageId);
         stillWaiting.push(queued);
         continue;
       }
+      const { agentId, item } = target;
       this.active.set(queued.item.id, { queued, agentId });
-      if (this.hub.send(agentId, { type: "work", item: queued.item })) {
-        queued.onDispatched?.(agentId);
-        const { item } = queued;
+      if (this.hub.send(agentId, { type: "work", item })) {
+        queued.onDispatched?.(agentId, item);
         this.store.emit({ type: "work-dispatched", pageId, workId: item.id, threadIds: item.threads.map((t) => t.threadId) });
         continue;
       }
@@ -107,6 +110,25 @@ export class PageLock {
     }
     this.queue = stillWaiting;
     for (const pageId of touched) this.store.emit({ type: "queue-updated", pageId });
+  }
+
+  /** Re-checks the queue after something other than the lock changed which agent may run an item (a project's takeover setting). */
+  reconsider(): void {
+    this.pump();
+  }
+
+  /**
+   * The single place agents are chosen. A pinned item goes to its agent, or, when that agent is offline and the project
+   * allows the takeover, to the global agent as its `takeoverItem` (a new session). Other items go to `chooseAgent`.
+   */
+  private pickTarget(queued: Queued): { agentId: string; item: WorkItem } | undefined {
+    if (queued.agentId) {
+      if (this.store.getAgent(queued.agentId)?.status === "online") return { agentId: queued.agentId, item: queued.item };
+      const globalId = this.store.getProject(queued.projectId)?.allowGlobalTakeover ? this.store.findOnlineGlobalAgentId() : undefined;
+      return globalId && queued.takeoverItem ? { agentId: globalId, item: queued.takeoverItem } : undefined;
+    }
+    const choice = chooseAgent(this.store, queued.projectId);
+    return choice && { agentId: choice.agentId, item: queued.item };
   }
 
   /** The agent running an item went away: nothing was published, so the item goes back to the front of the queue. */
