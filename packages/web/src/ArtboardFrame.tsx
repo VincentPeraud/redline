@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { Thread, TweakValues } from "@redline/shared";
+import { threadWhere } from "./threadLabel.js";
 import { cx } from "./ui/index.js";
 import styles from "./ArtboardFrame.module.css";
 
 export interface Pick {
   selector: string;
+  elementName?: string;
   xPct: number;
   yPct: number;
 }
@@ -85,7 +87,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, threads, pickin
           <span
             key={thread.id}
             data-pin={thread.number}
-            title={thread.title}
+            title={`${thread.title} · ${threadWhere(thread)}`}
             className={cx(styles.pin, thread.status === "held" && styles.pinHeld, resolved && styles.pinResolved)}
             style={{ left: `${position.xPct}%`, top: `${position.yPct}%`, transform: `translate(-50%, -50%) scale(${1 / zoom})` }}
           >
