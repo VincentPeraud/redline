@@ -35,7 +35,7 @@ it("shows recent pages, running work and agents on the home, with live sidebar c
   const tab = await browser.newPage();
   await tab.goto(`${server.url}/#/nowhere/1`);
   await tab.getByRole("heading", { name: "Accueil" }).waitFor();
-  await tab.getByTestId("home-recent").getByText("Landing").waitFor();
+  await tab.getByTestId("home-projects").getByText("Acme").waitFor();
   await expect.poll(() => tab.getByTestId("sidebar-online").textContent()).toBe("Aucun agent connecté");
 
   const agent = await server.connectAgent({ machine: "MacBook", folder: "/work/acme", projectId: project.id });
@@ -46,7 +46,7 @@ it("shows recent pages, running work and agents on the home, with live sidebar c
 
   await server.post(`/api/pages/${page.id}/threads`, { artboard: "index.html", selector: "h1", xPct: 1, yPct: 1, body: "Bigger" });
   await server.post(`/api/pages/${page.id}/threads`, { artboard: "index.html", selector: "p", xPct: 2, yPct: 2, body: "Smaller" });
-  await tab.getByTestId("home-work").getByText(/En cours sur MacBook/).waitFor();
+  await tab.getByTestId("home-sessions").getByText("En cours").waitFor();
   await tab.getByTestId("home-agents").getByText("Occupé").waitFor();
   await expect.poll(() => tab.getByTestId("sidebar-details").textContent()).toBe("0 hors ligne · 1 fil en attente");
 
@@ -73,11 +73,12 @@ it("lists every agent on the Agents screen and lets the takeover choice be chang
   expect(await card.getByTestId("agent-status").textContent()).toBe("Libre");
   await tab.getByText("redline agent --global").waitFor();
 
-  await card.getByLabel("L'agent global prend le relais").click();
+  const takeover = tab.getByRole("radiogroup", { name: /Blog/ }).getByLabel("L'agent global prend le relais");
+  await takeover.click();
   await expect
     .poll(async () => ((await (await server.get(`/api/projects/${project.id}`)).json()) as Project).allowGlobalTakeover)
     .toBe(true);
-  await expect.poll(() => card.getByLabel("L'agent global prend le relais").isChecked()).toBe(true);
+  await expect.poll(() => takeover.isChecked()).toBe(true);
 
   const globalCard = tab.getByTestId("agent-card").filter({ hasText: "/global" });
   expect(await globalCard.getByTestId("agent-projects").textContent()).toBe("Solo");

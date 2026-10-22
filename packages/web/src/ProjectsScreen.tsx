@@ -1,16 +1,16 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
   NEUTRAL_DESIGN_SYSTEM_ID,
-  PROJECTS_ACTIVITY_PATH,
+  type HomeProject,
   type CreateProjectRequest,
   type DesignSystemSummary,
   type Project,
-  type ProjectActivity,
 } from "@redline/shared";
 import { agentLabel } from "./agentLabel.js";
 import { Dialog } from "./Dialog.js";
 import { ProjectThumb } from "./ProjectThumb.js";
 import { routeHref } from "./router.js";
+import { useHome } from "./useHome.js";
 import { Button, DialogActions, Field, PageContent, StatusBadge, TextInput, Textarea, cx } from "./ui/index.js";
 import styles from "./ProjectsScreen.module.css";
 
@@ -158,7 +158,7 @@ function ProjectCard({
 }: {
   project: Project;
   position: number;
-  activity: ProjectActivity | undefined;
+  activity: HomeProject | undefined;
   designSystemTitle: string | undefined;
 }) {
   const agent = agentSummary(project);
@@ -183,7 +183,7 @@ function ProjectCard({
           <span aria-hidden="true" className={cx(styles.dot, agent.online ? styles.dotOnline : styles.dotOffline)} />
           <span data-testid="project-agent">{details}</span>
         </div>
-        {activity && <div className={styles.modified}>{modifiedLabel(activity.updatedAt)}</div>}
+        {activity?.updatedAt && <div className={styles.modified}>{modifiedLabel(activity.updatedAt)}</div>}
       </div>
     </a>
   );
@@ -191,7 +191,7 @@ function ProjectCard({
 
 export function ProjectsScreen() {
   const [projects, setProjects] = useState<Project[] | null>(null);
-  const [activity, setActivity] = useState<ProjectActivity[]>([]);
+  const { home } = useHome();
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState("");
@@ -200,9 +200,6 @@ export function ProjectsScreen() {
     fetch("/api/projects")
       .then((res) => res.json() as Promise<Project[]>)
       .then(setProjects);
-    fetch(PROJECTS_ACTIVITY_PATH)
-      .then((res) => res.json() as Promise<ProjectActivity[]>)
-      .then(setActivity);
     fetch("/api/design-systems")
       .then((res) => res.json() as Promise<DesignSystemSummary[]>)
       .then(setDesignSystems);
@@ -235,7 +232,7 @@ export function ProjectsScreen() {
               key={project.id}
               project={project}
               position={position}
-              activity={activity.find((a) => a.projectId === project.id)}
+              activity={home?.projects.find((p) => p.id === project.id)}
               designSystemTitle={designSystems.find((ds) => ds.id === project.designSystem)?.title}
             />
           ))}

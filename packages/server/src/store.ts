@@ -389,19 +389,6 @@ export class Store {
     }));
   }
 
-  /** Page count, open threads and last change (latest version, else the project's creation) of every regular project. */
-  listProjectActivity(): { projectId: string; pageCount: number; openThreads: number; updatedAt: string }[] {
-    return this.db
-      .prepare(
-        `SELECT p.id AS projectId,
-           (SELECT COUNT(*) FROM pages pg WHERE pg.project_id = p.id) AS pageCount,
-           (SELECT COUNT(*) FROM threads t JOIN pages pg ON pg.id = t.page_id WHERE pg.project_id = p.id AND t.status = 'open') AS openThreads,
-           COALESCE((SELECT MAX(v.created_at) FROM versions v JOIN pages pg ON pg.id = v.page_id WHERE pg.project_id = p.id), p.created_at) AS updatedAt
-         FROM projects p WHERE p.id NOT IN (SELECT project_id FROM design_systems)`,
-      )
-      .all() as { projectId: string; pageCount: number; openThreads: number; updatedAt: string }[];
-  }
-
   getProject(id: string): Project | undefined {
     return this.listProjects().find((p) => p.id === id);
   }
