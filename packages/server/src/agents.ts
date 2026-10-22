@@ -25,7 +25,8 @@ function parseHello(raw: string): AgentHello | undefined {
       typeof m.protocolVersion === "number" &&
       typeof m.machine === "string" &&
       typeof m.folder === "string" &&
-      (m.kind === "project" || m.kind === "global");
+      (m.kind === "project" || m.kind === "global") &&
+      (m.projectId === undefined || typeof m.projectId === "string");
     return valid ? (m as AgentHello) : undefined;
   } catch {
     return undefined;
@@ -65,7 +66,22 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         });
         return socket.close(AgentCloseCode.IncompatibleProtocol, "incompatible protocol");
       }
-      const agentId = store.markAgentOnline(hello.machine, hello.folder, hello.kind);
+      if (hello.projectId !== undefined) {
+        if (!store.projectExists(hello.projectId)) {
+          send(socket, { type: "error", code: "unknown_project", message: "This folder is linked to a project that no longer exists. Run `redline init` again." });
+          return socket.close(AgentCloseCode.UnknownProject, "unknown project");
+        }
+        const other = store.findOtherOnlineProjectAgent(hello.projectId, hello.machine, hello.folder);
+        if (other) {
+          send(socket, {
+            type: "error",
+            code: "project_taken",
+            message: `This project is already served by the agent on ${other.machine} (${other.folder}). Stop it first.`,
+          });
+          return socket.close(AgentCloseCode.ProjectTaken, "project taken");
+        }
+      }
+      const agentId = store.markAgentOnline(hello.machine, hello.folder, hello.kind, hello.projectId);
       connected.set(socket, agentId);
       socket.on("close", () => {
         if (connected.delete(socket)) store.markAgentOffline(agentId);
