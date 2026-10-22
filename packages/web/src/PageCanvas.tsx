@@ -12,6 +12,7 @@ import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { fitView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { PlayMode } from "./PlayMode.js";
 import { queueLabel } from "./queueLabel.js";
+import { ConversationsPanel } from "./ConversationsPanel.js";
 import { ThreadReplyForm } from "./ThreadReplyForm.js";
 import { RunProgress } from "./RunProgress.js";
 import { useRuns } from "./useRuns.js";
@@ -311,6 +312,7 @@ export function PageCanvas({ pageId, pageTitle, files, artboardOrigin, versionId
       </div>
       <aside style={{ width: 280 }}>
         {manifest && <TweaksPanel tweaks={manifest.tweaks} values={tweaks.values} onChange={tweaks.setValue} />}
+        <ConversationsPanel pageId={pageId} runs={runs} queue={queue} />
         <h4>Threads</h4>
         {threads.map((thread) =>
           thread.status === "resolved" ? (

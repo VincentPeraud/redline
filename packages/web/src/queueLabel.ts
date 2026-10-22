@@ -10,3 +10,9 @@ export function queueLabel(queue: QueueEntry[], threadId: string): string | unde
   const entry = queue.find((e) => e.threadIds.includes(threadId));
   return entry && `En file · ${REASON_LABEL[entry.reason]}`;
 }
+
+/** Same label for a work item that answers no thread (a conversation message), found by its work id. */
+export function workQueueLabel(queue: QueueEntry[], workId: string | undefined): string | undefined {
+  const entry = queue.find((e) => e.workId === workId);
+  return entry && `En file · ${REASON_LABEL[entry.reason]}`;
+}
