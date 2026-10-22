@@ -23,6 +23,15 @@ export function registerRunRoutes(app: FastifyInstance, store: Store): void {
       store.emit({ type: "run-updated", pageId: run.pageId, run: structuredClone(run) });
       return;
     }
+    if (event.type === "work-retrying") {
+      update(event.workId, (run) => {
+        run.status = "retrying";
+        run.error = event.message;
+        run.retryAt = event.retryAt;
+        run.limit = event.limit;
+      });
+      return;
+    }
     if (event.type !== "work") return;
     const message = event.message;
     if (message.type === "work-event") {
@@ -43,6 +52,8 @@ export function registerRunRoutes(app: FastifyInstance, store: Store): void {
         run.status = "answered";
       });
     } else {
+      // The lock announces a retry (`work-retrying`) before this very `work-failed` reaches us; that run is not failed.
+      if (runs.get(message.workId)?.status === "retrying") return;
       update(message.workId, (run) => {
         run.status = "failed";
         run.error = message.message;
