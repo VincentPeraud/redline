@@ -65,8 +65,21 @@ export interface CreateReplyRequest {
 export type ServerEvent =
   | { type: "page-updated"; pageId: string; versionId: string }
   | { type: "thread-updated"; pageId: string; threadId: string }
+  /** The waiting work items of the page changed (`GET /api/pages/:id/queue`). */
+  | { type: "queue-updated"; pageId: string }
   /** What an agent reported about a work item, relayed as is. */
   | { type: "work"; message: AgentWorkMessage };
+
+/** Why a work item is not running yet. */
+export type QueueReason = "page-busy" | "agent-offline";
+
+/** A work item waiting for its turn on a page. */
+export interface QueueEntry {
+  workId: string;
+  pageId: string;
+  threadIds: string[];
+  reason: QueueReason;
+}
 
 export const SERVER_EVENTS_PATH = "/api/events";
 

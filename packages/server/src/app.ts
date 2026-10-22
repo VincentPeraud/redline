@@ -25,6 +25,7 @@ import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
 import { registerEventRoutes } from "./events.js";
+import { PageLock } from "./page-lock.js";
 import { dispatchThread } from "./work.js";
 
 const MIME: Record<string, string> = {
@@ -79,8 +80,14 @@ function isSafePath(path: string): boolean {
 export async function buildMainApp(store: Store, config: ServerConfig, webDir?: string): Promise<FastifyInstance> {
   const app = Fastify();
   const agents = await registerAgentRoutes(app, store);
+  const pageLock = new PageLock(store, agents);
   await registerAgentApi(app, store);
   registerEventRoutes(app, store);
+
+  app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {
+    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+    return pageLock.waiting(req.params.pageId);
+  });
 
   app.get("/api/config", async () => config);
 
@@ -167,7 +174,7 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
       if (typeof pin.artboard !== "string" || !isSafePath(pin.artboard)) return reply.code(400).send({ error: "invalid artboard" });
       if (!isPct(pin.xPct) || !isPct(pin.yPct)) return reply.code(400).send({ error: "position must be a percentage" });
       const thread = store.createThread(req.params.pageId, pin as CreateThreadRequest);
-      dispatchThread(store, agents, store.getPage(req.params.pageId)!.projectId, thread);
+      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread);
       return reply.code(201).send(thread);
     },
   );

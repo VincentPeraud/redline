@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Thread, WorkItem } from "@redline/shared";
-import type { AgentHub } from "./agents.js";
-import type { Store } from "./store.js";
+import type { PageLock } from "./page-lock.js";
 
 /** The message Claude receives for one thread: the comment with its thread id, artboard, element and position. */
 export function threadMessage(thread: Thread): string {
@@ -14,10 +13,8 @@ export function threadMessage(thread: Thread): string {
   ].join("\n");
 }
 
-/** Pushes a work item for a freshly sent thread to the project's agent. Returns false when no agent is online. */
-export function dispatchThread(store: Store, hub: AgentHub, projectId: string, thread: Thread): boolean {
-  const agentId = store.findOnlineProjectAgentId(projectId);
-  if (!agentId) return false;
+/** Queues a work item for a freshly sent thread on its page's lock. */
+export function dispatchThread(lock: PageLock, projectId: string, thread: Thread): void {
   const item: WorkItem = {
     id: randomUUID(),
     kind: "thread",
@@ -37,5 +34,5 @@ export function dispatchThread(store: Store, hub: AgentHub, projectId: string, t
     sessionId: randomUUID(),
     resume: false,
   };
-  return hub.send(agentId, { type: "work", item });
+  lock.submit(projectId, item);
 }

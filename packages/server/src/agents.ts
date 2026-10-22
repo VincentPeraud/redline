@@ -47,12 +47,18 @@ function parseWorkMessage(raw: string): AgentWorkMessage | undefined {
 export interface AgentHub {
   /** Sends a message to a connected agent; false when that agent is not connected. */
   send(agentId: string, message: ServerToAgentMessage): boolean;
+  /** Calls `listener` once an agent has been welcomed and can receive work. */
+  onAgentOnline(listener: (agentId: string) => void): void;
+  /** Calls `listener` when an agent's connection ended (closed, or dropped by a token regeneration). */
+  onAgentOffline(listener: (agentId: string) => void): void;
 }
 
 /** Agent endpoint (WebSocket) plus the token and agent-list API. */
 export async function registerAgentRoutes(app: FastifyInstance, store: Store): Promise<AgentHub> {
   await app.register(websocket);
   const connected = new Map<WebSocket, string>();
+  const onlineListeners: ((agentId: string) => void)[] = [];
+  const offlineListeners: ((agentId: string) => void)[] = [];
 
   app.addHook("onClose", async () => {
     for (const agentId of connected.values()) store.markAgentOffline(agentId);
@@ -100,13 +106,16 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
       const agentId = store.markAgentOnline(hello.machine, hello.folder, hello.kind, hello.projectId);
       connected.set(socket, agentId);
       socket.on("close", () => {
-        if (connected.delete(socket)) store.markAgentOffline(agentId);
+        if (!connected.delete(socket)) return;
+        store.markAgentOffline(agentId);
+        for (const listener of offlineListeners) listener(agentId);
       });
       socket.on("message", (data) => {
         const message = parseWorkMessage(data.toString());
         if (message) store.emit({ type: "work", message });
       });
       send(socket, { type: "welcome", agentId });
+      for (const listener of onlineListeners) listener(agentId);
     });
   });
 
@@ -118,6 +127,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
       connected.delete(socket);
       store.markAgentOffline(agentId);
       socket.close(AgentCloseCode.Unauthorized, "token regenerated");
+      for (const listener of offlineListeners) listener(agentId);
     }
     return { token };
   });
@@ -125,6 +135,8 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
   app.get("/api/agents", async () => store.listAgents());
 
   return {
+    onAgentOnline: (listener) => void onlineListeners.push(listener),
+    onAgentOffline: (listener) => void offlineListeners.push(listener),
     send(agentId, message) {
       for (const [socket, id] of connected) {
         if (id === agentId) {
