@@ -52,7 +52,28 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
           {thread.artboard} · {thread.selector}
         </span>
         <span className={styles.spacer} />
-        <span className={styles.headRight}>En attente d'envoi</span>
+        <span className={styles.headRight}>
+          <span className={styles.heldLabel}>En attente d'envoi</span>
+          {!editing && (
+            <span className={styles.heldActions}>
+              <button type="button" aria-label="Modifier" title="Modifier" className={styles.iconAction} onClick={() => setEditing(true)}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 20h4L19 9l-4-4L4 16v4z" />
+                  <path d="M13 7l4 4" />
+                </svg>
+              </button>
+              <button type="button" aria-label="Supprimer" title="Supprimer" className={styles.iconAction} onClick={() => void fetch(`/api/threads/${thread.id}`, { method: "DELETE" })}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 7h16" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
+                  <path d="M6 7l1 13h10l1-13" />
+                  <path d="M9 7V4h6v3" />
+                </svg>
+              </button>
+            </span>
+          )}
+        </span>
       </div>
       {editing ? (
         <>
@@ -76,14 +97,6 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
         <>
           <div className={styles.message}>
             <span className={styles.author}>Toi</span> — {thread.body}
-          </div>
-          <div className={styles.replyActions}>
-            <Button size="sm" onClick={() => setEditing(true)}>
-              Modifier
-            </Button>
-            <Button size="sm" onClick={() => void fetch(`/api/threads/${thread.id}`, { method: "DELETE" })}>
-              Supprimer
-            </Button>
           </div>
         </>
       )}

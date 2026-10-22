@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import type { QueueEntry, SessionRow, Thread, ThreadRun } from "@redline/shared";
 import { ContextLine } from "./ContextLine.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
-import { ModelEffortControls, type ModelEffortChoice } from "./ModelEffortControls.js";
+import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
 import { queueLabel } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
@@ -23,6 +23,7 @@ interface Props {
   queue: QueueEntry[];
   runs: ThreadRun[];
   sessions: Map<string, SessionRow>;
+  defaults: AgentDefaults;
   choice: ModelEffortChoice;
   onChoice: (choice: ModelEffortChoice) => void;
   draft: Draft | null;
@@ -138,7 +139,7 @@ function ThreadCard({
 }
 
 /** The "Commentaires" tab: held bar, thread cards and the composer of a new pinned comment. */
-export function CommentsPanel({ pageId, threads, queue, runs, sessions, choice, onChoice, draft, text, onText, onSend, onCancel }: Props) {
+export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel }: Props) {
   const ordered = [...threads].sort((a, b) => GROUP_ORDER[a.status] - GROUP_ORDER[b.status] || a.number - b.number);
   const heldCount = threads.filter((t) => t.status === "held").length;
 
@@ -204,14 +205,14 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, choice, 
           }}
         />
         <div className={panel.actions}>
-          <Button className={panel.action} disabled={!draft || text.trim() === ""} title="Garde ce commentaire pour l'envoyer avec les autres (⌘ Entrée)" onClick={() => onSend(true)}>
+          <Button className={panel.action} aria-disabled={!draft || text.trim() === ""} title="Garde ce commentaire pour l'envoyer avec les autres (⌘ Entrée)" onClick={() => onSend(true)}>
             Plus tard
           </Button>
-          <Button className={panel.action} variant="primary" disabled={!draft || text.trim() === ""} title="Envoie ce commentaire tout de suite, seul (Entrée)" onClick={() => onSend(false)}>
+          <Button className={panel.action} variant="primary" aria-disabled={!draft || text.trim() === ""} title="Envoie ce commentaire tout de suite, seul (Entrée)" onClick={() => onSend(false)}>
             Envoyer
           </Button>
         </div>
-        <ModelEffortControls value={choice} onChange={onChoice} />
+        <ModelEffortControls value={choice} onChange={onChoice} defaults={defaults} />
       </div>
     </>
   );

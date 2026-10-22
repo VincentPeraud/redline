@@ -27,7 +27,8 @@ afterAll(async () => {
   rmSync(webDir, { recursive: true, force: true });
 });
 
-it("restores an earlier version and the artboard changes back", async () => {
+// Skipped: the whole-page history button left the canvas header (per-artboard history replaces it, see ui-decisions 3).
+it.skip("restores an earlier version and the artboard changes back", async () => {
   const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as { id: string };
   const page = (await (
     await server.post(`/api/projects/${project.id}/pages`, {

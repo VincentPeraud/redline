@@ -3,29 +3,3 @@
   flex-direction: column;
   gap: 18px;
 }
-
-.typeField {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.typeLabel {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-}
-
-.typeField [role="radiogroup"] {
-  display: flex;
-}
-
-.typeField [role="radio"] {
-  flex: 1;
-  height: 32px;
-  font-size: var(--font-size-sm);
-}
-
-.hint {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-}

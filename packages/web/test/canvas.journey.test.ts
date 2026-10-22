@@ -143,7 +143,7 @@ it("is interactive by default, pins with C or Alt+click, and returns to interact
   const draft = section.getByText("Commentaire sur");
   const cancel = section.getByRole("button", { name: "Annuler" });
   await button.waitFor();
-  await expect.poll(async () => (await mode.textContent())?.includes("Planche interactive")).toBe(true);
+  await expect.poll(async () => (await mode.textContent())?.includes("Canvas interactif")).toBe(true);
 
   await new Promise((resolve) => setTimeout(resolve, 300));
   await button.click();
@@ -152,7 +152,7 @@ it("is interactive by default, pins with C or Alt+click, and returns to interact
 
   await button.click({ modifiers: ["Alt"] });
   await draft.waitFor();
-  expect(await mode.textContent()).toContain("Planche interactive");
+  expect(await mode.textContent()).toContain("Canvas interactif");
   await cancel.click();
 
   await tab.keyboard.press("c");
@@ -163,5 +163,5 @@ it("is interactive by default, pins with C or Alt+click, and returns to interact
   expect(await mode.textContent()).toContain("Mode commentaire");
 
   await tab.keyboard.press("p");
-  expect(await mode.textContent()).toContain("Planche interactive");
+  expect(await mode.textContent()).toContain("Canvas interactif");
 }, 60_000);

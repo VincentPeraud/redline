@@ -8,7 +8,7 @@ import {
   type SessionRow,
   type ThreadRun,
 } from "@redline/shared";
-import { ModelEffortControls, type ModelEffortChoice } from "./ModelEffortControls.js";
+import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
 import { workQueueLabel } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
@@ -49,10 +49,11 @@ interface Props {
   runs: ThreadRun[];
   queue: QueueEntry[];
   sessions: Map<string, SessionRow>;
+  defaults: AgentDefaults;
 }
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
-export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, queue, sessions }: Props) {
+export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, queue, sessions, defaults }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
@@ -183,9 +184,8 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
 
       <div className={styles.context}>
         <span className={styles.contextLabel}>Contexte transmis</span>
-        <span className={styles.chip}>{pageTitle}</span>
         <span className={styles.chip}>
-          {artboardCount} {artboardCount > 1 ? "artboards" : "artboard"}
+          {pageTitle} · {artboardCount} {artboardCount > 1 ? "artboards" : "artboard"}
         </span>
       </div>
 
@@ -239,6 +239,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
         </label>
         <Textarea
           id="conversation-message"
+          className={styles.messageInput}
           rows={3}
           placeholder="Un retour général, un artboard à ajouter, une nouvelle page…"
           disabled={!activeId}
@@ -251,8 +252,8 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
             }
           }}
         />
-        <ModelEffortControls value={choice} onChange={setChoice} />
-        {detail && <SessionLine conversation={detail} />}
+        <ModelEffortControls value={choice} onChange={setChoice} defaults={defaults} />
+        {detail && detail.context && detail.context.percent >= CONTEXT_WARNING_PERCENT && <SessionLine conversation={detail} />}
         <div className={styles.sessionId}>{sessionId ? `session ${shortSessionId(sessionId)}` : "aucune session"} · séparée des fils de commentaires</div>
       </div>
     </section>

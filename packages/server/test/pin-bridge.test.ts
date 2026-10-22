@@ -104,13 +104,13 @@ describe("pin bridge inside an artboard", () => {
     expect(sent.some((m) => m.type === "redline:picked")).toBe(true);
   });
 
-  it("places a pin on its element when the selector matches", async () => {
+  it("places a pin on the artboard's right edge, level with its element, when the selector matches", async () => {
     const { sent, place, post } = load();
     place("#title", 100, 200);
     post({ type: "redline:set-pins", pins: [{ id: "t1", selector: "#title", xPct: 90, yPct: 90 }] });
     await flush();
     const positions = sent.find((m) => m.type === "redline:pin-positions")!.positions;
-    expect(positions).toEqual([{ id: "t1", xPct: 10, yPct: 10, matched: true }]);
+    expect(positions).toEqual([{ id: "t1", xPct: 100, yPct: 11.25, matched: true }]);
   });
 
   it("falls back to the percentage position when the selector no longer matches", async () => {

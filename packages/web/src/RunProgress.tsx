@@ -34,11 +34,11 @@ function Steps({ run, current }: { run: ThreadRun; current: boolean }) {
   );
 }
 
-function StreamedText({ run, live }: { run: ThreadRun; live: boolean }) {
+function StreamedText({ run }: { run: ThreadRun }) {
   if (run.text === "") return null;
   return (
     <details className={styles.details}>
-      <summary>{live ? "Texte de Claude en direct" : "Texte de Claude"}</summary>
+      <summary>Texte de Claude en direct</summary>
       <div data-testid="run-text" className={styles.liveText}>
         {run.text}
       </div>
@@ -46,7 +46,7 @@ function StreamedText({ run, live }: { run: ThreadRun; live: boolean }) {
   );
 }
 
-/** Live state of the run that answers a thread or a conversation message; a finished run folds into a "Étapes de Claude" detail. */
+/** Live state of the run that answers a thread or a conversation message; a finished run shows nothing more. */
 export function RunProgress({ run, label = "Claude travaille sur ce fil…" }: { run: ThreadRun; label?: string }) {
   if (run.status === "failed") {
     const retry = () => void fetch(retryRunPath(run.pageId, run.workId), { method: "POST" });
@@ -63,21 +63,7 @@ export function RunProgress({ run, label = "Claude travaille sur ce fil…" }: {
     );
   }
 
-  if (run.status === "answered") {
-    if (run.steps.length === 0 && run.text === "") return <span data-testid="run-status" data-status="answered" hidden />;
-    return (
-      <details data-testid="run" className={styles.details}>
-        <summary>Étapes de Claude</summary>
-        <div className={styles.progress}>
-          <span data-testid="run-status" data-status="answered" className={styles.pastStatus}>
-            Répondu
-          </span>
-          <Steps run={run} current={false} />
-          <StreamedText run={run} live={false} />
-        </div>
-      </details>
-    );
-  }
+  if (run.status === "answered") return <span data-testid="run-status" data-status="answered" hidden />;
 
   const retrying = run.status === "retrying";
   return (
@@ -91,7 +77,7 @@ export function RunProgress({ run, label = "Claude travaille sur ce fil…" }: {
         {retrying ? retryLabel(run) : label}
       </div>
       <Steps run={run} current />
-      <StreamedText run={run} live />
+      <StreamedText run={run} />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import {
   MANIFEST_PATH,
   defaultManifest,
   parseManifest,
+  type AgentInfo,
   type CreateThreadRequest,
   type Manifest,
   type Project,
@@ -11,10 +12,10 @@ import {
 } from "@redline/shared";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { CanvasHeader } from "./CanvasHeader.js";
-import { fitView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
 import { ConversationsPanel } from "./ConversationsPanel.js";
-import type { ModelEffortChoice } from "./ModelEffortControls.js";
+import type { AgentDefaults, ModelEffortChoice } from "./ModelEffortControls.js";
 import { PlayMode } from "./PlayMode.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { subscribeServerEvents } from "./serverEvents.js";
@@ -39,13 +40,6 @@ function boundsOf(boxes: { x: number; y: number; width: number; height: number }
   const right = Math.max(...boxes.map((b) => b.x + b.width));
   const bottom = Math.max(...boxes.map((b) => b.y + b.height));
   return { x: left, y: top, width: Math.max(right - left, 1), height: Math.max(bottom - top, 1) };
-}
-
-function manifestBounds(manifest: Manifest) {
-  return boundsOf([
-    ...manifest.artboards.map((a) => ({ x: a.x, y: a.y, width: a.width, height: a.height })),
-    ...manifest.notes.map((n) => ({ x: n.x, y: n.y, width: 0, height: 0 })),
-  ]);
 }
 
 /** Initial view: artboards at 100 % under the group titles, shrunk when they would not fit the stage height. */
@@ -84,18 +78,18 @@ interface Props {
   versionId: string;
   /** Called after the page got a new version from this canvas (a saved tweak). */
   onVersionChange: () => void;
-  onOpenHistory: () => void;
 }
 
-export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange, onOpenHistory }: Props) {
+export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange }: Props) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
   const [draft, setDraft] = useState<(Pick & { artboard: string }) | null>(null);
   const [text, setText] = useState("");
   const [choice, setChoice] = useState<ModelEffortChoice>({});
+  const [agentDefaults, setAgentDefaults] = useState<AgentDefaults>({});
   const [tab, setTab] = useState<SideTab>("conversation");
-  const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [tweaksOpenFor, setTweaksOpenFor] = useState<string | null>(null);
   /** Bumped when the page's design system changed: artboards remount to load the new tokens. */
   const [tokensVersion, setTokensVersion] = useState(0);
   const [manifest, setManifest] = useState<Manifest | null>(null);
@@ -166,11 +160,16 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     setView((v) => zoomAt(v, factor, { x: rect.width / 2, y: rect.height / 2 }));
   }
 
-  function fit() {
-    const rect = viewport.current?.getBoundingClientRect();
-    if (!rect || !manifest) return;
-    setView(fitView(manifestBounds(manifest), rect));
-  }
+  const servingAgentId = project?.servedBy?.id ?? project?.agent?.id;
+  useEffect(() => {
+    if (!servingAgentId) return;
+    void fetch("/api/agents")
+      .then((res) => res.json() as Promise<AgentInfo[]>)
+      .then((agents) => {
+        const agent = agents.find((a) => a.id === servingAgentId);
+        setAgentDefaults({ model: agent?.model, effort: agent?.effort });
+      });
+  }, [servingAgentId]);
 
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/pages/${pageId}/threads`);
@@ -238,6 +237,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const runningCount = runs.filter((r) => r.status === "running" || r.status === "sent" || r.status === "retrying").length;
   const firstArtboard = manifest?.artboards[0]?.file;
   const draftInfo: Draft | null = draft;
+  const artboardTweaks = (file: string) => (manifest?.tweaks ?? []).filter((tweak) => (tweak.artboard ? tweak.artboard === file : file === firstArtboard));
 
   return (
     <div className={styles.page}>
@@ -248,7 +248,6 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
         picking={picking}
         onPickingChange={setPicking}
         runningCount={runningCount}
-        onOpenHistory={onOpenHistory}
       />
       <div className={styles.body}>
         <main className={styles.stage}>
@@ -288,8 +287,8 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                   <div data-no-pan className={styles.label} style={{ width: artboard.width * view.zoom, transform: `scale(${1 / view.zoom})` }}>
                     <span className={styles.labelName}>{artboard.title ?? artboard.file}</span>
                     <span className={styles.spacer} />
-                    {artboard.file === firstArtboard && manifest.tweaks.length > 0 && (
-                      <button type="button" aria-expanded={tweaksOpen} className={styles.tweaksButton} onClick={() => setTweaksOpen(!tweaksOpen)}>
+                    {artboardTweaks(artboard.file).length > 0 && (
+                      <button type="button" aria-expanded={tweaksOpenFor === artboard.file} className={styles.tweaksButton} onClick={() => setTweaksOpenFor(tweaksOpenFor === artboard.file ? null : artboard.file)}>
                         Tweaks
                       </button>
                     )}
@@ -317,22 +316,22 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       setTab("comments");
                     }}
                   />
-                  {tweaksOpen && artboard.file === firstArtboard && (
+                  {tweaksOpenFor === artboard.file && (
                     <div
                       data-no-pan
                       role="dialog"
-                      aria-label="Tweaks de la page"
+                      aria-label={`Tweaks de ${artboard.file}`}
                       className={styles.tweaksPopover}
                       style={{ left: artboard.width + 12, transform: `scale(${1 / view.zoom})` }}
                     >
                       <div className={styles.popoverHead}>
-                        <span className={styles.popoverTitle}>Tweaks</span>
+                        <span className={styles.popoverTitle}>Tweaks · {artboard.file.replace(/\.html$/, "")}</span>
                         <span className={styles.spacer} />
-                        <button type="button" aria-label="Fermer les tweaks" className={styles.popoverClose} onClick={() => setTweaksOpen(false)}>
+                        <button type="button" aria-label="Fermer les tweaks" className={styles.popoverClose} onClick={() => setTweaksOpenFor(null)}>
                           ×
                         </button>
                       </div>
-                      <TweaksPanel tweaks={manifest.tweaks} values={tweaks.values} onChange={tweaks.setValue} previews={{ pageId, artboardOrigin, artboard }} />
+                      <TweaksPanel tweaks={artboardTweaks(artboard.file)} values={tweaks.values} onChange={tweaks.setValue} previews={{ pageId, artboardOrigin, artboard }} />
                       <div className={styles.popoverHint}>
                         Le choix fait partie du design : il est enregistré avec l'artefact et s'applique ici comme en mode play.
                       </div>
@@ -344,7 +343,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
           </div>
           <div className={styles.hintWrap}>
             <div data-testid="mode-indicator" className={cx(styles.hint, picking && styles.hintComment)}>
-              {picking ? "Mode commentaire : clique sur un élément pour y épingler un commentaire" : "Planche interactive : les clics déclenchent les actions. Alt+clic pour commenter."}
+              {picking ? "Mode commentaire : clique sur un élément pour y épingler un commentaire" : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
             </div>
           </div>
           <div className={styles.zoom}>
@@ -354,9 +353,6 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             <span className={styles.zoomValue}>{Math.round(view.zoom * 100)} %</span>
             <button type="button" aria-label="Zoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(ZOOM_STEP)}>
               +
-            </button>
-            <button type="button" className={styles.fit} onClick={fit}>
-              Ajuster
             </button>
           </div>
         </main>
@@ -371,7 +367,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             </button>
           </div>
           {tab === "conversation" ? (
-            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} runs={runs} queue={queue} sessions={sessions} />
+            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults} />
           ) : (
             <CommentsPanel
               pageId={pageId}
@@ -379,6 +375,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               queue={queue}
               runs={runs}
               sessions={sessions}
+              defaults={agentDefaults}
               choice={choice}
               onChoice={setChoice}
               draft={draftInfo}

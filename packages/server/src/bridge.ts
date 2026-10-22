@@ -65,8 +65,8 @@ export const BRIDGE_SOURCE = `(function () {
     var size = docSize();
     return {
       id: pin.id,
-      xPct: pct(rect.left + (window.scrollX || 0), size.w),
-      yPct: pct(rect.top + (window.scrollY || 0), size.h),
+      xPct: 100,
+      yPct: pct(rect.top + rect.height / 2 + (window.scrollY || 0), size.h),
       matched: true
     };
   }
