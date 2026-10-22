@@ -5,6 +5,7 @@ import {
   AGENT_ENDPOINT,
   AGENT_UPDATE_COMMAND,
   AgentCloseCode,
+  EFFORTS,
   PROTOCOL_VERSION,
   type AgentHello,
   type AgentWorkMessage,
@@ -27,7 +28,9 @@ function parseHello(raw: string): AgentHello | undefined {
       typeof m.machine === "string" &&
       typeof m.folder === "string" &&
       (m.kind === "project" || m.kind === "global") &&
-      (m.projectId === undefined || typeof m.projectId === "string");
+      (m.projectId === undefined || typeof m.projectId === "string") &&
+      (m.model === undefined || typeof m.model === "string") &&
+      (m.effort === undefined || (EFFORTS as readonly unknown[]).includes(m.effort));
     return valid ? (m as AgentHello) : undefined;
   } catch {
     return undefined;
@@ -103,7 +106,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
           return socket.close(AgentCloseCode.ProjectTaken, "project taken");
         }
       }
-      const agentId = store.markAgentOnline(hello.machine, hello.folder, hello.kind, hello.projectId);
+      const agentId = store.markAgentOnline(hello.machine, hello.folder, hello.kind, hello.projectId, hello.model, hello.effort);
       connected.set(socket, agentId);
       socket.on("close", () => {
         if (!connected.delete(socket)) return;

@@ -2,7 +2,15 @@
 
 import type { ProjectContext } from "./projectFiles.js";
 
-export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type Effort = (typeof EFFORTS)[number];
+
+/** Models offered in a thread's model list (Claude Code aliases). */
+export const MODEL_CHOICES = [
+  { id: "opus", label: "Opus" },
+  { id: "sonnet", label: "Sonnet" },
+  { id: "haiku", label: "Haiku" },
+] as const;
 
 /** What an engine emits while a session runs. Streamed to the server as `work-event`. */
 export type EngineEvent =
@@ -61,6 +69,9 @@ export interface ThreadReply {
 
 export interface CreateReplyRequest {
   body: string;
+  /** Model for this message; absent = the agent's default. The web form sends its current choice with every message. */
+  model?: string;
+  effort?: Effort;
 }
 
 /** Server-sent events on `GET /api/events`, so the web UI refreshes without polling. */

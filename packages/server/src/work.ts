@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Thread, WorkItem } from "@redline/shared";
+import type { Effort, Thread, WorkItem } from "@redline/shared";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -34,11 +34,22 @@ export function dispatchThread(store: Store, lock: PageLock, projectId: string, 
   );
 }
 
-/** Queues the resumption of the thread's session, on the agent that opened it, with the user's reply. False when the thread has no session yet. */
-export function dispatchReply(store: Store, lock: PageLock, projectId: string, thread: Thread, body: string): boolean {
+/**
+ * Queues the resumption of the thread's session, on the agent that opened it, with the user's reply. False when the thread has no session yet.
+ * `choice` is the model and effort picked for this message; what is absent falls back to the agent's default.
+ */
+export function dispatchReply(
+  store: Store,
+  lock: PageLock,
+  projectId: string,
+  thread: Thread,
+  body: string,
+  choice: { model?: string; effort?: Effort } = {},
+): boolean {
   const session = store.getThreadSession(thread.id);
   if (!session) return false;
-  lock.submit({ projectId, agentId: session.agentId }, threadItem(thread, replyMessage(thread, body), session.sessionId, true));
+  const item = { ...threadItem(thread, replyMessage(thread, body), session.sessionId, true), ...choice };
+  lock.submit({ projectId, agentId: session.agentId }, item);
   return true;
 }
 

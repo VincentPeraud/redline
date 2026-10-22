@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import type { Project } from "@redline/shared";
+import { EFFORTS, type Effort, type Project } from "@redline/shared";
 import { hostname } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { checkClaude } from "./claude.js";
@@ -46,7 +46,23 @@ async function runInit(): Promise<void> {
   console.log("Folder linked. Run `redline agent` to start serving it.");
 }
 
+function flagValue(args: string[], flag: string): string | undefined {
+  const index = args.indexOf(flag);
+  if (index === -1) return undefined;
+  const value = args[index + 1];
+  if (!value || value.startsWith("--")) throw new Error(`${flag} needs a value.`);
+  return value;
+}
+
+function parseEffort(value: string | undefined): Effort | undefined {
+  if (value === undefined) return undefined;
+  if (!(EFFORTS as readonly string[]).includes(value)) throw new Error(`--effort must be one of: ${EFFORTS.join(", ")}.`);
+  return value as Effort;
+}
+
 async function runAgent(args: string[]): Promise<void> {
+  const model = flagValue(args, "--model");
+  const effort = parseEffort(flagValue(args, "--effort"));
   await checkClaude();
   const { serverUrl, token } = readLogin(defaultConfigDir());
   const kind = args.includes("--global") ? "global" : "project";
@@ -60,7 +76,7 @@ async function runAgent(args: string[]): Promise<void> {
   });
 
   for (;;) {
-    const connection = await startAgent({ ...identity, engine: claudeCodeEngine() });
+    const connection = await startAgent({ ...identity, engine: claudeCodeEngine(), model, effort });
     console.log(`Connected to ${serverUrl} as ${kind} agent in ${identity.folder}. Ctrl-C to stop.`);
     const { reason } = await connection.closed;
     if (reason === "unauthorized") throw new Error("The token was regenerated. Run `redline login <server-url>` again.");
@@ -74,7 +90,7 @@ try {
   if (command === "login") await runLogin(args[0]);
   else if (command === "init") await runInit();
   else if (command === "agent") await runAgent(args);
-  else throw new Error("Usage: redline login <server-url> | redline init | redline agent [--global]");
+  else throw new Error("Usage: redline login <server-url> | redline init | redline agent [--global] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
 } catch (error) {
   console.error((error as Error).message);
   process.exit(1);

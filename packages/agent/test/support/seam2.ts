@@ -6,6 +6,7 @@ import {
   type AgentTokenResponse,
   type AgentWorkMessage,
   type CreateThreadRequest,
+  type Effort,
   type Page,
   type PageVersionSummary,
   type Project,
@@ -71,7 +72,7 @@ function collectEvents(url: string, into: ServerEvent[], signal: AbortSignal): P
  * Seam 2: a real server and a real agent (project agent in a temp folder) driven by the given engine
  * (usually a `FakeEngine`). Pass `webDir` to serve the web UI for browser journeys.
  */
-export async function startSeam2(engine: Engine, options: { webDir?: string } = {}): Promise<Seam2> {
+export async function startSeam2(engine: Engine, options: { webDir?: string; agent?: { model?: string; effort?: Effort } } = {}): Promise<Seam2> {
   const server = await startTestServer({ webDir: options.webDir });
   const folder = mkdtempSync(join(tmpdir(), "redline-agent-folder-"));
   const events: ServerEvent[] = [];
@@ -88,6 +89,7 @@ export async function startSeam2(engine: Engine, options: { webDir?: string } = 
     kind: "project",
     projectId: project.id,
     engine,
+    ...options.agent,
   });
 
   const workMessages = () => events.flatMap((e) => (e.type === "work" ? [e.message] : []));

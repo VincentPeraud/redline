@@ -1,6 +1,7 @@
 import {
   AGENT_ENDPOINT,
   AgentCloseCode,
+  type Effort,
   PROTOCOL_VERSION,
   type AgentHello,
   type AgentKind,
@@ -16,6 +17,9 @@ export interface ConnectOptions {
   kind: AgentKind;
   /** The project a project agent serves. */
   projectId?: string;
+  /** Default model and effort for the agent's runs; absent = Claude Code's own configuration. */
+  model?: string;
+  effort?: Effort;
   /** Overridable for tests; defaults to this build's protocol version. */
   protocolVersion?: number;
   /** Called for every message after the welcome (work items). */
@@ -50,6 +54,8 @@ export function connectToServer(options: ConnectOptions): Promise<AgentConnectio
         folder: options.folder,
         kind: options.kind,
         projectId: options.projectId,
+        model: options.model,
+        effort: options.effort,
       };
       socket.send(JSON.stringify(hello));
     });
