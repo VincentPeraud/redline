@@ -337,7 +337,9 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
             <div className={styles.panelHeading}>
               <h2 className={styles.designMdTitle}>DESIGN.md</h2>
               <span className={styles.spacer} />
-              <a href={routeHref({ name: "designMd", projectId })}>Modifier</a>
+              <a href={routeHref({ name: "designMd", projectId })} aria-label="Modifier DESIGN.md">
+                Modifier
+              </a>
             </div>
             {designMd !== null && designMd.trim() !== "" ? (
               <MarkdownPreview source={designMd} />

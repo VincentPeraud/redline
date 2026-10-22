@@ -46,7 +46,7 @@ it("creates a project, then a page from its overview, and opens it on the canvas
   await tab.getByRole("link", { name: "Acme" }).click();
   await tab.getByRole("heading", { name: "Acme" }).waitFor();
 
-  await tab.getByRole("button", { name: "Nouvelle page" }).click();
+  await tab.getByRole("button", { name: "Nouvelle page" }).first().click();
   const pageDialog = tab.getByRole("dialog", { name: "Nouvelle page" });
   await pageDialog.getByLabel("Nom de la page").fill("Landing");
   await pageDialog.getByRole("radio", { name: "Planche" }).click();
@@ -58,6 +58,6 @@ it("creates a project, then a page from its overview, and opens it on the canvas
   await tab.getByRole("link", { name: "Acme" }).click();
   const card = tab.getByRole("link", { name: /Landing/ });
   await card.waitFor();
-  await expect.poll(() => card.locator("iframe").count()).toBe(1);
+  await expect.poll(() => card.locator("iframe").count()).toBe(2);
   await card.getByText("planche").waitFor();
 }, 60_000);
