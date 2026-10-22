@@ -1,77 +1,167 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { starterPageFiles, type CreatePageRequest, type Page, type PageType, type Project } from "@redline/shared";
-import { Dialog } from "./Dialog.js";
-import { PageThumbnail } from "./PageThumbnail.js";
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import {
+  NEUTRAL_DESIGN_SYSTEM_ID,
+  type DesignMdResponse,
+  type DesignSystemSummary,
+  type Page,
+  type PageVersionSummary,
+  type Project,
+  type ProjectAsset,
+  type Thread,
+  type UpdateProjectRequest,
+} from "@redline/shared";
+import { MarkdownPreview } from "./MarkdownPreview.js";
+import { NewPageDialog } from "./NewPageDialog.js";
+import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
 import { agentLabel } from "./agentLabel.js";
+import { relativeTime } from "./relativeTime.js";
 import { routeHref } from "./router.js";
+import { Button, PageContent, PageHeader, SidePanel, SidePanelBody, StatusBadge, cx } from "./ui/index.js";
+import styles from "./ProjectOverview.module.css";
 
-const PAGE_TYPE_LABEL: Record<PageType, string> = { prototype: "prototype", comparison: "planche" };
+interface PageStats {
+  openThreads: number;
+  updatedAt: string | null;
+}
 
-function NewPageDialog({
-  projectId,
-  designSystem,
-  onClose,
-  onCreated,
-}: {
-  projectId: string;
-  designSystem: string | null;
-  onClose: () => void;
-  onCreated: (page: Page) => void;
-}) {
-  const [title, setTitle] = useState("");
-  const [type, setType] = useState<PageType>("prototype");
+const IMAGE_EXTENSION = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
+const FONT_EXTENSION = /\.(woff2?|ttf|otf)$/i;
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const pageTitle = title.trim();
-    const body: CreatePageRequest = { title: pageTitle, type, files: starterPageFiles(pageTitle, type, designSystem) };
-    const res = await fetch(`/api/projects/${projectId}/pages`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    onCreated((await res.json()) as Page);
-  }
+const folderName = (path: string) => path.split("/").filter(Boolean).pop() ?? path;
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
+function agentPill(project: Project): { tone: "success" | "neutral"; text: string } {
+  const { servedBy } = project;
+  if (servedBy?.kind === "global") return { tone: "success", text: `Agent global ${servedBy.machine} connecté` };
+  if (servedBy) return { tone: "success", text: `Agent ${folderName(servedBy.folder)} connecté` };
+  return { tone: "neutral", text: "Aucun agent connecté" };
+}
+
+function PageCard({ page, stats, artboardOrigin }: { page: Page; stats: PageStats | undefined; artboardOrigin: string }) {
+  const artboards = usePageArtboards(page.id, page.version.files);
+  const screens = artboards?.length ?? 0;
+  const isComparison = page.type === "comparison";
+  const count = isComparison ? plural(screens, "variante", "variantes") : plural(screens, "écran", "écrans");
+  const modified = stats?.updatedAt ? ` · modifié ${relativeTime(stats.updatedAt)}` : "";
 
   return (
-    <Dialog title="Nouvelle page" onClose={onClose}>
-      <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
-        <label>
-          Titre
-          <input value={title} onChange={(e) => setTitle(e.target.value)} required style={{ display: "block", width: "100%" }} />
-        </label>
-        <fieldset>
-          <legend>Type</legend>
-          <label>
-            <input type="radio" name="type" checked={type === "prototype"} onChange={() => setType("prototype")} />
-            Prototype
-          </label>{" "}
-          <small>Enchaîne des écrans en parcours.</small>
-          <br />
-          <label>
-            <input type="radio" name="type" checked={type === "comparison"} onChange={() => setType("comparison")} />
-            Planche
-          </label>{" "}
-          <small>Compare des variantes côte à côte.</small>
-        </fieldset>
-        <div>
-          <button type="button" onClick={onClose}>
-            Annuler
-          </button>{" "}
-          <button type="submit" disabled={title.trim() === ""}>
-            Créer la page
-          </button>
+    <a href={routeHref({ name: "page", pageId: page.id })} className={styles.pageCard}>
+      <PageThumbnail pageId={page.id} artboards={artboards} artboardOrigin={artboardOrigin} />
+      <div className={styles.pageInfo}>
+        <div className={styles.pageTitleRow}>
+          <span className={styles.pageTitle}>{page.title}</span>
+          {stats && stats.openThreads > 0 && (
+            <StatusBadge tone="warning" className={styles.chip}>
+              {plural(stats.openThreads, "fil", "fils")}
+            </StatusBadge>
+          )}
+          {isComparison && (
+            <StatusBadge tone="neutral" className={styles.chip}>
+              planche
+            </StatusBadge>
+          )}
         </div>
-      </form>
-    </Dialog>
+        <div className={styles.pageMeta}>
+          {count}
+          {modified}
+        </div>
+      </div>
+    </a>
   );
+}
+
+function DesignSystemCard({
+  designSystem,
+  pageCount,
+  artboardOrigin,
+}: {
+  designSystem: DesignSystemSummary;
+  pageCount: number;
+  artboardOrigin: string;
+}) {
+  const [page, setPage] = useState<Page | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/pages/${designSystem.pageId}`)
+      .then((res) => res.json() as Promise<Page>)
+      .then(setPage);
+  }, [designSystem.pageId]);
+
+  return (
+    <a href={routeHref({ name: "designSystems" })} className={styles.dsCard}>
+      {page ? (
+        <DesignSystemPreview page={page} artboardOrigin={artboardOrigin} />
+      ) : (
+        <div className={styles.dsPlaceholder} />
+      )}
+      <div className={styles.pageInfo}>
+        <div className={styles.pageTitleRow}>
+          <span className={styles.pageTitle}>{designSystem.title}</span>
+        </div>
+        <div className={styles.pageMeta}>Utilisé par {plural(pageCount, "page", "pages")} du projet</div>
+      </div>
+    </a>
+  );
+}
+
+function DesignSystemPreview({ page, artboardOrigin }: { page: Page; artboardOrigin: string }) {
+  const artboards = usePageArtboards(page.id, page.version.files);
+  return <PageThumbnail pageId={page.id} artboards={artboards?.slice(0, 1) ?? null} artboardOrigin={artboardOrigin} />;
+}
+
+function AssetTile({ asset, previewUrl }: { asset: AssetEntry; previewUrl: string | null }) {
+  let preview: ReactNode;
+  if (asset.kind === "folder") {
+    preview = asset.fonts ? <span className={styles.assetFonts}>Aa</span> : <span className={styles.assetGlyph}>/</span>;
+  } else if (previewUrl && IMAGE_EXTENSION.test(asset.name)) {
+    preview = <img src={previewUrl} alt="" className={styles.assetImage} />;
+  } else {
+    preview = <span className={styles.assetGlyph}>{asset.name.split(".").pop()}</span>;
+  }
+  return (
+    <div className={styles.asset}>
+      <div className={styles.assetPreview} aria-hidden="true">
+        {preview}
+      </div>
+      <div className={styles.assetName}>{asset.kind === "folder" ? `${asset.name}/ · ${asset.count}` : asset.name}</div>
+    </div>
+  );
+}
+
+type AssetEntry = { kind: "file"; name: string } | { kind: "folder"; name: string; count: number; fonts: boolean };
+
+function groupAssets(assets: ProjectAsset[]): AssetEntry[] {
+  const entries: AssetEntry[] = [];
+  const folders = new Map<string, ProjectAsset[]>();
+  for (const asset of assets) {
+    const [first, ...rest] = asset.name.split("/");
+    if (rest.length === 0) {
+      entries.push({ kind: "file", name: asset.name });
+    } else {
+      folders.set(first!, [...(folders.get(first!) ?? []), asset]);
+    }
+  }
+  for (const [name, files] of folders) {
+    entries.push({ kind: "folder", name, count: files.length, fonts: files.every((file) => FONT_EXTENSION.test(file.name)) });
+  }
+  return entries;
 }
 
 export function ProjectOverview({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
+  const [pageStats, setPageStats] = useState<Record<string, PageStats>>({});
   const [artboardOrigin, setArtboardOrigin] = useState("");
+  const [designSystem, setDesignSystem] = useState<DesignSystemSummary | null>(null);
+  const [designMd, setDesignMd] = useState<string | null>(null);
+  const [assets, setAssets] = useState<ProjectAsset[]>([]);
   const [creating, setCreating] = useState(false);
+  const uploadInput = useRef<HTMLInputElement>(null);
+
+  const loadAssets = () =>
+    fetch(`/api/projects/${projectId}/assets`)
+      .then((res) => res.json() as Promise<ProjectAsset[]>)
+      .then(setAssets);
 
   useEffect(() => {
     fetch("/api/config")
@@ -79,56 +169,189 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
       .then((config) => setArtboardOrigin(config.artboardOrigin));
     fetch(`/api/projects/${projectId}`)
       .then((res) => res.json() as Promise<Project>)
-      .then(setProject);
+      .then(async (loaded) => {
+        setProject(loaded);
+        const systems = (await (await fetch("/api/design-systems")).json()) as DesignSystemSummary[];
+        const id = loaded.designSystem ?? NEUTRAL_DESIGN_SYSTEM_ID;
+        setDesignSystem(systems.find((system) => system.id === id) ?? null);
+      });
     fetch(`/api/projects/${projectId}/pages`)
       .then((res) => res.json() as Promise<Page[]>)
-      .then(setPages);
+      .then(async (loaded) => {
+        setPages(loaded);
+        const entries = await Promise.all(
+          loaded.map(async (page): Promise<[string, PageStats]> => {
+            const [threads, versions] = await Promise.all([
+              fetch(`/api/pages/${page.id}/threads`).then((res) => res.json() as Promise<Thread[]>),
+              fetch(`/api/pages/${page.id}/versions`).then((res) => res.json() as Promise<PageVersionSummary[]>),
+            ]);
+            return [
+              page.id,
+              { openThreads: threads.filter((thread) => thread.status === "open").length, updatedAt: versions[0]?.createdAt ?? null },
+            ];
+          }),
+        );
+        setPageStats(Object.fromEntries(entries));
+      });
+    fetch(`/api/projects/${projectId}/design-md`)
+      .then((res) => res.json() as Promise<DesignMdResponse>)
+      .then(({ content }) => setDesignMd(content));
+    void loadAssets();
   }, [projectId]);
 
-  if (!project) return <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>Chargement…</main>;
+  if (!project) return <PageContent>Chargement…</PageContent>;
+
+  async function toggleTakeover(allowGlobalTakeover: boolean) {
+    const body: UpdateProjectRequest = { allowGlobalTakeover };
+    const res = await fetch(`/api/projects/${projectId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    setProject((await res.json()) as Project);
+  }
+
+  async function upload(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    for (const file of files) {
+      await fetch(`/api/projects/${projectId}/assets/${file.name.split("/").map(encodeURIComponent).join("/")}`, {
+        method: "PUT",
+        headers: { "content-type": "application/octet-stream" },
+        body: file,
+      });
+    }
+    await loadAssets();
+  }
+
+  const openThreads = Object.values(pageStats).reduce((sum, stats) => sum + stats.openThreads, 0);
+  const summary = `${plural(pages.length, "page", "pages")} · ${plural(openThreads, "fil ouvert", "fils ouverts")}`;
+  const pill = agentPill(project);
+  const assetPreviewPage = pages[0];
+  const assetEntries = groupAssets(assets);
 
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
-      <nav>
-        <a href={routeHref({ name: "projects" })}>Projets</a>
-      </nav>
-      <h1>{project.title}</h1>
-      <p data-testid="project-agent">{agentLabel(project)}</p>
-      <label>
-        <input
-          type="checkbox"
-          checked={project.allowGlobalTakeover}
-          onChange={async (event) => {
-            const res = await fetch(`/api/projects/${projectId}`, {
-              method: "PATCH",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ allowGlobalTakeover: event.target.checked }),
-            });
-            setProject((await res.json()) as Project);
-          }}
+    <>
+      <PageContent>
+        <nav aria-label="Fil d'Ariane" className={styles.breadcrumb}>
+          <a href={routeHref({ name: "projects" })}>Projets</a>
+          <span aria-hidden="true">/</span>
+          <span className={styles.current}>{project.title}</span>
+        </nav>
+        <PageHeader
+          title={project.title}
+          subtitle={
+            <span className={styles.summary}>
+              {project.agent ? `Agent ${folderName(project.agent.folder)} · ${project.agent.folder} · ${summary}` : summary}
+            </span>
+          }
+          actions={
+            <>
+              <StatusBadge tone={pill.tone} className={styles.agentPill}>
+                <span className={cx(styles.dot, pill.tone === "success" && styles.dotOnline)} aria-hidden="true" />
+                {pill.text}
+              </StatusBadge>
+              <Button variant="accent" onClick={() => setCreating(true)}>
+                Nouvelle page
+              </Button>
+            </>
+          }
         />
-        Laisser l'agent global prendre le relais quand l'agent du projet est hors ligne
-      </label>{" "}
-      <small>Les fils repartent alors dans une nouvelle session, sans le contexte du projet.</small>
-      <br />
-      <a href={routeHref({ name: "designMd", projectId })}>DESIGN.md</a>{" "}
-      <button onClick={() => setCreating(true)}>Nouvelle page</button>
-      {pages.length === 0 && <p>Aucune page pour l'instant.</p>}
-      <ul style={{ listStyle: "none", padding: 0, display: "flex", flexWrap: "wrap", gap: 16 }}>
-        {pages.map((page) => (
-          <li key={page.id}>
-            <a href={routeHref({ name: "page", pageId: page.id })} style={{ textDecoration: "none", color: "inherit" }}>
-              <PageThumbnail pageId={page.id} files={page.version.files} artboardOrigin={artboardOrigin} />
-              <div>
-                <strong>{page.title}</strong> <small>{PAGE_TYPE_LABEL[page.type]}</small>
+
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>Pages</h2>
+          <div className={styles.pageGrid}>
+            {pages.map((page) => (
+              <PageCard key={page.id} page={page} stats={pageStats[page.id]} artboardOrigin={artboardOrigin} />
+            ))}
+            <button type="button" className={styles.newPageTile} onClick={() => setCreating(true)}>
+              <span aria-hidden="true" className={styles.plus}>
+                +
+              </span>
+              <span className={styles.newPageTitle}>Nouvelle page</span>
+              <span className={styles.newPageHint}>vide, ou décrite à Claude</span>
+            </button>
+          </div>
+        </section>
+
+        <section className={styles.section}>
+          <div className={styles.assetsHeader}>
+            <h2 className={styles.sectionTitle}>Assets du projet</h2>
+            <span className={styles.assetsPath}>assets/ · partagés par tous les artefacts</span>
+            <span className={styles.spacer} />
+            <Button size="sm" onClick={() => uploadInput.current?.click()}>
+              Ajouter
+            </Button>
+            <input ref={uploadInput} type="file" multiple hidden onChange={upload} aria-label="Ajouter des assets" />
+          </div>
+          {assetEntries.length === 0 ? (
+            <p className={styles.empty}>Aucun asset pour l'instant.</p>
+          ) : (
+            <div className={styles.assetGrid}>
+              {assetEntries.map((asset) => (
+                <AssetTile
+                  key={`${asset.kind}:${asset.name}`}
+                  asset={asset}
+                  previewUrl={
+                    assetPreviewPage && artboardOrigin
+                      ? `${artboardOrigin}/pages/${assetPreviewPage.id}/assets/${asset.name.split("/").map(encodeURIComponent).join("/")}`
+                      : null
+                  }
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      </PageContent>
+
+      <SidePanel label="Contexte du projet" width={380}>
+        <SidePanelBody className={styles.panelBody}>
+          <section className={styles.panelSection}>
+            <h2 className={styles.panelTitle}>Agent</h2>
+            <div className={styles.agentLabel} data-testid="project-agent">
+              {agentLabel(project)}
+            </div>
+            <label className={styles.takeover}>
+              <input
+                type="checkbox"
+                checked={project.allowGlobalTakeover}
+                onChange={(event) => void toggleTakeover(event.target.checked)}
+              />
+              Laisser l'agent global prendre le relais quand l'agent du projet est hors ligne
+            </label>
+            <div className={styles.panelNote}>Les fils repartent alors dans une nouvelle session, sans le contexte du projet.</div>
+          </section>
+
+          {designSystem && (
+            <section className={styles.panelSection}>
+              <div className={styles.panelHeading}>
+                <h2 className={styles.panelTitle}>Design system</h2>
+                <span className={styles.spacer} />
+                <a href={routeHref({ name: "designSystems" })}>Ouvrir</a>
               </div>
-            </a>
-          </li>
-        ))}
-      </ul>
+              <DesignSystemCard designSystem={designSystem} pageCount={pages.length} artboardOrigin={artboardOrigin} />
+            </section>
+          )}
+
+          <section className={cx(styles.panelSection, styles.grow)}>
+            <div className={styles.panelHeading}>
+              <h2 className={styles.designMdTitle}>DESIGN.md</h2>
+              <span className={styles.spacer} />
+              <a href={routeHref({ name: "designMd", projectId })}>Modifier</a>
+            </div>
+            {designMd !== null && designMd.trim() !== "" ? (
+              <MarkdownPreview source={designMd} />
+            ) : (
+              <p className={styles.empty}>Aucune consigne pour l'instant.</p>
+            )}
+          </section>
+        </SidePanelBody>
+      </SidePanel>
+
       {creating && (
         <NewPageDialog
           projectId={projectId}
+          projectTitle={project.title}
           designSystem={project.designSystem}
           onClose={() => setCreating(false)}
           onCreated={(page) => {
@@ -136,6 +359,6 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
           }}
         />
       )}
-    </main>
+    </>
   );
 }

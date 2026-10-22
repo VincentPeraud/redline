@@ -48,8 +48,8 @@ it("creates a project, then a page from its overview, and opens it on the canvas
 
   await tab.getByRole("button", { name: "Nouvelle page" }).click();
   const pageDialog = tab.getByRole("dialog", { name: "Nouvelle page" });
-  await pageDialog.getByLabel("Titre").fill("Landing");
-  await pageDialog.getByLabel("Planche").check();
+  await pageDialog.getByLabel("Nom de la page").fill("Landing");
+  await pageDialog.getByRole("radio", { name: "Planche" }).click();
   await pageDialog.getByRole("button", { name: "Créer la page" }).click();
 
   await expect.poll(() => tab.url()).toContain("#/pages/");
