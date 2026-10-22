@@ -222,6 +222,7 @@ export function parseManifest(text: string): Manifest {
 export function defaultManifest(paths: string[]): Manifest {
   const files = paths.filter((path) => path.endsWith(".html"));
   return parseManifest(JSON.stringify({ artboards: files.map((file) => ({ file })) }));
+}
 
 /** WebSocket path of the agent endpoint (outside the reverse proxy's protection; guarded by the token). */
 export const AGENT_ENDPOINT = "/agent";
