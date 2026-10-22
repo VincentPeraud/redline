@@ -93,7 +93,8 @@ describe("pinned threads over the server HTTP API", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ status: "resolved" }),
       });
-      expect(res.status).toBe(404);
+      // PATCH exists only to edit the text of a held comment; it ignores a status.
+      expect(res.status).toBe(method === "PATCH" ? 400 : 404);
     }
     const list = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
     expect(list[0].status).toBe("open");

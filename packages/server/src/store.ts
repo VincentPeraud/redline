@@ -132,6 +132,10 @@ export class Store {
     if (!agentColumns.some((c) => c.name === "project_id")) this.db.exec("ALTER TABLE agents ADD COLUMN project_id TEXT");
     if (!agentColumns.some((c) => c.name === "model")) this.db.exec("ALTER TABLE agents ADD COLUMN model TEXT");
     if (!agentColumns.some((c) => c.name === "effort")) this.db.exec("ALTER TABLE agents ADD COLUMN effort TEXT");
+    const projectColumns = this.db.prepare("PRAGMA table_info(projects)").all() as { name: string }[];
+    if (!projectColumns.some((c) => c.name === "allow_global_takeover")) {
+      this.db.exec("ALTER TABLE projects ADD COLUMN allow_global_takeover INTEGER NOT NULL DEFAULT 0");
+    }
     const threadColumns = this.db.prepare("PRAGMA table_info(threads)").all() as { name: string }[];
     if (!threadColumns.some((c) => c.name === "session_id")) this.db.exec("ALTER TABLE threads ADD COLUMN session_id TEXT");
     if (!threadColumns.some((c) => c.name === "agent_id")) this.db.exec("ALTER TABLE threads ADD COLUMN agent_id TEXT");
@@ -254,13 +258,13 @@ export class Store {
     this.db
       .prepare("INSERT INTO projects (id, title, instructions, design_system, created_at) VALUES (?, ?, ?, ?, ?)")
       .run(id, title, instructions, designSystem, now());
-    return { id, title, instructions, designSystem };
+    return { id, title, instructions, designSystem, allowGlobalTakeover: false };
   }
 
   listProjects(): Project[] {
     const rows = this.db
       .prepare(
-        `SELECT p.id, p.title, p.instructions, p.design_system AS designSystem, a.id AS agentId, a.machine, a.folder, a.status
+        `SELECT p.id, p.title, p.instructions, p.design_system AS designSystem, p.allow_global_takeover AS allowGlobalTakeover, a.id AS agentId, a.machine, a.folder, a.status
          FROM projects p LEFT JOIN agents a ON a.project_id = p.id
          WHERE p.id NOT IN (SELECT project_id FROM design_systems)
          ORDER BY p.created_at, p.rowid`,
@@ -270,6 +274,7 @@ export class Store {
       title: string;
       instructions: string;
       designSystem: string | null;
+      allowGlobalTakeover: number;
       agentId: string | null;
       machine: string;
       folder: string;
@@ -280,12 +285,34 @@ export class Store {
       title: r.title,
       instructions: r.instructions,
       designSystem: r.designSystem,
+      allowGlobalTakeover: r.allowGlobalTakeover === 1,
       ...(r.agentId ? { agent: { id: r.agentId, machine: r.machine, folder: r.folder, status: r.status } } : {}),
     }));
   }
 
   getProject(id: string): Project | undefined {
     return this.listProjects().find((p) => p.id === id);
+  }
+
+  setAllowGlobalTakeover(projectId: string, allow: boolean): void {
+    this.db.prepare("UPDATE projects SET allow_global_takeover = ? WHERE id = ?").run(allow ? 1 : 0, projectId);
+  }
+
+  /** True once a project agent has been linked to the project, online or not. */
+  hasProjectAgent(projectId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM agents WHERE project_id = ?").get(projectId) !== undefined;
+  }
+
+  /** Id of an online global agent, the most recently seen first. */
+  findOnlineGlobalAgentId(): string | undefined {
+    const row = this.db.prepare("SELECT id FROM agents WHERE kind = 'global' AND status = 'online' ORDER BY last_seen_at DESC, rowid LIMIT 1").get() as
+      | { id: string }
+      | undefined;
+    return row?.id;
+  }
+
+  getAgent(id: string): AgentInfo | undefined {
+    return this.listAgents().find((a) => a.id === id);
   }
 
   projectExists(id: string): boolean {
@@ -358,9 +385,9 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO threads (id, page_id, number, artboard, selector, x_pct, y_pct, title, body, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, pin.artboard, pin.selector, pin.xPct, pin.yPct, title, pin.body, now());
+      .run(id, pageId, next, pin.artboard, pin.selector, pin.xPct, pin.yPct, title, pin.body, pin.held ? "held" : "open", now());
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -375,6 +402,44 @@ export class Store {
   getThread(id: string): Thread | undefined {
     const row = this.db.prepare(`${THREAD_SELECT} WHERE id = ?`).get(id) as ThreadRow | undefined;
     return row && toThread(row, this.repliesOf(id));
+  }
+
+  /** Held comments of every page of the project, oldest first. */
+  listHeldThreads(projectId: string): Thread[] {
+    const rows = this.db
+      .prepare(
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.x_pct, t.y_pct, t.title, t.body, t.status
+         FROM threads t JOIN pages p ON p.id = t.page_id
+         WHERE p.project_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
+      )
+      .all(projectId) as ThreadRow[];
+    return rows.map((row) => toThread(row, []));
+  }
+
+  /** Edits the text of a held comment; undefined when the thread does not exist or is not held. */
+  updateHeldThread(id: string, body: string): Thread | undefined {
+    const title = body.trim().split("\n")[0].slice(0, 80);
+    const { changes } = this.db.prepare("UPDATE threads SET body = ?, title = ? WHERE id = ? AND status = 'held'").run(body, title, id);
+    if (changes === 0) return undefined;
+    const thread = this.getThread(id)!;
+    this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
+    return thread;
+  }
+
+  /** Deletes a held comment; false when the thread does not exist or is not held. */
+  deleteHeldThread(id: string): boolean {
+    const thread = this.getThread(id);
+    if (!thread || thread.status !== "held") return false;
+    this.db.prepare("DELETE FROM threads WHERE id = ?").run(id);
+    this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
+    return true;
+  }
+
+  /** A held comment leaves: it becomes a regular open thread. */
+  releaseHeldThread(id: string): void {
+    this.db.prepare("UPDATE threads SET status = 'open' WHERE id = ? AND status = 'held'").run(id);
+    const thread = this.getThread(id);
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
   }
 
   resolveThread(id: string): Thread | undefined {

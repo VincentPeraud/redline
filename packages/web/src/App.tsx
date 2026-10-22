@@ -97,6 +97,7 @@ export function App({ pageId }: { pageId: string }) {
         <PageCanvas
           pageId={page.id}
           pageTitle={page.title}
+          projectId={page.projectId}
           files={page.version.files}
           artboardOrigin={artboardOrigin}
           versionId={page.version.id}

@@ -92,6 +92,23 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
       </nav>
       <h1>{project.title}</h1>
       <p data-testid="project-agent">{agentLabel(project)}</p>
+      <label>
+        <input
+          type="checkbox"
+          checked={project.allowGlobalTakeover}
+          onChange={async (event) => {
+            const res = await fetch(`/api/projects/${projectId}`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ allowGlobalTakeover: event.target.checked }),
+            });
+            setProject((await res.json()) as Project);
+          }}
+        />
+        Let the global agent take over when the project agent is offline
+      </label>{" "}
+      <small>Threads then restart in a new session, without the project's context.</small>
+      <br />
       <a href={routeHref({ name: "designMd", projectId })}>DESIGN.md</a>{" "}
       <button onClick={() => setCreating(true)}>New page</button>
       {pages.length === 0 && <p>No page yet.</p>}
