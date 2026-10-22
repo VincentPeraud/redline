@@ -92,17 +92,18 @@ describe("Claude Code argument building", () => {
     expect(valueAfter(args, "--setting-sources")).toBe("");
   });
 
-  it("loads the project's .mcp.json explicitly, since dropping settings sources drops it, only when it exists", () => {
+  it("gives the session only the Redline MCP server, never the project's .mcp.json servers", () => {
     const folder = mkdtempSync(join(tmpdir(), "redline-args-"));
     const folderRequest = { ...request, cwd: folder, workingCopyDir: join(folder, ".redline", "page-1") };
-    const without = buildClaudeArgs(folderRequest, "start");
-    expect(without.filter((arg) => arg.endsWith(".mcp.json"))).toEqual([]);
-
     writeFileSync(join(folder, ".mcp.json"), "{}");
+
     const args = buildClaudeArgs(folderRequest, "start");
-    const configs = args.slice(args.indexOf("--mcp-config") + 1, args.indexOf("--mcp-config") + 3);
-    expect(JSON.parse(configs[0]!)).toEqual({ mcpServers: { redline: { type: "http", url: request.mcpUrl } } });
-    expect(configs[1]).toBe(join(folder, ".mcp.json"));
+
+    expect(args.filter((arg) => arg.endsWith(".mcp.json"))).toEqual([]);
+    expect(args.filter((arg) => arg === "--mcp-config")).toHaveLength(1);
+    expect(JSON.parse(valueAfter(args, "--mcp-config")!)).toEqual({
+      mcpServers: { redline: { type: "http", url: request.mcpUrl } },
+    });
   });
 
   it("refuses a working copy outside the agent's folder", () => {

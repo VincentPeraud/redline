@@ -12,7 +12,7 @@ claude -p (--session-id <uuid> | --resume <uuid>) --output-format stream-json --
   --allowedTools "Read(/**),Glob(/**),Grep(/**),Edit(/.redline/<page>/**),Write(/.redline/<page>/**),mcp__redline"
   --disallowedTools "Bash,PowerShell,NotebookEdit,Read(**/.env*),Read(**/.redline/project.json),Read(~/.config/redline/**),Read(~/.ssh/**)"
   --setting-sources ""
-  --mcp-config '{"mcpServers":{"redline":{"type":"http","url":"<per-run MCP url>"}}}' [<cwd>/.mcp.json]
+  --mcp-config '{"mcpServers":{"redline":{"type":"http","url":"<per-run MCP url>"}}}'
   [--model <m>] [--effort <low|medium|high|xhigh|max>]
 ```
 
@@ -41,7 +41,7 @@ User, project (`.claude/settings.json`) and local settings files would otherwise
 | `--setting-sources ""` | denied | loaded | not available | not available | available |
 | `--setting-sources "" --mcp-config <project>/.mcp.json` | denied | loaded | available | not available | available |
 
-The adapter uses the last row: `--setting-sources ""` plus the project's `.mcp.json` passed explicitly to `--mcp-config` (only when the file exists; it comes after the Redline server config, both are kept). Cost: user-scope MCP servers and everything else from the user's settings files (default model, env, hooks, user-level permission rules) no longer apply to Redline sessions; the login keeps working. Not tested: whether the user's global `~/.claude/CLAUDE.md` is still loaded with an empty `--setting-sources`.
+The adapter uses `--setting-sources ""` and passes only the Redline server to `--mcp-config`. The project's `.mcp.json` is deliberately not passed (decided 2026-10-22, spec story 11): its servers could act outside `.redline/` without confirmation, and mock-ups need no live data. Cost: user-scope MCP servers and everything else from the user's settings files (default model, env, hooks, user-level permission rules) no longer apply to Redline sessions; the login keeps working. Not tested: whether the user's global `~/.claude/CLAUDE.md` is still loaded with an empty `--setting-sources`.
 
 ## Stream-json events used
 

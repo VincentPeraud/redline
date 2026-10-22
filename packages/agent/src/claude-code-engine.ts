@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import path from "node:path";
 import type { EngineEvent } from "@redline/shared";
@@ -35,8 +34,6 @@ export function claudePermissionRules(request: Pick<EngineRunRequest, "cwd" | "w
 /** Arguments of `claude` for one turn. The message itself goes through stdin. */
 export function buildClaudeArgs(request: EngineRunRequest, mode: "start" | "resume"): string[] {
   const { allowed, denied } = claudePermissionRules(request);
-  // Without settings sources the project's .mcp.json is no longer picked up, so it is passed explicitly.
-  const projectMcpConfig = path.join(request.cwd, ".mcp.json");
   const args = [
     "-p",
     mode === "start" ? "--session-id" : "--resume",
@@ -54,9 +51,9 @@ export function buildClaudeArgs(request: EngineRunRequest, mode: "start" | "resu
     // No settings file (user, project, local): an `allow` rule there would widen what the session can write.
     "--setting-sources",
     "",
+    // Only the Redline server: the project's own MCP servers could act outside .redline/ (spec story 11).
     "--mcp-config",
     JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { type: "http", url: request.mcpUrl } } }),
-    ...(existsSync(projectMcpConfig) ? [projectMcpConfig] : []),
   ];
   if (request.model) args.push("--model", request.model);
   if (request.effort) args.push("--effort", request.effort);
