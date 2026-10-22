@@ -72,10 +72,16 @@ function isSafePath(path: string): boolean {
 }
 
 /** API and web UI. */
-export async function buildMainApp(store: Store, config: ServerConfig, webDir?: string): Promise<FastifyInstance> {
+export async function buildMainApp(
+  store: Store,
+  config: ServerConfig,
+  webDir?: string,
+  options: { retryDelaysMs?: number[] } = {},
+): Promise<FastifyInstance> {
   const app = Fastify();
   const agents = await registerAgentRoutes(app, store);
-  const pageLock = new PageLock(store, agents);
+  const pageLock = new PageLock(store, agents, options.retryDelaysMs);
+  app.addHook("onClose", async () => pageLock.dispose());
   await registerAgentApi(app, store);
   await registerProjectFileRoutes(app, store);
   registerEventRoutes(app, store);
@@ -84,6 +90,11 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
     return pageLock.waiting(req.params.pageId);
+  });
+
+  app.post<{ Params: { pageId: string; workId: string } }>("/api/pages/:pageId/runs/:workId/retry", async (req, reply) => {
+    if (!pageLock.retry(req.params.workId)) return reply.code(404).send({ error: "no failed run to retry" });
+    return reply.code(204).send();
   });
 
   app.get("/api/config", async () => config);
