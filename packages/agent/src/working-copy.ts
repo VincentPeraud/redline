@@ -61,6 +61,15 @@ export function readWorkingCopy(dir: string): Record<string, string> {
   return files;
 }
 
+/** The session's DESIGN.md, or undefined when it deleted the file (that is not a change). */
+export function readDesignMd(dir: string): string | undefined {
+  try {
+    return readFileSync(join(dir, DESIGN_MD_PATH), "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
 export function sameFiles(a: Record<string, string>, b: Record<string, string>): boolean {
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length && keys.every((key) => b[key] === a[key]);

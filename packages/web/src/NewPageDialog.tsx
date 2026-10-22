@@ -5,15 +5,9 @@ import {
   type CreateConversationMessageRequest,
   type CreatePageRequest,
   type Page,
-  type PageType,
 } from "@redline/shared";
-import { Button, Dialog, DialogActions, Field, SegmentedControl, TextInput, Textarea } from "./ui/index.js";
+import { Button, Dialog, DialogActions, Field, TextInput, Textarea } from "./ui/index.js";
 import styles from "./NewPageDialog.module.css";
-
-const TYPE_HINT: Record<PageType, string> = {
-  prototype: "Enchaîne des écrans en parcours.",
-  comparison: "Compare des variantes côte à côte.",
-};
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -34,7 +28,6 @@ export function NewPageDialog({
   onCreated: (page: Page) => void;
 }) {
   const [title, setTitle] = useState("");
-  const [type, setType] = useState<PageType>("prototype");
   const [instructions, setInstructions] = useState("");
   const canCreate = title.trim() !== "";
 
@@ -42,7 +35,7 @@ export function NewPageDialog({
     event.preventDefault();
     if (!canCreate) return;
     const pageTitle = title.trim();
-    const body: CreatePageRequest = { title: pageTitle, type, files: starterPageFiles(pageTitle, type, designSystem) };
+    const body: CreatePageRequest = { title: pageTitle, files: starterPageFiles(pageTitle, designSystem) };
     const page = await postJson<Page>(`/api/projects/${projectId}/pages`, body);
     if (instructions.trim() !== "") {
       const conversation = await postJson<Conversation>(`/api/pages/${page.id}/conversations`, {});
@@ -58,19 +51,6 @@ export function NewPageDialog({
         <Field label="Nom de la page">
           <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex. Pages d'erreur" />
         </Field>
-        <div className={styles.typeField}>
-          <span className={styles.typeLabel}>Type</span>
-          <SegmentedControl
-            ariaLabel="Type de page"
-            value={type}
-            onChange={setType}
-            options={[
-              { value: "prototype", label: "Prototype" },
-              { value: "comparison", label: "Planche" },
-            ]}
-          />
-          <span className={styles.hint}>{TYPE_HINT[type]}</span>
-        </div>
         <Field
           label="Instructions pour Claude"
           optional

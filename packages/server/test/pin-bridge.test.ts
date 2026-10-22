@@ -24,7 +24,6 @@ describe("pin bridge inside an artboard", () => {
     const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
     const res = await server.post(`/api/projects/${project.id}/pages`, {
       title: "Landing",
-      type: "prototype",
       files: { "home.html": ARTBOARD },
     });
     const page = (await res.json()) as Page;

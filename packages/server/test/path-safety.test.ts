@@ -15,7 +15,7 @@ describe("file paths of pages", () => {
     token = ((await (await server.get("/api/agent-token")).json()) as AgentTokenResponse).token;
     projectId = ((await (await server.post("/api/projects", { title: "Acme" })).json()) as { id: string }).id;
     page = (await (
-      await server.post(`/api/projects/${projectId}/pages`, { title: "Home", type: "prototype", files: { "home.html": "<h1>Hi</h1>" } })
+      await server.post(`/api/projects/${projectId}/pages`, { title: "Home", files: { "home.html": "<h1>Hi</h1>" } })
     ).json()) as Page;
   });
   afterEach(async () => {
@@ -31,7 +31,7 @@ describe("file paths of pages", () => {
 
   it.each(UNSAFE)("refuses %j in a new page, a published version and an agent's publish", async (path) => {
     const files = { "home.html": "<h1>Hi</h1>", [path]: "x" };
-    expect((await server.post(`/api/projects/${projectId}/pages`, { title: "Bad", type: "prototype", files })).status).toBe(400);
+    expect((await server.post(`/api/projects/${projectId}/pages`, { title: "Bad", files })).status).toBe(400);
     expect((await server.post(`/api/pages/${page.id}/versions`, { files, message: "x", origin: "thread" })).status).toBe(400);
     expect((await agentPublish(files)).status).toBe(400);
   });

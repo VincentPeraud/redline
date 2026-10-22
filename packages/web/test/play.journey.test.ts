@@ -32,7 +32,6 @@ it("plays a prototype: one artboard at full size, links switch artboard, exit re
     `<!doctype html><body style="margin:0"><h1>${title}</h1>${body}</body>`;
   const page = (await server.post(`/api/projects/${project.id}/pages`, {
     title: "Checkout",
-    type: "prototype",
     files: {
       "cart.html": html("Cart", '<button id="pay" style="width:100px;height:40px">Pay</button><button id="dead">Nothing</button>'),
       "done.html": html("Thanks", '<button id="back">Back</button>'),

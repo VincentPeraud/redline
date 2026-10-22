@@ -23,7 +23,7 @@ describe("design systems over the server HTTP API", () => {
     const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as { id: string };
     const files: Record<string, string> = { "a.html": html };
     if (manifest) files["manifest.json"] = JSON.stringify(manifest);
-    const res = await server.post(`/api/projects/${project.id}/pages`, { title: "Flow", type: "prototype", files });
+    const res = await server.post(`/api/projects/${project.id}/pages`, { title: "Flow", files });
     return (await res.json()) as Page;
   }
 

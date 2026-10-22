@@ -1,5 +1,6 @@
 // Engine events and work items: the contract between server, agent and engine adapters (ticket 07).
 
+import type { CreatedPage } from "./index.js";
 import type { ProjectContext } from "./projectFiles.js";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -37,6 +38,8 @@ export interface WorkThread {
   number: number;
   artboard: string;
   selector: string;
+  /** Readable name of the element the user commented, when the bridge computed one; the selector stays the exact reference. */
+  elementName?: string;
   xPct: number;
   yPct: number;
   body: string;
@@ -91,10 +94,17 @@ export interface ThreadReply {
   author: "claude" | "user";
   body: string;
   createdAt: string;
+  /** Pages the run that gave this answer created with `create_page` (on the first answer of that run only). */
+  createdPages?: CreatedPage[];
 }
 
 export interface CreateReplyRequest extends ModelChoice {
   body: string;
+}
+
+/** Body of `POST /agent-api/threads/:id/replies`: `workId` is the run posting the answer (to attach the pages it created). */
+export interface AgentReplyRequest extends CreateReplyRequest {
+  workId?: string;
 }
 
 /** Server-sent events on `GET /api/events`, so the web UI refreshes without polling. */
@@ -167,6 +177,10 @@ export interface Conversation {
   title: string;
   archived: boolean;
   createdAt: string;
+  /** Number of exchanges: one user message and Claude's answer count for one (an unanswered user message counts too). */
+  exchangeCount: number;
+  /** ISO time of the latest message, else of the creation. */
+  lastActivityAt: string;
 }
 
 export interface ConversationMessage extends ModelChoice {
@@ -174,6 +188,8 @@ export interface ConversationMessage extends ModelChoice {
   author: "user" | "claude";
   body: string;
   createdAt: string;
+  /** Pages the run created with `create_page`, on Claude's answer. */
+  createdPages?: CreatedPage[];
 }
 
 /** `GET /api/conversations/:id` and the result of creating one. */
@@ -200,15 +216,21 @@ export interface CreateConversationMessageRequest extends ModelChoice {
  * meant to stay reachable when a reverse proxy protects `/api`.
  *   GET  /agent-api/pages/:pageId/files          -> AgentCheckout
  *   POST /agent-api/pages/:pageId/versions       (CreateVersionRequest) -> PageVersionSummary
- *   POST /agent-api/pages/:pageId/siblings       ({title, type}) -> Page, a new page in the same project
- *   POST /agent-api/threads/:threadId/replies    (CreateReplyRequest)   -> ThreadReply
+ *   POST /agent-api/pages/:pageId/siblings       (CreateSiblingRequest) -> Page, a new page in the same project
+ *   POST /agent-api/threads/:threadId/replies    (AgentReplyRequest)    -> ThreadReply
  */
 export const AGENT_API_PREFIX = "/agent-api";
+
+/** Body of `POST /agent-api/pages/:pageId/siblings`; `workId` ties the created page to the run that made it. */
+export interface CreateSiblingRequest {
+  title: string;
+  workId?: string;
+}
 
 export interface AgentCheckout {
   versionId: string;
   /** File path -> UTF-8 content. */
   files: Record<string, string>;
-  /** DESIGN.md, assets and design system of the page's project (read-only for the session). */
+  /** DESIGN.md (the session may edit it), assets and design system (read-only) of the page's project. */
   project: ProjectContext;
 }

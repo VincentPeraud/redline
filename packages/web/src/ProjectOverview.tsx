@@ -40,8 +40,7 @@ function agentPill(project: Project): { tone: "success" | "neutral"; text: strin
 function PageCard({ page, stats, artboardOrigin }: { page: Page; stats: PageStats | undefined; artboardOrigin: string }) {
   const artboards = usePageArtboards(page.id, page.version.files);
   const screens = artboards?.length ?? 0;
-  const isComparison = page.type === "comparison";
-  const count = isComparison ? plural(screens, "variante", "variantes") : plural(screens, "écran", "écrans");
+  const count = plural(screens, "artboard", "artboards");
   const modified = stats?.updatedAt ? ` · modifié ${relativeTime(stats.updatedAt)}` : "";
 
   return (
@@ -53,11 +52,6 @@ function PageCard({ page, stats, artboardOrigin }: { page: Page; stats: PageStat
           {stats && stats.openThreads > 0 && (
             <StatusBadge tone="warning" className={styles.chip}>
               {plural(stats.openThreads, "fil", "fils")}
-            </StatusBadge>
-          )}
-          {isComparison && (
-            <StatusBadge tone="neutral" className={styles.chip}>
-              planche
             </StatusBadge>
           )}
         </div>
@@ -202,7 +196,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
   if (!project) return <PageContent>Chargement…</PageContent>;
 
   async function toggleTakeover(allowGlobalTakeover: boolean) {
-    const body: UpdateProjectRequest = { allowGlobalTakeover };
+    const body: UpdateProjectRequest = { globalTakeoverOverride: allowGlobalTakeover };
     const res = await fetch(`/api/projects/${projectId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -314,7 +308,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
             <label className={styles.takeover}>
               <input
                 type="checkbox"
-                checked={project.allowGlobalTakeover}
+                checked={project.globalTakeover}
                 onChange={(event) => void toggleTakeover(event.target.checked)}
               />
               Laisser l'agent global prendre le relais quand l'agent du projet est hors ligne

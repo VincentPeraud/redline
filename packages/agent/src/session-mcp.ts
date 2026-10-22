@@ -22,6 +22,8 @@ export interface RedlineToolsContext {
   /** The page being worked on, and where its working copy is on disk (read when a tool runs, so terminal mode can use getters). */
   pageId: string;
   workingCopyDir: string;
+  /** The work item being run, so what the session creates (pages, answers, versions) is tied to it. */
+  workId?: string;
   /** Where `reply_in_thread` sends the text; default: the thread right away. A run holds replies back until it succeeds. */
   postReply?: (threadId: string, text: string) => Promise<unknown>;
 }
@@ -67,7 +69,7 @@ function addArtboardToWorkingCopy(
 /** Redline's tools for a session. Add new tools here: the agent's session server and `redline mcp` both use it. */
 export function createRedlineMcpServer(context: RedlineToolsContext): McpServer {
   const { api, allowedThreadIds } = context;
-  const postReply = context.postReply ?? ((threadId: string, text: string) => api.replyInThread(threadId, text));
+  const postReply = context.postReply ?? ((threadId: string, text: string) => api.replyInThread(threadId, text, context.workId));
   const server = new McpServer({ name: "redline", version: "0.0.0" });
   server.registerTool(
     REPLY_IN_THREAD_TOOL,
@@ -112,11 +114,11 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
   server.registerTool(
     CREATE_PAGE_TOOL,
     {
-      description: "Create a new page in the same project, with a manifest and starter artboards. Returns its id.",
-      inputSchema: { title: z.string(), type: z.enum(["prototype", "comparison"]) },
+      description: "Create a new page in the same project, with a manifest and one starter artboard. Returns its id.",
+      inputSchema: { title: z.string() },
     },
-    async ({ title, type }) => {
-      const page = await api.createPageBeside(context.pageId, title, type);
+    async ({ title }) => {
+      const page = await api.createPageBeside(context.pageId, title, context.workId);
       return text(`Page "${page.title}" created (id ${page.id}).`);
     },
   );

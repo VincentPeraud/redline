@@ -20,7 +20,6 @@ describe("page manifest over the server HTTP API", () => {
     const manifest = JSON.stringify({ artboards: [{ file: "a.html", x: 0, y: 0 }] });
     const res = await server.post(`/api/projects/${project.id}/pages`, {
       title: "Flow",
-      type: "prototype",
       files: { "a.html": html, "manifest.json": manifest },
     });
     expect(res.status).toBe(201);
@@ -40,7 +39,6 @@ describe("page manifest over the server HTTP API", () => {
   it("refuses a page or a version whose manifest is invalid", async () => {
     const bad = await server.post(`/api/projects/${project.id}/pages`, {
       title: "Flow",
-      type: "prototype",
       files: { "a.html": html, "manifest.json": "{nope" },
     });
     expect(bad.status).toBe(400);
@@ -48,7 +46,6 @@ describe("page manifest over the server HTTP API", () => {
 
     const created = await server.post(`/api/projects/${project.id}/pages`, {
       title: "Flow",
-      type: "prototype",
       files: { "a.html": html },
     });
     const page = (await created.json()) as Page;

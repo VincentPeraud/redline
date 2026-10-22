@@ -39,7 +39,7 @@ describe("global agent", () => {
     ]);
     await startAgentIn("global", engine);
     const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
-    const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Home", type: "prototype", files: { "home.html": "<h1>Home</h1>" } })).json()) as Page;
+    const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Home", files: { "home.html": "<h1>Home</h1>" } })).json()) as Page;
     await server.post(`/api/pages/${page.id}/threads`, { artboard: "home.html", selector: "h1", xPct: 10, yPct: 10, body: "Make it blue" });
     await engine.finished(1);
 
@@ -51,7 +51,7 @@ describe("global agent", () => {
   it("takes over a thread of an offline project agent in a new session once the project allows it", async () => {
     server = await startTestServer();
     const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
-    const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Home", type: "prototype", files: { "home.html": "<h1>Home</h1>" } })).json()) as Page;
+    const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Home", files: { "home.html": "<h1>Home</h1>" } })).json()) as Page;
     const projectEngine = new FakeEngine([{ type: "result", summary: "Opened" }]);
     const projectAgent = await startAgentIn("project", projectEngine, project.id, "MacBook");
     await server.post(`/api/pages/${page.id}/threads`, { artboard: "home.html", selector: "h1", xPct: 10, yPct: 10, body: "First" });
@@ -72,7 +72,7 @@ describe("global agent", () => {
     await fetch(`${server.url}/api/projects/${project.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ allowGlobalTakeover: true }),
+      body: JSON.stringify({ globalTakeoverOverride: true }),
     });
     await globalEngine.finished(1);
 

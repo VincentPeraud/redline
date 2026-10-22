@@ -19,7 +19,7 @@ describe("global agent and takeover", () => {
   }
   async function createPage(p: Project): Promise<Page> {
     const files = { "home.html": "<h1>Home</h1>" };
-    return (await (await server.post(`/api/projects/${p.id}/pages`, { title: "Home", type: "prototype", files })).json()) as Page;
+    return (await (await server.post(`/api/projects/${p.id}/pages`, { title: "Home", files })).json()) as Page;
   }
   async function pin(page: Page, body: string): Promise<Thread> {
     const request = { artboard: "home.html", selector: "h1", xPct: 10, yPct: 10, body };
@@ -32,7 +32,7 @@ describe("global agent and takeover", () => {
     return fetch(`${server.url}/api/projects/${p.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ allowGlobalTakeover: allow }),
+      body: JSON.stringify({ globalTakeoverOverride: allow }),
     });
   }
   async function connectProjectAgent(p: Project, machine = "MacBook"): Promise<TestAgent> {
@@ -91,7 +91,7 @@ describe("global agent and takeover", () => {
 
     expect(received(global)[0]).toMatchObject({ resume: false, threads: [{ threadId: thread.id }] });
     expect((await project(acme.id)).servedBy).toMatchObject({ kind: "global", takeover: true });
-    expect((await project(acme.id)).allowGlobalTakeover).toBe(true);
+    expect((await project(acme.id)).globalTakeover).toBe(true);
   });
 
   it("sends the waiting thread to the global agent as soon as the takeover is allowed", async () => {
@@ -154,12 +154,46 @@ describe("global agent and takeover", () => {
     expect(item.message).toContain("Darker please");
   });
 
+  it("follows the global setting unless the project overrides it (effective = override ?? global)", async () => {
+    const acme = await createProject();
+    const page = await createPage(acme);
+    const projectAgent = await connectProjectAgent(acme);
+    projectAgent.close();
+    await projectAgent.closed;
+    const global = await connectGlobalAgent();
+    const patchSettings = (globalTakeover: unknown) =>
+      fetch(`${server.url}/api/settings`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ globalTakeover }) });
+
+    expect(await (await fetch(`${server.url}/api/settings`)).json()).toEqual({ globalTakeover: false });
+    expect(await project(acme.id)).toMatchObject({ globalTakeover: false, globalTakeoverOverride: null });
+    const waiting = await pin(page, "Make it blue");
+    expect(await queue(page)).toHaveLength(1);
+
+    expect(await (await patchSettings(true)).json()).toEqual({ globalTakeover: true });
+    expect(await project(acme.id)).toMatchObject({ globalTakeover: true, globalTakeoverOverride: null });
+    await until(() => received(global).length === 1);
+    expect(received(global)[0].threads[0].threadId).toBe(waiting.id);
+
+    // The project's own "always wait" beats the global setting; null goes back to following it.
+    await allowTakeover(acme, false);
+    expect(await project(acme.id)).toMatchObject({ globalTakeover: false, globalTakeoverOverride: false });
+    await pin(page, "Another one");
+    expect((await queue(page)).length).toBeGreaterThan(0);
+    await fetch(`${server.url}/api/projects/${acme.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ globalTakeoverOverride: null }),
+    });
+    expect(await project(acme.id)).toMatchObject({ globalTakeover: true, globalTakeoverOverride: null });
+    expect((await patchSettings("yes")).status).toBe(400);
+  });
+
   it("refuses an invalid takeover setting and an unknown project", async () => {
     const acme = await createProject();
     const bad = await fetch(`${server.url}/api/projects/${acme.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ allowGlobalTakeover: "yes" }),
+      body: JSON.stringify({ globalTakeoverOverride: "yes" }),
     });
     expect(bad.status).toBe(400);
     expect((await allowTakeover({ ...acme, id: "nope" })).status).toBe(404);

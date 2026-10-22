@@ -22,7 +22,6 @@ describe("tweaks over the server HTTP API", () => {
     page = (await (
       await server.post(`/api/projects/${project.id}/pages`, {
         title: "Landing",
-        type: "prototype",
         files: { "home.html": HTML, "manifest.json": MANIFEST },
       })
     ).json()) as Page;

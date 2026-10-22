@@ -22,7 +22,7 @@ describe("DESIGN.md and project assets over the server HTTP API", () => {
     return (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
   }
   async function createPage(project: Project): Promise<Page> {
-    const res = await server.post(`/api/projects/${project.id}/pages`, { title: "Flow", type: "prototype", files: { "a.html": html } });
+    const res = await server.post(`/api/projects/${project.id}/pages`, { title: "Flow", files: { "a.html": html } });
     return (await res.json()) as Page;
   }
   const putDesignMd = (project: Project, content: string) =>

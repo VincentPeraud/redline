@@ -17,7 +17,6 @@ describe("pages over the server HTTP API", () => {
   async function createPage(projectId: string, files: Record<string, string>) {
     const res = await server.post(`/api/projects/${projectId}/pages`, {
       title: "Landing",
-      type: "prototype",
       files,
     });
     expect(res.status).toBe(201);

@@ -14,7 +14,6 @@ describe("publishing from a checkout while the page moved on", () => {
     page = (await (
       await server.post(`/api/projects/${project.id}/pages`, {
         title: "Home",
-        type: "prototype",
         files: { "home.html": "<h1>Home</h1>", "about.html": "<h1>About</h1>", "old.html": "<h1>Old</h1>" },
       })
     ).json()) as Page;

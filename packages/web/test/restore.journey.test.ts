@@ -32,7 +32,6 @@ it("restores an earlier version and the artboard changes back", async () => {
   const page = (await (
     await server.post(`/api/projects/${project.id}/pages`, {
       title: "Landing",
-      type: "prototype",
       files: { "home.html": "<!doctype html><h1>Version one</h1>" },
     })
   ).json()) as Page;

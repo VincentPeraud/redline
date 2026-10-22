@@ -65,17 +65,18 @@ describe("session MCP tools", () => {
     expect(answer).toMatch(/relative path/);
   });
 
-  it("create_page creates a page in the same project", async () => {
+  it("create_page creates a one-artboard page in the same project, marked as created by Claude", async () => {
     let answer = "";
     const engine = new FakeEngine(async (run) => {
-      answer = await run.callTool("create_page", { title: "Pricing", type: "comparison" });
+      answer = await run.callTool("create_page", { title: "Pricing" });
       return [{ type: "result", summary: "Nothing" }];
     });
     await runOnce(engine);
 
     const pages = (await (await seam!.server.get(`/api/projects/${seam!.project.id}/pages`)).json()) as Page[];
     const created = pages.find((p) => p.title === "Pricing");
-    expect(created?.type).toBe("comparison");
+    expect(created?.createdBy).toBe("claude");
+    expect(Object.keys(created!.version.files).sort()).toEqual(["artboard-1.html", "manifest.json"]);
     expect(answer).toContain(created!.id);
   });
 
@@ -97,7 +98,7 @@ describe("session MCP tools", () => {
     const res = await fetch(`${seam!.server.url}/agent-api/pages/${page.id}/siblings`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: "X", type: "prototype" }),
+      body: JSON.stringify({ title: "X" }),
     });
     expect(res.status).toBe(401);
   });
