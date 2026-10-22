@@ -6,6 +6,7 @@ import {
   type CreateVersionRequest,
 } from "@redline/shared";
 import { versionRequestError } from "./files.js";
+import { projectContext } from "./project-files.js";
 import type { Store } from "./store.js";
 
 /** HTTP API for agents and their sessions' MCP tools, guarded by the agent token (see `AGENT_API_PREFIX`). */
@@ -19,7 +20,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store): Prom
       });
 
       api.get<{ Params: { pageId: string } }>("/pages/:pageId/files", async (req, reply): Promise<AgentCheckout> => {
-        return store.readPageFiles(req.params.pageId) ?? reply.code(404).send({ error: "page not found" });
+        const checkout = store.readPageFiles(req.params.pageId);
+        if (!checkout) return reply.code(404).send({ error: "page not found" });
+        return { ...checkout, project: projectContext(store, req.params.pageId) };
       });
 
       api.post<{ Params: { pageId: string }; Body: CreateVersionRequest }>("/pages/:pageId/versions", async (req, reply) => {

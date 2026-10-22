@@ -24,6 +24,7 @@ import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectDesignSystem } from "./
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
+import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
 import { dispatchThread } from "./work.js";
 
@@ -36,6 +37,11 @@ const MIME: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
 };
 
 /** Error message when the files carry a manifest or tweaks file that does not parse, else null. */
@@ -57,20 +63,6 @@ function designSystemError(files: Record<string, string>): string | null {
   return missing.length === 0 ? null : `Missing core tokens: ${missing.join(", ")}`;
 }
 
-/** Design system a page uses: the one its manifest names if it exists, else the neutral one. */
-function designSystemIdOf(store: Store, pageId: string): string {
-  const text = store.readPageFile(pageId, MANIFEST_PATH)?.toString("utf8");
-  if (text !== undefined) {
-    try {
-      const id = parseManifest(text).designSystem;
-      if (id !== undefined && store.getDesignSystem(id)) return id;
-    } catch {
-      // An invalid stored manifest must not break serving the artboard.
-    }
-  }
-  return NEUTRAL_DESIGN_SYSTEM_ID;
-}
-
 function isSafePath(path: string): boolean {
   return path !== "" && !path.startsWith("/") && !path.split("/").includes("..");
 }
@@ -80,6 +72,7 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
   const app = Fastify();
   const agents = await registerAgentRoutes(app, store);
   await registerAgentApi(app, store);
+  await registerProjectFileRoutes(app, store);
   registerEventRoutes(app, store);
 
   app.get("/api/config", async () => config);
@@ -137,14 +130,10 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/working-copy", async (req, reply) => {
     const page = store.getPage(req.params.pageId);
     if (!page) return reply.code(404).send({ error: "page not found" });
-    const read = (pageId: string, hashes: Record<string, string>) =>
-      Object.fromEntries(Object.keys(hashes).map((path) => [path, store.readPageFile(pageId, path)!.toString("utf8")]));
-    const designSystem = store.getDesignSystem(designSystemIdOf(store, page.id))!;
-    const designSystemPage = store.getPage(designSystem.pageId)!;
-    return {
-      files: read(page.id, page.version.files),
-      designSystem: { id: designSystem.id, files: read(designSystem.pageId, designSystemPage.version.files) },
-    };
+    const files = Object.fromEntries(
+      Object.keys(page.version.files).map((path) => [path, store.readPageFile(page.id, path)!.toString("utf8")]),
+    );
+    return { files, ...projectContext(store, page.id) };
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/pages", async (req) =>
@@ -278,8 +267,12 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
 
   app.get<{ Params: { pageId: string; "*": string } }>("/pages/:pageId/*", async (req, reply) => {
     const path = req.params["*"];
-    const content = store.readPageFile(req.params.pageId, path);
-    if (!content) return reply.code(404).send("not found");
+    const pageFile = store.readPageFile(req.params.pageId, path);
+    const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, req.params.pageId, path.slice("assets/".length)) : undefined);
+    if (!asset) return reply.code(404).send("not found");
+    // Artboards are opaque-origin, so fonts of the project assets need CORS to load.
+    if (!pageFile) reply.header("access-control-allow-origin", "*");
+    const content = asset;
     const isHtml = extname(path) === ".html";
     return reply
       .header("content-security-policy", "sandbox allow-scripts")

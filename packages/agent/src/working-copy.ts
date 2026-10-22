@@ -1,6 +1,12 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import type { AgentCheckout } from "@redline/shared";
+import {
+  ASSETS_DIR,
+  DESIGN_MD_PATH,
+  WORKING_COPY_DESIGN_SYSTEM_DIR,
+  isProjectContextPath,
+  type AgentCheckout,
+} from "@redline/shared";
 import { ensureGitignored } from "./link.js";
 
 /** Location of a page's working copy inside the agent's folder: `.redline/<pageId>/`. */
@@ -12,24 +18,33 @@ export function workingCopyDir(folder: string, pageId: string): string {
 export function writeWorkingCopy(folder: string, pageId: string, checkout: AgentCheckout): string {
   const dir = workingCopyDir(folder, pageId);
   rmSync(dir, { recursive: true, force: true });
-  for (const [path, content] of Object.entries(checkout.files)) {
+  const write = (path: string, content: string | Buffer) => {
     const target = join(dir, path);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, content);
-  }
+  };
+  for (const [path, content] of Object.entries(checkout.files)) write(path, content);
+  // Project context for the session to read; never published back (see `readWorkingCopy`).
+  const { designMd, assets, designSystem } = checkout.project;
+  write(DESIGN_MD_PATH, designMd);
+  for (const [name, base64] of Object.entries(assets)) write(`${ASSETS_DIR}/${name}`, Buffer.from(base64, "base64"));
+  for (const [path, content] of Object.entries(designSystem.files)) write(`${WORKING_COPY_DESIGN_SYSTEM_DIR}/${path}`, content);
   mkdirSync(dir, { recursive: true });
   ensureGitignored(folder);
   return dir;
 }
 
-/** Every file of the working copy, as path -> UTF-8 content (paths use `/`). */
+/** Every page file of the working copy (DESIGN.md, assets and design system files excluded), as path -> UTF-8 content (paths use `/`). */
 export function readWorkingCopy(dir: string): Record<string, string> {
   const files: Record<string, string> = {};
   const walk = (current: string) => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const full = join(current, entry.name);
       if (entry.isDirectory()) walk(full);
-      else files[relative(dir, full).split("\\").join("/")] = readFileSync(full, "utf8");
+      else {
+        const path = relative(dir, full).split("\\").join("/");
+        if (!isProjectContextPath(path)) files[path] = readFileSync(full, "utf8");
+      }
     }
   };
   walk(dir);
