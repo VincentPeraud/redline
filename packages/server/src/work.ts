@@ -30,7 +30,7 @@ export function dispatchThread(store: Store, hub: AgentHub, projectId: string, t
   const agentId = store.findOnlineProjectAgentId(projectId);
   if (!agentId) return false;
   const sessionId = randomUUID();
-  const sent = hub.send(agentId, { type: "work", item: threadItem(thread, threadMessage(thread), sessionId, false) });
+  const sent = sendItem(store, hub, agentId, threadItem(thread, threadMessage(thread), sessionId, false));
   if (sent) store.setThreadSession(thread.id, sessionId, agentId);
   return sent;
 }
@@ -39,10 +39,16 @@ export function dispatchThread(store: Store, hub: AgentHub, projectId: string, t
 export function dispatchReply(store: Store, hub: AgentHub, thread: Thread, body: string): boolean {
   const session = store.getThreadSession(thread.id);
   if (!session) return false;
-  return hub.send(session.agentId, {
-    type: "work",
-    item: threadItem(thread, replyMessage(thread, body), session.sessionId, true),
-  });
+  return sendItem(store, hub, session.agentId, threadItem(thread, replyMessage(thread, body), session.sessionId, true));
+}
+
+/** Sends a work item and, once sent, announces it so its run is tracked. */
+function sendItem(store: Store, hub: AgentHub, agentId: string, item: WorkItem): boolean {
+  const sent = hub.send(agentId, { type: "work", item });
+  if (sent) {
+    store.emit({ type: "work-dispatched", pageId: item.pageId, workId: item.id, threadIds: item.threads.map((t) => t.threadId) });
+  }
+  return sent;
 }
 
 function threadItem(thread: Thread, message: string, sessionId: string, resume: boolean): WorkItem {
