@@ -63,7 +63,7 @@ describe("pages over the server HTTP API", () => {
 
     const res = await fetch(`${server.artboardOrigin}/pages/${page.id}/home.html`);
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe(HOME_HTML);
+    expect(await res.text()).toContain(HOME_HTML);
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(res.headers.get("content-security-policy")).toContain("sandbox allow-scripts");
 

@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { extname } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
-import type { CreatePageRequest, ServerConfig } from "@redline/shared";
+import type { CreatePageRequest, CreateThreadRequest, ServerConfig } from "@redline/shared";
+import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge } from "./bridge.js";
 import type { Store } from "./store.js";
 
 const MIME: Record<string, string> = {
@@ -59,7 +60,32 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
     return page ?? reply.code(404).send({ error: "page not found" });
   });
 
-  app.get<{ Params: { pageId: string; "*": string } }>("/api/pages/:pageId/files/*", async (req, reply) => {
+  app.post<{ Params: { pageId: string }; Body: CreateThreadRequest }>(
+    "/api/pages/:pageId/threads",
+    async (req, reply) => {
+      if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+      const pin = req.body ?? ({} as Partial<CreateThreadRequest>);
+      const isPct = (v: unknown) => typeof v === "number" && v >= 0 && v <= 100;
+      if (typeof pin.body !== "string" || pin.body.trim() === "") return reply.code(400).send({ error: "body is required" });
+      if (typeof pin.selector !== "string" || pin.selector === "") return reply.code(400).send({ error: "selector is required" });
+      if (typeof pin.artboard !== "string" || !isSafePath(pin.artboard)) return reply.code(400).send({ error: "invalid artboard" });
+      if (!isPct(pin.xPct) || !isPct(pin.yPct)) return reply.code(400).send({ error: "position must be a percentage" });
+      return reply.code(201).send(store.createThread(req.params.pageId, pin as CreateThreadRequest));
+    },
+  );
+
+  app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/threads", async (req, reply) => {
+    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+    return store.listThreads(req.params.pageId);
+  });
+
+  // The only way to resolve a thread: a user action of the web UI. Agents get no such route.
+  app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/resolve", async (req, reply) => {
+    const thread = store.resolveThread(req.params.threadId);
+    return thread ?? reply.code(404).send({ error: "thread not found" });
+  });
+
+  app.get<{ Params: { pageId: string; "*": string } }>("/api/pages/:pageId/files/*",async (req, reply) => {
     const path = req.params["*"];
     const content = store.readPageFile(req.params.pageId, path);
     if (!content) return reply.code(404).send({ error: "file not found" });
@@ -85,14 +111,19 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
 export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
   const app = Fastify();
 
+  app.get(BRIDGE_PATH, async (_req, reply) =>
+    reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(BRIDGE_SOURCE),
+  );
+
   app.get<{ Params: { pageId: string; "*": string } }>("/pages/:pageId/*", async (req, reply) => {
     const path = req.params["*"];
     const content = store.readPageFile(req.params.pageId, path);
     if (!content) return reply.code(404).send("not found");
+    const isHtml = extname(path) === ".html";
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[extname(path)] ?? "application/octet-stream")
-      .send(content);
+      .send(isHtml ? injectBridge(content.toString("utf8")) : content);
   });
 
   return app;

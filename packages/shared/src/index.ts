@@ -31,3 +31,31 @@ export interface CreatePageRequest {
 export interface ServerConfig {
   artboardOrigin: string;
 }
+
+export type ThreadStatus = "open" | "resolved";
+
+export interface Thread {
+  id: string;
+  pageId: string;
+  /** Per-page number shown on the pin and in the thread list; never reused. */
+  number: number;
+  /** Path of the artboard file the thread is pinned on. */
+  artboard: string;
+  /** CSS selector of the pinned element; may stop matching after edits. */
+  selector: string;
+  /** Fallback position, in percent of the artboard document size. */
+  xPct: number;
+  yPct: number;
+  /** First line of the comment, kept visible when the thread is resolved. */
+  title: string;
+  body: string;
+  status: ThreadStatus;
+}
+
+export interface CreateThreadRequest {
+  artboard: string;
+  selector: string;
+  xPct: number;
+  yPct: number;
+  body: string;
+}

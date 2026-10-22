@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import type { Page, PageType, Project } from "@redline/shared";
+import type { CreateThreadRequest, Page, PageType, Project, Thread, ThreadStatus } from "@redline/shared";
 
 export class Store {
   private readonly db: Database.Database;
@@ -31,6 +31,20 @@ export class Store {
         page_id TEXT NOT NULL REFERENCES pages(id),
         files TEXT NOT NULL,
         created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS threads (
+        id TEXT PRIMARY KEY,
+        page_id TEXT NOT NULL REFERENCES pages(id),
+        number INTEGER NOT NULL,
+        artboard TEXT NOT NULL,
+        selector TEXT NOT NULL,
+        x_pct REAL NOT NULL,
+        y_pct REAL NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (page_id, number)
       );
     `);
   }
@@ -88,6 +102,38 @@ export class Store {
     };
   }
 
+  createThread(pageId: string, pin: CreateThreadRequest): Thread {
+    const id = randomUUID();
+    const { next } = this.db
+      .prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?")
+      .get(pageId) as { next: number };
+    const title = pin.body.trim().split("\n")[0].slice(0, 80);
+    this.db
+      .prepare(
+        `INSERT INTO threads (id, page_id, number, artboard, selector, x_pct, y_pct, title, body, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+      )
+      .run(id, pageId, next, pin.artboard, pin.selector, pin.xPct, pin.yPct, title, pin.body, now());
+    return this.getThread(id)!;
+  }
+
+  listThreads(pageId: string): Thread[] {
+    const rows = this.db
+      .prepare(`${THREAD_SELECT} WHERE page_id = ? ORDER BY number`)
+      .all(pageId) as ThreadRow[];
+    return rows.map(toThread);
+  }
+
+  getThread(id: string): Thread | undefined {
+    const row = this.db.prepare(`${THREAD_SELECT} WHERE id = ?`).get(id) as ThreadRow | undefined;
+    return row && toThread(row);
+  }
+
+  resolveThread(id: string): Thread | undefined {
+    this.db.prepare("UPDATE threads SET status = 'resolved' WHERE id = ?").run(id);
+    return this.getThread(id);
+  }
+
   /** Reads a file of the page's current version, or undefined if the page or path is unknown. */
   readPageFile(pageId: string, path: string): Buffer | undefined {
     const hash = this.getPage(pageId)?.version.files[path];
@@ -110,6 +156,37 @@ export class Store {
     if (!existsSync(blobPath)) writeFileSync(blobPath, content);
     return hash;
   }
+}
+
+const THREAD_SELECT =
+  "SELECT id, page_id, number, artboard, selector, x_pct, y_pct, title, body, status FROM threads";
+
+interface ThreadRow {
+  id: string;
+  page_id: string;
+  number: number;
+  artboard: string;
+  selector: string;
+  x_pct: number;
+  y_pct: number;
+  title: string;
+  body: string;
+  status: ThreadStatus;
+}
+
+function toThread(row: ThreadRow): Thread {
+  return {
+    id: row.id,
+    pageId: row.page_id,
+    number: row.number,
+    artboard: row.artboard,
+    selector: row.selector,
+    xPct: row.x_pct,
+    yPct: row.y_pct,
+    title: row.title,
+    body: row.body,
+    status: row.status,
+  };
 }
 
 function now(): string {

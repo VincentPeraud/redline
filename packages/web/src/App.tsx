@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PageCanvas } from "./PageCanvas.js";
 
 interface Project {
   id: string;
@@ -40,17 +41,12 @@ export function App() {
       {pages.map((page) => (
         <section key={page.id}>
           <h3>{page.title}</h3>
-          {Object.keys(page.version.files)
-            .filter((path) => path.endsWith(".html"))
-            .map((path) => (
-              <iframe
-                key={path}
-                title={`${page.title} / ${path}`}
-                src={`${artboardOrigin}/pages/${page.id}/${path}`}
-                sandbox="allow-scripts"
-                style={{ width: 800, height: 500, border: "1px solid #ccc" }}
-              />
-            ))}
+          <PageCanvas
+            pageId={page.id}
+            pageTitle={page.title}
+            artboards={Object.keys(page.version.files).filter((path) => path.endsWith(".html"))}
+            artboardOrigin={artboardOrigin}
+          />
         </section>
       ))}
     </main>
