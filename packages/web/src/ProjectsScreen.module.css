@@ -1,0 +1,234 @@
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.title {
+  flex-grow: 1;
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-bold);
+}
+
+.search {
+  width: 240px;
+  height: 40px;
+}
+
+.cardTitleRow .cardBadge {
+  padding: 2px var(--space-2);
+  font-weight: var(--font-weight-regular);
+}
+
+.header .action,
+.form .create {
+  border: none;
+}
+
+.grid {
+  margin-top: var(--space-1);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  color: inherit;
+  text-decoration: none;
+}
+
+.card:hover {
+  color: inherit;
+  border-color: var(--color-border-strong);
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) 18px;
+}
+
+.cardTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.cardTitle {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+}
+
+.agentLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.dotOnline {
+  background: var(--color-online);
+}
+
+.dotOffline {
+  background: var(--color-offline);
+}
+
+.modified {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.newTile {
+  min-height: 290px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: 2px dashed var(--color-border-strong);
+  border-radius: var(--radius-xl);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.newTile:hover {
+  background: var(--color-surface-hover);
+}
+
+.newTilePlus {
+  font-size: var(--font-size-h1);
+  line-height: 1;
+}
+
+.newTileTitle {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.newTileHint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.advice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-accent-soft);
+  border-radius: var(--radius-xl);
+  color: var(--color-accent-ink);
+}
+
+.adviceTitle {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.adviceText {
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.command {
+  align-self: flex-start;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex-grow: 1;
+  height: 1px;
+  background: var(--color-border-subtle);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.optionsLabel {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+}
+
+.optionSelected {
+  border: 2px solid var(--color-accent);
+}
+
+.option input {
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.optionText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.optionTitle {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.optionDescription {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.form .create[aria-disabled="true"] {
+  background: var(--color-border);
+  color: var(--color-text-body);
+  opacity: 1;
+  cursor: pointer;
+}
