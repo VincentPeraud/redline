@@ -17,6 +17,10 @@ interface PinPosition {
 interface Props {
   src: string;
   title: string;
+  width: number;
+  height: number;
+  /** Canvas zoom; pins are counter-scaled so they keep their size. */
+  zoom: number;
   threads: Thread[];
   picking: boolean;
   onPick: (pick: Pick) => void;
@@ -27,7 +31,7 @@ interface Props {
  * and pin placement go through the bridge script the server injects (see conventions.md).
  * Messages are trusted only when `event.source` is this iframe's window.
  */
-export function ArtboardFrame({ src, title, threads, picking, onPick }: Props) {
+export function ArtboardFrame({ src, title, width, height, zoom, threads, picking, onPick }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [positions, setPositions] = useState<PinPosition[]>([]);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
@@ -62,25 +66,26 @@ export function ArtboardFrame({ src, title, threads, picking, onPick }: Props) {
   }, [pinsKey, bridgeEpoch]);
 
   return (
-    <div style={{ position: "relative", width: 800, height: 500 }}>
+    <div style={{ position: "relative", width, height }}>
       <iframe
         ref={frame}
         title={title}
         src={src}
         sandbox="allow-scripts"
-        style={{ width: 800, height: 500, border: "1px solid #ccc" }}
+        style={{ width, height, border: 0, background: "#fff", display: "block" }}
       />
       {open.map((thread) => {
         const position = positions.find((p) => p.id === thread.id) ?? thread;
         return (
           <span
             key={thread.id}
+            data-pin={thread.number}
             title={thread.title}
             style={{
               position: "absolute",
               left: `${position.xPct}%`,
               top: `${position.yPct}%`,
-              transform: "translate(-50%, -50%)",
+              transform: `translate(-50%, -50%) scale(${1 / zoom})`,
               width: 24,
               height: 24,
               borderRadius: "50%",

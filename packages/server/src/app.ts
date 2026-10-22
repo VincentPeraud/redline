@@ -3,7 +3,9 @@ import { extname } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
+  MANIFEST_PATH,
   VERSION_ORIGINS,
+  parseManifest,
   type CreatePageRequest,
   type CreateThreadRequest,
   type CreateVersionRequest,
@@ -22,6 +24,18 @@ const MIME: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".woff2": "font/woff2",
 };
+
+/** Error message when the files carry a manifest that does not parse, else null. */
+function manifestError(files: Record<string, string>): string | null {
+  const text = files[MANIFEST_PATH];
+  if (text === undefined) return null;
+  try {
+    parseManifest(text);
+    return null;
+  } catch (error) {
+    return (error as Error).message;
+  }
+}
 
 function isSafePath(path: string): boolean {
   return path !== "" && !path.startsWith("/") && !path.split("/").includes("..");
@@ -53,6 +67,8 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
       if (entries.some(([path, content]) => !isSafePath(path) || typeof content !== "string")) {
         return reply.code(400).send({ error: "invalid files" });
       }
+      const invalidManifest = manifestError(files);
+      if (invalidManifest) return reply.code(400).send({ error: invalidManifest });
       return reply.code(201).send(store.createPage(req.params.projectId, title, type, files));
     },
   );
@@ -105,6 +121,8 @@ export async function buildMainApp(store: Store, config: ServerConfig, webDir?: 
       if (Object.entries(files).some(([path, content]) => !isSafePath(path) || typeof content !== "string")) {
         return reply.code(400).send({ error: "invalid files" });
       }
+      const invalidManifest = manifestError(files);
+      if (invalidManifest) return reply.code(400).send({ error: invalidManifest });
       if (typeof message !== "string" || message.trim() === "") {
         return reply.code(400).send({ error: "message is required" });
       }

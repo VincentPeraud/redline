@@ -85,7 +85,7 @@ export function App() {
           <PageCanvas
             pageId={page.id}
             pageTitle={page.title}
-            artboards={Object.keys(page.version.files).filter((path) => path.endsWith(".html"))}
+            files={page.version.files}
             artboardOrigin={artboardOrigin}
             versionId={page.version.id}
           />
