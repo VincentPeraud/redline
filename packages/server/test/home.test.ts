@@ -39,6 +39,20 @@ describe("home overview", () => {
     ]);
   });
 
+  it("summarises each project: pages, open threads and last change", async () => {
+    const acme = await createProject("Acme");
+    const empty = await createProject("Empty");
+    const page = await createPage(acme.id, "Landing");
+    await createPage(acme.id, "Pricing");
+    await server.post(`/api/pages/${page.id}/threads`, { artboard: "index.html", selector: "h1", xPct: 1, yPct: 1, body: "Bigger", held: true });
+    await server.post(`/api/pages/${page.id}/threads`, { artboard: "index.html", selector: "p", xPct: 2, yPct: 2, body: "Smaller", held: true });
+    const { projects } = await home();
+    expect(projects.find((p) => p.id === acme.id)).toMatchObject({ title: "Acme", pageCount: 2, openThreads: 0, waitingThreads: 0 });
+    expect(projects.find((p) => p.id === acme.id)?.updatedAt).toBeTruthy();
+    expect(projects.find((p) => p.id === empty.id)).toMatchObject({ pageCount: 0 });
+    expect(projects.find((p) => p.id === empty.id)?.updatedAt).toBeUndefined();
+  });
+
   it("gives each agent its covered projects: a project agent its own, the global agent those without one", async () => {
     const acme = await createProject("Acme");
     const blog = await createProject("Blog");

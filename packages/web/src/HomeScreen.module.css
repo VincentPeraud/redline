@@ -1,0 +1,172 @@
+.topRow,
+.bottomRow {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-5);
+}
+
+.bottomRow {
+  align-items: start;
+}
+
+.link {
+  font-size: var(--font-size-sm);
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-3) 18px;
+  font-size: var(--font-size-md);
+  color: var(--color-text-muted);
+}
+
+.sessionRow {
+  display: grid;
+  grid-template-columns: 1.6fr 1.4fr auto 90px;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) 18px;
+  border-bottom: 1px solid var(--color-row-divider);
+  font-size: var(--font-size-md);
+  color: inherit;
+  text-decoration: none;
+}
+
+.sessionRow:last-child,
+.agentRow:last-child {
+  border-bottom: none;
+}
+
+.sessionRow:hover {
+  color: inherit;
+  background: var(--color-surface-hover);
+}
+
+.sessionName {
+  font-weight: var(--font-weight-medium);
+}
+
+.sessionPlace {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.sessionTime {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
+.agentRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--space-3) 18px;
+  border-bottom: 1px solid var(--color-row-divider);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-online);
+}
+
+.dotOffline {
+  background: var(--color-offline);
+}
+
+.agentText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.agentName {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+}
+
+.agentFolder {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sectionTitle {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+}
+
+.projectGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.projectCard {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  color: inherit;
+  text-decoration: none;
+}
+
+.projectCard:hover,
+.dsCard:hover {
+  color: inherit;
+  border-color: var(--color-border-strong);
+}
+
+.cardText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-3) 14px;
+}
+
+.cardTitle {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.cardMeta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.dsCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  color: inherit;
+  text-decoration: none;
+}
+
+.dsText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
