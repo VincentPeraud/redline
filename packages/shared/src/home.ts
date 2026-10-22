@@ -45,3 +45,17 @@ export interface HomeOverview {
   /** Threads in waiting work items, all projects. */
   waitingThreads: number;
 }
+
+/** `GET /api/projects-activity`: what a project card on the Projects screen shows besides the project itself. */
+export const PROJECTS_ACTIVITY_PATH = "/api/projects-activity";
+
+export interface ProjectActivity {
+  projectId: string;
+  pageCount: number;
+  /** Threads sent and not resolved yet, queued ones included. */
+  openThreads: number;
+  /** Threads in work items that wait in the queue. */
+  waitingThreads: number;
+  /** Latest page version, else the project's creation. */
+  updatedAt: string;
+}

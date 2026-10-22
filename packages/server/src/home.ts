@@ -1,11 +1,27 @@
 import type { FastifyInstance } from "fastify";
-import { HOME_PATH, type AgentOverview, type CoveredProject, type HomeOverview, type WorkOverview } from "@redline/shared";
+import {
+  HOME_PATH,
+  PROJECTS_ACTIVITY_PATH,
+  type AgentOverview,
+  type CoveredProject,
+  type HomeOverview,
+  type ProjectActivity,
+  type WorkOverview,
+} from "@redline/shared";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
 const RECENT_PAGES = 5;
 
 export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock: PageLock): void {
+  app.get(PROJECTS_ACTIVITY_PATH, async (): Promise<ProjectActivity[]> => {
+    const { waiting } = pageLock.overview();
+    return store.listProjectActivity().map((activity) => ({
+      ...activity,
+      waitingThreads: waiting.filter((w) => w.projectId === activity.projectId).reduce((sum, w) => sum + w.threadIds.length, 0),
+    }));
+  });
+
   app.get(HOME_PATH, async (): Promise<HomeOverview> => {
     const projects = store.listProjects();
     const titleOf = new Map(projects.map((p) => [p.id, p.title]));
