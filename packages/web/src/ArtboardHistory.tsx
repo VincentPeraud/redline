@@ -37,7 +37,7 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
   const [versions, setVersions] = useState<ArtboardVersion[] | null>(null);
   const [restoring, setRestoring] = useState(false);
   const root = useRef<HTMLDivElement>(null);
-  // The popover sits beside the artboard so its preview stays visible: on the right, or on the left when the canvas has no room.
+  // The popover sits beside the artboard so its preview stays visible: on the right, or on the left when only that side has room.
   const [onLeft, setOnLeft] = useState(false);
   const name = file.replace(/\.html$/, "");
 
@@ -64,7 +64,11 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
     const label = root.current?.parentElement;
     const viewport = root.current?.closest("[data-canvas-viewport]");
     if (!label || !viewport) return;
-    setOnLeft(label.getBoundingClientRect().right + POPOVER_GAP + POPOVER_WIDTH > viewport.getBoundingClientRect().right);
+    const artboard = label.getBoundingClientRect();
+    const canvas = viewport.getBoundingClientRect();
+    const roomRight = canvas.right - artboard.right;
+    const roomLeft = artboard.left - canvas.left;
+    setOnLeft(roomRight < POPOVER_GAP + POPOVER_WIDTH && roomLeft > roomRight);
   }, [open]);
 
   useEffect(() => {
