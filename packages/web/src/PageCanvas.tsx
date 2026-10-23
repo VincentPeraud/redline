@@ -288,6 +288,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
           <div
             ref={viewport}
             data-testid="canvas"
+            data-canvas-viewport
             className={styles.viewport}
             style={{ backgroundPosition: `${view.x}px ${view.y}px` }}
             onPointerDown={(e) => {

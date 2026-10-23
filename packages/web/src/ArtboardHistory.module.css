@@ -1,5 +1,5 @@
+/* Not positioned: the popover is placed against the artboard's label row, which spans the artboard's width. */
 .root {
-  position: relative;
   display: flex;
   flex-shrink: 0;
 }
@@ -27,8 +27,8 @@
 
 .popover {
   position: absolute;
-  top: 22px;
-  left: 28px;
+  top: 100%;
+  left: calc(100% + 12px);
   z-index: 60;
   width: 310px;
   box-sizing: border-box;
@@ -39,6 +39,11 @@
   box-shadow: var(--shadow-popover);
   color: var(--color-text);
   cursor: default;
+}
+
+.popoverLeft {
+  left: auto;
+  right: calc(100% + 12px);
 }
 
 .head {

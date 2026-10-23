@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { artboardVersionsPath, type ArtboardVersion } from "@redline/shared";
 import { historyDate, originLabel } from "./historyLabels.js";
 import { cx } from "./ui/index.js";
@@ -28,12 +28,17 @@ interface Props {
   className?: string;
 }
 
+const POPOVER_WIDTH = 310;
+const POPOVER_GAP = 12;
+
 /** Clock button of an artboard's label row and its popover "Historique · <artboard>": versions, preview in place, restore. */
 export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChange, previewVersionId, onPreview, onRestore, className }: Props) {
 
   const [versions, setVersions] = useState<ArtboardVersion[] | null>(null);
   const [restoring, setRestoring] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  // The popover sits beside the artboard so its preview stays visible: on the right, or on the left when the canvas has no room.
+  const [onLeft, setOnLeft] = useState(false);
   const name = file.replace(/\.html$/, "");
 
   function close() {
@@ -53,6 +58,14 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
       cancelled = true;
     };
   }, [open, pageId, file, pageVersionId]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const label = root.current?.parentElement;
+    const viewport = root.current?.closest("[data-canvas-viewport]");
+    if (!label || !viewport) return;
+    setOnLeft(label.getBoundingClientRect().right + POPOVER_GAP + POPOVER_WIDTH > viewport.getBoundingClientRect().right);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -94,7 +107,7 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
         <ClockIcon />
       </button>
       {open && (
-        <div role="dialog" aria-label={`Historique de ${file}`} className={styles.popover}>
+        <div role="dialog" aria-label={`Historique de ${file}`} className={cx(styles.popover, onLeft && styles.popoverLeft)}>
           <div className={styles.head}>
             <span className={styles.title}>Historique · {name}</span>
             <span className={styles.spacer} />
