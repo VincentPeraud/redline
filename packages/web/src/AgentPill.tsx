@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { MODEL_CHOICES, type AgentInfo, type Project, type Settings, type UpdateProjectRequest } from "@redline/shared";
+import { modelLabel, type AgentInfo, type Project, type Settings, type UpdateProjectRequest } from "@redline/shared";
 import { TAKEOVER_CHOICES, choiceOfOverride, overrideOfChoice, takeoverSentence, type TakeoverChoice } from "./takeoverChoice.js";
 import { cx } from "./ui/index.js";
 import styles from "./AgentPill.module.css";
 
-const modelLabel = (model: string) => MODEL_CHOICES.find((choice) => choice.id === model)?.label ?? model;
 const folderName = (path: string) => path.split("/").filter(Boolean).pop() ?? path;
 
 function pillText(project: Project): { online: boolean; text: string } {

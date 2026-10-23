@@ -19,6 +19,9 @@ export const MODEL_CHOICES = [
   { id: "haiku", label: "Haiku" },
 ] as const;
 
+/** Display name of a model alias ("sonnet" -> "Sonnet"); unknown names are shown as given. */
+export const modelLabel = (model: string): string => MODEL_CHOICES.find((choice) => choice.id === model)?.label ?? model;
+
 /** What an engine emits while a session runs. Streamed to the server as `work-event`. */
 export type EngineEvent =
   /** Claude took an action: a tool call such as a read or an edit. */

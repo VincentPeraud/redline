@@ -68,7 +68,7 @@ it("lists every agent on the Agents screen and lets the takeover choice be chang
   await tab.goto(`${server.url}/#/agents`);
   const card = tab.getByTestId("agent-card").filter({ hasText: "/work/blog" });
   await card.waitFor();
-  await expect.poll(() => card.getByTestId("agent-defaults").textContent()).toBe("sonnet · low");
+  await expect.poll(() => card.getByTestId("agent-defaults").textContent()).toBe("Sonnet · low");
   expect(await card.getByTestId("agent-projects").textContent()).toBe("Blog");
   expect(await card.getByTestId("agent-status").textContent()).toBe("Libre");
   await tab.getByText("redline agent --global").waitFor();

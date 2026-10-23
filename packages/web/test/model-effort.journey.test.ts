@@ -56,5 +56,5 @@ it("shows both controls as the agent's default until changed, and applies a chan
   expect([engine.runs[0].model, engine.runs[0].effort]).toEqual(["sonnet", "low"]);
 
   await tab.goto(`${seam.server.url}/#/agents`);
-  await expect.poll(() => tab.getByTestId("agent-defaults").textContent()).toBe("sonnet · low");
+  await expect.poll(() => tab.getByTestId("agent-defaults").textContent()).toBe("Sonnet · low");
 }, 60_000);

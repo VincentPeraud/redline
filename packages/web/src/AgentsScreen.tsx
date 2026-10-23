@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentOverview, AgentTokenResponse, Settings } from "@redline/shared";
+import { modelLabel, type AgentOverview, type AgentTokenResponse, type Settings } from "@redline/shared";
 import { routeHref } from "./router.js";
 import { relativeTime } from "./relativeTime.js";
 import { Button, Card, PageContent, PageHeader, SidePanel, StatusBadge, cx } from "./ui/index.js";
@@ -89,7 +89,7 @@ function AgentCard({ agent }: { agent: AgentOverview }) {
             {offline && ` · vu ${relativeTime(agent.lastSeenAt)}`}
           </span>
           <span className={styles.secondary} data-testid="agent-defaults">
-            {agent.model ?? "modèle par défaut"} · {agent.effort ?? "effort par défaut"}
+            {agent.model ? modelLabel(agent.model) : "modèle par défaut"} · {agent.effort ?? "effort par défaut"}
           </span>
         </div>
         <div className={styles.cell}>
