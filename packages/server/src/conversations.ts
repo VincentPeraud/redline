@@ -1,0 +1,206 @@
+import { randomUUID } from "node:crypto";
+import type { FastifyInstance } from "fastify";
+import {
+  type Conversation,
+  type ConversationDetail,
+  type ConversationMessage,
+  type CreateConversationMessageRequest,
+  type CreateConversationRequest,
+  type ModelChoice,
+  type ServerEvent,
+  type WorkItem,
+} from "@redline/shared";
+import { contextOf, usageContext } from "./context.js";
+import { definedChoice, modelChoiceError, modelChoiceOf, requiredString } from "./validation.js";
+import type { PageLock } from "./page-lock.js";
+import type { Store } from "./store.js";
+
+export type SendConversationMessage = (
+  conversation: Conversation,
+  body: string,
+  choice: ModelChoice,
+  options?: { extraContext?: string; projectId?: string; brief?: boolean },
+) => ConversationMessage;
+
+/** The message Claude receives for a conversation message; every message says which page is shown. */
+export function conversationMessage(pageTitle: string, pageId: string, bodies: string[]): string {
+  return [
+    `Conversation about the page "${pageTitle}" (page id ${pageId}), the page the user is looking at. It is separate from the page's comment threads.`,
+    "",
+    ...bodies.flatMap((body) => [body, ""]),
+    "Make the change in the working copy if the message asks for one, then answer in a short final message.",
+  ].join("\n");
+}
+
+/** The first message of a project's first conversation: its brief, to read and keep in mind (cheap: no edit, one line back). */
+export function briefMessage(pageTitle: string, pageId: string, instructions: string): string {
+  return [
+    `Conversation about the page "${pageTitle}" (page id ${pageId}). Before the user writes, here is the project's brief. Read it and keep it in mind for this whole conversation.`,
+    "Do not edit any file and do not call any tool: answer with one short sentence saying you have the brief.",
+    "",
+    instructions,
+  ].join("\n");
+}
+
+/** What a new session is told when it takes over a conversation whose own session is not available. */
+export function conversationHistory(previous: ConversationMessage[]): string {
+  const lines = previous.map((m) => `${m.author === "user" ? "User" : "Claude"}: ${m.body}`);
+  return ["This conversation was already going in an earlier session that is not available now. Conversation so far:", "", ...lines].join("\n");
+}
+
+/**
+ * Conversation routes and dispatch. A conversation has its own engine session (started with its
+ * first message, resumed after), never shared with a thread; every message goes through the page lock.
+ * `lastWorkOf` maps each conversation to the work id of its latest message.
+ */
+export function registerConversationRoutes(
+  app: FastifyInstance,
+  store: Store,
+  lock: PageLock,
+  knownWindows: Map<string, number>,
+): { sendMessage: SendConversationMessage; lastWorkOf: Map<string, string> } {
+  const lastWorkOf = new Map<string, string>();
+  const modelOfWork = new Map<string, string>();
+
+  const unsubscribe = store.onChange((event: ServerEvent) => {
+    if (event.type !== "work" || event.message.type !== "work-event") return;
+    const conversationId = lock.itemOf(event.message.workId)?.conversationId;
+    if (!conversationId) return;
+    const engineEvent = event.message.event;
+    if (engineEvent.type === "usage") {
+      modelOfWork.set(event.message.workId, engineEvent.model);
+      store.setConversationContext(conversationId, usageContext(engineEvent, knownWindows, store.getConversationContext(conversationId)));
+    } else if (engineEvent.type === "result") {
+      const model = modelOfWork.get(event.message.workId);
+      const current = store.getConversationContext(conversationId);
+      if (model && engineEvent.contextWindow) {
+        knownWindows.set(model, engineEvent.contextWindow);
+        if (current?.model === model) store.setConversationContext(conversationId, contextOf(model, current.tokens, engineEvent.contextWindow, current.effort));
+      }
+      // Pages the run created with create_page are shown under its answer.
+      const createdPageIds = store.takeCreatedPages(event.message.workId);
+      if (engineEvent.summary.trim() !== "") store.addConversationMessage(conversationId, "claude", engineEvent.summary, {}, createdPageIds);
+    }
+  });
+  app.addHook("onClose", async () => unsubscribe());
+
+  function detail(conversation: Conversation): ConversationDetail {
+    const messages = store.conversationMessages(conversation.id);
+    const lastUser = [...messages].reverse().find((m) => m.author === "user");
+    return {
+      ...conversation,
+      messages,
+      runWorkId: lastWorkOf.get(conversation.id),
+      model: lastUser?.model,
+      effort: lastUser?.effort,
+      context: store.getConversationContext(conversation.id),
+    };
+  }
+
+  function dispatch(
+    conversation: Conversation,
+    previous: ConversationMessage[],
+    bodies: string[],
+    choice: ModelChoice,
+    projectId: string,
+    firstMessage?: string,
+  ): void {
+    // A message sent while an earlier one of the conversation has not left yet (queued, or waiting for a retry) joins it.
+    const joined = lock.amendQueued(
+      (item) => item.conversationId === conversation.id,
+      (item) => ({
+        ...item,
+        message: `${item.message}\n\nFollow-up from the user, sent before the message above was answered:\n\n${bodies.join("\n\n")}`,
+        ...definedChoice(choice),
+      }),
+    );
+    if (joined) return;
+    const page = store.getPage(conversation.pageId)!;
+    const session = store.getConversationSession(conversation.id);
+    // Messages never sent to Claude (everything stored, when there is no session yet) go along with this one.
+    const sent = session ? bodies : [...previous.map((m) => m.body), ...bodies];
+    const item: WorkItem = {
+      id: randomUUID(),
+      kind: "conversation",
+      conversationId: conversation.id,
+      pageId: page.id,
+      threads: [],
+      message: firstMessage ?? conversationMessage(page.title, page.id, sent),
+      sessionId: session?.sessionId ?? randomUUID(),
+      resume: session !== undefined,
+      ...definedChoice(choice),
+    };
+    lastWorkOf.set(conversation.id, item.id);
+    const takeoverItem: WorkItem | undefined = session && {
+      ...item,
+      id: randomUUID(),
+      sessionId: randomUUID(),
+      resume: false,
+      message: conversationMessage(page.title, page.id, [conversationHistory(previous), ...bodies]),
+    };
+    lock.submit({ projectId, agentId: session?.agentId, takeoverItem }, item);
+  }
+
+  /** Stores a user message and dispatches it; `extraContext` goes to Claude with it without being stored, and `projectId` overrides the project whose agent serves it. */
+  const sendMessage: SendConversationMessage = (conversation, body, choice, options = {}) => {
+    const previous = store.conversationMessages(conversation.id);
+    const message = store.addConversationMessage(conversation.id, "user", body, choice)!;
+    const page = store.getPage(conversation.pageId)!;
+    dispatch(
+      conversation,
+      previous,
+      [...(options.extraContext ? [options.extraContext] : []), body],
+      choice,
+      options.projectId ?? page.projectId,
+      options.brief ? briefMessage(page.title, page.id, body) : undefined,
+    );
+    return message;
+  };
+
+  app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/conversations", async (req, reply) => {
+    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+    return store.listConversations(req.params.pageId);
+  });
+
+  app.post<{ Params: { pageId: string }; Body: CreateConversationRequest }>("/api/pages/:pageId/conversations", async (req, reply) => {
+    const page = store.getPage(req.params.pageId);
+    if (!page) return reply.code(404).send({ error: "page not found" });
+    const title = req.body?.title;
+    if (title !== undefined && !requiredString(title)) {
+      return reply.code(400).send({ error: "title must be a non-empty string" });
+    }
+    const first = !store.projectHasConversation(page.projectId);
+    const conversation = store.createConversation(page.id, title ?? "Nouvelle conversation");
+    const instructions = store.getProject(page.projectId)?.instructions ?? "";
+    // The project's brief opens its first conversation: it is sent now, with a short acknowledgement asked back.
+    if (first && instructions.trim() !== "") sendMessage(conversation, instructions, {}, { brief: true });
+    return reply.code(201).send(detail(conversation));
+  });
+
+  app.get<{ Params: { conversationId: string } }>("/api/conversations/:conversationId", async (req, reply) => {
+    const conversation = store.getConversation(req.params.conversationId);
+    return conversation ? detail(conversation) : reply.code(404).send({ error: "conversation not found" });
+  });
+
+  app.post<{ Params: { conversationId: string } }>("/api/conversations/:conversationId/archive", async (req, reply) => {
+    const conversation = store.archiveConversation(req.params.conversationId);
+    return conversation ? detail(conversation) : reply.code(404).send({ error: "conversation not found" });
+  });
+
+  app.post<{ Params: { conversationId: string }; Body: CreateConversationMessageRequest }>(
+    "/api/conversations/:conversationId/messages",
+    async (req, reply) => {
+      const conversation = store.getConversation(req.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "conversation not found" });
+      if (conversation.archived) return reply.code(409).send({ error: "conversation is archived" });
+      const { body } = req.body ?? ({} as Partial<CreateConversationMessageRequest>);
+      if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
+      const invalidChoice = modelChoiceError(req.body);
+      if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
+      const message = sendMessage(conversation, body, modelChoiceOf(req.body));
+      return reply.code(201).send(message);
+    },
+  );
+
+  return { sendMessage, lastWorkOf };
+}

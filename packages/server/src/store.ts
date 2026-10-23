@@ -1,0 +1,1047 @@
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { mkdirSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import Database from "better-sqlite3";
+import {
+  DESIGN_SYSTEM_TOKENS_PATH,
+  MANIFEST_PATH,
+  defaultManifest,
+  parseManifest,
+  NEUTRAL_DESIGN_SYSTEM_ID,
+  NEUTRAL_TOKENS_CSS,
+  NEUTRAL_TOKENS_PAGE_HTML,
+  type DesignSystem,
+  type DesignMdAuthor,
+  type DesignMdVersion,
+  type ProjectAsset,
+} from "@redline/shared";
+import type {
+  Conversation,
+  ConversationMessage,
+  CreateThreadRequest,
+  AgentInfo,
+  AgentKind,
+  Effort,
+  AgentStatus,
+  CreatedPage,
+  Page,
+  PageCreator,
+  ModelChoice,
+  PageVersionSummary,
+  Project,
+  ServerEvent,
+  SessionKind,
+  Thread,
+  ThreadContext,
+  ThreadReply,
+  ThreadStatus,
+  VersionOrigin,
+  WorkItem,
+} from "@redline/shared";
+
+export class Store {
+  private readonly db: Database.Database;
+  private readonly blobDir: string;
+  private readonly listeners = new Set<(event: ServerEvent) => void>();
+
+  constructor(dataDir: string) {
+    this.blobDir = join(dataDir, "blobs");
+    mkdirSync(this.blobDir, { recursive: true });
+    this.db = new Database(join(dataDir, "redline.db"));
+    this.db.pragma("journal_mode = WAL");
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        instructions TEXT NOT NULL DEFAULT '',
+        design_system TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS pages (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        title TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS versions (
+        id TEXT PRIMARY KEY,
+        page_id TEXT NOT NULL REFERENCES pages(id),
+        files TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        message TEXT NOT NULL DEFAULT '',
+        origin TEXT NOT NULL DEFAULT 'terminal'
+      );
+      CREATE TABLE IF NOT EXISTS threads (
+        id TEXT PRIMARY KEY,
+        page_id TEXT NOT NULL REFERENCES pages(id),
+        number INTEGER NOT NULL,
+        artboard TEXT NOT NULL,
+        selector TEXT NOT NULL,
+        x_pct REAL NOT NULL,
+        y_pct REAL NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (page_id, number)
+      );
+      CREATE TABLE IF NOT EXISTS thread_replies (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL REFERENCES threads(id),
+        author TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS agents (
+        id TEXT PRIMARY KEY,
+        machine TEXT NOT NULL,
+        folder TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        UNIQUE (machine, folder)
+      );
+      CREATE TABLE IF NOT EXISTS design_systems (
+        project_id TEXT PRIMARY KEY REFERENCES projects(id),
+        page_id TEXT NOT NULL REFERENCES pages(id)
+      );
+      CREATE TABLE IF NOT EXISTS project_files (
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        path TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        PRIMARY KEY (project_id, path)
+      );
+      CREATE TABLE IF NOT EXISTS design_md_versions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        hash TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY,
+        page_id TEXT NOT NULL REFERENCES pages(id),
+        title TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0,
+        session_id TEXT,
+        agent_id TEXT,
+        context TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS conversation_messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id),
+        author TEXT NOT NULL,
+        body TEXT NOT NULL,
+        model TEXT,
+        effort TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS run_created_pages (
+        work_id TEXT NOT NULL,
+        page_id TEXT NOT NULL REFERENCES pages(id),
+        attached INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (work_id, page_id)
+      );
+      CREATE TABLE IF NOT EXISTS work_queue (
+        id TEXT PRIMARY KEY,
+        position INTEGER NOT NULL,
+        state TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        agent_id TEXT,
+        item TEXT NOT NULL,
+        takeover_item TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        retry_at TEXT,
+        retry_limit INTEGER,
+        message TEXT
+      );
+      UPDATE agents SET status = 'offline';
+    `);
+    const agentColumns = this.db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
+    if (!agentColumns.some((c) => c.name === "project_id")) this.db.exec("ALTER TABLE agents ADD COLUMN project_id TEXT");
+    if (!agentColumns.some((c) => c.name === "model")) this.db.exec("ALTER TABLE agents ADD COLUMN model TEXT");
+    if (!agentColumns.some((c) => c.name === "effort")) this.db.exec("ALTER TABLE agents ADD COLUMN effort TEXT");
+    const columnsOf = (table: string) => (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+    const addColumn = (table: string, column: string, definition: string) => {
+      if (!columnsOf(table).includes(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    };
+    // Page types were removed (2026-10-22); the column was NOT NULL, so databases from before must drop it.
+    if (columnsOf("pages").includes("type")) this.db.exec("ALTER TABLE pages DROP COLUMN type");
+    addColumn("pages", "created_by", "TEXT NOT NULL DEFAULT 'user'");
+    // The old per-project boolean (default 0) becomes a nullable override of the global setting: only an explicit "allow" is kept.
+    if (!columnsOf("projects").includes("takeover_override")) {
+      this.db.exec("ALTER TABLE projects ADD COLUMN takeover_override INTEGER");
+      if (columnsOf("projects").includes("allow_global_takeover")) {
+        this.db.exec("UPDATE projects SET takeover_override = 1 WHERE allow_global_takeover = 1");
+      }
+    }
+    addColumn("versions", "origin_id", "TEXT");
+    addColumn("versions", "origin_label", "TEXT");
+    addColumn("threads", "element_name", "TEXT");
+    addColumn("thread_replies", "created_page_ids", "TEXT");
+    addColumn("conversation_messages", "created_page_ids", "TEXT");
+    addColumn("design_md_versions", "origin", "TEXT NOT NULL DEFAULT 'user'");
+    addColumn("design_md_versions", "origin_id", "TEXT");
+    addColumn("design_md_versions", "origin_label", "TEXT");
+    const threadColumns = this.db.prepare("PRAGMA table_info(threads)").all() as { name: string }[];
+    if (!threadColumns.some((c) => c.name === "session_id")) this.db.exec("ALTER TABLE threads ADD COLUMN session_id TEXT");
+    if (!threadColumns.some((c) => c.name === "agent_id")) this.db.exec("ALTER TABLE threads ADD COLUMN agent_id TEXT");
+    for (const column of ["context", "new_session", "session_seed"]) {
+      if (!threadColumns.some((c) => c.name === column)) this.db.exec(`ALTER TABLE threads ADD COLUMN ${column} TEXT`);
+    }
+    this.db.exec("UPDATE versions SET origin = 'creation' WHERE origin = 'terminal' AND message = 'Page created'");
+    if (!this.getDesignSystem(NEUTRAL_DESIGN_SYSTEM_ID)) {
+      this.createDesignSystem("Neutral", { [DESIGN_SYSTEM_TOKENS_PATH]: NEUTRAL_TOKENS_CSS, "index.html": NEUTRAL_TOKENS_PAGE_HTML }, NEUTRAL_DESIGN_SYSTEM_ID);
+    }
+  }
+
+  /** Replaces the persisted work queue (see `PageLock`) with `rows`, in order. */
+  saveWorkQueue(rows: PersistedWork[]): void {
+    const insert = this.db.prepare(
+      `INSERT INTO work_queue (id, position, state, project_id, agent_id, item, takeover_item, attempts, retry_at, retry_limit, message)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    this.db.transaction(() => {
+      this.db.prepare("DELETE FROM work_queue").run();
+      rows.forEach((row, position) =>
+        insert.run(
+          row.item.id,
+          position,
+          row.state,
+          row.projectId,
+          row.agentId ?? null,
+          JSON.stringify(row.item),
+          row.takeoverItem ? JSON.stringify(row.takeoverItem) : null,
+          row.attempts,
+          row.retryAt ?? null,
+          row.limit === undefined ? null : row.limit ? 1 : 0,
+          row.message ?? null,
+        ),
+      );
+    })();
+  }
+
+  loadWorkQueue(): PersistedWork[] {
+    const rows = this.db.prepare("SELECT * FROM work_queue ORDER BY position").all() as {
+      state: PersistedWork["state"];
+      project_id: string;
+      agent_id: string | null;
+      item: string;
+      takeover_item: string | null;
+      attempts: number;
+      retry_at: string | null;
+      retry_limit: number | null;
+      message: string | null;
+    }[];
+    return rows.map((r) => ({
+      state: r.state,
+      projectId: r.project_id,
+      ...(r.agent_id ? { agentId: r.agent_id } : {}),
+      item: JSON.parse(r.item) as WorkItem,
+      ...(r.takeover_item ? { takeoverItem: JSON.parse(r.takeover_item) as WorkItem } : {}),
+      attempts: r.attempts,
+      ...(r.retry_at ? { retryAt: r.retry_at } : {}),
+      ...(r.retry_limit === null ? {} : { limit: r.retry_limit === 1 }),
+      ...(r.message === null ? {} : { message: r.message }),
+    }));
+  }
+
+  /** A design system is a project (same id) with one page holding its tokens and components. */
+  createDesignSystem(title: string, files: Record<string, string>, id: string = randomUUID()): DesignSystem {
+    this.createProject(title, id);
+    const page = this.createPage(id, title, files);
+    this.db.prepare("INSERT INTO design_systems (project_id, page_id) VALUES (?, ?)").run(id, page.id);
+    return { id, title, pageId: page.id };
+  }
+
+  getDesignSystem(id: string): DesignSystem | undefined {
+    return this.db
+      .prepare(
+        "SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id WHERE p.id = ?",
+      )
+      .get(id) as DesignSystem | undefined;
+  }
+
+  listDesignSystems(): DesignSystem[] {
+    return this.db
+      .prepare(
+        "SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id ORDER BY p.created_at, p.rowid",
+      )
+      .all() as DesignSystem[];
+  }
+
+  /** Every thread and conversation with the page and project they belong to (design system pages included). */
+  listSessionOrigins(): SessionOrigin[] {
+    const select = (table: "threads" | "conversations") =>
+      `SELECT t.id, '${table === "threads" ? "thread" : "conversation"}' AS kind, t.page_id AS pageId, pg.title AS pageTitle,
+              pg.project_id AS projectId, pr.title AS projectTitle, t.created_at AS createdAt
+       FROM ${table} t JOIN pages pg ON pg.id = t.page_id JOIN projects pr ON pr.id = pg.project_id`;
+    return this.db.prepare(`${select("threads")} UNION ALL ${select("conversations")}`).all() as SessionOrigin[];
+  }
+
+  /** The agent linked to the project, online or not. */
+  projectAgentId(projectId: string): string | undefined {
+    const row = this.db.prepare("SELECT id FROM agents WHERE project_id = ?").get(projectId) as { id: string } | undefined;
+    return row?.id;
+  }
+
+  /** True while the agent is linked to a project; a project agent replaced by a newer one, and a global agent, are not. */
+  isProjectAgent(agentId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM agents WHERE id = ? AND project_id IS NOT NULL").get(agentId) !== undefined;
+  }
+
+  /** Projects (design systems excluded) whose design system is `designSystemId`. */
+  projectsUsingDesignSystem(designSystemId: string): { id: string; title: string }[] {
+    return this.db
+      .prepare(
+        "SELECT id, title FROM projects WHERE design_system = ? AND id NOT IN (SELECT project_id FROM design_systems) ORDER BY created_at, rowid",
+      )
+      .all(designSystemId) as { id: string; title: string }[];
+  }
+
+  /** The design system a page belongs to as its own page (the page that holds its tokens), if any. */
+  designSystemOfPage(pageId: string): DesignSystem | undefined {
+    return this.db
+      .prepare("SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id WHERE d.page_id = ?")
+      .get(pageId) as DesignSystem | undefined;
+  }
+
+  listPageIds(): string[] {
+    return (this.db.prepare("SELECT id FROM pages ORDER BY created_at, rowid").all() as { id: string }[]).map((r) => r.id);
+  }
+
+  isDesignSystemPage(pageId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM design_systems WHERE page_id = ?").get(pageId) !== undefined;
+  }
+
+  close(): void {
+    this.db.close();
+  }
+
+  /** Calls `listener` after every change the web UI shows (new thread or reply, new version). Returns the unsubscribe function. */
+  onChange(listener: (event: ServerEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  emit(event: ServerEvent): void {
+    for (const listener of this.listeners) listener(event);
+  }
+
+  /** Id of the online project agent serving the project. */
+  findOnlineProjectAgentId(projectId: string): string | undefined {
+    const row = this.db.prepare("SELECT id FROM agents WHERE project_id = ? AND status = 'online'").get(projectId) as
+      | { id: string }
+      | undefined;
+    return row?.id;
+  }
+
+  /** The agents' token, generated on first read. */
+  getAgentToken(): string {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key = 'agent_token'").get() as
+      | { value: string }
+      | undefined;
+    return row?.value ?? this.regenerateAgentToken();
+  }
+
+  regenerateAgentToken(): string {
+    const token = `abt_${randomBytes(24).toString("hex")}`;
+    this.db
+      .prepare("INSERT INTO settings (key, value) VALUES ('agent_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(token);
+    return token;
+  }
+
+  /** Records an agent as online; one entry per machine and folder. */
+  markAgentOnline(machine: string, folder: string, kind: AgentKind, projectId?: string, model?: string, effort?: Effort): string {
+    if (projectId) this.db.prepare("UPDATE agents SET project_id = NULL WHERE project_id = ?").run(projectId);
+    this.db
+      .prepare(
+        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, project_id, model, effort) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?)
+         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, project_id = excluded.project_id, model = excluded.model, effort = excluded.effort`,
+      )
+      .run(randomUUID(), machine, folder, kind, now(), projectId ?? null, model ?? null, effort ?? null);
+    return (this.db.prepare("SELECT id FROM agents WHERE machine = ? AND folder = ?").get(machine, folder) as { id: string }).id;
+  }
+
+  markAgentOffline(id: string): void {
+    this.db.prepare("UPDATE agents SET status = 'offline', last_seen_at = ? WHERE id = ?").run(now(), id);
+  }
+
+  /** The online project agent serving a project, other than the given machine and folder. */
+  findOtherOnlineProjectAgent(projectId: string, machine: string, folder: string): { machine: string; folder: string } | undefined {
+    return this.db
+      .prepare(
+        "SELECT machine, folder FROM agents WHERE project_id = ? AND status = 'online' AND NOT (machine = ? AND folder = ?)",
+      )
+      .get(projectId, machine, folder) as { machine: string; folder: string } | undefined;
+  }
+
+  listAgents(): AgentInfo[] {
+    const rows = this.db
+      .prepare("SELECT id, machine, folder, kind, status, last_seen_at AS lastSeenAt, model, effort FROM agents ORDER BY machine, folder")
+      .all() as (Omit<AgentInfo, "model" | "effort"> & { model: string | null; effort: Effort | null })[];
+    return rows.map(({ model, effort, ...agent }) => ({ ...agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}) }));
+  }
+
+  createProject(title: string, id: string = randomUUID(), instructions = "", designSystem: string | null = null): Project {
+    this.db
+      .prepare("INSERT INTO projects (id, title, instructions, design_system, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(id, title, instructions, designSystem, now());
+    return { id, title, instructions, designSystem, globalTakeover: this.getGlobalTakeover(), globalTakeoverOverride: null };
+  }
+
+  listProjects(): Project[] {
+    const rows = this.db
+      .prepare(
+        `SELECT p.id, p.title, p.instructions, p.design_system AS designSystem, p.takeover_override AS takeoverOverride, a.id AS agentId, a.machine, a.folder, a.status
+         FROM projects p LEFT JOIN agents a ON a.project_id = p.id
+         WHERE p.id NOT IN (SELECT project_id FROM design_systems)
+         ORDER BY p.created_at, p.rowid`,
+      )
+      .all() as {
+      id: string;
+      title: string;
+      instructions: string;
+      designSystem: string | null;
+      takeoverOverride: number | null;
+      agentId: string | null;
+      machine: string;
+      folder: string;
+      status: AgentStatus;
+    }[];
+    const global = this.getGlobalTakeover();
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      instructions: r.instructions,
+      designSystem: r.designSystem,
+      globalTakeover: r.takeoverOverride === null ? global : r.takeoverOverride === 1,
+      globalTakeoverOverride: r.takeoverOverride === null ? null : r.takeoverOverride === 1,
+      ...(r.agentId ? { agent: { id: r.agentId, machine: r.machine, folder: r.folder, status: r.status } } : {}),
+    }));
+  }
+
+  getProject(id: string): Project | undefined {
+    return this.listProjects().find((p) => p.id === id);
+  }
+
+  /** Sets (true / false) or clears (null) the project's own takeover choice. */
+  setTakeoverOverride(projectId: string, override: boolean | null): void {
+    this.db.prepare("UPDATE projects SET takeover_override = ? WHERE id = ?").run(override === null ? null : override ? 1 : 0, projectId);
+  }
+
+  renameProject(projectId: string, title: string): void {
+    this.db.prepare("UPDATE projects SET title = ? WHERE id = ?").run(title, projectId);
+  }
+
+  /** The instance-wide takeover setting (default: the thread waits for its project agent). */
+  getGlobalTakeover(): boolean {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key = 'global_takeover'").get() as { value: string } | undefined;
+    return row?.value === "1";
+  }
+
+  setGlobalTakeover(allow: boolean): void {
+    this.db
+      .prepare("INSERT INTO settings (key, value) VALUES ('global_takeover', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(allow ? "1" : "0");
+  }
+
+  /** True once a project agent has been linked to the project, online or not. */
+  hasProjectAgent(projectId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM agents WHERE project_id = ?").get(projectId) !== undefined;
+  }
+
+  /** Id of an online global agent, the most recently seen first. */
+  findOnlineGlobalAgentId(): string | undefined {
+    const row = this.db.prepare("SELECT id FROM agents WHERE kind = 'global' AND status = 'online' ORDER BY last_seen_at DESC, rowid LIMIT 1").get() as
+      | { id: string }
+      | undefined;
+    return row?.id;
+  }
+
+  getAgent(id: string): AgentInfo | undefined {
+    return this.listAgents().find((a) => a.id === id);
+  }
+
+  projectExists(id: string): boolean {
+    return this.db.prepare("SELECT 1 FROM projects WHERE id = ?").get(id) !== undefined;
+  }
+
+  /** Stores a project-level file (DESIGN.md or `assets/<name>`) under its content hash. */
+  setProjectFile(projectId: string, path: string, content: Buffer): string {
+    const hash = this.putBlob(content);
+    this.db
+      .prepare("INSERT INTO project_files (project_id, path, hash) VALUES (?, ?, ?) ON CONFLICT(project_id, path) DO UPDATE SET hash = excluded.hash")
+      .run(projectId, path, hash);
+    return hash;
+  }
+
+  /** Saves DESIGN.md and records a version with its author, unless the content is the one already stored. */
+  saveDesignMd(projectId: string, path: string, content: Buffer, author: DesignMdAuthor = { origin: "user" }): void {
+    const unchanged = this.readProjectFile(projectId, path)?.equals(content) ?? false;
+    const hash = this.setProjectFile(projectId, path, content);
+    if (unchanged) return;
+    this.db
+      .prepare("INSERT INTO design_md_versions (id, project_id, hash, created_at, origin, origin_id, origin_label) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(randomUUID(), projectId, hash, now(), author.origin, author.originId ?? null, author.originLabel ?? null);
+  }
+
+  /** DESIGN.md versions, newest first. */
+  listDesignMdVersions(projectId: string): DesignMdVersion[] {
+    const rows = this.db
+      .prepare(
+        "SELECT id, hash, created_at, origin, origin_id, origin_label FROM design_md_versions WHERE project_id = ? ORDER BY created_at DESC, rowid DESC",
+      )
+      .all(projectId) as { id: string; hash: string; created_at: string; origin: DesignMdVersion["origin"]; origin_id: string | null; origin_label: string | null }[];
+    return rows.map((r) => ({
+      id: r.id,
+      content: readFileSync(join(this.blobDir, r.hash), "utf8"),
+      createdAt: r.created_at,
+      origin: r.origin,
+      ...(r.origin_id ? { originId: r.origin_id } : {}),
+      ...(r.origin_label ? { originLabel: r.origin_label } : {}),
+    }));
+  }
+
+  readProjectFile(projectId: string, path: string): Buffer | undefined {
+    const row = this.db.prepare("SELECT hash FROM project_files WHERE project_id = ? AND path = ?").get(projectId, path) as
+      | { hash: string }
+      | undefined;
+    return row && readFileSync(join(this.blobDir, row.hash));
+  }
+
+  /** Project-level files under `prefix`, as `{name (prefix removed), hash, size}`. */
+  listProjectFiles(projectId: string, prefix: string): ProjectAsset[] {
+    const rows = this.db
+      .prepare("SELECT path, hash FROM project_files WHERE project_id = ? AND substr(path, 1, ?) = ? ORDER BY path")
+      .all(projectId, prefix.length, prefix) as { path: string; hash: string }[];
+    return rows.map((r) => ({ name: r.path.slice(prefix.length), hash: r.hash, size: statSync(join(this.blobDir, r.hash)).size }));
+  }
+
+  createPage(projectId: string, title: string, files: Record<string, string>, createdBy: PageCreator = "user"): Page {
+    const id = randomUUID();
+    this.db
+      .prepare("INSERT INTO pages (id, project_id, title, created_by, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(id, projectId, title, createdBy, now());
+    this.createVersion(id, files, "Page created", "creation");
+    return this.getPage(id)!;
+  }
+
+  listPages(projectId: string): Page[] {
+    const ids = this.db
+      .prepare("SELECT id FROM pages WHERE project_id = ? ORDER BY created_at, rowid")
+      .all(projectId) as { id: string }[];
+    return ids.map(({ id }) => this.getPage(id)!);
+  }
+
+  /** Pages of regular projects (not design systems), most recently changed first, with the time of their last version. */
+  listRecentPages(limit: number): { page: Page; updatedAt: string }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT p.id, MAX(v.created_at) AS updatedAt FROM pages p JOIN versions v ON v.page_id = p.id
+         WHERE p.project_id NOT IN (SELECT project_id FROM design_systems)
+         GROUP BY p.id ORDER BY updatedAt DESC, p.rowid DESC LIMIT ?`,
+      )
+      .all(limit) as { id: string; updatedAt: string }[];
+    return rows.map(({ id, updatedAt }) => ({ page: this.getPage(id)!, updatedAt }));
+  }
+
+  renamePage(id: string, title: string): void {
+    this.db.prepare("UPDATE pages SET title = ? WHERE id = ?").run(title, id);
+  }
+
+  getPage(id: string): Page | undefined {
+    const row = this.db
+      .prepare("SELECT id, project_id, title, created_by FROM pages WHERE id = ?")
+      .get(id) as { id: string; project_id: string; title: string; created_by: PageCreator } | undefined;
+    if (!row) return undefined;
+    const version = this.db
+      .prepare("SELECT id, files FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(id) as { id: string; files: string };
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      title: row.title,
+      createdBy: row.created_by,
+      version: { id: version.id, files: JSON.parse(version.files) },
+    };
+  }
+
+  createThread(pageId: string, pin: CreateThreadRequest): Thread {
+    const id = randomUUID();
+    const { next } = this.db
+      .prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?")
+      .get(pageId) as { next: number };
+    const title = (pin.title?.trim() || pin.body.trim().split("\n")[0]).slice(0, 80);
+    this.db
+      .prepare(
+        `INSERT INTO threads (id, page_id, number, artboard, selector, element_name, x_pct, y_pct, title, body, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(id, pageId, next, pin.artboard, pin.selector, pin.elementName ?? null, pin.xPct, pin.yPct, title, pin.body, pin.held ? "held" : "open", now());
+    this.emit({ type: "thread-updated", pageId, threadId: id });
+    return this.getThread(id)!;
+  }
+
+  listThreads(pageId: string): Thread[] {
+    const rows = this.db
+      .prepare(`${THREAD_SELECT} WHERE page_id = ? ORDER BY number`)
+      .all(pageId) as ThreadRow[];
+    return rows.map((row) => toThread(row, this.repliesOf(row.id)));
+  }
+
+  getThread(id: string): Thread | undefined {
+    const row = this.db.prepare(`${THREAD_SELECT} WHERE id = ?`).get(id) as ThreadRow | undefined;
+    return row && toThread(row, this.repliesOf(id));
+  }
+
+  /** Held comments of a page, oldest first. */
+  listHeldThreads(pageId: string): Thread[] {
+    const rows = this.db
+      .prepare(
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.x_pct, t.y_pct, t.title, t.body, t.status
+         FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
+      )
+      .all(pageId) as ThreadRow[];
+    return rows.map((row) => toThread(row, []));
+  }
+
+  /** Edits the text of a held comment; undefined when the thread does not exist or is not held. */
+  updateHeldThread(id: string, body: string): Thread | undefined {
+    const title = body.trim().split("\n")[0].slice(0, 80);
+    const { changes } = this.db.prepare("UPDATE threads SET body = ?, title = ? WHERE id = ? AND status = 'held'").run(body, title, id);
+    if (changes === 0) return undefined;
+    const thread = this.getThread(id)!;
+    this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
+    return thread;
+  }
+
+  /** Deletes a held comment; false when the thread does not exist or is not held. */
+  deleteHeldThread(id: string): boolean {
+    const thread = this.getThread(id);
+    if (!thread || thread.status !== "held") return false;
+    this.db.prepare("DELETE FROM threads WHERE id = ?").run(id);
+    this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
+    return true;
+  }
+
+  /** A held comment leaves: it becomes a regular open thread. */
+  releaseHeldThread(id: string): void {
+    this.db.prepare("UPDATE threads SET status = 'open' WHERE id = ? AND status = 'held'").run(id);
+    const thread = this.getThread(id);
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
+  }
+
+  resolveThread(id: string): Thread | undefined {
+    this.db.prepare("UPDATE threads SET status = 'resolved' WHERE id = ?").run(id);
+    const thread = this.getThread(id);
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
+    return thread;
+  }
+
+  /** The engine session that opened the thread and the agent that owns it; undefined until a work item was sent. */
+  getThreadSession(threadId: string): { sessionId: string; agentId: string } | undefined {
+    const row = this.db.prepare("SELECT session_id, agent_id FROM threads WHERE id = ?").get(threadId) as
+      | { session_id: string | null; agent_id: string | null }
+      | undefined;
+    return row?.session_id && row.agent_id ? { sessionId: row.session_id, agentId: row.agent_id } : undefined;
+  }
+
+  setThreadSession(threadId: string, sessionId: string, agentId: string): void {
+    this.db.prepare("UPDATE threads SET session_id = ?, agent_id = ? WHERE id = ?").run(sessionId, agentId, threadId);
+  }
+
+  setThreadContext(threadId: string, context: ThreadContext | null): void {
+    this.db.prepare("UPDATE threads SET context = ? WHERE id = ?").run(context && JSON.stringify(context), threadId);
+    this.emitThreadUpdated(threadId);
+  }
+
+  /** "Nouvelle session" progress: summarizing, ready (the next reply starts `sessionId` seeded with `seed`), or cleared. */
+  setNewSession(threadId: string, state: "summarizing" | "ready" | null, seed: string | null = null): void {
+    this.db.prepare("UPDATE threads SET new_session = ?, session_seed = ? WHERE id = ?").run(state, seed, threadId);
+    this.emitThreadUpdated(threadId);
+  }
+
+  getSessionSeed(threadId: string): string | undefined {
+    const row = this.db.prepare("SELECT session_seed FROM threads WHERE id = ?").get(threadId) as { session_seed: string | null } | undefined;
+    return row?.session_seed ?? undefined;
+  }
+
+  private emitThreadUpdated(threadId: string): void {
+    const thread = this.getThread(threadId);
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
+  }
+
+  /** Records an answer of Claude or a message of the user in a thread; undefined if the thread does not exist. */
+  addReply(threadId: string, body: string, author: ThreadReply["author"] = "claude", createdPageIds: string[] = []): ThreadReply | undefined {
+    const thread = this.getThread(threadId);
+    if (!thread) return undefined;
+    const reply: ThreadReply = { id: randomUUID(), author, body, createdAt: now() };
+    this.db
+      .prepare("INSERT INTO thread_replies (id, thread_id, author, body, created_at, created_page_ids) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(reply.id, threadId, reply.author, body, reply.createdAt, createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null);
+    this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
+    return this.repliesOf(threadId).find((r) => r.id === reply.id);
+  }
+
+  /** Remembers that the run `workId` created the page with `create_page`. */
+  recordCreatedPage(workId: string, pageId: string): void {
+    this.db.prepare("INSERT OR IGNORE INTO run_created_pages (work_id, page_id) VALUES (?, ?)").run(workId, pageId);
+  }
+
+  /** Ids of the pages the run created that no answer carries yet; they are marked as carried, so only the first answer of a run shows them. */
+  takeCreatedPages(workId: string): string[] {
+    const rows = this.db
+      .prepare("SELECT page_id FROM run_created_pages WHERE work_id = ? AND attached = 0 ORDER BY rowid")
+      .all(workId) as { page_id: string }[];
+    this.db.prepare("UPDATE run_created_pages SET attached = 1 WHERE work_id = ?").run(workId);
+    return rows.map((r) => r.page_id);
+  }
+
+  /** Created pages as shown under an answer: current name and artboard count. */
+  private createdPagesOf(json: string | null): CreatedPage[] | undefined {
+    if (!json) return undefined;
+    const pages: CreatedPage[] = [];
+    for (const id of JSON.parse(json) as string[]) {
+      const page = this.getPage(id);
+      if (!page) continue;
+      const manifest = page.version.files[MANIFEST_PATH];
+      const parsed = manifest === undefined ? defaultManifest(Object.keys(page.version.files)) : parseManifest(this.blobText(manifest));
+      pages.push({ pageId: page.id, name: page.title, artboardCount: parsed.artboards.length });
+    }
+    return pages.length > 0 ? pages : undefined;
+  }
+
+  blobText(hash: string): string {
+    return readFileSync(join(this.blobDir, hash), "utf8");
+  }
+
+  createConversation(pageId: string, title: string): Conversation {
+    const createdAt = now();
+    const conversation: Conversation = { id: randomUUID(), pageId, title, archived: false, createdAt, exchangeCount: 0, lastActivityAt: createdAt };
+    this.db
+      .prepare("INSERT INTO conversations (id, page_id, title, created_at) VALUES (?, ?, ?, ?)")
+      .run(conversation.id, pageId, title, conversation.createdAt);
+    this.emit({ type: "conversation-updated", pageId, conversationId: conversation.id });
+    return conversation;
+  }
+
+  getConversation(id: string): Conversation | undefined {
+    const row = this.db.prepare(`${CONVERSATION_SELECT} WHERE id = ?`).get(id) as ConversationRow | undefined;
+    return row && toConversation(row);
+  }
+
+  /** Conversations of a page, oldest first (archived ones included). */
+  listConversations(pageId: string): Conversation[] {
+    const rows = this.db.prepare(`${CONVERSATION_SELECT} WHERE page_id = ? ORDER BY created_at, rowid`).all(pageId) as ConversationRow[];
+    return rows.map(toConversation);
+  }
+
+  /** True once any page of the project has a conversation. */
+  projectHasConversation(projectId: string): boolean {
+    return (
+      this.db
+        .prepare("SELECT 1 FROM conversations c JOIN pages p ON p.id = c.page_id WHERE p.project_id = ? LIMIT 1")
+        .get(projectId) !== undefined
+    );
+  }
+
+  archiveConversation(id: string): Conversation | undefined {
+    this.db.prepare("UPDATE conversations SET archived = 1 WHERE id = ?").run(id);
+    const conversation = this.getConversation(id);
+    if (conversation) this.emit({ type: "conversation-updated", pageId: conversation.pageId, conversationId: id });
+    return conversation;
+  }
+
+  /** The engine session of the conversation and the agent that owns it; undefined until a first message was sent. */
+  getConversationSession(id: string): { sessionId: string; agentId: string } | undefined {
+    const row = this.db.prepare("SELECT session_id, agent_id FROM conversations WHERE id = ?").get(id) as
+      | { session_id: string | null; agent_id: string | null }
+      | undefined;
+    return row?.session_id && row.agent_id ? { sessionId: row.session_id, agentId: row.agent_id } : undefined;
+  }
+
+  setConversationSession(id: string, sessionId: string, agentId: string): void {
+    this.db.prepare("UPDATE conversations SET session_id = ?, agent_id = ? WHERE id = ?").run(sessionId, agentId, id);
+  }
+
+  getConversationContext(id: string): ThreadContext | undefined {
+    const row = this.db.prepare("SELECT context FROM conversations WHERE id = ?").get(id) as { context: string | null } | undefined;
+    return row?.context ? (JSON.parse(row.context) as ThreadContext) : undefined;
+  }
+
+  setConversationContext(id: string, context: ThreadContext): void {
+    this.db.prepare("UPDATE conversations SET context = ? WHERE id = ?").run(JSON.stringify(context), id);
+    const conversation = this.getConversation(id);
+    if (conversation) this.emit({ type: "conversation-updated", pageId: conversation.pageId, conversationId: id });
+  }
+
+  addConversationMessage(
+    conversationId: string,
+    author: ConversationMessage["author"],
+    body: string,
+    choice: ModelChoice = {},
+    createdPageIds: string[] = [],
+  ): ConversationMessage | undefined {
+    const conversation = this.getConversation(conversationId);
+    if (!conversation) return undefined;
+    const message: ConversationMessage = { id: randomUUID(), author, body, ...choice, createdAt: now() };
+    this.db
+      .prepare("INSERT INTO conversation_messages (id, conversation_id, author, body, model, effort, created_at, created_page_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(message.id, conversationId, author, body, choice.model ?? null, choice.effort ?? null, message.createdAt, createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null);
+    this.emit({ type: "conversation-updated", pageId: conversation.pageId, conversationId });
+    return this.conversationMessages(conversationId).find((m) => m.id === message.id);
+  }
+
+  conversationMessages(conversationId: string): ConversationMessage[] {
+    const rows = this.db
+      .prepare(
+        "SELECT id, author, body, model, effort, created_at AS createdAt, created_page_ids AS createdPageIds FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at, rowid",
+      )
+      .all(conversationId) as (ConversationMessage & { model: string | null; effort: Effort | null; createdPageIds: string | null })[];
+    return rows.map(({ model, effort, createdPageIds, ...rest }) => {
+      const createdPages = this.createdPagesOf(createdPageIds);
+      return { ...rest, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(createdPages ? { createdPages } : {}) };
+    });
+  }
+
+  private repliesOf(threadId: string): ThreadReply[] {
+    const rows = this.db
+      .prepare("SELECT id, author, body, created_at AS createdAt, created_page_ids AS createdPageIds FROM thread_replies WHERE thread_id = ? ORDER BY created_at, rowid")
+      .all(threadId) as (ThreadReply & { createdPageIds: string | null })[];
+    return rows.map(({ createdPageIds, ...reply }) => {
+      const createdPages = this.createdPagesOf(createdPageIds);
+      return createdPages ? { ...reply, createdPages } : reply;
+    });
+  }
+
+  /** Every file of the page's current version as UTF-8 text, or undefined if the page is unknown. */
+  readPageFiles(pageId: string): { versionId: string; files: Record<string, string> } | undefined {
+    const version = this.getPage(pageId)?.version;
+    if (!version) return undefined;
+    const files: Record<string, string> = {};
+    for (const [path, hash] of Object.entries(version.files)) {
+      files[path] = readFileSync(join(this.blobDir, hash), "utf8");
+    }
+    return { versionId: version.id, files };
+  }
+
+  /** Every file of one version of a page as UTF-8 text, or undefined if the version is unknown. */
+  readVersionFiles(pageId: string, versionId: string): Record<string, string> | undefined {
+    const row = this.db.prepare("SELECT files FROM versions WHERE id = ? AND page_id = ?").get(versionId, pageId) as { files: string } | undefined;
+    if (!row) return undefined;
+    const files: Record<string, string> = {};
+    for (const [path, hash] of Object.entries(JSON.parse(row.files) as Record<string, string>)) {
+      files[path] = readFileSync(join(this.blobDir, hash), "utf8");
+    }
+    return files;
+  }
+
+  /** Reads a file of the page's current version, or undefined if the page or path is unknown. */
+  readPageFile(pageId: string, path: string): Buffer | undefined {
+    const hash = this.getPage(pageId)?.version.files[path];
+    return hash === undefined ? undefined : readFileSync(join(this.blobDir, hash));
+  }
+
+  /** Records a new version of the page from file contents. */
+  addVersion(pageId: string, files: Record<string, string>, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
+    return this.createVersion(pageId, files, message, origin, ref);
+  }
+
+  /** Records a version whose files are given as path -> blob hash (hashes of this store). */
+  addVersionFromHashes(pageId: string, hashes: Record<string, string>, message: string, origin: VersionOrigin): PageVersionSummary {
+    return this.insertVersion(pageId, JSON.stringify(hashes), message, origin);
+  }
+
+  /** Stores UTF-8 text as a blob and returns its hash. */
+  putText(content: string): string {
+    return this.putBlob(Buffer.from(content, "utf8"));
+  }
+
+  /** Every version of a page with its file hashes, OLDEST first. */
+  listVersionRecords(pageId: string): VersionRecord[] {
+    const rows = this.db
+      .prepare("SELECT id, files, message, origin, origin_id, origin_label, created_at FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
+      .all(pageId) as (VersionRow & { files: string })[];
+    return rows.map((row) => ({ ...toSummary(row), files: JSON.parse(row.files) as Record<string, string> }));
+  }
+
+  /** One file of one version of a page, or undefined if either is unknown. */
+  readVersionFile(pageId: string, versionId: string, path: string): Buffer | undefined {
+    const row = this.db.prepare("SELECT files FROM versions WHERE id = ? AND page_id = ?").get(versionId, pageId) as { files: string } | undefined;
+    const hash = row && (JSON.parse(row.files) as Record<string, string>)[path];
+    return hash ? readFileSync(join(this.blobDir, hash)) : undefined;
+  }
+
+  /** Records a new version identical to the current one except for one file. */
+  setPageFile(pageId: string, path: string, content: string, message: string, origin: VersionOrigin): PageVersionSummary {
+    const hashes = { ...this.getPage(pageId)!.version.files, [path]: this.putBlob(Buffer.from(content, "utf8")) };
+    return this.insertVersion(pageId, JSON.stringify(hashes), message, origin);
+  }
+
+  /** Versions of a page, newest first. */
+  listVersions(pageId: string): PageVersionSummary[] {
+    const rows = this.db
+      .prepare(
+        "SELECT id, message, origin, origin_id, origin_label, created_at FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC",
+      )
+      .all(pageId) as VersionRow[];
+    return rows.map(toSummary);
+  }
+
+  /** Repoints the page's paths to the hashes of an old version and records that as a new version. */
+  restoreVersion(pageId: string, versionId: string): PageVersionSummary | undefined {
+    const old = this.db
+      .prepare("SELECT files, created_at FROM versions WHERE id = ? AND page_id = ?")
+      .get(versionId, pageId) as { files: string; created_at: string } | undefined;
+    if (!old) return undefined;
+    return this.insertVersion(pageId, old.files, `Restored version of ${old.created_at}`, "restore");
+  }
+
+  private createVersion(
+    pageId: string,
+    files: Record<string, string>,
+    message: string,
+    origin: VersionOrigin,
+    ref?: OriginRef,
+  ): PageVersionSummary {
+    const hashes: Record<string, string> = {};
+    for (const [path, content] of Object.entries(files)) {
+      hashes[path] = this.putBlob(Buffer.from(content, "utf8"));
+    }
+    return this.insertVersion(pageId, JSON.stringify(hashes), message, origin, ref);
+  }
+
+  private insertVersion(pageId: string, filesJson: string, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
+    const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, created_at: now() };
+    this.db
+      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label);
+    this.emit({ type: "page-updated", pageId, versionId: row.id });
+    return toSummary(row);
+  }
+
+  private putBlob(content: Buffer): string {
+    const hash = createHash("sha256").update(content).digest("hex");
+    const blobPath = join(this.blobDir, hash);
+    if (!existsSync(blobPath)) writeFileSync(blobPath, content);
+    return hash;
+  }
+}
+
+/** A work item as the page lock keeps it between restarts. */
+export interface PersistedWork {
+  /** "active" ran on an agent when the server stopped; "retrying" waits for `retryAt`; "failed" waits for the user's "Relancer". */
+  state: "active" | "queued" | "retrying" | "failed";
+  projectId: string;
+  agentId?: string;
+  item: WorkItem;
+  takeoverItem?: WorkItem;
+  attempts: number;
+  retryAt?: string;
+  limit?: boolean;
+  message?: string;
+}
+
+export interface SessionOrigin {
+  id: string;
+  kind: SessionKind;
+  pageId: string;
+  pageTitle: string;
+  projectId: string;
+  projectTitle: string;
+  createdAt: string;
+}
+
+const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
+
+const THREAD_SELECT =
+  "SELECT id, page_id, number, artboard, selector, element_name, x_pct, y_pct, title, body, status, context, new_session FROM threads";
+
+interface ThreadRow {
+  id: string;
+  page_id: string;
+  number: number;
+  artboard: string;
+  selector: string;
+  element_name: string | null;
+  x_pct: number;
+  y_pct: number;
+  title: string;
+  body: string;
+  status: ThreadStatus;
+  context: string | null;
+  new_session: "summarizing" | "ready" | null;
+}
+
+function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
+  return {
+    id: row.id,
+    pageId: row.page_id,
+    number: row.number,
+    artboard: row.artboard,
+    selector: row.selector,
+    elementName: row.element_name,
+    xPct: row.x_pct,
+    yPct: row.y_pct,
+    title: row.title,
+    body: row.body,
+    status: row.status,
+    replies,
+    ...(row.context ? { context: JSON.parse(row.context) as ThreadContext } : {}),
+    ...(row.new_session ? { newSession: row.new_session } : {}),
+  };
+}
+
+const CONVERSATION_SELECT = `SELECT id, page_id AS pageId, title, archived, created_at AS createdAt,
+  (SELECT COUNT(*) FROM conversation_messages m WHERE m.conversation_id = conversations.id AND m.author = 'user') AS exchangeCount,
+  COALESCE((SELECT MAX(m.created_at) FROM conversation_messages m WHERE m.conversation_id = conversations.id), created_at) AS lastActivityAt
+  FROM conversations`;
+
+interface ConversationRow extends Omit<Conversation, "archived"> {
+  archived: number;
+}
+
+function toConversation(row: ConversationRow): Conversation {
+  return { ...row, archived: row.archived === 1 };
+}
+
+interface VersionRow {
+  id: string;
+  message: string;
+  origin: VersionOrigin;
+  origin_id?: string | null;
+  origin_label?: string | null;
+  created_at: string;
+}
+
+/** The thread or conversation a version comes from. */
+export interface OriginRef {
+  originId?: string;
+  originLabel?: string;
+}
+
+export interface VersionRecord extends PageVersionSummary {
+  /** Path -> blob hash. */
+  files: Record<string, string>;
+}
+
+function toSummary(row: VersionRow): PageVersionSummary {
+  return {
+    id: row.id,
+    message: row.message,
+    origin: row.origin,
+    ...(row.origin_id ? { originId: row.origin_id } : {}),
+    ...(row.origin_label ? { originLabel: row.origin_label } : {}),
+    createdAt: row.created_at,
+  };
+}
+
+function now(): string {
+  return new Date().toISOString();
+}

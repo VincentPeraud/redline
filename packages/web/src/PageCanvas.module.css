@@ -1,0 +1,262 @@
+.page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.body {
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  background-color: var(--color-surface-muted);
+}
+
+.error {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  z-index: 5;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-bg);
+  font-size: var(--font-size-sm);
+  color: var(--color-danger-text);
+}
+
+.viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  background-image: radial-gradient(#d6d4cd 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+.note {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.noteTitle {
+  margin: 0;
+  font-size: 32px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.01em;
+}
+
+.noteSubtitle {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.artboard {
+  position: absolute;
+}
+
+.artboardRaised {
+  z-index: 20;
+}
+
+/* Counter-scaled by the canvas zoom so the label keeps its size; the 10px gap is padding so it scales with it. */
+.label {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  box-sizing: content-box;
+  height: 30px;
+  padding-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  transform-origin: 0 100%;
+  z-index: 5;
+}
+
+.labelName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.tweaksButton {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.iconButton {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.tweaksPopover {
+  position: absolute;
+  top: 0;
+  z-index: 10;
+  width: 236px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+  transform-origin: 0 0;
+  cursor: default;
+}
+
+.popoverHead {
+  display: flex;
+  align-items: center;
+}
+
+.popoverTitle {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.popoverClose {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  font-size: var(--font-size-xl);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.popoverHint {
+  font-size: var(--font-size-2xs);
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.hintWrap {
+  position: absolute;
+  bottom: var(--space-6);
+  left: 200px;
+  right: var(--space-10);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.hint {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.hintComment {
+  border-color: var(--color-warning-strong);
+  background: var(--color-warning-strong);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-inverse);
+}
+
+.zoom {
+  position: absolute;
+  left: var(--space-5);
+  bottom: var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-1);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.zoomButton {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  font-size: var(--font-size-xl);
+  cursor: pointer;
+}
+
+.zoomValue {
+  min-width: 44px;
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.aside {
+  width: 380px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.tab {
+  height: 44px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.tabActive {
+  border-bottom-color: var(--color-accent);
+  font-weight: var(--font-weight-semibold);
+}

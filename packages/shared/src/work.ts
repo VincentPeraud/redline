@@ -1,0 +1,239 @@
+// Engine events and work items: the contract between server, agent and engine adapters (ticket 07).
+
+import type { CreatedPage } from "./index.js";
+import type { ProjectContext } from "./projectFiles.js";
+
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type Effort = (typeof EFFORTS)[number];
+
+/** The model and effort picked for one message; absent fields fall back to the agent's default. */
+export interface ModelChoice {
+  model?: string;
+  effort?: Effort;
+}
+
+/** Models offered in a thread's model list (Claude Code aliases). */
+export const MODEL_CHOICES = [
+  { id: "opus", label: "Opus" },
+  { id: "sonnet", label: "Sonnet" },
+  { id: "haiku", label: "Haiku" },
+] as const;
+
+/** Display name of a model alias ("sonnet" -> "Sonnet"); unknown names are shown as given. */
+export const modelLabel = (model: string): string => MODEL_CHOICES.find((choice) => choice.id === model)?.label ?? model;
+
+/** What an engine emits while a session runs. Streamed to the server as `work-event`. */
+export type EngineEvent =
+  /** Claude took an action: a tool call such as a read or an edit. */
+  | { type: "step"; tool: string; summary: string }
+  /** A chunk of Claude's own text. */
+  | { type: "text"; text: string }
+  /** Token usage of the last model call. */
+  | { type: "usage"; model: string; inputTokens: number; cacheTokens: number; outputTokens: number; effort?: Effort }
+  /** The run ended successfully; `summary` becomes the version message. `contextWindow` is the model's window when the engine knows it. */
+  | { type: "result"; summary: string; contextWindow?: number }
+  /** The run failed; nothing is published. */
+  | { type: "error"; message: string };
+
+/** A comment of a thread, as told to Claude. */
+export interface WorkThread {
+  threadId: string;
+  number: number;
+  artboard: string;
+  selector: string;
+  /** Readable name of the element the user commented, when the bridge computed one; the selector stays the exact reference. */
+  elementName?: string;
+  xPct: number;
+  yPct: number;
+  body: string;
+}
+
+/** One unit of work pushed by the server to the agent that serves the project. */
+export interface WorkItem extends ModelChoice {
+  id: string;
+  /** "summary": asks a thread's session for a summary (no thread is answered). */
+  kind: "thread" | "summary" | "conversation";
+  pageId: string;
+  /** Set for kind "conversation": the conversation this message belongs to. */
+  conversationId?: string;
+  /** Set for kind "summary": the thread whose next session is seeded with the answer. */
+  summaryForThread?: string;
+  /** The threads this item answers; Claude may reply only in these. */
+  threads: WorkThread[];
+  /** The message sent to the engine (the agent prepends the working copy location). */
+  message: string;
+  /** Engine session id to start, or to resume when `resume` is true. */
+  sessionId: string;
+  resume: boolean;
+}
+
+/** Messages an agent sends about a work item. */
+export type AgentWorkMessage =
+  | { type: "work-event"; workId: string; event: EngineEvent }
+  /** Sent once the run ended and the working copy was published (`versionId` absent when nothing changed). */
+  | { type: "work-done"; workId: string; versionId?: string }
+  /** Sent when the run failed; nothing was published. */
+  | { type: "work-failed"; workId: string; message: string };
+
+/** Used for the context % until the engine reported the model's real window. */
+export const DEFAULT_CONTEXT_WINDOW = 200_000;
+/** From this share of the window the context indicator warns and offers "Nouvelle session". */
+export const CONTEXT_WARNING_PERCENT = 70;
+
+/** Context of a thread's session after Claude's last reply: tokens of the last model call over the model's window. */
+export interface ThreadContext {
+  model: string;
+  effort?: Effort;
+  tokens: number;
+  window: number;
+  percent: number;
+}
+
+/** `POST` -> 202; asks the thread's session for a summary, the next reply starts a new session seeded with it. */
+export const newSessionPath = (threadId: string) => `/api/threads/${threadId}/new-session`;
+
+export interface ThreadReply {
+  id: string;
+  author: "claude" | "user";
+  body: string;
+  createdAt: string;
+  /** Pages the run that gave this answer created with `create_page` (on the first answer of that run only). */
+  createdPages?: CreatedPage[];
+}
+
+export interface CreateReplyRequest extends ModelChoice {
+  body: string;
+}
+
+/** Body of `POST /agent-api/threads/:id/replies`: `workId` is the run posting the answer (to attach the pages it created). */
+export interface AgentReplyRequest extends CreateReplyRequest {
+  workId?: string;
+}
+
+/** Server-sent events on `GET /api/events`, so the web UI refreshes without polling. */
+export type ServerEvent =
+  | { type: "page-updated"; pageId: string; versionId: string }
+  /** A design system got a new version: the pages that use it (`pageIds`) reload their artboards to pick up the tokens. */
+  | { type: "design-system-updated"; designSystemId: string; pageIds: string[] }
+  | { type: "thread-updated"; pageId: string; threadId: string }
+  /** A conversation of the page, or one of its messages, changed. */
+  | { type: "conversation-updated"; pageId: string; conversationId: string }
+  /** The waiting work items of the page changed (`GET /api/pages/:id/queue`). */
+  | { type: "queue-updated"; pageId: string }
+  /** What an agent reported about a work item, relayed as is. */
+  | { type: "work"; message: AgentWorkMessage }
+  /** A work item was pushed to an agent (the threads it answers are "sent"). */
+  | { type: "work-dispatched"; pageId: string; workId: string; threadIds: string[] }
+  /** A work item failed and will be sent again at `retryAt` (ISO time); `message` is why it failed. */
+  | { type: "work-retrying"; pageId: string; workId: string; threadIds: string[]; retryAt: string; limit: boolean; message: string }
+  /** Live state of a run, sent after every change (full snapshot, replace by `workId`). */
+  | { type: "run-updated"; pageId: string; run: ThreadRun }
+  /** An agent connected or disconnected. */
+  | { type: "agents-updated" };
+
+/** Where a thread is in its run: sent to the agent, Claude working, answered, waiting for a retry, or failed for good. */
+export type RunStatus = "sent" | "running" | "answered" | "retrying" | "failed";
+
+export interface RunStep {
+  tool: string;
+  summary: string;
+}
+
+/** What the web UI shows of a running (or finished) work item. Kept in server memory. */
+export interface ThreadRun {
+  workId: string;
+  pageId: string;
+  threadIds: string[];
+  status: RunStatus;
+  steps: RunStep[];
+  /** Claude's streamed text so far. */
+  text: string;
+  error?: string;
+  /** While `retrying`: when the item is sent again (ISO time), and whether it waits for a subscription limit reset. */
+  retryAt?: string;
+  limit?: boolean;
+}
+
+/** `POST` here puts a failed work item back in its page's queue (204; 404 when the item is not a failed one). */
+export const retryRunPath = (pageId: string, workId: string) => `/api/pages/${pageId}/runs/${workId}/retry`;
+
+/** `GET /api/pages/:pageId/runs` -> ThreadRun[] (oldest first). */
+export const pageRunsPath = (pageId: string) => `/api/pages/${pageId}/runs`;
+
+/** Why a work item is not running yet. */
+export type QueueReason = "page-busy" | "agent-offline";
+
+/** A work item waiting for its turn on a page. */
+export interface QueueEntry {
+  workId: string;
+  pageId: string;
+  threadIds: string[];
+  reason: QueueReason;
+}
+
+export const SERVER_EVENTS_PATH = "/api/events";
+
+/** A page-level conversation (no pin). Its session is never shared with a thread's. */
+export interface Conversation {
+  id: string;
+  pageId: string;
+  title: string;
+  archived: boolean;
+  createdAt: string;
+  /** Number of exchanges: one user message and Claude's answer count for one (an unanswered user message counts too). */
+  exchangeCount: number;
+  /** ISO time of the latest message, else of the creation. */
+  lastActivityAt: string;
+}
+
+export interface ConversationMessage extends ModelChoice {
+  id: string;
+  author: "user" | "claude";
+  body: string;
+  createdAt: string;
+  /** Pages the run created with `create_page`, on Claude's answer. */
+  createdPages?: CreatedPage[];
+}
+
+/** `GET /api/conversations/:id` and the result of creating one. */
+export interface ConversationDetail extends Conversation, ModelChoice {
+  messages: ConversationMessage[];
+  /** Work item of the latest message, to find its live run in `GET /api/pages/:id/runs`. */
+  runWorkId?: string;
+  /** Context of the conversation's session after the last usage report; absent before any run. */
+  context?: ThreadContext;
+}
+
+/** Body of `POST /api/pages/:pageId/conversations`. */
+export interface CreateConversationRequest {
+  title?: string;
+}
+
+/** Body of `POST /api/conversations/:id/messages`; model and effort apply from this message on. */
+export interface CreateConversationMessageRequest extends ModelChoice {
+  body: string;
+}
+
+/**
+ * Token-guarded HTTP API for agents (`Authorization: Bearer <agent token>`). Like `/agent`, it is
+ * meant to stay reachable when a reverse proxy protects `/api`.
+ *   GET  /agent-api/pages/:pageId/files          -> AgentCheckout
+ *   POST /agent-api/pages/:pageId/versions       (CreateVersionRequest) -> PageVersionSummary
+ *   POST /agent-api/pages/:pageId/siblings       (CreateSiblingRequest) -> Page, a new page in the same project
+ *   POST /agent-api/threads/:threadId/replies    (AgentReplyRequest)    -> ThreadReply
+ */
+export const AGENT_API_PREFIX = "/agent-api";
+
+/** Body of `POST /agent-api/pages/:pageId/siblings`; `workId` ties the created page to the run that made it. */
+export interface CreateSiblingRequest {
+  title: string;
+  workId?: string;
+}
+
+export interface AgentCheckout {
+  versionId: string;
+  /** File path -> UTF-8 content. */
+  files: Record<string, string>;
+  /** DESIGN.md (the session may edit it), assets and design system (read-only) of the page's project. */
+  project: ProjectContext;
+}

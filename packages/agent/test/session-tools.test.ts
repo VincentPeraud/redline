@@ -1,0 +1,105 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { CORE_TOKENS, parseManifest, type Page } from "@redline/shared";
+import { FakeEngine, startSeam2, type Seam2 } from "./support/seam2.js";
+
+const PAGE_FILES = {
+  "home.html": "<!doctype html><h1>Home</h1>",
+  "manifest.json": JSON.stringify({ artboards: [{ file: "home.html", width: 400, height: 300, x: 0, y: 0 }] }),
+};
+
+let seam: Seam2 | undefined;
+afterEach(async () => {
+  await seam?.stop();
+  seam = undefined;
+});
+
+async function runOnce(engine: FakeEngine) {
+  seam = await startSeam2(engine);
+  const page = await seam.createPage(PAGE_FILES);
+  await seam.pinThread(page.id, "home.html", "Do it");
+  await engine.finished(1);
+  await seam.waitForWorkEnd();
+  return page;
+}
+
+describe("session MCP tools", () => {
+  it("offers add_artboard, create_page and read_guide", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Nothing" }]);
+    await runOnce(engine);
+    expect(engine.runs[0].mcpTools).toEqual(expect.arrayContaining(["add_artboard", "create_page", "read_guide"]));
+  });
+
+  it("add_artboard writes the HTML and its manifest entry, published with the run", async () => {
+    const engine = new FakeEngine([
+      { callTool: { name: "add_artboard", arguments: { file: "checkout.html", html: "<h1>Checkout</h1>", title: "Checkout" } } },
+      { type: "result", summary: "Add checkout" },
+    ]);
+    const page = await runOnce(engine);
+
+    expect(await seam!.readFile(page.id, "checkout.html")).toBe("<h1>Checkout</h1>");
+    const manifest = parseManifest(await seam!.readFile(page.id, "manifest.json"));
+    expect(manifest.artboards.map((a) => [a.file, a.title, a.width, a.height, a.x])).toEqual([
+      ["home.html", undefined, 400, 300, 0],
+      ["checkout.html", "Checkout", 800, 500, 480],
+    ]);
+    expect(await seam!.versions(page.id)).toHaveLength(2);
+  });
+
+  it("add_artboard refuses a path outside the page", async () => {
+    let answer = "";
+    const engine = new FakeEngine(async (run) => {
+      answer = await run.callTool("add_artboard", { file: "../evil.html", html: "x" });
+      return [{ type: "result", summary: "Nothing" }];
+    });
+    await runOnce(engine);
+    expect(answer).toMatch(/relative path/);
+  });
+
+  it.each(["..\\..\\.mcp.json.html", "C:/evil.html", "a/./b.html", "/abs.html", "a//b.html"])("add_artboard refuses %j", async (file) => {
+    let answer = "";
+    const engine = new FakeEngine(async (run) => {
+      answer = await run.callTool("add_artboard", { file, html: "x" });
+      return [{ type: "result", summary: "Nothing" }];
+    });
+    await runOnce(engine);
+    expect(answer).toMatch(/relative path/);
+  });
+
+  it("create_page creates a one-artboard page in the same project, marked as created by Claude", async () => {
+    let answer = "";
+    const engine = new FakeEngine(async (run) => {
+      answer = await run.callTool("create_page", { title: "Pricing" });
+      return [{ type: "result", summary: "Nothing" }];
+    });
+    await runOnce(engine);
+
+    const pages = (await (await seam!.server.get(`/api/projects/${seam!.project.id}/pages`)).json()) as Page[];
+    const created = pages.find((p) => p.title === "Pricing");
+    expect(created?.createdBy).toBe("claude");
+    expect(Object.keys(created!.version.files).sort()).toEqual(["artboard-1.html", "manifest.json"]);
+    expect(answer).toContain(created!.id);
+  });
+
+  it("read_guide returns the manifest, tweaks and design system rules", async () => {
+    let guide = "";
+    const engine = new FakeEngine(async (run) => {
+      guide = await run.callTool("read_guide", {});
+      return [{ type: "result", summary: "Nothing" }];
+    });
+    await runOnce(engine);
+    expect(guide).toContain("manifest.json");
+    expect(guide).toContain("tweaks.json");
+    for (const token of CORE_TOKENS) expect(guide).toContain(token);
+  });
+
+  it("the server relay rejects calls without the agent token", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Nothing" }]);
+    const page = await runOnce(engine);
+    const res = await fetch(`${seam!.server.url}/agent-api/pages/${page.id}/siblings`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "X" }),
+    });
+    expect(res.status).toBe(401);
+  });
+});

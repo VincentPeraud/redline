@@ -1,0 +1,365 @@
+/* Thread cards of the canvas side panel, and the run / context / reply pieces they hold. */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+}
+
+.running {
+  border: 2px solid var(--color-accent);
+}
+
+.held {
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px dashed #d4a28a;
+}
+
+.failed {
+  gap: 8px;
+  padding: 12px 14px;
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-bg);
+}
+
+.resolved {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 12px 14px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.resolvedTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.where {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-warning-strong);
+  color: var(--color-text-inverse);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.badgeHeld {
+  box-sizing: border-box;
+  border: 1.5px dashed var(--color-warning-strong);
+  background: transparent;
+  color: var(--color-warning-strong);
+}
+
+.badgeFailed {
+  background: var(--color-danger-text);
+}
+
+.badgeDone {
+  background: var(--color-online);
+  font-size: var(--font-size-2xs);
+}
+
+.headRight {
+  flex-shrink: 0;
+  color: var(--color-warning-text);
+  font-weight: var(--font-weight-medium);
+}
+
+.headFailed {
+  flex-shrink: 0;
+  color: var(--color-danger-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.message {
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.author {
+  font-weight: var(--font-weight-semibold);
+}
+
+.claudeReply {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.sessionMeta {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.small {
+  height: 30px;
+  padding: 0 10px;
+  font-size: var(--font-size-sm);
+}
+
+.failedMessage {
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: #7a271a;
+}
+
+.failedBox {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+/* Run progress */
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.working {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-accent);
+}
+
+.workingRetry {
+  color: var(--color-warning-text);
+}
+
+.dots {
+  display: flex;
+  gap: 3px;
+}
+
+.dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dots span:nth-child(2) {
+  opacity: 0.6;
+}
+
+.dots span:nth-child(3) {
+  opacity: 0.3;
+}
+
+.steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--color-text-body);
+}
+
+.stepCurrent {
+  color: var(--color-text);
+  font-weight: var(--font-weight-medium);
+}
+
+.details {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-body);
+}
+
+.details summary {
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+
+.liveText {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.pastStatus {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* Context line */
+
+.context {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+}
+
+.contextText {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.contextWarn {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-warning-strong);
+}
+
+.newSession {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-soft-bg);
+  color: var(--color-warning-text);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.newSession:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Reply form */
+
+.replyForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.replyActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* Held bar */
+
+.heldBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-warning-soft-bg);
+}
+
+.heldCount {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-warning-text);
+}
+
+.heldHint {
+  font-size: var(--font-size-xs);
+  color: var(--color-warning-text);
+}
+
+.heldActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.queued {
+  flex-shrink: 0;
+  color: var(--color-warning-text);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Held card: the label gives way to the edit and delete icon buttons on hover or keyboard focus. */
+
+.held .headRight {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.heldActions {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+}
+
+.held:hover .heldLabel,
+.held:focus-within .heldLabel {
+  visibility: hidden;
+}
+
+.held:hover .heldActions,
+.held:focus-within .heldActions {
+  opacity: 1;
+}
+
+.iconAction {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.iconAction:hover {
+  background: var(--color-surface-muted);
+}
