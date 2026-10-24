@@ -36,8 +36,16 @@ _Avoid_: Commit, revision, snapshot
 ### Talking to the AI
 
 **Thread**:
-A comment pinned on an element of an artboard, with its replies; it ends when resolved.
+A comment with its replies, aimed at one of three targets: an element of an artboard (pinned), a whole artboard, or a canvas element; it ends when resolved.
 _Avoid_: Fil de commentaires, comment (for the whole exchange)
+
+**Canvas element**:
+A title, text, sticky note, link, image, shape or arrow placed directly on a page's canvas, described in its manifest and identified by a stable id; a thread or a chip can target it.
+_Avoid_: Object, widget, annotation
+
+**Chip**:
+A numbered element the user points at in a conversation message (an artboard element, a whole artboard or a canvas element); the message refers to it by its number.
+_Avoid_: Tag, attachment, mention
 
 **Conversation**:
 A free-form exchange attached to a page, with no pin; it ends when archived.

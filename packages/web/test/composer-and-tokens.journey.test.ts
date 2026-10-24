@@ -37,7 +37,7 @@ it("lets the new comment choose the model and effort of the thread's first run",
 
   await tab.keyboard.press("c");
   await artboard.locator("h1").click();
-  await tab.getByRole("textbox").fill("Look at this");
+  await tab.locator("#new-comment").fill("Look at this");
   await tab.getByLabel("Modèle").selectOption("haiku");
   await tab.getByRole("radio", { name: "low" }).click();
   await tab.getByRole("button", { name: "Envoyer" }).click();

@@ -8,6 +8,7 @@ const ARTBOARD = `<!doctype html><html><body>
     <h1 id="title">Une nuit</h1>
     <button id="go"><span id="go-inner">Réserver ma place</span></button>
     <div id="plain"></div>
+    <div id="card" style="border: 1px solid #ddd; border-radius: 8px"><h3>La maison hantée</h3></div>
   </main>
 </body></html>`;
 
@@ -16,6 +17,7 @@ const RECTS: Record<string, [number, number, number, number]> = {
   go: [22, 200, 120, 36],
   "go-inner": [30, 206, 100, 24],
   plain: [0, 0, 100, 20],
+  card: [10, 300, 200, 80],
 };
 
 describe("hover outline drawn by the artboard bridge", () => {
@@ -114,6 +116,13 @@ describe("hover outline drawn by the artboard bridge", () => {
     move("title");
     expect(part("outline")!.style.top).toBe("60px");
     expect(part("label")!.textContent).toBe("Titre · Une nuit");
+  });
+
+  it("names a card block by its heading, like the thread's element name", () => {
+    const { mode, move, part } = load();
+    mode(true);
+    move("card");
+    expect(part("label")!.textContent).toBe("Carte · La maison hantée");
   });
 
   it("disappears when the mouse leaves the document or comment mode ends", () => {

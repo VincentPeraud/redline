@@ -4,8 +4,8 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: var(--space-4) var(--space-5);
+  gap: var(--space-3);
+  padding: var(--space-4);
 }
 
 .empty {

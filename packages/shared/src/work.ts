@@ -211,7 +211,7 @@ export interface CreateConversationRequest {
   title?: string;
 }
 
-/** What the user sees when a conversation message is sent. Sent with the message, never stored. */
+/** What the user sees when a conversation message is sent. Sent with the message; only its `targets` (the chips) are stored, on the user's message. */
 export interface MessageContext {
   /** Artboards on screen (partly visible ones included); `rendering` only for a responsive artboard in play mode. */
   visibleArtboards: { file: string; rendering?: ThreadRendering }[];

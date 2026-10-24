@@ -631,7 +631,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             </div>
           )}
           <div className={cx(styles.hintWrap, selecting && styles.hintWrapHidden)}>
-            <div data-testid="mode-indicator" className={cx(styles.hint, picking && styles.hintComment)}>
+            <div data-testid="mode-indicator" className={styles.hint}>
               {picking ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier." : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { resolveTweakValues, type Manifest, type MessageContext, type ThreadRendering, type TweakValue, type TweakValues } from "@redline/shared";
+import { artboardLabel } from "./elementChips.js";
 import type { Box } from "./canvasGeometry.js";
 import type { CanvasView } from "./canvasView.js";
 
@@ -36,7 +37,7 @@ export function messageContext({ view, viewport, boxes, manifest, tweakValues = 
 
 /** The "Contexte transmis" chips: the page, the visible artboards, and the tweaks (absent without tweaks). */
 export function contextChips(pageTitle: string, artboardCount: number, context: MessageContext): string[] {
-  const files = context.visibleArtboards.map((a) => a.file.replace(/\.[^./]+$/, ""));
+  const files = context.visibleArtboards.map((a) => artboardLabel(a.file));
   return [
     `${pageTitle} · ${artboardCount} ${artboardCount > 1 ? "artboards" : "artboard"}`,
     `Visibles : ${files.length > 0 ? files.join(", ") : "aucun"}`,
