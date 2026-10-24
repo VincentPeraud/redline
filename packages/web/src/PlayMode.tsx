@@ -11,15 +11,20 @@ import { isEditableTarget } from "./isEditableTarget.js";
 import { useStoredToggle } from "./useStoredToggle.js";
 import { renduOf, usePlayRendering } from "./usePlayRendering.js";
 import { navigateTo } from "./router.js";
+import { loadPageSummary } from "./otherPageArtboards.js";
 import { COPIED_BUBBLE_MS, copyAddress } from "./copyLink.js";
 import { cx } from "./ui/index.js";
 import styles from "./PlayMode.module.css";
 
-/** Target artboard of the link on `selector` in artboard `from`, if the manifest declares one that exists. */
-export function resolveLink(manifest: Manifest, from: string, selector: string): string | null {
+/** Where a link leads: an artboard of this page (`page` null) or of another page (checked against that page when followed). */
+export type LinkTarget = { page: string | null; file: string };
+
+/** Target of the link on `selector` in artboard `from`, if the manifest declares one; a same-page target must exist. */
+export function resolveLink(manifest: Manifest, pageId: string, from: string, selector: string): LinkTarget | null {
   const link = manifest.links.find((l) => l.from === from && l.selector === selector);
   if (!link) return null;
-  return manifest.artboards.some((a) => a.file === link.to) ? link.to : null;
+  if (link.page !== undefined && link.page !== pageId) return { page: link.page, file: link.to };
+  return manifest.artboards.some((a) => a.file === link.to) ? { page: null, file: link.to } : null;
 }
 
 const NO_RENDERING = "none";
@@ -64,6 +69,7 @@ function fitToStage(presentation: Presentation, stage: { width: number; height: 
 export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current, rendu, artboardOrigin, tweaks, onTweak, guidesVisible, onToggleGuides, onExit }: Props) {
   const [copied, setCopied] = useState<number | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [deadLink, setDeadLink] = useState<string | null>(null);
   const menuRoot = useRef<HTMLSpanElement>(null);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -86,7 +92,13 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
     const target = tocItems[position + step];
     if (target) showArtboard(target.file, "replace");
   };
-  const chooseRendering = (choice: ArtboardRendering | null) => {
+  /** The target page's manifest and tweaks load with its own play route; a gone page or artboard leaves the screen as it is. */
+  const followOtherPage = (otherPageId: string, file: string) =>
+    void loadPageSummary(otherPageId).then((summary) => {
+      if (summary?.artboardTitles.has(file)) navigateTo({ name: "page", pageId: otherPageId, play: file }, "push");
+      else setDeadLink(file);
+    });
+  const chooseRendering =(choice: ArtboardRendering | null) => {
     selectRendering(choice);
     navigateTo(playRoute(current, renduOf(choice)), "replace");
   };
@@ -103,6 +115,8 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => setDeadLink(null), [pageId, current]);
 
   useEffect(() => {
     if (copied === null) return;
@@ -130,8 +144,10 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
         frame.current?.contentWindow?.postMessage({ type: "redline:set-links", selectors }, "*");
         setBridgeEpoch((n) => n + 1);
       } else if (data.type === "redline:link" && data.selector !== undefined) {
-        const target = resolveLink(manifest, current, data.selector);
-        if (target !== null) showArtboard(target, "push");
+        const target = resolveLink(manifest, pageId, current, data.selector);
+        if (target === null) return;
+        if (target.page === null) showArtboard(target.file, "push");
+        else followOtherPage(target.page, target.file);
       } else if (data.type === "redline:key" && (data.key === "ArrowLeft" || data.key === "ArrowRight")) {
         goBy(data.key === "ArrowLeft" ? -1 : 1);
       }
@@ -320,6 +336,14 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
             <p className={styles.empty}>Aucun artboard</p>
           )}
         </main>
+        {deadLink !== null && (
+          <div role="status" className={styles.deadLink}>
+            Cet artboard n'existe plus · {deadLink}
+            <button type="button" aria-label="Fermer" className={styles.deadLinkClose} onClick={() => setDeadLink(null)}>
+              ×
+            </button>
+          </div>
+        )}
         {hasTweaks && tweaksOpen && (
           <aside aria-label="Tweaks" className={styles.aside}>
             <div className={styles.asideHead}>
