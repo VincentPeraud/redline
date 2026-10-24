@@ -132,6 +132,19 @@ export const BRIDGE_SOURCE = `(function () {
     return rounded && (bordered || !isTransparent(style.backgroundColor));
   }
 
+  var TITLE_MAX = 60;
+
+  // A short block of text, not inline, that is bold or clearly larger than its parent's text.
+  function isTitleLike(el) {
+    var style = window.getComputedStyle(el);
+    if (style.display === "inline" || clean(el.textContent).length > TITLE_MAX) return false;
+    var weight = style.fontWeight === "bold" ? 700 : parseFloat(style.fontWeight);
+    if (weight >= 600) return true;
+    var size = parseFloat(style.fontSize);
+    var parentSize = el.parentElement ? parseFloat(window.getComputedStyle(el.parentElement).fontSize) : NaN;
+    return size >= parentSize * 1.25;
+  }
+
   function partsOf(target) {
     var el = target.closest ? target.closest("button, a[href], h1, h2, h3, h4, h5, h6, input, textarea, select, img, svg, [role=button]") : null;
     var role = "bloc";
@@ -140,6 +153,7 @@ export const BRIDGE_SOURCE = `(function () {
       el = target;
       text = blockText(el);
       if (isCard(el)) role = "carte";
+      else if (clean(text) !== "" && isTitleLike(el)) role = "titre";
     } else {
       var tag = el.tagName.toLowerCase();
       var type = (el.getAttribute("type") || "").toLowerCase();

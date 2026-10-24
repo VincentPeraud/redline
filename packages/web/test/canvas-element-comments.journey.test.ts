@@ -179,4 +179,11 @@ it("keeps the thread of a removed canvas element in the list, greyed and unpinne
   await tab.getByTestId("removed-tag").waitFor();
   await tab.getByRole("button", { name: "Résoudre" }).click();
   await tab.getByText("Résolu", { exact: true }).waitFor();
+  expect(await tab.getByTestId("removed-tag").textContent()).toBe("retiré du canvas");
+
+  await publish(true);
+  await server.post(`/api/pages/${page.id}/threads`, { target: { kind: "canvas-element", elementId: "note-parcours" }, body: "Later", held: true });
+  await publish(false);
+  await tab.getByTestId("held-thread").getByTestId("removed-tag").waitFor();
+  expect(await tab.locator("[data-canvas-pin]").count()).toBe(0);
 }, 90_000);

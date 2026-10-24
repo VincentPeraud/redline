@@ -346,8 +346,9 @@ describe("page manifest", () => {
       expect(error).toBe("elements[1] (sticky) has no id; elements[2] (title) has no id; elements[3] (arrow) has no id");
     });
 
-    it("leaves the legacy notes list alone", () => {
-      expect(check({ notes: [{ text: "old" }] })).toBeNull();
+    it("refuses the legacy notes list at publish, while reading it stays lenient", () => {
+      expect(check({ notes: [{ text: "old" }] })).toBe("notes is legacy: move these titles to elements, each with an id");
+      expect(parseManifest(JSON.stringify({ notes: [{ text: "old" }] })).elements).toHaveLength(1);
     });
 
     it("reports a manifest that does not parse", () => {

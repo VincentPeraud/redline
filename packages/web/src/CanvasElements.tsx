@@ -249,7 +249,7 @@ export function CanvasElements({
   artboardBoxes: ReadonlyMap<string, Box>;
   assetBase: string;
   artboardOrigin: string;
-  /** Comment mode: elements with an id can be aimed at and clicked. */
+  /** Comment mode, selection mode or Alt held: elements with an id can be aimed at and clicked. */
   picking: boolean;
   zoom: number;
   threads: Thread[];
@@ -346,7 +346,7 @@ export function CanvasElements({
 
   // A link card in comment mode is aimed at, not followed.
   const keepLinksFromNavigating = (event: MouseEvent<HTMLDivElement>) => {
-    if (picking && (event.target as Element).closest("[data-canvas-element-id]")) event.preventDefault();
+    if ((picking || event.altKey) && (event.target as Element).closest("[data-canvas-element-id]")) event.preventDefault();
   };
 
   return (

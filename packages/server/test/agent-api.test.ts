@@ -148,6 +148,10 @@ it("refuses an agent version whose elements lack ids, naming each one, while the
   expect(refused.status).toBe(400);
   expect(((await refused.json()) as { error: string }).error).toBe("elements[1] (sticky) has no id; elements[2] (arrow) has no id");
 
+  const legacy = await publish(JSON.stringify({ artboards: [{ file: "home.html" }], notes: [{ text: "old" }] }));
+  expect(legacy.status).toBe(400);
+  expect(((await legacy.json()) as { error: string }).error).toBe("notes is legacy: move these titles to elements, each with an id");
+
   const duplicate = await publish(JSON.stringify({ artboards: [{ file: "home.html" }], elements: [{ kind: "text", text: "a", id: "x" }, { kind: "text", text: "b", id: "x" }] }));
   expect(duplicate.status).toBe(400);
   const clash = await publish(JSON.stringify({ artboards: [{ file: "home.html" }], elements: [{ kind: "text", text: "a", id: "home.html" }] }));
