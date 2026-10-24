@@ -155,8 +155,7 @@ it("fills the window with a fluid artboard, ignores fill on a phone, and toggles
   await play.getByRole("button", { name: "Guides (G)" }).click();
   expect(await columns.count()).toBe(12);
   await tab.reload();
-  await tab.getByRole("button", { name: "Lancer dash.html en plein écran" }).click();
-  expect(await columns.count()).toBe(12);
+  await expect.poll(() => columns.count()).toBe(12);
   await tab.locator("body").press("g");
   expect(await columns.count()).toBe(0);
 
@@ -213,8 +212,8 @@ it("removes the frame with Habillage (remembered), and fills the screen without 
   expect(await habillage.count()).toBe(0);
 
   await tab.reload();
+  await play.getByRole("button", { name: "Artboard 1" }).click();
   await tab.locator('iframe[title$="phone.html"]').waitFor();
-  await tab.getByRole("button", { name: "Lancer phone.html en plein écran" }).click();
   expect(await habillage.getAttribute("aria-pressed")).toBe("false");
   await habillage.click();
   await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("phone");
@@ -258,6 +257,7 @@ it("plays a responsive artboard: a selector of its formats plus Aucun, each form
   const frame = play.locator("iframe");
   const size = () => frame.evaluate((el) => [(el as HTMLElement).offsetWidth, (el as HTMLElement).offsetHeight]);
 
+  await selector.waitFor();
   expect(await selector.getByRole("button").allTextContents()).toEqual(["Desktop", "Tablette", "Mobile", "Aucun"]);
   expect(await selector.getByRole("button", { name: "Desktop" }).getAttribute("aria-pressed")).toBe("true");
   expect(await play.locator("main").getAttribute("data-frame")).toBe("browser");
@@ -279,8 +279,7 @@ it("plays a responsive artboard: a selector of its formats plus Aucun, each form
 
   await selector.getByRole("button", { name: "Tablette" }).click();
   await tab.reload();
-  await tab.locator("[data-rendering] iframe").first().waitFor();
-  await tab.getByRole("button", { name: "Lancer landing.html en plein écran" }).click();
+  await selector.waitFor();
   expect(await selector.getByRole("button", { name: "Tablette" }).getAttribute("aria-pressed")).toBe("true");
   expect(await play.locator("main").getAttribute("data-frame")).toBe("tablet");
 

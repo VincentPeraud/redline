@@ -15,7 +15,7 @@ function Root() {
   const route = useRoute();
   switch (route.name) {
     case "page":
-      return <App key={route.pageId} pageId={route.pageId} artboard={route.artboard} />;
+      return <App key={route.pageId} pageId={route.pageId} artboard={route.artboard} play={route.play} rendu={route.rendu} />;
     case "home":
       return <Shell><HomeScreen /></Shell>;
     case "agents":

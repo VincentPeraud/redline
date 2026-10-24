@@ -195,9 +195,10 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 36px;
   height: 36px;
   box-sizing: border-box;
-  padding: 0 12px;
+  padding: 0 10px;
   border: 1px solid var(--play-border-strong);
   border-radius: var(--radius-md);
   background: transparent;
@@ -305,4 +306,49 @@
   background: var(--play-border-strong);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-inverse);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.copyWrap {
+  position: relative;
+  display: flex;
+}
+
+.actionButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 36px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+/* Under the button: the header has no room above it. Inverted colours, like the canvas bubble. */
+.copiedBubble {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  z-index: 5;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--play-text);
+  color: var(--play-bg);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
 }
