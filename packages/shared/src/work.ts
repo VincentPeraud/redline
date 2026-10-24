@@ -1,6 +1,6 @@
 // Engine events and work items: the contract between server, agent and engine adapters (ticket 07).
 
-import type { CreatedPage } from "./index.js";
+import type { CreatedPage, ThreadRendering, ThreadTarget } from "./index.js";
 import type { ProjectContext } from "./projectFiles.js";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -209,9 +209,20 @@ export interface CreateConversationRequest {
   title?: string;
 }
 
+/** What the user sees when a conversation message is sent. Sent with the message, never stored. */
+export interface MessageContext {
+  /** Artboards on screen (partly visible ones included); `rendering` only for a responsive artboard in play mode. */
+  visibleArtboards: { file: string; rendering?: ThreadRendering }[];
+  /** Every tweak of the page with its current value, as shown to the user; empty when the page has none. */
+  tweaks: { label: string; value: string }[];
+  /** Elements the user points at, in order (numbered from 1 for Claude); same kinds as a thread's target. */
+  targets?: ThreadTarget[];
+}
+
 /** Body of `POST /api/conversations/:id/messages`; model and effort apply from this message on. */
 export interface CreateConversationMessageRequest extends ModelChoice {
   body: string;
+  context?: MessageContext;
 }
 
 /**

@@ -4,11 +4,13 @@ import {
   type Conversation,
   type ConversationDetail,
   type CreateConversationMessageRequest,
+  type MessageContext,
   type QueueEntry,
   type SessionRow,
   type ThreadRun,
 } from "@redline/shared";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
+import { contextChips } from "./messageContext.js";
 import { workQueueLabel } from "./queueLabel.js";
 import { CreatedPageCards } from "./CreatedPageCards.js";
 import { activityLabel } from "./sessionsView.js";
@@ -47,6 +49,8 @@ interface Props {
   pageId: string;
   pageTitle: string;
   artboardCount: number;
+  /** What goes with the next message, live with the canvas view and the tweaks. */
+  context: MessageContext;
   runs: ThreadRun[];
   queue: QueueEntry[];
   sessions: Map<string, SessionRow>;
@@ -54,7 +58,7 @@ interface Props {
 }
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
-export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, queue, sessions, defaults }: Props) {
+export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, runs, queue, sessions, defaults }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
@@ -112,7 +116,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
 
   async function send() {
     if (text.trim() === "") return;
-    const request: CreateConversationMessageRequest = { body: text, ...choice };
+    const request: CreateConversationMessageRequest = { body: text, context, ...choice };
     let conversationId = activeId;
     if (!conversationId) {
       const res = await fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
@@ -194,9 +198,13 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
 
       <div className={styles.context}>
         <span className={styles.contextLabel}>Contexte transmis</span>
-        <span className={styles.chip}>
-          {pageTitle} · {artboardCount} {artboardCount > 1 ? "artboards" : "artboard"}
-        </span>
+        <div className={styles.chips}>
+          {contextChips(pageTitle, artboardCount, context).map((chip) => (
+            <span key={chip} className={styles.chip}>
+              {chip}
+            </span>
+          ))}
+        </div>
       </div>
 
       {detail && detail.messages.length > 0 ? (
