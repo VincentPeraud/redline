@@ -48,7 +48,7 @@ it("comments a whole artboard from its name strip, shows the chip, opens the tab
   await tab.getByRole("button", { name: "Commenter tout home.html" }).click();
   await expect.poll(() => tab.getByRole("tab", { name: /^Commentaires/ }).getAttribute("aria-selected")).toBe("true");
   expect(await tab.getByText("home.html · Artboard entier").count()).toBe(1);
-  await tab.getByRole("textbox").fill("Too busy, keep one call to action");
+  await tab.locator("#new-comment").fill("Too busy, keep one call to action");
   await tab.getByRole("button", { name: "Envoyer" }).click();
 
   await expect.poll(() => tab.getByTestId("reply").allTextContents()).toEqual([expect.stringContaining("Noted.")]);
@@ -65,7 +65,7 @@ it("comments a whole artboard from its name strip, shows the chip, opens the tab
   // Comment mode too, and a second thread makes the count 2.
   await tab.keyboard.press("c");
   await tab.getByRole("button", { name: "Commenter tout home.html" }).click();
-  await tab.getByRole("textbox").fill("Also too long");
+  await tab.locator("#new-comment").fill("Also too long");
   await tab.getByRole("button", { name: "Plus tard" }).click();
   await expect.poll(() => tab.getByText("2 fils sur l'artboard").count()).toBe(1);
 

@@ -48,8 +48,8 @@ it("shows status, steps and streamed text as a run goes, and still shows them af
 
   await tab.keyboard.press("c");
   await artboard.locator("h1").click();
-  await tab.getByRole("textbox").fill("Check the title");
-  await tab.getByRole("textbox").press("Enter");
+  await tab.locator("#new-comment").fill("Check the title");
+  await tab.locator("#new-comment").press("Enter");
 
   await expect.poll(() => tab.getByTestId("run-status").getAttribute("data-status")).toBe("running");
   await expect.poll(() => tab.getByTestId("run-steps").textContent()).toContain("Lit");

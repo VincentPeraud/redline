@@ -12,14 +12,14 @@
 
 /* Thread of a canvas element Claude removed: greyed, grey number ring, no pin. */
 .removed {
-  background: #fafaf9;
+  background: var(--color-surface-hover);
 }
 
 .badgeRemoved {
   box-sizing: border-box;
-  border: 1.5px solid #a1a1aa;
+  border: 1.5px solid var(--color-removed-border);
   background: transparent;
-  color: #71717a;
+  color: var(--color-removed-text);
 }
 
 .removedTag {
@@ -27,7 +27,7 @@
   padding: 2px 8px;
   border-radius: var(--radius-pill);
   background: var(--color-surface-muted);
-  color: #71717a;
+  color: var(--color-removed-text);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
 }

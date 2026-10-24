@@ -1,19 +1,20 @@
-import { renderingLabel, type Thread } from "@redline/shared";
+import { renderingLabel, type Thread, type ThreadRendering } from "@redline/shared";
 import { canvasElementText } from "./canvas-element-text.js";
 
-/** "element `selector` (the user calls it « bouton « Continuer » »)": the exact selector, plus the readable name when the bridge computed one. */
-function elementText(thread: Pick<Thread, "selector" | "elementName">): string {
-  return `element \`${thread.selector}\`${thread.elementName ? ` (named « ${thread.elementName} »)` : ""}`;
+/** "element `selector` (named « bouton « Continuer » »)": the exact selector, plus the readable name when the bridge computed one. */
+export function elementText(target: { selector: string; elementName?: string | null }): string {
+  return `element \`${target.selector}\`${target.elementName ? ` (named « ${target.elementName} »)` : ""}`;
 }
 
-/** " (vu en Mobile · 390 px: the user commented the page laid out at that width, so fix that breakpoint)" for a thread pinned in a rendering of a responsive artboard. */
-function renderingText(thread: Pick<Thread, "rendering">): string {
-  return thread.rendering ? ` (vu en ${renderingLabel(thread.rendering)} px: the user commented the page laid out at that width, so fix that breakpoint)` : "";
+/** " (vu en Mobile · 390 px)" for something seen in a rendering of a responsive artboard; `explain` adds what it means for a comment. */
+export function renderingText(rendering: ThreadRendering | undefined, explain = false): string {
+  if (!rendering) return "";
+  return ` (vu en ${renderingLabel(rendering)} px${explain ? ": the user commented the page laid out at that width, so fix that breakpoint" : ""})`;
 }
 
 /** Where a thread points, as Claude is told: the artboard and element with position, the whole artboard, or a canvas element. */
 export function threadSubject(thread: Thread): string {
-  if (thread.target.kind === "canvas-element") return `on ${canvasElementText(thread.target)}`;
+  if (thread.target.kind === "canvas-element") return `on ${canvasElementText(thread.target, thread.removed)}`;
   if (thread.target.kind === "artboard") return `on the whole artboard ${thread.artboard} (no specific element)`;
-  return `on artboard ${thread.artboard}${renderingText(thread)}, ${elementText(thread)} (position ${thread.xPct}% / ${thread.yPct}% of the artboard)`;
+  return `on artboard ${thread.artboard}${renderingText(thread.rendering, true)}, ${elementText(thread)} (position ${thread.xPct}% / ${thread.yPct}% of the artboard)`;
 }

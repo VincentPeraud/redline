@@ -228,7 +228,7 @@
 
 .hintWrap {
   position: absolute;
-  bottom: var(--space-6);
+  bottom: var(--space-5);
   left: 200px;
   right: var(--space-10);
   display: flex;
@@ -237,19 +237,15 @@
 }
 
 .hint {
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--color-border-strong);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--space-2) 14px;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-pill);
   background: var(--color-surface);
   font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-}
-
-.hintComment {
-  border-color: var(--color-warning-strong);
-  background: var(--color-warning-strong);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-inverse);
+  color: var(--color-text);
 }
 
 .hintWrapHidden {

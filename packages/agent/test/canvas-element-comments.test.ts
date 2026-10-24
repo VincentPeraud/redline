@@ -76,9 +76,42 @@ describe("comments on canvas elements", () => {
     expect(message).toContain("keep its id");
   });
 
+  it("describe the element as it is now when the message is built, not as it was at comment time", async () => {
+    const engine = new FakeEngine(() => [{ type: "result" as const, summary: "Looked" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    await canvasElement(seam, page.id, "note-parcours", "Check the note", true);
+    const manifest = JSON.parse(PAGE_FILES["manifest.json"]);
+    manifest.elements[1].text = "Parcours : accueil -> panier -> paiement";
+    await seam.server.post(`/api/pages/${page.id}/versions`, { files: { "manifest.json": JSON.stringify(manifest) }, message: "Edit", origin: "thread" });
+    await seam.server.post(`/api/pages/${page.id}/send-held`, {});
+    await seam.waitForWorkEnd(1);
+
+    const { message } = engine.runs[0];
+    expect(message).toContain("(sticky, « Parcours : accueil -> panier -> paiement »)");
+    expect(message).not.toContain("« Parcours : accueil -> paiement »");
+  });
+
+  it("say so when the element is no longer on the canvas, keeping what it showed", async () => {
+    const engine = new FakeEngine(() => [{ type: "result" as const, summary: "Looked" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    await canvasElement(seam, page.id, "note-parcours", "Check the note", true);
+    const manifest = JSON.parse(PAGE_FILES["manifest.json"]);
+    manifest.elements = manifest.elements.filter((e: { id: string }) => e.id !== "note-parcours");
+    await seam.server.post(`/api/pages/${page.id}/versions`, { files: { "manifest.json": JSON.stringify(manifest) }, message: "Edit", origin: "thread" });
+    const held = (await (await seam.server.get(`/api/pages/${page.id}/held`)).json()) as Thread[];
+    expect(held[0].removed).toBe(true);
+    await seam.server.post(`/api/pages/${page.id}/send-held`, {});
+    await seam.waitForWorkEnd(1);
+
+    expect(engine.runs[0].message).toContain("`note-parcours` (sticky, « Parcours : accueil -> paiement ») of manifest.json (no longer on the canvas)");
+  });
+
   it("are documented in the session guide, without the old rule that elements take no comments", async () => {
     const { REDLINE_GUIDE } = await import("../src/guide.js");
     expect(REDLINE_GUIDE).toContain("canvas element");
     expect(REDLINE_GUIDE).not.toContain("take no comments");
+    expect(REDLINE_GUIDE).toContain("3: the canvas element `<id>` (<kind>, <content>)");
   });
 });

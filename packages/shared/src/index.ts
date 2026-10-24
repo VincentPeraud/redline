@@ -204,7 +204,7 @@ export type ThreadTarget =
       rendering?: ThreadRendering;
     }
   | { kind: "artboard"; artboard: string }
-  | { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind; /** What the element showed when the user commented it (`canvasElementSummary`). */ elementSummary?: string };
+  | { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind; /** What the element shows now (`canvasElementSummary`); what it showed when the user commented it once the element is removed. */ elementSummary?: string };
 
 export const CANVAS_ELEMENT_KIND_LABELS: Record<ManifestElementKind, string> = {
   title: "Titre",

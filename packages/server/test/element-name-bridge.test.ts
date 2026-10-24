@@ -19,6 +19,12 @@ const ARTBOARD = `<!doctype html><html><body>
     <a id="link" href="/x">Voir <b>les tarifs</b></a>
     <img id="photo" src="x.png" alt="Équipe">
     <div id="box"><div id="empty"></div></div>
+    <div id="card" style="border: 1px solid #ddd; border-radius: 8px"><p>Intro</p><h3>La maison hantée</h3><p>Détails</p></div>
+    <div id="filled" style="background: #eee; border-radius: 6px"><span>Texte <strong>fort</strong></span></div>
+    <div id="strong-card" style="background-color: rgb(255, 0, 0); border-radius: 6px"><p>Début <b>Gras</b> fin</p></div>
+    <div id="plain-card" style="background-color: rgb(255, 0, 0)"><p>Sans coins arrondis</p></div>
+    <div id="lines" style="border: 1px solid #ddd; border-radius: 8px"><span> </span><span>Première ligne</span><span>Seconde</span></div>
+    <div id="transparent" style="background: transparent; border-radius: 8px"><span>Rien autour</span></div>
   </main>
 </body></html>`;
 
@@ -70,6 +76,12 @@ describe("element name computed by the artboard bridge", () => {
     ["bare", "champ"],
     ["intro", "bloc « Trouvez un remplaçant près de… »"],
     ["empty", "bloc"],
+    ["card", "carte « La maison hantée »"],
+    ["filled", "carte « fort »"],
+    ["strong-card", "carte « Gras »"],
+    ["plain-card", "bloc « Sans coins arrondis »"],
+    ["lines", "carte « Première ligne »"],
+    ["transparent", "bloc « Rien autour »"],
     ["icon", "bouton"],
   ])("%s is named %s", async (id, expected) => {
     expect((await pick(id)).elementName).toBe(expected);

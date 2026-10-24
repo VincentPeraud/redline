@@ -88,6 +88,12 @@ type PageDraft =
   | { target: { kind: "artboard"; artboard: string } }
   | { target: { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind } };
 
+/** The part of a create-thread request that says where the comment goes (the server fills the kind of a canvas element). */
+function threadPlace(draft: PageDraft) {
+  if (!("target" in draft)) return draft;
+  return draft.target.kind === "canvas-element" ? { target: { kind: "canvas-element" as const, elementId: draft.target.elementId } } : { target: draft.target };
+}
+
 function draftLabel(draft: PageDraft): string {
   return "target" in draft ? threadTargetLabel(draft.target) : (draft.elementName ?? draft.selector);
 }
@@ -296,8 +302,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
   async function send(held: boolean) {
     if (!draft || text.trim() === "") return;
-    const target = "target" in draft ? { target: draft.target } : draft;
-    const request: CreateThreadRequest = { ...target, body: text, ...(held ? { held } : choice) };
+    const request: CreateThreadRequest = { ...threadPlace(draft), body: text, ...(held ? { held } : choice) };
     await fetch(`/api/pages/${pageId}/threads`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -626,7 +631,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             </div>
           )}
           <div className={cx(styles.hintWrap, selecting && styles.hintWrapHidden)}>
-            <div data-testid="mode-indicator" className={cx(styles.hint, picking && styles.hintComment)}>
+            <div data-testid="mode-indicator" className={styles.hint}>
               {picking ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier." : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
             </div>
           </div>

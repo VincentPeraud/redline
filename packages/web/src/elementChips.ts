@@ -12,6 +12,9 @@ function targetKey(target: ThreadTarget): string {
   }
 }
 
+/** "accueil.html" -> "accueil": an artboard file as the chips show it. */
+export const artboardLabel = (file: string): string => file.replace(/\.[^./]+$/, "");
+
 /** The chips with `target` appended, unless it is already there. */
 export function addChip(chips: ThreadTarget[], target: ThreadTarget): ThreadTarget[] {
   const key = targetKey(target);
@@ -29,7 +32,7 @@ export function chipParts(target: ThreadTarget): { kind: string; name?: string }
       return { kind: role.charAt(0).toUpperCase() + role.slice(1), ...(text && { name: text }) };
     }
     case "artboard":
-      return { kind: "Artboard", name: target.artboard.replace(/\.[^./]+$/, "") };
+      return { kind: "Artboard", name: artboardLabel(target.artboard) };
     case "canvas-element":
       return { kind: CANVAS_ELEMENT_KIND_LABELS[target.elementKind], name: target.elementId };
   }

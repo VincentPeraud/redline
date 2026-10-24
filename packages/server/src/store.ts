@@ -672,19 +672,19 @@ export class Store {
     const rows = this.db
       .prepare(`${THREAD_SELECT} WHERE page_id = ? ORDER BY number`)
       .all(pageId) as ThreadRow[];
-    const elementIds = this.canvasElementIds(pageId);
-    return rows.map((row) => withRemoval(toThread(row, this.repliesOf(row.id)), elementIds));
+    const elements = this.canvasElementsById(pageId);
+    return rows.map((row) => withCurrentElement(toThread(row, this.repliesOf(row.id)), elements));
   }
 
   getThread(id: string): Thread | undefined {
     const row = this.db.prepare(`${THREAD_SELECT} WHERE id = ?`).get(id) as ThreadRow | undefined;
-    return row && withRemoval(toThread(row, this.repliesOf(id)), this.canvasElementIds(row.page_id));
+    return row && withCurrentElement(toThread(row, this.repliesOf(id)), this.canvasElementsById(row.page_id));
   }
 
-  private canvasElementIds(pageId: string): Set<string> {
+  private canvasElementsById(pageId: string): Map<string, ManifestElement> {
     const manifest = this.getPage(pageId)?.version.files[MANIFEST_PATH];
     const elements = manifest === undefined ? [] : parseManifest(this.blobText(manifest)).elements;
-    return new Set(elements.flatMap((element) => (element.id === undefined ? [] : [element.id])));
+    return new Map(elements.flatMap((element) => (element.id === undefined ? [] : [[element.id, element] as const])));
   }
 
   /** Held comments of a page, oldest first. */
@@ -695,7 +695,8 @@ export class Store {
          FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId) as ThreadRow[];
-    return rows.map((row) => toThread(row, []));
+    const elements = this.canvasElementsById(pageId);
+    return rows.map((row) => withCurrentElement(toThread(row, []), elements));
   }
 
   /** Edits the text of a held comment; undefined when the thread does not exist or is not held. */
@@ -1101,8 +1102,14 @@ function targetOf(row: ThreadRow): ThreadTarget {
   };
 }
 
-function withRemoval(thread: Thread, elementIds: Set<string>): Thread {
-  return thread.target.kind === "canvas-element" && !elementIds.has(thread.target.elementId) ? { ...thread, removed: true } : thread;
+/** A canvas-element thread follows its element: kind and summary of the current manifest, or `removed` (with what it showed) when the element is gone. */
+function withCurrentElement(thread: Thread, elements: Map<string, ManifestElement>): Thread {
+  if (thread.target.kind !== "canvas-element") return thread;
+  const element = elements.get(thread.target.elementId);
+  if (!element) return { ...thread, removed: true };
+  const { elementSummary: _stored, ...target } = thread.target;
+  const elementSummary = canvasElementSummary(element);
+  return { ...thread, target: { ...target, elementKind: element.kind, ...(elementSummary ? { elementSummary } : {}) } };
 }
 
 function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {

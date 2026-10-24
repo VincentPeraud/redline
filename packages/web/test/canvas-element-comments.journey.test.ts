@@ -96,7 +96,7 @@ it("outlines canvas elements in comment mode, pins threads on them, follows thei
   await note.click();
   await tab.getByText("Commentaire sur").waitFor();
   expect(await tab.getByText("Commentaire sur").textContent()).toContain("Post-it · note-parcours");
-  await tab.getByRole("textbox").fill("Add the confirmation step");
+  await tab.locator("#new-comment").fill("Add the confirmation step");
   await tab.getByRole("button", { name: "Plus tard" }).click();
   const pin = tab.locator("[data-canvas-pin='1']");
   await pin.waitFor();
@@ -116,7 +116,7 @@ it("outlines canvas elements in comment mode, pins threads on them, follows thei
   await tab.getByText("Commentaire sur").waitFor();
   expect(await tab.getByText("Commentaire sur").textContent()).toContain("Lien · carte-site");
   expect(popups).toHaveLength(0);
-  await tab.getByRole("textbox").fill("Is this the right menu?");
+  await tab.locator("#new-comment").fill("Is this the right menu?");
   await tab.getByRole("button", { name: "Envoyer", exact: true }).click();
   await expect.poll(() => tab.locator("[data-canvas-pin='2']").count()).toBe(1);
 

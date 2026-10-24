@@ -105,13 +105,41 @@ export const BRIDGE_SOURCE = `(function () {
     return text;
   }
 
+  function firstTextLine(el) {
+    var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+    for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (clean(node.nodeValue)) return node.nodeValue;
+    }
+    return "";
+  }
+
+  // A container's text: its first heading, else its first strong text, else its first text line.
+  function blockText(el) {
+    var emphasis = el.querySelector("h1, h2, h3, h4, h5, h6") || el.querySelector("strong, b");
+    if (emphasis && clean(emphasis.textContent)) return emphasis.textContent;
+    return clean(ownText(el)) ? ownText(el) : firstTextLine(el);
+  }
+
+  function isTransparent(color) {
+    return !color || color === "transparent" || /^rgba\\(\\s*0,\\s*0,\\s*0,\\s*0\\s*\\)$/.test(color);
+  }
+
+  // A visually boxed block: a background or a border, with rounded corners.
+  function isCard(el) {
+    var style = window.getComputedStyle(el);
+    var rounded = parseFloat(style.borderTopLeftRadius) > 0 || parseFloat(style.borderRadius) > 0;
+    var bordered = parseFloat(style.borderTopWidth) > 0 && style.borderTopStyle !== "none" && style.borderTopStyle !== "";
+    return rounded && (bordered || !isTransparent(style.backgroundColor));
+  }
+
   function partsOf(target) {
     var el = target.closest ? target.closest("button, a[href], h1, h2, h3, h4, h5, h6, input, textarea, select, img, svg, [role=button]") : null;
     var role = "bloc";
     var text = "";
     if (!el) {
       el = target;
-      text = ownText(el);
+      text = blockText(el);
+      if (isCard(el)) role = "carte";
     } else {
       var tag = el.tagName.toLowerCase();
       var type = (el.getAttribute("type") || "").toLowerCase();
