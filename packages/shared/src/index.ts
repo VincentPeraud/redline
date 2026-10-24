@@ -259,6 +259,15 @@ export const DEFAULT_ARTBOARD_HEIGHT = 500;
 /** Horizontal gap between artboards laid out automatically. */
 export const ARTBOARD_GAP = 80;
 
+/** Column grid drawn over an artboard when the viewer shows guides (canvas pixels). */
+export interface ArtboardGuides {
+  columns: number;
+  gutter: number;
+  margin: number;
+  /** Height of the baseline grid; no baseline lines when absent. */
+  baseline?: number;
+}
+
 export interface ManifestArtboard {
   /** Path of the HTML file; also the artboard's identity (threads reference it). */
   file: string;
@@ -268,6 +277,7 @@ export interface ManifestArtboard {
   height: number;
   x: number;
   y: number;
+  guides?: ArtboardGuides;
 }
 
 export interface ManifestNote {
@@ -356,6 +366,21 @@ function num(item: Record<string, unknown>, key: string, name: string, fallback:
   return value;
 }
 
+function parseGuides(value: unknown, name: string): ArtboardGuides {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) fail(`${name} must be an object`);
+  const item = value as Record<string, unknown>;
+  const required = (key: string, integer = false, positive = false): number => {
+    const n = item[key];
+    if (typeof n !== "number" || !Number.isFinite(n) || n < 0 || (positive && n === 0) || (integer && !Number.isInteger(n))) {
+      fail(`${name}.${key} must be ${integer ? "a positive whole number" : positive ? "a positive number" : "a number of 0 or more"}`);
+    }
+    return n;
+  };
+  const guides: ArtboardGuides = { columns: required("columns", true, true), gutter: required("gutter"), margin: required("margin") };
+  if (item.baseline !== undefined) guides.baseline = required("baseline", false, true);
+  return guides;
+}
+
 export function parseManifest(text: string): Manifest {
   let raw: unknown;
   try {
@@ -378,6 +403,7 @@ export function parseManifest(text: string): Manifest {
       y: num(item, "y", name, 0),
     };
     if (typeof item.title === "string") artboard.title = item.title;
+    if (item.guides !== undefined) artboard.guides = parseGuides(item.guides, `${name}.guides`);
     nextX = artboard.x + width + ARTBOARD_GAP;
     return artboard;
   });

@@ -16,6 +16,7 @@ import { ArtboardHistory } from "./ArtboardHistory.js";
 import { restoreArtboard, useDeletedArtboards } from "./restoreArtboard.js";
 import { UndoToast } from "./UndoToast.js";
 import { CanvasHeader } from "./CanvasHeader.js";
+import { useGuidesVisible } from "./useGuidesVisible.js";
 import { panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
 import { ConversationsPanel } from "./ConversationsPanel.js";
@@ -61,6 +62,16 @@ function groupArtboardCount(manifest: Manifest, index: number): number {
   return manifest.artboards.filter((a) => a.x >= from && a.x < next).length;
 }
 
+function GuidesIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M9 3v18" />
+      <path d="M15 3v18" />
+    </svg>
+  );
+}
+
 function FullscreenIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -104,6 +115,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [preview, setPreview] = useState<{ file: string; versionId: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; undo: () => Promise<void> } | null>(null);
   const deleted = useDeletedArtboards(pageId, versionId);
+  const [guidesVisible, toggleGuides] = useGuidesVisible();
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   const viewport = useRef<HTMLDivElement>(null);
   const placed = useRef(false);
@@ -200,7 +212,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     });
   }, [refresh, refreshQueue, pageId]);
 
-  // C: comment mode, P: back to interactive.
+  // C: comment mode, P: back to interactive, G: layout guides.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       const target = event.target as HTMLElement;
@@ -208,10 +220,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
       const key = event.key.toLowerCase();
       if (key === "c") setPicking(true);
       if (key === "p") setPicking(false);
+      if (key === "g") toggleGuides();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [toggleGuides]);
 
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
   async function send(held: boolean) {
@@ -361,6 +374,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                     width={artboard.width}
                     height={artboard.height}
                     zoom={view.zoom}
+                    guides={guidesVisible ? artboard.guides : undefined}
                     threads={preview?.file === artboard.file ? [] : threads.filter((t) => t.artboard === artboard.file)}
                     picking={picking && preview?.file !== artboard.file}
                     tweaks={tweaks.values}
@@ -428,6 +442,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             <span className={styles.zoomValue}>{Math.round(view.zoom * 100)} %</span>
             <button type="button" aria-label="Zoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(ZOOM_STEP)}>
               +
+            </button>
+            <span aria-hidden="true" className={styles.zoomSeparator} />
+            <button type="button" aria-pressed={guidesVisible} title="Afficher les guides de mise en page (G)" className={cx(styles.guidesButton, guidesVisible && styles.guidesButtonOn)} onClick={toggleGuides}>
+              <GuidesIcon />
+              Guides (G)
             </button>
           </div>
         </main>
