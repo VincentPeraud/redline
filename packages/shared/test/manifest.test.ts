@@ -37,6 +37,26 @@ describe("page manifest", () => {
     expect(() => parseManifest(JSON.stringify({ artboards: "x" }))).toThrow(/artboards/);
   });
 
+  it("reads an artboard's device and url, and refuses an unknown device naming the field", () => {
+    const manifest = parseManifest(
+      JSON.stringify({
+        artboards: [
+          { file: "home.html", device: "desktop", url: "lumora.fr" },
+          { file: "cv.html", device: "paper" },
+          { file: "plain.html" },
+        ],
+      }),
+    );
+    expect(manifest.artboards[0]).toMatchObject({ device: "desktop", url: "lumora.fr" });
+    expect(manifest.artboards[1]?.device).toBe("paper");
+    expect(manifest.artboards[2]).not.toHaveProperty("device");
+    expect(manifest.artboards[2]).not.toHaveProperty("url");
+    for (const device of ["phone", "tablet", "desktop", "paper", "none"]) {
+      expect(() => parseManifest(JSON.stringify({ artboards: [{ file: "a.html", device }] }))).not.toThrow();
+    }
+    expect(() => parseManifest(JSON.stringify({ artboards: [{ file: "a.html", device: "watch" }] }))).toThrow(/artboards\[0\]\.device/);
+  });
+
   it("derives a side-by-side layout from the html files when a page has no manifest", () => {
     const manifest = defaultManifest(["home.html", "style.css", "about.html"]);
     expect(manifest.artboards.map((a) => a.file)).toEqual(["home.html", "about.html"]);

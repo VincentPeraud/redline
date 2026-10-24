@@ -259,6 +259,10 @@ export const DEFAULT_ARTBOARD_HEIGHT = 500;
 /** Horizontal gap between artboards laid out automatically. */
 export const ARTBOARD_GAP = 80;
 
+/** How play mode presents an artboard. `none` = the design as is. */
+export type ArtboardDevice = "phone" | "tablet" | "desktop" | "paper" | "none";
+export const ARTBOARD_DEVICES: readonly ArtboardDevice[] = ["phone", "tablet", "desktop", "paper", "none"];
+
 export interface ManifestArtboard {
   /** Path of the HTML file; also the artboard's identity (threads reference it). */
   file: string;
@@ -268,6 +272,10 @@ export interface ManifestArtboard {
   height: number;
   x: number;
   y: number;
+  /** Declared presentation in play mode; absent = inferred from the size. */
+  device?: ArtboardDevice;
+  /** Text shown in the address bar of the `desktop` presentation; never invented. */
+  url?: string;
 }
 
 export interface ManifestNote {
@@ -378,6 +386,11 @@ export function parseManifest(text: string): Manifest {
       y: num(item, "y", name, 0),
     };
     if (typeof item.title === "string") artboard.title = item.title;
+    if (item.device !== undefined) {
+      if (!ARTBOARD_DEVICES.includes(item.device as ArtboardDevice)) fail(`${name}.device must be one of ${ARTBOARD_DEVICES.join(", ")}`);
+      artboard.device = item.device as ArtboardDevice;
+    }
+    if (typeof item.url === "string") artboard.url = item.url;
     nextX = artboard.x + width + ARTBOARD_GAP;
     return artboard;
   });
