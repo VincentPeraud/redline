@@ -111,9 +111,15 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
   }
 
   async function send() {
-    if (!activeId || text.trim() === "") return;
+    if (text.trim() === "") return;
     const request: CreateConversationMessageRequest = { body: text, ...choice };
-    await fetch(`/api/conversations/${activeId}/messages`, {
+    let conversationId = activeId;
+    if (!conversationId) {
+      const res = await fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      conversationId = ((await res.json()) as ConversationDetail).id;
+      setActiveId(conversationId);
+    }
+    await fetch(`/api/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(request),
@@ -138,7 +144,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
           className={styles.picker}
           onClick={() => setListOpen(!listOpen)}
         >
-          <span className={styles.pickerTitle}>{active ? active.title : "Aucune conversation"}</span>
+          <span className={cx(styles.pickerTitle, !active && styles.pickerPlaceholder)}>{active ? active.title : "Aucune conversation"}</span>
           <span className={styles.spacer} />
           <span aria-hidden="true" className={styles.chevron}>
             ▼
@@ -233,8 +239,8 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
             </>
           ) : (
             <>
-              <div className={styles.emptyTitle}>Aucune conversation</div>
-              <div className={styles.emptyText}>Clique sur « + Nouvelle » pour en ouvrir une.</div>
+              <div className={styles.emptyTitle}>Nouvelle conversation</div>
+              <div className={styles.emptyText}>Écris ton premier message : la conversation est créée à l'envoi.</div>
             </>
           )}
         </div>
@@ -249,7 +255,6 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
           className={styles.messageInput}
           rows={3}
           placeholder="Un retour général, un artboard à ajouter, une nouvelle page…"
-          disabled={!activeId}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -259,6 +264,12 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
             }
           }}
         />
+        <div className={styles.actions}>
+          <span className={styles.spacer} />
+          <Button variant="primary" className={styles.sendButton} disabled={text.trim() === ""} onClick={() => void send()}>
+            Envoyer
+          </Button>
+        </div>
         <ModelEffortControls value={choice} onChange={setChoice} defaults={defaults} />
         {detail && detail.context && detail.context.percent >= CONTEXT_WARNING_PERCENT && <SessionLine conversation={detail} />}
         <div className={styles.sessionId}>{sessionId ? `session ${shortSessionId(sessionId)}` : "aucune session"} · séparée des fils de commentaires</div>

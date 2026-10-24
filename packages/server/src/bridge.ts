@@ -1,13 +1,14 @@
-import { designSystemTokensUrlPath } from "@redline/shared";
+import { designSystemTokensUrlPath, HOVER_FINISH, hoverLabelCss, hoverOutlineCss } from "@redline/shared";
 
 /**
  * Script injected into every served artboard HTML. Artboards run in a sandboxed iframe with an
  * opaque origin, so the web UI cannot touch their DOM: it talks to this bridge by postMessage.
  *
- * Parent -> artboard: { type: "redline:set-mode", picking: boolean }
+ * Parent -> artboard: { type: "redline:set-mode", picking: boolean, alt: boolean }  (alt: the Alt key is held in the parent page, where keyboard focus usually is)
  *                     { type: "redline:set-pins", pins: [{ id, selector, xPct, yPct }] }
  *                     { type: "redline:set-links", selectors: string[] | null }  (play mode: clicks on a match are reported, not performed)
  *                     { type: "redline:set-tweaks", values: { [tweakId]: string | number | boolean } }  (full set; applied as --tweak-<id> CSS variables, data-tweak-<id> attributes on <html>, window.redlineTweaks and a "redline:tweaks" window event)
+ *                     (comment mode, and Alt held in interactive mode, draw the hover outline and label in an overlay of the artboard document)
  * Artboard -> parent: { type: "redline:ready" }
  *                     { type: "redline:picked", selector, elementName, xPct, yPct }  (elementName: role + short visible text, e.g. bouton « Continuer »)
  *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched }] }
@@ -99,7 +100,7 @@ export const BRIDGE_SOURCE = `(function () {
     return text;
   }
 
-  function nameOf(target) {
+  function partsOf(target) {
     var el = target.closest ? target.closest("button, a[href], h1, h2, h3, h4, h5, h6, input, textarea, select, img, svg, [role=button]") : null;
     var role = "bloc";
     var text = "";
@@ -128,8 +129,18 @@ export const BRIDGE_SOURCE = `(function () {
         text = el.textContent || el.getAttribute("aria-label");
       }
     }
-    var short = shorten(text);
-    return short === "" ? role : role + " \\u00ab " + short + " \\u00bb";
+    return { role: role, text: shorten(text) };
+  }
+
+  function nameOf(target) {
+    var parts = partsOf(target);
+    return parts.text === "" ? parts.role : parts.role + " \\u00ab " + parts.text + " \\u00bb";
+  }
+
+  function labelFor(target) {
+    var parts = partsOf(target);
+    var role = parts.role.charAt(0).toUpperCase() + parts.role.slice(1);
+    return parts.text === "" ? role : role + " \\u00b7 " + parts.text;
   }
 
   function send(message) {
@@ -182,6 +193,84 @@ export const BRIDGE_SOURCE = `(function () {
     return null;
   }
 
+  var OUTLINE_CSS = ${JSON.stringify(hoverOutlineCss())};
+  var LABEL_CSS = ${JSON.stringify(hoverLabelCss())};
+  var LABEL_OFFSET_X = ${HOVER_FINISH.labelOffsetX};
+  var LABEL_OFFSET_Y = ${HOVER_FINISH.labelOffsetY};
+  var hoverRoot = null;
+  var hoverTarget = null;
+  var altHeld = false;
+
+  function hoverParts() {
+    if (hoverRoot && hoverRoot.parentNode) return hoverRoot;
+    hoverRoot = document.createElement("div");
+    hoverRoot.id = "__redline-hover";
+    hoverRoot.style.cssText = "position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 2147483647; pointer-events: none";
+    var outline = document.createElement("div");
+    outline.setAttribute("data-part", "outline");
+    var label = document.createElement("div");
+    label.setAttribute("data-part", "label");
+    hoverRoot.appendChild(outline);
+    hoverRoot.appendChild(label);
+    document.documentElement.appendChild(hoverRoot);
+    return hoverRoot;
+  }
+
+  function hoverEnabled() {
+    return (picking || altHeld) && !linkSelectors;
+  }
+
+  function hideHover() {
+    if (hoverRoot) hoverRoot.style.display = "none";
+  }
+
+  function drawHover() {
+    var el = hoverTarget;
+    if (!el || !hoverEnabled() || !el.isConnected || el === document.documentElement || el === document.body) {
+      hideHover();
+      return;
+    }
+    var rect = el.getBoundingClientRect();
+    var root = hoverParts();
+    root.style.display = "";
+    var outline = root.firstChild;
+    var label = root.lastChild;
+    var radius = window.getComputedStyle(el).borderRadius;
+    outline.style.cssText = "position: fixed; left: " + rect.left + "px; top: " + rect.top + "px; width: " + rect.width + "px; height: " + rect.height + "px; border-radius: " + (radius || "0") + "; " + OUTLINE_CSS;
+    label.textContent = labelFor(el);
+    var left = Math.max(1, rect.left + LABEL_OFFSET_X);
+    var top = Math.max(1, rect.top + LABEL_OFFSET_Y);
+    label.style.cssText = "position: fixed; left: " + left + "px; top: " + top + "px; " + LABEL_CSS;
+  }
+
+  function hoverAt(event) {
+    altHeld = !!event.altKey;
+    hoverTarget = event.target && event.target.nodeType === 1 ? event.target : null;
+    drawHover();
+  }
+
+  document.addEventListener("mousemove", hoverAt, true);
+  document.addEventListener("mouseout", function (event) {
+    if (event.relatedTarget) return;
+    hoverTarget = null;
+    hideHover();
+  }, true);
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Alt") return;
+    altHeld = true;
+    drawHover();
+  }, true);
+  document.addEventListener("keyup", function (event) {
+    if (event.key !== "Alt") return;
+    altHeld = false;
+    drawHover();
+  }, true);
+  window.addEventListener("blur", function () {
+    altHeld = false;
+    drawHover();
+  });
+  window.addEventListener("scroll", drawHover, true);
+
   document.addEventListener("click", function (event) {
     if (linkSelectors) {
       var link = matchLink(event.target);
@@ -209,8 +298,10 @@ export const BRIDGE_SOURCE = `(function () {
     if (event.source !== window.parent || !event.data) return;
     if (event.data.type === "redline:set-mode") {
       picking = !!event.data.picking;
+      altHeld = !!event.data.alt;
       forwardWheel = !!event.data.forwardWheel;
       document.documentElement.style.cursor = picking ? "crosshair" : "";
+      drawHover();
     } else if (event.data.type === "redline:set-links") {
       linkSelectors = event.data.selectors || null;
     } else if (event.data.type === "redline:set-tweaks") {
@@ -255,6 +346,7 @@ export const BRIDGE_SOURCE = `(function () {
   }, { passive: false });
 
   window.addEventListener("resize", function () {
+    drawHover();
     reportPins();
     reportHeight();
   });
