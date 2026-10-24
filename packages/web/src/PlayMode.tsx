@@ -93,10 +93,12 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   };
   /** The target page's manifest and tweaks load with its own play route; a gone page or artboard leaves the screen as it is. */
   const followOtherPage = (otherPageId: string, file: string) =>
-    void loadPageSummary(otherPageId).then((summary) => {
-      if (summary?.artboardTitles.has(file)) navigateTo({ name: "page", pageId: otherPageId, play: file }, "push");
-      else setDeadLink(file);
-    });
+    void loadPageSummary(otherPageId)
+      .catch(() => null)
+      .then((summary) => {
+        if (summary?.artboardTitles.has(file)) navigateTo({ name: "page", pageId: otherPageId, play: file }, "push");
+        else setDeadLink(file);
+      });
   const chooseRendering =(choice: ArtboardRendering | null) => {
     selectRendering(choice);
     navigateTo(playRoute(current, renduOf(choice)), "replace");
