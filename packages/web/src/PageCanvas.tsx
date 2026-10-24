@@ -5,6 +5,7 @@ import {
   MANIFEST_PATH,
   RESPONSIVE_FORMATS,
   defaultManifest,
+  groupTitlesOf,
   parseManifest,
   readingOrder,
   versionPreviewPath,
@@ -454,7 +455,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   artboardBoxesRef.current = artboardBoxes;
   const tocItems: TocItem[] = readingOrder(
     (manifest?.artboards ?? []).map((artboard) => ({ file: artboard.file, title: artboard.title, ...artboardBoxes.get(artboard.file)! })),
-    (manifest?.elements ?? []).flatMap((element) => (element.kind === "title" ? [{ text: element.text, x: element.x, y: element.y, width: element.width }] : [])),
+    manifest ? groupTitlesOf(manifest) : [],
   ).map((entry) => ({ ...entry, openThreads: threads.filter((t) => t.artboard === entry.file && t.status !== "resolved").length }));
   if (playing && manifest && playFile !== undefined) {
     return (

@@ -225,7 +225,7 @@ Contracts for the UI. Types are in `@redline/shared`.
 - Name strip follows board TocMenu: 24 px row and buttons, 13 px icons, 4 px gap, 6 px under the strip, 11 px name.
 
 ## Reading order and table of contents (lot B, ticket 01)
-- `readingOrder(artboards, titles)` in `@redline/shared` (`readingOrder.ts`) is the only place that numbers artboards: rows by overlapping vertical extents, left to right in a row, group = nearest title above the row covering the artboard's centre. The web app and the agent both call it with laid-out boxes (responsive artboards as one box).
+- `readingOrder(artboards, titles)` in `@redline/shared` (`readingOrder.ts`) is the only place that numbers artboards: rows by overlapping vertical extents, left to right in a row, group = nearest title above the artboard (its own top, not the row's) covering its centre (`groupTitlesOf(manifest)` lists the titles). The web app and the agent both call it with laid-out boxes: a responsive artboard is one box, its frame from `responsiveFrameLayout` / `renderingSlots` (`@redline/shared`, `responsiveLayout.ts`; the web uses measured heights, the agent the declared ones).
 - `TocList` (web) is the reusable list (filter + groups + lines, props `items`, `currentFile`, `onSelect`); `tocGroups` / `artboardAtCentre` in `tocItems.ts` are its pure helpers. `TocMenu` is the header button and menu around it; the "Sommaire" side tab (`PageCanvas`, third `SideTab` "toc", `placeholder` prop "Filtrer les n artboards…") and the play counter menu reuse `TocList`.
 
 ## Play mode driven by the URL (lot B, ticket 03)
@@ -249,7 +249,7 @@ Contracts for the UI. Types are in `@redline/shared`.
 
 ## Artboard addresses for Claude (lot B, ticket 09)
 - `pageHash` / `artboardHash` / `playHash` (`@redline/shared`, `addresses.ts`) are the one builder of the web routes `#/pages/<id>[/artboards|/play/<file>]` (file URI-encoded); `router.ts` `routeHref` and the agent's `ServerApi` (`pageUrl`, `artboardUrl`, `playUrl`, prefixed with the logged-in server URL) both use them.
-- Terminal `checkout_page` answers with `Page: <address>` then `Artboards, in reading order:` and one line per artboard `N. <title or file> · canvas <address> · play <address>` (`readingOrder` over the checked-out manifest, declared sizes; the web canvas may order responsive artboards slightly differently once their heights are measured). `publish_page` ends with `Published version <id>: <page address>`. `list_pages` keeps its page addresses. Sessions have no `checkout_page` (their working copy is already on disk), so only terminal mode lists artboard addresses.
+- Terminal `checkout_page` answers with `Page: <address>` then `Artboards, in reading order:` and one line per artboard `N. <title or file> · canvas <address> · play <address>` (`readingOrder` over the checked-out manifest, responsive artboards as one frame box at their declared heights; the web canvas may order responsive artboards slightly differently once their heights are measured). `publish_page` ends with `Published version <id>: <page address>`. `list_pages` keeps its page addresses. Sessions have no `checkout_page` (their working copy is already on disk), so only terminal mode lists artboard addresses.
 - The guide asks Claude to write full addresses when pointing to an artboard and explains the reading order (canvas layout: rows top to bottom, left to right). Play links with `page` (cross-page) are in the guide too.
 
 ## Cross-page play links (lot B, ticket 07)

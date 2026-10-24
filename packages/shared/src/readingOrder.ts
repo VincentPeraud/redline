@@ -1,3 +1,5 @@
+import type { Manifest } from "./index.js";
+
 /** An artboard as laid out on the canvas (a responsive artboard is one box with its laid-out size). */
 export interface ReadingOrderArtboard {
   file: string;
@@ -52,3 +54,7 @@ export function readingOrder(artboards: ReadingOrderArtboard[], titles: ReadingO
       return { file: artboard.file, ...(artboard.title !== undefined && { title: artboard.title }), number: index + 1, groupTitle: group?.text ?? null };
     });
 }
+
+/** The group titles of a manifest, as `readingOrder` takes them. */
+export const groupTitlesOf = (manifest: Manifest): ReadingOrderTitle[] =>
+  manifest.elements.flatMap((element) => (element.kind === "title" ? [{ text: element.text, x: element.x, y: element.y, width: element.width }] : []));
