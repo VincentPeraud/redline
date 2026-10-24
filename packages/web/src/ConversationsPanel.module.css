@@ -259,13 +259,13 @@
   gap: 10px;
   padding: 10px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
 }
 
 .messageBox:focus-within {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(217, 45, 32, 0.12);
+  box-shadow: var(--shadow-focus-ring);
 }
 
 .messageBoxChips,
@@ -291,7 +291,7 @@
 .sessionLine,
 .sessionId {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
 
@@ -299,28 +299,19 @@
   color: var(--color-warning-strong);
 }
 
-.messageInput {
-  width: 100%;
+.messageBox .messageInput {
   padding: 0;
   border: none;
   outline: none;
   background: transparent;
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--font-size-md);
-  line-height: 1.5;
-  resize: none;
-}
-
-.messageInput::placeholder {
-  color: #8a8a93;
+  font-family: inherit;
 }
 
 .elementButton {
   height: 32px;
   padding: 0 12px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-text);
   font: inherit;
@@ -349,10 +340,15 @@
 .composer .sendButton {
   height: 32px;
   padding: 0 14px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 
 .pickerPlaceholder {
   font-weight: var(--font-weight-regular);
   color: var(--color-text-muted);
+}
+
+.error {
+  font-size: var(--font-size-xs);
+  color: var(--color-danger-text);
 }

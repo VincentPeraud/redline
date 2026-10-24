@@ -10,6 +10,7 @@
   --color-text-body: #52525b;
   --color-text-muted: #5f5f68;
   --color-text-inverse: #ffffff;
+  --color-text-placeholder: #8a8a93;
 
   /* Colours: borders */
   --color-border: #e4e2dc;
@@ -53,6 +54,8 @@
   --color-offline: #a1a1aa;
   --color-code-bg: #18181b;
   --color-code-text: #e4e4e7;
+  --color-removed-border: #a1a1aa;
+  --color-removed-text: #71717a;
   --color-overlay: rgba(24, 24, 27, 0.45);
 
   /* Responsive artboards: badge and frame outline */
@@ -121,5 +124,6 @@
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
   --shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.14);
+  --shadow-focus-ring: 0 0 0 3px rgba(217, 45, 32, 0.12);
   --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.25);
 }

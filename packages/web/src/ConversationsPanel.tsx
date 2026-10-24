@@ -19,7 +19,7 @@ import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import { ElementChip } from "./ElementChip.js";
-import { Button, cx } from "./ui/index.js";
+import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./ConversationsPanel.module.css";
 
 const AGENT_DEFAULT = "défaut de l'agent";
@@ -74,6 +74,8 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, 
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [text, setText] = useState("");
   const [choice, setChoice] = useState<ModelEffortChoice>({});
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const refreshList = useCallback(async () => {
     const res = await fetch(`/api/pages/${pageId}/conversations`);
@@ -123,22 +125,33 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, 
     if (activeId === id) setActiveId(rest[0]?.id ?? null);
   }
 
+  /** Keeps the text and chips when anything fails: they only go once the message is stored. */
   async function send() {
-    if (text.trim() === "") return;
-    const request: CreateConversationMessageRequest = { body: text, context: chips.length > 0 ? { ...context, targets: chips } : context, ...choice };
-    let conversationId = activeId;
-    if (!conversationId) {
-      const res = await fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-      conversationId = ((await res.json()) as ConversationDetail).id;
-      setActiveId(conversationId);
+    if (text.trim() === "" || sending) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      const request: CreateConversationMessageRequest = { body: text, context: chips.length > 0 ? { ...context, targets: chips } : context, ...choice };
+      let conversationId = activeId;
+      if (!conversationId) {
+        const created = await fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        if (!created.ok) throw new Error("conversation");
+        conversationId = ((await created.json()) as ConversationDetail).id;
+        setActiveId(conversationId);
+      }
+      const res = await fetch(`/api/conversations/${conversationId}/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+      });
+      if (!res.ok) throw new Error("message");
+      setText("");
+      onChipsSent();
+    } catch {
+      setSendError("Le message n'a pas été envoyé. Ton texte est conservé, réessaie.");
+    } finally {
+      setSending(false);
     }
-    await fetch(`/api/conversations/${conversationId}/messages`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(request),
-    });
-    setText("");
-    onChipsSent();
   }
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
@@ -285,7 +298,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, 
               ))}
             </div>
           )}
-          <textarea
+          <Textarea
             id="conversation-message"
             className={styles.messageInput}
             rows={chips.length > 0 ? 2 : 3}
@@ -300,13 +313,18 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, 
             }}
           />
         </div>
+        {sendError && (
+          <div role="alert" className={styles.error}>
+            {sendError}
+          </div>
+        )}
         <div className={styles.actions}>
           <button type="button" aria-pressed={selecting} className={cx(styles.elementButton, selecting && styles.elementButtonOn)} onClick={() => onSelectingChange(!selecting)}>
             + Élément
           </button>
           {selecting && <span className={styles.selectingNote}>mode sélection actif</span>}
           <span className={styles.spacer} />
-          <Button variant="primary" className={styles.sendButton} disabled={text.trim() === ""} onClick={() => void send()}>
+          <Button variant="primary" className={styles.sendButton} disabled={text.trim() === "" || sending} onClick={() => void send()}>
             Envoyer
           </Button>
         </div>
