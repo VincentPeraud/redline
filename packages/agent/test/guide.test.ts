@@ -23,3 +23,8 @@ it("tells Claude to write full artboard addresses and that the reading order is 
   expect(REDLINE_GUIDE).toContain("reading order");
   expect(REDLINE_GUIDE).toContain("left to right, row by row");
 });
+
+it("explains play links to an artboard of another page with `page`", () => {
+  expect(REDLINE_GUIDE).toContain('"links": [{ "from", "selector", "to", "page"? }]');
+  expect(REDLINE_GUIDE).toContain('add "page" (a page id of the same project) to go to an artboard of another page');
+});

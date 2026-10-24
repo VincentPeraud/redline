@@ -432,6 +432,34 @@
   white-space: nowrap;
 }
 
+.deadLink {
+  position: absolute;
+  bottom: var(--space-6);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--color-text);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-inverse);
+}
+
+.deadLinkClose {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: #3f3f46;
+  color: var(--color-text-inverse);
+  font: inherit;
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
 .mobileSteps {
   display: flex;
   align-items: center;

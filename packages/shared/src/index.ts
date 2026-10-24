@@ -549,11 +549,12 @@ export function canvasElementSummary(element: ManifestElement): string {
   }
 }
 
-/** Play mode: clicking `selector` in artboard `from` goes to artboard `to`. */
+/** Play mode: clicking `selector` in artboard `from` goes to artboard `to`, of page `page` when given (a page of the same project), else of this page. */
 export interface ManifestLink {
   from: string;
   selector: string;
   to: string;
+  page?: string;
 }
 
 export type TweakType = "color" | "choice" | "toggle" | "range" | "count" | "text";
@@ -899,7 +900,8 @@ export function parseManifest(text: string): Manifest {
 
   const links = list(root.links, "links").map((item, i): ManifestLink => {
     const name = `links[${i}]`;
-    return { from: str(item, "from", name), selector: str(item, "selector", name), to: str(item, "to", name) };
+    const page = optionalStr(item, "page", name);
+    return { from: str(item, "from", name), selector: str(item, "selector", name), to: str(item, "to", name), ...(page === undefined ? {} : { page }) };
   });
 
   const tweaks = list(root.tweaks, "tweaks").map((item, i): ManifestTweak => {

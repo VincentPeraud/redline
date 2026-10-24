@@ -7,7 +7,7 @@ A Redline page is a set of files. You work on a copy of them (the working copy f
 
 ## Artboards and ${MANIFEST_PATH}
 - An artboard is a self-contained HTML file. ${MANIFEST_PATH} at the root of the page lists them and is the layout source of truth.
-- Shape: { "title", "designSystem": "<id>", "artboards": [{ "file", "title", "width", "height", "x", "y" }], "elements": [{ "kind": "title", "id", "text", "subtitle", "width", "x", "y" }], "links": [{ "from", "selector", "to" }], "tweaks": [...] }.
+- Shape: { "title", "designSystem": "<id>", "artboards": [{ "file", "title", "width", "height", "x", "y" }], "elements": [{ "kind": "title", "id", "text", "subtitle", "width", "x", "y" }], "links": [{ "from", "selector", "to", "page"? }], "tweaks": [...] }.
 - Positions and sizes are canvas pixels. Default size is ${DEFAULT_ARTBOARD_WIDTH}x${DEFAULT_ARTBOARD_HEIGHT}. A missing x puts the artboard right of the previous one.
 - artboards[].file is the artboard's identity: comment threads reference it, so do not rename or delete a file with open threads.
 - To add an artboard, use the add_artboard tool (it writes the HTML and the manifest entry). To change a manifest section by hand, keep the file valid JSON: an invalid manifest is rejected when the run is published.
@@ -28,7 +28,7 @@ A Redline page is a set of files. You work on a copy of them (the working copy f
 - responsive: one HTML file rendered at several widths, side by side in one frame on the canvas, each at the real height of its page. Declare it on the artboard: "responsive": ["desktop", "tablet", "mobile"], with formats among "desktop" (1440x900), "tablet-landscape" (1024x768), "tablet" (768x1024) and "mobile" (390x844). Exceptionally, give a size instead of a name: { "format", "width", "height" } (format is one of the four format names, it names the rendering; the size is the viewport). A responsive artboard ignores "frame", its width, height and the play-mode presentation; "x" and "y" place the frame. Write the page with media queries or fluid layout: each rendering loads the same file at its own width. Tweaks apply to every rendering at once.
 - Choose one responsive artboard when the same screen must adapt (same content and structure, only the layout changes with the width). Choose separate artboards when the screens differ by more than the layout (a different mobile flow, other content, one-off mobile-only screens) or need their own comments, versions and arrows. When unsure, ask the user before building.
 - artboards[].guides = { "columns", "gutter", "margin", "baseline"? } (pixels, columns a whole number) declares a column grid on that artboard; viewers show it with the Guides (G) button. Design the artboard to that grid.
-- links make clicks on a CSS selector in artboard "from" go to artboard "to" in play mode.
+- links make clicks on a CSS selector in artboard "from" go to artboard "to" in play mode; add "page" (a page id of the same project) to go to an artboard of another page: the play view then continues on that page. "to" must be an artboard of that page's current version, otherwise the publish is rejected naming the entry (links[i]).
 
 ## Design system tokens
 - The artboard server injects the page's design system stylesheet into every artboard. Never add your own link to it and never hard-code colors, fonts, radii or spacing that a token covers.
