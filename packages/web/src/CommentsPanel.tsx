@@ -1,5 +1,5 @@
 import { Fragment, useState, type ReactNode } from "react";
-import type { QueueEntry, SessionRow, Thread, ThreadRun } from "@redline/shared";
+import { CANVAS_ELEMENT_KIND_LABELS, type ManifestElementKind, type QueueEntry, type SessionRow, type Thread, type ThreadRun } from "@redline/shared";
 import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
@@ -15,11 +15,22 @@ import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./Thread.module.css";
 import panel from "./CommentsPanel.module.css";
 
-export interface Draft {
+export interface ElementDraft {
   artboard: string;
   selector: string;
   elementName?: string;
 }
+
+/** A comment about to be written on an element of the page canvas. */
+export interface CanvasElementDraft {
+  target: { kind: "canvas-element"; elementId: string };
+  elementKind: ManifestElementKind;
+}
+
+export type Draft = ElementDraft | CanvasElementDraft;
+
+const draftSubject = (draft: Draft) =>
+  "target" in draft ? `${CANVAS_ELEMENT_KIND_LABELS[draft.elementKind]} · ${draft.target.elementId}` : (draft.elementName ?? draft.selector);
 
 interface Props {
   pageId: string;
@@ -187,7 +198,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
         {draft && (
           <div className={panel.draft}>
             <span>
-              Commentaire sur <code>{draft.elementName ?? draft.selector}</code>
+              Commentaire sur <code>{draftSubject(draft)}</code>
             </span>
             <button type="button" className={panel.cancel} onClick={onCancel}>
               Annuler

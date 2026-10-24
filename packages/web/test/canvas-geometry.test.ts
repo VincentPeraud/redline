@@ -3,6 +3,21 @@ import { RESPONSIVE_SPACING } from "@redline/shared";
 import { arrowGeometry, elementBox, responsiveFrameBox, responsiveFrameLayout } from "../src/canvasGeometry.js";
 
 describe("arrow geometry", () => {
+  it("bounds a straight arrow by its two ends", () => {
+    const { box } = arrowGeometry({ x: 0, y: 0, width: 100, height: 200 }, { x: 300, y: 0, width: 100, height: 200 });
+    expect(box).toEqual({ x: 100, y: 100, width: 200, height: 0 });
+  });
+
+  it("bounds a curved arrow by the whole curve, ends and middle included", () => {
+    const { start, end, label, box } = arrowGeometry({ x: 0, y: 0, width: 200, height: 100 }, { x: 600, y: 400 });
+    for (const point of [start, end, label]) {
+      expect(point.x).toBeGreaterThanOrEqual(box.x - 0.01);
+      expect(point.x).toBeLessThanOrEqual(box.x + box.width + 0.01);
+      expect(point.y).toBeGreaterThanOrEqual(box.y - 0.01);
+      expect(point.y).toBeLessThanOrEqual(box.y + box.height + 0.01);
+    }
+  });
+
   it("links the facing edges of two boxes side by side, at their middles", () => {
     const left = { x: 0, y: 0, width: 100, height: 200 };
     const right = { x: 300, y: 0, width: 100, height: 200 };
