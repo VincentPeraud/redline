@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { CANVAS_ELEMENT_KIND_LABELS, HOVER_FINISH, type ArrowEnd, type ManifestArrowElement, type ManifestElement, type ManifestElementKind, type ManifestImageElement, type ManifestLinkElement, type ManifestTitleElement, type Page, type Project, type Thread } from "@redline/shared";
+import { CANVAS_ELEMENT_KIND_LABELS, HOVER_FINISH, MARK_FINISH, type ArrowEnd, type ManifestArrowElement, type ManifestElement, type ManifestElementKind, type ManifestImageElement, type ManifestLinkElement, type ManifestTitleElement, type Page, type Project, type Thread } from "@redline/shared";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
 import { routeHref } from "./router.js";
 import { CanvasShape } from "./CanvasShapes.js";
 import { CanvasStickyNote, CanvasTextNote } from "./CanvasNotes.js";
 import { arrowGeometry, elementBox, type ArrowGeometry, type Box, type Point, type Size } from "./canvasGeometry.js";
-import { hoverLabelStyle, hoverOutlineStyle } from "./hoverFinishStyle.js";
+import { hoverLabelStyle, hoverOutlineStyle, markBadgeStyle } from "./hoverFinishStyle.js";
 import { threadWhere } from "./threadLabel.js";
 import { cx } from "./ui/index.js";
 import { paletteShades } from "./canvasPalette.js";
@@ -242,6 +242,7 @@ export function CanvasElements({
   picking,
   zoom,
   threads,
+  marks,
   children,
 }: {
   elements: ManifestElement[];
@@ -252,6 +253,8 @@ export function CanvasElements({
   picking: boolean;
   zoom: number;
   threads: Thread[];
+  /** Elements chosen as chips for the next message, drawn with the outline and numbered badge of the artboards' marks. */
+  marks: { number: number; elementId: string }[];
   children?: ReactNode;
 }) {
   const underRef = useRef<HTMLDivElement>(null);
@@ -331,6 +334,11 @@ export function CanvasElements({
 
   const hovered = hoveredId === null ? undefined : elements.find((element) => element.id === hoveredId);
   const hoveredBox = hovered?.id === undefined ? undefined : outlineBoxes.get(hovered.id);
+  const marked = marks.flatMap((mark) => {
+    const element = elements.find((candidate) => candidate.id === mark.elementId);
+    const box = outlineBoxes.get(mark.elementId);
+    return element && box ? [{ ...mark, box, kind: element.kind }] : [];
+  });
   const pinned = threads.flatMap((thread) => {
     const spot = thread.target.kind === "canvas-element" ? pinSpots.get(thread.target.elementId) : undefined;
     return spot ? [{ thread, spot }] : [];
@@ -378,6 +386,14 @@ export function CanvasElements({
           </span>
         </>
       )}
+      {marked.map(({ number, elementId, box, kind }) => (
+        <div key={elementId} data-canvas-mark-box={elementId} style={{ display: "contents" }}>
+          <div className={styles.hoverOutline} style={{ left: box.x, top: box.y, width: box.width, height: box.height, borderRadius: OUTLINE_RADIUS[kind], ...hoverOutlineStyle }} />
+          <span data-canvas-mark={number} className={styles.markBadge} style={{ left: box.x + MARK_FINISH.badgeOffset, top: box.y + MARK_FINISH.badgeOffset, ...markBadgeStyle }}>
+            {number}
+          </span>
+        </div>
+      ))}
       {pinned.map(({ thread, spot }) => {
         const resolved = thread.status === "resolved";
         return (

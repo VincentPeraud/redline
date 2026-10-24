@@ -8,6 +8,7 @@ import {
   versionPreviewPath,
   type AgentInfo,
   type CreateThreadRequest,
+  canvasElementSummary,
   threadTargetLabel,
   type Manifest,
   type ManifestElementKind,
@@ -378,6 +379,8 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const conversationContext = messageContext({ view, viewport: viewportSize, boxes: artboardBoxes, manifest, tweakValues: tweaks.values });
   const artboardTweaks = (file: string) => (manifest?.tweaks ?? []).filter((tweak) => (tweak.artboard ? tweak.artboard === file : file === firstArtboard));
 
+  const canvasMarks = chips.flatMap((chip, index) => (chip.kind === "canvas-element" ? [{ number: index + 1, elementId: chip.elementId }] : []));
+
   return (
     <div className={styles.page}>
       <CanvasHeader
@@ -421,10 +424,12 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               drag.current = null;
               const pressed = pressedAt.current;
               pressedAt.current = null;
-              if (picking && manifest && pressed && Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < CLICK_SLOP) {
+              if ((picking || selecting) && manifest && pressed && Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < CLICK_SLOP) {
                 const id = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-canvas-element-id]")?.getAttribute("data-canvas-element-id");
                 const element = manifest.elements.find((candidate) => candidate.id === id);
-                if (element?.id !== undefined) {
+                if (element?.id !== undefined && selecting) {
+                  setChips((current) => addChip(current, { kind: "canvas-element", elementId: element.id!, elementKind: element.kind, elementSummary: canvasElementSummary(element) }));
+                } else if (element?.id !== undefined) {
                   setDraft({ target: { kind: "canvas-element", elementId: element.id, elementKind: element.kind } });
                   setTab("comments");
                 }
@@ -433,7 +438,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
           >
             <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
               {manifest && (
-              <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking} zoom={view.zoom} threads={threads}>
+              <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking || selecting} zoom={view.zoom} threads={threads} marks={canvasMarks}>
               {manifest.artboards.map((artboard) => {
                 const layout = layoutOf(artboard);
                 const hidden = hiddenOf(artboard);
