@@ -136,7 +136,8 @@
 }
 
 .hoverOutline,
-.hoverLabel {
+.hoverLabel,
+.markBadge {
   position: absolute;
   pointer-events: none;
 }
