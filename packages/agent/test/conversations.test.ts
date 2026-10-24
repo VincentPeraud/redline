@@ -44,6 +44,22 @@ describe("page conversations", () => {
     expect((await seam.server.get("/api/conversations/nope")).status).toBe(404);
   });
 
+  it("creates the conversation when the first message is sent on a page without any, and the message reaches the session", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Hello back" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES, "Onboarding");
+    expect(await (await seam.server.get(`/api/pages/${page.id}/conversations`)).json()).toEqual([]);
+
+    const created = await newConversation(seam, page.id);
+    expect((await send(seam, created.id, "First words", { model: "opus", effort: "low" })).status).toBe(201);
+    await seam.waitForWorkEnd(1);
+
+    expect(engine.runs[0].message).toContain("First words");
+    const detail = await getConversation(seam, created.id);
+    expect(detail).toMatchObject({ model: "opus", effort: "low" });
+    expect(detail.messages.map((m) => m.body)).toEqual(["First words", "Hello back"]);
+  });
+
   it("runs a session told which page is shown, publishes a version with origin conversation and records Claude's answer", async () => {
     const engine = new FakeEngine([
       { edit: { path: "home.html", content: "<!doctype html><h1>New title</h1>" } },

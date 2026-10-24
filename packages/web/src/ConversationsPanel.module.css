@@ -261,3 +261,15 @@
 .messageInput.messageInput {
   line-height: normal;
 }
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.composer .sendButton {
+  height: 32px;
+  padding: 0 14px;
+  font-size: 13px;
+}
