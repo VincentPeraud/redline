@@ -1,5 +1,8 @@
 import {
   AGENT_API_PREFIX,
+  artboardHash,
+  pageHash,
+  playHash,
   type AgentCheckout,
   type AgentReplyRequest,
   type CreateSiblingRequest,
@@ -78,7 +81,15 @@ export class ServerApi {
   }
 
   pageUrl(pageId: string): string {
-    return `${this.serverUrl}/#/pages/${encodeURIComponent(pageId)}`;
+    return `${this.serverUrl}/${pageHash(pageId)}`;
+  }
+
+  artboardUrl(pageId: string, file: string): string {
+    return `${this.serverUrl}/${artboardHash(pageId, file)}`;
+  }
+
+  playUrl(pageId: string, file: string): string {
+    return `${this.serverUrl}/${playHash(pageId, file)}`;
   }
 
   /** JSON in and out; a Buffer body is sent as raw bytes. */
