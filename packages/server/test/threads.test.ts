@@ -101,6 +101,36 @@ describe("pinned threads over the server HTTP API", () => {
     ]);
   });
 
+  describe("whole-artboard threads", () => {
+    const wholeArtboard = (body: string, extra: object = {}) => ({ target: { kind: "artboard", artboard: "home.html" }, body, ...extra });
+
+    it("creates a thread on a whole artboard, with no selector, position or rendering", async () => {
+      const res = await server.post(`/api/pages/${page.id}/threads`, wholeArtboard("Too busy"));
+      expect(res.status).toBe(201);
+      const thread = (await res.json()) as Thread;
+      expect(thread).toMatchObject({ number: 1, status: "open", title: "Too busy", target: { kind: "artboard", artboard: "home.html" }, artboard: "home.html" });
+      expect(thread.rendering).toBeUndefined();
+      const [listed] = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+      expect(listed.target).toEqual({ kind: "artboard", artboard: "home.html" });
+    });
+
+    it("supports Plus tard like any comment", async () => {
+      const res = await server.post(`/api/pages/${page.id}/threads`, wholeArtboard("Later", { held: true }));
+      expect(((await res.json()) as Thread).status).toBe("held");
+      const [held] = (await (await server.get(`/api/pages/${page.id}/held`)).json()) as Thread[];
+      expect(held.target).toEqual({ kind: "artboard", artboard: "home.html" });
+    });
+
+    it("refuses an artboard that is not on the page", async () => {
+      const res = await server.post(`/api/pages/${page.id}/threads`, { target: { kind: "artboard", artboard: "gone.html" }, body: "Hi" });
+      expect(res.status).toBe(400);
+    });
+
+    it.each([{ kind: "artboard" }, { kind: "artboard", artboard: "../x.html" }, { kind: "nope", artboard: "home.html" }])("refuses the target %j", async (target) => {
+      expect((await server.post(`/api/pages/${page.id}/threads`, { target, body: "Hi" })).status).toBe(400);
+    });
+  });
+
   it("numbers threads in creation order and never reuses a number", async () => {
     const first = await createThread("one");
     const second = await createThread("two");

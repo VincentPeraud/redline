@@ -9,16 +9,15 @@ import { queueLabel } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
-import { threadWhere } from "./threadLabel.js";
+import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
 import { ThreadReplyForm } from "./ThreadReplyForm.js";
 import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./Thread.module.css";
 import panel from "./CommentsPanel.module.css";
 
 export interface Draft {
-  artboard: string;
-  selector: string;
-  elementName?: string;
+  /** What the comment is about, as shown in the form. */
+  label: string;
 }
 
 interface Props {
@@ -89,7 +88,7 @@ function ThreadCard({
 
   if (failed) {
     return (
-      <article className={cx(styles.card, styles.failed)}>
+      <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.failed)}>
         <div className={styles.head}>
           <span className={cx(styles.badge, styles.badgeFailed)}>{thread.number}</span>
           <span className={styles.where}>{threadWhere(thread)}</span>
@@ -105,7 +104,7 @@ function ThreadCard({
   }
 
   return (
-    <article className={cx(styles.card, active && styles.running)}>
+    <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running)}>
       <ThreadHeader thread={thread}>
         {queued && (
           <span data-testid="queued" className={styles.queued}>
@@ -187,7 +186,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
         {draft && (
           <div className={panel.draft}>
             <span>
-              Commentaire sur <code>{draft.elementName ?? draft.selector}</code>
+              Commentaire sur <code>{draft.label}</code>
             </span>
             <button type="button" className={panel.cancel} onClick={onCancel}>
               Annuler

@@ -165,6 +165,24 @@
   cursor: pointer;
 }
 
+.threadsChip {
+  flex-shrink: 0;
+  height: 24px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-warning-soft-bg);
+  color: var(--color-warning-text);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
 .tweaksPopover {
   position: absolute;
   top: 0;

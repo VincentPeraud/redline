@@ -598,18 +598,40 @@ export class Store {
     };
   }
 
-  createThread(pageId: string, pin: CreateThreadRequest): Thread {
+  /** Whether `file` is an artboard of the page's current version (manifest entry whose file exists; every HTML file without a manifest). */
+  hasArtboard(pageId: string, file: string): boolean {
+    const page = this.getPage(pageId);
+    if (!page || page.version.files[file] === undefined) return false;
+    const manifest = page.version.files[MANIFEST_PATH];
+    const parsed = manifest === undefined ? defaultManifest(Object.keys(page.version.files)) : parseManifest(this.blobText(manifest));
+    return parsed.artboards.some((a) => a.file === file);
+  }
+
+  createThread(pageId: string, request: CreateThreadRequest): Thread {
     const id = randomUUID();
     const { next } = this.db
       .prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?")
       .get(pageId) as { next: number };
-    const title = (pin.title?.trim() || pin.body.trim().split("\n")[0]).slice(0, 80);
+    const title = (request.title?.trim() || request.body.trim().split("\n")[0]).slice(0, 80);
+    // artboard and selector are NOT NULL: "" where they do not apply to the target.
+    const placement =
+      "target" in request
+        ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, xPct: 0, yPct: 0 }
+        : {
+            kind: "element",
+            artboard: request.artboard,
+            selector: request.selector,
+            elementName: request.elementName ?? null,
+            rendering: request.rendering ? JSON.stringify({ format: request.rendering.format, width: request.rendering.width }) : null,
+            xPct: request.xPct,
+            yPct: request.yPct,
+          };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, artboard, selector, element_name, rendering, x_pct, y_pct, title, body, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, artboard, selector, element_name, rendering, x_pct, y_pct, title, body, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, pin.artboard, pin.selector, pin.elementName ?? null, pin.rendering ? JSON.stringify({ format: pin.rendering.format, width: pin.rendering.width }) : null, pin.xPct, pin.yPct, title, pin.body, pin.held ? "held" : "open", now());
+      .run(id, pageId, next, placement.kind, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now());
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -630,7 +652,7 @@ export class Store {
   listHeldThreads(pageId: string): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.x_pct, t.y_pct, t.title, t.body, t.status
+        `SELECT t.id, t.page_id, t.number, t.target_kind, t.element_id, t.element_kind, t.artboard, t.selector, t.element_name, t.rendering, t.x_pct, t.y_pct, t.title, t.body, t.status
          FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId) as ThreadRow[];

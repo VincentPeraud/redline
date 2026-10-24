@@ -258,21 +258,32 @@ export interface Thread {
   newSession?: "summarizing" | "ready";
 }
 
-export interface CreateThreadRequest extends ModelChoice {
-  artboard: string;
-  selector: string;
-  xPct: number;
-  yPct: number;
+interface CreateThreadCommon extends ModelChoice {
   body: string;
   /** Short name of the thread; defaults to the first line of the body. */
   title?: string;
   /** "Plus tard": store the comment without sending it. */
   held?: boolean;
+}
+
+/** A comment pinned on an element of an artboard. */
+export interface CreateElementThreadRequest extends CreateThreadCommon {
+  artboard: string;
+  selector: string;
+  xPct: number;
+  yPct: number;
   /** Readable name of the element, e.g. `bouton « Continuer »`; at most `MAX_ELEMENT_NAME_LENGTH` characters. */
   elementName?: string;
   /** Rendering of a responsive artboard the comment was pinned in. */
   rendering?: ThreadRendering;
 }
+
+/** A comment on a whole artboard: no element, no pin, no rendering. The artboard must be on the page. */
+export interface CreateArtboardThreadRequest extends CreateThreadCommon {
+  target: { kind: "artboard"; artboard: string };
+}
+
+export type CreateThreadRequest = CreateElementThreadRequest | CreateArtboardThreadRequest;
 
 export const MAX_ELEMENT_NAME_LENGTH = 200;
 
