@@ -116,6 +116,37 @@ it("copies the full canvas address of an artboard from its name strip and confir
   await tab.close();
 }, 60_000);
 
+it("shows a link card aimed at an artboard of another page, opens it centred, and says when the artboard is gone", async () => {
+  const targetId = await createPage({ "near.html": html, "far away.html": html }, farApart);
+  const sourceId = await createPage(
+    { "home.html": html },
+    {
+      artboards: [{ file: "home.html", x: 0, y: 0 }],
+      elements: [
+        { kind: "link", id: "carte", page: targetId, file: "far away.html", x: 0, y: 500 },
+        { kind: "link", id: "perdue", page: targetId, file: "old-cart.html", x: 0, y: 700 },
+      ],
+    },
+  );
+  const tab = await context.newPage();
+  await tab.goto(`${server.url}/#/pages/${sourceId}`);
+
+  const card = tab.locator('[data-canvas-element-id="carte"]');
+  await card.getByText("Far", { exact: true }).waitFor();
+  expect(await card.innerText()).toContain("Artboard · Flow · Acme");
+  const gone = tab.locator('[data-canvas-element-id="perdue"]');
+  await gone.getByText("Artboard introuvable").waitFor();
+
+  await card.click();
+  const artboard = tab.locator('[data-artboard="far away.html"]');
+  await artboard.waitFor();
+  expect(await tab.evaluate(() => window.location.hash)).toBe(`#/pages/${targetId}/artboards/far%20away.html`);
+  const viewport = await box(tab.getByTestId("canvas"));
+  const frame = await box(artboard.locator("iframe"));
+  expect(Math.abs(frame.x + frame.width / 2 - (viewport.x + viewport.width / 2))).toBeLessThan(3);
+  await tab.close();
+}, 60_000);
+
 it("puts the copy link button once on a responsive frame", async () => {
   const pageId = await createPage(
     { "landing.html": html },

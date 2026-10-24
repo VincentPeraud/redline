@@ -7,6 +7,11 @@ it("tells Claude that every element needs a stable, readable id", () => {
   expect(REDLINE_GUIDE).toContain("Keep an element's id when you edit or move it");
 });
 
+it("explains aiming a link card at an artboard with file", () => {
+  expect(REDLINE_GUIDE).toContain('{ "kind": "link", "page": "<page id>", "file": "<artboard file>"');
+  expect(REDLINE_GUIDE).toContain("artboard of that page");
+});
+
 it("documents the context block that follows a conversation message", () => {
   expect(REDLINE_GUIDE).toContain("The user is looking at: <files>");
   expect(REDLINE_GUIDE).toContain("Elements the user points at:");

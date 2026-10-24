@@ -484,6 +484,8 @@ export interface ManifestPageLinkElement {
   id?: string;
   kind: "link";
   page: string;
+  /** Artboard file of the target page: the card shows that artboard and opens the page centred on it. */
+  file?: string;
   x: number;
   y: number;
 }
@@ -540,7 +542,7 @@ export function canvasElementSummary(element: ManifestElement): string {
     case "arrow":
       return quoted(element.label);
     case "link":
-      return "page" in element ? `link to page ${element.page}` : element.url;
+      return "page" in element ? (element.file === undefined ? `link to page ${element.page}` : `link to artboard ${element.file} of page ${element.page}`) : element.url;
     case "image":
       return element.src;
   }
@@ -726,8 +728,10 @@ const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unkno
     const y = num(item, "y", name, 0);
     if (item.page !== undefined) {
       if (item.url !== undefined) fail(`${name}.page and ${name}.url cannot be used together`);
-      return { kind: "link", page: str(item, "page", name), x, y };
+      const page = str(item, "page", name);
+      return item.file === undefined ? { kind: "link", page, x, y } : { kind: "link", page, file: str(item, "file", name), x, y };
     }
+    if (item.file !== undefined) fail(`${name}.file needs ${name}.page`);
     if (item.url === undefined) fail(`${name}.page must be a non-empty string (or ${name}.url with ${name}.title)`);
     const url = str(item, "url", name);
     if (!/^https?:\/\/[^\s/]+/i.test(url)) fail(`${name}.url must be an http(s) address`);

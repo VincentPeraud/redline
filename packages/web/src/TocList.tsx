@@ -9,6 +9,7 @@ interface Props {
   currentFile?: string;
   onSelect: (file: string) => void;
   autoFocusFilter?: boolean;
+  placeholder?: string;
 }
 
 function threadLabel(count: number): string {
@@ -16,7 +17,7 @@ function threadLabel(count: number): string {
 }
 
 /** The page's artboards numbered in reading order under their group titles, with a filter. Shared by the header menu, the side panel tab and the play counter menu. */
-export function TocList({ items, currentFile, onSelect, autoFocusFilter }: Props) {
+export function TocList({ items, currentFile, onSelect, autoFocusFilter, placeholder = "Filtrer…" }: Props) {
   const [query, setQuery] = useState("");
   const filterId = useId();
   const groups = tocGroups(items, query);
@@ -26,7 +27,7 @@ export function TocList({ items, currentFile, onSelect, autoFocusFilter }: Props
         <label htmlFor={filterId} className={styles.srOnly}>
           Filtrer les artboards
         </label>
-        <input id={filterId} type="search" placeholder="Filtrer…" autoFocus={autoFocusFilter} value={query} onChange={(e) => setQuery(e.target.value)} className={styles.input} />
+        <input id={filterId} type="search" placeholder={placeholder} autoFocus={autoFocusFilter} value={query} onChange={(e) => setQuery(e.target.value)} className={styles.input} />
       </div>
       <div className={styles.groups}>
         {groups.map((group) => (

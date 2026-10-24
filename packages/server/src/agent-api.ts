@@ -12,6 +12,7 @@ import {
 } from "@redline/shared";
 import { mergeOntoCurrent } from "./publish.js";
 import { tokensEqual } from "./request-hardening.js";
+import { crossPageReferencesError } from "./cross-page-references.js";
 import { requiredString, titleError, versionRequestError } from "./validation.js";
 import { projectContext, putProjectAsset } from "./project-files.js";
 import type { PageLock } from "./page-lock.js";
@@ -79,7 +80,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
 
       api.post<{ Params: { pageId: string }; Body: CreateVersionRequest }>("/pages/:pageId/versions", async (req, reply) => {
         if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-        const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId), true);
+        const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId), true) ?? crossPageReferencesError(store, req.params.pageId, req.body.files);
         if (invalid) return reply.code(400).send({ error: invalid });
         const { files, message, origin, baseVersionId, workId, designMd } = req.body;
         if (!requiredString(baseVersionId)) return reply.code(400).send({ error: "baseVersionId is required" });
