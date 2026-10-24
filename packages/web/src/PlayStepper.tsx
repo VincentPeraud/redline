@@ -52,7 +52,7 @@ export function PlayStepper({ variant, tocItems, current, menuOpen, onMenuOpenCh
           onClick={() => onMenuOpenChange(!menuOpen)}
           className={phone ? styles.mobileCounter : cx(styles.counter, menuOpen && styles.counterOpen)}
         >
-          {position + 1} / {tocItems.length}
+          {position < 0 ? tocItems.length : `${position + 1} / ${tocItems.length}`}
           {!phone && (
             <>
               {" "}

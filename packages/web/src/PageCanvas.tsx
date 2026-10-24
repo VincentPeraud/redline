@@ -1,5 +1,5 @@
 import { useAltKey } from "./useAltKey.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   EMPTY_VIEW_SETTINGS,
   MANIFEST_PATH,
@@ -204,6 +204,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   /** Where the pointer went down, to tell a click on a canvas element from the end of a pan. */
   const pressedAt = useRef<{ x: number; y: number } | null>(null);
 
+  const artboardTitles = useMemo(() => manifest?.artboards.map((a) => ({ file: a.file, title: a.title ?? a.file })) ?? null, [manifest]);
   const playing = playFile !== undefined && manifest !== null && manifest.artboards.some((a) => a.file === playFile);
 
   const runs = useRuns(pageId);
@@ -289,9 +290,9 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     setOutlined(addressedArtboard);
   }, [addressedArtboard, manifest, viewportSize]);
 
-  // A play address naming an artboard the manifest no longer has lands on the canvas with the same message.
+  // A play address naming an artboard the manifest no longer has lands on the canvas with the same message, and an existing one clears it.
   useEffect(() => {
-    if (playFile !== undefined && manifest && !playing) setMissingArtboard(playFile);
+    if (playFile !== undefined && manifest) setMissingArtboard(playing ? null : playFile);
   }, [playFile, manifest, playing]);
 
   useEffect(() => {
@@ -829,7 +830,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             </button>
           </div>
           {tab === "conversation" ? (
-            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} artboards={manifest?.artboards.map((a) => ({ file: a.file, title: a.title ?? a.file })) ?? null} onCenterArtboard={centerOnArtboard} onMissingArtboard={setMissingArtboard} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults}
+            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} artboards={artboardTitles} onCenterArtboard={centerOnArtboard} onMissingArtboard={setMissingArtboard} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults}
               chips={chips}
               selecting={selecting}
               onSelectingChange={changeSelecting}

@@ -162,7 +162,7 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
       if (event.key === "Escape") {
         if (menuOpen) setMenuOpen(false);
         else onExit();
-      } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !isEditableTarget(event.target)) goBy(event.key === "ArrowLeft" ? -1 : 1);
+      } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !menuOpen && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !isEditableTarget(event.target)) goBy(event.key === "ArrowLeft" ? -1 : 1);
       else if (event.key.toLowerCase() === "g" && !event.metaKey && !event.ctrlKey && !event.altKey && !isEditableTarget(event.target)) onToggleGuides();
     }
     window.addEventListener("keydown", onKey);

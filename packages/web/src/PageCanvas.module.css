@@ -391,7 +391,7 @@
 }
 
 .tabActive {
-  border-bottom-color: var(--color-accent);
+  border-bottom-color: var(--color-text);
   font-weight: var(--font-weight-semibold);
 }
 

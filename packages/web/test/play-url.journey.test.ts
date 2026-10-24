@@ -163,6 +163,21 @@ it("opens the canvas with the message when a play address names an artboard that
   await tab.close();
 }, 60_000);
 
+it("drops the gone-artboard message when the route moves to a play address that exists", async () => {
+  const pageId = await createPage(plain);
+  const tab = await context.newPage();
+  await tab.goto(`${server.url}/#/pages/${pageId}/play/old-cart.html`);
+  const message = tab.getByRole("status").filter({ hasText: "Cet artboard n'existe plus" });
+  await message.waitFor();
+
+  await tab.evaluate((id) => (window.location.hash = `#/pages/${id}/play/one.html`), pageId);
+  await tab.getByTestId("play").waitFor();
+  await tab.keyboard.press("Escape");
+  await tab.locator('[data-artboard="one.html"]').waitFor();
+  expect(await message.count()).toBe(0);
+  await tab.close();
+}, 60_000);
+
 it("copies the full-screen address from the name strip and the current play URL, rendu included, from the play header", async () => {
   const pageId = await createPage(responsive);
   const tab = await context.newPage();

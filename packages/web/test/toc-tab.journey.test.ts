@@ -63,6 +63,7 @@ it("shows the table of contents in a side tab that highlights the centred artboa
   const tabs = tab.getByRole("tablist", { name: "Panneau latéral" }).getByRole("tab");
   expect(await tabs.allTextContents()).toEqual(["Conversation", "Commentaires · 1", "Sommaire"]);
   await tabs.nth(2).click();
+  expect(await tabs.nth(2).evaluate((node) => getComputedStyle(node).borderBottomColor)).toBe("rgb(24, 24, 27)");
   const panel = tab.getByRole("complementary");
   const lines = panel.getByRole("menuitem");
   await expect.poll(async () => lines.allTextContents()).toEqual(["1Bienvenuewelcome.html", "2Spécialitéspecialite.html1 fil", "3Paiementpayment.html"]);
