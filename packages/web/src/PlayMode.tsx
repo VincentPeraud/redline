@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { RESPONSIVE_FORMATS, renderingKey, renderingLabel, type ArtboardRendering, type Manifest, type TweakValue, type TweakValues } from "@redline/shared";
 import { TweaksPanel } from "./TweaksPanel.js";
-import { PlayDevice } from "./PlayDevice.js";
-import { presentationOf, type Presentation } from "./playDevices.js";
+import { PlayFrame } from "./PlayFrame.js";
+import { presentationOf, type Presentation } from "./playFrames.js";
 import { ArtboardGuides } from "./ArtboardGuides.js";
 import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
@@ -66,6 +66,7 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
   const renderings = artboard?.responsive ?? [];
   const [rendering, selectRendering] = usePlayRendering(renderings);
   const presentation = artboard && presentationOf(artboard, framed, windowWidth, artboard.responsive ? rendering : undefined);
+  const isBrowserFrame = rendering ? rendering.format === "desktop" : artboard?.frame === "browser";
   const fitted = presentation && fitToStage(presentation, stageSize);
   /** "Desktop", or "Desktop · 1440" when the artboard has several renderings of the same format. */
   const renderingOptionLabel = (r: ArtboardRendering) => (renderings.filter((o) => o.format === r.format).length > 1 ? renderingLabel(r) : RESPONSIVE_FORMATS[r.format].label);
@@ -189,9 +190,9 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
           </nav>
           <div className={styles.spacer} />
           {presentation?.framable && (
-            <button type="button" aria-pressed={framed} title={(rendering?.format ?? artboard?.device) === "desktop" ? "Afficher ou masquer la fenêtre de navigateur" : "Afficher ou masquer le cadre de l'appareil"} onClick={toggleFramed} className={cx(styles.habillage, framed && styles.habillageOn)}>
+            <button type="button" aria-pressed={framed} title={isBrowserFrame ? "Afficher ou masquer la fenêtre de navigateur" : "Afficher ou masquer le cadre de l'appareil"} onClick={toggleFramed} className={cx(styles.habillage, framed && styles.habillageOn)}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                {(rendering?.format ?? artboard?.device) === "desktop" ? (
+                {isBrowserFrame ? (
                   <>
                     <rect x="3" y="4" width="18" height="16" rx="2" />
                     <path d="M3 9h18" />
@@ -215,9 +216,9 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
         </header>
       )}
       <div className={styles.body}>
-        <main ref={stage} data-device={presentation?.device} data-fill={presentation?.fill === "none" ? undefined : presentation?.fill} className={styles.stage}>
+        <main ref={stage} data-frame={presentation?.frame} data-fill={presentation?.fill === "none" ? undefined : presentation?.fill} className={styles.stage}>
           {artboard && presentation && fitted ? (
-            <PlayDevice device={presentation.device} url={artboard.url}>
+            <PlayFrame frame={presentation.frame} url={artboard.url}>
               <div className={styles.viewport} style={{ width: fitted.viewport.width * fitted.scale, height: fitted.viewport.height * fitted.scale }}>
                 <iframe
                   key={artboard.file}
@@ -234,7 +235,7 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
                   </div>
                 )}
               </div>
-            </PlayDevice>
+            </PlayFrame>
           ) : (
             <p className={styles.empty}>Aucun artboard</p>
           )}

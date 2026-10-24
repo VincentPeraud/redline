@@ -98,24 +98,32 @@ describe("page manifest", () => {
     expect(() => parseManifest(JSON.stringify({ artboards: "x" }))).toThrow(/artboards/);
   });
 
-  it("reads an artboard's device and url, and refuses an unknown device naming the field", () => {
+  it("reads an artboard's frame and url, and refuses an unknown frame naming the field", () => {
     const manifest = parseManifest(
       JSON.stringify({
         artboards: [
-          { file: "home.html", device: "desktop", url: "lumora.fr" },
-          { file: "cv.html", device: "paper" },
+          { file: "home.html", frame: "browser", url: "lumora.fr" },
+          { file: "cv.html", frame: "paper" },
           { file: "plain.html" },
         ],
       }),
     );
-    expect(manifest.artboards[0]).toMatchObject({ device: "desktop", url: "lumora.fr" });
-    expect(manifest.artboards[1]?.device).toBe("paper");
-    expect(manifest.artboards[2]).not.toHaveProperty("device");
+    expect(manifest.artboards[0]).toMatchObject({ frame: "browser", url: "lumora.fr" });
+    expect(manifest.artboards[1]?.frame).toBe("paper");
+    expect(manifest.artboards[2]).not.toHaveProperty("frame");
     expect(manifest.artboards[2]).not.toHaveProperty("url");
-    for (const device of ["phone", "tablet", "desktop", "paper", "none"]) {
-      expect(() => parseManifest(JSON.stringify({ artboards: [{ file: "a.html", device }] }))).not.toThrow();
+    for (const frame of ["phone", "tablet", "browser", "paper"]) {
+      expect(() => parseManifest(JSON.stringify({ artboards: [{ file: "a.html", frame }] }))).not.toThrow();
     }
-    expect(() => parseManifest(JSON.stringify({ artboards: [{ file: "a.html", device: "watch" }] }))).toThrow(/artboards\[0\]\.device/);
+    expect(() => parseManifest(JSON.stringify({ artboards: [{ file: "a.html", frame: "watch" }] }))).toThrow(/artboards\[0\]\.frame/);
+    expect(() => parseManifest(JSON.stringify({ artboards: [{ file: "a.html", frame: "none" }] }))).toThrow(/artboards\[0\]\.frame/);
+    expect(() => parseManifest(JSON.stringify({ artboards: [{ file: "a.html", frame: "desktop" }] }))).toThrow(/artboards\[0\]\.frame/);
+  });
+
+  it("refuses the former device field with a rename message", () => {
+    const refuse = (artboard: object) => () => parseManifest(JSON.stringify({ artboards: [{ file: "a.html" }, { file: "b.html", ...artboard }] }));
+    expect(refuse({ device: "phone" })).toThrow(/artboards\[1\]\.device was renamed to frame/);
+    expect(refuse({ device: "desktop" })).toThrow(/artboards\[1\]\.device was renamed to frame/);
   });
 
   it("derives a side-by-side layout from the html files when a page has no manifest", () => {
@@ -265,35 +273,39 @@ describe("page manifest", () => {
       ]);
     });
 
-    it("reads a {device, width, height} override and labels renderings with format and width", () => {
-      const [artboard] = parse(["desktop", { device: "desktop", width: 1920, height: 1080 }]).artboards;
+    it("reads a {format, width, height} override and labels renderings with format and width", () => {
+      const [artboard] = parse(["desktop", { format: "desktop", width: 1920, height: 1080 }]).artboards;
       expect(artboard!.responsive!.map(renderingLabel)).toEqual(["Desktop · 1440", "Desktop · 1920"]);
       expect(artboard!.responsive![1]).toEqual({ format: "desktop", width: 1920, height: 1080 });
     });
 
-    it("ignores the device of a responsive artboard and sizes the artboard to its frame", () => {
-      const [artboard] = parse(["desktop", "mobile"], { device: "phone" }).artboards;
-      expect(artboard).not.toHaveProperty("device");
+    it("ignores the frame of a responsive artboard and sizes the artboard to its frame", () => {
+      const [artboard] = parse(["desktop", "mobile"], { frame: "phone" }).artboards;
+      expect(artboard).not.toHaveProperty("frame");
       expect(artboard!.width).toBe(RESPONSIVE_SPACING * 3 + 1440 + 390);
       expect(artboard!.height).toBe(RESPONSIVE_SPACING * 2 + 900);
     });
 
     it("refuses an unknown format, naming the field", () => {
       expect(() => parse(["desktop", "watch"])).toThrow(/artboards\[0\]\.responsive\[1\].*desktop/);
-      expect(() => parse([{ device: "watch", width: 100, height: 100 }])).toThrow(/artboards\[0\]\.responsive\[0\]\.device/);
-      expect(() => parse([{ device: "mobile", width: 0, height: 100 }])).toThrow(/artboards\[0\]\.responsive\[0\]\.width/);
-      expect(() => parse([{ device: "mobile", width: 100 }])).toThrow(/artboards\[0\]\.responsive\[0\]\.height/);
+      expect(() => parse([{ format: "watch", width: 100, height: 100 }])).toThrow(/artboards\[0\]\.responsive\[0\]\.format/);
+      expect(() => parse([{ format: "mobile", width: 0, height: 100 }])).toThrow(/artboards\[0\]\.responsive\[0\]\.width/);
+      expect(() => parse([{ format: "mobile", width: 100 }])).toThrow(/artboards\[0\]\.responsive\[0\]\.height/);
       expect(() => parse([])).toThrow(/artboards\[0\]\.responsive/);
       expect(() => parse("desktop")).toThrow(/artboards\[0\]\.responsive/);
     });
 
     it("refuses two renderings with the same format and width", () => {
-      expect(() => parse(["mobile", { device: "mobile", width: 390, height: 600 }])).toThrow(/artboards\[0\]\.responsive\[1\]/);
+      expect(() => parse(["mobile", { format: "mobile", width: 390, height: 600 }])).toThrow(/artboards\[0\]\.responsive\[1\]/);
     });
 
-    it("refuses an unknown device even though a responsive artboard ignores it", () => {
-      const bad = () => parseManifest(JSON.stringify({ artboards: [{ file: "a.html", device: "watch", responsive: ["mobile"] }] }));
-      expect(bad).toThrow(/artboards\[0\]\.device/);
+    it("refuses an unknown frame even though a responsive artboard ignores it", () => {
+      const bad = () => parseManifest(JSON.stringify({ artboards: [{ file: "a.html", frame: "watch", responsive: ["mobile"] }] }));
+      expect(bad).toThrow(/artboards\[0\]\.frame/);
+    });
+
+    it("refuses a size override still carrying device with a rename message", () => {
+      expect(() => parse([{ device: "mobile", width: 390, height: 844 }])).toThrow(/artboards\[0\]\.responsive\[0\]\.device was renamed to format/);
     });
   });
 
@@ -301,11 +313,11 @@ describe("page manifest", () => {
     const refuse = (manifest: object) => () => parseManifest(JSON.stringify(manifest));
 
     it("refuses a non-string url on an artboard, naming the field", () => {
-      expect(refuse({ artboards: [{ file: "a.html", device: "desktop", url: 42 }] })).toThrow(/artboards\[0\]\.url/);
+      expect(refuse({ artboards: [{ file: "a.html", frame: "browser", url: 42 }] })).toThrow(/artboards\[0\]\.url/);
     });
 
-    it("refuses a url on an artboard whose device is not desktop", () => {
-      expect(refuse({ artboards: [{ file: "a.html", device: "phone", url: "lumora.fr" }] })).toThrow(/artboards\[0\]\.url/);
+    it("refuses a url on an artboard whose frame is not browser", () => {
+      expect(refuse({ artboards: [{ file: "a.html", frame: "phone", url: "lumora.fr" }] })).toThrow(/artboards\[0\]\.url/);
       expect(refuse({ artboards: [{ file: "a.html", url: "lumora.fr" }] })).toThrow(/artboards\[0\]\.url/);
     });
 

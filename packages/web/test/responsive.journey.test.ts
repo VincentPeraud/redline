@@ -40,7 +40,7 @@ it("lays a responsive artboard out as one frame: renderings side by side at the 
       files: {
         "landing.html": LANDING,
         "manifest.json": JSON.stringify({
-          artboards: [{ file: "landing.html", x: 0, y: 0, device: "phone", responsive: ["desktop", "tablet", { device: "mobile", width: 390, height: 844 }] }],
+          artboards: [{ file: "landing.html", x: 0, y: 0, frame: "phone", responsive: ["desktop", "tablet", { format: "mobile", width: 390, height: 844 }] }],
           elements: [{ kind: "arrow", from: "landing.html", to: { x: 5000, y: 0 } }],
           tweaks: [{ id: "layout", type: "choice", label: "Layout", options: ["list", "grid"] }],
         }),
@@ -93,7 +93,7 @@ it("pins a comment in one rendering: its pin shows in that rendering only (after
         "plain.html": `<!doctype html><html><body style="margin:0"><h1 style="margin:0">Plain</h1></body></html>`,
         "manifest.json": JSON.stringify({
           artboards: [
-            { file: "landing.html", x: 0, y: 0, responsive: ["desktop", { device: "mobile", width: 390, height: 844 }] },
+            { file: "landing.html", x: 0, y: 0, responsive: ["desktop", { format: "mobile", width: 390, height: 844 }] },
             { file: "plain.html", x: 6000, y: 0, width: 400, height: 300 },
           ],
         }),

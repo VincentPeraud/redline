@@ -40,8 +40,8 @@ async function createPage(title: string, manifest: object): Promise<string> {
 it("names the header nav entries after the artboard titles, offers Guides only on an artboard that declares them and Habillage never on paper", async () => {
   const pageId = await createPage("Header", {
     artboards: [
-      { file: "a.html", title: "Tableau de bord", width: 1000, height: 600, device: "desktop", guides: { columns: 12, gutter: 24, margin: 80 } },
-      { file: "b.html", width: 576, height: 814, device: "paper" },
+      { file: "a.html", title: "Tableau de bord", width: 1000, height: 600, frame: "browser", guides: { columns: 12, gutter: 24, margin: 80 } },
+      { file: "b.html", width: 576, height: 814, frame: "paper" },
     ],
   });
   const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -55,7 +55,7 @@ it("names the header nav entries after the artboard titles, offers Guides only o
   expect(await play.getByRole("button", { name: "Habillage" }).count()).toBe(1);
 
   await nav.getByRole("button", { name: "Artboard 2" }).click();
-  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("paper");
+  await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("paper");
   expect(await play.getByRole("button", { name: "Guides (G)" }).count()).toBe(0);
   expect(await play.getByRole("button", { name: "Habillage" }).count()).toBe(0);
 
@@ -63,13 +63,13 @@ it("names the header nav entries after the artboard titles, offers Guides only o
   await nav.getByRole("button", { name: "Tableau de bord" }).click();
   await play.getByRole("button", { name: "Habillage" }).click();
   await nav.getByRole("button", { name: "Artboard 2" }).click();
-  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("paper");
+  await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("paper");
   await tab.close();
 }, 60_000);
 
 it("has a Tweaks toggle only when the page has tweaks: panel open by default, choice remembered, and typing g in a field leaves the guides alone", async () => {
   const pageId = await createPage("Tweaks toggle", {
-    artboards: [{ file: "a.html", width: 1000, height: 600, device: "desktop", guides: { columns: 12, gutter: 24, margin: 80 } }],
+    artboards: [{ file: "a.html", width: 1000, height: 600, frame: "browser", guides: { columns: 12, gutter: 24, margin: 80 } }],
     tweaks: [{ id: "title", type: "text", label: "Title", default: "Welcome" }],
   });
   const plainId = await createPage("No tweaks", { artboards: [{ file: "a.html", width: 1000, height: 600 }] });
@@ -121,6 +121,6 @@ it("plays a responsive artboard's mobile rendering in a narrow window with the 4
   expect(await selector.inputValue()).toBe("mobile-390");
 
   await selector.selectOption("desktop-1440");
-  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("desktop");
+  await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("browser");
   await tab.close();
 }, 60_000);

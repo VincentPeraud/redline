@@ -82,7 +82,7 @@
   background: var(--play-panel-bg);
 }
 
-.desktop {
+.browser {
   border-radius: var(--radius-lg);
   box-shadow: 0 0 0 1px var(--play-border-strong), 0 24px 48px rgba(0, 0, 0, 0.45);
 }

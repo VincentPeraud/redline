@@ -265,9 +265,9 @@ export const DEFAULT_ARTBOARD_HEIGHT = 500;
 /** Horizontal gap between artboards laid out automatically. */
 export const ARTBOARD_GAP = 80;
 
-/** How play mode presents an artboard. `none` = the design as is. */
-export type ArtboardDevice = "phone" | "tablet" | "desktop" | "paper" | "none";
-export const ARTBOARD_DEVICES: readonly ArtboardDevice[] = ["phone", "tablet", "desktop", "paper", "none"];
+/** The frame play mode draws around an artboard. An artboard without a frame is shown as is. */
+export type ArtboardFrame = "phone" | "tablet" | "browser" | "paper";
+export const ARTBOARD_FRAMES: readonly ArtboardFrame[] = ["phone", "tablet", "browser", "paper"];
 /** Column grid drawn over an artboard when the viewer shows guides (canvas pixels). */
 export interface ArtboardGuides {
   columns: number;
@@ -321,14 +321,14 @@ export interface ManifestArtboard {
   height: number;
   x: number;
   y: number;
-  /** Declared presentation in play mode; absent = "none" (shown as is). */
-  device?: ArtboardDevice;
-  /** Text shown in the address bar of the `desktop` presentation; never invented. */
+  /** Declared frame in play mode; absent = shown as is. */
+  frame?: ArtboardFrame;
+  /** Text shown in the address bar of the `browser` frame; never invented. */
   url?: string;
   /** `fill`: in play mode the artboard fills the whole window (ignored on a phone); the canvas keeps the declared size. */
   expand?: "fill";
   guides?: ArtboardGuides;
-  /** One HTML file rendered at several widths, side by side in one frame; `device` is ignored. `width`/`height` then describe the frame with the declared heights. */
+  /** One HTML file rendered at several widths, side by side in one frame; `frame` is ignored. `width`/`height` then describe the frame with the declared heights. */
   responsive?: ArtboardRendering[];
 }
 
@@ -721,15 +721,16 @@ function parseRenderings(value: unknown, name: string): ArtboardRendering[] {
       rendering = { format: entry as ResponsiveFormat, width, height };
     } else if (typeof entry === "object" && entry !== null && !Array.isArray(entry)) {
       const item = entry as Record<string, unknown>;
-      if (!RESPONSIVE_FORMAT_NAMES.includes(item.device as ResponsiveFormat)) fail(`${entryName}.device must be one of ${RESPONSIVE_FORMAT_NAMES.join(", ")}`);
+      if (item.device !== undefined) fail(`${entryName}.device was renamed to format (${RESPONSIVE_FORMAT_NAMES.join(", ")})`);
+      if (!RESPONSIVE_FORMAT_NAMES.includes(item.format as ResponsiveFormat)) fail(`${entryName}.format must be one of ${RESPONSIVE_FORMAT_NAMES.join(", ")}`);
       const size = (key: "width" | "height") => {
         const n = item[key];
         if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) fail(`${entryName}.${key} must be a positive number`);
         return n as number;
       };
-      rendering = { format: item.device as ResponsiveFormat, width: size("width"), height: size("height") };
+      rendering = { format: item.format as ResponsiveFormat, width: size("width"), height: size("height") };
     } else {
-      return fail(`${entryName} must be a format name or {device, width, height}`);
+      return fail(`${entryName} must be a format name or {format, width, height}`);
     }
     if (seen.has(renderingKey(rendering))) fail(`${entryName} repeats ${renderingLabel(rendering)}`);
     seen.add(renderingKey(rendering));
@@ -759,18 +760,19 @@ export function parseManifest(text: string): Manifest {
       y: num(item, "y", name, 0),
     };
     if (typeof item.title === "string") artboard.title = item.title;
-    if (item.device !== undefined && !ARTBOARD_DEVICES.includes(item.device as ArtboardDevice)) fail(`${name}.device must be one of ${ARTBOARD_DEVICES.join(", ")}`);
+    if (item.device !== undefined) fail(`${name}.device was renamed to frame (${ARTBOARD_FRAMES.map((f) => `"${f}"`).join(" | ")}; leave it out to show the artboard as is)`);
+    if (item.frame !== undefined && !ARTBOARD_FRAMES.includes(item.frame as ArtboardFrame)) fail(`${name}.frame must be one of ${ARTBOARD_FRAMES.join(", ")}`);
     if (item.responsive !== undefined) {
       const renderings = parseRenderings(item.responsive, `${name}.responsive`);
       artboard.responsive = renderings;
       artboard.width = renderings.reduce((sum, r) => sum + r.width, 0) + RESPONSIVE_SPACING * (renderings.length + 1);
       artboard.height = Math.max(...renderings.map((r) => r.height)) + RESPONSIVE_SPACING * 2;
-    } else if (item.device !== undefined) {
-      artboard.device = item.device as ArtboardDevice;
+    } else if (item.frame !== undefined) {
+      artboard.frame = item.frame as ArtboardFrame;
     }
     const url = optionalStr(item, "url", name);
     if (url !== undefined) {
-      if (!artboard.responsive && artboard.device !== "desktop") fail(`${name}.url is only for artboards whose device is desktop`);
+      if (!artboard.responsive && artboard.frame !== "browser") fail(`${name}.url is only for artboards whose frame is browser`);
       artboard.url = url;
     }
     if (item.expand !== undefined) {
