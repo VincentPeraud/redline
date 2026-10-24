@@ -250,6 +250,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     });
   }, [refresh, refreshQueue, pageId]);
 
+  // "Removed" is derived from the current manifest, so a new version can change it.
+  useEffect(() => {
+    void refresh();
+  }, [refresh, versionId]);
+
   useEffect(() => {
     if (scrollToArtboard === null || tab !== "comments") return;
     document.querySelector(`[data-whole-artboard="${CSS.escape(scrollToArtboard)}"]`)?.scrollIntoView({ block: "nearest" });

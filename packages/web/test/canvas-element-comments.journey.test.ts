@@ -144,3 +144,39 @@ it("outlines canvas elements in comment mode, pins threads on them, follows thei
     })
     .toBeLessThan(6);
 }, 90_000);
+
+it("keeps the thread of a removed canvas element in the list, greyed and unpinned, and restores it when the id returns", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Removed elements" })).json()) as { id: string };
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Parcours",
+      files: { "home.html": "<!doctype html><body>Home</body>", "manifest.json": manifest(500) },
+    })
+  ).json()) as Page;
+  await server.post(`/api/pages/${page.id}/threads`, { target: { kind: "canvas-element", elementId: "note-parcours" }, body: "Add the confirmation step" });
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  await tab.locator("[data-canvas-pin='1']").waitFor();
+  await tab.getByRole("tab", { name: /^Commentaires/ }).click();
+  expect(await tab.getByTestId("removed-tag").count()).toBe(0);
+
+  const publish = (withSticky: boolean) =>
+    server.post(`/api/pages/${page.id}/versions`, { files: { "manifest.json": manifest(500, withSticky) }, message: "Edit the note", origin: "thread" });
+
+  await publish(false);
+  await tab.getByTestId("removed-tag").waitFor();
+  expect(await tab.getByTestId("removed-tag").textContent()).toBe("retiré du canvas");
+  expect(await tab.locator("[data-canvas-pin='1']").count()).toBe(0);
+  await tab.getByRole("button", { name: "Répondre" }).click();
+  await tab.getByRole("button", { name: "Répondre" }).waitFor();
+
+  await publish(true);
+  await tab.locator("[data-canvas-pin='1']").waitFor();
+  expect(await tab.getByTestId("removed-tag").count()).toBe(0);
+
+  await publish(false);
+  await tab.getByTestId("removed-tag").waitFor();
+  await tab.getByRole("button", { name: "Résoudre" }).click();
+  await tab.getByText("Résolu", { exact: true }).waitFor();
+}, 90_000);

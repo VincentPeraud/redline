@@ -60,4 +60,18 @@ describe("threads on canvas elements over the server HTTP API", () => {
     const res = await server.post(`/api/pages/${bare.id}/threads`, { target: { kind: "canvas-element", elementId: "x" }, body: "x" });
     expect(res.status).toBe(400);
   });
+
+  it("reports a thread as removed while its element is absent from the current manifest, and restores it when the id returns", async () => {
+    await create({ kind: "canvas-element", elementId: "note-parcours" });
+    const removedFlags = async () =>
+      ((await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[]).map((t) => t.removed ?? false);
+    const publish = (elements: object[]) =>
+      server.post(`/api/pages/${page.id}/versions`, { files: { "manifest.json": JSON.stringify({ ...MANIFEST, elements }) }, message: "Edit", origin: "thread" });
+
+    expect(await removedFlags()).toEqual([false]);
+    await publish([{ id: "other", kind: "text", text: "Other", width: 300, size: "m", x: 0, y: 0 }]);
+    expect(await removedFlags()).toEqual([true]);
+    await publish(MANIFEST.elements);
+    expect(await removedFlags()).toEqual([false]);
+  });
 });

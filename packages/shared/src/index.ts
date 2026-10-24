@@ -250,6 +250,8 @@ export interface Thread {
   title: string;
   body: string;
   status: ThreadStatus;
+  /** Derived, never stored: a canvas-element thread whose element is absent from the page's current manifest. */
+  removed?: true;
   /** Claude's answers, oldest first. */
   replies: ThreadReply[];
   /** Context of the thread's session after the last reply; absent before the first usage or after "Nouvelle session". */
