@@ -79,7 +79,7 @@ it("picks canvas elements in selection mode: outline, numbered chip and mark, de
   await tab.locator("#conversation-message").fill("Restyle 1");
   await panel.getByRole("button", { name: "Envoyer" }).click();
   await engine.finished(before + 1);
-  expect(engine.runs[before].message).toContain("Elements the user points at:\n1: canvas element `carte-site` (link,");
+  expect(engine.runs[before].message).toContain("Elements the user points at:\n1: the canvas element `carte-site` (link,");
   await expect.poll(() => chips.count()).toBe(0);
   await expect.poll(() => marks.count()).toBe(0);
 }, 90_000);

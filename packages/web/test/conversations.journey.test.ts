@@ -119,3 +119,30 @@ it("shows what goes with a message, follows pan and tweaks, and sends it with th
   await engine.finished(before + 1);
   expect(engine.runs[before].message).toContain("Change ce titre\n\nThe user is looking at: confirmation.html\nTweak values: Thème: sombre");
 }, 60_000);
+
+it("keeps the text when creating the conversation or posting the message fails, shows an error, and sends once it works", async () => {
+  const before = engine.runs.length;
+  const page = await seam.createPage({ "home.html": "<!doctype html><h1>Title</h1>" });
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
+  const panel = tab.getByTestId("conversations");
+  await panel.getByText("Écris ton premier message : la conversation est créée à l'envoi.").waitFor();
+
+  const posted: string[] = [];
+  await tab.route(/\/api\/(pages\/[^/]+\/conversations|conversations\/[^/]+\/messages)$/, (route) => {
+    posted.push(route.request().url());
+    return route.request().method() === "POST" ? route.fulfill({ status: 500, body: "{}" }) : route.continue();
+  });
+  await panel.getByLabel("Message à Claude").fill("Do not lose me");
+  await panel.getByRole("button", { name: "Envoyer" }).click();
+  await panel.getByRole("alert").waitFor();
+  expect(await panel.getByLabel("Message à Claude").inputValue()).toBe("Do not lose me");
+  expect(posted).toHaveLength(1);
+  expect(posted[0]).toMatch(/\/conversations$/);
+
+  await tab.unroute(/\/api\/(pages\/[^/]+\/conversations|conversations\/[^/]+\/messages)$/);
+  await panel.getByRole("button", { name: "Envoyer" }).click();
+  await engine.finished(before + 1);
+  await expect.poll(() => panel.getByLabel("Message à Claude").inputValue()).toBe("");
+  await expect.poll(() => panel.getByRole("alert").count()).toBe(0);
+}, 60_000);
