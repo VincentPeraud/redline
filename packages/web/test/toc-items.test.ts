@@ -10,9 +10,9 @@ describe("tocGroups", () => {
     expect(tocGroups(items, "").map((g) => [g.title, g.items.map((i) => i.number)])).toEqual([["Onboarding", [1, 2]], ["Paiement", [3]], [null, [4]]]);
   });
 
-  it("interleaved groups stay together while numbers keep the reading order", () => {
-    const mixed = [item(1, "a", "A"), item(2, "b", "B"), item(3, "c", "A")];
-    expect(tocGroups(mixed, "").map((g) => [g.title, g.items.map((i) => i.number)])).toEqual([["A", [1, 3]], ["B", [2]]]);
+  it("starts a new group whenever the group title changes, so numbers read in order", () => {
+    const mixed = [item(1, "a", "A"), item(2, "b", "B"), item(3, "c", "A"), item(4, "d", null), item(5, "e", "B"), item(6, "f", null)];
+    expect(tocGroups(mixed, "").map((g) => [g.title, g.items.map((i) => i.number)])).toEqual([["A", [1]], ["B", [2]], ["A", [3]], [null, [4]], ["B", [5]], [null, [6]]]);
   });
 
   it("filters on title and file name, ignoring case and accents, and drops groups without a match", () => {

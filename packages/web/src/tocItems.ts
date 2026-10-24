@@ -17,14 +17,14 @@ export interface TocGroup {
 
 const fold = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
-/** Lines grouped by group title (groups in order of first appearance), keeping those whose title or file name contains `query`. */
+/** Lines in reading order, a new group starting whenever the group title changes, keeping those whose title or file name contains `query`. */
 export function tocGroups(items: TocItem[], query: string): TocGroup[] {
   const needle = fold(query.trim());
   const groups: TocGroup[] = [];
   for (const item of items) {
     if (needle !== "" && !fold(`${item.title ?? ""}\n${item.file}`).includes(needle)) continue;
-    const group = groups.find((candidate) => candidate.title === item.groupTitle);
-    if (group) group.items.push(item);
+    const group = groups[groups.length - 1];
+    if (group && group.title === item.groupTitle) group.items.push(item);
     else groups.push({ title: item.groupTitle, items: [item] });
   }
   return groups;
