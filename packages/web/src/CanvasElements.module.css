@@ -93,6 +93,23 @@
   overflow-wrap: anywhere;
 }
 
+.arrowLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.arrowLabel {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 22px));
+  font-size: 22px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .image {
   position: absolute;
   margin: 0;

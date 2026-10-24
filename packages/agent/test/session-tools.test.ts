@@ -121,6 +121,19 @@ describe("session MCP tools", () => {
     expect(guide).toContain("240");
   });
 
+  it("read_guide documents element ids and arrows", async () => {
+    let guide = "";
+    const engine = new FakeEngine(async (run) => {
+      guide = await run.callTool("read_guide", {});
+      return [{ type: "result", summary: "Nothing" }];
+    });
+    await runOnce(engine);
+    expect(guide).toMatch(/- arrow:/);
+    expect(guide).toMatch(/"id"/);
+    expect(guide).toContain("dashed");
+    expect(guide).toMatch(/unknown id|duplicate id/);
+  });
+
   it("the server relay rejects calls without the agent token", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing" }]);
     const page = await runOnce(engine);

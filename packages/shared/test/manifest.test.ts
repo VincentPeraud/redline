@@ -166,6 +166,65 @@ describe("page manifest", () => {
     });
   });
 
+  describe("element ids and arrows", () => {
+    const parse = (manifest: object) => () => parseManifest(JSON.stringify(manifest));
+
+    it("keeps an optional id on every non-arrow element", () => {
+      const manifest = parseManifest(
+        JSON.stringify({
+          elements: [
+            { kind: "title", text: "T", id: "heading" },
+            { kind: "text", text: "N", id: "note" },
+            { kind: "sticky", text: "S", id: "ask" },
+            { kind: "image", src: "assets/a.png", id: "shot" },
+            { kind: "link", page: "pg_1", id: "next" },
+            { kind: "link", url: "https://linear.app", title: "T", id: "ticket" },
+            { kind: "text", text: "no id" },
+          ],
+        }),
+      );
+      expect(manifest.elements.map((element) => ("id" in element ? element.id : undefined))).toEqual(["heading", "note", "ask", "shot", "next", "ticket", undefined]);
+    });
+
+    it("reads an arrow between ids and free points with defaults", () => {
+      const manifest = parseManifest(
+        JSON.stringify({
+          artboards: [{ file: "a.html" }, { file: "b.html" }],
+          elements: [
+            { kind: "arrow", from: "a.html", to: "b.html" },
+            { kind: "arrow", from: "b.html", to: { x: 10, y: 20 }, label: "après choix", color: "blue", line: "dashed" },
+          ],
+        }),
+      );
+      expect(manifest.elements).toEqual([
+        { kind: "arrow", from: "a.html", to: "b.html", color: "gray", line: "solid" },
+        { kind: "arrow", from: "b.html", to: { x: 10, y: 20 }, label: "après choix", color: "blue", line: "dashed" },
+      ]);
+    });
+
+    it("refuses an arrow naming an unknown id, naming it", () => {
+      expect(parse({ artboards: [{ file: "a.html" }], elements: [{ kind: "arrow", from: "a.html", to: "ghost" }] })).toThrow(/elements\[0\]\.to.*ghost/);
+      expect(parse({ elements: [{ kind: "arrow", from: "ghost", to: { x: 0, y: 0 } }] })).toThrow(/elements\[0\]\.from.*ghost/);
+    });
+
+    it("refuses an arrow without ends, with a malformed point, or with a wrong colour or line", () => {
+      expect(parse({ elements: [{ kind: "arrow", to: { x: 0, y: 0 } }] })).toThrow(/elements\[0\]\.from/);
+      expect(parse({ elements: [{ kind: "arrow", from: { x: 0 }, to: { x: 0, y: 0 } }] })).toThrow(/elements\[0\]\.from/);
+      expect(parse({ elements: [{ kind: "arrow", from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, color: "teal" }] })).toThrow(/elements\[0\]\.color/);
+      expect(parse({ elements: [{ kind: "arrow", from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, line: "dotted" }] })).toThrow(/elements\[0\]\.line/);
+    });
+
+    it("refuses a duplicate id, including against artboard files", () => {
+      expect(parse({ elements: [{ kind: "text", text: "a", id: "n" }, { kind: "text", text: "b", id: "n" }] })).toThrow(/elements\[1\]\.id.*"n"/);
+      expect(parse({ artboards: [{ file: "a.html" }], elements: [{ kind: "text", text: "a", id: "a.html" }] })).toThrow(/elements\[0\]\.id.*"a.html"/);
+    });
+
+    it("lets an arrow target an element declared after it", () => {
+      const manifest = parseManifest(JSON.stringify({ elements: [{ kind: "arrow", from: "late", to: { x: 0, y: 0 } }, { kind: "text", text: "a", id: "late" }] }));
+      expect(manifest.elements).toHaveLength(2);
+    });
+  });
+
   it("accepts expand fill on an artboard and refuses another value naming the field", () => {
     const manifest = parseManifest(JSON.stringify({ artboards: [{ file: "a.html", expand: "fill" }, { file: "b.html" }] }));
     expect(manifest.artboards[0]!.expand).toBe("fill");
