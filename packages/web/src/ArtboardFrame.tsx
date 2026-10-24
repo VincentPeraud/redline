@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { Thread, TweakValues } from "@redline/shared";
+import type { ArtboardGuides as Guides, Thread, TweakValues } from "@redline/shared";
+import { ArtboardGuides } from "./ArtboardGuides.js";
 import { threadWhere } from "./threadLabel.js";
 import { cx } from "./ui/index.js";
 import styles from "./ArtboardFrame.module.css";
@@ -35,10 +36,14 @@ interface Props {
   height: number;
   /** Canvas zoom; pins are counter-scaled so they keep their size. */
   zoom: number;
+  /** Layout guides to draw over the artboard; absent when hidden or not declared. */
+  guides?: Guides;
   threads: Thread[];
   picking: boolean;
   tweaks: TweakValues;
   onPick: (pick: Pick) => void;
+  /** Called with the real height of the artboard's page whenever the bridge reports it. */
+  onDocHeight?: (height: number) => void;
 }
 
 /**
@@ -46,12 +51,14 @@ interface Props {
  * and pin placement go through the bridge script the server injects (see conventions.md).
  * Messages are trusted only when `event.source` is this iframe's window.
  */
-export function ArtboardFrame({ src, title, width, height, zoom, threads, picking, tweaks, onPick }: Props) {
+export function ArtboardFrame({ src, title, width, height, zoom, guides, threads, picking, tweaks, onPick, onDocHeight }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [positions, setPositions] = useState<PinPosition[]>([]);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
+  const onDocHeightRef = useRef(onDocHeight);
+  onDocHeightRef.current = onDocHeight;
 
   const pinned = threads;
 
@@ -62,6 +69,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, threads, pickin
       if (data.type === "redline:ready") setBridgeEpoch((n) => n + 1);
       else if (data.type === "redline:picked") onPickRef.current(data as Pick);
       else if (data.type === "redline:pin-positions") setPositions(data.positions ?? []);
+      else if (data.type === "redline:doc-height") onDocHeightRef.current?.((data as unknown as { height: number }).height);
       else if (data.type === "redline:wheel") replayWheel(data as unknown as ForwardedWheel);
     }
     // The iframe swallows wheel and pinch: the bridge hands them back, and we replay them on the iframe
@@ -111,6 +119,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, threads, pickin
     <div className={styles.frame} style={{ width, height }}>
       <div className={styles.clip} style={{ width, height }}>
         <iframe ref={frame} title={title} src={src} sandbox="allow-scripts" className={styles.iframe} style={{ width, height }} />
+        {guides && <ArtboardGuides guides={guides} />}
       </div>
       {pinned.map((thread) => {
         const position = positions.find((p) => p.id === thread.id) ?? thread;

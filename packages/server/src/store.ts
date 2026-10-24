@@ -3,6 +3,7 @@ import { mkdirSync, existsSync, readFileSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import {
+  EMPTY_VIEW_SETTINGS,
   DESIGN_SYSTEM_TOKENS_PATH,
   MANIFEST_PATH,
   defaultManifest,
@@ -19,12 +20,14 @@ import type {
   Conversation,
   ConversationMessage,
   CreateThreadRequest,
+  ThreadRendering,
   AgentInfo,
   AgentKind,
   Effort,
   AgentStatus,
   CreatedPage,
   Page,
+  PageViewSettings,
   PageCreator,
   ModelChoice,
   PageVersionSummary,
@@ -91,6 +94,10 @@ export class Store {
         author TEXT NOT NULL,
         body TEXT NOT NULL,
         created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS page_view_settings (
+        page_id TEXT PRIMARY KEY REFERENCES pages(id),
+        settings TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
@@ -182,6 +189,7 @@ export class Store {
     addColumn("versions", "origin_id", "TEXT");
     addColumn("versions", "origin_label", "TEXT");
     addColumn("threads", "element_name", "TEXT");
+    addColumn("threads", "rendering", "TEXT");
     addColumn("thread_replies", "created_page_ids", "TEXT");
     addColumn("conversation_messages", "created_page_ids", "TEXT");
     addColumn("design_md_versions", "origin", "TEXT NOT NULL DEFAULT 'user'");
@@ -555,6 +563,19 @@ export class Store {
     this.db.prepare("UPDATE pages SET title = ? WHERE id = ?").run(title, id);
   }
 
+  getViewSettings(pageId: string): PageViewSettings {
+    const row = this.db.prepare("SELECT settings FROM page_view_settings WHERE page_id = ?").get(pageId) as { settings: string } | undefined;
+    return row ? (JSON.parse(row.settings) as PageViewSettings) : EMPTY_VIEW_SETTINGS;
+  }
+
+  setViewSettings(pageId: string, settings: PageViewSettings): PageViewSettings {
+    const stored: PageViewSettings = { hiddenFormats: settings.hiddenFormats, renderingOverrides: settings.renderingOverrides };
+    this.db
+      .prepare("INSERT INTO page_view_settings (page_id, settings) VALUES (?, ?) ON CONFLICT(page_id) DO UPDATE SET settings = excluded.settings")
+      .run(pageId, JSON.stringify(stored));
+    return stored;
+  }
+
   getPage(id: string): Page | undefined {
     const row = this.db
       .prepare("SELECT id, project_id, title, created_by FROM pages WHERE id = ?")
@@ -580,10 +601,10 @@ export class Store {
     const title = (pin.title?.trim() || pin.body.trim().split("\n")[0]).slice(0, 80);
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, artboard, selector, element_name, x_pct, y_pct, title, body, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, artboard, selector, element_name, rendering, x_pct, y_pct, title, body, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, pin.artboard, pin.selector, pin.elementName ?? null, pin.xPct, pin.yPct, title, pin.body, pin.held ? "held" : "open", now());
+      .run(id, pageId, next, pin.artboard, pin.selector, pin.elementName ?? null, pin.rendering ? JSON.stringify({ format: pin.rendering.format, width: pin.rendering.width }) : null, pin.xPct, pin.yPct, title, pin.body, pin.held ? "held" : "open", now());
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -604,7 +625,7 @@ export class Store {
   listHeldThreads(pageId: string): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.x_pct, t.y_pct, t.title, t.body, t.status
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.x_pct, t.y_pct, t.title, t.body, t.status
          FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId) as ThreadRow[];
@@ -961,7 +982,7 @@ export interface SessionOrigin {
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, x_pct, y_pct, title, body, status, context, new_session FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, x_pct, y_pct, title, body, status, context, new_session FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -970,6 +991,7 @@ interface ThreadRow {
   artboard: string;
   selector: string;
   element_name: string | null;
+  rendering: string | null;
   x_pct: number;
   y_pct: number;
   title: string;
@@ -987,6 +1009,7 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     artboard: row.artboard,
     selector: row.selector,
     elementName: row.element_name,
+    ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
     xPct: row.x_pct,
     yPct: row.y_pct,
     title: row.title,

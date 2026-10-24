@@ -3,6 +3,7 @@ import { extname } from "node:path";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
+  type PageViewSettings,
   MANIFEST_PATH,
   MAX_ASSET_BYTES,
   MAX_PAGE_BYTES,
@@ -36,7 +37,7 @@ import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRou
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
-import { designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError } from "./validation.js";
+import { designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, threadRenderingError, titleError, versionRequestError, viewSettingsError } from "./validation.js";
 import { registerContextTracking } from "./context.js";
 import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
@@ -230,7 +231,14 @@ export async function buildMainApp(
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId", async (req, reply) => {
     const page = store.getPage(req.params.pageId);
-    return page ?? reply.code(404).send({ error: "page not found" });
+    return page ? { ...page, viewSettings: store.getViewSettings(page.id) } : reply.code(404).send({ error: "page not found" });
+  });
+
+  app.post<{ Params: { pageId: string }; Body: PageViewSettings }>("/api/pages/:pageId/view-settings", async (req, reply) => {
+    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+    const invalid = viewSettingsError(req.body);
+    if (invalid) return reply.code(400).send({ error: invalid });
+    return store.setViewSettings(req.params.pageId, req.body);
   });
 
   app.patch<{ Params: { pageId: string }; Body: UpdatePageRequest }>("/api/pages/:pageId", async (req, reply) => {
@@ -257,6 +265,8 @@ export async function buildMainApp(
       if (pin.elementName !== undefined && (typeof pin.elementName !== "string" || pin.elementName.length > MAX_ELEMENT_NAME_LENGTH)) {
         return reply.code(400).send({ error: `elementName must be a string of at most ${MAX_ELEMENT_NAME_LENGTH} characters` });
       }
+      const invalidRendering = pin.rendering !== undefined ? threadRenderingError(pin.rendering) : null;
+      if (invalidRendering) return reply.code(400).send({ error: invalidRendering });
       const invalidChoice = modelChoiceError(pin);
       if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
       const thread = store.createThread(req.params.pageId, pin as CreateThreadRequest);

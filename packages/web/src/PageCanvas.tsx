@@ -1,22 +1,35 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  EMPTY_VIEW_SETTINGS,
   MANIFEST_PATH,
+  RESPONSIVE_FORMATS,
   defaultManifest,
   parseManifest,
   versionPreviewPath,
   type AgentInfo,
   type CreateThreadRequest,
   type Manifest,
+  type PageViewSettings,
+  type ResponsiveFormat,
   type Project,
   type QueueEntry,
   type Thread,
+  type ThreadRendering,
 } from "@redline/shared";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { ArtboardHistory } from "./ArtboardHistory.js";
 import { restoreArtboard, useDeletedArtboards } from "./restoreArtboard.js";
 import { UndoToast } from "./UndoToast.js";
 import { CanvasHeader } from "./CanvasHeader.js";
+import { useStoredToggle } from "./useStoredToggle.js";
+import { GuidesButton } from "./GuidesButton.js";
+import { isEditableTarget } from "./isEditableTarget.js";
 import { panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { CanvasElements } from "./CanvasElements.js";
+import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
+import { ResponsiveFrame } from "./ResponsiveFrame.js";
+import { RenderingChips, RenderingsMenu } from "./RenderingControls.js";
+import { hiddenRenderingKeys, hiddenThreadCounts, setFormatShown, toggleRendering } from "./viewSettings.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
 import { ConversationsPanel } from "./ConversationsPanel.js";
 import type { AgentDefaults, ModelEffortChoice } from "./ModelEffortControls.js";
@@ -53,14 +66,6 @@ function initialView(manifest: Manifest, stage: { width: number; height: number 
   return { zoom, x: START_LEFT - bounds.x * zoom, y: START_TOP - bounds.y * zoom };
 }
 
-/** Artboards a group title heads: those from its x up to the next title's x. */
-function groupArtboardCount(manifest: Manifest, index: number): number {
-  const xs = manifest.notes.map((n) => n.x).sort((a, b) => a - b);
-  const from = manifest.notes[index]!.x;
-  const next = xs.find((x) => x > from) ?? Infinity;
-  return manifest.artboards.filter((a) => a.x >= from && a.x < next).length;
-}
-
 function FullscreenIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -82,13 +87,15 @@ interface Props {
   versionId: string;
   /** Called after the page got a new version from this canvas (a saved tweak). */
   onVersionChange: () => void;
+  /** The page's view settings as the server has them. */
+  viewSettings?: PageViewSettings;
 }
 
-export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange }: Props) {
+export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings }: Props) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
-  const [draft, setDraft] = useState<(Pick & { artboard: string }) | null>(null);
+  const [draft, setDraft] = useState<(Pick & { artboard: string; rendering?: ThreadRendering }) | null>(null);
   const [text, setText] = useState("");
   const [choice, setChoice] = useState<ModelEffortChoice>({});
   const [agentDefaults, setAgentDefaults] = useState<AgentDefaults>({});
@@ -104,6 +111,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [preview, setPreview] = useState<{ file: string; versionId: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; undo: () => Promise<void> } | null>(null);
   const deleted = useDeletedArtboards(pageId, versionId);
+  const [guidesVisible, toggleGuides] = useStoredToggle("redline:guides", false);
+  /** Real page height of each rendering of a responsive artboard, by artboard file then rendering key, as reported by the bridge. */
+  const [docHeights, setDocHeights] = useState<Record<string, Record<string, number>>>({});
+  const [viewSettings, setViewSettings] = useState<PageViewSettings>(savedViewSettings ?? EMPTY_VIEW_SETTINGS);
+  const [renderingsMenuOpen, setRenderingsMenuOpen] = useState(false);
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   const viewport = useRef<HTMLDivElement>(null);
   const placed = useRef(false);
@@ -200,18 +212,18 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     });
   }, [refresh, refreshQueue, pageId]);
 
-  // C: comment mode, P: back to interactive.
+  // C: comment mode, P: back to interactive, G: layout guides.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      const target = event.target as HTMLElement;
-      if (target.tagName === "TEXTAREA" || target.tagName === "INPUT" || event.metaKey || event.ctrlKey) return;
+      if (playFrom !== null || isEditableTarget(event.target) || event.metaKey || event.ctrlKey) return;
       const key = event.key.toLowerCase();
       if (key === "c") setPicking(true);
       if (key === "p") setPicking(false);
+      if (key === "g") toggleGuides();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [toggleGuides, playFrom]);
 
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
   async function send(held: boolean) {
@@ -225,6 +237,12 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     setDraft(null);
     setText("");
     await refresh();
+  }
+
+  /** View settings are per page and live on the server; they are not a version and no session hears of them. */
+  function changeViewSettings(next: PageViewSettings) {
+    setViewSettings(next);
+    void fetch(`/api/pages/${pageId}/view-settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(next) });
   }
 
   /** Restores one artboard (history or deleted list) and offers to undo it for a few seconds. */
@@ -252,11 +270,14 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     return (
       <PlayMode
         pageId={pageId}
+        pageTitle={pageTitle}
         manifest={manifest}
         start={playFrom}
         artboardOrigin={artboardOrigin}
         tweaks={tweaks.values}
         onTweak={tweaks.setValue}
+        guidesVisible={guidesVisible}
+        onToggleGuides={toggleGuides}
         onExit={() => setPlayFrom(null)}
       />
     );
@@ -266,6 +287,16 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const runningCount = runs.filter((r) => r.status === "running" || r.status === "sent" || r.status === "retrying").length;
   const firstArtboard = manifest?.artboards[0]?.file;
   const draftInfo: Draft | null = draft;
+  const hiddenOf = (artboard: Manifest["artboards"][number]) => (artboard.responsive ? hiddenRenderingKeys(artboard.responsive, viewSettings, artboard.file) : new Set<string>());
+  const layoutOf = (artboard: Manifest["artboards"][number]) =>
+    artboard.responsive ? responsiveFrameLayout(artboard, renderingSlots(artboard.responsive), { measuredHeights: docHeights[artboard.file], hidden: hiddenOf(artboard) }) : null;
+  const responsiveArtboards = (manifest?.artboards ?? []).filter((artboard) => artboard.responsive);
+  const formatsOnPage = (Object.keys(RESPONSIVE_FORMATS) as ResponsiveFormat[])
+    .map((format) => ({ format, frames: responsiveArtboards.filter((a) => a.responsive!.some((r) => r.format === format)).length }))
+    .filter(({ frames }) => frames > 0);
+  const artboardBoxes = new Map<string, Box>(
+    (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, width: artboard.width, height: artboard.height }]),
+  );
   const artboardTweaks = (file: string) => (manifest?.tweaks ?? []).filter((tweak) => (tweak.artboard ? tweak.artboard === file : file === firstArtboard));
 
   return (
@@ -308,22 +339,35 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             }}
           >
             <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
-              {manifest?.notes.map((note, i) => (
-                <div key={i} className={styles.note} style={{ left: note.x, top: note.y }}>
-                  <h2 className={styles.noteTitle}>{note.text}</h2>
-                  <div className={styles.noteSubtitle}>
-                    Titre de groupe · {groupArtboardCount(manifest, i)} artboards · modifiable par toi ou par Claude
-                  </div>
-                </div>
-              ))}
-              {manifest?.artboards.map((artboard) => (
+              {manifest && (
+              <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin}>
+              {manifest.artboards.map((artboard) => {
+                const layout = layoutOf(artboard);
+                const hidden = hiddenOf(artboard);
+                const frameWidth = artboardBoxes.get(artboard.file)!.width;
+                const src =
+                  preview?.file === artboard.file
+                    ? `${artboardOrigin}${versionPreviewPath(pageId, preview.versionId, artboard.file)}`
+                    : `${artboardOrigin}/pages/${pageId}/${artboard.file}`;
+                return (
                 <div
                   key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`}
                   className={cx(styles.artboard, (historyOpenFor === artboard.file || tweaksOpenFor === artboard.file) && styles.artboardRaised)}
                   style={{ left: artboard.x, top: artboard.y }}
                 >
-                  <div data-no-pan className={styles.label} style={{ width: artboard.width * view.zoom, transform: `scale(${1 / view.zoom})` }}>
+                  <div data-no-pan className={cx(styles.label, layout && styles.labelResponsive)} style={{ width: frameWidth * view.zoom, transform: `scale(${1 / view.zoom})` }}>
                     <span className={styles.labelName}>{artboard.title ?? artboard.file}</span>
+                    {layout && artboard.responsive && (
+                      <>
+                        <span className={styles.responsiveBadge}>responsive</span>
+                        <RenderingChips
+                          renderings={artboard.responsive}
+                          hidden={hidden}
+                          hiddenThreadCounts={hiddenThreadCounts(threads, artboard.file, hidden)}
+                          onToggle={(key) => changeViewSettings(toggleRendering(viewSettings, artboard.file, artboard.responsive!, key))}
+                        />
+                      </>
+                    )}
                     <span className={styles.spacer} />
                     <ArtboardHistory
                       pageId={pageId}
@@ -350,17 +394,35 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       <FullscreenIcon />
                     </button>
                   </div>
+                  {layout && artboard.responsive ? (
+                    <ResponsiveFrame
+                      key={preview?.file === artboard.file ? preview.versionId : "live"}
+                      title={`${pageTitle} / ${artboard.file}`}
+                      src={src}
+                      renderings={artboard.responsive}
+                      layout={layout}
+                      zoom={view.zoom}
+                      guides={guidesVisible ? artboard.guides : undefined}
+                      threads={preview?.file === artboard.file ? [] : threads.filter((t) => t.artboard === artboard.file)}
+                      picking={picking && preview?.file !== artboard.file}
+                      tweaks={tweaks.values}
+                      onPick={(rendering, pick) => {
+                        setDraft({ ...pick, artboard: artboard.file, rendering: { format: rendering.format, width: rendering.width } });
+                        setTab("comments");
+                      }}
+                      onDocHeight={(key, height) =>
+                        setDocHeights((current) => (current[artboard.file]?.[key] === height ? current : { ...current, [artboard.file]: { ...current[artboard.file], [key]: height } }))
+                      }
+                    />
+                  ) : (
                   <ArtboardFrame
                     key={preview?.file === artboard.file ? preview.versionId : "live"}
                     title={`${pageTitle} / ${artboard.file}`}
-                    src={
-                      preview?.file === artboard.file
-                        ? `${artboardOrigin}${versionPreviewPath(pageId, preview.versionId, artboard.file)}`
-                        : `${artboardOrigin}/pages/${pageId}/${artboard.file}`
-                    }
+                    src={src}
                     width={artboard.width}
                     height={artboard.height}
                     zoom={view.zoom}
+                    guides={guidesVisible ? artboard.guides : undefined}
                     threads={preview?.file === artboard.file ? [] : threads.filter((t) => t.artboard === artboard.file)}
                     picking={picking && preview?.file !== artboard.file}
                     tweaks={tweaks.values}
@@ -369,13 +431,14 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       setTab("comments");
                     }}
                   />
+                  )}
                   {tweaksOpenFor === artboard.file && (
                     <div
                       data-no-pan
                       role="dialog"
                       aria-label={`Tweaks de ${artboard.file}`}
                       className={styles.tweaksPopover}
-                      style={{ left: artboard.width + 12, transform: `scale(${1 / view.zoom})` }}
+                      style={{ left: frameWidth + 12, transform: `scale(${1 / view.zoom})` }}
                     >
                       <div className={styles.popoverHead}>
                         <span className={styles.popoverTitle}>Tweaks · {artboard.file.replace(/\.html$/, "")}</span>
@@ -391,10 +454,13 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
+              </CanvasElements>
+              )}
             </div>
           </div>
-          {manifest?.artboards.length === 0 && (
+          {manifest?.artboards.length === 0 && manifest.elements.length === 0 && (
             <div className={styles.emptyWrap}>
               <div data-testid="canvas-empty" className={styles.empty}>
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -429,6 +495,20 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             <button type="button" aria-label="Zoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(ZOOM_STEP)}>
               +
             </button>
+            <span aria-hidden="true" className={styles.zoomSeparator} />
+            <GuidesButton pressed={guidesVisible} onToggle={toggleGuides} className={cx(styles.guidesButton, guidesVisible && styles.guidesButtonOn)} />
+            {responsiveArtboards.length > 0 && (
+              <>
+                <span aria-hidden="true" className={styles.zoomSeparator} />
+                <RenderingsMenu
+                  open={renderingsMenuOpen}
+                  onOpenChange={setRenderingsMenuOpen}
+                  formats={formatsOnPage}
+                  hiddenFormats={viewSettings.hiddenFormats}
+                  onToggle={(format, shown) => changeViewSettings(setFormatShown(viewSettings, format, shown))}
+                />
+              </>
+            )}
           </div>
         </main>
 

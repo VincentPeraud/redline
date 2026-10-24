@@ -34,6 +34,35 @@ describe("pinned threads over the server HTTP API", () => {
     return (await res.json()) as Thread;
   }
 
+  it("stores the rendering a thread was pinned in, and keeps it after a reload", async () => {
+    const thread = await createThread("Burger menu", { rendering: { format: "mobile", width: 390 } });
+    expect(thread.rendering).toEqual({ format: "mobile", width: 390 });
+    const [listed] = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+    expect(listed.rendering).toEqual({ format: "mobile", width: 390 });
+    expect((await createThread("No rendering")).rendering).toBeUndefined();
+  });
+
+  it("accepts a fractional rendering width, as a manifest declares them", async () => {
+    const thread = await createThread("Odd", { rendering: { format: "mobile", width: 390.5 } });
+    expect(thread.rendering).toEqual({ format: "mobile", width: 390.5 });
+  });
+
+  it("refuses a rendering whose format is a prototype key", async () => {
+    const res = await server.post(`/api/pages/${page.id}/threads`, pin("Bad", { rendering: { format: "constructor", width: 390 } }));
+    expect(res.status).toBe(400);
+  });
+
+  it("keeps the rendering of a held comment", async () => {
+    await createThread("Later", { held: true, rendering: { format: "tablet", width: 768 } });
+    const [held] = (await (await server.get(`/api/pages/${page.id}/held`)).json()) as Thread[];
+    expect(held.rendering).toEqual({ format: "tablet", width: 768 });
+  });
+
+  it.each([{ format: "watch", width: 390 }, { format: "mobile", width: 0 }, { format: "mobile" }, "mobile"])("refuses the rendering %j", async (rendering) => {
+    const res = await server.post(`/api/pages/${page.id}/threads`, pin("Bad", { rendering }));
+    expect(res.status).toBe(400);
+  });
+
   it("stores a thread with its selector and percentage position, numbered from 1", async () => {
     const thread = await createThread("Make the title bigger\nand bolder");
     expect(thread).toMatchObject({

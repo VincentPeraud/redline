@@ -92,26 +92,6 @@
   color: var(--color-text-body);
 }
 
-.note {
-  position: absolute;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-.noteTitle {
-  margin: 0;
-  font-size: 32px;
-  font-weight: var(--font-weight-bold);
-  letter-spacing: -0.01em;
-}
-
-.noteSubtitle {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-}
-
 .artboard {
   position: absolute;
 }
@@ -135,6 +115,11 @@
   z-index: 5;
 }
 
+.labelResponsive {
+  min-width: max-content;
+  padding-bottom: 8px;
+}
+
 .labelName {
   min-width: 0;
   overflow: hidden;
@@ -142,6 +127,16 @@
   white-space: nowrap;
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
+}
+
+.responsiveBadge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-responsive-bg);
+  color: var(--color-responsive-text);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
 }
 
 .tweaksButton {
@@ -259,6 +254,33 @@
   background: transparent;
   font-size: var(--font-size-xl);
   cursor: pointer;
+}
+
+.zoomSeparator {
+  width: 1px;
+  height: 20px;
+  background: var(--color-border);
+}
+
+.guidesButton {
+  height: 32px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.guidesButtonOn {
+  background: var(--color-text);
+  color: var(--color-text-inverse);
 }
 
 .zoomValue {

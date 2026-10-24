@@ -1,0 +1,133 @@
+.shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.none {
+  border-radius: var(--radius-xl);
+}
+
+.phone {
+  overflow: visible;
+  border-radius: 44px;
+  box-shadow: 0 0 0 10px var(--play-border);
+}
+
+.phone > div {
+  border-radius: 44px;
+}
+
+.camera {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: 112px;
+  height: 30px;
+  margin-left: -56px;
+  border-radius: var(--radius-pill);
+  background: var(--play-bg);
+  pointer-events: none;
+}
+
+.phoneIndicator {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  width: 130px;
+  height: 5px;
+  margin-left: -65px;
+  border-radius: var(--radius-pill);
+  background: var(--play-panel-bg);
+  pointer-events: none;
+}
+
+.tablet {
+  overflow: visible;
+  border-radius: 28px;
+  box-shadow: 0 0 0 14px var(--play-border);
+}
+
+.tablet > div:not(.tabletStrip) {
+  border-radius: 28px 28px 0 0;
+}
+
+.tabletCamera {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: var(--color-text-body);
+}
+
+.tabletStrip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 0 0 28px 28px;
+  background: var(--color-surface);
+}
+
+.tabletIndicator {
+  width: 160px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--play-panel-bg);
+}
+
+.desktop {
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 0 1px var(--play-border-strong), 0 24px 48px rgba(0, 0, 0, 0.45);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 36px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 0 12px;
+  background: var(--play-border);
+}
+
+.lights {
+  display: flex;
+  gap: 6px;
+}
+
+.light {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--color-text-body);
+}
+
+.address {
+  display: flex;
+  flex-grow: 1;
+  align-items: center;
+  justify-content: center;
+  max-width: 520px;
+  height: 22px;
+  margin: 0 auto;
+  border-radius: var(--radius-sm);
+  background: var(--play-panel-bg);
+  font-size: var(--font-size-xs);
+  color: var(--play-text-muted);
+}
+
+.barSpacer {
+  width: 51px;
+}
+
+.paper {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), 0 16px 40px rgba(0, 0, 0, 0.35);
+}

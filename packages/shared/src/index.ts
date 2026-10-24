@@ -166,6 +166,8 @@ export interface Page {
   /** Who made the page: a session through `create_page`, or the user. Pages from before this field are "user". */
   createdBy: PageCreator;
   version: PageVersion;
+  /** Only on `GET /api/pages/:pageId`. */
+  viewSettings?: PageViewSettings;
 }
 
 export type PageCreator = "claude" | "user";
@@ -204,6 +206,8 @@ export interface Thread {
   yPct: number;
   /** Short readable name of the commented element (role + visible text), computed by the artboard bridge; null on old threads. */
   elementName: string | null;
+  /** Rendering of a responsive artboard the thread was pinned in; absent on other artboards. */
+  rendering?: ThreadRendering;
   /** First line of the comment, kept visible when the thread is resolved. */
   title: string;
   body: string;
@@ -228,6 +232,8 @@ export interface CreateThreadRequest extends ModelChoice {
   held?: boolean;
   /** Readable name of the element, e.g. `bouton « Continuer »`; at most `MAX_ELEMENT_NAME_LENGTH` characters. */
   elementName?: string;
+  /** Rendering of a responsive artboard the comment was pinned in. */
+  rendering?: ThreadRendering;
 }
 
 export const MAX_ELEMENT_NAME_LENGTH = 200;
@@ -259,6 +265,53 @@ export const DEFAULT_ARTBOARD_HEIGHT = 500;
 /** Horizontal gap between artboards laid out automatically. */
 export const ARTBOARD_GAP = 80;
 
+/** How play mode presents an artboard. `none` = the design as is. */
+export type ArtboardDevice = "phone" | "tablet" | "desktop" | "paper" | "none";
+export const ARTBOARD_DEVICES: readonly ArtboardDevice[] = ["phone", "tablet", "desktop", "paper", "none"];
+/** Column grid drawn over an artboard when the viewer shows guides (canvas pixels). */
+export interface ArtboardGuides {
+  columns: number;
+  gutter: number;
+  margin: number;
+  /** Height of the baseline grid; no baseline lines when absent. */
+  baseline?: number;
+}
+
+/** Formats a responsive artboard can be rendered at. */
+export type ResponsiveFormat = "desktop" | "tablet-landscape" | "tablet" | "mobile";
+export const RESPONSIVE_FORMATS: Record<ResponsiveFormat, { label: string; width: number; height: number }> = {
+  desktop: { label: "Desktop", width: 1440, height: 900 },
+  "tablet-landscape": { label: "Tablette paysage", width: 1024, height: 768 },
+  tablet: { label: "Tablette", width: 768, height: 1024 },
+  mobile: { label: "Mobile", width: 390, height: 844 },
+};
+/** One rendering of a responsive artboard: its format and the viewport it is laid out in. */
+export interface ArtboardRendering {
+  format: ResponsiveFormat;
+  width: number;
+  /** Viewport height; the canvas shows the real height of the page once the bridge reported it. */
+  height: number;
+}
+/** The rendering a thread is pinned in: its format and viewport width (what `renderingKey` / `renderingLabel` need). */
+export type ThreadRendering = Pick<ArtboardRendering, "format" | "width">;
+/** Identity of a rendering within its artboard. */
+export const renderingKey = (rendering: ThreadRendering) => `${rendering.format}-${rendering.width}`;
+/** "Desktop · 1440" */
+export const renderingLabel = (rendering: ThreadRendering) => `${RESPONSIVE_FORMATS[rendering.format].label} · ${rendering.width}`;
+/**
+ * How a viewer sees a page, kept on the server per page: not part of a version, never sent to a session.
+ * `hiddenFormats`: formats hidden in every responsive frame. `renderingOverrides[artboard file][renderingKey]`:
+ * a frame's own choice (true = shown) for one rendering, which wins over the format's.
+ */
+export interface PageViewSettings {
+  hiddenFormats: ResponsiveFormat[];
+  renderingOverrides: Record<string, Record<string, boolean>>;
+}
+export const EMPTY_VIEW_SETTINGS: PageViewSettings = { hiddenFormats: [], renderingOverrides: {} };
+
+/** Padding of a responsive frame, and gap between its renderings (canvas pixels). */
+export const RESPONSIVE_SPACING = 96;
+
 export interface ManifestArtboard {
   /** Path of the HTML file; also the artboard's identity (threads reference it). */
   file: string;
@@ -268,13 +321,148 @@ export interface ManifestArtboard {
   height: number;
   x: number;
   y: number;
+  /** Declared presentation in play mode; absent = inferred from the size. */
+  device?: ArtboardDevice;
+  /** Text shown in the address bar of the `desktop` presentation; never invented. */
+  url?: string;
+  /** `fill`: in play mode the artboard fills the whole window (ignored on a phone); the canvas keeps the declared size. */
+  expand?: "fill";
+  guides?: ArtboardGuides;
+  /** One HTML file rendered at several widths, side by side in one frame; `device` is ignored. `width`/`height` then describe the frame with the declared heights. */
+  responsive?: ArtboardRendering[];
 }
 
-export interface ManifestNote {
+export const DEFAULT_TITLE_WIDTH = 1200;
+
+/** Big group title above a row of artboards. */
+export interface ManifestTitleElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
+  kind: "title";
   text: string;
+  subtitle?: string;
+  /** Maximum width in canvas pixels. */
+  width: number;
   x: number;
   y: number;
 }
+
+/** Palette shared by sticky notes, text notes, shapes and arrows. The web package maps each name to its shades. */
+export const PALETTE_COLORS = ["yellow", "orange", "pink", "green", "blue", "purple", "gray"] as const;
+export type PaletteColor = (typeof PALETTE_COLORS)[number];
+
+export const NOTE_SIZES = ["s", "m", "l"] as const;
+export type NoteSize = (typeof NOTE_SIZES)[number];
+
+export const DEFAULT_TEXT_WIDTH = 360;
+export const DEFAULT_STICKY_WIDTH = 240;
+
+/** Prose with a fixed width; `color` tints the text. Limited markdown. */
+export interface ManifestTextElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
+  kind: "text";
+  text: string;
+  width: number;
+  size: NoteSize;
+  color?: PaletteColor;
+  x: number;
+  y: number;
+}
+
+/** Coloured paper for an open question or a reminder; `color` fills the background. Limited markdown. */
+export interface ManifestStickyElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
+  kind: "sticky";
+  text: string;
+  width: number;
+  size: NoteSize;
+  color: PaletteColor;
+  x: number;
+  y: number;
+}
+
+export const SHAPE_KINDS = ["rect", "ellipse"] as const;
+export type ShapeKind = (typeof SHAPE_KINDS)[number];
+export const SHAPE_STYLES = ["outline", "fill"] as const;
+export type ShapeStyle = (typeof SHAPE_STYLES)[number];
+
+/** Frame around a group of variants or one detail, drawn under the artboards. `fill` is a light 15 % fill. */
+export interface ManifestShapeElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
+  kind: "shape";
+  shape: ShapeKind;
+  style: ShapeStyle;
+  color: PaletteColor;
+  label?: string;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+}
+
+export const DEFAULT_IMAGE_WIDTH = 400;
+
+/** Image from the project assets (screenshot, reference), shown with its file name as caption. */
+export interface ManifestImageElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
+  kind: "image";
+  /** `assets/…` path of the project; never an external URL. */
+  src: string;
+  /** Width in canvas pixels; the height follows the image ratio. */
+  width: number;
+  x: number;
+  y: number;
+}
+
+export const LINK_CARD_WIDTH = 640;
+export const LINK_CARD_HEIGHT = 112;
+
+/** Link card (640x112) to another Redline page; opens in the same tab. */
+export interface ManifestPageLinkElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
+  kind: "link";
+  page: string;
+  x: number;
+  y: number;
+}
+
+/** Link card (640x112) to an external URL, with the title Claude gives it; opens in a new tab. */
+export interface ManifestUrlLinkElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
+  kind: "link";
+  url: string;
+  title: string;
+  x: number;
+  y: number;
+}
+
+export type ManifestLinkElement = ManifestPageLinkElement | ManifestUrlLinkElement;
+
+export const ARROW_LINES = ["solid", "dashed"] as const;
+export type ArrowLine = (typeof ARROW_LINES)[number];
+
+/** End of an arrow: an artboard `file`, an element `id`, or a free canvas point. */
+export type ArrowEnd = string | { x: number; y: number };
+
+/** Arrow between two elements, drawn on their nearest edges. Has no id and cannot be a target. */
+export interface ManifestArrowElement {
+  kind: "arrow";
+  from: ArrowEnd;
+  to: ArrowEnd;
+  label?: string;
+  color: PaletteColor;
+  line: ArrowLine;
+}
+
+/** Decoration drawn on the canvas, written by Claude. Add a kind here and a parser in ELEMENT_PARSERS. */
+export type ManifestElement = ManifestTitleElement | ManifestTextElement | ManifestStickyElement | ManifestShapeElement | ManifestImageElement | ManifestLinkElement | ManifestArrowElement;
+export type ManifestElementKind = ManifestElement["kind"];
 
 /** Play mode: clicking `selector` in artboard `from` goes to artboard `to`. */
 export interface ManifestLink {
@@ -320,7 +508,8 @@ export interface Manifest {
   /** Id of the design system the page uses. */
   designSystem?: string;
   artboards: ManifestArtboard[];
-  notes: ManifestNote[];
+  /** Ordered: drawn in list order. */
+  elements: ManifestElement[];
   links: ManifestLink[];
   tweaks: ManifestTweak[];
 }
@@ -347,6 +536,14 @@ function str(item: Record<string, unknown>, key: string, name: string): string {
   return value;
 }
 
+/** A text field that may be left out (or empty); anything else than a string is refused. */
+function optionalStr(item: Record<string, unknown>, key: string, name: string): string | undefined {
+  const value = item[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") fail(`${name}.${key} must be a string`);
+  return value === "" ? undefined : value;
+}
+
 function num(item: Record<string, unknown>, key: string, name: string, fallback: number, positive = false): number {
   const value = item[key];
   if (value === undefined) return fallback;
@@ -354,6 +551,190 @@ function num(item: Record<string, unknown>, key: string, name: string, fallback:
     fail(`${name}.${key} must be ${positive ? "a positive number" : "a number"}`);
   }
   return value;
+}
+
+function oneOf<T extends string>(item: Record<string, unknown>, key: string, name: string, allowed: readonly T[]): T | undefined {
+  const value = item[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !(allowed as readonly string[]).includes(value)) fail(`${name}.${key} must be one of ${allowed.join(", ")}`);
+  return value as T;
+}
+
+function arrowEnd(item: Record<string, unknown>, key: string, name: string): ArrowEnd {
+  const value = item[key];
+  if (typeof value === "string" && value !== "") return value;
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const { x, y } = value as Record<string, unknown>;
+    if (typeof x === "number" && Number.isFinite(x) && typeof y === "number" && Number.isFinite(y)) return { x, y };
+  }
+  return fail(`${name}.${key} must be an element id or an {x, y} point`);
+}
+
+const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unknown>, name: string) => Extract<ManifestElement, { kind: K }> } = {
+  title(item, name) {
+    const title: ManifestTitleElement = {
+      kind: "title",
+      text: str(item, "text", name),
+      width: num(item, "width", name, DEFAULT_TITLE_WIDTH, true),
+      x: num(item, "x", name, 0),
+      y: num(item, "y", name, 0),
+    };
+    const subtitle = optionalStr(item, "subtitle", name);
+    if (subtitle) title.subtitle = subtitle;
+    return title;
+  },
+  text(item, name) {
+    const note: ManifestTextElement = {
+      kind: "text",
+      text: str(item, "text", name),
+      width: num(item, "width", name, DEFAULT_TEXT_WIDTH, true),
+      size: oneOf(item, "size", name, NOTE_SIZES) ?? "m",
+      x: num(item, "x", name, 0),
+      y: num(item, "y", name, 0),
+    };
+    const color = oneOf(item, "color", name, PALETTE_COLORS);
+    if (color) note.color = color;
+    return note;
+  },
+  sticky(item, name) {
+    return {
+      kind: "sticky",
+      text: str(item, "text", name),
+      width: num(item, "width", name, DEFAULT_STICKY_WIDTH, true),
+      size: oneOf(item, "size", name, NOTE_SIZES) ?? "m",
+      color: oneOf(item, "color", name, PALETTE_COLORS) ?? "yellow",
+      x: num(item, "x", name, 0),
+      y: num(item, "y", name, 0),
+    };
+  },
+  shape(item, name) {
+    const shape = oneOf(item, "shape", name, SHAPE_KINDS);
+    if (!shape) fail(`${name}.shape must be one of ${SHAPE_KINDS.join(", ")}`);
+    if (item.width === undefined) fail(`${name}.width must be a positive number`);
+    if (item.height === undefined) fail(`${name}.height must be a positive number`);
+    const element: ManifestShapeElement = {
+      kind: "shape",
+      shape,
+      style: oneOf(item, "style", name, SHAPE_STYLES) ?? "outline",
+      color: oneOf(item, "color", name, PALETTE_COLORS) ?? "gray",
+      width: num(item, "width", name, 0, true),
+      height: num(item, "height", name, 0, true),
+      x: num(item, "x", name, 0),
+      y: num(item, "y", name, 0),
+    };
+    const label = optionalStr(item, "label", name);
+    if (label) element.label = label;
+    return element;
+  },
+  image(item, name) {
+    const src = str(item, "src", name);
+    if (!src.startsWith("assets/") || src === "assets/" || src.split("/").some((part) => part === ".." || part === ".")) {
+      fail(`${name}.src must be a path inside the project assets, like assets/screenshot.png`);
+    }
+    return {
+      kind: "image",
+      src,
+      width: num(item, "width", name, DEFAULT_IMAGE_WIDTH, true),
+      x: num(item, "x", name, 0),
+      y: num(item, "y", name, 0),
+    };
+  },
+  link(item, name) {
+    const x = num(item, "x", name, 0);
+    const y = num(item, "y", name, 0);
+    if (item.page !== undefined) {
+      if (item.url !== undefined) fail(`${name}.page and ${name}.url cannot be used together`);
+      return { kind: "link", page: str(item, "page", name), x, y };
+    }
+    if (item.url === undefined) fail(`${name}.page must be a non-empty string (or ${name}.url with ${name}.title)`);
+    const url = str(item, "url", name);
+    if (!/^https?:\/\/[^\s/]+/i.test(url)) fail(`${name}.url must be an http(s) address`);
+    return { kind: "link", url, title: str(item, "title", name), x, y };
+  },
+  arrow(item, name) {
+    const arrow: ManifestArrowElement = {
+      kind: "arrow",
+      from: arrowEnd(item, "from", name),
+      to: arrowEnd(item, "to", name),
+      color: oneOf(item, "color", name, PALETTE_COLORS) ?? "gray",
+      line: oneOf(item, "line", name, ARROW_LINES) ?? "solid",
+    };
+    const label = optionalStr(item, "label", name);
+    if (label) arrow.label = label;
+    return arrow;
+  },
+};
+
+function parseElement(item: Record<string, unknown>, name: string): ManifestElement {
+  const kind = item.kind === undefined ? "title" : item.kind;
+  if (typeof kind !== "string" || !Object.hasOwn(ELEMENT_PARSERS, kind)) {
+    fail(`${name}.kind must be one of ${Object.keys(ELEMENT_PARSERS).join(", ")}`);
+  }
+  const element = ELEMENT_PARSERS[kind as ManifestElementKind](item, name);
+  if (element.kind !== "arrow" && item.id !== undefined) element.id = str(item, "id", name);
+  return element;
+}
+
+/** Ids are unique across artboard files and element ids; an arrow can only name one of them. */
+function checkElementIds(artboards: ManifestArtboard[], elements: ManifestElement[], elementsName: string): void {
+  const known = new Set(artboards.map((artboard) => artboard.file));
+  elements.forEach((element, i) => {
+    if (element.kind === "arrow" || element.id === undefined) return;
+    if (known.has(element.id)) fail(`${elementsName}[${i}].id "${element.id}" is already used by an artboard file or another element`);
+    known.add(element.id);
+  });
+  elements.forEach((element, i) => {
+    if (element.kind !== "arrow") return;
+    for (const key of ["from", "to"] as const) {
+      const end = element[key];
+      if (typeof end === "string" && !known.has(end)) fail(`${elementsName}[${i}].${key} names "${end}", which is not an artboard file or an element id`);
+    }
+  });
+}
+
+function parseGuides(value: unknown, name: string): ArtboardGuides {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) fail(`${name} must be an object`);
+  const item = value as Record<string, unknown>;
+  const required = (key: string, integer = false, positive = false): number => {
+    const n = item[key];
+    if (typeof n !== "number" || !Number.isFinite(n) || n < 0 || (positive && n === 0) || (integer && !Number.isInteger(n))) {
+      fail(`${name}.${key} must be ${integer ? "a positive whole number" : positive ? "a positive number" : "a number of 0 or more"}`);
+    }
+    return n;
+  };
+  const guides: ArtboardGuides = { columns: required("columns", true, true), gutter: required("gutter"), margin: required("margin") };
+  if (item.baseline !== undefined) guides.baseline = required("baseline", false, true);
+  return guides;
+}
+
+const RESPONSIVE_FORMAT_NAMES = Object.keys(RESPONSIVE_FORMATS) as ResponsiveFormat[];
+
+function parseRenderings(value: unknown, name: string): ArtboardRendering[] {
+  if (!Array.isArray(value) || value.length === 0) fail(`${name} must be a non-empty list of formats (${RESPONSIVE_FORMAT_NAMES.join(", ")})`);
+  const seen = new Set<string>();
+  return (value as unknown[]).map((entry, i) => {
+    const entryName = `${name}[${i}]`;
+    let rendering: ArtboardRendering;
+    if (typeof entry === "string") {
+      if (!RESPONSIVE_FORMAT_NAMES.includes(entry as ResponsiveFormat)) fail(`${entryName} must be one of ${RESPONSIVE_FORMAT_NAMES.join(", ")}`);
+      const { width, height } = RESPONSIVE_FORMATS[entry as ResponsiveFormat];
+      rendering = { format: entry as ResponsiveFormat, width, height };
+    } else if (typeof entry === "object" && entry !== null && !Array.isArray(entry)) {
+      const item = entry as Record<string, unknown>;
+      if (!RESPONSIVE_FORMAT_NAMES.includes(item.device as ResponsiveFormat)) fail(`${entryName}.device must be one of ${RESPONSIVE_FORMAT_NAMES.join(", ")}`);
+      const size = (key: "width" | "height") => {
+        const n = item[key];
+        if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) fail(`${entryName}.${key} must be a positive number`);
+        return n as number;
+      };
+      rendering = { format: item.device as ResponsiveFormat, width: size("width"), height: size("height") };
+    } else {
+      return fail(`${entryName} must be a format name or {device, width, height}`);
+    }
+    if (seen.has(renderingKey(rendering))) fail(`${entryName} repeats ${renderingLabel(rendering)}`);
+    seen.add(renderingKey(rendering));
+    return rendering;
+  });
 }
 
 export function parseManifest(text: string): Manifest {
@@ -378,14 +759,37 @@ export function parseManifest(text: string): Manifest {
       y: num(item, "y", name, 0),
     };
     if (typeof item.title === "string") artboard.title = item.title;
-    nextX = artboard.x + width + ARTBOARD_GAP;
+    if (item.device !== undefined && !ARTBOARD_DEVICES.includes(item.device as ArtboardDevice)) fail(`${name}.device must be one of ${ARTBOARD_DEVICES.join(", ")}`);
+    if (item.responsive !== undefined) {
+      const renderings = parseRenderings(item.responsive, `${name}.responsive`);
+      artboard.responsive = renderings;
+      artboard.width = renderings.reduce((sum, r) => sum + r.width, 0) + RESPONSIVE_SPACING * (renderings.length + 1);
+      artboard.height = Math.max(...renderings.map((r) => r.height)) + RESPONSIVE_SPACING * 2;
+    } else if (item.device !== undefined) {
+      artboard.device = item.device as ArtboardDevice;
+    }
+    const url = optionalStr(item, "url", name);
+    if (url !== undefined) {
+      if (!artboard.responsive && artboard.device !== "desktop") fail(`${name}.url is only for artboards whose device is desktop`);
+      artboard.url = url;
+    }
+    if (item.expand !== undefined) {
+      if (item.expand !== "fill") fail(`${name}.expand must be "fill"`);
+      artboard.expand = "fill";
+    }
+    if (item.guides !== undefined) artboard.guides = parseGuides(item.guides, `${name}.guides`);
+    nextX = artboard.x + artboard.width + ARTBOARD_GAP;
     return artboard;
   });
 
-  const notes = list(root.notes, "notes").map((item, i): ManifestNote => {
-    const name = `notes[${i}]`;
-    return { text: str(item, "text", name), x: num(item, "x", name, 0), y: num(item, "y", name, 0) };
-  });
+  if (root.notes !== undefined && root.elements !== undefined) fail("notes and elements cannot be used together; notes is replaced by elements");
+  // Legacy `notes` are title elements.
+  const elements =
+    root.notes !== undefined
+      ? list(root.notes, "notes").map((item, i) => parseElement({ ...item, kind: "title" }, `notes[${i}]`))
+      : list(root.elements, "elements").map((item, i) => parseElement(item, `elements[${i}]`));
+
+  checkElementIds(artboards, elements, root.notes !== undefined ? "notes" : "elements");
 
   const links = list(root.links, "links").map((item, i): ManifestLink => {
     const name = `links[${i}]`;
@@ -402,7 +806,7 @@ export function parseManifest(text: string): Manifest {
     return { ...(item as unknown as ManifestTweak), id: str(item, "id", name), type: type as TweakType, label: str(item, "label", name) };
   });
 
-  const manifest: Manifest = { artboards, notes, links, tweaks };
+  const manifest: Manifest = { artboards, elements, links, tweaks };
   if (typeof root.title === "string") manifest.title = root.title;
   if (typeof root.designSystem === "string") manifest.designSystem = root.designSystem;
   return manifest;
