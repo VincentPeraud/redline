@@ -146,6 +146,17 @@ it("opens the dark contents from the counter with the current line highlighted, 
   await tab.close();
 }, 60_000);
 
+it("does not switch artboard with the arrow keys while the contents menu is open", async () => {
+  const { tab, play, pageId } = await openPlay("a.html");
+  await play.getByRole("button", { name: /2 \/ 3/ }).click();
+  await play.getByRole("menu", { name: "Sommaire de la page" }).waitFor();
+  await tab.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await tab.keyboard.press("ArrowRight");
+  await tab.waitForTimeout(300);
+  expect(await hashOf(tab)).toBe(`#/pages/${pageId}/play/a.html`);
+  await tab.close();
+}, 60_000);
+
 it("keeps rendu as written when changing artboard, and a followed link pushes one entry so Back returns to the clicked screen then to the canvas", async () => {
   const pageId = await createPage();
   const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });

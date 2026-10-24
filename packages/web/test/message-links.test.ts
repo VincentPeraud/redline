@@ -9,7 +9,7 @@ it("turns canvas and play addresses of this server into address segments, keepin
     { kind: "text", text: "Voir " },
     { kind: "address", url: `${origin}/#/pages/p1/artboards/panier.html`, pageId: "p1", artboard: "panier.html" },
     { kind: "text", text: " puis " },
-    { kind: "address", url: `${origin}/#/pages/p2/play/a%20b.html?rendu=mobile`, pageId: "p2", play: "a b.html", rendu: "mobile" },
+    { kind: "address", url: `${origin}/#/pages/p2/play/a%20b.html?rendu=mobile`, pageId: "p2", play: "a b.html", renderingParam: "mobile" },
     { kind: "text", text: "." },
   ]);
 });

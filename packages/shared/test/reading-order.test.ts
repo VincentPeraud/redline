@@ -44,6 +44,12 @@ describe("readingOrder", () => {
     expect(readingOrder([board("a", 0, 0)], [{ text: "Later", x: 0, y: 500, width: 500 }])[0]!.groupTitle).toBeNull();
   });
 
+  it("compares a title with each artboard's own top, not the row's top", () => {
+    const titles = [{ text: "Lower", x: 600, y: 180, width: 400 }];
+    const result = readingOrder([board("high", 0, 0, 500, 500), board("low", 600, 200, 400, 300)], titles);
+    expect(result.map((a) => [a.file, a.groupTitle])).toEqual([["high", null], ["low", "Lower"]]);
+  });
+
   it("lists a responsive artboard once, with its laid-out size", () => {
     const result = readingOrder([{ ...board("home.html", 0, 0, 1500, 800), title: "Home" }, board("next", 1600, 100)], []);
     expect(result.map((a) => [a.file, a.number, a.title])).toEqual([["home.html", 1, "Home"], ["next", 2, undefined]]);

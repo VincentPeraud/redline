@@ -1,11 +1,20 @@
-import { MANIFEST_PATH, parseManifest, type ManifestElement, type ManifestLink } from "@redline/shared";
+import { MANIFEST_PATH, parseManifest, type Manifest } from "@redline/shared";
 import type { Store } from "./store.js";
 
-const aimedArtboards = (elements: ManifestElement[]): { index: number; page: string; file: string }[] =>
-  elements.flatMap((element, index) => (element.kind === "link" && "page" in element && element.file !== undefined ? [{ index, page: element.page, file: element.file }] : []));
+interface Reference {
+  /** Where the manifest says it, for the error message. */
+  where: string;
+  page: string;
+  /** Artboard file aimed at, absent for a card that only names a page. */
+  file?: string;
+}
 
-const playLinksToOtherPages = (links: ManifestLink[], pageId: string): { index: number; page: string; to: string }[] =>
-  links.flatMap((link, index) => (link.page !== undefined && link.page !== pageId ? [{ index, page: link.page, to: link.to }] : []));
+const referencesOf = (manifest: Manifest, pageId: string): Reference[] => [
+  ...manifest.elements.flatMap((element, index): Reference[] =>
+    element.kind === "link" && "page" in element ? [{ where: `elements[${index}] (link)`, page: element.page, file: element.file }] : [],
+  ),
+  ...manifest.links.flatMap((link, index): Reference[] => (link.page !== undefined && link.page !== pageId ? [{ where: `links[${index}]`, page: link.page, file: link.to }] : [])),
+];
 
 /**
  * Error message when the manifest about to be published on `pageId` points at something of another page that does not exist, else null
@@ -15,18 +24,13 @@ const playLinksToOtherPages = (links: ManifestLink[], pageId: string): { index: 
 export function crossPageReferencesError(store: Store, pageId: string, files: Record<string, string>): string | null {
   const text = files[MANIFEST_PATH];
   if (text === undefined) return null;
-  const current = store.getPage(pageId)?.version.files[MANIFEST_PATH];
-  const known = current === undefined ? [] : aimedArtboards(parseManifest(store.blobText(current)).elements);
-  for (const { index, page, file } of aimedArtboards(parseManifest(text).elements)) {
-    if (known.some((k) => k.page === page && k.file === file)) continue;
-    if (!store.hasArtboard(page, file)) return `elements[${index}] (link) aims at artboard "${file}", which is not an artboard of page ${page}`;
-  }
-  const knownLinks = current === undefined ? [] : playLinksToOtherPages(parseManifest(store.blobText(current)).links, pageId);
-  const projectId = store.getPage(pageId)?.projectId;
-  for (const { index, page, to } of playLinksToOtherPages(parseManifest(text).links, pageId)) {
-    if (knownLinks.some((k) => k.page === page && k.to === to)) continue;
-    if (store.getPage(page)?.projectId !== projectId) return `links[${index}] aims at page ${page}, which is not a page of this project`;
-    if (!store.hasArtboard(page, to)) return `links[${index}] aims at artboard "${to}", which is not an artboard of page ${page}`;
+  const page = store.getPage(pageId);
+  const currentHash = page?.version.files[MANIFEST_PATH];
+  const known = currentHash === undefined ? [] : referencesOf(parseManifest(store.blobText(currentHash)), pageId);
+  for (const { where, page: target, file } of referencesOf(parseManifest(text), pageId)) {
+    if (known.some((k) => k.page === target && k.file === file)) continue;
+    if (store.getPage(target)?.projectId !== page?.projectId) return `${where} aims at page ${target}, which is not a page of this project`;
+    if (file !== undefined && !store.hasArtboard(target, file)) return `${where} aims at artboard "${file}", which is not an artboard of page ${target}`;
   }
   return null;
 }

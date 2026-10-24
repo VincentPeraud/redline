@@ -97,6 +97,18 @@ it("opens the canvas with a dismissable message when the address names an artboa
   await tab.close();
 }, 60_000);
 
+it("drops the message when the route moves to an address that exists", async () => {
+  const pageId = await createPage({ "near.html": html, "far away.html": html }, farApart);
+  const tab = await context.newPage();
+  await tab.goto(`${server.url}/#/pages/${pageId}/artboards/old-cart.html`);
+  const message = tab.getByRole("status").filter({ hasText: "Cet artboard n'existe plus" });
+  await message.waitFor();
+
+  await tab.evaluate((id) => (window.location.hash = `#/pages/${id}/artboards/near.html`), pageId);
+  await message.waitFor({ state: "detached" });
+  await tab.close();
+}, 60_000);
+
 it("copies the full canvas address of an artboard from its name strip and confirms with a short Lien copié bubble", async () => {
   const pageId = await createPage({ "near.html": html, "far away.html": html }, farApart);
   const tab = await context.newPage();

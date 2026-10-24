@@ -4,6 +4,7 @@ export * from "./work.js";
 export * from "./sessions.js";
 export * from "./home.js";
 export * from "./readingOrder.js";
+export * from "./responsiveLayout.js";
 export * from "./addresses.js";
 
 export const PROTOCOL_VERSION = 1;
