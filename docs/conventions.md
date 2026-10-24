@@ -226,4 +226,4 @@ Contracts for the UI. Types are in `@redline/shared`.
 
 ## Reading order and table of contents (lot B, ticket 01)
 - `readingOrder(artboards, titles)` in `@redline/shared` (`readingOrder.ts`) is the only place that numbers artboards: rows by overlapping vertical extents, left to right in a row, group = nearest title above the row covering the artboard's centre. The web app and the agent both call it with laid-out boxes (responsive artboards as one box).
-- `TocList` (web) is the reusable list (filter + groups + lines, props `items`, `currentFile`, `onSelect`); `tocGroups` / `artboardAtCentre` in `tocItems.ts` are its pure helpers. `TocMenu` is the header button and menu around it; the "Sommaire" tab and the play counter menu reuse `TocList`.
+- `TocList` (web) is the reusable list (filter + groups + lines, props `items`, `currentFile`, `onSelect`); `tocGroups` / `artboardAtCentre` in `tocItems.ts` are its pure helpers. `TocMenu` is the header button and menu around it; the "Sommaire" side tab (`PageCanvas`, third `SideTab` "toc", `placeholder` prop "Filtrer les n artboards…") and the play counter menu reuse `TocList`.
