@@ -30,6 +30,16 @@ export function panBy(view: CanvasView, dx: number, dy: number): CanvasView {
   return { ...view, x: view.x + dx, y: view.y + dy };
 }
 
+/** Centres `box` in the viewport, zoomed to fit it but never past 100 %. */
+export function centerOn(box: Bounds, viewport: { width: number; height: number }): CanvasView {
+  const zoom = Math.min(1, fitView(box, viewport).zoom);
+  return {
+    zoom,
+    x: (viewport.width - box.width * zoom) / 2 - box.x * zoom,
+    y: (viewport.height - box.height * zoom) / 2 - box.y * zoom,
+  };
+}
+
 export function fitView(bounds: Bounds, viewport: { width: number; height: number }, margin = 48): CanvasView {
   const zoom = clampZoom(
     Math.min((viewport.width - 2 * margin) / bounds.width, (viewport.height - 2 * margin) / bounds.height),

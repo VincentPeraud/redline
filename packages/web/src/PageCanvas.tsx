@@ -30,7 +30,8 @@ import { CanvasHeader } from "./CanvasHeader.js";
 import { useStoredToggle } from "./useStoredToggle.js";
 import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
-import { panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { centerOn, panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { COPIED_BUBBLE_MS, copyAddress } from "./copyLink.js";
 import { artboardAtCentre, type TocItem } from "./tocItems.js";
 import { CanvasElements } from "./CanvasElements.js";
 import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
@@ -77,6 +78,17 @@ function initialView(manifest: Manifest, stage: { width: number; height: number 
   return { zoom, x: START_LEFT - bounds.x * zoom, y: START_TOP - bounds.y * zoom };
 }
 
+const OUTLINE_MS = 2000;
+
+function CopyLinkIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
+      <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
+    </svg>
+  );
+}
+
 function BubbleIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -103,7 +115,7 @@ function draftLabel(draft: PageDraft): string {
 
 function FullscreenIcon() {
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M15 3h6v6" />
       <path d="M9 21H3v-6" />
       <path d="M21 3l-7 7" />
@@ -124,9 +136,11 @@ interface Props {
   onVersionChange: () => void;
   /** The page's view settings as the server has them. */
   viewSettings?: PageViewSettings;
+  /** File named by an artboard address (`.../artboards/<file>`): the canvas centres and outlines it once. */
+  addressedArtboard?: string;
 }
 
-export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings }: Props) {
+export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, addressedArtboard }: Props) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
@@ -162,6 +176,14 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const viewport = useRef<HTMLDivElement>(null);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const placed = useRef(false);
+  /** Artboard outlined for a moment after an address centred on it. */
+  const [outlined, setOutlined] = useState<string | null>(null);
+  /** File of an address that names an artboard the manifest no longer has. */
+  const [missingArtboard, setMissingArtboard] = useState<string | null>(null);
+  /** Strip whose "Lien copié" bubble is up; `at` restarts the timer on a second copy. */
+  const [copied, setCopied] = useState<{ file: string; at: number } | null>(null);
+  const artboardBoxesRef = useRef<Map<string, Box>>(new Map());
+  const handledAddress = useRef<string | undefined>(undefined);
   const drag = useRef<{ x: number; y: number } | null>(null);
   /** Where the pointer went down, to tell a click on a canvas element from the end of a pan. */
   const pressedAt = useRef<{ x: number; y: number } | null>(null);
@@ -229,6 +251,41 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     observer.observe(element);
     return () => observer.disconnect();
   }, [playFrom]);
+
+  // An artboard address acts once per address, after the manifest and the viewport are known; panning and zooming never touch the URL.
+  useEffect(() => {
+    if (addressedArtboard === undefined) {
+      handledAddress.current = undefined;
+      return;
+    }
+    if (!manifest || viewportSize.width === 0 || handledAddress.current === addressedArtboard) return;
+    handledAddress.current = addressedArtboard;
+    const box = artboardBoxesRef.current.get(addressedArtboard);
+    if (!box) {
+      setMissingArtboard(addressedArtboard);
+      setOutlined(null);
+      return;
+    }
+    setMissingArtboard(null);
+    setView(centerOn(box, viewportSize));
+    setOutlined(addressedArtboard);
+  }, [addressedArtboard, manifest, viewportSize]);
+
+  useEffect(() => {
+    if (outlined === null) return;
+    const timer = setTimeout(() => setOutlined(null), OUTLINE_MS);
+    return () => clearTimeout(timer);
+  }, [outlined]);
+
+  useEffect(() => {
+    if (copied === null) return;
+    const timer = setTimeout(() => setCopied(null), COPIED_BUBBLE_MS);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  function copyArtboardLink(file: string) {
+    void copyAddress({ name: "page", pageId, artboard: file }).then(() => setCopied({ file, at: Date.now() }));
+  }
 
   function zoomFromCenter(factor: number) {
     const rect = viewport.current?.getBoundingClientRect();
@@ -385,6 +442,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const artboardBoxes = new Map<string, Box>(
     (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, width: artboard.width, height: artboard.height }]),
   );
+  artboardBoxesRef.current = artboardBoxes;
   const tocItems: TocItem[] = readingOrder(
     (manifest?.artboards ?? []).map((artboard) => ({ file: artboard.file, title: artboard.title, ...artboardBoxes.get(artboard.file)! })),
     (manifest?.elements ?? []).flatMap((element) => (element.kind === "title" ? [{ text: element.text, x: element.x, y: element.y, width: element.width }] : [])),
@@ -474,6 +532,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                 return (
                 <div
                   key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`}
+                  data-artboard={artboard.file}
                   className={cx(styles.artboard, (historyOpenFor === artboard.file || tweaksOpenFor === artboard.file) && styles.artboardRaised)}
                   style={{ left: artboard.x, top: artboard.y }}
                 >
@@ -493,7 +552,12 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         </span>
                       ) : null,
                     )}
-                    <span className={styles.labelName}>{artboard.title ?? artboard.file}</span>
+                    {copied?.file === artboard.file && (
+                      <div role="status" className={styles.copiedBubble}>
+                        Lien copié
+                      </div>
+                    )}
+                    <span className={cx(styles.labelName, outlined === artboard.file && styles.labelNameOutlined)}>{artboard.title ?? artboard.file}</span>
                     {layout && artboard.responsive && (
                       <>
                         <span className={styles.responsiveBadge}>responsive</span>
@@ -529,7 +593,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         setTab("comments");
                       }}
                     >
-                      <BubbleIcon size={15} />
+                      <BubbleIcon size={13} />
                     </button>
                     <ArtboardHistory
                       pageId={pageId}
@@ -548,6 +612,15 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                     )}
                     <button
                       type="button"
+                      aria-label={`Copier le lien de ${artboard.file}`}
+                      title={`Copier le lien de ${artboard.file}`}
+                      className={styles.iconButton}
+                      onClick={() => copyArtboardLink(artboard.file)}
+                    >
+                      <CopyLinkIcon />
+                    </button>
+                    <button
+                      type="button"
                       aria-label={`Lancer ${artboard.file} en plein écran`}
                       title="Plein écran"
                       className={styles.iconButton}
@@ -556,6 +629,13 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       <FullscreenIcon />
                     </button>
                   </div>
+                  {outlined === artboard.file && (
+                    <span
+                      data-artboard-outline
+                      className={styles.artboardOutline}
+                      style={{ width: frameWidth * view.zoom, height: artboardBoxes.get(artboard.file)!.height * view.zoom, transform: `scale(${1 / view.zoom})` }}
+                    />
+                  )}
                   {layout && artboard.responsive ? (
                     <ResponsiveFrame
                       key={preview?.file === artboard.file ? preview.versionId : "live"}
@@ -649,11 +729,21 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               Sélection : clique sur un élément, un artboard ou une note pour l'ajouter au message <span className={styles.selectionHintKeys}>· Échap pour finir</span>
             </div>
           )}
-          <div className={cx(styles.hintWrap, selecting && styles.hintWrapHidden)}>
+          <div className={cx(styles.hintWrap, (selecting || missingArtboard !== null) && styles.hintWrapHidden)}>
             <div data-testid="mode-indicator" className={styles.hint}>
               {picking ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier." : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
             </div>
           </div>
+          {missingArtboard !== null && (
+            <div className={styles.missingWrap}>
+              <div role="status" className={styles.missing}>
+                Cet artboard n'existe plus · {missingArtboard}
+                <button type="button" aria-label="Fermer" className={styles.missingClose} onClick={() => setMissingArtboard(null)}>
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
           {toast && (
             <UndoToast
               message={toast.message}

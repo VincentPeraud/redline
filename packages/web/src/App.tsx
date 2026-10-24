@@ -16,7 +16,7 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function App({ pageId }: { pageId: string }) {
+export function App({ pageId, artboard }: { pageId: string; artboard?: string }) {
   const [page, setPage] = useState<Page | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [artboardOrigin, setArtboardOrigin] = useState("");
@@ -56,6 +56,7 @@ export function App({ pageId }: { pageId: string }) {
         versionId={page.version.id}
         onVersionChange={loadPage}
         viewSettings={page.viewSettings}
+        addressedArtboard={artboard}
       />
     </>
   );
