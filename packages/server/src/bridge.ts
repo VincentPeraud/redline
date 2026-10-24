@@ -19,6 +19,7 @@ export const BRIDGE_PATH = "/__redline/bridge.js";
 
 export const BRIDGE_SOURCE = `(function () {
   var picking = false;
+  var forwardWheel = false;
   var pins = [];
   var linkSelectors = null;
 
@@ -195,6 +196,7 @@ export const BRIDGE_SOURCE = `(function () {
     if (event.source !== window.parent || !event.data) return;
     if (event.data.type === "redline:set-mode") {
       picking = !!event.data.picking;
+      forwardWheel = !!event.data.forwardWheel;
       document.documentElement.style.cursor = picking ? "crosshair" : "";
     } else if (event.data.type === "redline:set-links") {
       linkSelectors = event.data.selectors || null;
@@ -205,6 +207,39 @@ export const BRIDGE_SOURCE = `(function () {
       reportPins();
     }
   });
+
+  // True when an element under the cursor (a list, a carousel) can still scroll that way. The document itself
+  // does not count: on the canvas, the artboard as a whole pans with the canvas.
+  function scrollsInside(el, dx, dy) {
+    for (; el && el.nodeType === 1 && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+      var style = window.getComputedStyle(el);
+      var canY = /auto|scroll/.test(style.overflowY) && el.scrollHeight > el.clientHeight;
+      var canX = /auto|scroll/.test(style.overflowX) && el.scrollWidth > el.clientWidth;
+      if (canY && (dy > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : dy < 0 && el.scrollTop > 0)) return true;
+      if (canX && (dx > 0 ? el.scrollLeft + el.clientWidth < el.scrollWidth - 1 : dx < 0 && el.scrollLeft > 0)) return true;
+    }
+    return false;
+  }
+
+  // The canvas pans and zooms on the wheel, but the iframe swallows it: hand it over (pinch comes as ctrl+wheel),
+  // except while a scroll area of the artboard can take it. Deltas go in pixels, whatever unit the wheel used.
+  window.addEventListener("wheel", function (event) {
+    if (!forwardWheel) return;
+    var pinch = event.ctrlKey || event.metaKey;
+    if (!pinch && scrollsInside(event.target, event.deltaX, event.deltaY)) return;
+    event.preventDefault();
+    var unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1;
+    send({
+      type: "redline:wheel",
+      deltaX: event.deltaX * unit,
+      deltaY: event.deltaY * unit,
+      deltaMode: 0,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      clientX: event.clientX,
+      clientY: event.clientY
+    });
+  }, { passive: false });
 
   window.addEventListener("resize", reportPins);
   send({ type: "redline:ready" });

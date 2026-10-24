@@ -106,6 +106,44 @@ it("lays artboards out from the manifest, shows notes, and zooms and pans with p
   expect(afterPan.x).toBeCloseTo(before.x, 2);
 }, 60_000);
 
+it("pans and zooms with the wheel and trackpad pinch while the cursor is over an artboard", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Wheel" })).json()) as { id: string };
+  const wheelPage = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Wheel page",
+      files: {
+        "home.html": "<!doctype html><body style=\"margin:0\"><h1>Home</h1></body>",
+        "manifest.json": JSON.stringify({ artboards: [{ file: "home.html", width: 600, height: 400, x: 0, y: 0 }] }),
+      },
+    })
+  ).json()) as Page;
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${wheelPage.id}`);
+  const home = tab.locator('iframe[title$="home.html"]');
+  await tab.frameLocator('iframe[title$="home.html"]').getByText("Home").waitFor();
+  // Wait until the canvas told the bridge to hand the wheel over.
+  await tab.waitForTimeout(200);
+
+  const start = await box(home);
+  const cursor = { x: start.x + 300, y: start.y + 200 };
+  await tab.mouse.move(cursor.x, cursor.y);
+  await tab.mouse.wheel(40, 0);
+  await expect.poll(async () => (await box(home)).x).toBeCloseTo(start.x - 40, 0);
+  await tab.mouse.wheel(0, 30);
+  await expect.poll(async () => (await box(home)).y).toBeCloseTo(start.y - 30, 0);
+
+  const panned = await box(home);
+  await tab.keyboard.down("Control");
+  await tab.mouse.wheel(0, -20);
+  await tab.keyboard.up("Control");
+  await expect.poll(async () => (await box(home)).width).toBeGreaterThan(600);
+  const zoomed = await box(home);
+  // Zoom is anchored on the cursor: the artboard point under it stays under it.
+  const ratio = zoomed.width / panned.width;
+  expect(zoomed.x).toBeCloseTo(cursor.x - (cursor.x - panned.x) * ratio, 0);
+  expect(zoomed.y).toBeCloseTo(cursor.y - (cursor.y - panned.y) * ratio, 0);
+}, 60_000);
+
 it("still shows every html file side by side when a page has no manifest", async () => {
   const project = (await (await server.post("/api/projects", { title: "Bare" })).json()) as { id: string };
   const barePage = (await (
