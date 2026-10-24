@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { SendHeldRequest, Thread, UpdateThreadRequest } from "@redline/shared";
 import type { ModelEffortChoice } from "./ModelEffortControls.js";
 import { RenderingChip } from "./RenderingChip.js";
-import { threadWhere } from "./threadLabel.js";
+import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
 import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./Thread.module.css";
 
@@ -47,7 +47,7 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
   }
 
   return (
-    <article data-testid="held-thread" className={cx(styles.card, styles.held)}>
+    <article data-testid="held-thread" data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.held)}>
       <div className={styles.head}>
         <span className={cx(styles.badge, styles.badgeHeld)}>{thread.number}</span>
         <span className={styles.where}>{threadWhere(thread)}</span>

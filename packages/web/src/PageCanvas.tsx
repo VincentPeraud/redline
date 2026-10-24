@@ -8,6 +8,7 @@ import {
   versionPreviewPath,
   type AgentInfo,
   type CreateThreadRequest,
+  threadTargetLabel,
   type Manifest,
   type PageViewSettings,
   type ResponsiveFormat,
@@ -67,6 +68,21 @@ function initialView(manifest: Manifest, stage: { width: number; height: number 
   return { zoom, x: START_LEFT - bounds.x * zoom, y: START_TOP - bounds.y * zoom };
 }
 
+function BubbleIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
+    </svg>
+  );
+}
+
+/** A comment being written: pinned on an element of an artboard, or on a whole artboard. */
+type PageDraft = (Pick & { artboard: string; rendering?: ThreadRendering }) | { target: { kind: "artboard"; artboard: string } };
+
+function draftLabel(draft: PageDraft): string {
+  return "target" in draft ? threadTargetLabel(draft.target) : (draft.elementName ?? draft.selector);
+}
+
 function FullscreenIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -96,11 +112,13 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
-  const [draft, setDraft] = useState<(Pick & { artboard: string; rendering?: ThreadRendering }) | null>(null);
+  const [draft, setDraft] = useState<PageDraft | null>(null);
   const [text, setText] = useState("");
   const [choice, setChoice] = useState<ModelEffortChoice>({});
   const [agentDefaults, setAgentDefaults] = useState<AgentDefaults>({});
   const [tab, setTab] = useState<SideTab>("conversation");
+  /** Artboard whose whole-artboard threads the Commentaires tab scrolls to once shown. */
+  const [scrollToArtboard, setScrollToArtboard] = useState<string | null>(null);
   const [tweaksOpenFor, setTweaksOpenFor] = useState<string | null>(null);
   /** Bumped when the page's design system changed: artboards remount to load the new tokens. */
   const [tokensVersion, setTokensVersion] = useState(0);
@@ -224,6 +242,12 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     });
   }, [refresh, refreshQueue, pageId]);
 
+  useEffect(() => {
+    if (scrollToArtboard === null || tab !== "comments") return;
+    document.querySelector(`[data-whole-artboard="${CSS.escape(scrollToArtboard)}"]`)?.scrollIntoView({ block: "nearest" });
+    setScrollToArtboard(null);
+  }, [scrollToArtboard, tab, threads]);
+
   // C: comment mode, P: back to interactive, G: layout guides.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -298,7 +322,9 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const openCount = threads.filter((t) => t.status !== "resolved").length;
   const runningCount = runs.filter((r) => r.status === "running" || r.status === "sent" || r.status === "retrying").length;
   const firstArtboard = manifest?.artboards[0]?.file;
-  const draftInfo: Draft | null = draft;
+  const draftInfo: Draft | null = draft && { label: draftLabel(draft) };
+  const pinnedOn = (file: string) => threads.filter((t) => t.target.kind === "element" && t.artboard === file);
+  const wholeArtboardThreads = (file: string) => threads.filter((t) => t.target.kind === "artboard" && t.artboard === file && t.status !== "resolved");
   const hiddenOf = (artboard: Manifest["artboards"][number]) => (artboard.responsive ? hiddenRenderingKeys(artboard.responsive, viewSettings, artboard.file) : new Set<string>());
   const layoutOf = (artboard: Manifest["artboards"][number]) =>
     artboard.responsive ? responsiveFrameLayout(artboard, renderingSlots(artboard.responsive), { measuredHeights: docHeights[artboard.file], hidden: hiddenOf(artboard) }) : null;
@@ -381,7 +407,32 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         />
                       </>
                     )}
+                    {wholeArtboardThreads(artboard.file).length > 0 && (
+                      <button
+                        type="button"
+                        className={styles.threadsChip}
+                        onClick={() => {
+                          setTab("comments");
+                          setScrollToArtboard(artboard.file);
+                        }}
+                      >
+                        <BubbleIcon size={12} />
+                        {wholeArtboardThreads(artboard.file).length === 1 ? "1 fil" : `${wholeArtboardThreads(artboard.file).length} fils`} sur l'artboard
+                      </button>
+                    )}
                     <span className={styles.spacer} />
+                    <button
+                      type="button"
+                      aria-label={`Commenter tout ${artboard.file}`}
+                      title="Commenter l'artboard entier"
+                      className={styles.iconButton}
+                      onClick={() => {
+                        setDraft({ target: { kind: "artboard", artboard: artboard.file } });
+                        setTab("comments");
+                      }}
+                    >
+                      <BubbleIcon size={15} />
+                    </button>
                     <ArtboardHistory
                       pageId={pageId}
                       file={artboard.file}
@@ -416,7 +467,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       layout={layout}
                       zoom={view.zoom}
                       guides={guidesVisible ? artboard.guides : undefined}
-                      threads={preview?.file === artboard.file ? [] : threads.filter((t) => t.artboard === artboard.file)}
+                      threads={preview?.file === artboard.file ? [] : pinnedOn(artboard.file)}
                       picking={picking && preview?.file !== artboard.file}
                       tweaks={tweaks.values}
                       onPick={(rendering, pick) => {
@@ -436,7 +487,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                     height={artboard.height}
                     zoom={view.zoom}
                     guides={guidesVisible ? artboard.guides : undefined}
-                    threads={preview?.file === artboard.file ? [] : threads.filter((t) => t.artboard === artboard.file)}
+                    threads={preview?.file === artboard.file ? [] : pinnedOn(artboard.file)}
                     picking={picking && preview?.file !== artboard.file}
                     tweaks={tweaks.values}
                     onPick={(pick) => {

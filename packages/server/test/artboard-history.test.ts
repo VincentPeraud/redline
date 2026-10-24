@@ -135,6 +135,20 @@ describe("per-artboard history, deleted artboards and artboard restore over the 
     expect((await deleted()).map((d) => [d.file, d.deletedBy])).toEqual([["b.html", "user"]]);
   });
 
+  it("keeps a whole-artboard thread through the artboard's deletion and restore", async () => {
+    const created = await server.post(`/api/pages/${page.id}/threads`, { target: { kind: "artboard", artboard: "b.html" }, body: "Too busy" });
+    expect(created.status).toBe(201);
+    const { "b.html": _removed, ...rest } = await current();
+    await publish({ ...rest, [MANIFEST_PATH]: ONLY_A }, "Remove B", "conversation");
+    const threads = async () => (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as { target: unknown; status: string }[];
+    expect(await threads()).toMatchObject([{ target: { kind: "artboard", artboard: "b.html" }, status: "open" }]);
+    expect((await server.post(`/api/pages/${page.id}/threads`, { target: { kind: "artboard", artboard: "b.html" }, body: "Gone" })).status).toBe(400);
+
+    const [gone] = await deleted();
+    expect((await restore("b.html", gone.lastVersionId)).status).toBe(201);
+    expect(await threads()).toMatchObject([{ target: { kind: "artboard", artboard: "b.html" }, status: "open" }]);
+  });
+
   it("validates the request", async () => {
     expect((await server.post(`/api/pages/${page.id}/artboards/restore`, { file: "../x", versionId: "v" })).status).toBe(400);
     expect((await server.post(`/api/pages/${page.id}/artboards/restore`, { file: "a.html" })).status).toBe(400);
