@@ -17,6 +17,7 @@ import {
   type QueueEntry,
   type Thread,
   type ThreadRendering,
+  type ThreadTarget,
 } from "@redline/shared";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { ArtboardHistory } from "./ArtboardHistory.js";
@@ -36,6 +37,7 @@ import { CommentsPanel, type Draft } from "./CommentsPanel.js";
 import { ConversationsPanel } from "./ConversationsPanel.js";
 import type { AgentDefaults, ModelEffortChoice } from "./ModelEffortControls.js";
 import { PlayMode } from "./PlayMode.js";
+import { addChip, marksFor, removeChip } from "./elementChips.js";
 import { messageContext } from "./messageContext.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { subscribeServerEvents } from "./serverEvents.js";
@@ -118,6 +120,10 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
+  /** The conversation's selection mode ("+ Élément"), exclusive with comment mode. */
+  const [selecting, setSelecting] = useState(false);
+  /** Elements the user points at for the next conversation message, numbered by position. */
+  const [chips, setChips] = useState<ThreadTarget[]>([]);
   const [draft, setDraft] = useState<PageDraft | null>(null);
   const [text, setText] = useState("");
   const [choice, setChoice] = useState<ModelEffortChoice>({});
@@ -261,12 +267,24 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     setScrollToArtboard(null);
   }, [scrollToArtboard, tab, threads]);
 
+  useEffect(() => {
+    if (!selecting) return;
+    function onEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setSelecting(false);
+    }
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [selecting]);
+
   // C: comment mode, P: back to interactive, G: layout guides.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (playFrom !== null || isEditableTarget(event.target) || event.metaKey || event.ctrlKey) return;
       const key = event.key.toLowerCase();
-      if (key === "c") setPicking(true);
+      if (key === "c") {
+        setPicking(true);
+        setSelecting(false);
+      }
       if (key === "p") setPicking(false);
       if (key === "g") toggleGuides();
     }
@@ -309,6 +327,14 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     });
     onVersionChange();
   }
+
+  function changeSelecting(next: boolean) {
+    setSelecting(next);
+    if (next) setPicking(false);
+  }
+
+  const pickElement = (pick: Pick, artboard: string, rendering?: ThreadRendering) =>
+    setChips((current) => addChip(current, { kind: "element", artboard, selector: pick.selector, elementName: pick.elementName ?? null, xPct: pick.xPct, yPct: pick.yPct, ...(rendering && { rendering }) }));
 
   async function renamePage(title: string) {
     const res = await fetch(`/api/pages/${pageId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) });
@@ -359,7 +385,10 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
         pageId={pageId}
         pageTitle={pageTitle}
         picking={picking}
-        onPickingChange={setPicking}
+        onPickingChange={(next) => {
+          setPicking(next);
+          if (next) setSelecting(false);
+        }}
         runningCount={runningCount}
         artboardOrigin={artboardOrigin}
         deleted={deleted}
@@ -419,7 +448,22 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                   className={cx(styles.artboard, (historyOpenFor === artboard.file || tweaksOpenFor === artboard.file) && styles.artboardRaised)}
                   style={{ left: artboard.x, top: artboard.y }}
                 >
-                  <div data-no-pan className={cx(styles.label, layout && styles.labelResponsive)} style={{ width: frameWidth * view.zoom, transform: `scale(${1 / view.zoom})` }}>
+                  <div
+                    data-no-pan
+                    data-strip={artboard.file}
+                    className={cx(styles.label, layout && styles.labelResponsive, selecting && styles.labelSelecting)}
+                    style={{ width: frameWidth * view.zoom, transform: `scale(${1 / view.zoom})` }}
+                    onClick={(e) => {
+                      if (selecting && !(e.target as HTMLElement).closest("button")) setChips((current) => addChip(current, { kind: "artboard", artboard: artboard.file }));
+                    }}
+                  >
+                    {chips.map((chip, index) =>
+                      chip.kind === "artboard" && chip.artboard === artboard.file ? (
+                        <span key={index} data-strip-mark={index + 1} className={styles.stripMark}>
+                          {index + 1}
+                        </span>
+                      ) : null,
+                    )}
                     <span className={styles.labelName}>{artboard.title ?? artboard.file}</span>
                     {layout && artboard.responsive && (
                       <>
@@ -494,11 +538,16 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       guides={guidesVisible ? artboard.guides : undefined}
                       threads={preview?.file === artboard.file ? [] : pinnedOn(artboard.file)}
                       picking={picking && preview?.file !== artboard.file}
+                      selecting={selecting && preview?.file !== artboard.file}
+                      marksOf={(key) => marksFor(chips, artboard.file, key)}
                       tweaks={tweaks.values}
                       onPick={(rendering, pick) => {
-                        setDraft({ ...pick, artboard: artboard.file, rendering: { format: rendering.format, width: rendering.width } });
+                        const where = { format: rendering.format, width: rendering.width };
+                        if (selecting) return pickElement(pick, artboard.file, where);
+                        setDraft({ ...pick, artboard: artboard.file, rendering: where });
                         setTab("comments");
                       }}
+                      onEscape={() => setSelecting(false)}
                       onDocHeight={(key, height) =>
                         setDocHeights((current) => (current[artboard.file]?.[key] === height ? current : { ...current, [artboard.file]: { ...current[artboard.file], [key]: height } }))
                       }
@@ -514,11 +563,15 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                     guides={guidesVisible ? artboard.guides : undefined}
                     threads={preview?.file === artboard.file ? [] : pinnedOn(artboard.file)}
                     picking={picking && preview?.file !== artboard.file}
+                    selecting={selecting && preview?.file !== artboard.file}
+                    marks={marksFor(chips, artboard.file)}
                     tweaks={tweaks.values}
                     onPick={(pick) => {
+                      if (selecting) return pickElement(pick, artboard.file);
                       setDraft({ ...pick, artboard: artboard.file });
                       setTab("comments");
                     }}
+                    onEscape={() => setSelecting(false)}
                   />
                   )}
                   {tweaksOpenFor === artboard.file && (
@@ -562,7 +615,12 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               </div>
             </div>
           )}
-          <div className={styles.hintWrap}>
+          {selecting && (
+            <div data-testid="selection-hint" className={styles.selectionHint}>
+              Sélection : clique sur un élément, un artboard ou une note pour l'ajouter au message <span className={styles.selectionHintKeys}>· Échap pour finir</span>
+            </div>
+          )}
+          <div className={cx(styles.hintWrap, selecting && styles.hintWrapHidden)}>
             <div data-testid="mode-indicator" className={cx(styles.hint, picking && styles.hintComment)}>
               {picking ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier." : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
             </div>
@@ -611,7 +669,13 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             </button>
           </div>
           {tab === "conversation" ? (
-            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults} />
+            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults}
+              chips={chips}
+              selecting={selecting}
+              onSelectingChange={changeSelecting}
+              onRemoveChip={(index) => setChips((current) => removeChip(current, index))}
+              onChipsSent={() => setChips([])}
+            />
           ) : (
             <CommentsPanel
               pageId={pageId}

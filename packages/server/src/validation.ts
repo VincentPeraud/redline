@@ -14,6 +14,8 @@ import {
   type CreateVersionRequest,
   type Effort,
   type MessageContext,
+  type ThreadTarget,
+  CANVAS_ELEMENT_KIND_LABELS,
   type ModelChoice,
   type PageViewSettings,
 } from "@redline/shared";
@@ -35,7 +37,21 @@ export function modelChoiceError({ model, effort }: { model?: unknown; effort?: 
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
-/** True for the visible artboards and tweaks of a message context (the part Claude is told about). */
+const isThreadTarget = (value: unknown): value is ThreadTarget => {
+  if (!isObject(value)) return false;
+  if (value.kind === "artboard") return requiredString(value.artboard);
+  if (value.kind === "canvas-element") return requiredString(value.elementId) && typeof value.elementKind === "string" && value.elementKind in CANVAS_ELEMENT_KIND_LABELS && (value.elementSummary === undefined || typeof value.elementSummary === "string");
+  return (
+    value.kind === "element" &&
+    requiredString(value.artboard) &&
+    requiredString(value.selector) &&
+    (value.elementName === null || typeof value.elementName === "string") &&
+    typeof value.xPct === "number" &&
+    typeof value.yPct === "number"
+  );
+};
+
+/** True for the visible artboards, tweaks and chips of a message context (what Claude is told about). */
 export function isMessageContext(value: unknown): value is MessageContext {
   if (!isObject(value) || !Array.isArray(value.visibleArtboards) || !Array.isArray(value.tweaks)) return false;
   const artboardsOk = value.visibleArtboards.every((a) => {
@@ -44,7 +60,8 @@ export function isMessageContext(value: unknown): value is MessageContext {
     const r = a.rendering;
     return isObject(r) && typeof r.format === "string" && r.format in RESPONSIVE_FORMATS && typeof r.width === "number";
   });
-  return artboardsOk && value.tweaks.every((t) => isObject(t) && typeof t.label === "string" && typeof t.value === "string");
+  const targetsOk = value.targets === undefined || (Array.isArray(value.targets) && value.targets.every(isThreadTarget));
+  return artboardsOk && targetsOk && value.tweaks.every((t) => isObject(t) && typeof t.label === "string" && typeof t.value === "string");
 }
 
 /** The choice without its absent fields, so it can be spread over a work item without erasing what the item has. */

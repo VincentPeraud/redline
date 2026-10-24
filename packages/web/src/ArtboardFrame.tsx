@@ -41,8 +41,14 @@ interface Props {
   guides?: Guides;
   threads: Thread[];
   picking: boolean;
+  /** The conversation's selection mode: hovers and picks like comment mode. */
+  selecting: boolean;
+  /** Numbered marks of the message's chips on this artboard, drawn by the bridge. */
+  marks: { number: number; selector: string }[];
   tweaks: TweakValues;
   onPick: (pick: Pick) => void;
+  /** Escape pressed inside the artboard while selecting (the iframe holds the keyboard focus). */
+  onEscape?: () => void;
   /** Called with the real height of the artboard's page whenever the bridge reports it. */
   onDocHeight?: (height: number) => void;
 }
@@ -52,13 +58,15 @@ interface Props {
  * and pin placement go through the bridge script the server injects (see conventions.md).
  * Messages are trusted only when `event.source` is this iframe's window.
  */
-export function ArtboardFrame({ src, title, width, height, zoom, guides, threads, picking, tweaks, onPick, onDocHeight }: Props) {
+export function ArtboardFrame({ src, title, width, height, zoom, guides, threads, picking, selecting, marks, tweaks, onPick, onEscape, onDocHeight }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const alt = useAltKey();
   const [positions, setPositions] = useState<PinPosition[]>([]);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
+  const onEscapeRef = useRef(onEscape);
+  onEscapeRef.current = onEscape;
   const onDocHeightRef = useRef(onDocHeight);
   onDocHeightRef.current = onDocHeight;
 
@@ -70,6 +78,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
       const data = event.data as { type?: string } & Partial<Pick> & { positions?: PinPosition[] };
       if (data.type === "redline:ready") setBridgeEpoch((n) => n + 1);
       else if (data.type === "redline:picked") onPickRef.current(data as Pick);
+      else if (data.type === "redline:escape") onEscapeRef.current?.();
       else if (data.type === "redline:pin-positions") setPositions(data.positions ?? []);
       else if (data.type === "redline:doc-height") onDocHeightRef.current?.((data as unknown as { height: number }).height);
       else if (data.type === "redline:wheel") replayWheel(data as unknown as ForwardedWheel);
@@ -101,8 +110,15 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
 
   useEffect(() => {
     if (bridgeEpoch === 0) return;
-    frame.current?.contentWindow?.postMessage({ type: "redline:set-mode", picking, alt, forwardWheel: true }, "*");
-  }, [picking, alt, bridgeEpoch]);
+    frame.current?.contentWindow?.postMessage({ type: "redline:set-mode", picking, selecting, alt, forwardWheel: true }, "*");
+  }, [picking, selecting, alt, bridgeEpoch]);
+
+  const marksKey = JSON.stringify(marks);
+  useEffect(() => {
+    if (bridgeEpoch === 0) return;
+    frame.current?.contentWindow?.postMessage({ type: "redline:set-marks", marks }, "*");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marksKey, bridgeEpoch]);
 
   useEffect(() => {
     if (bridgeEpoch === 0) return;

@@ -9,5 +9,6 @@ it("tells Claude that every element needs a stable, readable id", () => {
 
 it("documents the context block that follows a conversation message", () => {
   expect(REDLINE_GUIDE).toContain("The user is looking at: <files>");
+  expect(REDLINE_GUIDE).toContain("Elements the user points at:");
   expect(REDLINE_GUIDE).toContain("Tweak values: <label>: <value>");
 });

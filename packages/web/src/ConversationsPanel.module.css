@@ -189,7 +189,7 @@
 
 .userBubble {
   align-self: flex-end;
-  max-width: 92%;
+  max-width: 100%;
   padding: 10px var(--space-3);
   border-radius: var(--radius-xl) var(--radius-xl) var(--radius-xs) var(--radius-xl);
   background: var(--color-surface-muted);
@@ -243,13 +243,49 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: var(--space-4);
-  border-top: 1px solid var(--color-border-subtle);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border);
 }
 
 .label {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+}
+
+.messageBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+
+.messageBox:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(217, 45, 32, 0.12);
+}
+
+.messageBoxChips,
+.messageChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.messageChips {
+  justify-content: flex-end;
+}
+
+.userMessage {
+  align-self: flex-end;
+  max-width: 92%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
 }
 
 .sessionLine,
@@ -263,8 +299,45 @@
   color: var(--color-warning-strong);
 }
 
-.messageInput.messageInput {
-  line-height: normal;
+.messageInput {
+  width: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  resize: none;
+}
+
+.messageInput::placeholder {
+  color: #8a8a93;
+}
+
+.elementButton {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.elementButtonOn {
+  border-color: var(--color-accent);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+}
+
+.selectingNote {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }
 
 .actions {

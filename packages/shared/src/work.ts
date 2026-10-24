@@ -193,6 +193,8 @@ export interface ConversationMessage extends ModelChoice {
   createdAt: string;
   /** Pages the run created with `create_page`, on Claude's answer. */
   createdPages?: CreatedPage[];
+  /** Chips of a user message: the elements it pointed at, numbered from 1 in this order. */
+  targets?: ThreadTarget[];
 }
 
 /** `GET /api/conversations/:id` and the result of creating one. */

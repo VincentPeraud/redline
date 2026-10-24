@@ -60,6 +60,7 @@ A Redline page is a set of files. You work on a copy of them (the working copy f
 
 ## Conversation messages (context block)
 - A message from the page's conversation ends with a context block: "The user is looking at: <files>" lists the artboards on screen (partly visible ones included; in play mode, the one shown, with its rendering in parentheses for a responsive artboard), and "Tweak values: <label>: <value>, ..." gives the current value of each tweak (the line is absent when the page has no tweaks).
+- When the user pointed at things before sending ("+ Élément"), the block also has "Elements the user points at:" with one numbered line per chip: "1: element \`<selector>\` (named « … ») on artboard <file>", "2: the whole artboard <file>", "3: canvas element \`<id>\` (<kind>)". The message text refers to them by number ("give 2 the style of 1").
 - Use it to resolve "this title" or "this screen" to the artboard the user means. The values are already in tweaks.json: do not rewrite them unless asked.
 
 ## DESIGN.md (the project's rules)

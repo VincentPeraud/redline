@@ -8,6 +8,7 @@ import {
   type CreateConversationRequest,
   type MessageContext,
   type ModelChoice,
+  type ThreadTarget,
   type ServerEvent,
   type WorkItem,
 } from "@redline/shared";
@@ -34,12 +35,24 @@ export function conversationMessage(pageTitle: string, pageId: string, bodies: s
   ].join("\n");
 }
 
-/** The lines that follow a conversation message: what the user is looking at and the tweak values. */
+function chipLine(target: ThreadTarget, number: number): string {
+  switch (target.kind) {
+    case "element":
+      return `${number}: element \`${target.selector}\`${target.elementName ? ` (named « ${target.elementName} »)` : ""} on artboard ${target.artboard}`;
+    case "artboard":
+      return `${number}: the whole artboard ${target.artboard}`;
+    case "canvas-element":
+      return `${number}: canvas element \`${target.elementId}\` (${target.elementKind}${target.elementSummary ? `, ${target.elementSummary}` : ""})`;
+  }
+}
+
+/** The lines that follow a conversation message: what the user is looking at, the tweak values and the numbered chips. */
 export function contextBlock(context: MessageContext): string {
   const files = context.visibleArtboards.map(({ file, rendering }) => (rendering ? `${file} (${renderingLabel(rendering)})` : file));
   return [
     `The user is looking at: ${files.length > 0 ? files.join(", ") : "no artboard on screen"}`,
     ...(context.tweaks.length > 0 ? [`Tweak values: ${context.tweaks.map((t) => `${t.label}: ${t.value}`).join(", ")}`] : []),
+    ...(context.targets && context.targets.length > 0 ? ["Elements the user points at:", ...context.targets.map((t, i) => chipLine(t, i + 1))] : []),
   ].join("\n");
 }
 
@@ -155,7 +168,7 @@ export function registerConversationRoutes(
   /** Stores a user message and dispatches it; `extraContext` goes to Claude with it without being stored, and `projectId` overrides the project whose agent serves it. */
   const sendMessage: SendConversationMessage = (conversation, body, choice, options = {}) => {
     const previous = store.conversationMessages(conversation.id);
-    const message = store.addConversationMessage(conversation.id, "user", body, choice)!;
+    const message = store.addConversationMessage(conversation.id, "user", body, choice, [], options.context?.targets)!;
     const page = store.getPage(conversation.pageId)!;
     dispatch(
       conversation,
