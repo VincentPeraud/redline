@@ -85,7 +85,7 @@ it("adjusts every tweak type on the canvas and in play mode, versions each chang
   const html = await (await server.get(`/api/pages/${page.id}/files/home.html`)).text();
   expect(html).toBe("<!doctype html><body><h1>Hello</h1></body>");
 
-  await tab.getByRole("button", { name: "Plein écran" }).click();
+  await tab.getByRole("button", { name: /^Lancer .* en plein écran$/ }).click();
   const playFrame = tab.frameLocator('[data-testid="play"] iframe');
   const playAttr = (name: string) => () => playFrame.locator("html").getAttribute(`data-tweak-${name}`);
   await expect.poll(playAttr("accent")).toBe("#0f766e");

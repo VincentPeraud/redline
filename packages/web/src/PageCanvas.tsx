@@ -32,6 +32,7 @@ import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
 import { centerOn, panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { COPIED_BUBBLE_MS, copyAddress } from "./copyLink.js";
+import { navigateTo } from "./router.js";
 import { artboardAtCentre, type TocItem } from "./tocItems.js";
 import { CanvasElements } from "./CanvasElements.js";
 import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
@@ -89,6 +90,16 @@ function CopyLinkIcon() {
   );
 }
 
+function CopyPlayLinkIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 11a4 4 0 0 0-6 .4l-.6.6a4 4 0 0 0 5.6 5.6l1-1" />
+      <path d="M7 15l4-4" />
+      <path d="M14 5l7 5-7 5z" />
+    </svg>
+  );
+}
+
 function BubbleIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -138,9 +149,13 @@ interface Props {
   viewSettings?: PageViewSettings;
   /** File named by an artboard address (`.../artboards/<file>`): the canvas centres and outlines it once. */
   addressedArtboard?: string;
+  /** File named by a play address (`.../play/<file>`): play mode shows it. */
+  playFile?: string;
+  /** The play address's `rendu` value, as written. */
+  rendu?: string;
 }
 
-export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, addressedArtboard }: Props) {
+export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, addressedArtboard, playFile, rendu }: Props) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
@@ -161,7 +176,6 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [tokensVersion, setTokensVersion] = useState(0);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState<string | null>(null);
-  const [playFrom, setPlayFrom] = useState<string | null>(null);
   const [historyOpenFor, setHistoryOpenFor] = useState<string | null>(null);
   /** An old version shown in place of one artboard, read-only, until restored or cancelled. */
   const [preview, setPreview] = useState<{ file: string; versionId: string } | null>(null);
@@ -187,6 +201,8 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const drag = useRef<{ x: number; y: number } | null>(null);
   /** Where the pointer went down, to tell a click on a canvas element from the end of a pan. */
   const pressedAt = useRef<{ x: number; y: number } | null>(null);
+
+  const playing = playFile !== undefined && manifest !== null && manifest.artboards.some((a) => a.file === playFile);
 
   const runs = useRuns(pageId);
   const sessions = usePageSessions(pageId);
@@ -240,7 +256,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     }
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [playFrom]);
+  }, [playing]);
 
   useEffect(() => {
     const element = viewport.current;
@@ -250,7 +266,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [playFrom]);
+  }, [playing]);
 
   // An artboard address acts once per address, after the manifest and the viewport are known; panning and zooming never touch the URL.
   useEffect(() => {
@@ -271,6 +287,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     setOutlined(addressedArtboard);
   }, [addressedArtboard, manifest, viewportSize]);
 
+  // A play address naming an artboard the manifest no longer has lands on the canvas with the same message.
+  useEffect(() => {
+    if (playFile !== undefined && manifest && !playing) setMissingArtboard(playFile);
+  }, [playFile, manifest, playing]);
+
   useEffect(() => {
     if (outlined === null) return;
     const timer = setTimeout(() => setOutlined(null), OUTLINE_MS);
@@ -285,6 +306,10 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
 
   function copyArtboardLink(file: string) {
     void copyAddress({ name: "page", pageId, artboard: file }).then(() => setCopied({ file, at: Date.now() }));
+  }
+
+  function copyPlayLink(file: string) {
+    void copyAddress({ name: "page", pageId, play: file }).then(() => setCopied({ file, at: Date.now() }));
   }
 
   function zoomFromCenter(factor: number) {
@@ -347,7 +372,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   // C: comment mode, P: back to interactive, G: layout guides.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (playFrom !== null || isEditableTarget(event.target) || event.metaKey || event.ctrlKey) return;
+      if (playing || isEditableTarget(event.target) || event.metaKey || event.ctrlKey) return;
       const key = event.key.toLowerCase();
       if (key === "c") {
         setPicking(true);
@@ -358,7 +383,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggleGuides, playFrom]);
+  }, [toggleGuides, playing]);
 
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
   async function send(held: boolean) {
@@ -409,19 +434,20 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     onVersionChange();
   }
 
-  if (playFrom !== null && manifest) {
+  if (playing && manifest && playFile !== undefined) {
     return (
       <PlayMode
         pageId={pageId}
         pageTitle={pageTitle}
         manifest={manifest}
-        start={playFrom}
+        file={playFile}
+        rendu={rendu}
         artboardOrigin={artboardOrigin}
         tweaks={tweaks.values}
         onTweak={tweaks.setValue}
         guidesVisible={guidesVisible}
         onToggleGuides={toggleGuides}
-        onExit={() => setPlayFrom(null)}
+        onExit={() => navigateTo({ name: "page", pageId })}
       />
     );
   }
@@ -621,10 +647,19 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                     </button>
                     <button
                       type="button"
+                      aria-label={`Copier le lien plein écran de ${artboard.file}`}
+                      title={`Copier le lien plein écran de ${artboard.file}`}
+                      className={styles.iconButton}
+                      onClick={() => copyPlayLink(artboard.file)}
+                    >
+                      <CopyPlayLinkIcon />
+                    </button>
+                    <button
+                      type="button"
                       aria-label={`Lancer ${artboard.file} en plein écran`}
                       title="Plein écran"
                       className={styles.iconButton}
-                      onClick={() => setPlayFrom(artboard.file)}
+                      onClick={() => navigateTo({ name: "page", pageId, play: artboard.file })}
                     >
                       <FullscreenIcon />
                     </button>

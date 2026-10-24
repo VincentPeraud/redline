@@ -90,7 +90,6 @@ it("has a Tweaks toggle only when the page has tweaks: panel open by default, ch
   await toggle.click();
   expect(await panel.count()).toBe(0);
   await tab.reload();
-  await tab.getByRole("button", { name: "Lancer a.html en plein écran" }).click();
   expect(await toggle.getAttribute("aria-pressed")).toBe("false");
   expect(await panel.count()).toBe(0);
   await toggle.click();
