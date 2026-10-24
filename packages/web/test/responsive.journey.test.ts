@@ -110,8 +110,8 @@ it("pins a comment in one rendering: its pin shows in that rendering only (after
 
   await tab.keyboard.press("c");
   await mobile.locator("iframe").contentFrame().locator("h1").click();
-  await tab.getByRole("textbox").fill("Burger menu");
-  await tab.getByRole("textbox").press("Enter");
+  await tab.locator("#new-comment").fill("Burger menu");
+  await tab.locator("#new-comment").press("Enter");
 
   const pins = (rendering: typeof mobile) => rendering.locator("[data-pin]");
   await expect.poll(() => pins(mobile).count()).toBe(1);
@@ -126,8 +126,8 @@ it("pins a comment in one rendering: its pin shows in that rendering only (after
   // a comment on a plain artboard carries no chip
   await tab.keyboard.press("c");
   await tab.locator("iframe[title$='plain.html']").contentFrame().locator("h1").click({ force: true });
-  await tab.getByRole("textbox").fill("Plain comment");
-  await tab.getByRole("textbox").press("Enter");
+  await tab.locator("#new-comment").fill("Plain comment");
+  await tab.locator("#new-comment").press("Enter");
   await expect.poll(() => tab.locator("[data-pin]").count()).toBe(2);
   expect(await tab.getByTestId("thread-rendering").count()).toBe(1);
 }, 60_000);
