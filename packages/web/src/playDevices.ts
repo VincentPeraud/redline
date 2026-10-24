@@ -1,4 +1,4 @@
-import type { ArtboardDevice, ManifestArtboard } from "@redline/shared";
+import type { ArtboardDevice, ArtboardRendering, ManifestArtboard, ResponsiveFormat } from "@redline/shared";
 
 /** Undeclared artboards up to this width and in portrait are presented as a phone. */
 const PHONE_MAX_WIDTH = 500;
@@ -28,12 +28,21 @@ export interface Presentation {
 const PHONE_FILL_BELOW = 600;
 const TABLET_FILL_BELOW = 1100;
 
-/** `framed` false drops the device frame and shows the design as is (the "Habillage" switch). */
+const DEVICE_OF_FORMAT: Record<ResponsiveFormat, ArtboardDevice> = { desktop: "desktop", "tablet-landscape": "tablet", tablet: "tablet", mobile: "phone" };
+
+/** `framed` false drops the device frame and shows the design as is (the "Habillage" switch). `rendering`: the chosen format of a responsive artboard (its device at its own size); `null` = "Aucun", the whole window. */
 export function presentationOf(
   artboard: Pick<ManifestArtboard, "width" | "height" | "device" | "expand">,
   framed = true,
   windowWidth = Number.POSITIVE_INFINITY,
+  rendering?: ArtboardRendering | null,
 ): Presentation {
+  if (rendering === null) return { device: "none", viewport: { width: artboard.width, height: artboard.height }, frameHeight: 0, stagePadding: 0, fill: "both", framable: false, mobileBar: false };
+  if (rendering) {
+    const device = DEVICE_OF_FORMAT[rendering.format];
+    const size = { width: rendering.width, height: rendering.height };
+    return { ...presentationOf({ ...size, device }, framed, windowWidth), viewport: size, mobileBar: false };
+  }
   const declared = artboard.device ?? (artboard.width <= PHONE_MAX_WIDTH && artboard.height > artboard.width ? "phone" : "none");
   const expanded = artboard.expand === "fill" && declared !== "phone";
   const narrow = (declared === "phone" && windowWidth < PHONE_FILL_BELOW) || (declared === "tablet" && windowWidth < TABLET_FILL_BELOW);

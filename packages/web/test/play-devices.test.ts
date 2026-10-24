@@ -62,3 +62,24 @@ describe("presentationOf", () => {
     expect(presentationOf({ ...board({ width: 390, height: 844 }), expand: "fill" })).toMatchObject({ device: "phone", fill: "none" });
   });
 });
+
+describe("presentationOf for a responsive rendering", () => {
+  const frame = board({ width: 3000, height: 1000 });
+  const rendering = (format: "desktop" | "tablet-landscape" | "tablet" | "mobile", width: number, height: number) => ({ format, width, height });
+
+  it("uses the device of the format at the rendering size", () => {
+    expect(presentationOf(frame, true, 1440, rendering("desktop", 1440, 900))).toMatchObject({ device: "desktop", viewport: { width: 1440, height: 900 }, framable: true });
+    expect(presentationOf(frame, true, 1440, rendering("tablet", 768, 1024))).toMatchObject({ device: "tablet", viewport: { width: 768, height: 1024 } });
+    expect(presentationOf(frame, true, 1440, rendering("tablet-landscape", 1024, 768))).toMatchObject({ device: "tablet", viewport: { width: 1024, height: 768 } });
+    expect(presentationOf(frame, true, 1440, rendering("mobile", 414, 896))).toMatchObject({ device: "phone", viewport: { width: 414, height: 896 } });
+  });
+
+  it("follows the Habillage switch and the narrow-window rules of the device", () => {
+    expect(presentationOf(frame, false, 1440, rendering("mobile", 390, 844))).toMatchObject({ device: "none", fill: "height" });
+    expect(presentationOf(frame, true, 500, rendering("mobile", 390, 844))).toMatchObject({ device: "none", fill: "both", mobileBar: false });
+  });
+
+  it("shows the whole window for Aucun", () => {
+    expect(presentationOf(frame, true, 1440, null)).toMatchObject({ device: "none", fill: "both", framable: false, mobileBar: false });
+  });
+});

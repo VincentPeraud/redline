@@ -233,3 +233,29 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.renderings {
+  display: flex;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--play-border);
+}
+
+.rendering {
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--play-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.renderingCurrent {
+  background: var(--play-border-strong);
+  font-weight: var(--font-weight-semibold);
+  color: #ffffff;
+}

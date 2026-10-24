@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { Manifest, TweakValue, TweakValues } from "@redline/shared";
+import { RESPONSIVE_FORMATS, renderingKey, renderingLabel, type Manifest, type TweakValue, type TweakValues } from "@redline/shared";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { PlayDevice } from "./PlayDevice.js";
 import { presentationOf, type Presentation } from "./playDevices.js";
 import { ArtboardGuides } from "./ArtboardGuides.js";
 import { usePlayFramed } from "./usePlayFramed.js";
+import { usePlayRendering } from "./usePlayRendering.js";
 import { cx } from "./ui/index.js";
 import styles from "./PlayMode.module.css";
 
@@ -56,7 +57,9 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
   const artboard = manifest.artboards.find((a) => a.file === current);
   const [framed, toggleFramed] = usePlayFramed();
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-  const presentation = artboard && presentationOf(artboard, framed, windowWidth);
+  const renderings = artboard?.responsive ?? [];
+  const [rendering, selectRendering] = usePlayRendering(renderings);
+  const presentation = artboard && presentationOf(artboard, framed, windowWidth, artboard.responsive ? rendering : undefined);
   const fitted = presentation && fitToStage(presentation, stageSize);
 
   useLayoutEffect(() => {
@@ -130,6 +133,21 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
             Canvas
           </button>
           <div className={styles.title}>{manifest.title ?? "Sans titre"} · plein écran</div>
+          {renderings.length > 0 && (
+            <div role="group" aria-label="Rendu responsive" className={styles.renderings}>
+              {[...renderings, null].map((r) => (
+                <button
+                  key={r ? renderingKey(r) : "none"}
+                  type="button"
+                  aria-pressed={r === rendering}
+                  onClick={() => selectRendering(r)}
+                  className={cx(styles.rendering, r === rendering && styles.renderingCurrent)}
+                >
+                  {r ? (renderings.filter((o) => o.format === r.format).length > 1 ? renderingLabel(r) : RESPONSIVE_FORMATS[r.format].label) : "Aucun"}
+                </button>
+              ))}
+            </div>
+          )}
           <div className={styles.spacer} />
           <nav aria-label="Artboards" className={styles.screens}>
             {manifest.artboards.map((a, index) => (
@@ -147,9 +165,9 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
           </nav>
           <div className={styles.spacer} />
           {presentation?.framable && (
-            <button type="button" aria-pressed={framed} title={artboard?.device === "desktop" ? "Afficher ou masquer la fenêtre de navigateur" : "Afficher ou masquer le cadre de l'appareil"} onClick={toggleFramed} className={cx(styles.habillage, framed && styles.habillageOn)}>
+            <button type="button" aria-pressed={framed} title={(rendering?.format ?? artboard?.device) === "desktop" ? "Afficher ou masquer la fenêtre de navigateur" : "Afficher ou masquer le cadre de l'appareil"} onClick={toggleFramed} className={cx(styles.habillage, framed && styles.habillageOn)}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                {artboard?.device === "desktop" ? (
+                {(rendering?.format ?? artboard?.device) === "desktop" ? (
                   <>
                     <rect x="3" y="4" width="18" height="16" rx="2" />
                     <path d="M3 9h18" />
