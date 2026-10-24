@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  EMPTY_VIEW_SETTINGS,
   MANIFEST_PATH,
+  RESPONSIVE_FORMATS,
+  renderingKey,
   defaultManifest,
   parseManifest,
   versionPreviewPath,
   type AgentInfo,
   type CreateThreadRequest,
   type Manifest,
+  type PageViewSettings,
+  type ResponsiveFormat,
   type Project,
   type QueueEntry,
   type Thread,
@@ -22,6 +27,8 @@ import { panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { CanvasElements } from "./CanvasElements.js";
 import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
 import { ResponsiveFrame } from "./ResponsiveFrame.js";
+import { RenderingChips, RenderingsMenu } from "./RenderingControls.js";
+import { hiddenRenderingKeys, setFormatShown, toggleRendering } from "./viewSettings.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
 import { ConversationsPanel } from "./ConversationsPanel.js";
 import type { AgentDefaults, ModelEffortChoice } from "./ModelEffortControls.js";
@@ -89,9 +96,11 @@ interface Props {
   versionId: string;
   /** Called after the page got a new version from this canvas (a saved tweak). */
   onVersionChange: () => void;
+  /** The page's view settings as the server has them. */
+  viewSettings?: PageViewSettings;
 }
 
-export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange }: Props) {
+export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings }: Props) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
@@ -114,6 +123,8 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [guidesVisible, toggleGuides] = useGuidesVisible();
   /** Real page height of each rendering of a responsive artboard, by artboard file then rendering key, as reported by the bridge. */
   const [docHeights, setDocHeights] = useState<Record<string, Record<string, number>>>({});
+  const [viewSettings, setViewSettings] = useState<PageViewSettings>(savedViewSettings ?? EMPTY_VIEW_SETTINGS);
+  const [renderingsMenuOpen, setRenderingsMenuOpen] = useState(false);
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   const viewport = useRef<HTMLDivElement>(null);
   const placed = useRef(false);
@@ -238,6 +249,12 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     await refresh();
   }
 
+  /** View settings are per page and live on the server; they are not a version and no session hears of them. */
+  function changeViewSettings(next: PageViewSettings) {
+    setViewSettings(next);
+    void fetch(`/api/pages/${pageId}/view-settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(next) });
+  }
+
   /** Restores one artboard (history or deleted list) and offers to undo it for a few seconds. */
   async function restore(file: string, restoreVersionId: string) {
     const { version, previousVersionId } = await restoreArtboard(pageId, file, restoreVersionId);
@@ -279,8 +296,13 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const runningCount = runs.filter((r) => r.status === "running" || r.status === "sent" || r.status === "retrying").length;
   const firstArtboard = manifest?.artboards[0]?.file;
   const draftInfo: Draft | null = draft;
+  const hiddenOf = (artboard: Manifest["artboards"][number]) => (artboard.responsive ? hiddenRenderingKeys(artboard.responsive, viewSettings, artboard.file) : new Set<string>());
   const layoutOf = (artboard: Manifest["artboards"][number]) =>
-    artboard.responsive ? responsiveFrameLayout(artboard, renderingSlots(artboard.responsive), { measuredHeights: docHeights[artboard.file] }) : null;
+    artboard.responsive ? responsiveFrameLayout(artboard, renderingSlots(artboard.responsive), { measuredHeights: docHeights[artboard.file], hidden: hiddenOf(artboard) }) : null;
+  const responsiveArtboards = (manifest?.artboards ?? []).filter((artboard) => artboard.responsive);
+  const formatsOnPage = (Object.keys(RESPONSIVE_FORMATS) as ResponsiveFormat[])
+    .map((format) => ({ format, frames: responsiveArtboards.filter((a) => a.responsive!.some((r) => r.format === format)).length }))
+    .filter(({ frames }) => frames > 0);
   const artboardBoxes = new Map<string, Box>(
     (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, width: artboard.width, height: artboard.height }]),
   );
@@ -329,6 +351,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               {manifest && <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} />}
               {manifest?.artboards.map((artboard) => {
                 const layout = layoutOf(artboard);
+                const hidden = hiddenOf(artboard);
                 const frameWidth = artboardBoxes.get(artboard.file)!.width;
                 const src =
                   preview?.file === artboard.file
@@ -340,9 +363,21 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                   className={cx(styles.artboard, (historyOpenFor === artboard.file || tweaksOpenFor === artboard.file) && styles.artboardRaised)}
                   style={{ left: artboard.x, top: artboard.y }}
                 >
-                  <div data-no-pan className={styles.label} style={{ width: frameWidth * view.zoom, transform: `scale(${1 / view.zoom})` }}>
+                  <div data-no-pan className={cx(styles.label, layout && styles.labelResponsive)} style={{ width: frameWidth * view.zoom, transform: `scale(${1 / view.zoom})` }}>
                     <span className={styles.labelName}>{artboard.title ?? artboard.file}</span>
-                    {layout && <span className={styles.responsiveBadge}>responsive</span>}
+                    {layout && artboard.responsive && (
+                      <>
+                        <span className={styles.responsiveBadge}>responsive</span>
+                        <RenderingChips
+                          renderings={artboard.responsive}
+                          hidden={hidden}
+                          hiddenThreadCounts={Object.fromEntries(
+                            [...hidden].map((key) => [key, threads.filter((t) => t.artboard === artboard.file && t.rendering && renderingKey(t.rendering) === key).length]),
+                          )}
+                          onToggle={(key) => changeViewSettings(toggleRendering(viewSettings, artboard.file, artboard.responsive!, key))}
+                        />
+                      </>
+                    )}
                     <span className={styles.spacer} />
                     <ArtboardHistory
                       pageId={pageId}
@@ -472,6 +507,18 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               <GuidesIcon />
               Guides (G)
             </button>
+            {responsiveArtboards.length > 0 && (
+              <>
+                <span aria-hidden="true" className={styles.zoomSeparator} />
+                <RenderingsMenu
+                  open={renderingsMenuOpen}
+                  onOpenChange={setRenderingsMenuOpen}
+                  formats={formatsOnPage}
+                  hiddenFormats={viewSettings.hiddenFormats}
+                  onToggle={(format, shown) => changeViewSettings(setFormatShown(viewSettings, format, shown))}
+                />
+              </>
+            )}
           </div>
         </main>
 

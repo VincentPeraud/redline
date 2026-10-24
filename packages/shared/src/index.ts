@@ -166,6 +166,8 @@ export interface Page {
   /** Who made the page: a session through `create_page`, or the user. Pages from before this field are "user". */
   createdBy: PageCreator;
   version: PageVersion;
+  /** Only on `GET /api/pages/:pageId`. */
+  viewSettings?: PageViewSettings;
 }
 
 export type PageCreator = "claude" | "user";
@@ -296,6 +298,17 @@ export type ThreadRendering = Pick<ArtboardRendering, "format" | "width">;
 export const renderingKey = (rendering: Pick<ArtboardRendering, "format" | "width">) => `${rendering.format}-${rendering.width}`;
 /** "Desktop · 1440" */
 export const renderingLabel = (rendering: Pick<ArtboardRendering, "format" | "width">) => `${RESPONSIVE_FORMATS[rendering.format].label} · ${rendering.width}`;
+/**
+ * How a viewer sees a page, kept on the server per page: not part of a version, never sent to a session.
+ * `hiddenFormats`: formats hidden in every responsive frame. `renderingOverrides[artboard file][renderingKey]`:
+ * a frame's own choice (true = shown) for one rendering, which wins over the format's.
+ */
+export interface PageViewSettings {
+  hiddenFormats: ResponsiveFormat[];
+  renderingOverrides: Record<string, Record<string, boolean>>;
+}
+export const EMPTY_VIEW_SETTINGS: PageViewSettings = { hiddenFormats: [], renderingOverrides: {} };
+
 /** Padding of a responsive frame, and gap between its renderings (canvas pixels). */
 export const RESPONSIVE_SPACING = 96;
 

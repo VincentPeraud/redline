@@ -3,6 +3,7 @@ import { mkdirSync, existsSync, readFileSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import {
+  EMPTY_VIEW_SETTINGS,
   DESIGN_SYSTEM_TOKENS_PATH,
   MANIFEST_PATH,
   defaultManifest,
@@ -26,6 +27,7 @@ import type {
   AgentStatus,
   CreatedPage,
   Page,
+  PageViewSettings,
   PageCreator,
   ModelChoice,
   PageVersionSummary,
@@ -92,6 +94,10 @@ export class Store {
         author TEXT NOT NULL,
         body TEXT NOT NULL,
         created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS page_view_settings (
+        page_id TEXT PRIMARY KEY REFERENCES pages(id),
+        settings TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
@@ -555,6 +561,19 @@ export class Store {
 
   renamePage(id: string, title: string): void {
     this.db.prepare("UPDATE pages SET title = ? WHERE id = ?").run(title, id);
+  }
+
+  getViewSettings(pageId: string): PageViewSettings {
+    const row = this.db.prepare("SELECT settings FROM page_view_settings WHERE page_id = ?").get(pageId) as { settings: string } | undefined;
+    return row ? (JSON.parse(row.settings) as PageViewSettings) : EMPTY_VIEW_SETTINGS;
+  }
+
+  setViewSettings(pageId: string, settings: PageViewSettings): PageViewSettings {
+    const stored: PageViewSettings = { hiddenFormats: settings.hiddenFormats, renderingOverrides: settings.renderingOverrides };
+    this.db
+      .prepare("INSERT INTO page_view_settings (page_id, settings) VALUES (?, ?) ON CONFLICT(page_id) DO UPDATE SET settings = excluded.settings")
+      .run(pageId, JSON.stringify(stored));
+    return stored;
   }
 
   getPage(id: string): Page | undefined {
