@@ -466,7 +466,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   function centerOnArtboard(file: string) {
     const box = artboardBoxes.get(file);
     if (!box) return;
-    setView((v) => ({ ...v, x: viewportSize.width / 2 - (box.x + box.width / 2) * v.zoom, y: viewportSize.height / 2 - (box.y + box.height / 2) * v.zoom }));
+    setView(centerOn(box, viewportSize));
   }
   const conversationContext = messageContext({ view, viewport: viewportSize, boxes: artboardBoxes, manifest, tweakValues: tweaks.values });
   const artboardTweaks = (file: string) => (manifest?.tweaks ?? []).filter((tweak) => (tweak.artboard ? tweak.artboard === file : file === firstArtboard));

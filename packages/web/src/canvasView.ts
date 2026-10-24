@@ -30,9 +30,12 @@ export function panBy(view: CanvasView, dx: number, dy: number): CanvasView {
   return { ...view, x: view.x + dx, y: view.y + dy };
 }
 
-/** Centres `box` in the viewport, zoomed to fit it but never past 100 %. */
+/** Share of the viewport an artboard takes when the canvas centres on it, so its surroundings stay visible. */
+const CENTRED_SHARE = 0.7;
+
+/** Centres `box` in the viewport, zoomed so it takes `CENTRED_SHARE` of it, never past 100 %. */
 export function centerOn(box: Bounds, viewport: { width: number; height: number }): CanvasView {
-  const zoom = Math.min(1, fitView(box, viewport).zoom);
+  const zoom = clampZoom(Math.min(1, (CENTRED_SHARE * viewport.width) / box.width, (CENTRED_SHARE * viewport.height) / box.height));
   return {
     zoom,
     x: (viewport.width - box.width * zoom) / 2 - box.x * zoom,
