@@ -293,6 +293,8 @@ export const DEFAULT_TITLE_WIDTH = 1200;
 
 /** Big group title above a row of artboards. */
 export interface ManifestTitleElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
   kind: "title";
   text: string;
   subtitle?: string;
@@ -314,6 +316,8 @@ export const DEFAULT_STICKY_WIDTH = 240;
 
 /** Prose with a fixed width; `color` tints the text. Limited markdown. */
 export interface ManifestTextElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
   kind: "text";
   text: string;
   width: number;
@@ -325,6 +329,8 @@ export interface ManifestTextElement {
 
 /** Coloured paper for an open question or a reminder; `color` fills the background. Limited markdown. */
 export interface ManifestStickyElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
   kind: "sticky";
   text: string;
   width: number;
@@ -341,6 +347,8 @@ export type ShapeStyle = (typeof SHAPE_STYLES)[number];
 
 /** Frame around a group of variants or one detail, drawn under the artboards. `fill` is a light 15 % fill. */
 export interface ManifestShapeElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
   kind: "shape";
   shape: ShapeKind;
   style: ShapeStyle;
@@ -356,6 +364,8 @@ export const DEFAULT_IMAGE_WIDTH = 400;
 
 /** Image from the project assets (screenshot, reference), shown with its file name as caption. */
 export interface ManifestImageElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
   kind: "image";
   /** `assets/…` path of the project; never an external URL. */
   src: string;
@@ -370,6 +380,8 @@ export const LINK_CARD_HEIGHT = 112;
 
 /** Link card (640x112) to another Redline page; opens in the same tab. */
 export interface ManifestPageLinkElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
   kind: "link";
   page: string;
   x: number;
@@ -378,6 +390,8 @@ export interface ManifestPageLinkElement {
 
 /** Link card (640x112) to an external URL, with the title Claude gives it; opens in a new tab. */
 export interface ManifestUrlLinkElement {
+  /** Target for arrows; unique across artboard files and element ids. */
+  id?: string;
   kind: "link";
   url: string;
   title: string;
@@ -387,8 +401,24 @@ export interface ManifestUrlLinkElement {
 
 export type ManifestLinkElement = ManifestPageLinkElement | ManifestUrlLinkElement;
 
+export const ARROW_LINES = ["solid", "dashed"] as const;
+export type ArrowLine = (typeof ARROW_LINES)[number];
+
+/** End of an arrow: an artboard `file`, an element `id`, or a free canvas point. */
+export type ArrowEnd = string | { x: number; y: number };
+
+/** Arrow between two elements, drawn on their nearest edges. Has no id and cannot be a target. */
+export interface ManifestArrowElement {
+  kind: "arrow";
+  from: ArrowEnd;
+  to: ArrowEnd;
+  label?: string;
+  color: PaletteColor;
+  line: ArrowLine;
+}
+
 /** Decoration drawn on the canvas, written by Claude. Add a kind here and a parser in ELEMENT_PARSERS. */
-export type ManifestElement = ManifestTitleElement | ManifestTextElement | ManifestStickyElement | ManifestShapeElement | ManifestImageElement | ManifestLinkElement;
+export type ManifestElement = ManifestTitleElement | ManifestTextElement | ManifestStickyElement | ManifestShapeElement | ManifestImageElement | ManifestLinkElement | ManifestArrowElement;
 export type ManifestElementKind = ManifestElement["kind"];
 
 /** Play mode: clicking `selector` in artboard `from` goes to artboard `to`. */
@@ -479,6 +509,16 @@ function oneOf<T extends string>(item: Record<string, unknown>, key: string, nam
   return value as T;
 }
 
+function arrowEnd(item: Record<string, unknown>, key: string, name: string): ArrowEnd {
+  const value = item[key];
+  if (typeof value === "string" && value !== "") return value;
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const { x, y } = value as Record<string, unknown>;
+    if (typeof x === "number" && Number.isFinite(x) && typeof y === "number" && Number.isFinite(y)) return { x, y };
+  }
+  return fail(`${name}.${key} must be an element id or an {x, y} point`);
+}
+
 const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unknown>, name: string) => Extract<ManifestElement, { kind: K }> } = {
   title(item, name) {
     const title: ManifestTitleElement = {
@@ -558,6 +598,17 @@ const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unkno
     if (!/^https?:\/\/[^\s/]+/i.test(url)) fail(`${name}.url must be an http(s) address`);
     return { kind: "link", url, title: str(item, "title", name), x, y };
   },
+  arrow(item, name) {
+    const arrow: ManifestArrowElement = {
+      kind: "arrow",
+      from: arrowEnd(item, "from", name),
+      to: arrowEnd(item, "to", name),
+      color: oneOf(item, "color", name, PALETTE_COLORS) ?? "gray",
+      line: oneOf(item, "line", name, ARROW_LINES) ?? "solid",
+    };
+    if (typeof item.label === "string" && item.label !== "") arrow.label = item.label;
+    return arrow;
+  },
 };
 
 function parseElement(item: Record<string, unknown>, name: string): ManifestElement {
@@ -565,7 +616,26 @@ function parseElement(item: Record<string, unknown>, name: string): ManifestElem
   if (typeof kind !== "string" || !Object.hasOwn(ELEMENT_PARSERS, kind)) {
     fail(`${name}.kind must be one of ${Object.keys(ELEMENT_PARSERS).join(", ")}`);
   }
-  return ELEMENT_PARSERS[kind as ManifestElementKind](item, name);
+  const element = ELEMENT_PARSERS[kind as ManifestElementKind](item, name);
+  if (element.kind !== "arrow" && item.id !== undefined) element.id = str(item, "id", name);
+  return element;
+}
+
+/** Ids are unique across artboard files and element ids; an arrow can only name one of them. */
+function checkElementIds(artboards: ManifestArtboard[], elements: ManifestElement[], elementsName: string): void {
+  const known = new Set(artboards.map((artboard) => artboard.file));
+  elements.forEach((element, i) => {
+    if (element.kind === "arrow" || element.id === undefined) return;
+    if (known.has(element.id)) fail(`${elementsName}[${i}].id "${element.id}" is already used by an artboard file or another element`);
+    known.add(element.id);
+  });
+  elements.forEach((element, i) => {
+    if (element.kind !== "arrow") return;
+    for (const key of ["from", "to"] as const) {
+      const end = element[key];
+      if (typeof end === "string" && !known.has(end)) fail(`${elementsName}[${i}].${key} names "${end}", which is not an artboard file or an element id`);
+    }
+  });
 }
 
 function parseGuides(value: unknown, name: string): ArtboardGuides {
@@ -625,6 +695,8 @@ export function parseManifest(text: string): Manifest {
     root.notes !== undefined
       ? list(root.notes, "notes").map((item, i) => parseElement({ ...item, kind: "title" }, `notes[${i}]`))
       : list(root.elements, "elements").map((item, i) => parseElement(item, `elements[${i}]`));
+
+  checkElementIds(artboards, elements, root.notes !== undefined ? "notes" : "elements");
 
   const links = list(root.links, "links").map((item, i): ManifestLink => {
     const name = `links[${i}]`;
