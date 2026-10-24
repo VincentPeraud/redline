@@ -1,6 +1,7 @@
 import type { AgentWorkMessage, EngineEvent, WorkItem } from "@redline/shared";
 import { uploadChangedAssets } from "./assets.js";
 import type { Engine } from "./engine.js";
+import { pageAddresses } from "./page-addresses.js";
 import { startSessionMcp } from "./session-mcp.js";
 import type { ServerApi } from "./server-api.js";
 import { readDesignMd, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
@@ -41,7 +42,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
     try {
       const request = {
         sessionId: item.sessionId,
-        message: `Working copy of the page: .redline/${item.pageId}/ (edit its files; write nowhere else).\n\n${item.message}`,
+        message: `Working copy of the page: .redline/${item.pageId}/ (edit its files; write nowhere else).\n${pageAddresses(api, item.pageId, checkout.files)}\n\n${item.message}`,
         cwd: folder,
         workingCopyDir: workingCopyDir(folder, item.pageId),
         mcpUrl: mcp.url,
