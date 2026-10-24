@@ -6,6 +6,7 @@ import {
   EMPTY_VIEW_SETTINGS,
   DESIGN_SYSTEM_TOKENS_PATH,
   MANIFEST_PATH,
+  canvasElementSummary,
   defaultManifest,
   parseManifest,
   NEUTRAL_DESIGN_SYSTEM_ID,
@@ -22,6 +23,7 @@ import type {
   CreateThreadRequest,
   ThreadRendering,
   ThreadTarget,
+  ManifestElement,
   ManifestElementKind,
   AgentInfo,
   AgentKind,
@@ -195,6 +197,7 @@ export class Store {
     addColumn("threads", "target_kind", "TEXT NOT NULL DEFAULT 'element'");
     addColumn("threads", "element_id", "TEXT");
     addColumn("threads", "element_kind", "TEXT");
+    addColumn("threads", "element_summary", "TEXT");
     addColumn("thread_replies", "created_page_ids", "TEXT");
     addColumn("conversation_messages", "created_page_ids", "TEXT");
     addColumn("conversation_messages", "targets", "TEXT");
@@ -599,6 +602,13 @@ export class Store {
     };
   }
 
+  /** The element of the page's current manifest carrying `id`; undefined when there is none (or no manifest). */
+  canvasElement(pageId: string, id: string): ManifestElement | undefined {
+    const manifest = this.getPage(pageId)?.version.files[MANIFEST_PATH];
+    if (manifest === undefined) return undefined;
+    return parseManifest(this.blobText(manifest)).elements.find((element) => element.id === id);
+  }
+
   /** Whether `file` is an artboard of the page's current version (manifest entry whose file exists; every HTML file without a manifest). */
   hasArtboard(pageId: string, file: string): boolean {
     const page = this.getPage(pageId);
@@ -617,7 +627,9 @@ export class Store {
     // artboard and selector are NOT NULL: "" where they do not apply to the target.
     const placement =
       "target" in request
-        ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, xPct: 0, yPct: 0 }
+        ? request.target.kind === "artboard"
+          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
+          : this.canvasElementPlacement(pageId, request.target.elementId)
         : {
             kind: "element",
             artboard: request.artboard,
@@ -626,15 +638,34 @@ export class Store {
             rendering: request.rendering ? JSON.stringify({ format: request.rendering.format, width: request.rendering.width }) : null,
             xPct: request.xPct,
             yPct: request.yPct,
+            elementId: null,
+            elementKind: null,
+            elementSummary: null,
           };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, target_kind, artboard, selector, element_name, rendering, x_pct, y_pct, title, body, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, x_pct, y_pct, title, body, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now());
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now());
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
+  }
+
+  private canvasElementPlacement(pageId: string, elementId: string) {
+    const element = this.canvasElement(pageId, elementId)!;
+    return {
+      kind: "canvas-element",
+      artboard: "",
+      selector: "",
+      elementName: null,
+      rendering: null,
+      xPct: 0,
+      yPct: 0,
+      elementId,
+      elementKind: element.kind,
+      elementSummary: canvasElementSummary(element),
+    };
   }
 
   listThreads(pageId: string): Thread[] {
@@ -653,7 +684,7 @@ export class Store {
   listHeldThreads(pageId: string): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.target_kind, t.element_id, t.element_kind, t.artboard, t.selector, t.element_name, t.rendering, t.x_pct, t.y_pct, t.title, t.body, t.status
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status
          FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId) as ThreadRow[];
@@ -1021,7 +1052,7 @@ export interface SessionOrigin {
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, target_kind, element_id, element_kind, x_pct, y_pct, title, body, status, context, new_session FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -1034,6 +1065,7 @@ interface ThreadRow {
   target_kind: ThreadTarget["kind"];
   element_id: string | null;
   element_kind: ManifestElementKind | null;
+  element_summary: string | null;
   x_pct: number;
   y_pct: number;
   title: string;
@@ -1045,7 +1077,12 @@ interface ThreadRow {
 
 function targetOf(row: ThreadRow): ThreadTarget {
   if (row.target_kind === "artboard") return { kind: "artboard", artboard: row.artboard };
-  if (row.target_kind === "canvas-element") return { kind: "canvas-element", elementId: row.element_id!, elementKind: row.element_kind! };
+  if (row.target_kind === "canvas-element") return {
+      kind: "canvas-element",
+      elementId: row.element_id!,
+      elementKind: row.element_kind!,
+      ...(row.element_summary ? { elementSummary: row.element_summary } : {}),
+    };
   return {
     kind: "element",
     artboard: row.artboard,

@@ -1,4 +1,5 @@
 import { renderingLabel, type Thread } from "@redline/shared";
+import { canvasElementText } from "./canvas-element-text.js";
 
 /** "element `selector` (the user calls it « bouton « Continuer » »)": the exact selector, plus the readable name when the bridge computed one. */
 function elementText(thread: Pick<Thread, "selector" | "elementName">): string {
@@ -10,8 +11,9 @@ function renderingText(thread: Pick<Thread, "rendering">): string {
   return thread.rendering ? ` (vu en ${renderingLabel(thread.rendering)} px: the user commented the page laid out at that width, so fix that breakpoint)` : "";
 }
 
-/** Where a thread points, as Claude is told: the artboard and element with position, or the whole artboard. */
+/** Where a thread points, as Claude is told: the artboard and element with position, the whole artboard, or a canvas element. */
 export function threadSubject(thread: Thread): string {
+  if (thread.target.kind === "canvas-element") return `on ${canvasElementText(thread.target)}`;
   if (thread.target.kind === "artboard") return `on the whole artboard ${thread.artboard} (no specific element)`;
   return `on artboard ${thread.artboard}${renderingText(thread)}, ${elementText(thread)} (position ${thread.xPct}% / ${thread.yPct}% of the artboard)`;
 }

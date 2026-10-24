@@ -4,6 +4,7 @@ import { seededMessage } from "./context.js";
 import { threadSubject } from "./thread-subject.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
+import { canvasElementTail } from "./canvas-element-text.js";
 import { definedChoice } from "./validation.js";
 
 /** The message Claude receives for one thread: the comment with its thread id, artboard, element and position. */
@@ -13,7 +14,9 @@ export function threadMessage(thread: Thread): string {
     "",
     thread.body,
     "",
-    `Make the change in the working copy if the comment asks for one, then answer in the thread with the reply_in_thread tool (threadId ${thread.id}).`,
+    thread.target.kind === "canvas-element"
+      ? `${canvasElementTail(thread.target)} Then answer in the thread with the reply_in_thread tool (threadId ${thread.id}).`
+      : `Make the change in the working copy if the comment asks for one, then answer in the thread with the reply_in_thread tool (threadId ${thread.id}).`,
   ].join("\n");
 }
 
@@ -58,6 +61,7 @@ export function batchMessage(threads: Thread[]): string {
       "",
       thread.body,
       "",
+      ...(thread.target.kind === "canvas-element" ? [canvasElementTail(thread.target), ""] : []),
     ]),
   ].join("\n");
 }

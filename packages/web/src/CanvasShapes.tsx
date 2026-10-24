@@ -7,13 +7,15 @@ import styles from "./CanvasShapes.module.css";
 /** Share of the tint colour in the light `fill` style. */
 const FILL_OPACITY_PERCENT = 15;
 
-export function CanvasShape({ element }: { element: ManifestShapeElement }) {
+/** `hittable`: comment mode lets the pointer land on a shape (otherwise shapes let it through to the canvas). */
+export function CanvasShape({ element, hittable }: { element: ManifestShapeElement; hittable?: boolean }) {
   const { stroke, tint } = paletteShades(element.color);
   const style: CSSProperties = { left: element.x, top: element.y, width: element.width, height: element.height, color: stroke };
+  if (hittable) style.pointerEvents = "auto";
   if (element.style === "outline") style.borderColor = stroke;
   else style.background = `color-mix(in srgb, ${tint} ${FILL_OPACITY_PERCENT}%, transparent)`;
   return (
-    <div data-canvas-shape className={cx(styles.shape, styles[element.shape], element.style === "outline" && styles.outline)} style={style}>
+    <div data-canvas-shape data-canvas-element-id={element.id} className={cx(styles.shape, styles[element.shape], element.style === "outline" && styles.outline)} style={style}>
       {element.label && <div className={styles.label}>{element.label}</div>}
     </div>
   );
