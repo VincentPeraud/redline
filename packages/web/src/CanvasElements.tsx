@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type Rea
 import { CANVAS_ELEMENT_KIND_LABELS, HOVER_FINISH, MARK_FINISH, type ArrowEnd, type ManifestArrowElement, type ManifestElement, type ManifestElementKind, type ManifestImageElement, type ManifestLinkElement, type ManifestTitleElement, type Page, type Project, type Thread } from "@redline/shared";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
 import { routeHref } from "./router.js";
+import { artboardLabel } from "./elementChips.js";
 import { CanvasShape } from "./CanvasShapes.js";
 import { CanvasStickyNote, CanvasTextNote } from "./CanvasNotes.js";
 import { arrowGeometry, elementBox, type ArrowGeometry, type Box, type Point, type Size } from "./canvasGeometry.js";
@@ -127,6 +128,30 @@ function PageLinkCard({ id, pageId, x, y, artboardOrigin }: { id: string | undef
   );
 }
 
+function ArtboardLinkCard({ id, pageId, file, x, y, artboardOrigin }: { id: string | undefined; pageId: string; file: string; x: number; y: number; artboardOrigin: string }) {
+  const linked = useLinkedPage(pageId);
+  const page = linked && linked !== "missing" ? linked.page : null;
+  const artboards = usePageArtboards(pageId, page?.version.files ?? {});
+  const artboard = artboards?.find((a) => a.file === file);
+  const gone = linked === "missing" || (page !== null && artboards !== null && !artboard);
+  const subtitle = linked === "missing" ? "Page introuvable" : gone ? "Artboard introuvable" : linked && artboard ? `Artboard · ${linked.page.title} · ${linked.projectTitle}` : "";
+
+  return (
+    <a data-canvas-link data-canvas-element-id={id} className={styles.artboardCard} style={{ left: x, top: y }} href={routeHref({ name: "page", pageId, artboard: file })}>
+      {artboard ? (
+        <PageThumbnail pageId={pageId} artboards={[artboard]} artboardOrigin={artboardOrigin} areaHeight={86} areaPadding={8} className={styles.artboardThumb} />
+      ) : (
+        <span className={styles.artboardThumb} />
+      )}
+      <span className={styles.artboardText}>
+        <span className={styles.artboardTitle}>{artboard ? (artboard.title ?? artboardLabel(file)) : ""}</span>
+        <span className={styles.artboardSubtitle}>{subtitle}</span>
+      </span>
+      <span aria-hidden="true" className={styles.artboardArrow}>→</span>
+    </a>
+  );
+}
+
 function UrlLinkCard({ id, url, title, x, y }: { id: string | undefined; url: string; title: string; x: number; y: number }) {
   return (
     <a data-canvas-link data-canvas-element-id={id} className={styles.linkCard} style={{ left: x, top: y }} href={url} target="_blank" rel="noopener noreferrer">
@@ -143,6 +168,9 @@ function UrlLinkCard({ id, url, title, x, y }: { id: string | undefined; url: st
 }
 
 function CanvasLink({ element, artboardOrigin }: { element: ManifestLinkElement; artboardOrigin: string }) {
+  if ("page" in element && element.file !== undefined) {
+    return <ArtboardLinkCard id={element.id} pageId={element.page} file={element.file} x={element.x} y={element.y} artboardOrigin={artboardOrigin} />;
+  }
   return "page" in element ? (
     <PageLinkCard id={element.id} pageId={element.page} x={element.x} y={element.y} artboardOrigin={artboardOrigin} />
   ) : (
