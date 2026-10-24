@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-import { EFFORTS, type Effort, type Project } from "@redline/shared";
-import { hostname } from "node:os";
+import { EFFORTS, modelLabel, type Effort, type ModelChoice, type Project } from "@redline/shared";
+import { homedir, hostname } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { checkClaude } from "./claude.js";
 import { claudeCodeEngine } from "./claude-code-engine.js";
+import { chooseModelEffort } from "./launch-choice.js";
 import { linkFolder, type LinkChoice } from "./link.js";
 import { defaultConfigDir, login, readLogin } from "./login.js";
 import { ServerApi } from "./server-api.js";
@@ -60,14 +62,26 @@ function parseEffort(value: string | undefined): Effort | undefined {
   return value as Effort;
 }
 
+/** Asks the model and effort in a terminal; outside one, the folder's last choice is used as is. */
+async function askModelEffort(folder: string, flags: ModelChoice) {
+  const rl = process.stdin.isTTY ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
+  try {
+    const claudeSettingsFile = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json");
+    return await chooseModelEffort({ folder, configDir: defaultConfigDir(), claudeSettingsFile, flags, ask: rl && ((question) => rl.question(question)), warn: console.error });
+  } finally {
+    rl?.close();
+  }
+}
+
 async function runAgent(args: string[]): Promise<void> {
-  const model = flagValue(args, "--model");
-  const effort = parseEffort(flagValue(args, "--effort"));
+  const flags = { model: flagValue(args, "--model"), effort: parseEffort(flagValue(args, "--effort")) };
   await checkClaude();
   const { serverUrl, token } = readLogin(defaultConfigDir());
   const kind = args.includes("--global") ? "global" : "project";
   const folder = process.cwd();
   const projectId = kind === "project" ? await linkFolder({ folder, serverUrl, token, choose: askLinkChoice }) : undefined;
+  const { model, effort } = await askModelEffort(folder, flags);
+  console.log(`Runs use ${modelLabel(model)} · ${effort ?? "Claude's default effort"}.`);
   const identity = { serverUrl, token, machine: hostname(), folder, kind, projectId } as const;
 
   const service = serveAgent({ ...identity, engine: claudeCodeEngine(), model, effort, log: console.log });
