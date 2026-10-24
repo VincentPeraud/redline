@@ -348,8 +348,9 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             }}
           >
             <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
-              {manifest && <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} />}
-              {manifest?.artboards.map((artboard) => {
+              {manifest && (
+              <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin}>
+              {manifest.artboards.map((artboard) => {
                 const layout = layoutOf(artboard);
                 const hidden = hiddenOf(artboard);
                 const frameWidth = artboardBoxes.get(artboard.file)!.width;
@@ -412,6 +413,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       renderings={artboard.responsive}
                       layout={layout}
                       zoom={view.zoom}
+                      guides={guidesVisible ? artboard.guides : undefined}
                       threads={preview?.file === artboard.file ? [] : threads.filter((t) => t.artboard === artboard.file)}
                       picking={picking && preview?.file !== artboard.file}
                       tweaks={tweaks.values}
@@ -465,9 +467,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                 </div>
                 );
               })}
+              </CanvasElements>
+              )}
             </div>
           </div>
-          {manifest?.artboards.length === 0 && (
+          {manifest?.artboards.length === 0 && manifest.elements.length === 0 && (
             <div className={styles.emptyWrap}>
               <div data-testid="canvas-empty" className={styles.empty}>
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

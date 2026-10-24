@@ -73,7 +73,7 @@ it("lays a responsive artboard out as one frame: renderings side by side at the 
   // the arrow leaves the whole frame, not one rendering
   const width = 4 * S + 1440 + 768 + 390;
   const height = 2 * S + 2400;
-  expect(await tab.locator("[data-canvas-arrow] > path").getAttribute("d")).toBe(`M${width} ${height / 2} L5000 0`);
+  expect(await tab.locator("[data-canvas-arrow] > path").getAttribute("d")).toMatch(new RegExp(`^M${width} ${height / 2} C[\\d. ]+ 5000 0$`));
 
   // a tweak reaches every rendering
   await tab.getByRole("button", { name: "Tweaks", exact: true }).click();
@@ -218,4 +218,28 @@ it("shows no Rendus menu on a page without a responsive artboard", async () => {
   await tab.goto(`${server.url}/#/pages/${page.id}`);
   await tab.getByRole("button", { name: /Guides/ }).waitFor();
   expect(await tab.getByRole("button", { name: /^Rendus/ }).count()).toBe(0);
+}, 60_000);
+
+it("shows the artboard's guides in every rendering when guides are toggled", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Responsive guides" })).json()) as { id: string };
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Guides",
+      files: {
+        "landing.html": `<!doctype html><html><body style="margin:0"><h1>Landing</h1></body></html>`,
+        "manifest.json": JSON.stringify({
+          artboards: [{ file: "landing.html", responsive: ["desktop", "mobile"], guides: { columns: 12, gutter: 24, margin: 80 } }],
+        }),
+      },
+    })
+  ).json()) as Page;
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  await tab.locator("[data-rendering] iframe").first().waitFor();
+  const columns = tab.locator("[data-rendering] [data-guide-column]");
+  expect(await columns.count()).toBe(0);
+  await tab.getByRole("button", { name: "Guides (G)" }).click();
+  expect(await columns.count()).toBe(24);
+  await tab.close();
 }, 60_000);

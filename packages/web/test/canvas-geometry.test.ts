@@ -31,6 +31,22 @@ describe("arrow geometry", () => {
     expect(end).toEqual({ x: 3, y: 4 });
   });
 
+  it("is a straight line when the facing edges are on the same row or column", () => {
+    const left = { x: 0, y: 0, width: 100, height: 200 };
+    expect(arrowGeometry(left, { x: 300, y: 0, width: 100, height: 200 }).path).toBe("M100 100 L300 100");
+    expect(arrowGeometry({ x: 0, y: 0, width: 200, height: 100 }, { x: 0, y: 400, width: 200, height: 100 }).path).toBe("M100 100 L100 400");
+    expect(arrowGeometry({ x: 1, y: 2 }, { x: 1, y: 40 }).path).toBe("M1 2 L1 40");
+  });
+
+  it("is a soft curve leaving and entering perpendicular to the edges when the boxes are not aligned", () => {
+    const { start, end, path, label } = arrowGeometry({ x: 0, y: 0, width: 100, height: 100 }, { x: 300, y: 300, width: 100, height: 100 });
+    expect([start, end]).toEqual([{ x: 100, y: 50 }, { x: 350, y: 300 }]);
+    expect(path).toBe("M100 50 C241.42 50 350 158.58 350 300");
+    // the middle of the Bézier curve, worked out by hand from its control points
+    expect(label.x).toBeCloseTo(278.03, 1);
+    expect(label.y).toBeCloseTo(121.97, 1);
+  });
+
   it("puts the label at the middle of the arrow", () => {
     const a = { x: 0, y: 0, width: 100, height: 200 };
     const b = { x: 300, y: 0, width: 100, height: 200 };
