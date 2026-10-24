@@ -25,6 +25,7 @@ const ARTBOARD = `<!doctype html><html><body>
     <div id="plain-card" style="background-color: rgb(255, 0, 0)"><p>Sans coins arrondis</p></div>
     <div id="lines" style="border: 1px solid #ddd; border-radius: 8px"><span> </span><span>Première ligne</span><span>Seconde</span></div>
     <div id="transparent" style="background: transparent; border-radius: 8px"><span>Rien autour</span></div>
+    <div id="holder" style="font-size: 16px; border: 1px solid #ddd; border-radius: 8px"><div id="bold-line" style="font-weight: 700">La maison hantée</div><div id="big-line" style="font-size: 24px">Grand titre</div><div id="slightly-big" style="font-size: 18px">Un peu plus grand</div><div id="normal-line">Ligne normale</div><div id="bold-long" style="font-weight: 600">Un paragraphe en gras beaucoup trop long pour être pris pour un titre de bloc</div><div id="bold-card" style="font-weight: 700; border: 1px solid #ddd; border-radius: 8px">Gras encadré</div><p>Texte <b id="inline-bold">en gras</b></p></div>
   </main>
 </body></html>`;
 
@@ -83,6 +84,13 @@ describe("element name computed by the artboard bridge", () => {
     ["lines", "carte « Première ligne »"],
     ["transparent", "bloc « Rien autour »"],
     ["icon", "bouton"],
+    ["bold-line", "titre « La maison hantée »"],
+    ["big-line", "titre « Grand titre »"],
+    ["slightly-big", "bloc « Un peu plus grand »"],
+    ["normal-line", "bloc « Ligne normale »"],
+    ["bold-long", "bloc « Un paragraphe en gras beaucoup… »"],
+    ["bold-card", "carte « Gras encadré »"],
+    ["inline-bold", "bloc « en gras »"],
   ])("%s is named %s", async (id, expected) => {
     expect((await pick(id)).elementName).toBe(expected);
   });

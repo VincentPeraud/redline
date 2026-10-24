@@ -1,3 +1,4 @@
+import { useAltKey } from "./useAltKey.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   EMPTY_VIEW_SETTINGS,
@@ -127,6 +128,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
+  const alt = useAltKey();
   /** The conversation's selection mode ("+ Élément"), exclusive with comment mode. */
   const [selecting, setSelecting] = useState(false);
   /** Elements the user points at for the next conversation message, numbered by position. */
@@ -429,7 +431,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               drag.current = null;
               const pressed = pressedAt.current;
               pressedAt.current = null;
-              if ((picking || selecting) && manifest && pressed && Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < CLICK_SLOP) {
+              if ((picking || selecting || e.altKey) && manifest && pressed && Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < CLICK_SLOP) {
                 const id = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-canvas-element-id]")?.getAttribute("data-canvas-element-id");
                 const element = manifest.elements.find((candidate) => candidate.id === id);
                 if (element?.id !== undefined && selecting) {
@@ -443,7 +445,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
           >
             <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
               {manifest && (
-              <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking || selecting} zoom={view.zoom} threads={threads} marks={canvasMarks}>
+              <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking || selecting || alt} zoom={view.zoom} threads={threads} marks={canvasMarks}>
               {manifest.artboards.map((artboard) => {
                 const layout = layoutOf(artboard);
                 const hidden = hiddenOf(artboard);

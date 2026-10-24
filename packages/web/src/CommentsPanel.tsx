@@ -2,6 +2,7 @@ import { Fragment, useState, type ReactNode } from "react";
 import type { QueueEntry, SessionRow, Thread, ThreadRun } from "@redline/shared";
 import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
+import { RemovedTag } from "./RemovedTag.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
 import { RenderingChip } from "./RenderingChip.js";
@@ -46,11 +47,7 @@ function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNo
       <span className={styles.where}>{threadWhere(thread)}</span>
       <RenderingChip thread={thread} />
       <span className={styles.spacer} />
-      {thread.removed && (
-        <span data-testid="removed-tag" className={styles.removedTag}>
-          retiré du canvas
-        </span>
-      )}
+      {thread.removed && <RemovedTag />}
       {children}
     </div>
   );
@@ -93,12 +90,13 @@ function ThreadCard({
 
   if (failed) {
     return (
-      <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.failed)}>
+      <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.failed, thread.removed && styles.removed)}>
         <div className={styles.head}>
-          <span className={cx(styles.badge, styles.badgeFailed)}>{thread.number}</span>
+          <span className={cx(styles.badge, styles.badgeFailed, thread.removed && styles.badgeRemoved)}>{thread.number}</span>
           <span className={styles.where}>{threadWhere(thread)}</span>
           <RenderingChip thread={thread} />
           <span className={styles.spacer} />
+          {thread.removed && <RemovedTag />}
           <span data-testid="run-status" data-status="failed" className={styles.headFailed}>
             Échec
           </span>
@@ -160,12 +158,13 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
           if (thread.status === "held") return <HeldThreadCard key={thread.id} thread={thread} />;
           if (thread.status === "resolved") {
             return (
-              <article key={thread.id} className={cx(styles.card, styles.resolved)}>
-                <span className={cx(styles.badge, styles.badgeDone)} aria-hidden="true">
+              <article key={thread.id} className={cx(styles.card, styles.resolved, thread.removed && styles.removed)}>
+                <span className={cx(styles.badge, styles.badgeDone, thread.removed && styles.badgeRemoved)} aria-hidden="true">
                   ✓
                 </span>
                 <span className={styles.resolvedTitle}>{thread.title}</span>
                 <span className={styles.spacer} />
+                {thread.removed && <RemovedTag />}
                 <span>Résolu</span>
               </article>
             );

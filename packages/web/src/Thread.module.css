@@ -10,28 +10,6 @@
   background: var(--color-surface);
 }
 
-/* Thread of a canvas element Claude removed: greyed, grey number ring, no pin. */
-.removed {
-  background: var(--color-surface-hover);
-}
-
-.badgeRemoved {
-  box-sizing: border-box;
-  border: 1.5px solid var(--color-removed-border);
-  background: transparent;
-  color: var(--color-removed-text);
-}
-
-.removedTag {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-muted);
-  color: var(--color-removed-text);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-}
-
 .running {
   border: 2px solid var(--color-accent);
 }
@@ -393,4 +371,26 @@
 
 .iconAction:hover {
   background: var(--color-surface-muted);
+}
+
+/* Thread of a canvas element Claude removed: greyed, grey number ring, no pin. */
+.removed {
+  background: var(--color-surface-hover);
+}
+
+.badgeRemoved {
+  box-sizing: border-box;
+  border: 1.5px solid var(--color-removed-border);
+  background: transparent;
+  color: var(--color-removed-text);
+}
+
+.removedTag {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  color: var(--color-removed-text);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
 }

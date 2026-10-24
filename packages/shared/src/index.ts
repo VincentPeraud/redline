@@ -775,7 +775,7 @@ function checkElementIds(artboards: ManifestArtboard[], elements: ManifestElemen
 
 /**
  * Error message when a manifest about to be published has `elements` entries without an `id` (every one is named by index and kind),
- * or does not parse, else null. Reading stays lenient: stored manifests and the legacy `notes` list may lack ids.
+ * carries the legacy `notes` list, or does not parse, else null. Reading stays lenient: stored manifests and the legacy `notes` list may lack ids.
  */
 export function publishManifestError(text: string): string | null {
   try {
@@ -783,7 +783,9 @@ export function publishManifestError(text: string): string | null {
   } catch (error) {
     return (error as Error).message;
   }
-  const elements = (JSON.parse(text) as { elements?: Record<string, unknown>[] }).elements ?? [];
+  const manifest = JSON.parse(text) as { elements?: Record<string, unknown>[]; notes?: unknown };
+  if (manifest.notes !== undefined) return "notes is legacy: move these titles to elements, each with an id";
+  const elements = manifest.elements ?? [];
   const missing = elements.flatMap((item, i) => (typeof item.id === "string" && item.id !== "" ? [] : [`elements[${i}] (${item.kind ?? "title"}) has no id`]));
   return missing.length === 0 ? null : missing.join("; ");
 }
