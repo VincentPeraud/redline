@@ -204,6 +204,8 @@ export interface Thread {
   yPct: number;
   /** Short readable name of the commented element (role + visible text), computed by the artboard bridge; null on old threads. */
   elementName: string | null;
+  /** Rendering of a responsive artboard the thread was pinned in; absent on other artboards. */
+  rendering?: ThreadRendering;
   /** First line of the comment, kept visible when the thread is resolved. */
   title: string;
   body: string;
@@ -228,6 +230,8 @@ export interface CreateThreadRequest extends ModelChoice {
   held?: boolean;
   /** Readable name of the element, e.g. `bouton « Continuer »`; at most `MAX_ELEMENT_NAME_LENGTH` characters. */
   elementName?: string;
+  /** Rendering of a responsive artboard the comment was pinned in. */
+  rendering?: ThreadRendering;
 }
 
 export const MAX_ELEMENT_NAME_LENGTH = 200;
@@ -286,6 +290,8 @@ export interface ArtboardRendering {
   /** Viewport height; the canvas shows the real height of the page once the bridge reported it. */
   height: number;
 }
+/** The rendering a thread is pinned in: its format and viewport width (what `renderingKey` / `renderingLabel` need). */
+export type ThreadRendering = Pick<ArtboardRendering, "format" | "width">;
 /** Identity of a rendering within its artboard. */
 export const renderingKey = (rendering: Pick<ArtboardRendering, "format" | "width">) => `${rendering.format}-${rendering.width}`;
 /** "Desktop · 1440" */
