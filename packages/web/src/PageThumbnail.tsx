@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { MANIFEST_PATH, defaultManifest, parseManifest, type ManifestArtboard } from "@redline/shared";
+import { cx } from "./ui/index.js";
 import styles from "./PageThumbnail.module.css";
 
 const MAX_ARTBOARDS = 3;
@@ -65,7 +66,7 @@ export function PageThumbnail({
       : Math.min((areaHeight - 2 * areaPadding) / maxHeight, availableWidth / totalWidth, 1);
 
   return (
-    <div ref={areaRef} className={className ? `${styles.area} ${className}` : styles.area} style={{ height: areaHeight }} aria-hidden="true">
+    <div ref={areaRef} className={cx(styles.area, className)} style={{ height: areaHeight }} aria-hidden="true">
       {artboardOrigin &&
         areaWidth > 0 &&
         shown.map((artboard) => (

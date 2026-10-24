@@ -1,4 +1,9 @@
-import { renderingKey, type ArtboardRendering, type PageViewSettings, type ResponsiveFormat } from "@redline/shared";
+import { renderingKey, type ArtboardRendering, type PageViewSettings, type ResponsiveFormat, type Thread } from "@redline/shared";
+
+/** How many threads of the artboard are pinned in each hidden rendering, by rendering key. */
+export function hiddenThreadCounts(threads: readonly Thread[], file: string, hidden: ReadonlySet<string>): Record<string, number> {
+  return Object.fromEntries([...hidden].map((key) => [key, threads.filter((t) => t.artboard === file && t.rendering && renderingKey(t.rendering) === key).length]));
+}
 
 const shownIn = (settings: PageViewSettings, file: string, rendering: ArtboardRendering) =>
   settings.renderingOverrides[file]?.[renderingKey(rendering)] ?? !settings.hiddenFormats.includes(rendering.format);

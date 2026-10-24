@@ -3,7 +3,6 @@ import {
   EMPTY_VIEW_SETTINGS,
   MANIFEST_PATH,
   RESPONSIVE_FORMATS,
-  renderingKey,
   defaultManifest,
   parseManifest,
   versionPreviewPath,
@@ -30,7 +29,7 @@ import { CanvasElements } from "./CanvasElements.js";
 import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
 import { ResponsiveFrame } from "./ResponsiveFrame.js";
 import { RenderingChips, RenderingsMenu } from "./RenderingControls.js";
-import { hiddenRenderingKeys, setFormatShown, toggleRendering } from "./viewSettings.js";
+import { hiddenRenderingKeys, hiddenThreadCounts, setFormatShown, toggleRendering } from "./viewSettings.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
 import { ConversationsPanel } from "./ConversationsPanel.js";
 import type { AgentDefaults, ModelEffortChoice } from "./ModelEffortControls.js";
@@ -364,9 +363,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         <RenderingChips
                           renderings={artboard.responsive}
                           hidden={hidden}
-                          hiddenThreadCounts={Object.fromEntries(
-                            [...hidden].map((key) => [key, threads.filter((t) => t.artboard === artboard.file && t.rendering && renderingKey(t.rendering) === key).length]),
-                          )}
+                          hiddenThreadCounts={hiddenThreadCounts(threads, artboard.file, hidden)}
                           onToggle={(key) => changeViewSettings(toggleRendering(viewSettings, artboard.file, artboard.responsive!, key))}
                         />
                       </>

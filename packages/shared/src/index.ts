@@ -295,9 +295,9 @@ export interface ArtboardRendering {
 /** The rendering a thread is pinned in: its format and viewport width (what `renderingKey` / `renderingLabel` need). */
 export type ThreadRendering = Pick<ArtboardRendering, "format" | "width">;
 /** Identity of a rendering within its artboard. */
-export const renderingKey = (rendering: Pick<ArtboardRendering, "format" | "width">) => `${rendering.format}-${rendering.width}`;
+export const renderingKey = (rendering: ThreadRendering) => `${rendering.format}-${rendering.width}`;
 /** "Desktop · 1440" */
-export const renderingLabel = (rendering: Pick<ArtboardRendering, "format" | "width">) => `${RESPONSIVE_FORMATS[rendering.format].label} · ${rendering.width}`;
+export const renderingLabel = (rendering: ThreadRendering) => `${RESPONSIVE_FORMATS[rendering.format].label} · ${rendering.width}`;
 /**
  * How a viewer sees a page, kept on the server per page: not part of a version, never sent to a session.
  * `hiddenFormats`: formats hidden in every responsive frame. `renderingOverrides[artboard file][renderingKey]`:
