@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { presentationOf } from "../src/playDevices.js";
 
-const board = (over: { width: number; height: number; device?: "phone" | "tablet" | "desktop" | "paper" | "none" }) => ({
+const board = (over: { width: number; height: number; device?: "phone" | "tablet" | "desktop" | "paper" | "none"; expand?: "fill" }) => ({
   file: "a.html",
   x: 0,
   y: 0,
@@ -50,5 +50,15 @@ describe("presentationOf", () => {
     expect([tablet.device, tablet.fill, tablet.framable, tablet.mobileBar]).toEqual(["none", "both", false, false]);
     expect(presentationOf(board({ width: 576, height: 746, device: "tablet" }), true, 1100).device).toBe("tablet");
     expect(presentationOf(board({ width: 1440, height: 900, device: "desktop" }), true, 500).device).toBe("desktop");
+  });
+
+  it("fills the stage when the artboard expands, except a phone", () => {
+    const filled = presentationOf({ ...board({ width: 1440, height: 900, device: "desktop" }), expand: "fill" });
+    expect(filled).toMatchObject({ device: "none", fill: "both", frameHeight: 0, stagePadding: 0 });
+    expect(presentationOf({ ...board({ width: 800, height: 500 }), expand: "fill" }).fill).toBe("both");
+    expect(presentationOf(board({ width: 800, height: 500 })).fill).toBe("none");
+    const phone = presentationOf({ ...board({ width: 390, height: 844, device: "phone" }), expand: "fill" });
+    expect(phone).toMatchObject({ device: "phone", fill: "none" });
+    expect(presentationOf({ ...board({ width: 390, height: 844 }), expand: "fill" })).toMatchObject({ device: "phone", fill: "none" });
   });
 });

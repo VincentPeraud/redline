@@ -66,6 +66,28 @@
   color: #ffffff;
 }
 
+.guidesButton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.guidesButtonOn {
+  background: #f4f4f5;
+  color: #111113;
+}
+
 .tweaksState {
   font-size: var(--font-size-sm);
   color: var(--play-text-muted);
@@ -89,7 +111,12 @@
   background: var(--play-border-strong);
 }
 
+.stage[data-fill] [data-device] {
+  border-radius: 0;
+}
+
 .viewport {
+  position: relative;
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -99,6 +126,14 @@
   border: 0;
   background: #ffffff;
   transform-origin: 0 0;
+}
+
+.guides {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
 }
 
 .empty {

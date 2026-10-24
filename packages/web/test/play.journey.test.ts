@@ -122,6 +122,50 @@ it("presents each artboard by its declared device, inferring a phone when none i
   await tab.close();
 }, 60_000);
 
+it("fills the window with a fluid artboard, ignores fill on a phone, and toggles guides in play mode", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Fill" })).json()) as { id: string };
+  const html = `<!doctype html><body style="margin:0"><h1>Hi</h1></body>`;
+  const page = (await server.post(`/api/projects/${project.id}/pages`, {
+    title: "Fill",
+    files: {
+      "dash.html": html,
+      "phone.html": html,
+      "manifest.json": JSON.stringify({
+        artboards: [
+          { file: "dash.html", width: 1000, height: 600, device: "desktop", expand: "fill", guides: { columns: 12, gutter: 24, margin: 80 } },
+          { file: "phone.html", width: 390, height: 844, device: "phone", expand: "fill" },
+        ],
+      }),
+    },
+  }).then((res) => res.json())) as { id: string };
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  const canvasFrame = await tab.locator('iframe[title$="dash.html"]').boundingBox();
+  expect(canvasFrame!.width).toBeLessThan(1000);
+  await tab.getByRole("button", { name: "Lancer dash.html en plein écran" }).click();
+  const play = tab.getByTestId("play");
+  const stage = play.locator("main");
+  const frame = play.locator("iframe");
+  await expect.poll(async () => (await frame.boundingBox())?.width).toBe((await stage.boundingBox())!.width);
+  expect((await frame.boundingBox())!.height).toBe((await stage.boundingBox())!.height);
+
+  const columns = play.locator("[data-guide-column]");
+  expect(await columns.count()).toBe(0);
+  await play.getByRole("button", { name: "Guides (G)" }).click();
+  expect(await columns.count()).toBe(12);
+  await tab.reload();
+  await tab.getByRole("button", { name: "Lancer dash.html en plein écran" }).click();
+  expect(await columns.count()).toBe(12);
+  await tab.locator("body").press("g");
+  expect(await columns.count()).toBe(0);
+
+  await play.getByRole("button", { name: "Artboard 2" }).click();
+  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("phone");
+  expect((await frame.boundingBox())!.width).toBeCloseTo(390, 0);
+  await tab.close();
+}, 60_000);
+
 it("removes the device frame with Habillage (remembered), and fills the screen without a frame on a narrow window", async () => {
   const project = (await (await server.post("/api/projects", { title: "Habillage" })).json()) as { id: string };
   const html = `<!doctype html><body style="margin:0"><h1>Hi</h1></body>`;

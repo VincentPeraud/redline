@@ -30,15 +30,16 @@ const TABLET_FILL_BELOW = 1100;
 
 /** `framed` false drops the device frame and shows the design as is (the "Habillage" switch). */
 export function presentationOf(
-  artboard: Pick<ManifestArtboard, "width" | "height" | "device">,
+  artboard: Pick<ManifestArtboard, "width" | "height" | "device" | "expand">,
   framed = true,
   windowWidth = Number.POSITIVE_INFINITY,
 ): Presentation {
   const declared = artboard.device ?? (artboard.width <= PHONE_MAX_WIDTH && artboard.height > artboard.width ? "phone" : "none");
+  const expanded = artboard.expand === "fill" && declared !== "phone";
   const narrow = (declared === "phone" && windowWidth < PHONE_FILL_BELOW) || (declared === "tablet" && windowWidth < TABLET_FILL_BELOW);
-  const device = framed && !narrow ? declared : "none";
-  const framable = declared !== "none" && !narrow;
-  const fill = narrow ? "both" : framable && !framed ? (declared === "desktop" ? "both" : declared === "paper" ? "none" : "height") : "none";
+  const device = framed && !narrow && !expanded ? declared : "none";
+  const framable = declared !== "none" && !narrow && !expanded;
+  const fill = narrow || expanded ? "both" : framable && !framed ? (declared === "desktop" ? "both" : declared === "paper" ? "none" : "height") : "none";
   const viewport = declared === "phone" ? PHONE_VIEWPORT : { width: artboard.width, height: artboard.height };
   return {
     device,

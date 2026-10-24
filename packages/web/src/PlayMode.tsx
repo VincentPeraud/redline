@@ -3,6 +3,7 @@ import type { Manifest, TweakValue, TweakValues } from "@redline/shared";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { PlayDevice } from "./PlayDevice.js";
 import { presentationOf, type Presentation } from "./playDevices.js";
+import { ArtboardGuides } from "./ArtboardGuides.js";
 import { usePlayFramed } from "./usePlayFramed.js";
 import { cx } from "./ui/index.js";
 import styles from "./PlayMode.module.css";
@@ -22,6 +23,9 @@ interface Props {
   artboardOrigin: string;
   tweaks: TweakValues;
   onTweak: (id: string, value: TweakValue) => void;
+  /** The per-viewer guides choice, shared with the canvas. */
+  guidesVisible: boolean;
+  onToggleGuides: () => void;
   onExit: () => void;
 }
 
@@ -29,6 +33,7 @@ interface Props {
 function fitToStage(presentation: Presentation, stage: { width: number; height: number }) {
   const { viewport, fill, stagePadding, frameHeight } = presentation;
   if (fill === "both") return { viewport: stage, scale: 1 };
+  if (stage.width === 0) return { viewport, scale: 1 };
   if (fill === "height") {
     const scale = Math.min(1, Math.max(0.1, stage.width / viewport.width));
     return { viewport: { width: viewport.width, height: stage.height / scale }, scale };
@@ -42,7 +47,7 @@ function fitToStage(presentation: Presentation, stage: { width: number; height: 
 }
 
 /** One artboard at a time at full size; clicks on elements linked in the manifest switch artboard (via the bridge). */
-export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTweak, onExit }: Props) {
+export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTweak, guidesVisible, onToggleGuides, onExit }: Props) {
   const [current, setCurrent] = useState(start ?? manifest.artboards[0]?.file ?? null);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -52,7 +57,7 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
   const [framed, toggleFramed] = usePlayFramed();
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const presentation = artboard && presentationOf(artboard, framed, windowWidth);
-  const fitted = presentation && stageSize.width > 0 ? fitToStage(presentation, stageSize) : null;
+  const fitted = presentation && fitToStage(presentation, stageSize);
 
   useLayoutEffect(() => {
     const node = stage.current;
@@ -95,10 +100,11 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") onExit();
+      else if (event.key.toLowerCase() === "g" && !event.metaKey && !event.ctrlKey && !event.altKey) onToggleGuides();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onExit]);
+  }, [onExit, onToggleGuides]);
 
   const hasTweaks = manifest.tweaks.length > 0 && !presentation?.mobileBar;
   return (
@@ -158,6 +164,14 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
               Habillage
             </button>
           )}
+          <button type="button" aria-pressed={guidesVisible} title="Afficher les guides de mise en page (G)" className={cx(styles.guidesButton, guidesVisible && styles.guidesButtonOn)} onClick={onToggleGuides}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <path d="M9 3v18" />
+              <path d="M15 3v18" />
+            </svg>
+            Guides (G)
+          </button>
           {hasTweaks && <div className={styles.tweaksState}>Tweaks ouverts</div>}
         </header>
       )}
@@ -175,6 +189,11 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
                   className={styles.frame}
                   style={{ width: fitted.viewport.width, height: fitted.viewport.height, transform: `scale(${fitted.scale})` }}
                 />
+                {guidesVisible && artboard.guides && (
+                  <div className={styles.guides} style={{ width: fitted.viewport.width, height: fitted.viewport.height, transform: `scale(${fitted.scale})` }}>
+                    <ArtboardGuides guides={artboard.guides} />
+                  </div>
+                )}
               </div>
             </PlayDevice>
           ) : (
