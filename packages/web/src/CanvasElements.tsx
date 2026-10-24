@@ -137,17 +137,17 @@ function ArtboardLinkCard({ id, pageId, file, x, y, artboardOrigin }: { id: stri
   const subtitle = linked === "missing" ? "Page introuvable" : gone ? "Artboard introuvable" : linked && artboard ? `Artboard · ${linked.page.title} · ${linked.projectTitle}` : "";
 
   return (
-    <a data-canvas-link data-canvas-element-id={id} className={styles.artboardCard} style={{ left: x, top: y }} href={routeHref({ name: "page", pageId, artboard: file })}>
+    <a data-canvas-link data-canvas-element-id={id} className={styles.linkCard} style={{ left: x, top: y }} href={routeHref({ name: "page", pageId, artboard: file })}>
       {artboard ? (
-        <PageThumbnail pageId={pageId} artboards={[artboard]} artboardOrigin={artboardOrigin} areaHeight={86} areaPadding={8} className={styles.artboardThumb} />
+        <PageThumbnail pageId={pageId} artboards={[artboard]} artboardOrigin={artboardOrigin} areaHeight={80} areaPadding={10} className={styles.linkThumb} />
       ) : (
-        <span className={styles.artboardThumb} />
+        <span className={styles.linkThumb} />
       )}
-      <span className={styles.artboardText}>
-        <span className={styles.artboardTitle}>{artboard ? (artboard.title ?? artboardLabel(file)) : ""}</span>
-        <span className={styles.artboardSubtitle}>{subtitle}</span>
+      <span className={styles.linkText}>
+        <span className={styles.linkTitle}>{artboard ? (artboard.title ?? artboardLabel(file)) : ""}</span>
+        <span className={styles.linkSubtitle}>{subtitle}</span>
       </span>
-      <span aria-hidden="true" className={styles.artboardArrow}>→</span>
+      <span aria-hidden="true" className={styles.linkArrow}>→</span>
     </a>
   );
 }
