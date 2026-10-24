@@ -21,6 +21,10 @@ _Avoid_: Écran, screen, planche (in the UI: always "artboard")
 The link to one artboard: the page route followed by `/artboards/<file>` (file URI-encoded). Opening it loads the page's canvas, centres it on the artboard and outlines it once; panning and zooming never rewrite it.
 _Avoid_: Artboard URL, deep link
 
+**Reading order**:
+The order in which a page's artboards are numbered: artboards whose vertical extents overlap form a row, rows go top to bottom and artboards of a row left to right, whatever the manifest order. Each artboard also falls under a group (the nearest group title above its row that covers it horizontally, or none).
+_Avoid_: Manifest order, artboard order
+
 **Design system**:
 A special project whose tokens, components and pages define a style that other projects use.
 _Avoid_: DS (in code and docs), theme, style guide
