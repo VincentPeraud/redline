@@ -1,10 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import type { ArrowEnd, ManifestArrowElement, ManifestElement, ManifestImageElement, ManifestLinkElement, ManifestTitleElement, Page, Project } from "@redline/shared";
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { CANVAS_ELEMENT_KIND_LABELS, HOVER_FINISH, type ArrowEnd, type ManifestArrowElement, type ManifestElement, type ManifestElementKind, type ManifestImageElement, type ManifestLinkElement, type ManifestTitleElement, type Page, type Project, type Thread } from "@redline/shared";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
 import { routeHref } from "./router.js";
 import { CanvasShape } from "./CanvasShapes.js";
 import { CanvasStickyNote, CanvasTextNote } from "./CanvasNotes.js";
-import { arrowGeometry, elementBox, type Box, type Point, type Size } from "./canvasGeometry.js";
+import { arrowGeometry, elementBox, type ArrowGeometry, type Box, type Point, type Size } from "./canvasGeometry.js";
+import { hoverLabelStyle, hoverOutlineStyle } from "./hoverFinishStyle.js";
+import { threadWhere } from "./threadLabel.js";
+import { cx } from "./ui/index.js";
 import { paletteShades } from "./canvasPalette.js";
 import styles from "./CanvasElements.module.css";
 
@@ -38,7 +41,7 @@ function CanvasTitle({ element }: { element: ManifestTitleElement }) {
   }, [element.text, element.subtitle, element.width]);
 
   return (
-    <div className={styles.title} style={{ left: element.x, top: element.y, maxWidth: element.width }}>
+    <div data-canvas-element-id={element.id} className={styles.title} style={{ left: element.x, top: element.y, maxWidth: element.width }}>
       <h2 ref={titleRef} data-canvas-title className={styles.titleText} style={{ fontSize }} title={titleCut ? element.text : undefined}>
         {element.text}
       </h2>
@@ -55,7 +58,7 @@ function CanvasTitle({ element }: { element: ManifestTitleElement }) {
 function CanvasImage({ element, assetBase }: { element: ManifestImageElement; assetBase: string }) {
   const src = `${assetBase}/${element.src.split("/").map(encodeURIComponent).join("/")}`;
   return (
-    <figure data-canvas-image className={styles.image} style={{ left: element.x, top: element.y, width: element.width }}>
+    <figure data-canvas-image data-canvas-element-id={element.id} className={styles.image} style={{ left: element.x, top: element.y, width: element.width }}>
       <img className={styles.imageFile} src={src} alt={element.src} draggable={false} />
       <figcaption className={styles.imageCaption}>{element.src}</figcaption>
     </figure>
@@ -102,14 +105,14 @@ function useLinkedPage(pageId: string): LinkedPage | "missing" | null {
   return linked;
 }
 
-function PageLinkCard({ pageId, x, y, artboardOrigin }: { pageId: string; x: number; y: number; artboardOrigin: string }) {
+function PageLinkCard({ id, pageId, x, y, artboardOrigin }: { id: string | undefined; pageId: string; x: number; y: number; artboardOrigin: string }) {
   const linked = useLinkedPage(pageId);
   const page = linked && linked !== "missing" ? linked.page : null;
   const artboards = usePageArtboards(pageId, page?.version.files ?? {});
   const subtitle = linked === "missing" ? "Page introuvable" : linked ? `Page · ${linked.projectTitle}` : "";
 
   return (
-    <a data-canvas-link className={styles.linkCard} style={{ left: x, top: y }} href={routeHref({ name: "page", pageId })}>
+    <a data-canvas-link data-canvas-element-id={id} className={styles.linkCard} style={{ left: x, top: y }} href={routeHref({ name: "page", pageId })}>
       {page ? (
         <PageThumbnail pageId={pageId} artboards={artboards} artboardOrigin={artboardOrigin} areaHeight={80} areaPadding={10} className={styles.linkThumb} />
       ) : (
@@ -124,9 +127,9 @@ function PageLinkCard({ pageId, x, y, artboardOrigin }: { pageId: string; x: num
   );
 }
 
-function UrlLinkCard({ url, title, x, y }: { url: string; title: string; x: number; y: number }) {
+function UrlLinkCard({ id, url, title, x, y }: { id: string | undefined; url: string; title: string; x: number; y: number }) {
   return (
-    <a data-canvas-link className={styles.linkCard} style={{ left: x, top: y }} href={url} target="_blank" rel="noopener noreferrer">
+    <a data-canvas-link data-canvas-element-id={id} className={styles.linkCard} style={{ left: x, top: y }} href={url} target="_blank" rel="noopener noreferrer">
       <span aria-hidden="true" className={styles.linkIcon}>
         <GlobeIcon />
       </span>
@@ -141,15 +144,15 @@ function UrlLinkCard({ url, title, x, y }: { url: string; title: string; x: numb
 
 function CanvasLink({ element, artboardOrigin }: { element: ManifestLinkElement; artboardOrigin: string }) {
   return "page" in element ? (
-    <PageLinkCard pageId={element.page} x={element.x} y={element.y} artboardOrigin={artboardOrigin} />
+    <PageLinkCard id={element.id} pageId={element.page} x={element.x} y={element.y} artboardOrigin={artboardOrigin} />
   ) : (
-    <UrlLinkCard url={element.url} title={element.title} x={element.x} y={element.y} />
+    <UrlLinkCard id={element.id} url={element.url} title={element.title} x={element.x} y={element.y} />
   );
 }
 
 
 /** Add a case here for each new element kind. Arrows are drawn apart, once the boxes they link are known. */
-function CanvasElement({ element, assetBase, artboardOrigin }: { element: ManifestElement; assetBase: string; artboardOrigin: string }) {
+function CanvasElement({ element, assetBase, artboardOrigin, commentable }: { element: ManifestElement; assetBase: string; artboardOrigin: string; commentable: boolean }) {
   switch (element.kind) {
     case "title":
       return <CanvasTitle element={element} />;
@@ -160,7 +163,7 @@ function CanvasElement({ element, assetBase, artboardOrigin }: { element: Manife
     case "sticky":
       return <CanvasStickyNote element={element} />;
     case "shape":
-      return <CanvasShape element={element} />;
+      return <CanvasShape element={element} hittable={commentable} />;
     case "image":
       return <CanvasImage element={element} assetBase={assetBase} />;
     case "arrow":
@@ -172,12 +175,11 @@ function CanvasElement({ element, assetBase, artboardOrigin }: { element: Manife
 const ARROW_STROKE = 3.2;
 const ARROW_DASH = "12 10";
 
-function CanvasArrow({ arrow, boxes }: { arrow: ManifestArrowElement; boxes: Map<string, Box> }) {
-  const resolve = (end: ArrowEnd): Box | Point | undefined => (typeof end === "string" ? boxes.get(end) : end);
-  const from = resolve(arrow.from);
-  const to = resolve(arrow.to);
-  if (!from || !to) return null;
-  const { path, label } = arrowGeometry(from, to);
+/** Canvas pixels the pointer may be off the line of an arrow and still aim at it. */
+const ARROW_HIT_WIDTH = 28;
+
+function CanvasArrow({ arrow, geometry, commentable }: { arrow: ManifestArrowElement; geometry: ArrowGeometry; commentable: boolean }) {
+  const { path, label } = geometry;
   const color = paletteShades(arrow.color).stroke;
   return (
     <>
@@ -195,6 +197,17 @@ function CanvasArrow({ arrow, boxes }: { arrow: ManifestArrowElement; boxes: Map
           fill="none"
           markerEnd={`url(#redline-tip-${arrow.color})`}
         />
+        {arrow.id !== undefined && (
+          <path
+            data-canvas-arrow-hit
+            data-canvas-element-id={arrow.id}
+            d={path}
+            stroke="transparent"
+            strokeWidth={ARROW_HIT_WIDTH}
+            fill="none"
+            pointerEvents={commentable ? "stroke" : "none"}
+          />
+        )}
       </svg>
       {arrow.label && (
         <div data-canvas-arrow-label className={styles.arrowLabel} style={{ left: label.x, top: label.y, color }}>
@@ -210,26 +223,41 @@ function sameSizes(a: Record<string, Size>, b: Record<string, Size>): boolean {
   return keys.length === Object.keys(b).length && keys.every((key) => b[key] && a[key]!.width === b[key]!.width && a[key]!.height === b[key]!.height);
 }
 
+/** Corner radius of the hover outline of each kind, matching the element it surrounds (canvas pixels). */
+const OUTLINE_RADIUS: Record<ManifestElementKind, number> = { title: 2, text: 16, sticky: 8, link: 20, image: 6, shape: 20, arrow: 4 };
+
+/** Pins keep their screen size whatever the canvas zoom; board `CommentTargets` sits them 2 px inside the corner. */
+const PIN_INSET = 2;
+
 /**
- * Decoration written by Claude, not draggable, no comment pins. Shapes sit under the artboards (`children`); every
- * other element, arrows included, is drawn above them, in list order.
+ * Decoration written by Claude, not draggable. In comment mode an element with an id shows the hover outline and
+ * label of the artboards (same finish), and carries the pins of its threads. Shapes sit under the artboards
+ * (`children`); every other element, arrows included, is drawn above them, in list order.
  */
 export function CanvasElements({
   elements,
   artboardBoxes,
   assetBase,
   artboardOrigin,
+  picking,
+  zoom,
+  threads,
   children,
 }: {
   elements: ManifestElement[];
   artboardBoxes: ReadonlyMap<string, Box>;
   assetBase: string;
   artboardOrigin: string;
+  /** Comment mode: elements with an id can be aimed at and clicked. */
+  picking: boolean;
+  zoom: number;
+  threads: Thread[];
   children?: ReactNode;
 }) {
   const underRef = useRef<HTMLDivElement>(null);
   const overRef = useRef<HTMLDivElement>(null);
   const [sizes, setSizes] = useState<Record<string, Size>>({});
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const under = elements.filter((element) => element.kind === "shape");
   const over = elements.filter((element) => element.kind !== "shape");
 
@@ -252,32 +280,118 @@ export function CanvasElements({
     return () => observer.disconnect();
   }, [elements]);
 
+  // The element under the mouse, anywhere on the page; leaving comment mode or the window clears it.
+  useEffect(() => {
+    if (!picking) {
+      setHoveredId(null);
+      return;
+    }
+    const onOver = (event: PointerEvent) => setHoveredId((event.target as Element | null)?.closest("[data-canvas-element-id]")?.getAttribute("data-canvas-element-id") ?? null);
+    const onOut = (event: PointerEvent) => {
+      if (event.relatedTarget === null) setHoveredId(null);
+    };
+    document.addEventListener("pointermove", onOver);
+    document.addEventListener("pointerout", onOut);
+    return () => {
+      document.removeEventListener("pointermove", onOver);
+      document.removeEventListener("pointerout", onOut);
+    };
+  }, [picking]);
+
   const boxes = new Map<string, Box>(artboardBoxes);
   for (const element of elements) {
     if (element.kind === "arrow" || element.id === undefined) continue;
     const box = elementBox(element, sizes[element.id]);
     if (box) boxes.set(element.id, box);
   }
+  // Arrows: geometry from the boxes they link, then their own box and pin spot.
+  const arrowGeometries = new Map<ManifestArrowElement, ArrowGeometry>();
+  const resolve = (end: ArrowEnd): Box | Point | undefined => (typeof end === "string" ? boxes.get(end) : end);
+  const pinSpots = new Map<string, Point & { inset: boolean }>();
+  const outlineBoxes = new Map<string, Box>();
+  for (const element of elements) {
+    if (element.kind !== "arrow") {
+      const box = element.id === undefined ? undefined : boxes.get(element.id);
+      if (element.id !== undefined && box && !artboardBoxes.has(element.id)) {
+        outlineBoxes.set(element.id, box);
+        pinSpots.set(element.id, { x: box.x + box.width, y: box.y, inset: true });
+      }
+      continue;
+    }
+    const from = resolve(element.from);
+    const to = resolve(element.to);
+    if (!from || !to) continue;
+    const geometry = arrowGeometry(from, to);
+    arrowGeometries.set(element, geometry);
+    if (element.id !== undefined) {
+      outlineBoxes.set(element.id, geometry.box);
+      pinSpots.set(element.id, { ...geometry.label, inset: false });
+    }
+  }
+
+  const hovered = hoveredId === null ? undefined : elements.find((element) => element.id === hoveredId);
+  const hoveredBox = hovered?.id === undefined ? undefined : outlineBoxes.get(hovered.id);
+  const pinned = threads.flatMap((thread) => {
+    const spot = thread.target.kind === "canvas-element" ? pinSpots.get(thread.target.elementId) : undefined;
+    return spot ? [{ thread, spot }] : [];
+  });
+
+  // A link card in comment mode is aimed at, not followed.
+  const keepLinksFromNavigating = (event: MouseEvent<HTMLDivElement>) => {
+    if (picking && (event.target as Element).closest("[data-canvas-element-id]")) event.preventDefault();
+  };
 
   return (
     <>
-      <div ref={underRef} style={{ display: "contents" }}>
+      <div ref={underRef} style={{ display: "contents" }} onClickCapture={keepLinksFromNavigating}>
         {under.map((element, i) => (
-          <CanvasElement key={i} element={element} assetBase={assetBase} artboardOrigin={artboardOrigin} />
+          <CanvasElement key={i} element={element} assetBase={assetBase} artboardOrigin={artboardOrigin} commentable={picking && element.id !== undefined} />
         ))}
       </div>
       {children}
-      <div ref={overRef} style={{ display: "contents" }}>
-        {over.map((element, i) =>
-          element.kind === "arrow" ? (
+      <div ref={overRef} style={{ display: "contents" }} onClickCapture={keepLinksFromNavigating}>
+        {over.map((element, i) => {
+          if (element.kind !== "arrow") {
+            return <CanvasElement key={i} element={element} assetBase={assetBase} artboardOrigin={artboardOrigin} commentable={picking && element.id !== undefined} />;
+          }
+          const geometry = arrowGeometries.get(element);
+          return (
             <div key={i} style={{ display: "contents" }}>
-              <CanvasArrow arrow={element} boxes={boxes} />
+              {geometry && <CanvasArrow arrow={element} geometry={geometry} commentable={picking && element.id !== undefined} />}
             </div>
-          ) : (
-            <CanvasElement key={i} element={element} assetBase={assetBase} artboardOrigin={artboardOrigin} />
-          ),
-        )}
+          );
+        })}
       </div>
+      {hovered && hoveredBox && (
+        <>
+          <div
+            data-testid="canvas-hover-outline"
+            className={styles.hoverOutline}
+            style={{ left: hoveredBox.x, top: hoveredBox.y, width: hoveredBox.width, height: hoveredBox.height, borderRadius: OUTLINE_RADIUS[hovered.kind], ...hoverOutlineStyle }}
+          />
+          <span
+            data-testid="canvas-hover-label"
+            className={styles.hoverLabel}
+            style={{ left: hoveredBox.x + HOVER_FINISH.labelOffsetX, top: hoveredBox.y + HOVER_FINISH.labelOffsetY, ...hoverLabelStyle }}
+          >
+            {CANVAS_ELEMENT_KIND_LABELS[hovered.kind]} · {hovered.id}
+          </span>
+        </>
+      )}
+      {pinned.map(({ thread, spot }) => {
+        const resolved = thread.status === "resolved";
+        return (
+          <span
+            key={thread.id}
+            data-canvas-pin={thread.number}
+            title={`${thread.title} · ${threadWhere(thread)}`}
+            className={cx(styles.pin, thread.status === "held" && styles.pinHeld, resolved && styles.pinResolved)}
+            style={{ left: spot.x, top: spot.y, transform: `translate(calc(-50% - ${spot.inset ? PIN_INSET / zoom : 0}px), calc(-50% + ${spot.inset ? PIN_INSET / zoom : 0}px)) scale(${1 / zoom})` }}
+          >
+            {resolved ? "✓" : thread.number}
+          </span>
+        );
+      })}
     </>
   );
 }

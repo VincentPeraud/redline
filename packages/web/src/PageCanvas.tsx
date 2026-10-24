@@ -10,6 +10,7 @@ import {
   type CreateThreadRequest,
   threadTargetLabel,
   type Manifest,
+  type ManifestElementKind,
   type PageViewSettings,
   type ResponsiveFormat,
   type Project,
@@ -49,6 +50,8 @@ const ZOOM_STEP = 1.25;
 const START_LEFT = 80;
 const START_TOP = 190;
 const START_BOTTOM = 40;
+/** Pointer travel (screen pixels) under which a press and release count as a click. */
+const CLICK_SLOP = 4;
 
 type SideTab = "conversation" | "comments";
 
@@ -77,7 +80,10 @@ function BubbleIcon({ size }: { size: number }) {
 }
 
 /** A comment being written: pinned on an element of an artboard, or on a whole artboard. */
-type PageDraft = (Pick & { artboard: string; rendering?: ThreadRendering }) | { target: { kind: "artboard"; artboard: string } };
+type PageDraft =
+  | (Pick & { artboard: string; rendering?: ThreadRendering })
+  | { target: { kind: "artboard"; artboard: string } }
+  | { target: { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind } };
 
 function draftLabel(draft: PageDraft): string {
   return "target" in draft ? threadTargetLabel(draft.target) : (draft.elementName ?? draft.selector);
@@ -140,6 +146,8 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const placed = useRef(false);
   const drag = useRef<{ x: number; y: number } | null>(null);
+  /** Where the pointer went down, to tell a click on a canvas element from the end of a pan. */
+  const pressedAt = useRef<{ x: number; y: number } | null>(null);
 
   const runs = useRuns(pageId);
   const sessions = usePageSessions(pageId);
@@ -264,7 +272,8 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
   async function send(held: boolean) {
     if (!draft || text.trim() === "") return;
-    const request: CreateThreadRequest = { ...draft, body: text, ...(held ? { held } : choice) };
+    const target = "target" in draft ? { target: draft.target } : draft;
+    const request: CreateThreadRequest = { ...target, body: text, ...(held ? { held } : choice) };
     await fetch(`/api/pages/${pageId}/threads`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -362,6 +371,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             className={styles.viewport}
             style={{ backgroundPosition: `${view.x}px ${view.y}px` }}
             onPointerDown={(e) => {
+              pressedAt.current = { x: e.clientX, y: e.clientY };
               if ((e.target as HTMLElement).closest("button, a, [data-no-pan]")) return;
               drag.current = { x: e.clientX, y: e.clientY };
               e.currentTarget.setPointerCapture(e.pointerId);
@@ -373,13 +383,23 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               drag.current = { x: e.clientX, y: e.clientY };
               setView((v) => panBy(v, dx, dy));
             }}
-            onPointerUp={() => {
+            onPointerUp={(e) => {
               drag.current = null;
+              const pressed = pressedAt.current;
+              pressedAt.current = null;
+              if (picking && manifest && pressed && Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < CLICK_SLOP) {
+                const id = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-canvas-element-id]")?.getAttribute("data-canvas-element-id");
+                const element = manifest.elements.find((candidate) => candidate.id === id);
+                if (element?.id !== undefined) {
+                  setDraft({ target: { kind: "canvas-element", elementId: element.id, elementKind: element.kind } });
+                  setTab("comments");
+                }
+              }
             }}
           >
             <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
               {manifest && (
-              <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin}>
+              <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking} zoom={view.zoom} threads={threads}>
               {manifest.artboards.map((artboard) => {
                 const layout = layoutOf(artboard);
                 const hidden = hiddenOf(artboard);
@@ -539,7 +559,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
           )}
           <div className={styles.hintWrap}>
             <div data-testid="mode-indicator" className={cx(styles.hint, picking && styles.hintComment)}>
-              {picking ? "Mode commentaire : clique sur un élément pour y épingler un commentaire" : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
+              {picking ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier." : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
             </div>
           </div>
           {toast && (

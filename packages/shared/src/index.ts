@@ -204,7 +204,7 @@ export type ThreadTarget =
       rendering?: ThreadRendering;
     }
   | { kind: "artboard"; artboard: string }
-  | { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind };
+  | { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind; /** What the element showed when the user commented it (`canvasElementSummary`). */ elementSummary?: string };
 
 export const CANVAS_ELEMENT_KIND_LABELS: Record<ManifestElementKind, string> = {
   title: "Titre",
@@ -283,7 +283,12 @@ export interface CreateArtboardThreadRequest extends CreateThreadCommon {
   target: { kind: "artboard"; artboard: string };
 }
 
-export type CreateThreadRequest = CreateElementThreadRequest | CreateArtboardThreadRequest;
+/** A comment on an element of the page canvas. The element must carry that id in the page's current manifest; the server fills its kind. */
+export interface CreateCanvasElementThreadRequest extends CreateThreadCommon {
+  target: { kind: "canvas-element"; elementId: string };
+}
+
+export type CreateThreadRequest = CreateElementThreadRequest | CreateArtboardThreadRequest | CreateCanvasElementThreadRequest;
 
 export const MAX_ELEMENT_NAME_LENGTH = 200;
 
@@ -513,6 +518,30 @@ export interface ManifestArrowElement {
 /** Decoration drawn on the canvas, written by Claude. Add a kind here and a parser in ELEMENT_PARSERS. */
 export type ManifestElement = ManifestTitleElement | ManifestTextElement | ManifestStickyElement | ManifestShapeElement | ManifestImageElement | ManifestLinkElement | ManifestArrowElement;
 export type ManifestElementKind = ManifestElement["kind"];
+
+const MAX_SUMMARY_LENGTH = 120;
+
+/** What a canvas element shows, in one line: its text, label, link target or image file ("" when it shows nothing). */
+export function canvasElementSummary(element: ManifestElement): string {
+  const quoted = (text: string | undefined) => {
+    const line = (text ?? "").replace(/\s+/g, " ").trim();
+    if (line === "") return "";
+    return `« ${line.length > MAX_SUMMARY_LENGTH ? `${line.slice(0, MAX_SUMMARY_LENGTH)}…` : line} »`;
+  };
+  switch (element.kind) {
+    case "title":
+    case "text":
+    case "sticky":
+      return quoted(element.text);
+    case "shape":
+    case "arrow":
+      return quoted(element.label);
+    case "link":
+      return "page" in element ? `link to page ${element.page}` : element.url;
+    case "image":
+      return element.src;
+  }
+}
 
 /** Play mode: clicking `selector` in artboard `from` goes to artboard `to`. */
 export interface ManifestLink {

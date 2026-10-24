@@ -54,7 +54,7 @@ export function CanvasTextNote({ element }: { element: ManifestTextElement }) {
   const style: CSSProperties = { left: element.x, top: element.y, width: element.width, fontSize: NOTE_FONT_SIZE[element.size] };
   if (element.color) style.color = paletteShades(element.color).text;
   return (
-    <div data-canvas-text className={styles.text} style={style}>
+    <div data-canvas-text data-canvas-element-id={element.id} className={styles.text} style={style}>
       <NoteBody text={element.text} />
     </div>
   );
@@ -71,7 +71,7 @@ export function CanvasStickyNote({ element }: { element: ManifestStickyElement }
     color: shades.text,
   };
   return (
-    <div data-canvas-sticky className={styles.sticky} style={style}>
+    <div data-canvas-sticky data-canvas-element-id={element.id} className={styles.sticky} style={style}>
       <NoteBody text={element.text} />
     </div>
   );
