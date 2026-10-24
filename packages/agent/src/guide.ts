@@ -56,6 +56,10 @@ A Redline page is a set of files. You work on a copy of them (the working copy f
 - In terminal mode (redline mcp), list_projects and list_pages {projectId} find projects and pages, create_project {title} makes a project, and create_page {title, projectId} works without a checked-out page; then checkout_page the new page to add its artboards.
 - A published version carries ${MAX_PAGE_BYTES / 1024 / 1024} MB at most: images and fonts go in ${ASSETS_DIR}/, never inline.
 
+## Conversation messages (context block)
+- A message from the page's conversation ends with a context block: "The user is looking at: <files>" lists the artboards on screen (partly visible ones included; in play mode, the one shown, with its rendering in parentheses for a responsive artboard), and "Tweak values: <label>: <value>, ..." gives the current value of each tweak (the line is absent when the page has no tweaks).
+- Use it to resolve "this title" or "this screen" to the artboard the user means. The values are already in tweaks.json: do not rewrite them unless asked.
+
 ## DESIGN.md (the project's rules)
 - DESIGN.md at the root of the working copy holds the project's design rules, read by every session. You may edit it (plain Markdown; one rule per line or list item, e.g. "- Primary buttons are always full width on mobile").
 - Add a rule when the user takes a decision that should apply to FUTURE artboards too (a naming, a spacing, a component behaviour, a tone of voice), not for a one-off change to the artboard being discussed. Do not rewrite, reorder or delete existing rules unless the user asks; add a line (or edit the one that changes).

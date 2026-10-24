@@ -60,6 +60,38 @@ describe("page conversations", () => {
     expect(detail.messages.map((m) => m.body)).toEqual(["First words", "Hello back"]);
   });
 
+  it("follows a message with the artboards the user is looking at and the tweak values", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "ok" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    const conversation = await newConversation(seam, page.id);
+    const context = {
+      visibleArtboards: [{ file: "home.html" }, { file: "pay.html", rendering: { format: "mobile", width: 390 } }],
+      tweaks: [
+        { label: "Thème", value: "sombre" },
+        { label: "Densité", value: "compacte" },
+      ],
+    };
+    expect((await send(seam, conversation.id, "Change the title", { context })).status).toBe(201);
+    await seam.waitForWorkEnd(1);
+
+    const message = engine.runs[0].message;
+    expect(message).toContain("Change the title\n\nThe user is looking at: home.html, pay.html (Mobile · 390)\nTweak values: Thème: sombre, Densité: compacte");
+    expect((await getConversation(seam, conversation.id)).messages[0].body).toBe("Change the title");
+  });
+
+  it("omits the tweak line when the page has no tweaks and refuses a malformed context", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "ok" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    const conversation = await newConversation(seam, page.id);
+    expect((await send(seam, conversation.id, "Hi", { context: { visibleArtboards: "home.html", tweaks: [] } })).status).toBe(400);
+    expect((await send(seam, conversation.id, "Hi", { context: { visibleArtboards: [], tweaks: [] } })).status).toBe(201);
+    await seam.waitForWorkEnd(1);
+    expect(engine.runs[0].message).toContain("The user is looking at: no artboard on screen");
+    expect(engine.runs[0].message).not.toContain("Tweak values");
+  });
+
   it("runs a session told which page is shown, publishes a version with origin conversation and records Claude's answer", async () => {
     const engine = new FakeEngine([
       { edit: { path: "home.html", content: "<!doctype html><h1>New title</h1>" } },

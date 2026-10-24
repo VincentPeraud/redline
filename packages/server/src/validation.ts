@@ -13,6 +13,7 @@ import {
   parseTweaks,
   type CreateVersionRequest,
   type Effort,
+  type MessageContext,
   type ModelChoice,
   type PageViewSettings,
 } from "@redline/shared";
@@ -30,6 +31,20 @@ export function modelChoiceError({ model, effort }: { model?: unknown; effort?: 
   if (model !== undefined && (typeof model !== "string" || !MODEL_PATTERN.test(model))) return "invalid model";
   if (effort !== undefined && !(EFFORTS as readonly unknown[]).includes(effort)) return "invalid effort";
   return null;
+}
+
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+/** True for the visible artboards and tweaks of a message context (the part Claude is told about). */
+export function isMessageContext(value: unknown): value is MessageContext {
+  if (!isObject(value) || !Array.isArray(value.visibleArtboards) || !Array.isArray(value.tweaks)) return false;
+  const artboardsOk = value.visibleArtboards.every((a) => {
+    if (!isObject(a) || !requiredString(a.file)) return false;
+    if (a.rendering === undefined) return true;
+    const r = a.rendering;
+    return isObject(r) && typeof r.format === "string" && r.format in RESPONSIVE_FORMATS && typeof r.width === "number";
+  });
+  return artboardsOk && value.tweaks.every((t) => isObject(t) && typeof t.label === "string" && typeof t.value === "string");
 }
 
 /** The choice without its absent fields, so it can be spread over a work item without erasing what the item has. */

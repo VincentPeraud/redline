@@ -6,12 +6,14 @@ import {
   type ConversationMessage,
   type CreateConversationMessageRequest,
   type CreateConversationRequest,
+  type MessageContext,
   type ModelChoice,
   type ServerEvent,
   type WorkItem,
 } from "@redline/shared";
+import { renderingLabel } from "@redline/shared";
 import { contextOf, usageContext } from "./context.js";
-import { definedChoice, modelChoiceError, modelChoiceOf, requiredString } from "./validation.js";
+import { definedChoice, isMessageContext, modelChoiceError, modelChoiceOf, requiredString } from "./validation.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -19,7 +21,7 @@ export type SendConversationMessage = (
   conversation: Conversation,
   body: string,
   choice: ModelChoice,
-  options?: { extraContext?: string; projectId?: string; brief?: boolean },
+  options?: { context?: MessageContext; extraContext?: string; projectId?: string; brief?: boolean },
 ) => ConversationMessage;
 
 /** The message Claude receives for a conversation message; every message says which page is shown. */
@@ -29,6 +31,15 @@ export function conversationMessage(pageTitle: string, pageId: string, bodies: s
     "",
     ...bodies.flatMap((body) => [body, ""]),
     "Make the change in the working copy if the message asks for one, then answer in a short final message.",
+  ].join("\n");
+}
+
+/** The lines that follow a conversation message: what the user is looking at and the tweak values. */
+export function contextBlock(context: MessageContext): string {
+  const files = context.visibleArtboards.map(({ file, rendering }) => (rendering ? `${file} (${renderingLabel(rendering)})` : file));
+  return [
+    `The user is looking at: ${files.length > 0 ? files.join(", ") : "no artboard on screen"}`,
+    ...(context.tweaks.length > 0 ? [`Tweak values: ${context.tweaks.map((t) => `${t.label}: ${t.value}`).join(", ")}`] : []),
   ].join("\n");
 }
 
@@ -149,7 +160,7 @@ export function registerConversationRoutes(
     dispatch(
       conversation,
       previous,
-      [...(options.extraContext ? [options.extraContext] : []), body],
+      [...(options.extraContext ? [options.extraContext] : []), options.context ? `${body}\n\n${contextBlock(options.context)}` : body],
       choice,
       options.projectId ?? page.projectId,
       options.brief ? briefMessage(page.title, page.id, body) : undefined,
@@ -197,7 +208,8 @@ export function registerConversationRoutes(
       if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
       const invalidChoice = modelChoiceError(req.body);
       if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
-      const message = sendMessage(conversation, body, modelChoiceOf(req.body));
+      if (req.body.context !== undefined && !isMessageContext(req.body.context)) return reply.code(400).send({ error: "context is malformed" });
+      const message = sendMessage(conversation, body, modelChoiceOf(req.body), { context: req.body.context });
       return reply.code(201).send(message);
     },
   );
