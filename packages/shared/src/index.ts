@@ -287,11 +287,22 @@ export interface ManifestArtboard {
   guides?: ArtboardGuides;
 }
 
-export interface ManifestNote {
+export const DEFAULT_TITLE_WIDTH = 1200;
+
+/** Big group title above a row of artboards. */
+export interface ManifestTitleElement {
+  kind: "title";
   text: string;
+  subtitle?: string;
+  /** Maximum width in canvas pixels. */
+  width: number;
   x: number;
   y: number;
 }
+
+/** Decoration drawn on the canvas, written by Claude. Add a kind here and a parser in ELEMENT_PARSERS. */
+export type ManifestElement = ManifestTitleElement;
+export type ManifestElementKind = ManifestElement["kind"];
 
 /** Play mode: clicking `selector` in artboard `from` goes to artboard `to`. */
 export interface ManifestLink {
@@ -337,7 +348,8 @@ export interface Manifest {
   /** Id of the design system the page uses. */
   designSystem?: string;
   artboards: ManifestArtboard[];
-  notes: ManifestNote[];
+  /** Ordered: drawn in list order. */
+  elements: ManifestElement[];
   links: ManifestLink[];
   tweaks: ManifestTweak[];
 }
@@ -371,6 +383,28 @@ function num(item: Record<string, unknown>, key: string, name: string, fallback:
     fail(`${name}.${key} must be ${positive ? "a positive number" : "a number"}`);
   }
   return value;
+}
+
+const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unknown>, name: string) => Extract<ManifestElement, { kind: K }> } = {
+  title(item, name) {
+    const title: ManifestTitleElement = {
+      kind: "title",
+      text: str(item, "text", name),
+      width: num(item, "width", name, DEFAULT_TITLE_WIDTH, true),
+      x: num(item, "x", name, 0),
+      y: num(item, "y", name, 0),
+    };
+    if (typeof item.subtitle === "string" && item.subtitle !== "") title.subtitle = item.subtitle;
+    return title;
+  },
+};
+
+function parseElement(item: Record<string, unknown>, name: string): ManifestElement {
+  const kind = item.kind === undefined ? "title" : item.kind;
+  if (typeof kind !== "string" || !Object.hasOwn(ELEMENT_PARSERS, kind)) {
+    fail(`${name}.kind must be one of ${Object.keys(ELEMENT_PARSERS).join(", ")}`);
+  }
+  return ELEMENT_PARSERS[kind as ManifestElementKind](item, name);
 }
 
 function parseGuides(value: unknown, name: string): ArtboardGuides {
@@ -420,10 +454,12 @@ export function parseManifest(text: string): Manifest {
     return artboard;
   });
 
-  const notes = list(root.notes, "notes").map((item, i): ManifestNote => {
-    const name = `notes[${i}]`;
-    return { text: str(item, "text", name), x: num(item, "x", name, 0), y: num(item, "y", name, 0) };
-  });
+  if (root.notes !== undefined && root.elements !== undefined) fail("notes and elements cannot be used together; notes is replaced by elements");
+  // Legacy `notes` are title elements.
+  const elements =
+    root.notes !== undefined
+      ? list(root.notes, "notes").map((item, i) => parseElement({ ...item, kind: "title" }, `notes[${i}]`))
+      : list(root.elements, "elements").map((item, i) => parseElement(item, `elements[${i}]`));
 
   const links = list(root.links, "links").map((item, i): ManifestLink => {
     const name = `links[${i}]`;
@@ -440,7 +476,7 @@ export function parseManifest(text: string): Manifest {
     return { ...(item as unknown as ManifestTweak), id: str(item, "id", name), type: type as TweakType, label: str(item, "label", name) };
   });
 
-  const manifest: Manifest = { artboards, notes, links, tweaks };
+  const manifest: Manifest = { artboards, elements, links, tweaks };
   if (typeof root.title === "string") manifest.title = root.title;
   if (typeof root.designSystem === "string") manifest.designSystem = root.designSystem;
   return manifest;

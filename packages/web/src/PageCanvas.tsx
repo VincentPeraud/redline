@@ -18,6 +18,7 @@ import { UndoToast } from "./UndoToast.js";
 import { CanvasHeader } from "./CanvasHeader.js";
 import { useGuidesVisible } from "./useGuidesVisible.js";
 import { panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { CanvasElements } from "./CanvasElements.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
 import { ConversationsPanel } from "./ConversationsPanel.js";
 import type { AgentDefaults, ModelEffortChoice } from "./ModelEffortControls.js";
@@ -52,14 +53,6 @@ function initialView(manifest: Manifest, stage: { width: number; height: number 
   const bounds = boundsOf(manifest.artboards.map((a) => ({ x: a.x, y: a.y, width: a.width, height: a.height })));
   const zoom = Math.min(1, (stage.height - START_TOP - START_BOTTOM) / bounds.height);
   return { zoom, x: START_LEFT - bounds.x * zoom, y: START_TOP - bounds.y * zoom };
-}
-
-/** Artboards a group title heads: those from its x up to the next title's x. */
-function groupArtboardCount(manifest: Manifest, index: number): number {
-  const xs = manifest.notes.map((n) => n.x).sort((a, b) => a - b);
-  const from = manifest.notes[index]!.x;
-  const next = xs.find((x) => x > from) ?? Infinity;
-  return manifest.artboards.filter((a) => a.x >= from && a.x < next).length;
 }
 
 function GuidesIcon() {
@@ -321,14 +314,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             }}
           >
             <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
-              {manifest?.notes.map((note, i) => (
-                <div key={i} className={styles.note} style={{ left: note.x, top: note.y }}>
-                  <h2 className={styles.noteTitle}>{note.text}</h2>
-                  <div className={styles.noteSubtitle}>
-                    Titre de groupe · {groupArtboardCount(manifest, i)} artboards · modifiable par toi ou par Claude
-                  </div>
-                </div>
-              ))}
+              {manifest && <CanvasElements elements={manifest.elements} />}
               {manifest?.artboards.map((artboard) => (
                 <div
                   key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`}

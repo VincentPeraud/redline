@@ -8,7 +8,7 @@ describe("page manifest", () => {
         title: "Checkout",
         designSystem: "acme",
         artboards: [{ file: "cart.html", title: "Cart", width: 390, height: 844, x: 100, y: 40 }],
-        notes: [{ text: "Happy path", x: 100, y: -60 }],
+        elements: [{ kind: "title", text: "Happy path", subtitle: "Three screens", width: 900, x: 100, y: -60 }],
         links: [{ from: "cart.html", selector: "#pay", to: "pay.html" }],
         tweaks: [{ id: "accent", type: "color", label: "Accent", default: "#e5484d" }],
       }),
@@ -16,18 +16,38 @@ describe("page manifest", () => {
     expect(manifest.title).toBe("Checkout");
     expect(manifest.designSystem).toBe("acme");
     expect(manifest.artboards).toEqual([{ file: "cart.html", title: "Cart", width: 390, height: 844, x: 100, y: 40 }]);
-    expect(manifest.notes).toEqual([{ text: "Happy path", x: 100, y: -60 }]);
+    expect(manifest.elements).toEqual([{ kind: "title", text: "Happy path", subtitle: "Three screens", width: 900, x: 100, y: -60 }]);
     expect(manifest.links).toHaveLength(1);
     expect(manifest.tweaks[0]?.id).toBe("accent");
   });
 
   it("fills missing optional sections with empty lists and artboard defaults", () => {
     const manifest = parseManifest(JSON.stringify({ artboards: [{ file: "a.html" }, { file: "b.html" }] }));
-    expect(manifest.notes).toEqual([]);
+    expect(manifest.elements).toEqual([]);
     expect(manifest.links).toEqual([]);
     expect(manifest.tweaks).toEqual([]);
     expect(manifest.artboards[0]).toMatchObject({ file: "a.html", width: 800, height: 500, x: 0, y: 0 });
     expect(manifest.artboards[1]?.x).toBeGreaterThan(800);
+  });
+
+  it("treats an element without kind as a title with a 1200 px width", () => {
+    const manifest = parseManifest(JSON.stringify({ elements: [{ text: "Signup" }] }));
+    expect(manifest.elements).toEqual([{ kind: "title", text: "Signup", width: 1200, x: 0, y: 0 }]);
+  });
+
+  it("reads a legacy notes list as title elements", () => {
+    const manifest = parseManifest(JSON.stringify({ notes: [{ text: "Checkout", x: 10, y: -80 }] }));
+    expect(manifest.elements).toEqual([{ kind: "title", text: "Checkout", width: 1200, x: 10, y: -80 }]);
+  });
+
+  it("refuses notes and elements together, naming both fields", () => {
+    expect(() => parseManifest(JSON.stringify({ notes: [], elements: [] }))).toThrow(/notes.*elements|elements.*notes/);
+  });
+
+  it("refuses an unknown element kind, naming the field", () => {
+    expect(() => parseManifest(JSON.stringify({ elements: [{ kind: "sticker", x: 0, y: 0 }] }))).toThrow(/elements\[0\]\.kind/);
+    expect(() => parseManifest(JSON.stringify({ elements: [{ kind: "title", x: 0, y: 0 }] }))).toThrow(/elements\[0\]\.text/);
+    expect(() => parseManifest(JSON.stringify({ elements: [{ text: "a", width: 0 }] }))).toThrow(/elements\[0\]\.width/);
   });
 
   it("rejects malformed manifests with a readable message", () => {
