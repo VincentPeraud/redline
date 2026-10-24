@@ -42,6 +42,12 @@ describe("presentationOf", () => {
     expect([plain.framable, plain.fill]).toEqual([false, "none"]);
   });
 
+  it("keeps a paper sheet whatever the Habillage switch says, and offers no Habillage for it", () => {
+    const sheet = board({ width: 576, height: 814, device: "paper" });
+    expect(presentationOf(sheet)).toMatchObject({ device: "paper", framable: false });
+    expect(presentationOf(sheet, false)).toMatchObject({ device: "paper", framable: false, fill: "none" });
+  });
+
   it("fills the screen without a frame below 600px for a phone and 1100px for a tablet", () => {
     const phone = presentationOf(board({ width: 390, height: 844, device: "phone" }), true, 599);
     expect([phone.device, phone.fill, phone.framable, phone.mobileBar]).toEqual(["none", "both", false, true]);
@@ -76,7 +82,10 @@ describe("presentationOf for a responsive rendering", () => {
 
   it("follows the Habillage switch and the narrow-window rules of the device", () => {
     expect(presentationOf(frame, false, 1440, rendering("mobile", 390, 844))).toMatchObject({ device: "none", fill: "height" });
-    expect(presentationOf(frame, true, 500, rendering("mobile", 390, 844))).toMatchObject({ device: "none", fill: "both", mobileBar: false });
+    expect(presentationOf(frame, true, 500, rendering("mobile", 390, 844))).toMatchObject({ device: "none", fill: "both", mobileBar: true });
+    expect(presentationOf(frame, true, 600, rendering("mobile", 390, 844))).toMatchObject({ device: "phone", mobileBar: false });
+    expect(presentationOf(frame, true, 500, rendering("desktop", 1440, 900))).toMatchObject({ device: "desktop", mobileBar: false });
+    expect(presentationOf(frame, true, 1000, rendering("tablet", 768, 1024))).toMatchObject({ device: "none", mobileBar: false });
   });
 
   it("shows the whole window for Aucun", () => {

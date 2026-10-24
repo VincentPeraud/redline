@@ -224,7 +224,7 @@ it("removes the device frame with Habillage (remembered), and fills the screen w
   expect(await habillage.count()).toBe(0);
   const bar = (await play.locator("header").boundingBox())!;
   expect(bar.height).toBe(44);
-  await play.getByText("Onboarding · phone.html").waitFor();
+  await play.getByText("Habillage · phone.html").waitFor();
   await expect.poll(async () => (await frame.boundingBox())?.width).toBe(390);
   expect((await frame.boundingBox())!.height).toBe(800);
   await play.getByRole("button", { name: "Retour au canvas" }).click();

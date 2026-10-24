@@ -22,7 +22,9 @@ import { ArtboardHistory } from "./ArtboardHistory.js";
 import { restoreArtboard, useDeletedArtboards } from "./restoreArtboard.js";
 import { UndoToast } from "./UndoToast.js";
 import { CanvasHeader } from "./CanvasHeader.js";
-import { useGuidesVisible } from "./useGuidesVisible.js";
+import { useStoredToggle } from "./useStoredToggle.js";
+import { GuidesButton } from "./GuidesButton.js";
+import { isEditableTarget } from "./isEditableTarget.js";
 import { panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { CanvasElements } from "./CanvasElements.js";
 import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
@@ -63,16 +65,6 @@ function initialView(manifest: Manifest, stage: { width: number; height: number 
   const bounds = boundsOf(manifest.artboards.map((a) => ({ x: a.x, y: a.y, width: a.width, height: a.height })));
   const zoom = Math.min(1, (stage.height - START_TOP - START_BOTTOM) / bounds.height);
   return { zoom, x: START_LEFT - bounds.x * zoom, y: START_TOP - bounds.y * zoom };
-}
-
-function GuidesIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M9 3v18" />
-      <path d="M15 3v18" />
-    </svg>
-  );
 }
 
 function FullscreenIcon() {
@@ -120,7 +112,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [preview, setPreview] = useState<{ file: string; versionId: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; undo: () => Promise<void> } | null>(null);
   const deleted = useDeletedArtboards(pageId, versionId);
-  const [guidesVisible, toggleGuides] = useGuidesVisible();
+  const [guidesVisible, toggleGuides] = useStoredToggle("redline:guides", false);
   /** Real page height of each rendering of a responsive artboard, by artboard file then rendering key, as reported by the bridge. */
   const [docHeights, setDocHeights] = useState<Record<string, Record<string, number>>>({});
   const [viewSettings, setViewSettings] = useState<PageViewSettings>(savedViewSettings ?? EMPTY_VIEW_SETTINGS);
@@ -224,8 +216,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   // C: comment mode, P: back to interactive, G: layout guides.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      const target = event.target as HTMLElement;
-      if (playFrom !== null || target.tagName === "TEXTAREA" || target.tagName === "INPUT" || event.metaKey || event.ctrlKey) return;
+      if (playFrom !== null || isEditableTarget(event.target) || event.metaKey || event.ctrlKey) return;
       const key = event.key.toLowerCase();
       if (key === "c") setPicking(true);
       if (key === "p") setPicking(false);
@@ -280,6 +271,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     return (
       <PlayMode
         pageId={pageId}
+        pageTitle={pageTitle}
         manifest={manifest}
         start={playFrom}
         artboardOrigin={artboardOrigin}
@@ -507,10 +499,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               +
             </button>
             <span aria-hidden="true" className={styles.zoomSeparator} />
-            <button type="button" aria-pressed={guidesVisible} title="Afficher les guides de mise en page (G)" className={cx(styles.guidesButton, guidesVisible && styles.guidesButtonOn)} onClick={toggleGuides}>
-              <GuidesIcon />
-              Guides (G)
-            </button>
+            <GuidesButton pressed={guidesVisible} onToggle={toggleGuides} className={cx(styles.guidesButton, guidesVisible && styles.guidesButtonOn)} />
             {responsiveArtboards.length > 0 && (
               <>
                 <span aria-hidden="true" className={styles.zoomSeparator} />
