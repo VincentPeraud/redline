@@ -284,6 +284,8 @@ export interface ManifestArtboard {
   device?: ArtboardDevice;
   /** Text shown in the address bar of the `desktop` presentation; never invented. */
   url?: string;
+  /** `fill`: in play mode the artboard fills the whole window (ignored on a phone); the canvas keeps the declared size. */
+  expand?: "fill";
   guides?: ArtboardGuides;
 }
 
@@ -415,6 +417,10 @@ export function parseManifest(text: string): Manifest {
       artboard.device = item.device as ArtboardDevice;
     }
     if (typeof item.url === "string") artboard.url = item.url;
+    if (item.expand !== undefined) {
+      if (item.expand !== "fill") fail(`${name}.expand must be "fill"`);
+      artboard.expand = "fill";
+    }
     if (item.guides !== undefined) artboard.guides = parseGuides(item.guides, `${name}.guides`);
     nextX = artboard.x + width + ARTBOARD_GAP;
     return artboard;
