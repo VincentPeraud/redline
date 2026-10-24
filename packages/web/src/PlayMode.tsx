@@ -131,19 +131,24 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
             {pageTitle} · {artboard?.file}
           </span>
           {renderings.length > 0 && (
-            <select
-              aria-label="Rendu responsive"
-              value={rendering ? renderingKey(rendering) : NO_RENDERING}
-              onChange={(event) => selectRendering(renderings.find((r) => renderingKey(r) === event.target.value) ?? null)}
-              className={styles.mobileRendering}
-            >
-              {renderings.map((r) => (
-                <option key={renderingKey(r)} value={renderingKey(r)}>
-                  {renderingOptionLabel(r)}
-                </option>
-              ))}
-              <option value={NO_RENDERING}>Aucun</option>
-            </select>
+            <span className={styles.mobileRenderingWrap}>
+              <select
+                aria-label="Rendu responsive"
+                value={rendering ? renderingKey(rendering) : NO_RENDERING}
+                onChange={(event) => selectRendering(renderings.find((r) => renderingKey(r) === event.target.value) ?? null)}
+                className={styles.mobileRendering}
+              >
+                {renderings.map((r) => (
+                  <option key={renderingKey(r)} value={renderingKey(r)}>
+                    {renderingOptionLabel(r)}
+                  </option>
+                ))}
+                <option value={NO_RENDERING}>Aucun</option>
+              </select>
+              <svg className={styles.mobileRenderingChevron} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </span>
           )}
         </header>
       ) : (

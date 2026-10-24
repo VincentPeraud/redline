@@ -250,12 +250,29 @@
   white-space: nowrap;
 }
 
-.mobileRendering {
+/* Native arrow replaced by a chevron inset like the shared Select's, never glued to the edge. */
+.mobileRenderingWrap {
+  position: relative;
   flex-shrink: 0;
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  color: var(--play-text);
+}
+
+.mobileRenderingChevron {
+  position: absolute;
+  right: 10px;
+  pointer-events: none;
+}
+
+.mobileRendering {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
   height: 30px;
-  max-width: 120px;
-  padding: 0 var(--space-2);
+  max-width: 130px;
+  padding: 0 32px 0 10px;
   border: 1px solid var(--play-border-strong);
   border-radius: var(--radius-sm);
   background: var(--play-border);
