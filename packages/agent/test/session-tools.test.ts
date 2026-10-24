@@ -45,6 +45,16 @@ describe("session MCP tools", () => {
     expect(await seam!.versions(page.id)).toHaveLength(2);
   });
 
+  it("add_artboard records the device and url in the manifest entry", async () => {
+    const engine = new FakeEngine([
+      { callTool: { name: "add_artboard", arguments: { file: "site.html", html: "<h1>Site</h1>", device: "desktop", url: "lumora.fr" } } },
+      { type: "result", summary: "Add site" },
+    ]);
+    const page = await runOnce(engine);
+    const manifest = parseManifest(await seam!.readFile(page.id, "manifest.json"));
+    expect(manifest.artboards.find((a) => a.file === "site.html")).toMatchObject({ device: "desktop", url: "lumora.fr" });
+  });
+
   it("add_artboard refuses a path outside the page", async () => {
     let answer = "";
     const engine = new FakeEngine(async (run) => {
@@ -89,6 +99,8 @@ describe("session MCP tools", () => {
     await runOnce(engine);
     expect(guide).toContain("manifest.json");
     expect(guide).toContain("tweaks.json");
+    expect(guide).toMatch(/"device"[^\n]*phone[^\n]*tablet[^\n]*desktop[^\n]*paper[^\n]*none/);
+    expect(guide).toMatch(/always set a device/i);
     expect(guide).toContain('src="assets/hero.jpg"');
     for (const token of CORE_TOKENS) expect(guide).toContain(token);
   });

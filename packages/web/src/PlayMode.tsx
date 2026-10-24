@@ -1,14 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Manifest, TweakValue, TweakValues } from "@redline/shared";
 import { TweaksPanel } from "./TweaksPanel.js";
+import { PlayDevice } from "./PlayDevice.js";
+import { presentationOf } from "./playDevices.js";
 import { cx } from "./ui/index.js";
 import styles from "./PlayMode.module.css";
-
-/** Artboards up to this width are drawn as a phone: rounded corners and a dark bezel. */
-const PHONE_MAX_WIDTH = 500;
-/** Portrait phone artboards play in a real phone viewport, so responsive designs reflow. */
-const PHONE_VIEWPORT = { width: 390, height: 760 };
-const STAGE_PADDING = 32;
 
 /** Target artboard of the link on `selector` in artboard `from`, if the manifest declares one that exists. */
 export function resolveLink(manifest: Manifest, from: string, selector: string): string | null {
@@ -36,10 +32,14 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
   const stage = useRef<HTMLElement>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const artboard = manifest.artboards.find((a) => a.file === current);
-  const isPhone = artboard !== undefined && artboard.width <= PHONE_MAX_WIDTH && artboard.height > artboard.width;
-  const viewport = artboard && (isPhone ? PHONE_VIEWPORT : { width: artboard.width, height: artboard.height });
-  const scale = viewport && stageSize.width > 0
-    ? Math.min(1, Math.max(0.1, (stageSize.width - STAGE_PADDING * 2) / viewport.width), Math.max(0.1, (stageSize.height - STAGE_PADDING * 2) / viewport.height))
+  const framed = true;
+  const presentation = artboard && presentationOf(artboard, framed);
+  const scale = presentation && stageSize.width > 0
+    ? Math.min(
+        1,
+        Math.max(0.1, (stageSize.width - presentation.stagePadding * 2) / presentation.viewport.width),
+        Math.max(0.1, (stageSize.height - presentation.stagePadding * 2 - presentation.frameHeight) / presentation.viewport.height),
+      )
     : 1;
 
   useLayoutEffect(() => {
@@ -83,12 +83,6 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
   }, [onExit]);
 
   const hasTweaks = manifest.tweaks.length > 0;
-  const frameStyle = viewport && {
-    width: viewport.width,
-    height: viewport.height,
-    transform: `scale(${scale})`,
-  };
-
   return (
     <div data-testid="play" className={styles.play}>
       <header className={styles.topbar}>
@@ -119,22 +113,21 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
         {hasTweaks && <div className={styles.tweaksState}>Tweaks ouverts</div>}
       </header>
       <div className={styles.body}>
-        <main ref={stage} className={styles.stage}>
-          {artboard && viewport && frameStyle ? (
-            <div
-              className={cx(styles.device, artboard.width <= PHONE_MAX_WIDTH && styles.phone)}
-              style={{ width: viewport.width * scale, height: viewport.height * scale }}
-            >
-              <iframe
-                key={artboard.file}
-                ref={frame}
-                title={`Plein écran / ${artboard.file}`}
-                src={`${artboardOrigin}/pages/${pageId}/${artboard.file}`}
-                sandbox="allow-scripts"
-                className={styles.frame}
-                style={frameStyle}
-              />
-            </div>
+        <main ref={stage} data-device={presentation?.device} className={styles.stage}>
+          {artboard && presentation ? (
+            <PlayDevice device={presentation.device} url={artboard.url}>
+              <div className={styles.viewport} style={{ width: presentation.viewport.width * scale, height: presentation.viewport.height * scale }}>
+                <iframe
+                  key={artboard.file}
+                  ref={frame}
+                  title={`Plein écran / ${artboard.file}`}
+                  src={`${artboardOrigin}/pages/${pageId}/${artboard.file}`}
+                  sandbox="allow-scripts"
+                  className={styles.frame}
+                  style={{ width: presentation.viewport.width, height: presentation.viewport.height, transform: `scale(${scale})` }}
+                />
+              </div>
+            </PlayDevice>
           ) : (
             <p className={styles.empty}>Aucun artboard</p>
           )}
