@@ -298,16 +298,17 @@
 .mobileBar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   height: 44px;
   flex-shrink: 0;
   box-sizing: border-box;
-  padding: 0 8px;
+  padding: 0 4px;
   background: var(--play-bg);
   color: var(--play-text);
 }
 
 .mobileBack {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -320,6 +321,7 @@
 }
 
 .mobileTitle {
+  flex-grow: 1;
   min-width: 0;
   overflow: hidden;
   font-size: var(--font-size-sm);
@@ -332,7 +334,6 @@
 .mobileRenderingWrap {
   position: relative;
   flex-shrink: 0;
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   color: var(--play-text);
@@ -429,4 +430,59 @@
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   white-space: nowrap;
+}
+
+.mobileSteps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.mobileStep {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--play-text);
+  cursor: pointer;
+}
+
+.mobileStep:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The menu is positioned against the play screen, not the counter. */
+.mobileCounterWrap {
+  display: flex;
+}
+
+.mobileCounter {
+  height: 44px;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+/* Not on the board (it has no menu state): the dark contents menu, full width under the bar. */
+.mobileMenu {
+  top: 44px;
+  left: 0;
+  right: 0;
+  width: auto;
+  margin-left: 0;
+  max-height: calc(100% - 44px);
+  border-width: 1px 0;
+  border-radius: 0;
 }

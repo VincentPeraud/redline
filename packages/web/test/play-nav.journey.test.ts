@@ -39,12 +39,14 @@ const manifest = {
   links: [{ from: "c.html", selector: "#go", to: "b.html" }],
 };
 
-async function createPage(): Promise<string> {
+const phoneManifest = { ...manifest, artboards: manifest.artboards.map((a) => ({ ...a, width: 390, height: 844, frame: "phone" })) };
+
+async function createPage(withManifest: object = manifest): Promise<string> {
   const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as { id: string };
   const page = (await server
     .post(`/api/projects/${project.id}/pages`, {
       title: "Flow",
-      files: { "a.html": plain, "b.html": plain, "c.html": withField, "manifest.json": JSON.stringify(manifest) },
+      files: { "a.html": plain, "b.html": plain, "c.html": withField, "manifest.json": JSON.stringify(withManifest) },
     })
     .then((res) => res.json())) as { id: string };
   return page.id;
@@ -164,5 +166,42 @@ it("keeps rendu as written when changing artboard, and a followed link pushes on
   await tab.reload();
   await play.getByRole("button", { name: "Artboard suivant (→)" }).click();
   await expect.poll(() => hashOf(tab)).toBe(`#/pages/${pageId}/play/a.html?rendu=aucun`);
+  await tab.close();
+}, 60_000);
+
+it("shows ‹ n / N › as 44 px targets in the phone bar, ends disabled, and the counter opens the contents full width", async () => {
+  const pageId = await createPage(phoneManifest);
+  const tab = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await tab.goto(`${server.url}/#/pages/${pageId}/play/c.html`);
+  const play = tab.getByTestId("play");
+  await play.waitFor();
+  const bar = play.locator("header");
+  expect((await bar.boundingBox())?.height).toBe(44);
+  await bar.getByText("Flow · Gamma").waitFor();
+
+  const previous = bar.getByRole("button", { name: "Artboard précédent" });
+  const counter = bar.getByRole("button", { name: "Sommaire, artboard 1 sur 3" });
+  const next = bar.getByRole("button", { name: "Artboard suivant" });
+  expect((await counter.textContent())?.trim()).toBe("1 / 3");
+  expect(await previous.isDisabled()).toBe(true);
+  for (const button of [previous, counter, next]) expect((await button.boundingBox())?.height).toBe(44);
+
+  const before = await historyLength(tab);
+  await next.click();
+  await expect.poll(() => hashOf(tab)).toBe(`#/pages/${pageId}/play/a.html`);
+  expect(await historyLength(tab)).toBe(before);
+  await next.click();
+  await expect.poll(() => hashOf(tab)).toBe(`#/pages/${pageId}/play/b.html`);
+  expect(await next.isDisabled()).toBe(true);
+
+  await bar.getByRole("button", { name: "Sommaire, artboard 3 sur 3" }).click();
+  const menu = play.getByRole("menu", { name: "Sommaire de la page" });
+  await menu.waitFor();
+  const box = (await menu.boundingBox())!;
+  expect([box.x, box.width]).toEqual([0, 390]);
+  expect(box.y).toBe(44);
+  await menu.getByRole("menuitem", { name: /Gamma/ }).click();
+  await expect.poll(() => hashOf(tab)).toBe(`#/pages/${pageId}/play/c.html`);
+  expect(await menu.count()).toBe(0);
   await tab.close();
 }, 60_000);
