@@ -42,6 +42,16 @@ describe("pinned threads over the server HTTP API", () => {
     expect((await createThread("No rendering")).rendering).toBeUndefined();
   });
 
+  it("accepts a fractional rendering width, as a manifest declares them", async () => {
+    const thread = await createThread("Odd", { rendering: { format: "mobile", width: 390.5 } });
+    expect(thread.rendering).toEqual({ format: "mobile", width: 390.5 });
+  });
+
+  it("refuses a rendering whose format is a prototype key", async () => {
+    const res = await server.post(`/api/pages/${page.id}/threads`, pin("Bad", { rendering: { format: "constructor", width: 390 } }));
+    expect(res.status).toBe(400);
+  });
+
   it("keeps the rendering of a held comment", async () => {
     await createThread("Later", { held: true, rendering: { format: "tablet", width: 768 } });
     const [held] = (await (await server.get(`/api/pages/${page.id}/held`)).json()) as Thread[];
