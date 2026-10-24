@@ -37,7 +37,7 @@ async function createPage(title: string, manifest: object): Promise<string> {
   return page.id;
 }
 
-it("names the header nav entries after the artboard titles, offers Guides only on an artboard that declares them and Habillage never on paper", async () => {
+it("names the header after the shown artboard's title, offers Guides only on an artboard that declares them and Habillage never on paper", async () => {
   const pageId = await createPage("Header", {
     artboards: [
       { file: "a.html", title: "Tableau de bord", width: 1000, height: 600, frame: "browser", guides: { columns: 12, gutter: 24, margin: 80 } },
@@ -50,19 +50,20 @@ it("names the header nav entries after the artboard titles, offers Guides only o
   const play = tab.getByTestId("play");
   const nav = play.getByRole("navigation", { name: "Artboards" });
 
-  expect(await nav.getByRole("button").allTextContents()).toEqual(["Tableau de bord", "Artboard 2"]);
+  await play.getByText("Header · Tableau de bord").waitFor();
   expect(await play.getByRole("button", { name: "Guides (G)" }).count()).toBe(1);
   expect(await play.getByRole("button", { name: "Habillage" }).count()).toBe(1);
 
-  await nav.getByRole("button", { name: "Artboard 2" }).click();
+  await nav.getByRole("button", { name: "Artboard suivant (→)" }).click();
+  await play.getByText("Header · b.html").waitFor();
   await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("paper");
   expect(await play.getByRole("button", { name: "Guides (G)" }).count()).toBe(0);
   expect(await play.getByRole("button", { name: "Habillage" }).count()).toBe(0);
 
   // turning Habillage off elsewhere does not strip the sheet
-  await nav.getByRole("button", { name: "Tableau de bord" }).click();
+  await nav.getByRole("button", { name: "Artboard précédent (←)" }).click();
   await play.getByRole("button", { name: "Habillage" }).click();
-  await nav.getByRole("button", { name: "Artboard 2" }).click();
+  await nav.getByRole("button", { name: "Artboard suivant (→)" }).click();
   await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("paper");
   await tab.close();
 }, 60_000);

@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { RESPONSIVE_FORMATS, renderingKey, renderingLabel, type ArtboardRendering, type Manifest, type TweakValue, type TweakValues } from "@redline/shared";
+import { TocList } from "./TocList.js";
+import type { TocItem } from "./tocItems.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { PlayFrame } from "./PlayFrame.js";
 import { presentationOf, type Presentation } from "./playFrames.js";
@@ -26,6 +28,8 @@ interface Props {
   pageId: string;
   pageTitle: string;
   manifest: Manifest;
+  /** The artboards in reading order: the counter, the arrows and the contents menu follow it. */
+  tocItems: TocItem[];
   /** Artboard shown: the file of the play address. */
   file: string;
   /** The play address's `rendu` value, as written. */
@@ -57,8 +61,10 @@ function fitToStage(presentation: Presentation, stage: { width: number; height: 
 }
 
 /** One artboard at a time at full size; clicks on elements linked in the manifest switch artboard (via the bridge). */
-export function PlayMode({ pageId, pageTitle, manifest, file: current, rendu, artboardOrigin, tweaks, onTweak, guidesVisible, onToggleGuides, onExit }: Props) {
+export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current, rendu, artboardOrigin, tweaks, onTweak, guidesVisible, onToggleGuides, onExit }: Props) {
   const [copied, setCopied] = useState<number | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRoot = useRef<HTMLSpanElement>(null);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
   const stage = useRef<HTMLElement>(null);
@@ -75,6 +81,11 @@ export function PlayMode({ pageId, pageTitle, manifest, file: current, rendu, ar
   const playRoute = (file: string, renduValue: string | undefined) => ({ name: "page" as const, pageId, play: file, ...(renduValue === undefined ? {} : { rendu: renduValue }) });
   /** A link the user followed pushes an entry; the header buttons replace the current one. */
   const showArtboard = (file: string, mode: "push" | "replace") => navigateTo(playRoute(file, rendu), mode);
+  const position = tocItems.findIndex((item) => item.file === current);
+  const goBy = (step: -1 | 1) => {
+    const target = tocItems[position + step];
+    if (target) showArtboard(target.file, "replace");
+  };
   const chooseRendering = (choice: ArtboardRendering | null) => {
     selectRendering(choice);
     navigateTo(playRoute(current, renduOf(choice)), "replace");
@@ -113,7 +124,7 @@ export function PlayMode({ pageId, pageTitle, manifest, file: current, rendu, ar
   useEffect(() => {
     function onMessage(event: MessageEvent) {
       if (event.source !== frame.current?.contentWindow) return;
-      const data = event.data as { type?: string; selector?: string };
+      const data = event.data as { type?: string; selector?: string; key?: string };
       if (data.type === "redline:ready") {
         const selectors = manifest.links.filter((l) => l.from === current).map((l) => l.selector);
         frame.current?.contentWindow?.postMessage({ type: "redline:set-links", selectors }, "*");
@@ -121,20 +132,39 @@ export function PlayMode({ pageId, pageTitle, manifest, file: current, rendu, ar
       } else if (data.type === "redline:link" && data.selector !== undefined) {
         const target = resolveLink(manifest, current, data.selector);
         if (target !== null) showArtboard(target, "push");
+      } else if (data.type === "redline:key" && (data.key === "ArrowLeft" || data.key === "ArrowRight")) {
+        goBy(data.key === "ArrowLeft" ? -1 : 1);
       }
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [manifest, current, rendu]);
+  }, [manifest, tocItems, current, rendu]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = () => setMenuOpen(false);
+    const onPointer = (event: PointerEvent) => {
+      if (!menuRoot.current?.contains(event.target as Node)) close();
+    };
+    window.addEventListener("pointerdown", onPointer);
+    window.addEventListener("blur", close);
+    return () => {
+      window.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("blur", close);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onExit();
+      if (event.key === "Escape") {
+        if (menuOpen) setMenuOpen(false);
+        else onExit();
+      } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !isEditableTarget(event.target)) goBy(event.key === "ArrowLeft" ? -1 : 1);
       else if (event.key.toLowerCase() === "g" && !event.metaKey && !event.ctrlKey && !event.altKey && !isEditableTarget(event.target)) onToggleGuides();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onExit, onToggleGuides]);
+  }, [onExit, onToggleGuides, menuOpen, tocItems, current, rendu]);
 
   const hasTweaks = manifest.tweaks.length > 0 && !presentation?.mobileBar;
   return (
@@ -172,10 +202,11 @@ export function PlayMode({ pageId, pageTitle, manifest, file: current, rendu, ar
         </header>
       ) : (
         <header className={styles.topbar}>
-          <button type="button" onClick={onExit} title="Échap" className={styles.back}>
-            ← Canvas
-          </button>
-          <div className={styles.title}>{pageTitle} · plein écran</div>
+          <div className={styles.leading}>
+            <button type="button" onClick={onExit} title="Échap" className={styles.back}>
+              ← Canvas
+            </button>
+            <div className={styles.title}>{pageTitle} · {artboard?.title ?? artboard?.file}</div>
           {renderings.length > 0 && (
             <div role="group" aria-label="Rendu responsive" className={styles.renderings}>
               {[...renderings, null].map((r) => (
@@ -191,22 +222,37 @@ export function PlayMode({ pageId, pageTitle, manifest, file: current, rendu, ar
               ))}
             </div>
           )}
-          <div className={styles.spacer} />
+          </div>
           <nav aria-label="Artboards" className={styles.screens}>
-            {manifest.artboards.map((a, index) => (
-              <button
-                key={a.file}
-                type="button"
-                title={a.file}
-                aria-current={a.file === current ? "page" : undefined}
-                onClick={() => showArtboard(a.file, "replace")}
-                className={cx(styles.screen, a.file === current && styles.screenCurrent)}
-              >
-                {a.title ?? `Artboard ${index + 1}`}
+            <button type="button" aria-label="Artboard précédent (←)" title="Artboard précédent (←)" disabled={position <= 0} onClick={() => goBy(-1)} className={styles.step}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M15 6l-6 6 6 6" />
+              </svg>
+            </button>
+            <span ref={menuRoot} className={styles.counterWrap}>
+              <button type="button" aria-haspopup="menu" aria-expanded={menuOpen} title="Sommaire" onClick={() => setMenuOpen(!menuOpen)} className={cx(styles.counter, menuOpen && styles.counterOpen)}>
+                {position + 1} / {tocItems.length} <span aria-hidden="true" className={styles.counterChevron}>▼</span>
               </button>
-            ))}
+              {menuOpen && (
+                <div role="menu" aria-label="Sommaire de la page" className={styles.menu}>
+                  <TocList
+                    items={tocItems.map((item) => ({ ...item, openThreads: 0 }))}
+                    currentFile={current}
+                    autoFocusFilter
+                    onSelect={(file) => {
+                      setMenuOpen(false);
+                      showArtboard(file, "replace");
+                    }}
+                  />
+                </div>
+              )}
+            </span>
+            <button type="button" aria-label="Artboard suivant (→)" title="Artboard suivant (→)" disabled={position < 0 || position >= tocItems.length - 1} onClick={() => goBy(1)} className={styles.step}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+            </button>
           </nav>
-          <div className={styles.spacer} />
           <div className={styles.actions}>
           <span className={styles.copyWrap}>
             {copied !== null && (
