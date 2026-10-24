@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { artboardHash, pageHash, playHash } from "@redline/shared";
 
 export type Route =
   | { name: "home" }
@@ -45,9 +46,8 @@ export function routeHref(route: Route): string {
     case "designMd":
       return `#/projects/${encodeURIComponent(route.projectId)}/design-md`;
     case "page": {
-      const page = `#/pages/${encodeURIComponent(route.pageId)}`;
-      if (route.play !== undefined) return `${page}/play/${encodeURIComponent(route.play)}${route.rendu === undefined ? "" : `?rendu=${encodeURIComponent(route.rendu)}`}`;
-      return route.artboard === undefined ? page : `${page}/artboards/${encodeURIComponent(route.artboard)}`;
+      if (route.play !== undefined) return `${playHash(route.pageId, route.play)}${route.rendu === undefined ? "" : `?rendu=${encodeURIComponent(route.rendu)}`}`;
+      return route.artboard === undefined ? pageHash(route.pageId) : artboardHash(route.pageId, route.artboard);
     }
   }
 }

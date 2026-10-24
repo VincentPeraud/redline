@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { MANIFEST_PATH, defaultManifest, parseManifest, readingOrder } from "@redline/shared";
 import { z } from "zod";
 import { uploadChangedAssets } from "./assets.js";
 import { readLinkedProjectId } from "./link.js";
@@ -14,6 +15,16 @@ export const LIST_PAGES_TOOL = "list_pages";
 export const CREATE_PROJECT_TOOL = "create_project";
 
 const text = (message: string, isError = false) => ({ ...(isError ? { isError } : {}), content: [{ type: "text" as const, text: message }] });
+
+/** The page address, then one numbered line per artboard in canvas reading order: title, canvas address, play address. */
+function pageAddresses(api: ServerApi, pageId: string, files: Record<string, string>): string {
+  const manifest = files[MANIFEST_PATH] === undefined ? defaultManifest(Object.keys(files)) : parseManifest(files[MANIFEST_PATH]);
+  const titles = manifest.elements.flatMap((e) => (e.kind === "title" ? [{ text: e.text, x: e.x, y: e.y, width: e.width }] : []));
+  const lines = readingOrder(manifest.artboards, titles).map(
+    ({ number, file, title }) => `${number}. ${title ?? file} · canvas ${api.artboardUrl(pageId, file)} · play ${api.playUrl(pageId, file)}`,
+  );
+  return [`Page: ${api.pageUrl(pageId)}`, ...(lines.length ? ["Artboards, in reading order:", ...lines] : [])].join("\n");
+}
 
 interface Checkout {
   pageId: string;
@@ -120,7 +131,7 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
       const checkout = await api.checkout(pageId);
       const dir = writeWorkingCopy(folder, pageId, checkout);
       current = { pageId, dir, files: checkout.files, designMd: checkout.project.designMd, assets: checkout.project.assets, versionId: checkout.versionId };
-      return `Page checked out into .redline/${pageId}/. Edit its files, then call publish_page.`;
+      return `Page checked out into .redline/${pageId}/. Edit its files, then call publish_page.\n${pageAddresses(api, pageId, checkout.files)}`;
     }),
   );
   server.registerTool(
@@ -147,13 +158,13 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
       });
       if (!version.merged) {
         current = { pageId, dir, files, designMd, assets, versionId: version.id };
-        return `${uploadedNote}Published version ${version.id}.`;
+        return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}.`;
       }
       // The page moved on since the checkout: the new version also holds those changes, so download it again.
       const fresh = await api.checkout(pageId);
       writeWorkingCopy(folder, pageId, fresh);
       current = { pageId, dir, files: fresh.files, designMd: fresh.project.designMd, assets: fresh.project.assets, versionId: fresh.versionId };
-      return `${uploadedNote}Published version ${version.id}, merged with changes made to the page since the checkout. The working copy was refreshed.`;
+      return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}, merged with changes made to the page since the checkout. The working copy was refreshed.`;
     }),
   );
   return server;

@@ -56,6 +56,47 @@ describe("terminal mode (redline mcp)", () => {
     expect(await origins(page.id)).toHaveLength(2);
   });
 
+  it("lists the artboards of a checked-out page in canvas reading order, with their canvas and play addresses", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const manifest = {
+      artboards: [
+        { file: "paiement.html", title: "Paiement", x: 900, y: 0 },
+        { file: "accueil é.html", title: "Accueil", x: 0, y: 0 },
+        { file: "merci.html", x: 0, y: 900 },
+      ],
+    };
+    const page = await seam.createPage({
+      "manifest.json": JSON.stringify(manifest),
+      "paiement.html": "<p>p</p>",
+      "accueil é.html": "<p>a</p>",
+      "merci.html": "<p>m</p>",
+    });
+    const call = await connectTerminal(seam.folder);
+    const base = `${seam.server.url}/#/pages/${page.id}`;
+
+    const answer = await call("checkout_page", { pageId: page.id });
+
+    expect(answer).toContain(base);
+    expect(answer.split("\n").filter((line) => /^\d\. /.test(line))).toEqual([
+      `1. Accueil · canvas ${base}/artboards/accueil%20%C3%A9.html · play ${base}/play/accueil%20%C3%A9.html`,
+      `2. Paiement · canvas ${base}/artboards/paiement.html · play ${base}/play/paiement.html`,
+      `3. merci.html · canvas ${base}/artboards/merci.html · play ${base}/play/merci.html`,
+    ]);
+  });
+
+  it("returns the page address after the version id when publishing", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+    writeFileSync(join(seam.folder, ".redline", page.id, "home.html"), "<h1>Changed</h1>");
+
+    const answer = await call("publish_page", { message: "Rework" });
+
+    expect(answer).toMatch(/Published version [0-9a-f-]{36}: /);
+    expect(answer).toContain(`${seam.server.url}/#/pages/${page.id}`);
+  });
+
   it("uploads the assets added or changed in the working copy, with or without a page change", async () => {
     seam = await startSeam2(new FakeEngine([]));
     const page = await seam.createPage(PAGE_FILES);

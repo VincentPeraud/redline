@@ -17,3 +17,9 @@ it("documents the context block that follows a conversation message", () => {
   expect(REDLINE_GUIDE).toContain("Elements the user points at:");
   expect(REDLINE_GUIDE).toContain("Tweak values: <label>: <value>");
 });
+
+it("tells Claude to write full artboard addresses and that the reading order is the canvas layout", () => {
+  expect(REDLINE_GUIDE).toContain("full address");
+  expect(REDLINE_GUIDE).toContain("reading order");
+  expect(REDLINE_GUIDE).toContain("left to right, row by row");
+});
