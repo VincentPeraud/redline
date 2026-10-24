@@ -1,16 +1,18 @@
-import { designSystemTokensUrlPath, HOVER_FINISH, hoverLabelCss, hoverOutlineCss } from "@redline/shared";
+import { designSystemTokensUrlPath, HOVER_FINISH, MARK_FINISH, hoverLabelCss, hoverOutlineCss, markBadgeCss } from "@redline/shared";
 
 /**
  * Script injected into every served artboard HTML. Artboards run in a sandboxed iframe with an
  * opaque origin, so the web UI cannot touch their DOM: it talks to this bridge by postMessage.
  *
- * Parent -> artboard: { type: "redline:set-mode", picking: boolean, alt: boolean }  (alt: the Alt key is held in the parent page, where keyboard focus usually is)
+ * Parent -> artboard: { type: "redline:set-mode", picking: boolean, selecting: boolean, alt: boolean }  (selecting: the conversation's selection mode, which hovers and picks like comment mode; alt: the Alt key is held in the parent page, where keyboard focus usually is)
  *                     { type: "redline:set-pins", pins: [{ id, selector, xPct, yPct }] }
+ *                     { type: "redline:set-marks", marks: [{ number, selector }] }  (numbered selection marks, drawn whenever there are some)
  *                     { type: "redline:set-links", selectors: string[] | null }  (play mode: clicks on a match are reported, not performed)
  *                     { type: "redline:set-tweaks", values: { [tweakId]: string | number | boolean } }  (full set; applied as --tweak-<id> CSS variables, data-tweak-<id> attributes on <html>, window.redlineTweaks and a "redline:tweaks" window event)
  *                     (comment mode, and Alt held in interactive mode, draw the hover outline and label in an overlay of the artboard document)
  * Artboard -> parent: { type: "redline:ready" }
  *                     { type: "redline:picked", selector, elementName, xPct, yPct }  (elementName: role + short visible text, e.g. bouton « Continuer »)
+ *                     { type: "redline:escape" }  (Escape pressed in selection mode: the iframe holds the keyboard focus, so the parent cannot hear it)
  *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched }] }
  *                     { type: "redline:link", selector }
  *                     { type: "redline:doc-height", height }  (height of the whole page in pixels; sent on load and whenever it changes)
@@ -21,6 +23,8 @@ export const BRIDGE_PATH = "/__redline/bridge.js";
 
 export const BRIDGE_SOURCE = `(function () {
   var picking = false;
+  var selecting = false;
+  var marks = [];
   var forwardWheel = false;
   var pins = [];
   var linkSelectors = null;
@@ -33,6 +37,7 @@ export const BRIDGE_SOURCE = `(function () {
   var lastHeight = 0;
 
   function reportHeight() {
+    drawMarks();
     var root = document.documentElement;
     var height = Math.ceil(Math.max(root.offsetHeight || 0, document.body ? document.body.scrollHeight : 0));
     if (height > 0 && height !== lastHeight) {
@@ -217,7 +222,7 @@ export const BRIDGE_SOURCE = `(function () {
   }
 
   function hoverEnabled() {
-    return (picking || altHeld) && !linkSelectors;
+    return (picking || selecting || altHeld) && !linkSelectors;
   }
 
   function hideHover() {
@@ -243,6 +248,39 @@ export const BRIDGE_SOURCE = `(function () {
     label.style.cssText = "position: fixed; left: " + left + "px; top: " + top + "px; " + LABEL_CSS;
   }
 
+  var BADGE_CSS = ${JSON.stringify(markBadgeCss())};
+  var BADGE_OFFSET = ${MARK_FINISH.badgeOffset};
+  var marksRoot = null;
+
+  function drawMarks() {
+    if (!marksRoot || !marksRoot.parentNode) {
+      if (marks.length === 0) return;
+      marksRoot = document.createElement("div");
+      marksRoot.id = "__redline-marks";
+      marksRoot.style.cssText = "position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 2147483646; pointer-events: none";
+      document.documentElement.appendChild(marksRoot);
+    }
+    marksRoot.innerHTML = "";
+    marks.forEach(function (mark) {
+      var el = null;
+      try { el = document.querySelector(mark.selector); } catch (e) { el = null; }
+      if (!el) return;
+      var rect = el.getBoundingClientRect();
+      var box = document.createElement("div");
+      box.setAttribute("data-mark", String(mark.number));
+      var outline = document.createElement("div");
+      outline.setAttribute("data-part", "outline");
+      outline.style.cssText = "position: fixed; left: " + rect.left + "px; top: " + rect.top + "px; width: " + rect.width + "px; height: " + rect.height + "px; border-radius: " + (window.getComputedStyle(el).borderRadius || "0") + "; " + OUTLINE_CSS;
+      var badge = document.createElement("div");
+      badge.setAttribute("data-part", "badge");
+      badge.textContent = String(mark.number);
+      badge.style.cssText = "position: fixed; left: " + (rect.left + BADGE_OFFSET) + "px; top: " + (rect.top + BADGE_OFFSET) + "px; " + BADGE_CSS;
+      box.appendChild(outline);
+      box.appendChild(badge);
+      marksRoot.appendChild(box);
+    });
+  }
+
   function hoverAt(event) {
     altHeld = !!event.altKey;
     hoverTarget = event.target && event.target.nodeType === 1 ? event.target : null;
@@ -256,6 +294,7 @@ export const BRIDGE_SOURCE = `(function () {
     hideHover();
   }, true);
   document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && selecting) send({ type: "redline:escape" });
     if (event.key !== "Alt") return;
     altHeld = true;
     drawHover();
@@ -269,7 +308,10 @@ export const BRIDGE_SOURCE = `(function () {
     altHeld = false;
     drawHover();
   });
-  window.addEventListener("scroll", drawHover, true);
+  window.addEventListener("scroll", function () {
+    drawHover();
+    drawMarks();
+  }, true);
 
   document.addEventListener("click", function (event) {
     if (linkSelectors) {
@@ -281,7 +323,7 @@ export const BRIDGE_SOURCE = `(function () {
       }
       return;
     }
-    if (!picking && !event.altKey) return;
+    if (!picking && !selecting && !event.altKey) return;
     event.preventDefault();
     event.stopPropagation();
     var size = docSize();
@@ -298,14 +340,18 @@ export const BRIDGE_SOURCE = `(function () {
     if (event.source !== window.parent || !event.data) return;
     if (event.data.type === "redline:set-mode") {
       picking = !!event.data.picking;
+      selecting = !!event.data.selecting;
       altHeld = !!event.data.alt;
       forwardWheel = !!event.data.forwardWheel;
-      document.documentElement.style.cursor = picking ? "crosshair" : "";
+      document.documentElement.style.cursor = picking || selecting ? "crosshair" : "";
       drawHover();
     } else if (event.data.type === "redline:set-links") {
       linkSelectors = event.data.selectors || null;
     } else if (event.data.type === "redline:set-tweaks") {
       applyTweaks(event.data.values || {});
+    } else if (event.data.type === "redline:set-marks") {
+      marks = event.data.marks || [];
+      drawMarks();
     } else if (event.data.type === "redline:set-pins") {
       pins = event.data.pins || [];
       reportPins();
@@ -347,6 +393,7 @@ export const BRIDGE_SOURCE = `(function () {
 
   window.addEventListener("resize", function () {
     drawHover();
+    drawMarks();
     reportPins();
     reportHeight();
   });

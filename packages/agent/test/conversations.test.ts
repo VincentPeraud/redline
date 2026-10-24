@@ -80,6 +80,35 @@ describe("page conversations", () => {
     expect((await getConversation(seam, conversation.id)).messages[0].body).toBe("Change the title");
   });
 
+  it("follows a message with its numbered chips and keeps them on the stored message", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "ok" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    const conversation = await newConversation(seam, page.id);
+    const targets = [
+      { kind: "element", artboard: "home.html", selector: "h1", elementName: "Titre · Old title", xPct: 10, yPct: 20 },
+      { kind: "artboard", artboard: "pay.html" },
+      { kind: "canvas-element", elementId: "note-1", elementKind: "sticky" },
+    ];
+    const context = { visibleArtboards: [{ file: "home.html" }], tweaks: [], targets };
+    expect((await send(seam, conversation.id, "Give 2 the style of 1", { context })).status).toBe(201);
+    await seam.waitForWorkEnd(1);
+
+    const message = engine.runs[0].message;
+    expect(message).toContain(
+      "Elements the user points at:\n1: element `h1` (named « Titre · Old title ») on artboard home.html\n2: the whole artboard pay.html\n3: canvas element `note-1` (sticky)",
+    );
+    expect((await getConversation(seam, conversation.id)).messages[0].targets).toEqual(targets);
+  });
+
+  it("refuses malformed chips", async () => {
+    seam = await startSeam2(new FakeEngine([{ type: "result", summary: "ok" }]));
+    const page = await seam.createPage(PAGE_FILES);
+    const conversation = await newConversation(seam, page.id);
+    const bad = { visibleArtboards: [], tweaks: [], targets: [{ kind: "element", artboard: "home.html" }] };
+    expect((await send(seam, conversation.id, "Hi", { context: bad })).status).toBe(400);
+  });
+
   it("omits the tweak line when the page has no tweaks and refuses a malformed context", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "ok" }]);
     seam = await startSeam2(engine);

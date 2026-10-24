@@ -197,6 +197,7 @@ export class Store {
     addColumn("threads", "element_kind", "TEXT");
     addColumn("thread_replies", "created_page_ids", "TEXT");
     addColumn("conversation_messages", "created_page_ids", "TEXT");
+    addColumn("conversation_messages", "targets", "TEXT");
     addColumn("design_md_versions", "origin", "TEXT NOT NULL DEFAULT 'user'");
     addColumn("design_md_versions", "origin_id", "TEXT");
     addColumn("design_md_versions", "origin_label", "TEXT");
@@ -835,13 +836,24 @@ export class Store {
     body: string,
     choice: ModelChoice = {},
     createdPageIds: string[] = [],
+    targets: ThreadTarget[] = [],
   ): ConversationMessage | undefined {
     const conversation = this.getConversation(conversationId);
     if (!conversation) return undefined;
     const message: ConversationMessage = { id: randomUUID(), author, body, ...choice, createdAt: now() };
     this.db
-      .prepare("INSERT INTO conversation_messages (id, conversation_id, author, body, model, effort, created_at, created_page_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(message.id, conversationId, author, body, choice.model ?? null, choice.effort ?? null, message.createdAt, createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null);
+      .prepare("INSERT INTO conversation_messages (id, conversation_id, author, body, model, effort, created_at, created_page_ids, targets) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        message.id,
+        conversationId,
+        author,
+        body,
+        choice.model ?? null,
+        choice.effort ?? null,
+        message.createdAt,
+        createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null,
+        targets.length > 0 ? JSON.stringify(targets) : null,
+      );
     this.emit({ type: "conversation-updated", pageId: conversation.pageId, conversationId });
     return this.conversationMessages(conversationId).find((m) => m.id === message.id);
   }
@@ -849,12 +861,12 @@ export class Store {
   conversationMessages(conversationId: string): ConversationMessage[] {
     const rows = this.db
       .prepare(
-        "SELECT id, author, body, model, effort, created_at AS createdAt, created_page_ids AS createdPageIds FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at, rowid",
+        "SELECT id, author, body, model, effort, created_at AS createdAt, created_page_ids AS createdPageIds, targets FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at, rowid",
       )
-      .all(conversationId) as (ConversationMessage & { model: string | null; effort: Effort | null; createdPageIds: string | null })[];
-    return rows.map(({ model, effort, createdPageIds, ...rest }) => {
+      .all(conversationId) as (ConversationMessage & { model: string | null; effort: Effort | null; createdPageIds: string | null; targets: string | null })[];
+    return rows.map(({ model, effort, createdPageIds, targets, ...rest }) => {
       const createdPages = this.createdPagesOf(createdPageIds);
-      return { ...rest, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(createdPages ? { createdPages } : {}) };
+      return { ...rest, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(createdPages ? { createdPages } : {}), ...(targets ? { targets: JSON.parse(targets) as ThreadTarget[] } : {}) };
     });
   }
 
