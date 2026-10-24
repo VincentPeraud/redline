@@ -229,8 +229,9 @@
 .hintWrap {
   position: absolute;
   bottom: var(--space-5);
-  left: 200px;
-  right: var(--space-10);
+  /* Clear of the zoom bar in the bottom-left corner. */
+  left: 290px;
+  right: var(--space-5);
   display: flex;
   justify-content: center;
   pointer-events: none;
@@ -245,6 +246,9 @@
   border-radius: var(--radius-pill);
   background: var(--color-surface);
   font-size: var(--font-size-sm);
+  line-height: 1.4;
+  text-align: center;
+  text-wrap: balance;
   color: var(--color-text);
 }
 
