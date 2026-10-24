@@ -6,6 +6,7 @@ import {
   EMPTY_VIEW_SETTINGS,
   DESIGN_SYSTEM_TOKENS_PATH,
   MANIFEST_PATH,
+  canvasElementSummary,
   defaultManifest,
   parseManifest,
   NEUTRAL_DESIGN_SYSTEM_ID,
@@ -21,6 +22,9 @@ import type {
   ConversationMessage,
   CreateThreadRequest,
   ThreadRendering,
+  ThreadTarget,
+  ManifestElement,
+  ManifestElementKind,
   AgentInfo,
   AgentKind,
   Effort,
@@ -190,8 +194,13 @@ export class Store {
     addColumn("versions", "origin_label", "TEXT");
     addColumn("threads", "element_name", "TEXT");
     addColumn("threads", "rendering", "TEXT");
+    addColumn("threads", "target_kind", "TEXT NOT NULL DEFAULT 'element'");
+    addColumn("threads", "element_id", "TEXT");
+    addColumn("threads", "element_kind", "TEXT");
+    addColumn("threads", "element_summary", "TEXT");
     addColumn("thread_replies", "created_page_ids", "TEXT");
     addColumn("conversation_messages", "created_page_ids", "TEXT");
+    addColumn("conversation_messages", "targets", "TEXT");
     addColumn("design_md_versions", "origin", "TEXT NOT NULL DEFAULT 'user'");
     addColumn("design_md_versions", "origin_id", "TEXT");
     addColumn("design_md_versions", "origin_label", "TEXT");
@@ -593,43 +602,101 @@ export class Store {
     };
   }
 
-  createThread(pageId: string, pin: CreateThreadRequest): Thread {
+  /** The element of the page's current manifest carrying `id`; undefined when there is none (or no manifest). */
+  canvasElement(pageId: string, id: string): ManifestElement | undefined {
+    const manifest = this.getPage(pageId)?.version.files[MANIFEST_PATH];
+    if (manifest === undefined) return undefined;
+    return parseManifest(this.blobText(manifest)).elements.find((element) => element.id === id);
+  }
+
+  /** Whether `file` is an artboard of the page's current version (manifest entry whose file exists; every HTML file without a manifest). */
+  hasArtboard(pageId: string, file: string): boolean {
+    const page = this.getPage(pageId);
+    if (!page || page.version.files[file] === undefined) return false;
+    const manifest = page.version.files[MANIFEST_PATH];
+    const parsed = manifest === undefined ? defaultManifest(Object.keys(page.version.files)) : parseManifest(this.blobText(manifest));
+    return parsed.artboards.some((a) => a.file === file);
+  }
+
+  createThread(pageId: string, request: CreateThreadRequest): Thread {
     const id = randomUUID();
     const { next } = this.db
       .prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?")
       .get(pageId) as { next: number };
-    const title = (pin.title?.trim() || pin.body.trim().split("\n")[0]).slice(0, 80);
+    const title = (request.title?.trim() || request.body.trim().split("\n")[0]).slice(0, 80);
+    // artboard and selector are NOT NULL: "" where they do not apply to the target.
+    const placement =
+      "target" in request
+        ? request.target.kind === "artboard"
+          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
+          : this.canvasElementPlacement(pageId, request.target.elementId)
+        : {
+            kind: "element",
+            artboard: request.artboard,
+            selector: request.selector,
+            elementName: request.elementName ?? null,
+            rendering: request.rendering ? JSON.stringify({ format: request.rendering.format, width: request.rendering.width }) : null,
+            xPct: request.xPct,
+            yPct: request.yPct,
+            elementId: null,
+            elementKind: null,
+            elementSummary: null,
+          };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, artboard, selector, element_name, rendering, x_pct, y_pct, title, body, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, x_pct, y_pct, title, body, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, pin.artboard, pin.selector, pin.elementName ?? null, pin.rendering ? JSON.stringify({ format: pin.rendering.format, width: pin.rendering.width }) : null, pin.xPct, pin.yPct, title, pin.body, pin.held ? "held" : "open", now());
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now());
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
+  }
+
+  private canvasElementPlacement(pageId: string, elementId: string) {
+    const element = this.canvasElement(pageId, elementId)!;
+    return {
+      kind: "canvas-element",
+      artboard: "",
+      selector: "",
+      elementName: null,
+      rendering: null,
+      xPct: 0,
+      yPct: 0,
+      elementId,
+      elementKind: element.kind,
+      elementSummary: canvasElementSummary(element),
+    };
   }
 
   listThreads(pageId: string): Thread[] {
     const rows = this.db
       .prepare(`${THREAD_SELECT} WHERE page_id = ? ORDER BY number`)
       .all(pageId) as ThreadRow[];
-    return rows.map((row) => toThread(row, this.repliesOf(row.id)));
+    const elements = this.canvasElementsById(pageId);
+    return rows.map((row) => withCurrentElement(toThread(row, this.repliesOf(row.id)), elements));
   }
 
   getThread(id: string): Thread | undefined {
     const row = this.db.prepare(`${THREAD_SELECT} WHERE id = ?`).get(id) as ThreadRow | undefined;
-    return row && toThread(row, this.repliesOf(id));
+    return row && withCurrentElement(toThread(row, this.repliesOf(id)), this.canvasElementsById(row.page_id));
+  }
+
+  private canvasElementsById(pageId: string): Map<string, ManifestElement> {
+    const manifest = this.getPage(pageId)?.version.files[MANIFEST_PATH];
+    const elements = manifest === undefined ? [] : parseManifest(this.blobText(manifest)).elements;
+    return new Map(elements.flatMap((element) => (element.id === undefined ? [] : [[element.id, element] as const])));
   }
 
   /** Held comments of a page, oldest first. */
   listHeldThreads(pageId: string): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.x_pct, t.y_pct, t.title, t.body, t.status
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status
          FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId) as ThreadRow[];
-    return rows.map((row) => toThread(row, []));
+    const elements = this.canvasElementsById(pageId);
+    return rows.map((row) => withCurrentElement(toThread(row, []), elements));
   }
 
   /** Edits the text of a held comment; undefined when the thread does not exist or is not held. */
@@ -808,13 +875,24 @@ export class Store {
     body: string,
     choice: ModelChoice = {},
     createdPageIds: string[] = [],
+    targets: ThreadTarget[] = [],
   ): ConversationMessage | undefined {
     const conversation = this.getConversation(conversationId);
     if (!conversation) return undefined;
     const message: ConversationMessage = { id: randomUUID(), author, body, ...choice, createdAt: now() };
     this.db
-      .prepare("INSERT INTO conversation_messages (id, conversation_id, author, body, model, effort, created_at, created_page_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(message.id, conversationId, author, body, choice.model ?? null, choice.effort ?? null, message.createdAt, createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null);
+      .prepare("INSERT INTO conversation_messages (id, conversation_id, author, body, model, effort, created_at, created_page_ids, targets) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        message.id,
+        conversationId,
+        author,
+        body,
+        choice.model ?? null,
+        choice.effort ?? null,
+        message.createdAt,
+        createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null,
+        targets.length > 0 ? JSON.stringify(targets) : null,
+      );
     this.emit({ type: "conversation-updated", pageId: conversation.pageId, conversationId });
     return this.conversationMessages(conversationId).find((m) => m.id === message.id);
   }
@@ -822,12 +900,12 @@ export class Store {
   conversationMessages(conversationId: string): ConversationMessage[] {
     const rows = this.db
       .prepare(
-        "SELECT id, author, body, model, effort, created_at AS createdAt, created_page_ids AS createdPageIds FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at, rowid",
+        "SELECT id, author, body, model, effort, created_at AS createdAt, created_page_ids AS createdPageIds, targets FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at, rowid",
       )
-      .all(conversationId) as (ConversationMessage & { model: string | null; effort: Effort | null; createdPageIds: string | null })[];
-    return rows.map(({ model, effort, createdPageIds, ...rest }) => {
+      .all(conversationId) as (ConversationMessage & { model: string | null; effort: Effort | null; createdPageIds: string | null; targets: string | null })[];
+    return rows.map(({ model, effort, createdPageIds, targets, ...rest }) => {
       const createdPages = this.createdPagesOf(createdPageIds);
-      return { ...rest, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(createdPages ? { createdPages } : {}) };
+      return { ...rest, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(createdPages ? { createdPages } : {}), ...(targets ? { targets: JSON.parse(targets) as ThreadTarget[] } : {}) };
     });
   }
 
@@ -982,7 +1060,7 @@ export interface SessionOrigin {
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, x_pct, y_pct, title, body, status, context, new_session FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -992,6 +1070,10 @@ interface ThreadRow {
   selector: string;
   element_name: string | null;
   rendering: string | null;
+  target_kind: ThreadTarget["kind"];
+  element_id: string | null;
+  element_kind: ManifestElementKind | null;
+  element_summary: string | null;
   x_pct: number;
   y_pct: number;
   title: string;
@@ -1001,11 +1083,41 @@ interface ThreadRow {
   new_session: "summarizing" | "ready" | null;
 }
 
+function targetOf(row: ThreadRow): ThreadTarget {
+  if (row.target_kind === "artboard") return { kind: "artboard", artboard: row.artboard };
+  if (row.target_kind === "canvas-element") return {
+      kind: "canvas-element",
+      elementId: row.element_id!,
+      elementKind: row.element_kind!,
+      ...(row.element_summary ? { elementSummary: row.element_summary } : {}),
+    };
+  return {
+    kind: "element",
+    artboard: row.artboard,
+    selector: row.selector,
+    elementName: row.element_name,
+    xPct: row.x_pct,
+    yPct: row.y_pct,
+    ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
+  };
+}
+
+/** A canvas-element thread follows its element: kind and summary of the current manifest, or `removed` (with what it showed) when the element is gone. */
+function withCurrentElement(thread: Thread, elements: Map<string, ManifestElement>): Thread {
+  if (thread.target.kind !== "canvas-element") return thread;
+  const element = elements.get(thread.target.elementId);
+  if (!element) return { ...thread, removed: true };
+  const { elementSummary: _stored, ...target } = thread.target;
+  const elementSummary = canvasElementSummary(element);
+  return { ...thread, target: { ...target, elementKind: element.kind, ...(elementSummary ? { elementSummary } : {}) } };
+}
+
 function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
   return {
     id: row.id,
     pageId: row.page_id,
     number: row.number,
+    target: targetOf(row),
     artboard: row.artboard,
     selector: row.selector,
     elementName: row.element_name,

@@ -134,3 +134,29 @@ it("accepts a publish of several MB, and explains a page too heavy instead of an
   expect(tooBig.status).toBe(413);
   expect(((await tooBig.json()) as { error: string }).error).toMatch(/10 MB.*assets\//);
 });
+
+it("refuses an agent version whose elements lack ids, naming each one, while the user's own API stays lenient", async () => {
+  const checkout = (await (await agentCall(`/pages/${page.id}/files`)).json()) as AgentCheckout;
+  const manifest = JSON.stringify({ artboards: [{ file: "home.html" }], elements: [{ kind: "text", text: "a", id: "a" }, { kind: "sticky", text: "b" }, { kind: "arrow", from: "home.html", to: "a" }] });
+  const publish = (manifestText: string) =>
+    agentCall(`/pages/${page.id}/versions`, {
+      method: "POST",
+      body: { files: { "home.html": "<h1>Hi</h1>", "manifest.json": manifestText }, message: "m", origin: "thread", baseVersionId: checkout.versionId },
+    });
+
+  const refused = await publish(manifest);
+  expect(refused.status).toBe(400);
+  expect(((await refused.json()) as { error: string }).error).toBe("elements[1] (sticky) has no id; elements[2] (arrow) has no id");
+
+  const legacy = await publish(JSON.stringify({ artboards: [{ file: "home.html" }], notes: [{ text: "old" }] }));
+  expect(legacy.status).toBe(400);
+  expect(((await legacy.json()) as { error: string }).error).toBe("notes is legacy: move these titles to elements, each with an id");
+
+  const duplicate = await publish(JSON.stringify({ artboards: [{ file: "home.html" }], elements: [{ kind: "text", text: "a", id: "x" }, { kind: "text", text: "b", id: "x" }] }));
+  expect(duplicate.status).toBe(400);
+  const clash = await publish(JSON.stringify({ artboards: [{ file: "home.html" }], elements: [{ kind: "text", text: "a", id: "home.html" }] }));
+  expect(clash.status).toBe(400);
+
+  const lenient = await server.post(`/api/pages/${page.id}/versions`, { files: { "home.html": "<h1>Hi</h1>", "manifest.json": manifest }, message: "m", origin: "tweak" });
+  expect(lenient.status).toBe(201);
+});

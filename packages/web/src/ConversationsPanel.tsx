@@ -4,17 +4,21 @@ import {
   type Conversation,
   type ConversationDetail,
   type CreateConversationMessageRequest,
+  type MessageContext,
   type QueueEntry,
   type SessionRow,
+  type ThreadTarget,
   type ThreadRun,
 } from "@redline/shared";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
+import { contextChips } from "./messageContext.js";
 import { workQueueLabel } from "./queueLabel.js";
 import { CreatedPageCards } from "./CreatedPageCards.js";
 import { activityLabel } from "./sessionsView.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
 import { subscribeServerEvents } from "./serverEvents.js";
+import { ElementChip } from "./ElementChip.js";
 import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./ConversationsPanel.module.css";
 
@@ -47,20 +51,31 @@ interface Props {
   pageId: string;
   pageTitle: string;
   artboardCount: number;
+  /** What goes with the next message, live with the canvas view and the tweaks. */
+  context: MessageContext;
   runs: ThreadRun[];
   queue: QueueEntry[];
   sessions: Map<string, SessionRow>;
   defaults: AgentDefaults;
+  /** Elements the user points at for the next message; they live above this panel so they survive a tab switch. */
+  chips: ThreadTarget[];
+  selecting: boolean;
+  onSelectingChange: (selecting: boolean) => void;
+  onRemoveChip: (index: number) => void;
+  /** Called once the message is sent: the chips and their marks go. */
+  onChipsSent: () => void;
 }
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
-export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, queue, sessions, defaults }: Props) {
+export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [text, setText] = useState("");
   const [choice, setChoice] = useState<ModelEffortChoice>({});
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const refreshList = useCallback(async () => {
     const res = await fetch(`/api/pages/${pageId}/conversations`);
@@ -110,15 +125,33 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
     if (activeId === id) setActiveId(rest[0]?.id ?? null);
   }
 
+  /** Keeps the text and chips when anything fails: they only go once the message is stored. */
   async function send() {
-    if (!activeId || text.trim() === "") return;
-    const request: CreateConversationMessageRequest = { body: text, ...choice };
-    await fetch(`/api/conversations/${activeId}/messages`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(request),
-    });
-    setText("");
+    if (text.trim() === "" || sending) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      const request: CreateConversationMessageRequest = { body: text, context: chips.length > 0 ? { ...context, targets: chips } : context, ...choice };
+      let conversationId = activeId;
+      if (!conversationId) {
+        const created = await fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        if (!created.ok) throw new Error("conversation");
+        conversationId = ((await created.json()) as ConversationDetail).id;
+        setActiveId(conversationId);
+      }
+      const res = await fetch(`/api/conversations/${conversationId}/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+      });
+      if (!res.ok) throw new Error("message");
+      setText("");
+      onChipsSent();
+    } catch {
+      setSendError("Le message n'a pas été envoyé. Ton texte est conservé, réessaie.");
+    } finally {
+      setSending(false);
+    }
   }
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
@@ -138,7 +171,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
           className={styles.picker}
           onClick={() => setListOpen(!listOpen)}
         >
-          <span className={styles.pickerTitle}>{active ? active.title : "Aucune conversation"}</span>
+          <span className={cx(styles.pickerTitle, !active && styles.pickerPlaceholder)}>{active ? active.title : "Aucune conversation"}</span>
           <span className={styles.spacer} />
           <span aria-hidden="true" className={styles.chevron}>
             ▼
@@ -188,17 +221,30 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
 
       <div className={styles.context}>
         <span className={styles.contextLabel}>Contexte transmis</span>
-        <span className={styles.chip}>
-          {pageTitle} · {artboardCount} {artboardCount > 1 ? "artboards" : "artboard"}
-        </span>
+        <div className={styles.chips}>
+          {contextChips(pageTitle, artboardCount, context).map((chip) => (
+            <span key={chip} className={styles.chip}>
+              {chip}
+            </span>
+          ))}
+        </div>
       </div>
 
       {detail && detail.messages.length > 0 ? (
         <div className={styles.messages}>
           {detail.messages.map((m) =>
             m.author === "user" ? (
-              <div key={m.id} data-testid="conversation-message" className={styles.userBubble}>
-                {m.body}
+              <div key={m.id} className={styles.userMessage}>
+                {m.targets && m.targets.length > 0 && (
+                  <div data-testid="message-chips" className={styles.messageChips}>
+                    {m.targets.map((target, i) => (
+                      <ElementChip key={i} number={i + 1} target={target} />
+                    ))}
+                  </div>
+                )}
+                <div data-testid="conversation-message" className={styles.userBubble}>
+                  {m.body}
+                </div>
               </div>
             ) : (
               <Fragment key={m.id}>
@@ -233,8 +279,8 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
             </>
           ) : (
             <>
-              <div className={styles.emptyTitle}>Aucune conversation</div>
-              <div className={styles.emptyText}>Clique sur « + Nouvelle » pour en ouvrir une.</div>
+              <div className={styles.emptyTitle}>Nouvelle conversation</div>
+              <div className={styles.emptyText}>Écris ton premier message : la conversation est créée à l'envoi.</div>
             </>
           )}
         </div>
@@ -244,21 +290,44 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
         <label htmlFor="conversation-message" className={styles.label}>
           Message à Claude
         </label>
-        <Textarea
-          id="conversation-message"
-          className={styles.messageInput}
-          rows={3}
-          placeholder="Un retour général, un artboard à ajouter, une nouvelle page…"
-          disabled={!activeId}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
+        <div className={styles.messageBox}>
+          {chips.length > 0 && (
+            <div className={styles.messageBoxChips}>
+              {chips.map((target, i) => (
+                <ElementChip key={i} number={i + 1} target={target} onRemove={() => onRemoveChip(i)} />
+              ))}
+            </div>
+          )}
+          <Textarea
+            id="conversation-message"
+            className={styles.messageInput}
+            rows={chips.length > 0 ? 2 : 3}
+            placeholder="Un retour général, un artboard à ajouter, une nouvelle page…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+          />
+        </div>
+        {sendError && (
+          <div role="alert" className={styles.error}>
+            {sendError}
+          </div>
+        )}
+        <div className={styles.actions}>
+          <button type="button" aria-pressed={selecting} className={cx(styles.elementButton, selecting && styles.elementButtonOn)} onClick={() => onSelectingChange(!selecting)}>
+            + Élément
+          </button>
+          {selecting && <span className={styles.selectingNote}>mode sélection actif</span>}
+          <span className={styles.spacer} />
+          <Button variant="primary" className={styles.sendButton} disabled={text.trim() === "" || sending} onClick={() => void send()}>
+            Envoyer
+          </Button>
+        </div>
         <ModelEffortControls value={choice} onChange={setChoice} defaults={defaults} />
         {detail && detail.context && detail.context.percent >= CONTEXT_WARNING_PERCENT && <SessionLine conversation={detail} />}
         <div className={styles.sessionId}>{sessionId ? `session ${shortSessionId(sessionId)}` : "aucune session"} · séparée des fils de commentaires</div>

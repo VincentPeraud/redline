@@ -134,3 +134,37 @@
   color: var(--color-text-muted);
   overflow-wrap: anywhere;
 }
+
+.hoverOutline,
+.hoverLabel,
+.markBadge {
+  position: absolute;
+  pointer-events: none;
+}
+
+/* Board CommentTargets: 24 px pin on the corner of a note, or the middle of an arrow. */
+.pin {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  display: block;
+  box-sizing: border-box;
+  border-radius: 50% 50% 50% 4px;
+  background: var(--color-warning-strong);
+  box-shadow: 0 0 0 2px var(--color-surface), 0 2px 6px rgba(0, 0, 0, 0.2);
+  color: var(--color-text-inverse);
+  font: 600 12px/24px Inter, system-ui, sans-serif;
+  text-align: center;
+  pointer-events: none;
+}
+
+.pinHeld {
+  border: 2px dashed var(--color-warning-strong);
+  background: var(--color-surface);
+  color: var(--color-warning-strong);
+  line-height: 20px;
+}
+
+.pinResolved {
+  background: var(--color-online);
+}

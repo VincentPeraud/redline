@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   newSessionPath,
   pageRunsPath,
@@ -18,6 +18,7 @@ const FILES = { "home.html": "<h1>Home</h1>" };
 
 let server: TestServer;
 afterEach(async () => {
+  vi.useRealTimers();
   await server.stop();
 });
 
@@ -266,6 +267,8 @@ describe("retrying a failed item", () => {
 
 describe("a limit message", () => {
   it("is read for its reset time: the next occurrence of a clock time", async () => {
+    // A fixed day without a clock change: "3pm" is then exactly 5 h away, whatever today's date.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(2026, 5, 10, 10, 0, 0) });
     const { project, page } = await setup({ retryDelaysMs: [] });
     const agent = await connect({ projectId: project.id });
     const events: string[] = [];
@@ -291,8 +294,7 @@ describe("a limit message", () => {
     const retryAt = new Date(event.retryAt);
     expect(event.limit).toBe(true);
     expect([retryAt.getHours(), retryAt.getMinutes()]).toEqual([15, 0]);
-    expect(retryAt.getTime()).toBeGreaterThan(Date.now());
-    expect(retryAt.getTime()).toBeLessThanOrEqual(Date.now() + 24 * 3_600_000);
+    expect(retryAt.getTime()).toBe(new Date(2026, 5, 10, 15, 0, 0).getTime());
   });
 });
 

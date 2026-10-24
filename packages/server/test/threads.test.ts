@@ -1,3 +1,5 @@
+import Database from "better-sqlite3";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Page, Project, Thread } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
@@ -78,6 +80,55 @@ describe("pinned threads over the server HTTP API", () => {
 
     const list = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
     expect(list).toEqual([thread]);
+  });
+
+  it("exposes a created thread as an element target", async () => {
+    const thread = await createThread("Bigger", { elementName: "titre « Hi »" });
+    expect(thread.target).toEqual({ kind: "element", artboard: "home.html", selector: "body > h1", elementName: "titre « Hi »", xPct: 12.5, yPct: 30 });
+  });
+
+  it("reads rows of the other target kinds back as artboard and canvas element targets", async () => {
+    const whole = await createThread("Too busy");
+    const canvas = await createThread("Fix this note");
+    const db = new Database(join(server.dataDir, "redline.db"));
+    db.prepare("UPDATE threads SET target_kind = 'artboard', selector = '' WHERE id = ?").run(whole.id);
+    db.prepare("UPDATE threads SET target_kind = 'canvas-element', element_id = 'note-parcours', element_kind = 'sticky' WHERE id = ?").run(canvas.id);
+    db.close();
+    const list = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+    expect(list.map((t) => t.target)).toEqual([
+      { kind: "artboard", artboard: "home.html" },
+      { kind: "canvas-element", elementId: "note-parcours", elementKind: "sticky" },
+    ]);
+  });
+
+  describe("whole-artboard threads", () => {
+    const wholeArtboard = (body: string, extra: object = {}) => ({ target: { kind: "artboard", artboard: "home.html" }, body, ...extra });
+
+    it("creates a thread on a whole artboard, with no selector, position or rendering", async () => {
+      const res = await server.post(`/api/pages/${page.id}/threads`, wholeArtboard("Too busy"));
+      expect(res.status).toBe(201);
+      const thread = (await res.json()) as Thread;
+      expect(thread).toMatchObject({ number: 1, status: "open", title: "Too busy", target: { kind: "artboard", artboard: "home.html" }, artboard: "home.html" });
+      expect(thread.rendering).toBeUndefined();
+      const [listed] = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+      expect(listed.target).toEqual({ kind: "artboard", artboard: "home.html" });
+    });
+
+    it("supports Plus tard like any comment", async () => {
+      const res = await server.post(`/api/pages/${page.id}/threads`, wholeArtboard("Later", { held: true }));
+      expect(((await res.json()) as Thread).status).toBe("held");
+      const [held] = (await (await server.get(`/api/pages/${page.id}/held`)).json()) as Thread[];
+      expect(held.target).toEqual({ kind: "artboard", artboard: "home.html" });
+    });
+
+    it("refuses an artboard that is not on the page", async () => {
+      const res = await server.post(`/api/pages/${page.id}/threads`, { target: { kind: "artboard", artboard: "gone.html" }, body: "Hi" });
+      expect(res.status).toBe(400);
+    });
+
+    it.each([{ kind: "artboard" }, { kind: "artboard", artboard: "../x.html" }, { kind: "nope", artboard: "home.html" }])("refuses the target %j", async (target) => {
+      expect((await server.post(`/api/pages/${page.id}/threads`, { target, body: "Hi" })).status).toBe(400);
+    });
   });
 
   it("numbers threads in creation order and never reuses a number", async () => {

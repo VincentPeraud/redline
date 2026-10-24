@@ -192,9 +192,47 @@ export interface ServerConfig {
 /** `held`: a finished comment kept back ("Plus tard") until "Tout envoyer"; not yet sent to any session. */
 export type ThreadStatus = "held" | "open" | "resolved";
 
+/** What a thread is about: an element of an artboard, a whole artboard, or an element of the page canvas. */
+export type ThreadTarget =
+  | {
+      kind: "element";
+      artboard: string;
+      selector: string;
+      elementName: string | null;
+      xPct: number;
+      yPct: number;
+      rendering?: ThreadRendering;
+    }
+  | { kind: "artboard"; artboard: string }
+  | { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind; /** What the element shows now (`canvasElementSummary`); what it showed when the user commented it once the element is removed. */ elementSummary?: string };
+
+export const CANVAS_ELEMENT_KIND_LABELS: Record<ManifestElementKind, string> = {
+  title: "Titre",
+  text: "Texte",
+  sticky: "Post-it",
+  link: "Lien",
+  image: "Image",
+  shape: "Forme",
+  arrow: "Flèche",
+};
+
+/** "accueil.html · bouton « Réserver ma place »", "accueil.html · Artboard entier", "Post-it · note-parcours". */
+export function threadTargetLabel(target: ThreadTarget): string {
+  switch (target.kind) {
+    case "element":
+      return `${target.artboard} · ${target.elementName ?? target.selector}`;
+    case "artboard":
+      return `${target.artboard} · Artboard entier`;
+    case "canvas-element":
+      return `${CANVAS_ELEMENT_KIND_LABELS[target.elementKind]} · ${target.elementId}`;
+  }
+}
+
 export interface Thread {
   id: string;
   pageId: string;
+  /** Explicit target; for an element thread the flat fields below repeat it. */
+  target: ThreadTarget;
   /** Per-page number shown on the pin and in the thread list; never reused. */
   number: number;
   /** Path of the artboard file the thread is pinned on. */
@@ -212,6 +250,8 @@ export interface Thread {
   title: string;
   body: string;
   status: ThreadStatus;
+  /** Derived, never stored: a canvas-element thread whose element is absent from the page's current manifest. */
+  removed?: true;
   /** Claude's answers, oldest first. */
   replies: ThreadReply[];
   /** Context of the thread's session after the last reply; absent before the first usage or after "Nouvelle session". */
@@ -220,21 +260,37 @@ export interface Thread {
   newSession?: "summarizing" | "ready";
 }
 
-export interface CreateThreadRequest extends ModelChoice {
-  artboard: string;
-  selector: string;
-  xPct: number;
-  yPct: number;
+interface CreateThreadCommon extends ModelChoice {
   body: string;
   /** Short name of the thread; defaults to the first line of the body. */
   title?: string;
   /** "Plus tard": store the comment without sending it. */
   held?: boolean;
+}
+
+/** A comment pinned on an element of an artboard. */
+export interface CreateElementThreadRequest extends CreateThreadCommon {
+  artboard: string;
+  selector: string;
+  xPct: number;
+  yPct: number;
   /** Readable name of the element, e.g. `bouton « Continuer »`; at most `MAX_ELEMENT_NAME_LENGTH` characters. */
   elementName?: string;
   /** Rendering of a responsive artboard the comment was pinned in. */
   rendering?: ThreadRendering;
 }
+
+/** A comment on a whole artboard: no element, no pin, no rendering. The artboard must be on the page. */
+export interface CreateArtboardThreadRequest extends CreateThreadCommon {
+  target: { kind: "artboard"; artboard: string };
+}
+
+/** A comment on an element of the page canvas. The element must carry that id in the page's current manifest; the server fills its kind. */
+export interface CreateCanvasElementThreadRequest extends CreateThreadCommon {
+  target: { kind: "canvas-element"; elementId: string };
+}
+
+export type CreateThreadRequest = CreateElementThreadRequest | CreateArtboardThreadRequest | CreateCanvasElementThreadRequest;
 
 export const MAX_ELEMENT_NAME_LENGTH = 200;
 
@@ -450,9 +506,10 @@ export type ArrowLine = (typeof ARROW_LINES)[number];
 /** End of an arrow: an artboard `file`, an element `id`, or a free canvas point. */
 export type ArrowEnd = string | { x: number; y: number };
 
-/** Arrow between two elements, drawn on their nearest edges. Has no id and cannot be a target. */
+/** Arrow between two elements, drawn on their nearest edges. */
 export interface ManifestArrowElement {
   kind: "arrow";
+  id?: string;
   from: ArrowEnd;
   to: ArrowEnd;
   label?: string;
@@ -463,6 +520,30 @@ export interface ManifestArrowElement {
 /** Decoration drawn on the canvas, written by Claude. Add a kind here and a parser in ELEMENT_PARSERS. */
 export type ManifestElement = ManifestTitleElement | ManifestTextElement | ManifestStickyElement | ManifestShapeElement | ManifestImageElement | ManifestLinkElement | ManifestArrowElement;
 export type ManifestElementKind = ManifestElement["kind"];
+
+const MAX_SUMMARY_LENGTH = 120;
+
+/** What a canvas element shows, in one line: its text, label, link target or image file ("" when it shows nothing). */
+export function canvasElementSummary(element: ManifestElement): string {
+  const quoted = (text: string | undefined) => {
+    const line = (text ?? "").replace(/\s+/g, " ").trim();
+    if (line === "") return "";
+    return `« ${line.length > MAX_SUMMARY_LENGTH ? `${line.slice(0, MAX_SUMMARY_LENGTH)}…` : line} »`;
+  };
+  switch (element.kind) {
+    case "title":
+    case "text":
+    case "sticky":
+      return quoted(element.text);
+    case "shape":
+    case "arrow":
+      return quoted(element.label);
+    case "link":
+      return "page" in element ? `link to page ${element.page}` : element.url;
+    case "image":
+      return element.src;
+  }
+}
 
 /** Play mode: clicking `selector` in artboard `from` goes to artboard `to`. */
 export interface ManifestLink {
@@ -671,7 +752,7 @@ function parseElement(item: Record<string, unknown>, name: string): ManifestElem
     fail(`${name}.kind must be one of ${Object.keys(ELEMENT_PARSERS).join(", ")}`);
   }
   const element = ELEMENT_PARSERS[kind as ManifestElementKind](item, name);
-  if (element.kind !== "arrow" && item.id !== undefined) element.id = str(item, "id", name);
+  if (item.id !== undefined) element.id = str(item, "id", name);
   return element;
 }
 
@@ -679,7 +760,7 @@ function parseElement(item: Record<string, unknown>, name: string): ManifestElem
 function checkElementIds(artboards: ManifestArtboard[], elements: ManifestElement[], elementsName: string): void {
   const known = new Set(artboards.map((artboard) => artboard.file));
   elements.forEach((element, i) => {
-    if (element.kind === "arrow" || element.id === undefined) return;
+    if (element.id === undefined) return;
     if (known.has(element.id)) fail(`${elementsName}[${i}].id "${element.id}" is already used by an artboard file or another element`);
     known.add(element.id);
   });
@@ -690,6 +771,23 @@ function checkElementIds(artboards: ManifestArtboard[], elements: ManifestElemen
       if (typeof end === "string" && !known.has(end)) fail(`${elementsName}[${i}].${key} names "${end}", which is not an artboard file or an element id`);
     }
   });
+}
+
+/**
+ * Error message when a manifest about to be published has `elements` entries without an `id` (every one is named by index and kind),
+ * carries the legacy `notes` list, or does not parse, else null. Reading stays lenient: stored manifests and the legacy `notes` list may lack ids.
+ */
+export function publishManifestError(text: string): string | null {
+  try {
+    parseManifest(text);
+  } catch (error) {
+    return (error as Error).message;
+  }
+  const manifest = JSON.parse(text) as { elements?: Record<string, unknown>[]; notes?: unknown };
+  if (manifest.notes !== undefined) return "notes is legacy: move these titles to elements, each with an id";
+  const elements = manifest.elements ?? [];
+  const missing = elements.flatMap((item, i) => (typeof item.id === "string" && item.id !== "" ? [] : [`elements[${i}] (${item.kind ?? "title"}) has no id`]));
+  return missing.length === 0 ? null : missing.join("; ");
 }
 
 function parseGuides(value: unknown, name: string): ArtboardGuides {
@@ -970,3 +1068,4 @@ export function starterPageFiles(title: string, designSystem?: string | null): R
 
 export * from "./designSystem.js";
 export * from "./projectFiles.js";
+export * from "./hoverFinish.js";

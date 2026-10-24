@@ -44,8 +44,8 @@ it("pins a comment, then shows Claude's answer in the thread and the reloaded ar
 
   await tab.keyboard.press("c");
   await artboard.locator("h1").click();
-  await tab.getByRole("textbox").fill("Make the title bolder");
-  await tab.getByRole("textbox").press("Enter");
+  await tab.locator("#new-comment").fill("Make the title bolder");
+  await tab.locator("#new-comment").press("Enter");
 
   await expect.poll(() => tab.getByTestId("reply").textContent()).toContain("Made the title bolder.");
   await expect.poll(() => artboard.locator("h1").textContent()).toBe("Bolder title");

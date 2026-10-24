@@ -6,12 +6,17 @@ import {
   type ConversationMessage,
   type CreateConversationMessageRequest,
   type CreateConversationRequest,
+  type MessageContext,
   type ModelChoice,
+  type ThreadTarget,
   type ServerEvent,
   type WorkItem,
 } from "@redline/shared";
+import { renderingLabel } from "@redline/shared";
+import { canvasElementText } from "./canvas-element-text.js";
+import { elementText, renderingText } from "./thread-subject.js";
 import { contextOf, usageContext } from "./context.js";
-import { definedChoice, modelChoiceError, modelChoiceOf, requiredString } from "./validation.js";
+import { definedChoice, isMessageContext, modelChoiceError, modelChoiceOf, requiredString } from "./validation.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -19,7 +24,7 @@ export type SendConversationMessage = (
   conversation: Conversation,
   body: string,
   choice: ModelChoice,
-  options?: { extraContext?: string; projectId?: string; brief?: boolean },
+  options?: { context?: MessageContext; extraContext?: string; projectId?: string; brief?: boolean },
 ) => ConversationMessage;
 
 /** The message Claude receives for a conversation message; every message says which page is shown. */
@@ -29,6 +34,27 @@ export function conversationMessage(pageTitle: string, pageId: string, bodies: s
     "",
     ...bodies.flatMap((body) => [body, ""]),
     "Make the change in the working copy if the message asks for one, then answer in a short final message.",
+  ].join("\n");
+}
+
+function chipLine(target: ThreadTarget, number: number): string {
+  switch (target.kind) {
+    case "element":
+      return `${number}: ${elementText(target)} on artboard ${target.artboard}${renderingText(target.rendering)}`;
+    case "artboard":
+      return `${number}: the whole artboard ${target.artboard}`;
+    case "canvas-element":
+      return `${number}: ${canvasElementText(target)}`;
+  }
+}
+
+/** The lines that follow a conversation message: what the user is looking at, the tweak values and the numbered chips. */
+export function contextBlock(context: MessageContext): string {
+  const files = context.visibleArtboards.map(({ file, rendering }) => (rendering ? `${file} (${renderingLabel(rendering)})` : file));
+  return [
+    `The user is looking at: ${files.length > 0 ? files.join(", ") : "no artboard on screen"}`,
+    ...(context.tweaks.length > 0 ? [`Tweak values: ${context.tweaks.map((t) => `${t.label}: ${t.value}`).join(", ")}`] : []),
+    ...(context.targets && context.targets.length > 0 ? ["Elements the user points at:", ...context.targets.map((t, i) => chipLine(t, i + 1))] : []),
   ].join("\n");
 }
 
@@ -144,12 +170,12 @@ export function registerConversationRoutes(
   /** Stores a user message and dispatches it; `extraContext` goes to Claude with it without being stored, and `projectId` overrides the project whose agent serves it. */
   const sendMessage: SendConversationMessage = (conversation, body, choice, options = {}) => {
     const previous = store.conversationMessages(conversation.id);
-    const message = store.addConversationMessage(conversation.id, "user", body, choice)!;
+    const message = store.addConversationMessage(conversation.id, "user", body, choice, [], options.context?.targets)!;
     const page = store.getPage(conversation.pageId)!;
     dispatch(
       conversation,
       previous,
-      [...(options.extraContext ? [options.extraContext] : []), body],
+      [...(options.extraContext ? [options.extraContext] : []), options.context ? `${body}\n\n${contextBlock(options.context)}` : body],
       choice,
       options.projectId ?? page.projectId,
       options.brief ? briefMessage(page.title, page.id, body) : undefined,
@@ -197,7 +223,8 @@ export function registerConversationRoutes(
       if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
       const invalidChoice = modelChoiceError(req.body);
       if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
-      const message = sendMessage(conversation, body, modelChoiceOf(req.body));
+      if (req.body.context !== undefined && !isMessageContext(req.body.context)) return reply.code(400).send({ error: "context is malformed" });
+      const message = sendMessage(conversation, body, modelChoiceOf(req.body), { context: req.body.context });
       return reply.code(201).send(message);
     },
   );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MANIFEST_PATH, RESPONSIVE_SPACING, defaultManifest, parseManifest, renderingLabel } from "@redline/shared";
+import { MANIFEST_PATH, RESPONSIVE_SPACING, defaultManifest, parseManifest, publishManifestError, renderingLabel } from "@redline/shared";
 
 describe("page manifest", () => {
   it("reads title, type, design system, artboards, notes, links and tweaks", () => {
@@ -194,6 +194,11 @@ describe("page manifest", () => {
       expect(manifest.elements.map((element) => ("id" in element ? element.id : undefined))).toEqual(["heading", "note", "ask", "shot", "next", "ticket", undefined]);
     });
 
+    it("keeps an id on an arrow and lets other arrows point at it", () => {
+      const manifest = parseManifest(JSON.stringify({ artboards: [{ file: "a.html" }], elements: [{ kind: "arrow", id: "fleche-1", from: "a.html", to: { x: 1, y: 2 } }, { kind: "arrow", from: "fleche-1", to: { x: 5, y: 5 } }] }));
+      expect(manifest.elements.map((element) => element.id)).toEqual(["fleche-1", undefined]);
+    });
+
     it("reads an arrow between ids and free points with defaults", () => {
       const manifest = parseManifest(
         JSON.stringify({
@@ -325,6 +330,29 @@ describe("page manifest", () => {
       expect(refuse({ elements: [{ kind: "title", text: "T", subtitle: 3 }] })).toThrow(/elements\[0\]\.subtitle/);
       expect(refuse({ elements: [{ kind: "shape", shape: "rect", width: 10, height: 10, label: 3 }] })).toThrow(/elements\[0\]\.label/);
       expect(refuse({ elements: [{ kind: "arrow", from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, label: {} }] })).toThrow(/elements\[0\]\.label/);
+    });
+  });
+
+  describe("publish check of element ids", () => {
+    const check = (manifest: object) => publishManifestError(JSON.stringify(manifest));
+
+    it("accepts elements that all carry an id, arrows included", () => {
+      expect(check({ artboards: [{ file: "a.html" }], elements: [{ kind: "sticky", text: "S", id: "note-1" }, { kind: "arrow", id: "fleche-1", from: "a.html", to: "note-1" }] })).toBeNull();
+      expect(check({ artboards: [{ file: "a.html" }] })).toBeNull();
+    });
+
+    it("names every element without an id by index and kind", () => {
+      const error = check({ elements: [{ kind: "text", text: "ok", id: "t" }, { kind: "sticky", text: "S" }, { text: "bare title" }, { kind: "arrow", from: { x: 0, y: 0 }, to: { x: 1, y: 1 } }] });
+      expect(error).toBe("elements[1] (sticky) has no id; elements[2] (title) has no id; elements[3] (arrow) has no id");
+    });
+
+    it("refuses the legacy notes list at publish, while reading it stays lenient", () => {
+      expect(check({ notes: [{ text: "old" }] })).toBe("notes is legacy: move these titles to elements, each with an id");
+      expect(parseManifest(JSON.stringify({ notes: [{ text: "old" }] })).elements).toHaveLength(1);
+    });
+
+    it("reports a manifest that does not parse", () => {
+      expect(publishManifestError("{nope")).toMatch(/not valid JSON/);
     });
   });
 });

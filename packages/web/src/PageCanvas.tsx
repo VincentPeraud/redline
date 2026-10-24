@@ -1,3 +1,4 @@
+import { useAltKey } from "./useAltKey.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   EMPTY_VIEW_SETTINGS,
@@ -8,13 +9,17 @@ import {
   versionPreviewPath,
   type AgentInfo,
   type CreateThreadRequest,
+  canvasElementSummary,
+  threadTargetLabel,
   type Manifest,
+  type ManifestElementKind,
   type PageViewSettings,
   type ResponsiveFormat,
   type Project,
   type QueueEntry,
   type Thread,
   type ThreadRendering,
+  type ThreadTarget,
 } from "@redline/shared";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { ArtboardHistory } from "./ArtboardHistory.js";
@@ -34,6 +39,8 @@ import { CommentsPanel, type Draft } from "./CommentsPanel.js";
 import { ConversationsPanel } from "./ConversationsPanel.js";
 import type { AgentDefaults, ModelEffortChoice } from "./ModelEffortControls.js";
 import { PlayMode } from "./PlayMode.js";
+import { addChip, marksFor, removeChip } from "./elementChips.js";
+import { messageContext } from "./messageContext.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import { cx } from "./ui/index.js";
@@ -47,6 +54,8 @@ const ZOOM_STEP = 1.25;
 const START_LEFT = 80;
 const START_TOP = 190;
 const START_BOTTOM = 40;
+/** Pointer travel (screen pixels) under which a press and release count as a click. */
+const CLICK_SLOP = 4;
 
 type SideTab = "conversation" | "comments";
 
@@ -64,6 +73,30 @@ function initialView(manifest: Manifest, stage: { width: number; height: number 
   const bounds = boundsOf(manifest.artboards.map((a) => ({ x: a.x, y: a.y, width: a.width, height: a.height })));
   const zoom = Math.min(1, (stage.height - START_TOP - START_BOTTOM) / bounds.height);
   return { zoom, x: START_LEFT - bounds.x * zoom, y: START_TOP - bounds.y * zoom };
+}
+
+function BubbleIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
+    </svg>
+  );
+}
+
+/** A comment being written: pinned on an element of an artboard, or on a whole artboard. */
+type PageDraft =
+  | (Pick & { artboard: string; rendering?: ThreadRendering })
+  | { target: { kind: "artboard"; artboard: string } }
+  | { target: { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind } };
+
+/** The part of a create-thread request that says where the comment goes (the server fills the kind of a canvas element). */
+function threadPlace(draft: PageDraft) {
+  if (!("target" in draft)) return draft;
+  return draft.target.kind === "canvas-element" ? { target: { kind: "canvas-element" as const, elementId: draft.target.elementId } } : { target: draft.target };
+}
+
+function draftLabel(draft: PageDraft): string {
+  return "target" in draft ? threadTargetLabel(draft.target) : (draft.elementName ?? draft.selector);
 }
 
 function FullscreenIcon() {
@@ -95,11 +128,18 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
-  const [draft, setDraft] = useState<(Pick & { artboard: string; rendering?: ThreadRendering }) | null>(null);
+  const alt = useAltKey();
+  /** The conversation's selection mode ("+ Élément"), exclusive with comment mode. */
+  const [selecting, setSelecting] = useState(false);
+  /** Elements the user points at for the next conversation message, numbered by position. */
+  const [chips, setChips] = useState<ThreadTarget[]>([]);
+  const [draft, setDraft] = useState<PageDraft | null>(null);
   const [text, setText] = useState("");
   const [choice, setChoice] = useState<ModelEffortChoice>({});
   const [agentDefaults, setAgentDefaults] = useState<AgentDefaults>({});
   const [tab, setTab] = useState<SideTab>("conversation");
+  /** Artboard whose whole-artboard threads the Commentaires tab scrolls to once shown. */
+  const [scrollToArtboard, setScrollToArtboard] = useState<string | null>(null);
   const [tweaksOpenFor, setTweaksOpenFor] = useState<string | null>(null);
   /** Bumped when the page's design system changed: artboards remount to load the new tokens. */
   const [tokensVersion, setTokensVersion] = useState(0);
@@ -118,8 +158,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [renderingsMenuOpen, setRenderingsMenuOpen] = useState(false);
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   const viewport = useRef<HTMLDivElement>(null);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const placed = useRef(false);
   const drag = useRef<{ x: number; y: number } | null>(null);
+  /** Where the pointer went down, to tell a click on a canvas element from the end of a pan. */
+  const pressedAt = useRef<{ x: number; y: number } | null>(null);
 
   const runs = useRuns(pageId);
   const sessions = usePageSessions(pageId);
@@ -175,6 +218,16 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     return () => element.removeEventListener("wheel", onWheel);
   }, [playFrom]);
 
+  useEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setViewportSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [playFrom]);
+
   function zoomFromCenter(factor: number) {
     const rect = viewport.current?.getBoundingClientRect();
     if (!rect) return;
@@ -212,12 +265,35 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     });
   }, [refresh, refreshQueue, pageId]);
 
+  // "Removed" is derived from the current manifest, so a new version can change it.
+  useEffect(() => {
+    void refresh();
+  }, [refresh, versionId]);
+
+  useEffect(() => {
+    if (scrollToArtboard === null || tab !== "comments") return;
+    document.querySelector(`[data-whole-artboard="${CSS.escape(scrollToArtboard)}"]`)?.scrollIntoView({ block: "nearest" });
+    setScrollToArtboard(null);
+  }, [scrollToArtboard, tab, threads]);
+
+  useEffect(() => {
+    if (!selecting) return;
+    function onEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setSelecting(false);
+    }
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [selecting]);
+
   // C: comment mode, P: back to interactive, G: layout guides.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (playFrom !== null || isEditableTarget(event.target) || event.metaKey || event.ctrlKey) return;
       const key = event.key.toLowerCase();
-      if (key === "c") setPicking(true);
+      if (key === "c") {
+        setPicking(true);
+        setSelecting(false);
+      }
       if (key === "p") setPicking(false);
       if (key === "g") toggleGuides();
     }
@@ -228,7 +304,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
   async function send(held: boolean) {
     if (!draft || text.trim() === "") return;
-    const request: CreateThreadRequest = { ...draft, body: text, ...(held ? { held } : choice) };
+    const request: CreateThreadRequest = { ...threadPlace(draft), body: text, ...(held ? { held } : choice) };
     await fetch(`/api/pages/${pageId}/threads`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -260,6 +336,14 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     onVersionChange();
   }
 
+  function changeSelecting(next: boolean) {
+    setSelecting(next);
+    if (next) setPicking(false);
+  }
+
+  const pickElement = (pick: Pick, artboard: string, rendering?: ThreadRendering) =>
+    setChips((current) => addChip(current, { kind: "element", artboard, selector: pick.selector, elementName: pick.elementName ?? null, xPct: pick.xPct, yPct: pick.yPct, ...(rendering && { rendering }) }));
+
   async function renamePage(title: string) {
     const res = await fetch(`/api/pages/${pageId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) });
     if (!res.ok) throw new Error(`Rename refused (${res.status})`);
@@ -286,7 +370,9 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const openCount = threads.filter((t) => t.status !== "resolved").length;
   const runningCount = runs.filter((r) => r.status === "running" || r.status === "sent" || r.status === "retrying").length;
   const firstArtboard = manifest?.artboards[0]?.file;
-  const draftInfo: Draft | null = draft;
+  const draftInfo: Draft | null = draft && { label: draftLabel(draft) };
+  const pinnedOn = (file: string) => threads.filter((t) => t.target.kind === "element" && t.artboard === file);
+  const wholeArtboardThreads = (file: string) => threads.filter((t) => t.target.kind === "artboard" && t.artboard === file && t.status !== "resolved");
   const hiddenOf = (artboard: Manifest["artboards"][number]) => (artboard.responsive ? hiddenRenderingKeys(artboard.responsive, viewSettings, artboard.file) : new Set<string>());
   const layoutOf = (artboard: Manifest["artboards"][number]) =>
     artboard.responsive ? responsiveFrameLayout(artboard, renderingSlots(artboard.responsive), { measuredHeights: docHeights[artboard.file], hidden: hiddenOf(artboard) }) : null;
@@ -297,7 +383,10 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const artboardBoxes = new Map<string, Box>(
     (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, width: artboard.width, height: artboard.height }]),
   );
+  const conversationContext = messageContext({ view, viewport: viewportSize, boxes: artboardBoxes, manifest, tweakValues: tweaks.values });
   const artboardTweaks = (file: string) => (manifest?.tweaks ?? []).filter((tweak) => (tweak.artboard ? tweak.artboard === file : file === firstArtboard));
+
+  const canvasMarks = chips.flatMap((chip, index) => (chip.kind === "canvas-element" ? [{ number: index + 1, elementId: chip.elementId }] : []));
 
   return (
     <div className={styles.page}>
@@ -306,7 +395,10 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
         pageId={pageId}
         pageTitle={pageTitle}
         picking={picking}
-        onPickingChange={setPicking}
+        onPickingChange={(next) => {
+          setPicking(next);
+          if (next) setSelecting(false);
+        }}
         runningCount={runningCount}
         artboardOrigin={artboardOrigin}
         deleted={deleted}
@@ -323,6 +415,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             className={styles.viewport}
             style={{ backgroundPosition: `${view.x}px ${view.y}px` }}
             onPointerDown={(e) => {
+              pressedAt.current = { x: e.clientX, y: e.clientY };
               if ((e.target as HTMLElement).closest("button, a, [data-no-pan]")) return;
               drag.current = { x: e.clientX, y: e.clientY };
               e.currentTarget.setPointerCapture(e.pointerId);
@@ -334,13 +427,25 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               drag.current = { x: e.clientX, y: e.clientY };
               setView((v) => panBy(v, dx, dy));
             }}
-            onPointerUp={() => {
+            onPointerUp={(e) => {
               drag.current = null;
+              const pressed = pressedAt.current;
+              pressedAt.current = null;
+              if ((picking || selecting || e.altKey) && manifest && pressed && Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < CLICK_SLOP) {
+                const id = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-canvas-element-id]")?.getAttribute("data-canvas-element-id");
+                const element = manifest.elements.find((candidate) => candidate.id === id);
+                if (element?.id !== undefined && selecting) {
+                  setChips((current) => addChip(current, { kind: "canvas-element", elementId: element.id!, elementKind: element.kind, elementSummary: canvasElementSummary(element) }));
+                } else if (element?.id !== undefined) {
+                  setDraft({ target: { kind: "canvas-element", elementId: element.id, elementKind: element.kind } });
+                  setTab("comments");
+                }
+              }
             }}
           >
             <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
               {manifest && (
-              <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin}>
+              <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking || selecting || alt} zoom={view.zoom} threads={threads} marks={canvasMarks}>
               {manifest.artboards.map((artboard) => {
                 const layout = layoutOf(artboard);
                 const hidden = hiddenOf(artboard);
@@ -355,7 +460,22 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                   className={cx(styles.artboard, (historyOpenFor === artboard.file || tweaksOpenFor === artboard.file) && styles.artboardRaised)}
                   style={{ left: artboard.x, top: artboard.y }}
                 >
-                  <div data-no-pan className={cx(styles.label, layout && styles.labelResponsive)} style={{ width: frameWidth * view.zoom, transform: `scale(${1 / view.zoom})` }}>
+                  <div
+                    data-no-pan
+                    data-strip={artboard.file}
+                    className={cx(styles.label, layout && styles.labelResponsive, selecting && styles.labelSelecting)}
+                    style={{ width: frameWidth * view.zoom, transform: `scale(${1 / view.zoom})` }}
+                    onClick={(e) => {
+                      if (selecting && !(e.target as HTMLElement).closest("button")) setChips((current) => addChip(current, { kind: "artboard", artboard: artboard.file }));
+                    }}
+                  >
+                    {chips.map((chip, index) =>
+                      chip.kind === "artboard" && chip.artboard === artboard.file ? (
+                        <span key={index} data-strip-mark={index + 1} className={styles.stripMark}>
+                          {index + 1}
+                        </span>
+                      ) : null,
+                    )}
                     <span className={styles.labelName}>{artboard.title ?? artboard.file}</span>
                     {layout && artboard.responsive && (
                       <>
@@ -368,7 +488,32 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         />
                       </>
                     )}
+                    {wholeArtboardThreads(artboard.file).length > 0 && (
+                      <button
+                        type="button"
+                        className={styles.threadsChip}
+                        onClick={() => {
+                          setTab("comments");
+                          setScrollToArtboard(artboard.file);
+                        }}
+                      >
+                        <BubbleIcon size={12} />
+                        {wholeArtboardThreads(artboard.file).length === 1 ? "1 fil" : `${wholeArtboardThreads(artboard.file).length} fils`} sur l'artboard
+                      </button>
+                    )}
                     <span className={styles.spacer} />
+                    <button
+                      type="button"
+                      aria-label={`Commenter tout ${artboard.file}`}
+                      title="Commenter l'artboard entier"
+                      className={styles.iconButton}
+                      onClick={() => {
+                        setDraft({ target: { kind: "artboard", artboard: artboard.file } });
+                        setTab("comments");
+                      }}
+                    >
+                      <BubbleIcon size={15} />
+                    </button>
                     <ArtboardHistory
                       pageId={pageId}
                       file={artboard.file}
@@ -403,13 +548,18 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       layout={layout}
                       zoom={view.zoom}
                       guides={guidesVisible ? artboard.guides : undefined}
-                      threads={preview?.file === artboard.file ? [] : threads.filter((t) => t.artboard === artboard.file)}
+                      threads={preview?.file === artboard.file ? [] : pinnedOn(artboard.file)}
                       picking={picking && preview?.file !== artboard.file}
+                      selecting={selecting && preview?.file !== artboard.file}
+                      marksOf={(key) => marksFor(chips, artboard.file, key)}
                       tweaks={tweaks.values}
                       onPick={(rendering, pick) => {
-                        setDraft({ ...pick, artboard: artboard.file, rendering: { format: rendering.format, width: rendering.width } });
+                        const where = { format: rendering.format, width: rendering.width };
+                        if (selecting) return pickElement(pick, artboard.file, where);
+                        setDraft({ ...pick, artboard: artboard.file, rendering: where });
                         setTab("comments");
                       }}
+                      onEscape={() => setSelecting(false)}
                       onDocHeight={(key, height) =>
                         setDocHeights((current) => (current[artboard.file]?.[key] === height ? current : { ...current, [artboard.file]: { ...current[artboard.file], [key]: height } }))
                       }
@@ -423,13 +573,17 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                     height={artboard.height}
                     zoom={view.zoom}
                     guides={guidesVisible ? artboard.guides : undefined}
-                    threads={preview?.file === artboard.file ? [] : threads.filter((t) => t.artboard === artboard.file)}
+                    threads={preview?.file === artboard.file ? [] : pinnedOn(artboard.file)}
                     picking={picking && preview?.file !== artboard.file}
+                    selecting={selecting && preview?.file !== artboard.file}
+                    marks={marksFor(chips, artboard.file)}
                     tweaks={tweaks.values}
                     onPick={(pick) => {
+                      if (selecting) return pickElement(pick, artboard.file);
                       setDraft({ ...pick, artboard: artboard.file });
                       setTab("comments");
                     }}
+                    onEscape={() => setSelecting(false)}
                   />
                   )}
                   {tweaksOpenFor === artboard.file && (
@@ -473,9 +627,14 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               </div>
             </div>
           )}
-          <div className={styles.hintWrap}>
-            <div data-testid="mode-indicator" className={cx(styles.hint, picking && styles.hintComment)}>
-              {picking ? "Mode commentaire : clique sur un élément pour y épingler un commentaire" : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
+          {selecting && (
+            <div data-testid="selection-hint" className={styles.selectionHint}>
+              Sélection : clique sur un élément, un artboard ou une note pour l'ajouter au message <span className={styles.selectionHintKeys}>· Échap pour finir</span>
+            </div>
+          )}
+          <div className={cx(styles.hintWrap, selecting && styles.hintWrapHidden)}>
+            <div data-testid="mode-indicator" className={styles.hint}>
+              {picking ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier." : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
             </div>
           </div>
           {toast && (
@@ -522,7 +681,13 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             </button>
           </div>
           {tab === "conversation" ? (
-            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults} />
+            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults}
+              chips={chips}
+              selecting={selecting}
+              onSelectingChange={changeSelecting}
+              onRemoveChip={(index) => setChips((current) => removeChip(current, index))}
+              onChipsSent={() => setChips([])}
+            />
           ) : (
             <CommentsPanel
               pageId={pageId}

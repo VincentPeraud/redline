@@ -19,6 +19,8 @@ export interface ArrowGeometry {
   path: string;
   /** Where the label is anchored: the middle of the arrow. */
   label: Point;
+  /** Smallest box holding the whole line. */
+  box: Box;
 }
 
 const isBox = (target: Box | Point): target is Box => "width" in target;
@@ -44,6 +46,16 @@ const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 /** How far a curve's control points stand from its ends, as a share of the distance between them. */
 const CURVE_TENSION = 0.4;
 
+function boundsOf(points: Point[]): Box {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+}
+
+const CURVE_SAMPLES = 24;
+
 const fmt = (value: number) => String(Math.round(value * 100) / 100);
 
 /** An arrow runs between the middles of the two closest edges; a free point stands for itself. */
@@ -59,7 +71,13 @@ export function arrowGeometry(from: Box | Point, to: Box | Point): ArrowGeometry
   const start = best.start.point;
   const end = best.end.point;
   if (start.x === end.x || start.y === end.y) {
-    return { start, end, path: `M${fmt(start.x)} ${fmt(start.y)} L${fmt(end.x)} ${fmt(end.y)}`, label: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 } };
+    return {
+      start,
+      end,
+      path: `M${fmt(start.x)} ${fmt(start.y)} L${fmt(end.x)} ${fmt(end.y)}`,
+      label: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 },
+      box: boundsOf([start, end]),
+    };
   }
   const length = distance(start, end);
   const chord = { x: (end.x - start.x) / length, y: (end.y - start.y) / length };
@@ -68,9 +86,17 @@ export function arrowGeometry(from: Box | Point, to: Box | Point): ArrowGeometry
   const endDirection = best.end.outward ?? { x: -chord.x, y: -chord.y };
   const c1 = { x: start.x + startDirection.x * reach, y: start.y + startDirection.y * reach };
   const c2 = { x: end.x + endDirection.x * reach, y: end.y + endDirection.y * reach };
+  const along = (t: number): Point => {
+    const u = 1 - t;
+    return {
+      x: u ** 3 * start.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t ** 3 * end.x,
+      y: u ** 3 * start.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t ** 3 * end.y,
+    };
+  };
   return {
     start,
     end,
+    box: boundsOf(Array.from({ length: CURVE_SAMPLES + 1 }, (_, i) => along(i / CURVE_SAMPLES))),
     path: `M${fmt(start.x)} ${fmt(start.y)} C${fmt(c1.x)} ${fmt(c1.y)} ${fmt(c2.x)} ${fmt(c2.y)} ${fmt(end.x)} ${fmt(end.y)}`,
     label: { x: (start.x + 3 * c1.x + 3 * c2.x + end.x) / 8, y: (start.y + 3 * c1.y + 3 * c2.y + end.y) / 8 },
   };

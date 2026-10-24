@@ -42,10 +42,10 @@ it("holds two comments with Plus tard, keeps them over a reload, then sends them
 
   await tab.keyboard.press("c");
   await artboard.locator("h1").click();
-  await tab.getByRole("textbox").fill("Make the title bolder");
-  await tab.getByRole("textbox").press("Meta+Enter");
+  await tab.locator("#new-comment").fill("Make the title bolder");
+  await tab.locator("#new-comment").press("Meta+Enter");
   await artboard.locator("button").click();
-  await tab.getByRole("textbox").fill("Exclaim the button");
+  await tab.locator("#new-comment").fill("Exclaim the button");
   await tab.getByRole("button", { name: "Plus tard" }).click();
 
   await expect.poll(() => tab.getByTestId("held-thread").count()).toBe(2);

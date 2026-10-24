@@ -2,6 +2,7 @@ import { Fragment, useState, type ReactNode } from "react";
 import type { QueueEntry, SessionRow, Thread, ThreadRun } from "@redline/shared";
 import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
+import { RemovedTag } from "./RemovedTag.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
 import { RenderingChip } from "./RenderingChip.js";
@@ -9,16 +10,15 @@ import { queueLabel } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
-import { threadWhere } from "./threadLabel.js";
+import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
 import { ThreadReplyForm } from "./ThreadReplyForm.js";
 import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./Thread.module.css";
 import panel from "./CommentsPanel.module.css";
 
 export interface Draft {
-  artboard: string;
-  selector: string;
-  elementName?: string;
+  /** What the comment is about, as shown in the form. */
+  label: string;
 }
 
 interface Props {
@@ -43,10 +43,11 @@ const GROUP_ORDER: Record<Thread["status"], number> = { held: 0, open: 1, resolv
 function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNode }) {
   return (
     <div className={styles.head}>
-      <span className={styles.badge}>{thread.number}</span>
+      <span className={cx(styles.badge, thread.removed && styles.badgeRemoved)}>{thread.number}</span>
       <span className={styles.where}>{threadWhere(thread)}</span>
       <RenderingChip thread={thread} />
       <span className={styles.spacer} />
+      {thread.removed && <RemovedTag />}
       {children}
     </div>
   );
@@ -89,12 +90,13 @@ function ThreadCard({
 
   if (failed) {
     return (
-      <article className={cx(styles.card, styles.failed)}>
+      <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.failed, thread.removed && styles.removed)}>
         <div className={styles.head}>
-          <span className={cx(styles.badge, styles.badgeFailed)}>{thread.number}</span>
+          <span className={cx(styles.badge, styles.badgeFailed, thread.removed && styles.badgeRemoved)}>{thread.number}</span>
           <span className={styles.where}>{threadWhere(thread)}</span>
           <RenderingChip thread={thread} />
           <span className={styles.spacer} />
+          {thread.removed && <RemovedTag />}
           <span data-testid="run-status" data-status="failed" className={styles.headFailed}>
             Échec
           </span>
@@ -105,7 +107,7 @@ function ThreadCard({
   }
 
   return (
-    <article className={cx(styles.card, active && styles.running)}>
+    <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running, thread.removed && styles.removed)}>
       <ThreadHeader thread={thread}>
         {queued && (
           <span data-testid="queued" className={styles.queued}>
@@ -156,12 +158,13 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
           if (thread.status === "held") return <HeldThreadCard key={thread.id} thread={thread} />;
           if (thread.status === "resolved") {
             return (
-              <article key={thread.id} className={cx(styles.card, styles.resolved)}>
-                <span className={cx(styles.badge, styles.badgeDone)} aria-hidden="true">
+              <article key={thread.id} className={cx(styles.card, styles.resolved, thread.removed && styles.removed)}>
+                <span className={cx(styles.badge, styles.badgeDone, thread.removed && styles.badgeRemoved)} aria-hidden="true">
                   ✓
                 </span>
                 <span className={styles.resolvedTitle}>{thread.title}</span>
                 <span className={styles.spacer} />
+                {thread.removed && <RemovedTag />}
                 <span>Résolu</span>
               </article>
             );
@@ -187,7 +190,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
         {draft && (
           <div className={panel.draft}>
             <span>
-              Commentaire sur <code>{draft.elementName ?? draft.selector}</code>
+              Commentaire sur <code>{draft.label}</code>
             </span>
             <button type="button" className={panel.cancel} onClick={onCancel}>
               Annuler
