@@ -209,7 +209,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       const target = event.target as HTMLElement;
-      if (target.tagName === "TEXTAREA" || target.tagName === "INPUT" || event.metaKey || event.ctrlKey) return;
+      if (playFrom !== null || target.tagName === "TEXTAREA" || target.tagName === "INPUT" || event.metaKey || event.ctrlKey) return;
       const key = event.key.toLowerCase();
       if (key === "c") setPicking(true);
       if (key === "p") setPicking(false);
@@ -217,7 +217,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggleGuides]);
+  }, [toggleGuides, playFrom]);
 
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
   async function send(held: boolean) {
@@ -263,6 +263,8 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
         artboardOrigin={artboardOrigin}
         tweaks={tweaks.values}
         onTweak={tweaks.setValue}
+        guidesVisible={guidesVisible}
+        onToggleGuides={toggleGuides}
         onExit={() => setPlayFrom(null)}
       />
     );
@@ -314,7 +316,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             }}
           >
             <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
-              {manifest && <CanvasElements elements={manifest.elements} />}
+              {manifest && <CanvasElements elements={manifest.elements} assetBase={`${artboardOrigin}/pages/${pageId}`} />}
               {manifest?.artboards.map((artboard) => (
                 <div
                   key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`}

@@ -50,6 +50,22 @@ describe("page manifest", () => {
     expect(() => parseManifest(JSON.stringify({ elements: [{ text: "a", width: 0 }] }))).toThrow(/elements\[0\]\.width/);
   });
 
+  it("reads an image element from the project assets, with a default width", () => {
+    const manifest = parseManifest(JSON.stringify({ elements: [{ kind: "image", src: "assets/site/now.png", width: 440, x: 468, y: 650 }, { kind: "image", src: "assets/a.jpg" }] }));
+    expect(manifest.elements).toEqual([
+      { kind: "image", src: "assets/site/now.png", width: 440, x: 468, y: 650 },
+      { kind: "image", src: "assets/a.jpg", width: 400, x: 0, y: 0 },
+    ]);
+  });
+
+  it("refuses an image whose src is not an assets/ path, naming the field", () => {
+    for (const src of ["https://example.com/a.png", "//cdn.example.com/a.png", "data:image/png;base64,AAAA", "/assets/a.png", "other/a.png", "assets/", "assets/../secret.png", "assets/a/../../b.png"]) {
+      expect(() => parseManifest(JSON.stringify({ elements: [{ kind: "image", src }] })), src).toThrow(/elements\[0\]\.src/);
+    }
+    expect(() => parseManifest(JSON.stringify({ elements: [{ kind: "image" }] }))).toThrow(/elements\[0\]\.src/);
+    expect(() => parseManifest(JSON.stringify({ elements: [{ kind: "image", src: "assets/a.png", width: 0 }] }))).toThrow(/elements\[0\]\.width/);
+  });
+
   it("rejects malformed manifests with a readable message", () => {
     expect(() => parseManifest("{nope")).toThrow(/not valid JSON/);
     expect(() => parseManifest(JSON.stringify({ artboards: [{ width: 10 }] }))).toThrow(/artboards\[0\]\.file/);
@@ -123,5 +139,12 @@ describe("page manifest", () => {
       expect(() => parseManifest(JSON.stringify({ elements: [{ kind: "text", text: "S", size: "xl" }] }))).toThrow(/elements\[0\]\.size/);
       expect(() => parseManifest(JSON.stringify({ elements: [{ kind: "sticky", text: "" }] }))).toThrow(/elements\[0\]\.text/);
     });
+  });
+
+  it("accepts expand fill on an artboard and refuses another value naming the field", () => {
+    const manifest = parseManifest(JSON.stringify({ artboards: [{ file: "a.html", expand: "fill" }, { file: "b.html" }] }));
+    expect(manifest.artboards[0]!.expand).toBe("fill");
+    expect(manifest.artboards[1]).not.toHaveProperty("expand");
+    expect(() => parseManifest(JSON.stringify({ artboards: [{ file: "a.html" }, { file: "b.html", expand: "stretch" }] }))).toThrow(/artboards\[1\]\.expand/);
   });
 });

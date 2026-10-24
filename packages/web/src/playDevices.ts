@@ -16,17 +16,38 @@ export interface Presentation {
   frameHeight: number;
   /** Space kept free around the device on the stage. */
   stagePadding: number;
+  /** Whether the viewport stretches to the stage: its height (phone/tablet keep their width) or both sizes. */
+  fill: "none" | "height" | "both";
+  /** A frame applies, so the "Habillage" button is offered. */
+  framable: boolean;
+  /** Narrow-window phone: a dark bar with a back button sits above the design. */
+  mobileBar: boolean;
 }
 
+/** Window widths under which a phone / tablet artboard fills the screen, as on the real device. */
+const PHONE_FILL_BELOW = 600;
+const TABLET_FILL_BELOW = 1100;
+
 /** `framed` false drops the device frame and shows the design as is (the "Habillage" switch). */
-export function presentationOf(artboard: Pick<ManifestArtboard, "width" | "height" | "device">, framed = true): Presentation {
+export function presentationOf(
+  artboard: Pick<ManifestArtboard, "width" | "height" | "device" | "expand">,
+  framed = true,
+  windowWidth = Number.POSITIVE_INFINITY,
+): Presentation {
   const declared = artboard.device ?? (artboard.width <= PHONE_MAX_WIDTH && artboard.height > artboard.width ? "phone" : "none");
-  const device = framed ? declared : "none";
+  const expanded = artboard.expand === "fill" && declared !== "phone";
+  const narrow = (declared === "phone" && windowWidth < PHONE_FILL_BELOW) || (declared === "tablet" && windowWidth < TABLET_FILL_BELOW);
+  const device = framed && !narrow && !expanded ? declared : "none";
+  const framable = declared !== "none" && !narrow && !expanded;
+  const fill = narrow || expanded ? "both" : framable && !framed ? (declared === "desktop" ? "both" : declared === "paper" ? "none" : "height") : "none";
   const viewport = declared === "phone" ? PHONE_VIEWPORT : { width: artboard.width, height: artboard.height };
   return {
     device,
     viewport,
     frameHeight: device === "tablet" ? TABLET_STRIP_HEIGHT : device === "desktop" ? BROWSER_BAR_HEIGHT : 0,
-    stagePadding: device === "paper" ? 14 : device === "desktop" ? 44 : 32,
+    stagePadding: fill !== "none" ? 0 : device === "paper" ? 14 : device === "desktop" ? 44 : 32,
+    fill,
+    framable,
+    mobileBar: narrow && declared === "phone",
   };
 }

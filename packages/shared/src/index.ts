@@ -284,6 +284,8 @@ export interface ManifestArtboard {
   device?: ArtboardDevice;
   /** Text shown in the address bar of the `desktop` presentation; never invented. */
   url?: string;
+  /** `fill`: in play mode the artboard fills the whole window (ignored on a phone); the canvas keeps the declared size. */
+  expand?: "fill";
   guides?: ArtboardGuides;
 }
 
@@ -332,8 +334,21 @@ export interface ManifestStickyElement {
   y: number;
 }
 
+export const DEFAULT_IMAGE_WIDTH = 400;
+
+/** Image from the project assets (screenshot, reference), shown with its file name as caption. */
+export interface ManifestImageElement {
+  kind: "image";
+  /** `assets/…` path of the project; never an external URL. */
+  src: string;
+  /** Width in canvas pixels; the height follows the image ratio. */
+  width: number;
+  x: number;
+  y: number;
+}
+
 /** Decoration drawn on the canvas, written by Claude. Add a kind here and a parser in ELEMENT_PARSERS. */
-export type ManifestElement = ManifestTitleElement | ManifestTextElement | ManifestStickyElement;
+export type ManifestElement = ManifestTitleElement | ManifestTextElement | ManifestStickyElement | ManifestImageElement;
 export type ManifestElementKind = ManifestElement["kind"];
 
 /** Play mode: clicking `selector` in artboard `from` goes to artboard `to`. */
@@ -460,6 +475,19 @@ const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unkno
       y: num(item, "y", name, 0),
     };
   },
+  image(item, name) {
+    const src = str(item, "src", name);
+    if (!src.startsWith("assets/") || src === "assets/" || src.split("/").some((part) => part === ".." || part === ".")) {
+      fail(`${name}.src must be a path inside the project assets, like assets/screenshot.png`);
+    }
+    return {
+      kind: "image",
+      src,
+      width: num(item, "width", name, DEFAULT_IMAGE_WIDTH, true),
+      x: num(item, "x", name, 0),
+      y: num(item, "y", name, 0),
+    };
+  },
 };
 
 function parseElement(item: Record<string, unknown>, name: string): ManifestElement {
@@ -512,6 +540,10 @@ export function parseManifest(text: string): Manifest {
       artboard.device = item.device as ArtboardDevice;
     }
     if (typeof item.url === "string") artboard.url = item.url;
+    if (item.expand !== undefined) {
+      if (item.expand !== "fill") fail(`${name}.expand must be "fill"`);
+      artboard.expand = "fill";
+    }
     if (item.guides !== undefined) artboard.guides = parseGuides(item.guides, `${name}.guides`);
     nextX = artboard.x + width + ARTBOARD_GAP;
     return artboard;
