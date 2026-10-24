@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { ManifestElement, ManifestTitleElement } from "@redline/shared";
+import { CanvasStickyNote, CanvasTextNote } from "./CanvasNotes.js";
 import styles from "./CanvasElements.module.css";
 
 const TITLE_SIZE = 32;
@@ -50,6 +51,10 @@ function CanvasElement({ element }: { element: ManifestElement }) {
   switch (element.kind) {
     case "title":
       return <CanvasTitle element={element} />;
+    case "text":
+      return <CanvasTextNote element={element} />;
+    case "sticky":
+      return <CanvasStickyNote element={element} />;
   }
 }
 

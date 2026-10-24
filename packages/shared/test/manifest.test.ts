@@ -99,4 +99,29 @@ describe("page manifest", () => {
     expect(bad({ columns: 4, gutter: 8, margin: "x" })).toThrow(/guides\.margin/);
     expect(bad({ columns: 4, gutter: 8, margin: 16, baseline: 0 })).toThrow(/guides\.baseline/);
   });
+
+  describe("text and sticky notes", () => {
+    it("applies the defaults", () => {
+      const manifest = parseManifest(JSON.stringify({ elements: [{ kind: "text", text: "Hello", x: 5, y: 6 }, { kind: "sticky", text: "Ask", x: 1, y: 2 }] }));
+      expect(manifest.elements).toEqual([
+        { kind: "text", text: "Hello", width: 360, size: "m", x: 5, y: 6 },
+        { kind: "sticky", text: "Ask", width: 240, size: "m", color: "yellow", x: 1, y: 2 },
+      ]);
+    });
+
+    it("keeps declared colour, size and width", () => {
+      const manifest = parseManifest(JSON.stringify({ elements: [{ kind: "text", text: "T", color: "blue", size: "l", width: 500 }, { kind: "sticky", text: "S", color: "pink", size: "s", width: 336 }] }));
+      expect(manifest.elements).toEqual([
+        { kind: "text", text: "T", width: 500, size: "l", color: "blue", x: 0, y: 0 },
+        { kind: "sticky", text: "S", width: 336, size: "s", color: "pink", x: 0, y: 0 },
+      ]);
+    });
+
+    it("refuses an unknown colour or size, naming the field", () => {
+      expect(() => parseManifest(JSON.stringify({ elements: [{ kind: "sticky", text: "S", color: "teal" }] }))).toThrow(/elements\[0\]\.color/);
+      expect(() => parseManifest(JSON.stringify({ elements: [{ kind: "text", text: "S", color: "teal" }] }))).toThrow(/elements\[0\]\.color/);
+      expect(() => parseManifest(JSON.stringify({ elements: [{ kind: "text", text: "S", size: "xl" }] }))).toThrow(/elements\[0\]\.size/);
+      expect(() => parseManifest(JSON.stringify({ elements: [{ kind: "sticky", text: "" }] }))).toThrow(/elements\[0\]\.text/);
+    });
+  });
 });

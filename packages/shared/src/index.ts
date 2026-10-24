@@ -300,8 +300,40 @@ export interface ManifestTitleElement {
   y: number;
 }
 
+/** Palette shared by sticky notes, text notes, shapes and arrows. The web package maps each name to its shades. */
+export const PALETTE_COLORS = ["yellow", "orange", "pink", "green", "blue", "purple", "gray"] as const;
+export type PaletteColor = (typeof PALETTE_COLORS)[number];
+
+export const NOTE_SIZES = ["s", "m", "l"] as const;
+export type NoteSize = (typeof NOTE_SIZES)[number];
+
+export const DEFAULT_TEXT_WIDTH = 360;
+export const DEFAULT_STICKY_WIDTH = 240;
+
+/** Prose with a fixed width; `color` tints the text. Limited markdown. */
+export interface ManifestTextElement {
+  kind: "text";
+  text: string;
+  width: number;
+  size: NoteSize;
+  color?: PaletteColor;
+  x: number;
+  y: number;
+}
+
+/** Coloured paper for an open question or a reminder; `color` fills the background. Limited markdown. */
+export interface ManifestStickyElement {
+  kind: "sticky";
+  text: string;
+  width: number;
+  size: NoteSize;
+  color: PaletteColor;
+  x: number;
+  y: number;
+}
+
 /** Decoration drawn on the canvas, written by Claude. Add a kind here and a parser in ELEMENT_PARSERS. */
-export type ManifestElement = ManifestTitleElement;
+export type ManifestElement = ManifestTitleElement | ManifestTextElement | ManifestStickyElement;
 export type ManifestElementKind = ManifestElement["kind"];
 
 /** Play mode: clicking `selector` in artboard `from` goes to artboard `to`. */
@@ -385,6 +417,13 @@ function num(item: Record<string, unknown>, key: string, name: string, fallback:
   return value;
 }
 
+function oneOf<T extends string>(item: Record<string, unknown>, key: string, name: string, allowed: readonly T[]): T | undefined {
+  const value = item[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !(allowed as readonly string[]).includes(value)) fail(`${name}.${key} must be one of ${allowed.join(", ")}`);
+  return value as T;
+}
+
 const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unknown>, name: string) => Extract<ManifestElement, { kind: K }> } = {
   title(item, name) {
     const title: ManifestTitleElement = {
@@ -396,6 +435,30 @@ const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unkno
     };
     if (typeof item.subtitle === "string" && item.subtitle !== "") title.subtitle = item.subtitle;
     return title;
+  },
+  text(item, name) {
+    const note: ManifestTextElement = {
+      kind: "text",
+      text: str(item, "text", name),
+      width: num(item, "width", name, DEFAULT_TEXT_WIDTH, true),
+      size: oneOf(item, "size", name, NOTE_SIZES) ?? "m",
+      x: num(item, "x", name, 0),
+      y: num(item, "y", name, 0),
+    };
+    const color = oneOf(item, "color", name, PALETTE_COLORS);
+    if (color) note.color = color;
+    return note;
+  },
+  sticky(item, name) {
+    return {
+      kind: "sticky",
+      text: str(item, "text", name),
+      width: num(item, "width", name, DEFAULT_STICKY_WIDTH, true),
+      size: oneOf(item, "size", name, NOTE_SIZES) ?? "m",
+      color: oneOf(item, "color", name, PALETTE_COLORS) ?? "yellow",
+      x: num(item, "x", name, 0),
+      y: num(item, "y", name, 0),
+    };
   },
 };
 
