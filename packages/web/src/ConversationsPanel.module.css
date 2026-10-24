@@ -272,11 +272,8 @@
 .messageChips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-}
-
-.messageChips {
   justify-content: flex-end;
+  gap: 6px;
 }
 
 .userMessage {
