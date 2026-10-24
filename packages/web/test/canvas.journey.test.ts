@@ -263,6 +263,35 @@ it("shrinks a long title down to half then ellipsises it, clamps the subtitle to
   expect(await tab.locator("[data-pin]").count()).toBe(0);
 }, 60_000);
 
+it("draws an image from the project assets at its width and natural ratio, with its file name as caption", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Images" })).json()) as { id: string };
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#d33"/></svg>';
+  await fetch(`${server.url}/api/projects/${project.id}/assets/site/now.svg`, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: svg });
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Shots",
+      files: {
+        "a.html": "<!doctype html><body>A</body>",
+        "manifest.json": JSON.stringify({
+          artboards: [{ file: "a.html", width: 400, height: 300, x: 0, y: 0 }],
+          elements: [{ kind: "image", src: "assets/site/now.svg", width: 300, x: 500, y: 40 }],
+        }),
+      },
+    })
+  ).json()) as Page;
+
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  const image = tab.locator("[data-canvas-image] img");
+  await image.waitFor();
+  await tab.waitForFunction(() => (document.querySelector("[data-canvas-image] img") as HTMLImageElement).naturalWidth > 0);
+  const frame = await box(tab.locator("[data-canvas-image] img"));
+  expect(frame.width / frame.height).toBeCloseTo(2, 1);
+  const artboard = await box(tab.locator('iframe[title$="a.html"]'));
+  expect(frame.width / artboard.width).toBeCloseTo(300 / 400, 1);
+  expect(await tab.locator("[data-canvas-image] figcaption").textContent()).toBe("assets/site/now.svg");
+}, 60_000);
+
 it("shows layout guides on the artboards that declare them, from the button or the G key, and remembers the choice", async () => {
   const project = (await (await server.post("/api/projects", { title: "Guides" })).json()) as { id: string };
   const html = "<!doctype html><body style=\"margin:0\"><h1>Hi</h1></body>";

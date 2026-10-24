@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import type { ManifestElement, ManifestTitleElement } from "@redline/shared";
+import type { ManifestElement, ManifestImageElement, ManifestTitleElement } from "@redline/shared";
 import styles from "./CanvasElements.module.css";
 
 const TITLE_SIZE = 32;
@@ -45,20 +45,33 @@ function CanvasTitle({ element }: { element: ManifestTitleElement }) {
   );
 }
 
+/** The file is served by the artboard origin, like the assets used inside artboards. */
+function CanvasImage({ element, assetBase }: { element: ManifestImageElement; assetBase: string }) {
+  const src = `${assetBase}/${element.src.split("/").map(encodeURIComponent).join("/")}`;
+  return (
+    <figure data-canvas-image className={styles.image} style={{ left: element.x, top: element.y, width: element.width }}>
+      <img className={styles.imageFile} src={src} alt={element.src} draggable={false} />
+      <figcaption className={styles.imageCaption}>{element.src}</figcaption>
+    </figure>
+  );
+}
+
 /** Add a case here for each new element kind. */
-function CanvasElement({ element }: { element: ManifestElement }) {
+function CanvasElement({ element, assetBase }: { element: ManifestElement; assetBase: string }) {
   switch (element.kind) {
     case "title":
       return <CanvasTitle element={element} />;
+    case "image":
+      return <CanvasImage element={element} assetBase={assetBase} />;
   }
 }
 
 /** Decoration written by Claude: drawn in list order, not draggable, no comment pins. */
-export function CanvasElements({ elements }: { elements: ManifestElement[] }) {
+export function CanvasElements({ elements, assetBase }: { elements: ManifestElement[]; assetBase: string }) {
   return (
     <>
       {elements.map((element, i) => (
-        <CanvasElement key={i} element={element} />
+        <CanvasElement key={i} element={element} assetBase={assetBase} />
       ))}
     </>
   );
