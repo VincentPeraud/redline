@@ -9,6 +9,7 @@ import {
   isSafePath,
   missingCoreTokens,
   parseManifest,
+  publishManifestError,
   parseTweaks,
   type CreateVersionRequest,
   type Effort,
@@ -54,10 +55,16 @@ export function filesError(files: unknown): string | null {
   return invalid ? "invalid files" : null;
 }
 
-/** Error message when the files carry a manifest or tweaks file that does not parse, else null. */
-export function manifestError(files: Record<string, string>): string | null {
+/**
+ * Error message when the files carry a manifest or tweaks file that does not parse, else null.
+ * `requireElementIds`: a publish by Claude, whose manifest elements must all carry an id.
+ */
+export function manifestError(files: Record<string, string>, requireElementIds = false): string | null {
   try {
-    if (files[MANIFEST_PATH] !== undefined) parseManifest(files[MANIFEST_PATH]);
+    if (files[MANIFEST_PATH] !== undefined) {
+      const invalid = requireElementIds ? publishManifestError(files[MANIFEST_PATH]) : (parseManifest(files[MANIFEST_PATH]), null);
+      if (invalid) return invalid;
+    }
     if (files[TWEAKS_PATH] !== undefined) parseTweaks(files[TWEAKS_PATH]);
     return null;
   } catch (error) {
@@ -74,17 +81,17 @@ export function designSystemError(files: Record<string, string>): string | null 
 }
 
 /** Error message when the files of a new page are invalid, else null. */
-export function pageFilesError(files: unknown): string | null {
-  return filesError(files) ?? manifestError(files as Record<string, string>);
+export function pageFilesError(files: unknown, requireElementIds = false): string | null {
+  return filesError(files) ?? manifestError(files as Record<string, string>, requireElementIds);
 }
 
 /**
  * Error message when a request to record a version is invalid, else null. The one check behind `/api` and `/agent-api`.
  * `designSystemPage`: the page is a design system's, whose tokens must stay complete.
  */
-export function versionRequestError(body: Partial<CreateVersionRequest> | undefined, designSystemPage: boolean): string | null {
+export function versionRequestError(body: Partial<CreateVersionRequest> | undefined, designSystemPage: boolean, requireElementIds = false): string | null {
   const { files, message, origin } = body ?? {};
-  const invalidFiles = pageFilesError(files);
+  const invalidFiles = pageFilesError(files, requireElementIds);
   if (invalidFiles) return invalidFiles;
   if (designSystemPage) {
     const invalidDesignSystem = designSystemError(files!);

@@ -79,7 +79,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
 
       api.post<{ Params: { pageId: string }; Body: CreateVersionRequest }>("/pages/:pageId/versions", async (req, reply) => {
         if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-        const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId));
+        const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId), true);
         if (invalid) return reply.code(400).send({ error: invalid });
         const { files, message, origin, baseVersionId, workId, designMd } = req.body;
         if (!requiredString(baseVersionId)) return reply.code(400).send({ error: "baseVersionId is required" });
