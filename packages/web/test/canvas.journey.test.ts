@@ -33,7 +33,7 @@ async function box(locator: Locator) {
   return result;
 }
 
-it("lays artboards out from the manifest, shows notes, and zooms and pans with pins following", async () => {
+it("lays artboards out from the manifest, shows titles, and zooms and pans with pins following", async () => {
   const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as { id: string };
   const html = (title: string) => `<!doctype html><body style="margin:0"><h1 style="margin:40px">${title}</h1></body>`;
   const page = (await (
@@ -47,7 +47,7 @@ it("lays artboards out from the manifest, shows notes, and zooms and pans with p
             { file: "cart.html", title: "Cart", width: 400, height: 300, x: 0, y: 0 },
             { file: "pay.html", title: "Pay", width: 300, height: 200, x: 600, y: 100 },
           ],
-          notes: [{ text: "Checkout flow", x: 0, y: -80 }],
+          elements: [{ text: "Checkout flow", subtitle: "Two screens", x: 0, y: -80 }],
         }),
       },
     })
@@ -65,6 +65,8 @@ it("lays artboards out from the manifest, shows notes, and zooms and pans with p
   const cart = tab.locator('iframe[title$="cart.html"]');
   const pay = tab.locator('iframe[title$="pay.html"]');
   await tab.getByText("Checkout flow").waitFor();
+  await tab.getByText("Two screens").waitFor();
+  expect(await tab.getByText(/artboards · modifiable/).count()).toBe(0);
 
   const cartBox = await box(cart);
   const payBox = await box(pay);
@@ -214,3 +216,49 @@ it("shows a new page, which has no artboard, as an empty canvas that says what t
   expect(await empty.textContent()).toContain("panneau Conversations");
   expect(await tab.locator("iframe").count()).toBe(0);
 });
+
+it("shrinks a long title down to half then ellipsises it, clamps the subtitle to two lines, and ignores comment clicks on titles", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Titles" })).json()) as { id: string };
+  const longTitle = "A very long group title that cannot possibly fit within three hundred pixels of canvas width";
+  const longSubtitle = "A long subtitle ".repeat(20).trim();
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Long",
+      files: {
+        "a.html": "<!doctype html><body>A</body>",
+        "manifest.json": JSON.stringify({
+          artboards: [{ file: "a.html", width: 400, height: 300, x: 0, y: 0 }],
+          elements: [
+            { kind: "title", text: longTitle, subtitle: longSubtitle, width: 300, x: 0, y: -140 },
+            { text: "Short", subtitle: "Fits", x: 0, y: -240 },
+          ],
+        }),
+      },
+    })
+  ).json()) as Page;
+
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  const title = tab.locator("[data-canvas-title]").filter({ hasText: "A very long" });
+  await title.waitFor();
+  const short = tab.locator("[data-canvas-title]").filter({ hasText: "Short" });
+  const shortSize = await short.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  const longSize = await title.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(shortSize).toBe(32);
+  expect(longSize).toBe(16);
+  const { clipped, lines } = await title.evaluate((el) => ({ clipped: el.scrollWidth > el.clientWidth, lines: Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)) }));
+  expect(clipped).toBe(true);
+  expect(lines).toBe(1);
+  expect(await title.getAttribute("title")).toBe(longTitle);
+  expect(await short.getAttribute("title")).toBeNull();
+
+  const subtitle = tab.locator("[data-canvas-subtitle]").filter({ hasText: "A long subtitle" });
+  const subtitleLines = await subtitle.evaluate((el) => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)));
+  expect(subtitleLines).toBe(2);
+  expect(await subtitle.getAttribute("title")).toBe(longSubtitle);
+
+  await tab.getByRole("button", { name: "Commenter (C)" }).click();
+  await title.click({ force: true });
+  expect(await tab.getByLabel("Nouveau commentaire").count()).toBe(0);
+  expect(await tab.locator("[data-pin]").count()).toBe(0);
+}, 60_000);

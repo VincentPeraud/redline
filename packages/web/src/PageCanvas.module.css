@@ -92,26 +92,6 @@
   color: var(--color-text-body);
 }
 
-.note {
-  position: absolute;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-.noteTitle {
-  margin: 0;
-  font-size: 32px;
-  font-weight: var(--font-weight-bold);
-  letter-spacing: -0.01em;
-}
-
-.noteSubtitle {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-}
-
 .artboard {
   position: absolute;
 }

@@ -28,7 +28,7 @@ afterAll(async () => {
 });
 
 const manifestOf = (...files: string[]) =>
-  JSON.stringify({ artboards: files.map((file, i) => ({ file, width: 400, height: 300, x: i * 480, y: 0 })), notes: [], links: [], tweaks: [] });
+  JSON.stringify({ artboards: files.map((file, i) => ({ file, width: 400, height: 300, x: i * 480, y: 0 })), elements: [], links: [], tweaks: [] });
 
 const html = (heading: string) => `<!doctype html><h1>${heading}</h1>`;
 
