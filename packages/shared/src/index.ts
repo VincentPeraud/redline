@@ -262,6 +262,14 @@ export const ARTBOARD_GAP = 80;
 /** How play mode presents an artboard. `none` = the design as is. */
 export type ArtboardDevice = "phone" | "tablet" | "desktop" | "paper" | "none";
 export const ARTBOARD_DEVICES: readonly ArtboardDevice[] = ["phone", "tablet", "desktop", "paper", "none"];
+/** Column grid drawn over an artboard when the viewer shows guides (canvas pixels). */
+export interface ArtboardGuides {
+  columns: number;
+  gutter: number;
+  margin: number;
+  /** Height of the baseline grid; no baseline lines when absent. */
+  baseline?: number;
+}
 
 export interface ManifestArtboard {
   /** Path of the HTML file; also the artboard's identity (threads reference it). */
@@ -276,6 +284,7 @@ export interface ManifestArtboard {
   device?: ArtboardDevice;
   /** Text shown in the address bar of the `desktop` presentation; never invented. */
   url?: string;
+  guides?: ArtboardGuides;
 }
 
 export interface ManifestNote {
@@ -364,6 +373,21 @@ function num(item: Record<string, unknown>, key: string, name: string, fallback:
   return value;
 }
 
+function parseGuides(value: unknown, name: string): ArtboardGuides {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) fail(`${name} must be an object`);
+  const item = value as Record<string, unknown>;
+  const required = (key: string, integer = false, positive = false): number => {
+    const n = item[key];
+    if (typeof n !== "number" || !Number.isFinite(n) || n < 0 || (positive && n === 0) || (integer && !Number.isInteger(n))) {
+      fail(`${name}.${key} must be ${integer ? "a positive whole number" : positive ? "a positive number" : "a number of 0 or more"}`);
+    }
+    return n;
+  };
+  const guides: ArtboardGuides = { columns: required("columns", true, true), gutter: required("gutter"), margin: required("margin") };
+  if (item.baseline !== undefined) guides.baseline = required("baseline", false, true);
+  return guides;
+}
+
 export function parseManifest(text: string): Manifest {
   let raw: unknown;
   try {
@@ -391,6 +415,7 @@ export function parseManifest(text: string): Manifest {
       artboard.device = item.device as ArtboardDevice;
     }
     if (typeof item.url === "string") artboard.url = item.url;
+    if (item.guides !== undefined) artboard.guides = parseGuides(item.guides, `${name}.guides`);
     nextX = artboard.x + width + ARTBOARD_GAP;
     return artboard;
   });

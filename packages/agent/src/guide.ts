@@ -12,6 +12,7 @@ A Redline page is a set of files. You work on a copy of them (the working copy f
 - artboards[].file is the artboard's identity: comment threads reference it, so do not rename or delete a file with open threads.
 - To add an artboard, use the add_artboard tool (it writes the HTML and the manifest entry). To change a manifest section by hand, keep the file valid JSON: an invalid manifest is rejected when the run is published.
 - Each artboard declares how play mode presents it with "device": "phone" | "tablet" | "desktop" | "paper" | "none" (phone frame, tablet frame, browser window, white sheet on grey, or the design as is). Always set a device on every new artboard. "url" (desktop only) is the text of the browser's address bar: set it only when the design has a real address, otherwise leave it out (the bar stays empty).
+- artboards[].guides = { "columns", "gutter", "margin", "baseline"? } (pixels, columns a whole number) declares a column grid on that artboard; viewers show it with the Guides (G) button. Design the artboard to that grid.
 - links make clicks on a CSS selector in artboard "from" go to artboard "to" in play mode.
 
 ## Design system tokens

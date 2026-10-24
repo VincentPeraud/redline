@@ -63,4 +63,20 @@ describe("page manifest", () => {
     expect(manifest.artboards[1]!.x).toBeGreaterThan(manifest.artboards[0]!.x + manifest.artboards[0]!.width);
     expect(MANIFEST_PATH).toBe("manifest.json");
   });
+
+  it("reads layout guides on an artboard and refuses a malformed value naming the field", () => {
+    const guides = { columns: 4, gutter: 8, margin: 16, baseline: 8 };
+    const manifest = parseManifest(JSON.stringify({ artboards: [{ file: "a.html" }, { file: "b.html", guides: { columns: 12, gutter: 0, margin: 24 } }] }));
+    expect(manifest.artboards[0]!.guides).toBeUndefined();
+    expect(manifest.artboards[1]!.guides).toEqual({ columns: 12, gutter: 0, margin: 24 });
+    expect(parseManifest(JSON.stringify({ artboards: [{ file: "a.html", guides }] })).artboards[0]!.guides).toEqual(guides);
+    const bad = (value: unknown) => () => parseManifest(JSON.stringify({ artboards: [{ file: "a.html", guides: value }] }));
+    expect(bad("grid")).toThrow(/artboards\[0\]\.guides/);
+    expect(bad({ columns: 0, gutter: 8, margin: 16 })).toThrow(/artboards\[0\]\.guides\.columns/);
+    expect(bad({ columns: 2.5, gutter: 8, margin: 16 })).toThrow(/guides\.columns/);
+    expect(bad({ columns: 4, margin: 16 })).toThrow(/guides\.gutter/);
+    expect(bad({ columns: 4, gutter: -1, margin: 16 })).toThrow(/guides\.gutter/);
+    expect(bad({ columns: 4, gutter: 8, margin: "x" })).toThrow(/guides\.margin/);
+    expect(bad({ columns: 4, gutter: 8, margin: 16, baseline: 0 })).toThrow(/guides\.baseline/);
+  });
 });
