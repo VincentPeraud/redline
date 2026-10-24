@@ -35,6 +35,7 @@ import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRou
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
+import { crossPageReferencesError } from "./cross-page-references.js";
 import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
 import { registerContextTracking } from "./context.js";
 import { sourcePagesMessage } from "./design-system-source.js";
@@ -333,7 +334,7 @@ export async function buildMainApp(
     "/api/pages/:pageId/versions",
     async (req, reply) => {
       if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-      const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId));
+      const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files);
       if (invalid) return reply.code(400).send({ error: invalid });
       const { files, message, origin } = req.body;
       return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
