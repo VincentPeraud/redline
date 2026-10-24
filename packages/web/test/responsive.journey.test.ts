@@ -82,3 +82,52 @@ it("lays a responsive artboard out as one frame: renderings side by side at the 
     await expect.poll(() => tab.locator("[data-rendering] iframe").nth(index).contentFrame().locator("html").getAttribute("data-tweak-layout")).toBe("grid");
   }
 }, 60_000);
+
+it("pins a comment in one rendering: its pin shows in that rendering only (after a reload too) and the comments panel labels it with a chip", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Pins" })).json()) as { id: string };
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Landing",
+      files: {
+        "landing.html": `<!doctype html><html><body style="margin:0"><h1 style="margin:0">Landing</h1></body></html>`,
+        "plain.html": `<!doctype html><html><body style="margin:0"><h1 style="margin:0">Plain</h1></body></html>`,
+        "manifest.json": JSON.stringify({
+          artboards: [
+            { file: "landing.html", x: 0, y: 0, responsive: ["desktop", { device: "mobile", width: 390, height: 844 }] },
+            { file: "plain.html", x: 6000, y: 0, width: 400, height: 300 },
+          ],
+        }),
+      },
+    })
+  ).json()) as Page;
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  const mobile = tab.locator("[data-rendering=mobile-390]");
+  const desktop = tab.locator("[data-rendering=desktop-1440]");
+  await mobile.locator("iframe").waitFor();
+  await expect.poll(() => mobile.locator("iframe").contentFrame().locator("h1").count()).toBe(1);
+
+  await tab.keyboard.press("c");
+  await mobile.locator("iframe").contentFrame().locator("h1").click();
+  await tab.getByRole("textbox").fill("Burger menu");
+  await tab.getByRole("textbox").press("Enter");
+
+  const pins = (rendering: typeof mobile) => rendering.locator("[data-pin]");
+  await expect.poll(() => pins(mobile).count()).toBe(1);
+  expect(await pins(desktop).count()).toBe(0);
+  await tab.getByRole("tab", { name: /Commentaires/ }).click();
+  expect(await tab.getByTestId("thread-rendering").allTextContents()).toEqual(["Mobile · 390"]);
+
+  await tab.reload();
+  await expect.poll(() => pins(mobile).count()).toBe(1);
+  expect(await pins(desktop).count()).toBe(0);
+
+  // a comment on a plain artboard carries no chip
+  await tab.keyboard.press("c");
+  await tab.locator("iframe[title$='plain.html']").contentFrame().locator("h1").click({ force: true });
+  await tab.getByRole("textbox").fill("Plain comment");
+  await tab.getByRole("textbox").press("Enter");
+  await expect.poll(() => tab.locator("[data-pin]").count()).toBe(2);
+  expect(await tab.getByTestId("thread-rendering").count()).toBe(1);
+}, 60_000);

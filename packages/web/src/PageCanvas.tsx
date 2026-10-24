@@ -10,6 +10,7 @@ import {
   type Project,
   type QueueEntry,
   type Thread,
+  type ThreadRendering,
 } from "@redline/shared";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { ArtboardHistory } from "./ArtboardHistory.js";
@@ -94,7 +95,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
-  const [draft, setDraft] = useState<(Pick & { artboard: string }) | null>(null);
+  const [draft, setDraft] = useState<(Pick & { artboard: string; rendering?: ThreadRendering }) | null>(null);
   const [text, setText] = useState("");
   const [choice, setChoice] = useState<ModelEffortChoice>({});
   const [agentDefaults, setAgentDefaults] = useState<AgentDefaults>({});
@@ -376,7 +377,13 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       renderings={artboard.responsive}
                       layout={layout}
                       zoom={view.zoom}
+                      threads={preview?.file === artboard.file ? [] : threads.filter((t) => t.artboard === artboard.file)}
+                      picking={picking && preview?.file !== artboard.file}
                       tweaks={tweaks.values}
+                      onPick={(rendering, pick) => {
+                        setDraft({ ...pick, artboard: artboard.file, rendering: { format: rendering.format, width: rendering.width } });
+                        setTab("comments");
+                      }}
                       onDocHeight={(key, height) =>
                         setDocHeights((current) => (current[artboard.file]?.[key] === height ? current : { ...current, [artboard.file]: { ...current[artboard.file], [key]: height } }))
                       }

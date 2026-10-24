@@ -62,6 +62,15 @@
   white-space: nowrap;
 }
 
+.renderingChip {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #f3f2ee;
+  color: #3f3f46;
+  font-size: 11px;
+}
+
 .badge {
   flex-shrink: 0;
   display: flex;

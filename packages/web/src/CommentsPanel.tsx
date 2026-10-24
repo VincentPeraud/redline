@@ -4,6 +4,7 @@ import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
+import { RenderingChip } from "./RenderingChip.js";
 import { queueLabel } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
@@ -44,6 +45,7 @@ function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNo
     <div className={styles.head}>
       <span className={styles.badge}>{thread.number}</span>
       <span className={styles.where}>{threadWhere(thread)}</span>
+      <RenderingChip thread={thread} />
       <span className={styles.spacer} />
       {children}
     </div>
@@ -91,6 +93,7 @@ function ThreadCard({
         <div className={styles.head}>
           <span className={cx(styles.badge, styles.badgeFailed)}>{thread.number}</span>
           <span className={styles.where}>{threadWhere(thread)}</span>
+          <RenderingChip thread={thread} />
           <span className={styles.spacer} />
           <span data-testid="run-status" data-status="failed" className={styles.headFailed}>
             Échec
