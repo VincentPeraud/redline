@@ -144,7 +144,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
           className={styles.picker}
           onClick={() => setListOpen(!listOpen)}
         >
-          <span className={styles.pickerTitle}>{active ? active.title : "Aucune conversation"}</span>
+          <span className={cx(styles.pickerTitle, !active && styles.pickerPlaceholder)}>{active ? active.title : "Aucune conversation"}</span>
           <span className={styles.spacer} />
           <span aria-hidden="true" className={styles.chevron}>
             ▼
