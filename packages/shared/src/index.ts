@@ -192,9 +192,47 @@ export interface ServerConfig {
 /** `held`: a finished comment kept back ("Plus tard") until "Tout envoyer"; not yet sent to any session. */
 export type ThreadStatus = "held" | "open" | "resolved";
 
+/** What a thread is about: an element of an artboard, a whole artboard, or an element of the page canvas. */
+export type ThreadTarget =
+  | {
+      kind: "element";
+      artboard: string;
+      selector: string;
+      elementName: string | null;
+      xPct: number;
+      yPct: number;
+      rendering?: ThreadRendering;
+    }
+  | { kind: "artboard"; artboard: string }
+  | { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind };
+
+export const CANVAS_ELEMENT_KIND_LABELS: Record<ManifestElementKind, string> = {
+  title: "Titre",
+  text: "Texte",
+  sticky: "Post-it",
+  link: "Lien",
+  image: "Image",
+  shape: "Forme",
+  arrow: "Flèche",
+};
+
+/** "accueil.html · bouton « Réserver ma place »", "accueil.html · Artboard entier", "Post-it · note-parcours". */
+export function threadTargetLabel(target: ThreadTarget): string {
+  switch (target.kind) {
+    case "element":
+      return `${target.artboard} · ${target.elementName ?? target.selector}`;
+    case "artboard":
+      return `${target.artboard} · Artboard entier`;
+    case "canvas-element":
+      return `${CANVAS_ELEMENT_KIND_LABELS[target.elementKind]} · ${target.elementId}`;
+  }
+}
+
 export interface Thread {
   id: string;
   pageId: string;
+  /** Explicit target; for an element thread the flat fields below repeat it. */
+  target: ThreadTarget;
   /** Per-page number shown on the pin and in the thread list; never reused. */
   number: number;
   /** Path of the artboard file the thread is pinned on. */
