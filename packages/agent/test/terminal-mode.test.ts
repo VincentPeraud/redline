@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -54,6 +54,49 @@ describe("terminal mode (redline mcp)", () => {
     const versions = (await (await seam.server.get(`/api/pages/${page.id}/versions`)).json()) as PageVersionSummary[];
     expect(versions[0]).toMatchObject({ origin: "terminal", message: "Rework home" });
     expect(await origins(page.id)).toHaveLength(2);
+  });
+
+  it("uploads the assets added or changed in the working copy, with or without a page change", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+    const copy = join(seam.folder, ".redline", page.id);
+    const asset = async (name: string) => Buffer.from(await (await fetch(`${seam!.server.artboardOrigin}/pages/${page.id}/assets/${name}`)).arrayBuffer());
+
+    mkdirSync(join(copy, "assets"), { recursive: true });
+    writeFileSync(join(copy, "assets", "hero.jpg"), Buffer.from([1, 2, 3]));
+    expect(await call("publish_page", { message: "Hero only" })).toMatch(/assets\/hero\.jpg.*no version/);
+    expect((await asset("hero.jpg")).equals(Buffer.from([1, 2, 3]))).toBe(true);
+    expect(await origins(page.id)).toHaveLength(1);
+
+    writeFileSync(join(copy, "assets", "hero.jpg"), Buffer.from([4, 5]));
+    writeFileSync(join(copy, "home.html"), '<img src="assets/hero.jpg">');
+    expect(await call("publish_page", { message: "Use the hero" })).toMatch(/Published/);
+    expect((await asset("hero.jpg")).equals(Buffer.from([4, 5]))).toBe(true);
+    expect(await origins(page.id)).toHaveLength(2);
+
+    expect(await call("publish_page", { message: "Again" })).toMatch(/Nothing changed/);
+  });
+
+  it("never uploads what a symlink in assets/ points to, and refuses an invalid asset name", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+    const copy = join(seam.folder, ".redline", page.id);
+    const secret = join(seam.folder, "secret.txt");
+    writeFileSync(secret, "do not upload");
+    mkdirSync(join(copy, "assets"), { recursive: true });
+    symlinkSync(secret, join(copy, "assets", "leak.png"));
+    symlinkSync(secret, join(copy, "page-leak.html"));
+
+    expect(await call("publish_page", { message: "Links" })).toMatch(/Nothing changed/);
+    const assets = (await (await seam.server.get(`/api/projects/${seam.project.id}/assets`)).json()) as unknown[];
+    expect(assets).toEqual([]);
+
+    writeFileSync(join(copy, "assets", "a:b.png"), "x");
+    expect(await call("publish_page", { message: "Bad name" })).toMatch(/assets\/a:b\.png is not a valid asset name/);
   });
 
   it("publishes nothing when the working copy did not change", async () => {

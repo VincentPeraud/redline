@@ -148,6 +148,15 @@ describe("DESIGN.md and project assets over the server HTTP API", () => {
     expect((await fetch(`${server.artboardOrigin}/pages/${page.id}/assets/my%20logo.png`)).status).toBe(200);
   });
 
+  it("decodes asset names once, so a name with % or an encoded-looking sequence keeps its spelling", async () => {
+    const project = await createProject();
+    const page = await createPage(project);
+    for (const name of ["50%.png", "a%20b.png"]) expect((await putAsset(project, encodeURIComponent(name), pngBytes)).status).toBe(201);
+    expect(((await (await server.get(`/api/projects/${project.id}/assets`)).json()) as ProjectAsset[]).map((a) => a.name).sort()).toEqual(["50%.png", "a%20b.png"]);
+    expect((await fetch(`${server.artboardOrigin}/pages/${page.id}/assets/50%25.png`)).status).toBe(200);
+    expect((await fetch(`${server.artboardOrigin}/pages/${page.id}/assets/a%2520b.png`)).status).toBe(200);
+  });
+
   it("puts the assets in the working copy as base64", async () => {
     const project = await createProject();
     const page = await createPage(project);

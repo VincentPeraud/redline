@@ -80,7 +80,7 @@ describe("session MCP tools", () => {
     expect(answer).toContain(created!.id);
   });
 
-  it("read_guide returns the manifest, tweaks and design system rules", async () => {
+  it("read_guide returns the manifest, tweaks, assets and design system rules", async () => {
     let guide = "";
     const engine = new FakeEngine(async (run) => {
       guide = await run.callTool("read_guide", {});
@@ -89,6 +89,7 @@ describe("session MCP tools", () => {
     await runOnce(engine);
     expect(guide).toContain("manifest.json");
     expect(guide).toContain("tweaks.json");
+    expect(guide).toContain('src="assets/hero.jpg"');
     for (const token of CORE_TOKENS) expect(guide).toContain(token);
   });
 

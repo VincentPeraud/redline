@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import {
   AGENT_API_PREFIX,
   DESIGN_MD_PATH,
+  MAX_ASSET_BYTES,
   type AgentCheckout,
   type AgentReplyRequest,
   type CreateSiblingRequest,
@@ -12,7 +13,7 @@ import {
 import { mergeOntoCurrent } from "./publish.js";
 import { tokensEqual } from "./request-hardening.js";
 import { requiredString, versionRequestError } from "./validation.js";
-import { projectContext } from "./project-files.js";
+import { projectContext, putProjectAsset } from "./project-files.js";
 import type { PageLock } from "./page-lock.js";
 import type { OriginRef, Store } from "./store.js";
 
@@ -32,7 +33,8 @@ export function workOrigin(store: Store, pageLock: PageLock, workId: unknown, pa
 export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock): Promise<void> {
   await app.register(
     async (api) => {
-      api.addHook("preHandler", async (req, reply) => {
+      // onRequest, not preHandler: a wrong token is refused before its body (up to 20 MB for assets) is read.
+      api.addHook("onRequest", async (req, reply) => {
         const given = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice("Bearer ".length) : undefined;
         if (!tokensEqual(given, store.getAgentToken())) {
           return reply.code(401).send({ error: "Wrong or missing agent token." });
@@ -91,6 +93,17 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         } finally {
           release();
         }
+      });
+
+      // Raw bytes: an asset a session added or changed under `assets/` of its working copy, stored in the page's project.
+      await api.register(async (scope) => {
+        scope.addContentTypeParser("*", { parseAs: "buffer" }, (_req, body, done) => done(null, body));
+        scope.put<{ Params: { pageId: string; "*": string }; Body: Buffer }>("/pages/:pageId/assets/*", { bodyLimit: MAX_ASSET_BYTES }, async (req, reply) => {
+          const page = store.getPage(req.params.pageId);
+          if (!page) return reply.code(404).send({ error: "page not found" });
+          const asset = putProjectAsset(store, page.projectId, req.params["*"], req.body);
+          return reply.code("error" in asset ? 400 : 201).send(asset);
+        });
       });
 
       api.post<{ Params: { pageId: string }; Body: Partial<CreateSiblingRequest> }>("/pages/:pageId/siblings", async (req, reply) => {

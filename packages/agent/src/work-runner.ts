@@ -1,4 +1,5 @@
 import type { AgentWorkMessage, EngineEvent, WorkItem } from "@redline/shared";
+import { uploadChangedAssets } from "./assets.js";
 import type { Engine } from "./engine.js";
 import { startSessionMcp } from "./session-mcp.js";
 import type { ServerApi } from "./server-api.js";
@@ -58,6 +59,8 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
     if (result?.type !== "result") throw new Error("The engine ended without a result.");
 
     const files = readWorkingCopy(dir);
+    // Assets belong to the project: new or changed ones go up first, so the version that uses them shows them.
+    await uploadChangedAssets(api, item.pageId, dir, checkout.project.assets);
     const postReplies = async () => {
       for (const [threadId, texts] of replies) for (const text of texts) await api.replyInThread(threadId, text, item.id);
     };

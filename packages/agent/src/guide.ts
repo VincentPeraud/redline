@@ -1,4 +1,4 @@
-import { CORE_TOKENS, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, TWEAKS_PATH } from "@redline/shared";
+import { ASSETS_DIR, CORE_TOKENS, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, MAX_ASSET_BYTES, TWEAKS_PATH } from "@redline/shared";
 
 /** What a session needs to know to edit a Redline page; returned by the `read_guide` tool. */
 export const REDLINE_GUIDE = `# Redline guide
@@ -27,8 +27,13 @@ A Redline page is a set of files. You work on a copy of them (the working copy f
 - Artboards receive values without reloading: CSS variable --tweak-<id> on <html> (toggle is 1 or 0), attribute data-tweak-<id>, window.redlineTweaks, and a "redline:tweaks" event on window (detail = values).
 - Style with var(--tweak-accent, #e5484d) or html[data-tweak-layout="grid"] ...; for text or count, read window.redlineTweaks and listen to "redline:tweaks" to re-render. Always provide fallbacks: the first paint happens before the values arrive.
 
+## Assets (images and fonts)
+- Images and fonts go in ${ASSETS_DIR}/ of the working copy, never inline in the HTML (no data: URLs, no base64). They are the project's assets, shared by every page of the project, and ${ASSETS_DIR}/ already holds the existing ones: reuse them before adding a file.
+- Reference them relative to the page root: src="${ASSETS_DIR}/hero.jpg", url(${ASSETS_DIR}/fonts/inter.woff2); from an artboard in a subfolder, ../${ASSETS_DIR}/hero.jpg.
+- A new or changed file in ${ASSETS_DIR}/ is uploaded when your run ends (in terminal mode, on each publish_page) (${MAX_ASSET_BYTES / 1024 / 1024} MB at most per file). Deleting or renaming one has no effect, since other pages may use it. Overwriting one changes it on every page that uses it: to change an image for this page only, add a file with a new name.
+
 ## Rules
-- Artboards run in a sandboxed iframe: scripts are allowed, but no same-origin access, no cookies or storage, no network assumptions. Keep each artboard self-contained.
+- Artboards run in a sandboxed iframe: scripts are allowed, but no same-origin access, no cookies or storage, no network assumptions. Keep each artboard self-contained, apart from the project assets.
 - Answer each comment thread you were given with reply_in_thread, once per thread.
 - A page has no type: it is a canvas of one or more artboards. Never call a page a "planche"; say "page" or "artboard".
 - Use create_page {title} for a new page in the same project; it starts with a manifest and ONE starter artboard. Its content is not in your working copy. Say in your answer that you created it (the user sees a link card to the page under your answer).
