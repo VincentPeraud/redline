@@ -79,3 +79,43 @@ it("types and sends on a page without conversation: the first message creates it
   await expect.poll(() => panel.getByRole("button", { name: "Conversation", exact: true }).textContent()).toContain("Nouvelle conversation");
   await expect.poll(() => panel.getByTestId("conversation-message").count()).toBe(0);
 }, 60_000);
+
+it("shows what goes with a message, follows pan and tweaks, and sends it with the message", async () => {
+  const before = engine.runs.length;
+  const page = await seam.createPage(
+    {
+      "accueil.html": "<!doctype html><h1>Accueil</h1>",
+      "paiement.html": "<!doctype html><h1>Paiement</h1>",
+      "confirmation.html": "<!doctype html><h1>Confirmation</h1>",
+      "manifest.json": JSON.stringify({
+        artboards: [
+          { file: "accueil.html", x: 60, y: 100, width: 360, height: 420 },
+          { file: "paiement.html", x: 500, y: 100, width: 360, height: 420 },
+          { file: "confirmation.html", x: 940, y: 100, width: 360, height: 420 },
+        ],
+        tweaks: [{ id: "theme", type: "choice", label: "Thème", options: ["clair", "sombre"] }],
+      }),
+    },
+    "Parcours billet",
+  );
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
+  const panel = tab.getByTestId("conversations");
+
+  await panel.getByText("Parcours billet · 3 artboards", { exact: true }).waitFor();
+  await panel.getByText("Visibles : accueil, paiement, confirmation", { exact: true }).waitFor();
+  await panel.getByText("Tweaks : thème clair", { exact: true }).waitFor();
+
+  await tab.getByRole("button", { name: "Tweaks", exact: true }).click();
+  await tab.getByRole("button", { name: "sombre" }).click();
+  await panel.getByText("Tweaks : thème sombre", { exact: true }).waitFor();
+
+  await tab.getByTestId("canvas").hover({ position: { x: 500, y: 700 } });
+  await tab.mouse.wheel(1000, 0);
+  await panel.getByText("Visibles : confirmation", { exact: true }).waitFor();
+
+  await panel.getByLabel("Message à Claude").fill("Change ce titre");
+  await panel.getByRole("button", { name: "Envoyer" }).click();
+  await engine.finished(before + 1);
+  expect(engine.runs[before].message).toContain("Change ce titre\n\nThe user is looking at: confirmation.html\nTweak values: Thème: sombre");
+}, 60_000);

@@ -3,15 +3,13 @@ import type { FastifyInstance } from "fastify";
 import { DEFAULT_CONTEXT_WINDOW, newSessionPath, type EngineEvent, type Thread, type ThreadContext, type WorkItem } from "@redline/shared";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
-import { canvasElementText } from "./canvas-element-text.js";
+import { threadSubject } from "./thread-subject.js";
 
 /** What a new session is told to write the summary of a thread whose own session is not available. */
 function summaryTakeoverRequest(thread: Thread): string {
   const history = thread.replies.map((r) => `${r.author === "user" ? "User" : "Claude"}: ${r.body}`);
   return [
-    thread.target.kind === "canvas-element"
-      ? `Comment ${thread.number} on ${canvasElementText(thread.target)}:`
-      : `Comment ${thread.number} on artboard ${thread.artboard}, element \`${thread.selector}\`:`,
+    `Comment ${thread.number} ${threadSubject(thread)}:`,
     "",
     thread.body,
     "",

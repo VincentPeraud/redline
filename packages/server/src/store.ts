@@ -608,6 +608,15 @@ export class Store {
     return parseManifest(this.blobText(manifest)).elements.find((element) => element.id === id);
   }
 
+  /** Whether `file` is an artboard of the page's current version (manifest entry whose file exists; every HTML file without a manifest). */
+  hasArtboard(pageId: string, file: string): boolean {
+    const page = this.getPage(pageId);
+    if (!page || page.version.files[file] === undefined) return false;
+    const manifest = page.version.files[MANIFEST_PATH];
+    const parsed = manifest === undefined ? defaultManifest(Object.keys(page.version.files)) : parseManifest(this.blobText(manifest));
+    return parsed.artboards.some((a) => a.file === file);
+  }
+
   createThread(pageId: string, request: CreateThreadRequest): Thread {
     const id = randomUUID();
     const { next } = this.db
@@ -617,7 +626,9 @@ export class Store {
     // artboard and selector are NOT NULL: "" where they do not apply to the target.
     const placement =
       "target" in request
-        ? this.canvasElementPlacement(pageId, request.target.elementId)
+        ? request.target.kind === "artboard"
+          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
+          : this.canvasElementPlacement(pageId, request.target.elementId)
         : {
             kind: "element",
             artboard: request.artboard,

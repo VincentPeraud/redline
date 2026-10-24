@@ -278,12 +278,17 @@ export interface CreateElementThreadRequest extends CreateThreadCommon {
   rendering?: ThreadRendering;
 }
 
+/** A comment on a whole artboard: no element, no pin, no rendering. The artboard must be on the page. */
+export interface CreateArtboardThreadRequest extends CreateThreadCommon {
+  target: { kind: "artboard"; artboard: string };
+}
+
 /** A comment on an element of the page canvas. The element must carry that id in the page's current manifest; the server fills its kind. */
 export interface CreateCanvasElementThreadRequest extends CreateThreadCommon {
   target: { kind: "canvas-element"; elementId: string };
 }
 
-export type CreateThreadRequest = CreateElementThreadRequest | CreateCanvasElementThreadRequest;
+export type CreateThreadRequest = CreateElementThreadRequest | CreateArtboardThreadRequest | CreateCanvasElementThreadRequest;
 
 export const MAX_ELEMENT_NAME_LENGTH = 200;
 

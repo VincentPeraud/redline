@@ -1,5 +1,5 @@
 import { Fragment, useState, type ReactNode } from "react";
-import { CANVAS_ELEMENT_KIND_LABELS, type ManifestElementKind, type QueueEntry, type SessionRow, type Thread, type ThreadRun } from "@redline/shared";
+import type { QueueEntry, type SessionRow, type Thread, type ThreadRun } from "@redline/shared";
 import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
@@ -9,28 +9,16 @@ import { queueLabel } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
-import { threadWhere } from "./threadLabel.js";
+import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
 import { ThreadReplyForm } from "./ThreadReplyForm.js";
 import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./Thread.module.css";
 import panel from "./CommentsPanel.module.css";
 
-export interface ElementDraft {
-  artboard: string;
-  selector: string;
-  elementName?: string;
+export interface Draft {
+  /** What the comment is about, as shown in the form. */
+  label: string;
 }
-
-/** A comment about to be written on an element of the page canvas. */
-export interface CanvasElementDraft {
-  target: { kind: "canvas-element"; elementId: string };
-  elementKind: ManifestElementKind;
-}
-
-export type Draft = ElementDraft | CanvasElementDraft;
-
-const draftSubject = (draft: Draft) =>
-  "target" in draft ? `${CANVAS_ELEMENT_KIND_LABELS[draft.elementKind]} · ${draft.target.elementId}` : (draft.elementName ?? draft.selector);
 
 interface Props {
   pageId: string;
@@ -100,7 +88,7 @@ function ThreadCard({
 
   if (failed) {
     return (
-      <article className={cx(styles.card, styles.failed)}>
+      <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.failed)}>
         <div className={styles.head}>
           <span className={cx(styles.badge, styles.badgeFailed)}>{thread.number}</span>
           <span className={styles.where}>{threadWhere(thread)}</span>
@@ -116,7 +104,7 @@ function ThreadCard({
   }
 
   return (
-    <article className={cx(styles.card, active && styles.running)}>
+    <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running)}>
       <ThreadHeader thread={thread}>
         {queued && (
           <span data-testid="queued" className={styles.queued}>
@@ -198,7 +186,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
         {draft && (
           <div className={panel.draft}>
             <span>
-              Commentaire sur <code>{draftSubject(draft)}</code>
+              Commentaire sur <code>{draft.label}</code>
             </span>
             <button type="button" className={panel.cancel} onClick={onCancel}>
               Annuler

@@ -1,43 +1,22 @@
 import { randomUUID } from "node:crypto";
-import { renderingLabel, type ModelChoice, Thread, type ThreadTarget, WorkItem, WorkThread } from "@redline/shared";
+import { type ModelChoice, Thread, WorkItem, WorkThread } from "@redline/shared";
 import { seededMessage } from "./context.js";
+import { threadSubject } from "./thread-subject.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
-import { canvasElementText } from "./canvas-element-text.js";
+import { canvasElementTail } from "./canvas-element-text.js";
 import { definedChoice } from "./validation.js";
-
-/** "element `selector` (the user calls it « bouton « Continuer » »)": the exact selector, plus the readable name when the bridge computed one. */
-function elementText(thread: Pick<Thread, "selector" | "elementName">): string {
-  return `element \`${thread.selector}\`${thread.elementName ? ` (named « ${thread.elementName} »)` : ""}`;
-}
-
-/** " (vu en Mobile · 390 px: the user commented the page laid out at that width, so fix that breakpoint)" for a thread pinned in a rendering of a responsive artboard. */
-function renderingText(thread: Pick<Thread, "rendering">): string {
-  return thread.rendering ? ` (vu en ${renderingLabel(thread.rendering)} px: the user commented the page laid out at that width, so fix that breakpoint)` : "";
-}
-
-/** What Claude is asked to do about a canvas element: it lives in manifest.json, not in an artboard. */
-function canvasElementTail(target: Extract<ThreadTarget, { kind: "canvas-element" }>): string {
-  return `Edit the element \`${target.elementId}\` in \`manifest.json\` if the comment asks for a change, and keep its id.`;
-}
 
 /** The message Claude receives for one thread: the comment with its thread id, artboard, element and position. */
 export function threadMessage(thread: Thread): string {
-  if (thread.target.kind === "canvas-element") {
-    return [
-      `Comment ${thread.number} (thread id: ${thread.id}) on ${canvasElementText(thread.target)}:`,
-      "",
-      thread.body,
-      "",
-      `${canvasElementTail(thread.target)} Then answer in the thread with the reply_in_thread tool (threadId ${thread.id}).`,
-    ].join("\n");
-  }
   return [
-    `Comment ${thread.number} (thread id: ${thread.id}) on artboard ${thread.artboard}${renderingText(thread)}, ${elementText(thread)} (position ${thread.xPct}% / ${thread.yPct}% of the artboard):`,
+    `Comment ${thread.number} (thread id: ${thread.id}) ${threadSubject(thread)}:`,
     "",
     thread.body,
     "",
-    `Make the change in the working copy if the comment asks for one, then answer in the thread with the reply_in_thread tool (threadId ${thread.id}).`,
+    thread.target.kind === "canvas-element"
+      ? `${canvasElementTail(thread.target)} Then answer in the thread with the reply_in_thread tool (threadId ${thread.id}).`
+      : `Make the change in the working copy if the comment asks for one, then answer in the thread with the reply_in_thread tool (threadId ${thread.id}).`,
   ].join("\n");
 }
 
@@ -77,16 +56,13 @@ export function batchMessage(threads: Thread[]): string {
   return [
     `${threads.length} comments on this page, sent together. Handle each one, then answer in each thread separately with the reply_in_thread tool (use the thread id of that comment).`,
     "",
-    ...threads.flatMap((thread) =>
-      thread.target.kind === "canvas-element"
-        ? [`Comment ${thread.number} (thread id: ${thread.id}) on ${canvasElementText(thread.target)}:`, "", thread.body, "", canvasElementTail(thread.target), ""]
-        : [
-            `Comment ${thread.number} (thread id: ${thread.id}) on artboard ${thread.artboard}${renderingText(thread)}, ${elementText(thread)} (position ${thread.xPct}% / ${thread.yPct}% of the artboard):`,
-            "",
-            thread.body,
-            "",
-          ],
-    ),
+    ...threads.flatMap((thread) => [
+      `Comment ${thread.number} (thread id: ${thread.id}) ${threadSubject(thread)}:`,
+      "",
+      thread.body,
+      "",
+      ...(thread.target.kind === "canvas-element" ? [canvasElementTail(thread.target), ""] : []),
+    ]),
   ].join("\n");
 }
 
