@@ -3,6 +3,7 @@ import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply,
 export * from "./work.js";
 export * from "./sessions.js";
 export * from "./home.js";
+export * from "./readingOrder.js";
 
 export const PROTOCOL_VERSION = 1;
 

@@ -6,6 +6,7 @@ import {
   RESPONSIVE_FORMATS,
   defaultManifest,
   parseManifest,
+  readingOrder,
   versionPreviewPath,
   type AgentInfo,
   type CreateThreadRequest,
@@ -30,6 +31,7 @@ import { useStoredToggle } from "./useStoredToggle.js";
 import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
 import { panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { artboardAtCentre, type TocItem } from "./tocItems.js";
 import { CanvasElements } from "./CanvasElements.js";
 import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
 import { ResponsiveFrame } from "./ResponsiveFrame.js";
@@ -383,6 +385,20 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const artboardBoxes = new Map<string, Box>(
     (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, width: artboard.width, height: artboard.height }]),
   );
+  const tocItems: TocItem[] = readingOrder(
+    (manifest?.artboards ?? []).map((artboard) => ({ file: artboard.file, title: artboard.title, ...artboardBoxes.get(artboard.file)! })),
+    (manifest?.elements ?? []).flatMap((element) => (element.kind === "title" ? [{ text: element.text, x: element.x, y: element.y, width: element.width }] : [])),
+  ).map((entry) => ({ ...entry, openThreads: threads.filter((t) => t.artboard === entry.file && t.status !== "resolved").length }));
+  const currentTocFile = artboardAtCentre(
+    [...artboardBoxes].map(([file, box]) => ({ file, ...box })),
+    view,
+    viewportSize,
+  );
+  function centerOnArtboard(file: string) {
+    const box = artboardBoxes.get(file);
+    if (!box) return;
+    setView((v) => ({ ...v, x: viewportSize.width / 2 - (box.x + box.width / 2) * v.zoom, y: viewportSize.height / 2 - (box.y + box.height / 2) * v.zoom }));
+  }
   const conversationContext = messageContext({ view, viewport: viewportSize, boxes: artboardBoxes, manifest, tweakValues: tweaks.values });
   const artboardTweaks = (file: string) => (manifest?.tweaks ?? []).filter((tweak) => (tweak.artboard ? tweak.artboard === file : file === firstArtboard));
 
@@ -404,6 +420,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
         deleted={deleted}
         onPutBack={(item) => restore(item.file, item.lastVersionId)}
         onRenamePage={renamePage}
+        toc={{ items: tocItems, currentFile: currentTocFile, onSelect: centerOnArtboard }}
       />
       <div className={styles.body}>
         <main className={styles.stage}>

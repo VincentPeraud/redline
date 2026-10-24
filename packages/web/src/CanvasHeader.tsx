@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { DeletedArtboard, Page, Project, Thread } from "@redline/shared";
 import { DeletedArtboardsList } from "./DeletedArtboardsList.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
+import { TocMenu } from "./TocMenu.js";
+import type { TocItem } from "./tocItems.js";
 import { routeHref } from "./router.js";
 import { Logo, cx } from "./ui/index.js";
 import styles from "./CanvasHeader.module.css";
@@ -189,10 +191,11 @@ interface Props {
   deleted: DeletedArtboard[];
   onPutBack: (item: DeletedArtboard) => Promise<void>;
   onRenamePage: (title: string) => Promise<void>;
+  toc: { items: TocItem[]; currentFile?: string; onSelect: (file: string) => void };
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage }: Props) {
+export function CanvasHeader({ project, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc }: Props) {
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -217,6 +220,7 @@ export function CanvasHeader({ project, pageId, pageTitle, picking, onPickingCha
           onRenamePage={onRenamePage}
         />
       </nav>
+      <TocMenu {...toc} />
       <div className={styles.spacer} />
       <AgentPill project={project} running={runningCount} />
       <div role="group" aria-label="Mode du canvas" className={styles.modes}>
