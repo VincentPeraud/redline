@@ -316,7 +316,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             }}
           >
             <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
-              {manifest && <CanvasElements elements={manifest.elements} />}
+              {manifest && <CanvasElements elements={manifest.elements} assetBase={`${artboardOrigin}/pages/${pageId}`} />}
               {manifest?.artboards.map((artboard) => (
                 <div
                   key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`}
