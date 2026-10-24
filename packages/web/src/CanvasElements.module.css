@@ -1,0 +1,28 @@
+.title {
+  position: absolute;
+  width: max-content;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.titleText {
+  margin: 0;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.01em;
+  line-height: 1.21;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subtitleText {
+  font-size: var(--font-size-sm);
+  line-height: 1.21;
+  color: var(--color-text-muted);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
