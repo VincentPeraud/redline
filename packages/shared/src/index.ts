@@ -536,6 +536,14 @@ function str(item: Record<string, unknown>, key: string, name: string): string {
   return value;
 }
 
+/** A text field that may be left out (or empty); anything else than a string is refused. */
+function optionalStr(item: Record<string, unknown>, key: string, name: string): string | undefined {
+  const value = item[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") fail(`${name}.${key} must be a string`);
+  return value === "" ? undefined : value;
+}
+
 function num(item: Record<string, unknown>, key: string, name: string, fallback: number, positive = false): number {
   const value = item[key];
   if (value === undefined) return fallback;
@@ -571,7 +579,8 @@ const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unkno
       x: num(item, "x", name, 0),
       y: num(item, "y", name, 0),
     };
-    if (typeof item.subtitle === "string" && item.subtitle !== "") title.subtitle = item.subtitle;
+    const subtitle = optionalStr(item, "subtitle", name);
+    if (subtitle) title.subtitle = subtitle;
     return title;
   },
   text(item, name) {
@@ -613,7 +622,8 @@ const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unkno
       x: num(item, "x", name, 0),
       y: num(item, "y", name, 0),
     };
-    if (typeof item.label === "string" && item.label !== "") element.label = item.label;
+    const label = optionalStr(item, "label", name);
+    if (label) element.label = label;
     return element;
   },
   image(item, name) {
@@ -649,7 +659,8 @@ const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unkno
       color: oneOf(item, "color", name, PALETTE_COLORS) ?? "gray",
       line: oneOf(item, "line", name, ARROW_LINES) ?? "solid",
     };
-    if (typeof item.label === "string" && item.label !== "") arrow.label = item.label;
+    const label = optionalStr(item, "label", name);
+    if (label) arrow.label = label;
     return arrow;
   },
 };
@@ -748,16 +759,20 @@ export function parseManifest(text: string): Manifest {
       y: num(item, "y", name, 0),
     };
     if (typeof item.title === "string") artboard.title = item.title;
+    if (item.device !== undefined && !ARTBOARD_DEVICES.includes(item.device as ArtboardDevice)) fail(`${name}.device must be one of ${ARTBOARD_DEVICES.join(", ")}`);
     if (item.responsive !== undefined) {
       const renderings = parseRenderings(item.responsive, `${name}.responsive`);
       artboard.responsive = renderings;
       artboard.width = renderings.reduce((sum, r) => sum + r.width, 0) + RESPONSIVE_SPACING * (renderings.length + 1);
       artboard.height = Math.max(...renderings.map((r) => r.height)) + RESPONSIVE_SPACING * 2;
     } else if (item.device !== undefined) {
-      if (!ARTBOARD_DEVICES.includes(item.device as ArtboardDevice)) fail(`${name}.device must be one of ${ARTBOARD_DEVICES.join(", ")}`);
       artboard.device = item.device as ArtboardDevice;
     }
-    if (typeof item.url === "string") artboard.url = item.url;
+    const url = optionalStr(item, "url", name);
+    if (url !== undefined) {
+      if (!artboard.responsive && artboard.device !== "desktop") fail(`${name}.url is only for artboards whose device is desktop`);
+      artboard.url = url;
+    }
     if (item.expand !== undefined) {
       if (item.expand !== "fill") fail(`${name}.expand must be "fill"`);
       artboard.expand = "fill";

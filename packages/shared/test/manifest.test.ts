@@ -290,5 +290,29 @@ describe("page manifest", () => {
     it("refuses two renderings with the same format and width", () => {
       expect(() => parse(["mobile", { device: "mobile", width: 390, height: 600 }])).toThrow(/artboards\[0\]\.responsive\[1\]/);
     });
+
+    it("refuses an unknown device even though a responsive artboard ignores it", () => {
+      const bad = () => parseManifest(JSON.stringify({ artboards: [{ file: "a.html", device: "watch", responsive: ["mobile"] }] }));
+      expect(bad).toThrow(/artboards\[0\]\.device/);
+    });
+  });
+
+  describe("optional text fields", () => {
+    const refuse = (manifest: object) => () => parseManifest(JSON.stringify(manifest));
+
+    it("refuses a non-string url on an artboard, naming the field", () => {
+      expect(refuse({ artboards: [{ file: "a.html", device: "desktop", url: 42 }] })).toThrow(/artboards\[0\]\.url/);
+    });
+
+    it("refuses a url on an artboard whose device is not desktop", () => {
+      expect(refuse({ artboards: [{ file: "a.html", device: "phone", url: "lumora.fr" }] })).toThrow(/artboards\[0\]\.url/);
+      expect(refuse({ artboards: [{ file: "a.html", url: "lumora.fr" }] })).toThrow(/artboards\[0\]\.url/);
+    });
+
+    it("refuses a non-string subtitle or label, naming the field", () => {
+      expect(refuse({ elements: [{ kind: "title", text: "T", subtitle: 3 }] })).toThrow(/elements\[0\]\.subtitle/);
+      expect(refuse({ elements: [{ kind: "shape", shape: "rect", width: 10, height: 10, label: 3 }] })).toThrow(/elements\[0\]\.label/);
+      expect(refuse({ elements: [{ kind: "arrow", from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, label: {} }] })).toThrow(/elements\[0\]\.label/);
+    });
   });
 });
