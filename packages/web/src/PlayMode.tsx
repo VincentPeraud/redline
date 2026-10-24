@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { RESPONSIVE_FORMATS, renderingKey, renderingLabel, type ArtboardRendering, type Manifest, type TweakValue, type TweakValues } from "@redline/shared";
-import { TocList } from "./TocList.js";
+import { PlayStepper } from "./PlayStepper.js";
 import type { TocItem } from "./tocItems.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { PlayFrame } from "./PlayFrame.js";
@@ -70,7 +70,6 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   const [copied, setCopied] = useState<number | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [deadLink, setDeadLink] = useState<string | null>(null);
-  const menuRoot = useRef<HTMLSpanElement>(null);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
   const stage = useRef<HTMLElement>(null);
@@ -157,20 +156,6 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   }, [manifest, tocItems, current, rendu]);
 
   useEffect(() => {
-    if (!menuOpen) return;
-    const close = () => setMenuOpen(false);
-    const onPointer = (event: PointerEvent) => {
-      if (!menuRoot.current?.contains(event.target as Node)) close();
-    };
-    window.addEventListener("pointerdown", onPointer);
-    window.addEventListener("blur", close);
-    return () => {
-      window.removeEventListener("pointerdown", onPointer);
-      window.removeEventListener("blur", close);
-    };
-  }, [menuOpen]);
-
-  useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
         if (menuOpen) setMenuOpen(false);
@@ -188,12 +173,12 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
       {presentation?.mobileBar ? (
         <header className={styles.mobileBar}>
           <button type="button" onClick={onExit} aria-label="Retour au canvas" className={styles.mobileBack}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M15 6l-6 6 6 6" />
             </svg>
           </button>
           <span className={styles.mobileTitle}>
-            {pageTitle} · {artboard?.file}
+            {pageTitle} · {artboard?.title ?? artboard?.file}
           </span>
           {renderings.length > 0 && (
             <span className={styles.mobileRenderingWrap}>
@@ -215,6 +200,9 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
               </svg>
             </span>
           )}
+          <nav aria-label="Artboards" className={styles.mobileSteps}>
+            <PlayStepper variant="phone" tocItems={tocItems} current={current} menuOpen={menuOpen} onMenuOpenChange={setMenuOpen} goBy={goBy} onChoose={(file) => showArtboard(file, "replace")} />
+          </nav>
         </header>
       ) : (
         <header className={styles.topbar}>
@@ -240,34 +228,7 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
           )}
           </div>
           <nav aria-label="Artboards" className={styles.screens}>
-            <button type="button" aria-label="Artboard précédent (←)" title="Artboard précédent (←)" disabled={position <= 0} onClick={() => goBy(-1)} className={styles.step}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M15 6l-6 6 6 6" />
-              </svg>
-            </button>
-            <span ref={menuRoot} className={styles.counterWrap}>
-              <button type="button" aria-haspopup="menu" aria-expanded={menuOpen} title="Sommaire" onClick={() => setMenuOpen(!menuOpen)} className={cx(styles.counter, menuOpen && styles.counterOpen)}>
-                {position + 1} / {tocItems.length} <span aria-hidden="true" className={styles.counterChevron}>▼</span>
-              </button>
-              {menuOpen && (
-                <div role="menu" aria-label="Sommaire de la page" className={styles.menu}>
-                  <TocList
-                    items={tocItems.map((item) => ({ ...item, openThreads: 0 }))}
-                    currentFile={current}
-                    autoFocusFilter
-                    onSelect={(file) => {
-                      setMenuOpen(false);
-                      showArtboard(file, "replace");
-                    }}
-                  />
-                </div>
-              )}
-            </span>
-            <button type="button" aria-label="Artboard suivant (→)" title="Artboard suivant (→)" disabled={position < 0 || position >= tocItems.length - 1} onClick={() => goBy(1)} className={styles.step}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M9 6l6 6-6 6" />
-              </svg>
-            </button>
+            <PlayStepper variant="header" tocItems={tocItems} current={current} menuOpen={menuOpen} onMenuOpenChange={setMenuOpen} goBy={goBy} onChoose={(file) => showArtboard(file, "replace")} />
           </nav>
           <div className={styles.actions}>
           <span className={styles.copyWrap}>
