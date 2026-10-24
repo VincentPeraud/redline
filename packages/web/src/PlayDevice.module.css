@@ -3,7 +3,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--color-surface);
 }
 
 .none {
@@ -27,7 +27,7 @@
   width: 112px;
   height: 30px;
   margin-left: -56px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--play-bg);
   pointer-events: none;
 }
@@ -39,8 +39,8 @@
   width: 130px;
   height: 5px;
   margin-left: -65px;
-  border-radius: 999px;
-  background: #18181b;
+  border-radius: var(--radius-pill);
+  background: var(--play-panel-bg);
   pointer-events: none;
 }
 
@@ -62,7 +62,7 @@
   height: 6px;
   margin-left: -3px;
   border-radius: 50%;
-  background: #52525b;
+  background: var(--color-text-body);
 }
 
 .tabletStrip {
@@ -72,18 +72,18 @@
   height: 22px;
   flex-shrink: 0;
   border-radius: 0 0 28px 28px;
-  background: #ffffff;
+  background: var(--color-surface);
 }
 
 .tabletIndicator {
   width: 160px;
   height: 5px;
-  border-radius: 999px;
-  background: #18181b;
+  border-radius: var(--radius-pill);
+  background: var(--play-panel-bg);
 }
 
 .desktop {
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 0 0 1px var(--play-border-strong), 0 24px 48px rgba(0, 0, 0, 0.45);
 }
 
@@ -107,7 +107,7 @@
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  background: #52525b;
+  background: var(--color-text-body);
 }
 
 .address {
@@ -118,9 +118,9 @@
   max-width: 520px;
   height: 22px;
   margin: 0 auto;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--play-panel-bg);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--play-text-muted);
 }
 

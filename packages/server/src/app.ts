@@ -9,7 +9,6 @@ import {
   MAX_PAGE_BYTES,
   TWEAKS_PATH,
   MAX_ELEMENT_NAME_LENGTH,
-  RESPONSIVE_FORMATS,
   isSafePath,
   parseManifest,
   starterDesignSystemFiles,
@@ -38,7 +37,7 @@ import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRou
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
-import { designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
+import { designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, threadRenderingError, titleError, versionRequestError, viewSettingsError } from "./validation.js";
 import { registerContextTracking } from "./context.js";
 import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
@@ -266,12 +265,8 @@ export async function buildMainApp(
       if (pin.elementName !== undefined && (typeof pin.elementName !== "string" || pin.elementName.length > MAX_ELEMENT_NAME_LENGTH)) {
         return reply.code(400).send({ error: `elementName must be a string of at most ${MAX_ELEMENT_NAME_LENGTH} characters` });
       }
-      if (pin.rendering !== undefined) {
-        const { format, width } = (pin.rendering ?? {}) as Partial<NonNullable<CreateThreadRequest["rendering"]>>;
-        if (typeof format !== "string" || !Object.hasOwn(RESPONSIVE_FORMATS, format) || !Number.isInteger(width) || (width as number) <= 0) {
-          return reply.code(400).send({ error: "rendering must be { format: a responsive format, width: a positive integer }" });
-        }
-      }
+      const invalidRendering = pin.rendering !== undefined ? threadRenderingError(pin.rendering) : null;
+      if (invalidRendering) return reply.code(400).send({ error: invalidRendering });
       const invalidChoice = modelChoiceError(pin);
       if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
       const thread = store.createThread(req.params.pageId, pin as CreateThreadRequest);

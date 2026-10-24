@@ -30,6 +30,7 @@
   border: 1px solid var(--play-border-strong);
   border-radius: var(--radius-md);
   background: transparent;
+  font: inherit;
   font-size: var(--font-size-md);
   color: var(--play-text);
   cursor: pointer;
@@ -63,7 +64,7 @@
 .screenCurrent {
   background: var(--play-border);
   font-weight: var(--font-weight-medium);
-  color: #ffffff;
+  color: var(--color-text-inverse);
 }
 
 .guidesButton {
@@ -84,13 +85,27 @@
 }
 
 .guidesButtonOn {
-  background: #f4f4f5;
-  color: #111113;
+  background: var(--play-text);
+  color: var(--play-bg);
 }
 
-.tweaksState {
+.tweaksButton {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
   font-size: var(--font-size-sm);
-  color: var(--play-text-muted);
+  cursor: pointer;
+}
+
+.tweaksButtonOn {
+  background: var(--play-border);
 }
 
 .body {
@@ -124,7 +139,7 @@
 .frame {
   display: block;
   border: 0;
-  background: #ffffff;
+  background: var(--color-surface);
   transform-origin: 0 0;
 }
 
@@ -194,7 +209,7 @@
 }
 
 .habillageOn {
-  background: #f4f4f5;
+  background: var(--play-text);
   color: var(--play-bg);
 }
 
@@ -227,11 +242,26 @@
 }
 
 .mobileTitle {
+  min-width: 0;
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--play-text-muted);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mobileRendering {
+  flex-shrink: 0;
+  margin-left: auto;
+  height: 30px;
+  max-width: 120px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--play-border);
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-xs);
 }
 
 .renderings {
@@ -257,5 +287,5 @@
 .renderingCurrent {
   background: var(--play-border-strong);
   font-weight: var(--font-weight-semibold);
-  color: #ffffff;
+  color: var(--color-text-inverse);
 }

@@ -48,6 +48,7 @@ describe("per-page view settings over the server HTTP API", () => {
       null,
       {},
       { hiddenFormats: ["watch"], renderingOverrides: {} },
+      { hiddenFormats: ["constructor"], renderingOverrides: {} },
       { hiddenFormats: "mobile", renderingOverrides: {} },
       { hiddenFormats: [], renderingOverrides: { "home.html": { "mobile-390": "no" } } },
       { hiddenFormats: [], renderingOverrides: [] },

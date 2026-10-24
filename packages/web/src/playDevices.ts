@@ -41,14 +41,14 @@ export function presentationOf(
   if (rendering) {
     const device = DEVICE_OF_FORMAT[rendering.format];
     const size = { width: rendering.width, height: rendering.height };
-    return { ...presentationOf({ ...size, device }, framed, windowWidth), viewport: size, mobileBar: false };
+    return { ...presentationOf({ ...size, device }, framed, windowWidth), viewport: size };
   }
   const declared = artboard.device ?? (artboard.width <= PHONE_MAX_WIDTH && artboard.height > artboard.width ? "phone" : "none");
   const expanded = artboard.expand === "fill" && declared !== "phone";
   const narrow = (declared === "phone" && windowWidth < PHONE_FILL_BELOW) || (declared === "tablet" && windowWidth < TABLET_FILL_BELOW);
-  const device = framed && !narrow && !expanded ? declared : "none";
-  const framable = declared !== "none" && !narrow && !expanded;
-  const fill = narrow || expanded ? "both" : framable && !framed ? (declared === "desktop" ? "both" : declared === "paper" ? "none" : "height") : "none";
+  const framable = declared !== "none" && declared !== "paper" && !narrow && !expanded;
+  const device = (framed || declared === "paper") && !narrow && !expanded ? declared : "none";
+  const fill = narrow || expanded ? "both" : framable && !framed ? (declared === "desktop" ? "both" : "height") : "none";
   const viewport = declared === "phone" ? PHONE_VIEWPORT : { width: artboard.width, height: artboard.height };
   return {
     device,

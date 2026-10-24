@@ -217,6 +217,22 @@ it("shows a new page, which has no artboard, as an empty canvas that says what t
   expect(await tab.locator("iframe").count()).toBe(0);
 });
 
+it("does not cover canvas elements with the empty state when the page has elements but no artboard", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Notes only" })).json()) as { id: string };
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Notes only",
+      files: { "manifest.json": JSON.stringify({ artboards: [], elements: [{ kind: "sticky", text: "Idea", x: 0, y: 0 }] }) },
+    })
+  ).json()) as Page;
+
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  await tab.locator("[data-canvas-sticky]").waitFor();
+  expect(await tab.getByTestId("canvas-empty").count()).toBe(0);
+  await tab.close();
+});
+
 it("shrinks a long title down to half then ellipsises it, clamps the subtitle to two lines, and ignores comment clicks on titles", async () => {
   const project = (await (await server.post("/api/projects", { title: "Titles" })).json()) as { id: string };
   const longTitle = "A very long group title that cannot possibly fit within three hundred pixels of canvas width";

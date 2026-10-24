@@ -98,11 +98,18 @@ export function versionRequestError(body: Partial<CreateVersionRequest> | undefi
 /** Error message when a request body is not valid page view settings, else null. */
 export function viewSettingsError(body: unknown): string | null {
   const { hiddenFormats, renderingOverrides } = (body ?? {}) as Partial<Record<keyof PageViewSettings, unknown>>;
-  if (!Array.isArray(hiddenFormats) || !hiddenFormats.every((format) => typeof format === "string" && format in RESPONSIVE_FORMATS)) {
+  if (!Array.isArray(hiddenFormats) || !hiddenFormats.every((format) => typeof format === "string" && Object.hasOwn(RESPONSIVE_FORMATS, format))) {
     return "hiddenFormats must be a list of responsive formats";
   }
   const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
   if (!isRecord(renderingOverrides)) return "renderingOverrides must be an object";
   const valid = Object.values(renderingOverrides).every((byKey) => isRecord(byKey) && Object.values(byKey).every((shown) => typeof shown === "boolean"));
   return valid ? null : "renderingOverrides must map artboard files to rendering keys to booleans";
+}
+
+/** Error message when a thread's rendering (format and viewport width) is malformed, else null. */
+export function threadRenderingError(rendering: unknown): string | null {
+  const { format, width } = (rendering ?? {}) as { format?: unknown; width?: unknown };
+  const valid = typeof format === "string" && Object.hasOwn(RESPONSIVE_FORMATS, format) && typeof width === "number" && Number.isFinite(width) && width > 0;
+  return valid ? null : "rendering must be { format: a responsive format, width: a positive number }";
 }

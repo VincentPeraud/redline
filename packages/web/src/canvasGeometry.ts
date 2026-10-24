@@ -15,36 +15,65 @@ export interface Box extends Point, Size {}
 export interface ArrowGeometry {
   start: Point;
   end: Point;
+  /** SVG path from `start` to `end`: a straight line when the ends are aligned, else a soft curve. */
+  path: string;
   /** Where the label is anchored: the middle of the arrow. */
   label: Point;
 }
 
 const isBox = (target: Box | Point): target is Box => "width" in target;
 
-/** Middles of the four edges of a box. */
-function edgeMiddles(box: Box): Point[] {
+interface Anchor {
+  point: Point;
+  /** Unit vector pointing out of the box through this edge; absent on a free point. */
+  outward?: Point;
+}
+
+/** Middles of the four edges of a box, with the way each one faces. */
+function edgeAnchors(box: Box): Anchor[] {
   return [
-    { x: box.x + box.width / 2, y: box.y },
-    { x: box.x + box.width, y: box.y + box.height / 2 },
-    { x: box.x + box.width / 2, y: box.y + box.height },
-    { x: box.x, y: box.y + box.height / 2 },
+    { point: { x: box.x + box.width / 2, y: box.y }, outward: { x: 0, y: -1 } },
+    { point: { x: box.x + box.width, y: box.y + box.height / 2 }, outward: { x: 1, y: 0 } },
+    { point: { x: box.x + box.width / 2, y: box.y + box.height }, outward: { x: 0, y: 1 } },
+    { point: { x: box.x, y: box.y + box.height / 2 }, outward: { x: -1, y: 0 } },
   ];
 }
 
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 
+/** How far a curve's control points stand from its ends, as a share of the distance between them. */
+const CURVE_TENSION = 0.4;
+
+const fmt = (value: number) => String(Math.round(value * 100) / 100);
+
 /** An arrow runs between the middles of the two closest edges; a free point stands for itself. */
 export function arrowGeometry(from: Box | Point, to: Box | Point): ArrowGeometry {
-  const starts = isBox(from) ? edgeMiddles(from) : [from];
-  const ends = isBox(to) ? edgeMiddles(to) : [to];
+  const starts: Anchor[] = isBox(from) ? edgeAnchors(from) : [{ point: from }];
+  const ends: Anchor[] = isBox(to) ? edgeAnchors(to) : [{ point: to }];
   let best = { start: starts[0]!, end: ends[0]! };
   for (const start of starts) {
     for (const end of ends) {
-      if (distance(start, end) < distance(best.start, best.end)) best = { start, end };
+      if (distance(start.point, end.point) < distance(best.start.point, best.end.point)) best = { start, end };
     }
   }
-  const { start, end } = best;
-  return { start, end, label: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 } };
+  const start = best.start.point;
+  const end = best.end.point;
+  if (start.x === end.x || start.y === end.y) {
+    return { start, end, path: `M${fmt(start.x)} ${fmt(start.y)} L${fmt(end.x)} ${fmt(end.y)}`, label: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 } };
+  }
+  const length = distance(start, end);
+  const chord = { x: (end.x - start.x) / length, y: (end.y - start.y) / length };
+  const reach = length * CURVE_TENSION;
+  const startDirection = best.start.outward ?? chord;
+  const endDirection = best.end.outward ?? { x: -chord.x, y: -chord.y };
+  const c1 = { x: start.x + startDirection.x * reach, y: start.y + startDirection.y * reach };
+  const c2 = { x: end.x + endDirection.x * reach, y: end.y + endDirection.y * reach };
+  return {
+    start,
+    end,
+    path: `M${fmt(start.x)} ${fmt(start.y)} C${fmt(c1.x)} ${fmt(c1.y)} ${fmt(c2.x)} ${fmt(c2.y)} ${fmt(end.x)} ${fmt(end.y)}`,
+    label: { x: (start.x + 3 * c1.x + 3 * c2.x + end.x) / 8, y: (start.y + 3 * c1.y + 3 * c2.y + end.y) / 8 },
+  };
 }
 
 /** Box of an element on the canvas, or null for an arrow. Link cards have a fixed size; the others use the size measured in the DOM. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_VIEW_SETTINGS, type ArtboardRendering, type PageViewSettings } from "@redline/shared";
-import { hiddenRenderingKeys, setFormatShown, toggleRendering } from "../src/viewSettings.js";
+import { EMPTY_VIEW_SETTINGS, type ArtboardRendering, type PageViewSettings, type Thread } from "@redline/shared";
+import { hiddenRenderingKeys, hiddenThreadCounts, setFormatShown, toggleRendering } from "../src/viewSettings.js";
 
 const renderings: ArtboardRendering[] = [
   { format: "desktop", width: 1440, height: 900 },
@@ -49,5 +49,24 @@ describe("setFormatShown", () => {
       renderingOverrides: { "a.html": { "desktop-1440": false } },
     });
     expect(setFormatShown(setFormatShown(settings, "mobile", false), "mobile", true).hiddenFormats).toEqual([]);
+  });
+
+  it("clearing tablet keeps the exceptions of tablet-landscape", () => {
+    const settings: PageViewSettings = { hiddenFormats: [], renderingOverrides: { "a.html": { "tablet-landscape-1024": false, "tablet-768": false } } };
+    expect(setFormatShown(settings, "tablet", false).renderingOverrides).toEqual({ "a.html": { "tablet-landscape-1024": false } });
+  });
+});
+
+describe("hiddenThreadCounts", () => {
+  it("counts, per hidden rendering, the threads of that artboard pinned in it", () => {
+    const thread = (artboard: string, rendering?: { format: "mobile" | "desktop"; width: number }) => ({ artboard, rendering }) as Thread;
+    const threads = [
+      thread("a.html", { format: "mobile", width: 390 }),
+      thread("a.html", { format: "mobile", width: 390 }),
+      thread("b.html", { format: "mobile", width: 390 }),
+      thread("a.html", { format: "desktop", width: 1440 }),
+      thread("a.html"),
+    ];
+    expect(hiddenThreadCounts(threads, "a.html", new Set(["mobile-390", "tablet-768"]))).toEqual({ "mobile-390": 2, "tablet-768": 0 });
   });
 });

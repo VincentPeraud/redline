@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { ArrowEnd, ManifestArrowElement, ManifestElement, ManifestImageElement, ManifestLinkElement, ManifestTitleElement, Page, Project } from "@redline/shared";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
 import { routeHref } from "./router.js";
@@ -177,7 +177,7 @@ function CanvasArrow({ arrow, boxes }: { arrow: ManifestArrowElement; boxes: Map
   const from = resolve(arrow.from);
   const to = resolve(arrow.to);
   if (!from || !to) return null;
-  const { start, end, label } = arrowGeometry(from, to);
+  const { path, label } = arrowGeometry(from, to);
   const color = paletteShades(arrow.color).stroke;
   return (
     <>
@@ -188,7 +188,7 @@ function CanvasArrow({ arrow, boxes }: { arrow: ManifestArrowElement; boxes: Map
           </marker>
         </defs>
         <path
-          d={`M${start.x} ${start.y} L${end.x} ${end.y}`}
+          d={path}
           stroke={color}
           strokeWidth={ARROW_STROKE}
           strokeDasharray={arrow.line === "dashed" ? ARROW_DASH : undefined}
@@ -210,16 +210,36 @@ function sameSizes(a: Record<string, Size>, b: Record<string, Size>): boolean {
   return keys.length === Object.keys(b).length && keys.every((key) => b[key] && a[key]!.width === b[key]!.width && a[key]!.height === b[key]!.height);
 }
 
-/** Decoration written by Claude: drawn in list order, not draggable, no comment pins. */
-export function CanvasElements({ elements, artboardBoxes, assetBase, artboardOrigin }: { elements: ManifestElement[]; artboardBoxes: ReadonlyMap<string, Box>; assetBase: string; artboardOrigin: string }) {
-  const placedRef = useRef<HTMLDivElement>(null);
+/**
+ * Decoration written by Claude, not draggable, no comment pins. Shapes sit under the artboards (`children`); every
+ * other element, arrows included, is drawn above them, in list order.
+ */
+export function CanvasElements({
+  elements,
+  artboardBoxes,
+  assetBase,
+  artboardOrigin,
+  children,
+}: {
+  elements: ManifestElement[];
+  artboardBoxes: ReadonlyMap<string, Box>;
+  assetBase: string;
+  artboardOrigin: string;
+  children?: ReactNode;
+}) {
+  const underRef = useRef<HTMLDivElement>(null);
+  const overRef = useRef<HTMLDivElement>(null);
   const [sizes, setSizes] = useState<Record<string, Size>>({});
-  const placed = elements.filter((element) => element.kind !== "arrow");
+  const under = elements.filter((element) => element.kind === "shape");
+  const over = elements.filter((element) => element.kind !== "shape");
 
-  // The DOM gives the size of elements that declare no height; the wrapper's children are the placed elements, in order.
+  // The DOM gives the size of elements that declare no height; each wrapper's children are its elements, in order.
   useLayoutEffect(() => {
-    const children = Array.from(placedRef.current?.children ?? []) as HTMLElement[];
-    const targets = placed.flatMap((element, i) => (element.id !== undefined && children[i] ? [{ id: element.id, node: children[i]! }] : []));
+    const targetsOf = (wrapper: HTMLDivElement | null, list: ManifestElement[]) => {
+      const nodes = Array.from(wrapper?.children ?? []) as HTMLElement[];
+      return list.flatMap((element, i) => (element.kind !== "arrow" && element.id !== undefined && nodes[i] ? [{ id: element.id, node: nodes[i]! }] : []));
+    };
+    const targets = [...targetsOf(underRef.current, under), ...targetsOf(overRef.current, over)];
     const measure = () => {
       const next: Record<string, Size> = {};
       for (const { id, node } of targets) next[id] = { width: node.offsetWidth, height: node.offsetHeight };
@@ -233,20 +253,31 @@ export function CanvasElements({ elements, artboardBoxes, assetBase, artboardOri
   }, [elements]);
 
   const boxes = new Map<string, Box>(artboardBoxes);
-  for (const element of placed) {
-    if (element.id === undefined) continue;
+  for (const element of elements) {
+    if (element.kind === "arrow" || element.id === undefined) continue;
     const box = elementBox(element, sizes[element.id]);
     if (box) boxes.set(element.id, box);
   }
 
   return (
     <>
-      <div ref={placedRef} style={{ display: "contents" }}>
-        {placed.map((element, i) => (
+      <div ref={underRef} style={{ display: "contents" }}>
+        {under.map((element, i) => (
           <CanvasElement key={i} element={element} assetBase={assetBase} artboardOrigin={artboardOrigin} />
         ))}
       </div>
-      {elements.map((element, i) => (element.kind === "arrow" ? <CanvasArrow key={i} arrow={element} boxes={boxes} /> : null))}
+      {children}
+      <div ref={overRef} style={{ display: "contents" }}>
+        {over.map((element, i) =>
+          element.kind === "arrow" ? (
+            <div key={i} style={{ display: "contents" }}>
+              <CanvasArrow arrow={element} boxes={boxes} />
+            </div>
+          ) : (
+            <CanvasElement key={i} element={element} assetBase={assetBase} artboardOrigin={artboardOrigin} />
+          ),
+        )}
+      </div>
     </>
   );
 }

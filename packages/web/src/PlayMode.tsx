@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RESPONSIVE_FORMATS, renderingKey, renderingLabel, type Manifest, type TweakValue, type TweakValues } from "@redline/shared";
+import { RESPONSIVE_FORMATS, renderingKey, renderingLabel, type ArtboardRendering, type Manifest, type TweakValue, type TweakValues } from "@redline/shared";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { PlayDevice } from "./PlayDevice.js";
 import { presentationOf, type Presentation } from "./playDevices.js";
 import { ArtboardGuides } from "./ArtboardGuides.js";
-import { usePlayFramed } from "./usePlayFramed.js";
+import { GuidesButton } from "./GuidesButton.js";
+import { isEditableTarget } from "./isEditableTarget.js";
+import { useStoredToggle } from "./useStoredToggle.js";
 import { usePlayRendering } from "./usePlayRendering.js";
 import { cx } from "./ui/index.js";
 import styles from "./PlayMode.module.css";
@@ -16,8 +18,11 @@ export function resolveLink(manifest: Manifest, from: string, selector: string):
   return manifest.artboards.some((a) => a.file === link.to) ? link.to : null;
 }
 
+const NO_RENDERING = "none";
+
 interface Props {
   pageId: string;
+  pageTitle: string;
   manifest: Manifest;
   /** Artboard shown first. */
   start?: string;
@@ -48,19 +53,22 @@ function fitToStage(presentation: Presentation, stage: { width: number; height: 
 }
 
 /** One artboard at a time at full size; clicks on elements linked in the manifest switch artboard (via the bridge). */
-export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTweak, guidesVisible, onToggleGuides, onExit }: Props) {
+export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, tweaks, onTweak, guidesVisible, onToggleGuides, onExit }: Props) {
   const [current, setCurrent] = useState(start ?? manifest.artboards[0]?.file ?? null);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
   const stage = useRef<HTMLElement>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const artboard = manifest.artboards.find((a) => a.file === current);
-  const [framed, toggleFramed] = usePlayFramed();
+  const [framed, toggleFramed] = useStoredToggle("redline:play-framed", true);
+  const [tweaksOpen, toggleTweaks] = useStoredToggle("redline:play-tweaks", true);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const renderings = artboard?.responsive ?? [];
   const [rendering, selectRendering] = usePlayRendering(renderings);
   const presentation = artboard && presentationOf(artboard, framed, windowWidth, artboard.responsive ? rendering : undefined);
   const fitted = presentation && fitToStage(presentation, stageSize);
+  /** "Desktop", or "Desktop · 1440" when the artboard has several renderings of the same format. */
+  const renderingOptionLabel = (r: ArtboardRendering) => (renderings.filter((o) => o.format === r.format).length > 1 ? renderingLabel(r) : RESPONSIVE_FORMATS[r.format].label);
 
   useLayoutEffect(() => {
     const node = stage.current;
@@ -103,7 +111,7 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") onExit();
-      else if (event.key.toLowerCase() === "g" && !event.metaKey && !event.ctrlKey && !event.altKey) onToggleGuides();
+      else if (event.key.toLowerCase() === "g" && !event.metaKey && !event.ctrlKey && !event.altKey && !isEditableTarget(event.target)) onToggleGuides();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -120,19 +128,30 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
             </svg>
           </button>
           <span className={styles.mobileTitle}>
-            {manifest.title ?? "Sans titre"} · {artboard?.file}
+            {pageTitle} · {artboard?.file}
           </span>
+          {renderings.length > 0 && (
+            <select
+              aria-label="Rendu responsive"
+              value={rendering ? renderingKey(rendering) : NO_RENDERING}
+              onChange={(event) => selectRendering(renderings.find((r) => renderingKey(r) === event.target.value) ?? null)}
+              className={styles.mobileRendering}
+            >
+              {renderings.map((r) => (
+                <option key={renderingKey(r)} value={renderingKey(r)}>
+                  {renderingOptionLabel(r)}
+                </option>
+              ))}
+              <option value={NO_RENDERING}>Aucun</option>
+            </select>
+          )}
         </header>
       ) : (
         <header className={styles.topbar}>
           <button type="button" onClick={onExit} title="Échap" className={styles.back}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M19 12H5" />
-              <path d="M12 19l-7-7 7-7" />
-            </svg>
-            Canvas
+            ← Canvas
           </button>
-          <div className={styles.title}>{manifest.title ?? "Sans titre"} · plein écran</div>
+          <div className={styles.title}>{pageTitle} · plein écran</div>
           {renderings.length > 0 && (
             <div role="group" aria-label="Rendu responsive" className={styles.renderings}>
               {[...renderings, null].map((r) => (
@@ -143,7 +162,7 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
                   onClick={() => selectRendering(r)}
                   className={cx(styles.rendering, r === rendering && styles.renderingCurrent)}
                 >
-                  {r ? (renderings.filter((o) => o.format === r.format).length > 1 ? renderingLabel(r) : RESPONSIVE_FORMATS[r.format].label) : "Aucun"}
+                  {r ? renderingOptionLabel(r) : "Aucun"}
                 </button>
               ))}
             </div>
@@ -154,12 +173,12 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
               <button
                 key={a.file}
                 type="button"
-                title={a.title ?? a.file}
+                title={a.file}
                 aria-current={a.file === current ? "page" : undefined}
                 onClick={() => setCurrent(a.file)}
                 className={cx(styles.screen, a.file === current && styles.screenCurrent)}
               >
-                Artboard {index + 1}
+                {a.title ?? `Artboard ${index + 1}`}
               </button>
             ))}
           </nav>
@@ -182,15 +201,12 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
               Habillage
             </button>
           )}
-          <button type="button" aria-pressed={guidesVisible} title="Afficher les guides de mise en page (G)" className={cx(styles.guidesButton, guidesVisible && styles.guidesButtonOn)} onClick={onToggleGuides}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <path d="M9 3v18" />
-              <path d="M15 3v18" />
-            </svg>
-            Guides (G)
-          </button>
-          {hasTweaks && <div className={styles.tweaksState}>Tweaks ouverts</div>}
+          {artboard?.guides && <GuidesButton pressed={guidesVisible} onToggle={onToggleGuides} className={cx(styles.guidesButton, guidesVisible && styles.guidesButtonOn)} />}
+          {hasTweaks && (
+            <button type="button" aria-pressed={tweaksOpen} onClick={toggleTweaks} className={cx(styles.tweaksButton, tweaksOpen && styles.tweaksButtonOn)}>
+              Tweaks
+            </button>
+          )}
         </header>
       )}
       <div className={styles.body}>
@@ -218,7 +234,7 @@ export function PlayMode({ pageId, manifest, start, artboardOrigin, tweaks, onTw
             <p className={styles.empty}>Aucun artboard</p>
           )}
         </main>
-        {hasTweaks && (
+        {hasTweaks && tweaksOpen && (
           <aside aria-label="Tweaks" className={styles.aside}>
             <div className={styles.asideHead}>
               <div className={styles.asideTitle}>Tweaks</div>
