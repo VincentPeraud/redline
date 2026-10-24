@@ -21,6 +21,8 @@ import type {
   ConversationMessage,
   CreateThreadRequest,
   ThreadRendering,
+  ThreadTarget,
+  ManifestElementKind,
   AgentInfo,
   AgentKind,
   Effort,
@@ -190,6 +192,9 @@ export class Store {
     addColumn("versions", "origin_label", "TEXT");
     addColumn("threads", "element_name", "TEXT");
     addColumn("threads", "rendering", "TEXT");
+    addColumn("threads", "target_kind", "TEXT NOT NULL DEFAULT 'element'");
+    addColumn("threads", "element_id", "TEXT");
+    addColumn("threads", "element_kind", "TEXT");
     addColumn("thread_replies", "created_page_ids", "TEXT");
     addColumn("conversation_messages", "created_page_ids", "TEXT");
     addColumn("design_md_versions", "origin", "TEXT NOT NULL DEFAULT 'user'");
@@ -982,7 +987,7 @@ export interface SessionOrigin {
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, x_pct, y_pct, title, body, status, context, new_session FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, target_kind, element_id, element_kind, x_pct, y_pct, title, body, status, context, new_session FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -992,6 +997,9 @@ interface ThreadRow {
   selector: string;
   element_name: string | null;
   rendering: string | null;
+  target_kind: ThreadTarget["kind"];
+  element_id: string | null;
+  element_kind: ManifestElementKind | null;
   x_pct: number;
   y_pct: number;
   title: string;
@@ -1001,11 +1009,26 @@ interface ThreadRow {
   new_session: "summarizing" | "ready" | null;
 }
 
+function targetOf(row: ThreadRow): ThreadTarget {
+  if (row.target_kind === "artboard") return { kind: "artboard", artboard: row.artboard };
+  if (row.target_kind === "canvas-element") return { kind: "canvas-element", elementId: row.element_id!, elementKind: row.element_kind! };
+  return {
+    kind: "element",
+    artboard: row.artboard,
+    selector: row.selector,
+    elementName: row.element_name,
+    xPct: row.x_pct,
+    yPct: row.y_pct,
+    ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
+  };
+}
+
 function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
   return {
     id: row.id,
     pageId: row.page_id,
     number: row.number,
+    target: targetOf(row),
     artboard: row.artboard,
     selector: row.selector,
     elementName: row.element_name,

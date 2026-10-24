@@ -192,9 +192,47 @@ export interface ServerConfig {
 /** `held`: a finished comment kept back ("Plus tard") until "Tout envoyer"; not yet sent to any session. */
 export type ThreadStatus = "held" | "open" | "resolved";
 
+/** What a thread is about: an element of an artboard, a whole artboard, or an element of the page canvas. */
+export type ThreadTarget =
+  | {
+      kind: "element";
+      artboard: string;
+      selector: string;
+      elementName: string | null;
+      xPct: number;
+      yPct: number;
+      rendering?: ThreadRendering;
+    }
+  | { kind: "artboard"; artboard: string }
+  | { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind };
+
+export const CANVAS_ELEMENT_KIND_LABELS: Record<ManifestElementKind, string> = {
+  title: "Titre",
+  text: "Texte",
+  sticky: "Post-it",
+  link: "Lien",
+  image: "Image",
+  shape: "Forme",
+  arrow: "Flèche",
+};
+
+/** "accueil.html · bouton « Réserver ma place »", "accueil.html · Artboard entier", "Post-it · note-parcours". */
+export function threadTargetLabel(target: ThreadTarget): string {
+  switch (target.kind) {
+    case "element":
+      return `${target.artboard} · ${target.elementName ?? target.selector}`;
+    case "artboard":
+      return `${target.artboard} · Artboard entier`;
+    case "canvas-element":
+      return `${CANVAS_ELEMENT_KIND_LABELS[target.elementKind]} · ${target.elementId}`;
+  }
+}
+
 export interface Thread {
   id: string;
   pageId: string;
+  /** Explicit target; for an element thread the flat fields below repeat it. */
+  target: ThreadTarget;
   /** Per-page number shown on the pin and in the thread list; never reused. */
   number: number;
   /** Path of the artboard file the thread is pinned on. */
@@ -450,9 +488,10 @@ export type ArrowLine = (typeof ARROW_LINES)[number];
 /** End of an arrow: an artboard `file`, an element `id`, or a free canvas point. */
 export type ArrowEnd = string | { x: number; y: number };
 
-/** Arrow between two elements, drawn on their nearest edges. Has no id and cannot be a target. */
+/** Arrow between two elements, drawn on their nearest edges. */
 export interface ManifestArrowElement {
   kind: "arrow";
+  id?: string;
   from: ArrowEnd;
   to: ArrowEnd;
   label?: string;
@@ -671,7 +710,7 @@ function parseElement(item: Record<string, unknown>, name: string): ManifestElem
     fail(`${name}.kind must be one of ${Object.keys(ELEMENT_PARSERS).join(", ")}`);
   }
   const element = ELEMENT_PARSERS[kind as ManifestElementKind](item, name);
-  if (element.kind !== "arrow" && item.id !== undefined) element.id = str(item, "id", name);
+  if (item.id !== undefined) element.id = str(item, "id", name);
   return element;
 }
 
@@ -679,7 +718,7 @@ function parseElement(item: Record<string, unknown>, name: string): ManifestElem
 function checkElementIds(artboards: ManifestArtboard[], elements: ManifestElement[], elementsName: string): void {
   const known = new Set(artboards.map((artboard) => artboard.file));
   elements.forEach((element, i) => {
-    if (element.kind === "arrow" || element.id === undefined) return;
+    if (element.id === undefined) return;
     if (known.has(element.id)) fail(`${elementsName}[${i}].id "${element.id}" is already used by an artboard file or another element`);
     known.add(element.id);
   });
@@ -690,6 +729,21 @@ function checkElementIds(artboards: ManifestArtboard[], elements: ManifestElemen
       if (typeof end === "string" && !known.has(end)) fail(`${elementsName}[${i}].${key} names "${end}", which is not an artboard file or an element id`);
     }
   });
+}
+
+/**
+ * Error message when a manifest about to be published has `elements` entries without an `id` (every one is named by index and kind),
+ * or does not parse, else null. Reading stays lenient: stored manifests and the legacy `notes` list may lack ids.
+ */
+export function publishManifestError(text: string): string | null {
+  try {
+    parseManifest(text);
+  } catch (error) {
+    return (error as Error).message;
+  }
+  const elements = (JSON.parse(text) as { elements?: Record<string, unknown>[] }).elements ?? [];
+  const missing = elements.flatMap((item, i) => (typeof item.id === "string" && item.id !== "" ? [] : [`elements[${i}] (${item.kind ?? "title"}) has no id`]));
+  return missing.length === 0 ? null : missing.join("; ");
 }
 
 function parseGuides(value: unknown, name: string): ArtboardGuides {
