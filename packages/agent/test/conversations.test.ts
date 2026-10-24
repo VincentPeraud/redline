@@ -88,7 +88,7 @@ describe("page conversations", () => {
     const targets = [
       { kind: "element", artboard: "home.html", selector: "h1", elementName: "Titre · Old title", xPct: 10, yPct: 20 },
       { kind: "artboard", artboard: "pay.html" },
-      { kind: "canvas-element", elementId: "note-1", elementKind: "sticky" },
+      { kind: "canvas-element", elementId: "note-1", elementKind: "sticky", elementSummary: "« Parcours »" },
     ];
     const context = { visibleArtboards: [{ file: "home.html" }], tweaks: [], targets };
     expect((await send(seam, conversation.id, "Give 2 the style of 1", { context })).status).toBe(201);
@@ -96,7 +96,7 @@ describe("page conversations", () => {
 
     const message = engine.runs[0].message;
     expect(message).toContain(
-      "Elements the user points at:\n1: element `h1` (named « Titre · Old title ») on artboard home.html\n2: the whole artboard pay.html\n3: canvas element `note-1` (sticky)",
+      "Elements the user points at:\n1: element `h1` (named « Titre · Old title ») on artboard home.html\n2: the whole artboard pay.html\n3: canvas element `note-1` (sticky, « Parcours »)",
     );
     expect((await getConversation(seam, conversation.id)).messages[0].targets).toEqual(targets);
   });

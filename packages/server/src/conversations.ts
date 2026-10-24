@@ -42,7 +42,7 @@ function chipLine(target: ThreadTarget, number: number): string {
     case "artboard":
       return `${number}: the whole artboard ${target.artboard}`;
     case "canvas-element":
-      return `${number}: canvas element \`${target.elementId}\` (${target.elementKind})`;
+      return `${number}: canvas element \`${target.elementId}\` (${target.elementKind}${target.elementSummary ? `, ${target.elementSummary}` : ""})`;
   }
 }
 

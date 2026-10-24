@@ -40,7 +40,7 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 const isThreadTarget = (value: unknown): value is ThreadTarget => {
   if (!isObject(value)) return false;
   if (value.kind === "artboard") return requiredString(value.artboard);
-  if (value.kind === "canvas-element") return requiredString(value.elementId) && typeof value.elementKind === "string" && value.elementKind in CANVAS_ELEMENT_KIND_LABELS;
+  if (value.kind === "canvas-element") return requiredString(value.elementId) && typeof value.elementKind === "string" && value.elementKind in CANVAS_ELEMENT_KIND_LABELS && (value.elementSummary === undefined || typeof value.elementSummary === "string");
   return (
     value.kind === "element" &&
     requiredString(value.artboard) &&
