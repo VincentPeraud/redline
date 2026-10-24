@@ -38,6 +38,13 @@ function artboardFileError(file: string): string | null {
   return null;
 }
 
+/** The form `parseManifest` reads back: a responsive artboard declares its renderings, not the derived frame size. */
+function declaredArtboard(artboard: ManifestArtboard): unknown {
+  if (!artboard.responsive) return artboard;
+  const { responsive, width: _width, height: _height, ...rest } = artboard;
+  return { ...rest, responsive: responsive.map(({ format, width, height }) => ({ device: format, width, height })) };
+}
+
 /** Writes `file` in the working copy and adds (or updates) its entry in the manifest. */
 function addArtboardToWorkingCopy(
   dir: string,
@@ -65,7 +72,7 @@ function addArtboardToWorkingCopy(
   const target = pathInside(dir, artboard.file);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, html);
-  writeFileSync(manifestPath, JSON.stringify({ ...manifest, artboards }, null, 2));
+  writeFileSync(manifestPath, JSON.stringify({ ...manifest, artboards: artboards.map(declaredArtboard) }, null, 2));
 }
 
 /** Redline's tools for a session. Add new tools here: the agent's session server and `redline mcp` both use it. */

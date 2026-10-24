@@ -55,6 +55,29 @@ describe("session MCP tools", () => {
     expect(manifest.artboards.find((a) => a.file === "site.html")).toMatchObject({ device: "desktop", url: "lumora.fr" });
   });
 
+  it("add_artboard keeps a responsive artboard publishable", async () => {
+    const engine = new FakeEngine([
+      { callTool: { name: "add_artboard", arguments: { file: "extra.html", html: "<h1>Extra</h1>" } } },
+      { type: "result", summary: "Add extra" },
+    ]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage({
+      "site.html": "<!doctype html><h1>Site</h1>",
+      "manifest.json": JSON.stringify({ artboards: [{ file: "site.html", responsive: ["desktop", { device: "mobile", width: 400, height: 800 }] }] }),
+    });
+    await seam.pinThread(page.id, "site.html", "Do it");
+    await engine.finished(1);
+    await seam.waitForWorkEnd();
+
+    expect(await seam.versions(page.id)).toHaveLength(2);
+    const manifest = parseManifest(await seam.readFile(page.id, "manifest.json"));
+    expect(manifest.artboards[0].responsive?.map((r) => [r.format, r.width, r.height])).toEqual([
+      ["desktop", 1440, 900],
+      ["mobile", 400, 800],
+    ]);
+    expect(manifest.artboards.map((a) => a.file)).toEqual(["site.html", "extra.html"]);
+  });
+
   it("add_artboard refuses a path outside the page", async () => {
     let answer = "";
     const engine = new FakeEngine(async (run) => {

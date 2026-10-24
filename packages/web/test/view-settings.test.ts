@@ -50,4 +50,9 @@ describe("setFormatShown", () => {
     });
     expect(setFormatShown(setFormatShown(settings, "mobile", false), "mobile", true).hiddenFormats).toEqual([]);
   });
+
+  it("clearing tablet keeps the exceptions of tablet-landscape", () => {
+    const settings: PageViewSettings = { hiddenFormats: [], renderingOverrides: { "a.html": { "tablet-landscape-1024": false, "tablet-768": false } } };
+    expect(setFormatShown(settings, "tablet", false).renderingOverrides).toEqual({ "a.html": { "tablet-landscape-1024": false } });
+  });
 });

@@ -27,7 +27,7 @@ export function setFormatShown(settings: PageViewSettings, format: ResponsiveFor
   const hiddenFormats = shown ? settings.hiddenFormats.filter((f) => f !== format) : [...new Set([...settings.hiddenFormats, format])];
   const renderingOverrides: PageViewSettings["renderingOverrides"] = {};
   for (const [file, byKey] of Object.entries(settings.renderingOverrides)) {
-    const kept = Object.fromEntries(Object.entries(byKey).filter(([key]) => !key.startsWith(`${format}-`)));
+    const kept = Object.fromEntries(Object.entries(byKey).filter(([key]) => key.slice(0, key.lastIndexOf("-")) !== format));
     if (Object.keys(kept).length > 0) renderingOverrides[file] = kept;
   }
   return { hiddenFormats, renderingOverrides };

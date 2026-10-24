@@ -98,7 +98,7 @@ export function versionRequestError(body: Partial<CreateVersionRequest> | undefi
 /** Error message when a request body is not valid page view settings, else null. */
 export function viewSettingsError(body: unknown): string | null {
   const { hiddenFormats, renderingOverrides } = (body ?? {}) as Partial<Record<keyof PageViewSettings, unknown>>;
-  if (!Array.isArray(hiddenFormats) || !hiddenFormats.every((format) => typeof format === "string" && format in RESPONSIVE_FORMATS)) {
+  if (!Array.isArray(hiddenFormats) || !hiddenFormats.every((format) => typeof format === "string" && Object.hasOwn(RESPONSIVE_FORMATS, format))) {
     return "hiddenFormats must be a list of responsive formats";
   }
   const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
