@@ -8,6 +8,7 @@ import {
   MAX_PAGE_BYTES,
   TWEAKS_PATH,
   MAX_ELEMENT_NAME_LENGTH,
+  RESPONSIVE_FORMATS,
   isSafePath,
   parseManifest,
   starterDesignSystemFiles,
@@ -256,6 +257,12 @@ export async function buildMainApp(
       if (pin.held !== undefined && typeof pin.held !== "boolean") return reply.code(400).send({ error: "held must be a boolean" });
       if (pin.elementName !== undefined && (typeof pin.elementName !== "string" || pin.elementName.length > MAX_ELEMENT_NAME_LENGTH)) {
         return reply.code(400).send({ error: `elementName must be a string of at most ${MAX_ELEMENT_NAME_LENGTH} characters` });
+      }
+      if (pin.rendering !== undefined) {
+        const { format, width } = (pin.rendering ?? {}) as Partial<NonNullable<CreateThreadRequest["rendering"]>>;
+        if (typeof format !== "string" || !Object.hasOwn(RESPONSIVE_FORMATS, format) || !Number.isInteger(width) || (width as number) <= 0) {
+          return reply.code(400).send({ error: "rendering must be { format: a responsive format, width: a positive integer }" });
+        }
       }
       const invalidChoice = modelChoiceError(pin);
       if (invalidChoice) return reply.code(400).send({ error: invalidChoice });

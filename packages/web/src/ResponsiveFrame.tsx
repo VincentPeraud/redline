@@ -1,5 +1,5 @@
-import { renderingKey, renderingLabel, type ArtboardRendering, type TweakValues } from "@redline/shared";
-import { ArtboardFrame } from "./ArtboardFrame.js";
+import { renderingKey, renderingLabel, type ArtboardRendering, type Thread, type TweakValues } from "@redline/shared";
+import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import type { ResponsiveFrameLayout } from "./canvasGeometry.js";
 import styles from "./ResponsiveFrame.module.css";
 
@@ -9,7 +9,11 @@ interface Props {
   renderings: readonly ArtboardRendering[];
   layout: ResponsiveFrameLayout;
   zoom: number;
+  /** Threads of this artboard; each rendering shows the ones pinned in it. */
+  threads: Thread[];
+  picking: boolean;
   tweaks: TweakValues;
+  onPick: (rendering: ArtboardRendering, pick: Pick) => void;
   onDocHeight: (key: string, height: number) => void;
 }
 
@@ -19,7 +23,7 @@ const formatPx = (value: number) => new Intl.NumberFormat("fr-FR").format(value)
  * The frame of a responsive artboard: every rendering of the same file side by side, each at the real
  * height of its page. Labels keep their screen size whatever the zoom; they sit in the frame's padding.
  */
-export function ResponsiveFrame({ title, src, renderings, layout, zoom, tweaks, onDocHeight }: Props) {
+export function ResponsiveFrame({ title, src, renderings, layout, zoom, threads, picking, tweaks, onPick, onDocHeight }: Props) {
   const { frame } = layout;
   return (
     <div data-responsive-frame className={styles.frame} style={{ width: frame.width, height: frame.height, ["--unit" as string]: 1 / zoom }}>
@@ -36,10 +40,10 @@ export function ResponsiveFrame({ title, src, renderings, layout, zoom, tweaks, 
               width={box.width}
               height={box.height}
               zoom={zoom}
-              threads={[]}
-              picking={false}
+              threads={threads.filter((t) => t.rendering !== undefined && renderingKey(t.rendering) === box.key)}
+              picking={picking}
               tweaks={tweaks}
-              onPick={() => {}}
+              onPick={(pick) => onPick(rendering, pick)}
               onDocHeight={(height) => onDocHeight(box.key, height)}
             />
             <span className={styles.caption} style={{ transform: `scale(${1 / zoom})` }}>
