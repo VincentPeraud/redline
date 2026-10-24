@@ -435,24 +435,6 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     onVersionChange();
   }
 
-  if (playing && manifest && playFile !== undefined) {
-    return (
-      <PlayMode
-        pageId={pageId}
-        pageTitle={pageTitle}
-        manifest={manifest}
-        file={playFile}
-        rendu={rendu}
-        artboardOrigin={artboardOrigin}
-        tweaks={tweaks.values}
-        onTweak={tweaks.setValue}
-        guidesVisible={guidesVisible}
-        onToggleGuides={toggleGuides}
-        onExit={() => navigateTo({ name: "page", pageId })}
-      />
-    );
-  }
-
   const openCount = threads.filter((t) => t.status !== "resolved").length;
   const runningCount = runs.filter((r) => r.status === "running" || r.status === "sent" || r.status === "retrying").length;
   const firstArtboard = manifest?.artboards[0]?.file;
@@ -474,6 +456,25 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     (manifest?.artboards ?? []).map((artboard) => ({ file: artboard.file, title: artboard.title, ...artboardBoxes.get(artboard.file)! })),
     (manifest?.elements ?? []).flatMap((element) => (element.kind === "title" ? [{ text: element.text, x: element.x, y: element.y, width: element.width }] : [])),
   ).map((entry) => ({ ...entry, openThreads: threads.filter((t) => t.artboard === entry.file && t.status !== "resolved").length }));
+  if (playing && manifest && playFile !== undefined) {
+    return (
+      <PlayMode
+        pageId={pageId}
+        pageTitle={pageTitle}
+        manifest={manifest}
+        tocItems={tocItems}
+        file={playFile}
+        rendu={rendu}
+        artboardOrigin={artboardOrigin}
+        tweaks={tweaks.values}
+        onTweak={tweaks.setValue}
+        guidesVisible={guidesVisible}
+        onToggleGuides={toggleGuides}
+        onExit={() => navigateTo({ name: "page", pageId })}
+      />
+    );
+  }
+
   const currentTocFile = artboardAtCentre(
     [...artboardBoxes].map(([file, box]) => ({ file, ...box })),
     view,

@@ -13,6 +13,7 @@ import { designSystemTokensUrlPath, HOVER_FINISH, MARK_FINISH, hoverLabelCss, ho
  * Artboard -> parent: { type: "redline:ready" }
  *                     { type: "redline:picked", selector, elementName, xPct, yPct }  (elementName: role + short visible text, e.g. bouton « Continuer »)
  *                     { type: "redline:escape" }  (Escape pressed in selection mode: the iframe holds the keyboard focus, so the parent cannot hear it)
+ *                     { type: "redline:key", key: "ArrowLeft" | "ArrowRight" }  (arrow pressed with no modifier outside a text field: the iframe holds the keyboard focus, so play mode cannot hear it)
  *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched }] }
  *                     { type: "redline:link", selector }
  *                     { type: "redline:doc-height", height }  (height of the whole page in pixels; sent on load and whenever it changes)
@@ -190,6 +191,11 @@ export const BRIDGE_SOURCE = `(function () {
     return parts.text === "" ? role : role + " \\u00b7 " + parts.text;
   }
 
+  function inTextField(target) {
+    var tag = target && target.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!(target && (target.isContentEditable || (target.closest && target.closest("[contenteditable]:not([contenteditable=false])"))));
+  }
+
   function send(message) {
     window.parent.postMessage(message, "*");
   }
@@ -337,6 +343,7 @@ export const BRIDGE_SOURCE = `(function () {
   }, true);
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape" && selecting) send({ type: "redline:escape" });
+    if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !inTextField(event.target)) send({ type: "redline:key", key: event.key });
     if (event.key !== "Alt") return;
     altHeld = true;
     drawHover();

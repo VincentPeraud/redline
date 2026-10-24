@@ -87,14 +87,14 @@ it("reopens the artboard of a play URL on reload, and follows the artboard butto
   await play.waitFor();
   expect(await play.locator("iframe").getAttribute("title")).toMatch(/two\.html$/);
 
-  await play.getByRole("button", { name: "One" }).click();
+  await play.getByRole("button", { name: "Artboard précédent (←)" }).click();
   await expect.poll(() => hashOf(tab)).toBe(`#/pages/${pageId}/play/one.html`);
   await tab.reload();
   await play.waitFor();
   expect(await play.locator("iframe").getAttribute("title")).toMatch(/one\.html$/);
 
   const before = await tab.evaluate(() => window.history.length);
-  await play.getByRole("button", { name: "Two" }).click();
+  await play.getByRole("button", { name: "Artboard suivant (→)" }).click();
   await expect.poll(() => hashOf(tab)).toBe(`#/pages/${pageId}/play/two.html`);
   expect(await tab.evaluate(() => window.history.length)).toBe(before);
   await tab.close();
