@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MANIFEST_PATH, defaultManifest, parseManifest } from "@redline/shared";
+import { MANIFEST_PATH, RESPONSIVE_SPACING, defaultManifest, parseManifest, renderingLabel } from "@redline/shared";
 
 describe("page manifest", () => {
   it("reads title, type, design system, artboards, notes, links and tweaks", () => {
@@ -251,5 +251,44 @@ describe("page manifest", () => {
     expect(manifest.artboards[0]!.expand).toBe("fill");
     expect(manifest.artboards[1]).not.toHaveProperty("expand");
     expect(() => parseManifest(JSON.stringify({ artboards: [{ file: "a.html" }, { file: "b.html", expand: "stretch" }] }))).toThrow(/artboards\[1\]\.expand/);
+  });
+  describe("responsive artboards", () => {
+    const parse = (responsive: unknown, extra: object = {}) => parseManifest(JSON.stringify({ artboards: [{ file: "landing.html", responsive, ...extra }] }));
+
+    it("reads named formats at their real size, in the order given", () => {
+      const [artboard] = parse(["desktop", "tablet", "mobile", "tablet-landscape"]).artboards;
+      expect(artboard!.responsive).toEqual([
+        { format: "desktop", width: 1440, height: 900 },
+        { format: "tablet", width: 768, height: 1024 },
+        { format: "mobile", width: 390, height: 844 },
+        { format: "tablet-landscape", width: 1024, height: 768 },
+      ]);
+    });
+
+    it("reads a {device, width, height} override and labels renderings with format and width", () => {
+      const [artboard] = parse(["desktop", { device: "desktop", width: 1920, height: 1080 }]).artboards;
+      expect(artboard!.responsive!.map(renderingLabel)).toEqual(["Desktop · 1440", "Desktop · 1920"]);
+      expect(artboard!.responsive![1]).toEqual({ format: "desktop", width: 1920, height: 1080 });
+    });
+
+    it("ignores the device of a responsive artboard and sizes the artboard to its frame", () => {
+      const [artboard] = parse(["desktop", "mobile"], { device: "phone" }).artboards;
+      expect(artboard).not.toHaveProperty("device");
+      expect(artboard!.width).toBe(RESPONSIVE_SPACING * 3 + 1440 + 390);
+      expect(artboard!.height).toBe(RESPONSIVE_SPACING * 2 + 900);
+    });
+
+    it("refuses an unknown format, naming the field", () => {
+      expect(() => parse(["desktop", "watch"])).toThrow(/artboards\[0\]\.responsive\[1\].*desktop/);
+      expect(() => parse([{ device: "watch", width: 100, height: 100 }])).toThrow(/artboards\[0\]\.responsive\[0\]\.device/);
+      expect(() => parse([{ device: "mobile", width: 0, height: 100 }])).toThrow(/artboards\[0\]\.responsive\[0\]\.width/);
+      expect(() => parse([{ device: "mobile", width: 100 }])).toThrow(/artboards\[0\]\.responsive\[0\]\.height/);
+      expect(() => parse([])).toThrow(/artboards\[0\]\.responsive/);
+      expect(() => parse("desktop")).toThrow(/artboards\[0\]\.responsive/);
+    });
+
+    it("refuses two renderings with the same format and width", () => {
+      expect(() => parse(["mobile", { device: "mobile", width: 390, height: 600 }])).toThrow(/artboards\[0\]\.responsive\[1\]/);
+    });
   });
 });

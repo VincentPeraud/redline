@@ -1,0 +1,35 @@
+/* --unit is 1 / zoom: one screen pixel in canvas pixels, so the outline and the labels keep their size at any zoom. */
+.frame {
+  position: relative;
+  box-sizing: border-box;
+  border: calc(1px * var(--unit)) solid var(--color-responsive-border);
+  border-radius: calc(12px * var(--unit));
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.rendering {
+  position: absolute;
+}
+
+.label {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  padding-bottom: var(--space-2);
+  transform-origin: 0 100%;
+  white-space: nowrap;
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.caption {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  padding-top: var(--space-2);
+  transform-origin: 0 0;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--color-text-muted);
+}

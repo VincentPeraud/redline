@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ArrowEnd, ManifestArrowElement, ManifestArtboard, ManifestElement, ManifestImageElement, ManifestLinkElement, ManifestTitleElement, Page, Project } from "@redline/shared";
+import type { ArrowEnd, ManifestArrowElement, ManifestElement, ManifestImageElement, ManifestLinkElement, ManifestTitleElement, Page, Project } from "@redline/shared";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
 import { routeHref } from "./router.js";
 import { CanvasShape } from "./CanvasShapes.js";
@@ -211,7 +211,7 @@ function sameSizes(a: Record<string, Size>, b: Record<string, Size>): boolean {
 }
 
 /** Decoration written by Claude: drawn in list order, not draggable, no comment pins. */
-export function CanvasElements({ elements, artboards, assetBase, artboardOrigin }: { elements: ManifestElement[]; artboards: ManifestArtboard[]; assetBase: string; artboardOrigin: string }) {
+export function CanvasElements({ elements, artboardBoxes, assetBase, artboardOrigin }: { elements: ManifestElement[]; artboardBoxes: ReadonlyMap<string, Box>; assetBase: string; artboardOrigin: string }) {
   const placedRef = useRef<HTMLDivElement>(null);
   const [sizes, setSizes] = useState<Record<string, Size>>({});
   const placed = elements.filter((element) => element.kind !== "arrow");
@@ -232,7 +232,7 @@ export function CanvasElements({ elements, artboards, assetBase, artboardOrigin 
     return () => observer.disconnect();
   }, [elements]);
 
-  const boxes = new Map<string, Box>(artboards.map((artboard) => [artboard.file, { x: artboard.x, y: artboard.y, width: artboard.width, height: artboard.height }]));
+  const boxes = new Map<string, Box>(artboardBoxes);
   for (const element of placed) {
     if (element.id === undefined) continue;
     const box = elementBox(element, sizes[element.id]);

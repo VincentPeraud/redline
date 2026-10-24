@@ -271,6 +271,28 @@ export interface ArtboardGuides {
   baseline?: number;
 }
 
+/** Formats a responsive artboard can be rendered at. */
+export type ResponsiveFormat = "desktop" | "tablet-landscape" | "tablet" | "mobile";
+export const RESPONSIVE_FORMATS: Record<ResponsiveFormat, { label: string; width: number; height: number }> = {
+  desktop: { label: "Desktop", width: 1440, height: 900 },
+  "tablet-landscape": { label: "Tablette paysage", width: 1024, height: 768 },
+  tablet: { label: "Tablette", width: 768, height: 1024 },
+  mobile: { label: "Mobile", width: 390, height: 844 },
+};
+/** One rendering of a responsive artboard: its format and the viewport it is laid out in. */
+export interface ArtboardRendering {
+  format: ResponsiveFormat;
+  width: number;
+  /** Viewport height; the canvas shows the real height of the page once the bridge reported it. */
+  height: number;
+}
+/** Identity of a rendering within its artboard. */
+export const renderingKey = (rendering: Pick<ArtboardRendering, "format" | "width">) => `${rendering.format}-${rendering.width}`;
+/** "Desktop · 1440" */
+export const renderingLabel = (rendering: Pick<ArtboardRendering, "format" | "width">) => `${RESPONSIVE_FORMATS[rendering.format].label} · ${rendering.width}`;
+/** Padding of a responsive frame, and gap between its renderings (canvas pixels). */
+export const RESPONSIVE_SPACING = 96;
+
 export interface ManifestArtboard {
   /** Path of the HTML file; also the artboard's identity (threads reference it). */
   file: string;
@@ -287,6 +309,8 @@ export interface ManifestArtboard {
   /** `fill`: in play mode the artboard fills the whole window (ignored on a phone); the canvas keeps the declared size. */
   expand?: "fill";
   guides?: ArtboardGuides;
+  /** One HTML file rendered at several widths, side by side in one frame; `device` is ignored. `width`/`height` then describe the frame with the declared heights. */
+  responsive?: ArtboardRendering[];
 }
 
 export const DEFAULT_TITLE_WIDTH = 1200;
@@ -653,6 +677,36 @@ function parseGuides(value: unknown, name: string): ArtboardGuides {
   return guides;
 }
 
+const RESPONSIVE_FORMAT_NAMES = Object.keys(RESPONSIVE_FORMATS) as ResponsiveFormat[];
+
+function parseRenderings(value: unknown, name: string): ArtboardRendering[] {
+  if (!Array.isArray(value) || value.length === 0) fail(`${name} must be a non-empty list of formats (${RESPONSIVE_FORMAT_NAMES.join(", ")})`);
+  const seen = new Set<string>();
+  return (value as unknown[]).map((entry, i) => {
+    const entryName = `${name}[${i}]`;
+    let rendering: ArtboardRendering;
+    if (typeof entry === "string") {
+      if (!RESPONSIVE_FORMAT_NAMES.includes(entry as ResponsiveFormat)) fail(`${entryName} must be one of ${RESPONSIVE_FORMAT_NAMES.join(", ")}`);
+      const { width, height } = RESPONSIVE_FORMATS[entry as ResponsiveFormat];
+      rendering = { format: entry as ResponsiveFormat, width, height };
+    } else if (typeof entry === "object" && entry !== null && !Array.isArray(entry)) {
+      const item = entry as Record<string, unknown>;
+      if (!RESPONSIVE_FORMAT_NAMES.includes(item.device as ResponsiveFormat)) fail(`${entryName}.device must be one of ${RESPONSIVE_FORMAT_NAMES.join(", ")}`);
+      const size = (key: "width" | "height") => {
+        const n = item[key];
+        if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) fail(`${entryName}.${key} must be a positive number`);
+        return n as number;
+      };
+      rendering = { format: item.device as ResponsiveFormat, width: size("width"), height: size("height") };
+    } else {
+      return fail(`${entryName} must be a format name or {device, width, height}`);
+    }
+    if (seen.has(renderingKey(rendering))) fail(`${entryName} repeats ${renderingLabel(rendering)}`);
+    seen.add(renderingKey(rendering));
+    return rendering;
+  });
+}
+
 export function parseManifest(text: string): Manifest {
   let raw: unknown;
   try {
@@ -675,7 +729,12 @@ export function parseManifest(text: string): Manifest {
       y: num(item, "y", name, 0),
     };
     if (typeof item.title === "string") artboard.title = item.title;
-    if (item.device !== undefined) {
+    if (item.responsive !== undefined) {
+      const renderings = parseRenderings(item.responsive, `${name}.responsive`);
+      artboard.responsive = renderings;
+      artboard.width = renderings.reduce((sum, r) => sum + r.width, 0) + RESPONSIVE_SPACING * (renderings.length + 1);
+      artboard.height = Math.max(...renderings.map((r) => r.height)) + RESPONSIVE_SPACING * 2;
+    } else if (item.device !== undefined) {
       if (!ARTBOARD_DEVICES.includes(item.device as ArtboardDevice)) fail(`${name}.device must be one of ${ARTBOARD_DEVICES.join(", ")}`);
       artboard.device = item.device as ArtboardDevice;
     }
@@ -685,7 +744,7 @@ export function parseManifest(text: string): Manifest {
       artboard.expand = "fill";
     }
     if (item.guides !== undefined) artboard.guides = parseGuides(item.guides, `${name}.guides`);
-    nextX = artboard.x + width + ARTBOARD_GAP;
+    nextX = artboard.x + artboard.width + ARTBOARD_GAP;
     return artboard;
   });
 

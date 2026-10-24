@@ -42,6 +42,8 @@ interface Props {
   picking: boolean;
   tweaks: TweakValues;
   onPick: (pick: Pick) => void;
+  /** Called with the real height of the artboard's page whenever the bridge reports it. */
+  onDocHeight?: (height: number) => void;
 }
 
 /**
@@ -49,12 +51,14 @@ interface Props {
  * and pin placement go through the bridge script the server injects (see conventions.md).
  * Messages are trusted only when `event.source` is this iframe's window.
  */
-export function ArtboardFrame({ src, title, width, height, zoom, guides, threads, picking, tweaks, onPick }: Props) {
+export function ArtboardFrame({ src, title, width, height, zoom, guides, threads, picking, tweaks, onPick, onDocHeight }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [positions, setPositions] = useState<PinPosition[]>([]);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
+  const onDocHeightRef = useRef(onDocHeight);
+  onDocHeightRef.current = onDocHeight;
 
   const pinned = threads;
 
@@ -65,6 +69,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
       if (data.type === "redline:ready") setBridgeEpoch((n) => n + 1);
       else if (data.type === "redline:picked") onPickRef.current(data as Pick);
       else if (data.type === "redline:pin-positions") setPositions(data.positions ?? []);
+      else if (data.type === "redline:doc-height") onDocHeightRef.current?.((data as unknown as { height: number }).height);
       else if (data.type === "redline:wheel") replayWheel(data as unknown as ForwardedWheel);
     }
     // The iframe swallows wheel and pinch: the bridge hands them back, and we replay them on the iframe

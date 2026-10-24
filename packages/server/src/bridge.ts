@@ -12,6 +12,7 @@ import { designSystemTokensUrlPath } from "@redline/shared";
  *                     { type: "redline:picked", selector, elementName, xPct, yPct }  (elementName: role + short visible text, e.g. bouton « Continuer »)
  *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched }] }
  *                     { type: "redline:link", selector }
+ *                     { type: "redline:doc-height", height }  (height of the whole page in pixels; sent on load and whenever it changes)
  *
  * Plain ES5 on purpose: it is served as-is to the browser.
  */
@@ -26,6 +27,17 @@ export const BRIDGE_SOURCE = `(function () {
   function docSize() {
     var root = document.documentElement;
     return { w: root.scrollWidth || 1, h: root.scrollHeight || 1 };
+  }
+
+  var lastHeight = 0;
+
+  function reportHeight() {
+    var root = document.documentElement;
+    var height = Math.ceil(Math.max(root.offsetHeight || 0, document.body ? document.body.scrollHeight : 0));
+    if (height > 0 && height !== lastHeight) {
+      lastHeight = height;
+      send({ type: "redline:doc-height", height: height });
+    }
   }
 
   function pct(value, total) {
@@ -158,6 +170,7 @@ export const BRIDGE_SOURCE = `(function () {
     });
     window.redlineTweaks = values;
     window.dispatchEvent(new CustomEvent("redline:tweaks", { detail: values }));
+    reportHeight();
   }
 
   function matchLink(target) {
@@ -241,8 +254,18 @@ export const BRIDGE_SOURCE = `(function () {
     });
   }, { passive: false });
 
-  window.addEventListener("resize", reportPins);
+  window.addEventListener("resize", function () {
+    reportPins();
+    reportHeight();
+  });
+  window.addEventListener("load", reportHeight);
+  if (typeof ResizeObserver === "function") {
+    var observer = new ResizeObserver(reportHeight);
+    observer.observe(document.documentElement);
+    if (document.body) observer.observe(document.body);
+  }
   send({ type: "redline:ready" });
+  reportHeight();
 })();
 `;
 

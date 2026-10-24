@@ -121,6 +121,21 @@ describe("session MCP tools", () => {
     expect(guide).toContain("240");
   });
 
+  it("read_guide documents responsive artboards: formats, overrides, when to use them, asking the user", async () => {
+    let guide = "";
+    const engine = new FakeEngine(async (run) => {
+      guide = await run.callTool("read_guide", {});
+      return [{ type: "result", summary: "Nothing" }];
+    });
+    await runOnce(engine);
+    expect(guide).toMatch(/"responsive"[^\n]*"desktop"[^\n]*"tablet-landscape"[^\n]*"tablet"[^\n]*"mobile"/);
+    for (const size of ["1440x900", "1024x768", "768x1024", "390x844"]) expect(guide).toContain(size);
+    expect(guide).toMatch(/\{ "device", "width", "height" \}/);
+    expect(guide).toMatch(/ignores "device"/);
+    expect(guide).toMatch(/separate (desktop and mobile )?artboards/i);
+    expect(guide).toMatch(/ask the user/i);
+  });
+
   it("read_guide documents element ids and arrows", async () => {
     let guide = "";
     const engine = new FakeEngine(async (run) => {
