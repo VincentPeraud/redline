@@ -55,6 +55,11 @@
   --color-code-text: #e4e4e7;
   --color-overlay: rgba(24, 24, 27, 0.45);
 
+  /* Responsive artboards: badge and frame outline */
+  --color-responsive-bg: #e0e7ff;
+  --color-responsive-text: #3730a3;
+  --color-responsive-border: #c7d2fe;
+
   /* Status badges: background / text */
   --badge-running-bg: var(--color-accent);
   --badge-running-text: #ffffff;

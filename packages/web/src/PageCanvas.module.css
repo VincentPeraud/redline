@@ -124,6 +124,16 @@
   color: var(--color-text-muted);
 }
 
+.responsiveBadge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-responsive-bg);
+  color: var(--color-responsive-text);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+}
+
 .tweaksButton {
   height: 30px;
   padding: 0 10px;

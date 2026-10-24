@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { arrowGeometry, elementBox } from "../src/canvasGeometry.js";
+import { RESPONSIVE_SPACING } from "@redline/shared";
+import { arrowGeometry, elementBox, responsiveFrameBox, responsiveFrameLayout } from "../src/canvasGeometry.js";
 
 describe("arrow geometry", () => {
   it("links the facing edges of two boxes side by side, at their middles", () => {
@@ -58,5 +59,44 @@ describe("element box", () => {
 
   it("has no box for an arrow", () => {
     expect(elementBox({ kind: "arrow", from: "a", to: "b", color: "gray", line: "solid" }, undefined)).toBeNull();
+  });
+});
+
+describe("responsive frame layout", () => {
+  const S = RESPONSIVE_SPACING;
+  const renderings = [
+    { key: "desktop-1440", width: 1440, height: 900 },
+    { key: "tablet-768", width: 768, height: 1024 },
+    { key: "mobile-390", width: 390, height: 844 },
+  ];
+  const heights = { "desktop-1440": 1100, "tablet-768": 1700, "mobile-390": 2400 };
+
+  it("sits the renderings side by side, with the padding equal to the gap, at their measured heights", () => {
+    const layout = responsiveFrameLayout({ x: 100, y: 50 }, renderings, { measuredHeights: heights });
+    expect(layout.renderings).toEqual([
+      { key: "desktop-1440", x: 100 + S, y: 50 + S, width: 1440, height: 1100 },
+      { key: "tablet-768", x: 100 + S + 1440 + S, y: 50 + S, width: 768, height: 1700 },
+      { key: "mobile-390", x: 100 + S + 1440 + S + 768 + S, y: 50 + S, width: 390, height: 2400 },
+    ]);
+    expect(layout.frame).toEqual({ x: 100, y: 50, width: 4 * S + 1440 + 768 + 390, height: 2 * S + 2400 });
+  });
+
+  it("falls back to the declared height until a page height is measured", () => {
+    const layout = responsiveFrameLayout({ x: 0, y: 0 }, renderings, { measuredHeights: { "desktop-1440": 1100 } });
+    expect(layout.renderings.map((r) => r.height)).toEqual([1100, 1024, 844]);
+    expect(layout.frame.height).toBe(2 * S + 1100);
+  });
+
+  it("drops hidden renderings: the frame closes up around the others", () => {
+    const layout = responsiveFrameLayout({ x: 0, y: 0 }, renderings, { measuredHeights: heights, hidden: new Set(["tablet-768"]) });
+    expect(layout.renderings.map((r) => [r.key, r.x])).toEqual([["desktop-1440", S], ["mobile-390", 2 * S + 1440]]);
+    expect(layout.frame).toEqual({ x: 0, y: 0, width: 3 * S + 1440 + 390, height: 2 * S + 2400 });
+  });
+
+  it("is the box an arrow targets for the whole artboard", () => {
+    const artboard = { x: 10, y: 20, responsive: renderings.map((r) => ({ format: r.key.split("-")[0] as "desktop", width: r.width, height: r.height })) };
+    expect(responsiveFrameBox(artboard, { measuredHeights: { "desktop-1440": 1100 } })).toEqual(
+      responsiveFrameLayout({ x: 10, y: 20 }, renderings, { measuredHeights: { "desktop-1440": 1100 } }).frame,
+    );
   });
 });

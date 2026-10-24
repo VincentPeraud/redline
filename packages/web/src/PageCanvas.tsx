@@ -19,6 +19,8 @@ import { CanvasHeader } from "./CanvasHeader.js";
 import { useGuidesVisible } from "./useGuidesVisible.js";
 import { panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { CanvasElements } from "./CanvasElements.js";
+import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
+import { ResponsiveFrame } from "./ResponsiveFrame.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
 import { ConversationsPanel } from "./ConversationsPanel.js";
 import type { AgentDefaults, ModelEffortChoice } from "./ModelEffortControls.js";
@@ -109,6 +111,8 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [toast, setToast] = useState<{ message: string; undo: () => Promise<void> } | null>(null);
   const deleted = useDeletedArtboards(pageId, versionId);
   const [guidesVisible, toggleGuides] = useGuidesVisible();
+  /** Real page height of each rendering of a responsive artboard, by artboard file then rendering key, as reported by the bridge. */
+  const [docHeights, setDocHeights] = useState<Record<string, Record<string, number>>>({});
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   const viewport = useRef<HTMLDivElement>(null);
   const placed = useRef(false);
@@ -274,6 +278,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const runningCount = runs.filter((r) => r.status === "running" || r.status === "sent" || r.status === "retrying").length;
   const firstArtboard = manifest?.artboards[0]?.file;
   const draftInfo: Draft | null = draft;
+  const layoutOf = (artboard: Manifest["artboards"][number]) =>
+    artboard.responsive ? responsiveFrameLayout(artboard, renderingSlots(artboard.responsive), { measuredHeights: docHeights[artboard.file] }) : null;
+  const artboardBoxes = new Map<string, Box>(
+    (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, width: artboard.width, height: artboard.height }]),
+  );
   const artboardTweaks = (file: string) => (manifest?.tweaks ?? []).filter((tweak) => (tweak.artboard ? tweak.artboard === file : file === firstArtboard));
 
   return (
@@ -316,15 +325,23 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             }}
           >
             <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
-              {manifest && <CanvasElements elements={manifest.elements} artboards={manifest.artboards} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} />}
-              {manifest?.artboards.map((artboard) => (
+              {manifest && <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} />}
+              {manifest?.artboards.map((artboard) => {
+                const layout = layoutOf(artboard);
+                const frameWidth = artboardBoxes.get(artboard.file)!.width;
+                const src =
+                  preview?.file === artboard.file
+                    ? `${artboardOrigin}${versionPreviewPath(pageId, preview.versionId, artboard.file)}`
+                    : `${artboardOrigin}/pages/${pageId}/${artboard.file}`;
+                return (
                 <div
                   key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`}
                   className={cx(styles.artboard, (historyOpenFor === artboard.file || tweaksOpenFor === artboard.file) && styles.artboardRaised)}
                   style={{ left: artboard.x, top: artboard.y }}
                 >
-                  <div data-no-pan className={styles.label} style={{ width: artboard.width * view.zoom, transform: `scale(${1 / view.zoom})` }}>
+                  <div data-no-pan className={styles.label} style={{ width: frameWidth * view.zoom, transform: `scale(${1 / view.zoom})` }}>
                     <span className={styles.labelName}>{artboard.title ?? artboard.file}</span>
+                    {layout && <span className={styles.responsiveBadge}>responsive</span>}
                     <span className={styles.spacer} />
                     <ArtboardHistory
                       pageId={pageId}
@@ -351,14 +368,24 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       <FullscreenIcon />
                     </button>
                   </div>
+                  {layout && artboard.responsive ? (
+                    <ResponsiveFrame
+                      key={preview?.file === artboard.file ? preview.versionId : "live"}
+                      title={`${pageTitle} / ${artboard.file}`}
+                      src={src}
+                      renderings={artboard.responsive}
+                      layout={layout}
+                      zoom={view.zoom}
+                      tweaks={tweaks.values}
+                      onDocHeight={(key, height) =>
+                        setDocHeights((current) => (current[artboard.file]?.[key] === height ? current : { ...current, [artboard.file]: { ...current[artboard.file], [key]: height } }))
+                      }
+                    />
+                  ) : (
                   <ArtboardFrame
                     key={preview?.file === artboard.file ? preview.versionId : "live"}
                     title={`${pageTitle} / ${artboard.file}`}
-                    src={
-                      preview?.file === artboard.file
-                        ? `${artboardOrigin}${versionPreviewPath(pageId, preview.versionId, artboard.file)}`
-                        : `${artboardOrigin}/pages/${pageId}/${artboard.file}`
-                    }
+                    src={src}
                     width={artboard.width}
                     height={artboard.height}
                     zoom={view.zoom}
@@ -371,13 +398,14 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       setTab("comments");
                     }}
                   />
+                  )}
                   {tweaksOpenFor === artboard.file && (
                     <div
                       data-no-pan
                       role="dialog"
                       aria-label={`Tweaks de ${artboard.file}`}
                       className={styles.tweaksPopover}
-                      style={{ left: artboard.width + 12, transform: `scale(${1 / view.zoom})` }}
+                      style={{ left: frameWidth + 12, transform: `scale(${1 / view.zoom})` }}
                     >
                       <div className={styles.popoverHead}>
                         <span className={styles.popoverTitle}>Tweaks · {artboard.file.replace(/\.html$/, "")}</span>
@@ -393,7 +421,8 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
           {manifest?.artboards.length === 0 && (
