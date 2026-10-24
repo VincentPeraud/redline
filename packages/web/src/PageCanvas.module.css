@@ -381,6 +381,14 @@
   cursor: pointer;
 }
 
+.tocPanel {
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3) 0;
+}
+
 .tabActive {
   border-bottom-color: var(--color-accent);
   font-weight: var(--font-weight-semibold);
