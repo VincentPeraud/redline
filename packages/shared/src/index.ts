@@ -970,3 +970,4 @@ export function starterPageFiles(title: string, designSystem?: string | null): R
 
 export * from "./designSystem.js";
 export * from "./projectFiles.js";
+export * from "./hoverFinish.js";

@@ -4,6 +4,7 @@ import { ArtboardGuides } from "./ArtboardGuides.js";
 import { threadWhere } from "./threadLabel.js";
 import { cx } from "./ui/index.js";
 import styles from "./ArtboardFrame.module.css";
+import { useAltKey } from "./useAltKey.js";
 
 export interface Pick {
   selector: string;
@@ -53,6 +54,7 @@ interface Props {
  */
 export function ArtboardFrame({ src, title, width, height, zoom, guides, threads, picking, tweaks, onPick, onDocHeight }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
+  const alt = useAltKey();
   const [positions, setPositions] = useState<PinPosition[]>([]);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
   const onPickRef = useRef(onPick);
@@ -99,8 +101,8 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
 
   useEffect(() => {
     if (bridgeEpoch === 0) return;
-    frame.current?.contentWindow?.postMessage({ type: "redline:set-mode", picking, forwardWheel: true }, "*");
-  }, [picking, bridgeEpoch]);
+    frame.current?.contentWindow?.postMessage({ type: "redline:set-mode", picking, alt, forwardWheel: true }, "*");
+  }, [picking, alt, bridgeEpoch]);
 
   useEffect(() => {
     if (bridgeEpoch === 0) return;
