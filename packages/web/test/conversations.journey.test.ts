@@ -54,3 +54,28 @@ it("creates a conversation, talks to Claude with model and effort, shows the ses
   await panel.getByRole("button", { name: "Supprimer cette conversation" }).click();
   await expect.poll(() => panel.getByRole("button", { name: "Conversation", exact: true }).textContent()).toContain("Aucune conversation");
 }, 60_000);
+
+it("types and sends on a page without conversation: the first message creates it with the chosen model and effort", async () => {
+  const before = engine.runs.length;
+  const page = await seam.createPage({ "home.html": "<!doctype html><h1>Title</h1>" });
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
+  const panel = tab.getByTestId("conversations");
+
+  await panel.getByText("Nouvelle conversation", { exact: true }).waitFor();
+  await panel.getByText("Écris ton premier message : la conversation est créée à l'envoi.").waitFor();
+  expect(await panel.getByLabel("Message à Claude").isEnabled()).toBe(true);
+  await panel.getByLabel("Modèle").selectOption("opus");
+  await panel.getByRole("radio", { name: "low", exact: true }).click();
+  await panel.getByLabel("Message à Claude").fill("First words");
+  await panel.getByRole("button", { name: "Envoyer" }).click();
+
+  await engine.finished(before + 1);
+  await expect.poll(() => panel.getByTestId("conversation-message").first().textContent()).toBe("First words");
+  await expect.poll(() => panel.getByTestId("conversation-session").textContent()).toContain("opus · low");
+  expect(engine.runs[before].message).toContain(page.id);
+
+  await panel.getByRole("button", { name: "+ Nouvelle" }).click();
+  await expect.poll(() => panel.getByRole("button", { name: "Conversation", exact: true }).textContent()).toContain("Nouvelle conversation");
+  await expect.poll(() => panel.getByTestId("conversation-message").count()).toBe(0);
+}, 60_000);
