@@ -16,7 +16,7 @@ export interface LinkOptions {
 const LINK_FILE = "project.json";
 const IGNORE_ENTRY = ".redline/";
 
-function readLinkedProjectId(folder: string): string | undefined {
+export function readLinkedProjectId(folder: string): string | undefined {
   try {
     return (JSON.parse(readFileSync(join(folder, ".redline", LINK_FILE), "utf8")) as { projectId?: string }).projectId;
   } catch {

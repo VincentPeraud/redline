@@ -6,6 +6,7 @@ import {
   type CreateVersionRequest,
   type Page,
   type PageVersionSummary,
+  type Project,
   type ProjectAsset,
   type ThreadReply,
   type VersionOrigin,
@@ -48,10 +49,36 @@ export class ServerApi {
     return this.request("POST", `/threads/${threadId}/replies`, body);
   }
 
-  /** Creates a page (starter files, one artboard) in the same project as `pageId`; `workId` ties it to the run that made it. */
+  /** Creates an empty page (a manifest, no artboard) in the same project as `pageId`; `workId` ties it to the run that made it. */
   createPageBeside(pageId: string, title: string, workId?: string): Promise<Page> {
     const body: CreateSiblingRequest = { title, ...(workId ? { workId } : {}) };
     return this.request("POST", `/pages/${pageId}/siblings`, body);
+  }
+
+  listProjects(): Promise<Project[]> {
+    return this.request("GET", "/projects");
+  }
+
+  createProject(title: string, designSystem?: string): Promise<Project> {
+    return this.request("POST", "/projects", { title, ...(designSystem ? { designSystem } : {}) });
+  }
+
+  listPages(projectId: string): Promise<Page[]> {
+    return this.request("GET", `/projects/${encodeURIComponent(projectId)}/pages`);
+  }
+
+  /** Creates an empty page (a manifest, no artboard) in the project. */
+  createPage(projectId: string, title: string): Promise<Page> {
+    return this.request("POST", `/projects/${encodeURIComponent(projectId)}/pages`, { title });
+  }
+
+  /** Where the user opens a project or a page in the Redline UI. */
+  projectUrl(projectId: string): string {
+    return `${this.serverUrl}/#/projects/${encodeURIComponent(projectId)}`;
+  }
+
+  pageUrl(pageId: string): string {
+    return `${this.serverUrl}/#/pages/${encodeURIComponent(pageId)}`;
   }
 
   /** JSON in and out; a Buffer body is sent as raw bytes. */

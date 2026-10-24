@@ -53,6 +53,45 @@
   transform-origin: 0 0;
 }
 
+/* A page with no artboard yet: a card centred on the stage; drags and the wheel go through it to the canvas. */
+.emptyWrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.empty {
+  width: 420px;
+  box-sizing: border-box;
+  padding: 28px var(--space-8);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.emptyText {
+  margin: 0;
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  color: var(--color-text-body);
+}
+
 .note {
   position: absolute;
   display: flex;

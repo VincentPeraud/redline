@@ -2,6 +2,7 @@ import {
   DESIGN_SYSTEM_TOKENS_PATH,
   EFFORTS,
   MANIFEST_PATH,
+  MAX_TITLE_LENGTH,
   TWEAKS_PATH,
   VERSION_ORIGINS,
   isSafePath,
@@ -39,6 +40,12 @@ export function modelChoiceOf({ model, effort }: { model?: unknown; effort?: unk
 }
 
 /** Error message when `files` is not a path -> text map with safe relative paths, else null. */
+/** Error message when a project or page name is not a non-empty string of at most `MAX_TITLE_LENGTH` characters once trimmed, else null. */
+export function titleError(title: unknown): string | null {
+  if (!requiredString(title)) return "title is required";
+  return title.trim().length > MAX_TITLE_LENGTH ? `title must be at most ${MAX_TITLE_LENGTH} characters` : null;
+}
+
 export function filesError(files: unknown): string | null {
   if (!files || typeof files !== "object") return "files are required";
   const invalid = Object.entries(files).some(([path, content]) => !isSafePath(path) || typeof content !== "string");

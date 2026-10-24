@@ -129,12 +129,15 @@ describe("DESIGN.md and project assets over the server HTTP API", () => {
     expect((await fetch(`${server.artboardOrigin}/pages/${other.id}/assets/logo.png`)).status).toBe(404);
   });
 
-  it("accepts an asset of up to 20 MB and refuses a bigger one, while other bodies stay small", async () => {
+  it("accepts an asset of up to 20 MB and refuses a bigger one, while other bodies stay under 10 MB, saying why", async () => {
     const project = await createProject();
     expect((await putAsset(project, "photo.jpg", Buffer.alloc(5 * 1024 * 1024, 1))).status).toBe(201);
-    // The server answers 413 before the client has sent everything, which a client may see as a broken pipe.
-    await putAsset(project, "huge.jpg", Buffer.alloc(21 * 1024 * 1024, 1)).then((res) => expect(res.status).toBe(413), () => undefined);
-    await putDesignMd(project, "x".repeat(2 * 1024 * 1024)).then((res) => expect(res.status).toBe(413), () => undefined);
+    const huge = await putAsset(project, "huge.jpg", Buffer.alloc(21 * 1024 * 1024, 1));
+    expect(huge.status).toBe(413);
+    expect(((await huge.json()) as { error: string }).error).toMatch(/Asset too large: 20 MB/);
+    const heavy = await putDesignMd(project, "x".repeat(11 * 1024 * 1024));
+    expect(heavy.status).toBe(413);
+    expect(((await heavy.json()) as { error: string }).error).toMatch(/10 MB/);
 
     expect(((await (await server.get(`/api/projects/${project.id}/assets`)).json()) as ProjectAsset[]).map((a) => a.name)).toEqual(["photo.jpg"]);
     expect(((await (await server.get(`/api/projects/${project.id}/design-md`)).json()) as { content: string }).content).toBe("");

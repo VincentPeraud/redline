@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { AgentTokenResponse, DesignMdInfo, PageVersionSummary } from "@redline/shared";
+import type { AgentTokenResponse, DesignMdInfo, Page, PageVersionSummary, Project } from "@redline/shared";
 import { ServerApi } from "../src/server-api.js";
 import { createTerminalMcpServer } from "../src/terminal-mcp.js";
 import { FakeEngine, startSeam2, type Seam2 } from "./support/seam2.js";
@@ -195,5 +195,73 @@ describe("terminal mode (redline mcp)", () => {
     await seam.waitForWorkEnd();
     expect(await origins(page.id)).toEqual(["terminal", "thread", "creation"]);
     rmSync(terminalFolder, { recursive: true, force: true });
+  });
+});
+
+describe("terminal mode: projects and pages", () => {
+  it("creates a project, lists it, and lists its pages, with links into Redline", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const call = await connectTerminal(seam.folder);
+
+    const created = await call("create_project", { title: "Halloween" });
+    const projectId = /id ([0-9a-f-]{36})/.exec(created)![1];
+    expect(created).toContain(`${seam.server.url}/#/projects/${projectId}`);
+    const project = (await (await seam.server.get(`/api/projects/${projectId}`)).json()) as Project;
+    expect(project.title).toBe("Halloween");
+
+    const projects = await call("list_projects", {});
+    expect(projects).toContain("Halloween");
+    expect(projects).toContain(projectId);
+
+    expect(await call("list_pages", { projectId })).toMatch(/no page/i);
+    const page = await seam.createPage(PAGE_FILES, "Stories");
+    expect((await seam.server.get(`/api/projects/${seam.project.id}/pages`)).status).toBe(200);
+    const pages = await call("list_pages", { projectId: seam.project.id });
+    expect(pages).toContain("Stories");
+    expect(pages).toContain(`${seam.server.url}/#/pages/${page.id}`);
+  });
+
+  it("creates an empty page in the given project without any checkout, ready to be checked out", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const call = await connectTerminal(seam.folder);
+
+    const answer = await call("create_page", { title: "Stories", projectId: seam.project.id });
+    const pages = (await (await seam.server.get(`/api/projects/${seam.project.id}/pages`)).json()) as Page[];
+    const stories = pages.find((p) => p.title === "Stories")!;
+    expect(Object.keys(stories.version.files)).toEqual(["manifest.json"]);
+    expect(answer).toContain(`${seam.server.url}/#/pages/${stories.id}`);
+    expect(answer).toMatch(/checkout_page/);
+
+    await call("checkout_page", { pageId: stories.id });
+    await call("add_artboard", { file: "story-1.html", html: "<h1>1</h1>" });
+    expect(await call("publish_page", { message: "First story" })).toMatch(/Published/);
+    expect(await seam.readFile(stories.id, "story-1.html")).toBe("<h1>1</h1>");
+  });
+
+  it("creates the page in the checked-out page's project, else in the folder's linked project, else explains", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const listTitles = async () =>
+      ((await (await seam!.server.get(`/api/projects/${seam!.project.id}/pages`)).json()) as Page[]).map((p) => p.title);
+
+    const bare = mkdtempSync(join(tmpdir(), "redline-terminal-"));
+    let call = await connectTerminal(bare);
+    expect(await call("create_page", { title: "Nowhere" })).toMatch(/projectId.*list_projects/);
+
+    const page = await seam.createPage(PAGE_FILES);
+    await call("checkout_page", { pageId: page.id });
+    await call("create_page", { title: "Beside" });
+    expect(await listTitles()).toContain("Beside");
+    await client!.close();
+
+    const linked = mkdtempSync(join(tmpdir(), "redline-terminal-"));
+    mkdirSync(join(linked, ".redline"));
+    writeFileSync(join(linked, ".redline", "project.json"), JSON.stringify({ projectId: seam.project.id }));
+    call = await connectTerminal(linked);
+    await call("create_page", { title: "Linked" });
+    await call("create_page", { title: "Blank id", projectId: "" });
+    expect(await listTitles()).toEqual(expect.arrayContaining(["Linked", "Blank id"]));
+
+    rmSync(bare, { recursive: true, force: true });
+    rmSync(linked, { recursive: true, force: true });
   });
 });

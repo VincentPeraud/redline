@@ -4,9 +4,10 @@ import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
   MANIFEST_PATH,
+  MAX_ASSET_BYTES,
+  MAX_PAGE_BYTES,
   TWEAKS_PATH,
   MAX_ELEMENT_NAME_LENGTH,
-  MAX_TITLE_LENGTH,
   isSafePath,
   parseManifest,
   starterDesignSystemFiles,
@@ -35,7 +36,7 @@ import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRou
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
-import { designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, versionRequestError } from "./validation.js";
+import { designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError } from "./validation.js";
 import { registerContextTracking } from "./context.js";
 import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
@@ -63,10 +64,24 @@ const MIME: Record<string, string> = {
   ".webp": "image/webp",
 };
 
-/** Error message when a project or page name is not a non-empty string of at most `MAX_TITLE_LENGTH` characters once trimmed, else null. */
-function titleError(title: unknown): string | null {
-  if (!requiredString(title)) return "title is required";
-  return title.trim().length > MAX_TITLE_LENGTH ? `title must be at most ${MAX_TITLE_LENGTH} characters` : null;
+const megabytes = (bytes: number) => `${bytes / 1024 / 1024} MB`;
+
+
+/** Answers a body over its limit with what to do about it, instead of Fastify's bare "Payload Too Large". */
+function explainTooLarge(app: FastifyInstance): void {
+  app.setErrorHandler(async (error, req, reply) => {
+    if ((error as { code?: string }).code !== "FST_ERR_CTP_BODY_TOO_LARGE") return reply.send(error);
+    const asset = /\/assets\//.test(req.url);
+    // A body up to twice its limit is read to the end first, so the client gets this answer instead of a reset connection.
+    const limit = asset ? MAX_ASSET_BYTES : MAX_PAGE_BYTES;
+    if (Number(req.headers["content-length"] ?? Infinity) <= 2 * limit && !req.raw.readableEnded) {
+      await new Promise((resolve) => req.raw.on("end", resolve).on("error", resolve).on("close", resolve).resume());
+    }
+    const message = asset
+      ? `Asset too large: ${megabytes(MAX_ASSET_BYTES)} at most per file.`
+      : `Page too heavy: a version carries ${megabytes(MAX_PAGE_BYTES)} at most. Put images and fonts in assets/ instead of inlining them in the HTML.`;
+    return reply.code(413).header("connection", "close").send({ error: message });
+  });
 }
 
 /** API and web UI. */
@@ -76,8 +91,9 @@ export async function buildMainApp(
   webDir?: string,
   options: { retryDelaysMs?: number[] } = {},
 ): Promise<FastifyInstance> {
-  const app = Fastify();
+  const app = Fastify({ bodyLimit: MAX_PAGE_BYTES });
   registerRequestHardening(app);
+  explainTooLarge(app);
   const agents = await registerAgentRoutes(app, store);
   const pageLock = new PageLock(store, agents, options.retryDelaysMs);
   app.addHook("onClose", async () => pageLock.dispose());

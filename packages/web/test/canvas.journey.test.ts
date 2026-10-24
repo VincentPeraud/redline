@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import { chromium, type Browser, type Locator } from "playwright";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import type { Page } from "@redline/shared";
+import { starterPageFiles, type Page } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -200,3 +200,17 @@ it("is interactive by default, pins with C or Alt+click, and returns to interact
   await tab.keyboard.press("p");
   expect(await mode.textContent()).toContain("Canvas interactif");
 }, 60_000);
+
+it("shows a new page, which has no artboard, as an empty canvas that says what to do", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as { id: string };
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, { title: "Stories", files: starterPageFiles("Stories") })
+  ).json()) as Page;
+
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  const empty = tab.getByTestId("canvas-empty");
+  await empty.getByRole("heading", { name: "Cette page est vide" }).waitFor();
+  expect(await empty.textContent()).toContain("panneau Conversations");
+  expect(await tab.locator("iframe").count()).toBe(0);
+});

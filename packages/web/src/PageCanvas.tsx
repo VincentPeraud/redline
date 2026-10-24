@@ -394,6 +394,19 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               ))}
             </div>
           </div>
+          {manifest?.artboards.length === 0 && (
+            <div className={styles.emptyWrap}>
+              <div data-testid="canvas-empty" className={styles.empty}>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="4" y="3" width="16" height="18" rx="2" />
+                  <path d="M12 9v6" />
+                  <path d="M9 12h6" />
+                </svg>
+                <h2 className={styles.emptyTitle}>Cette page est vide</h2>
+                <p className={styles.emptyText}>Demande à Claude d'y ajouter des artboards dans le panneau Conversations, ou depuis ton terminal.</p>
+              </div>
+            </div>
+          )}
           <div className={styles.hintWrap}>
             <div data-testid="mode-indicator" className={cx(styles.hint, picking && styles.hintComment)}>
               {picking ? "Mode commentaire : clique sur un élément pour y épingler un commentaire" : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}

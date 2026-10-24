@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { AGENT_API_PREFIX, type AgentCheckout, type AgentTokenResponse, type Page, type Thread } from "@redline/shared";
+import { AGENT_API_PREFIX, type AgentCheckout, type AgentTokenResponse, type Page, type Project, type Thread } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 let server: TestServer;
@@ -87,4 +87,50 @@ it("lets an agent upload a project asset through a page, which every artboard of
   await upload("huge.jpg", Buffer.alloc(20 * 1024 * 1024 + 1)).then((r) => expect(r.status).toBe(413), () => undefined);
   const after = (await (await server.get(`/api/projects/${page.projectId}/assets`)).json()) as { name: string }[];
   expect(after.map((a) => a.name)).toEqual(["photos/hero.jpg"]);
+});
+
+it("lets an agent list projects and their pages, and create both", async () => {
+  const spooky = (await (await server.post("/api/design-systems", { title: "Spooky" })).json()) as { id: string };
+  const created = await agentCall("/projects", { method: "POST", body: { title: "Halloween", designSystem: spooky.id } });
+  expect(created.status).toBe(201);
+  const project = (await created.json()) as Project;
+  expect(project).toMatchObject({ title: "Halloween", designSystem: spooky.id });
+
+  const pageRes = await agentCall(`/projects/${project.id}/pages`, { method: "POST", body: { title: "  Stories  " } });
+  expect(pageRes.status).toBe(201);
+  const stories = (await pageRes.json()) as Page;
+  expect(stories).toMatchObject({ projectId: project.id, title: "Stories", createdBy: "claude" });
+  expect(Object.keys(stories.version.files)).toEqual(["manifest.json"]);
+  const manifest = await (await server.get(`/api/pages/${stories.id}/files/manifest.json`)).json();
+  expect(manifest).toMatchObject({ title: "Stories", designSystem: spooky.id, artboards: [] });
+
+  const pages = (await (await agentCall(`/projects/${project.id}/pages`)).json()) as Page[];
+  expect(pages.map((p) => p.title)).toEqual(["Stories"]);
+
+  expect((await agentCall(`/projects/nope/pages`)).status).toBe(404);
+  expect((await agentCall(`/projects/nope/pages`, { method: "POST", body: { title: "X" } })).status).toBe(404);
+  expect((await agentCall(`/projects/${project.id}/pages`, { method: "POST", body: {} })).status).toBe(400);
+  expect((await agentCall(`/projects/${project.id}/pages`, { method: "POST", body: { title: "x".repeat(500) } })).status).toBe(400);
+  expect((await agentCall("/projects", { method: "POST", body: { title: "Y", designSystem: 3 } })).status).toBe(400);
+  expect((await agentCall("/projects", { method: "POST", body: { title: "Y", designSystem: "material" } })).status).toBe(400);
+  expect(((await (await agentCall("/projects", { method: "POST", body: { title: "Z", designSystem: "" } })).json()) as Project).designSystem).toBeNull();
+
+  // A design system's own project holds only its design system page.
+  expect((await agentCall(`/projects/${spooky.id}/pages`)).status).toBe(404);
+  expect((await agentCall(`/projects/${spooky.id}/pages`, { method: "POST", body: { title: "X" } })).status).toBe(404);
+});
+
+it("accepts a publish of several MB, and explains a page too heavy instead of answering Payload Too Large", async () => {
+  const checkout = (await (await agentCall(`/pages/${page.id}/files`)).json()) as AgentCheckout;
+  const publish = (html: string) =>
+    agentCall(`/pages/${page.id}/versions`, {
+      method: "POST",
+      body: { files: { "home.html": html }, message: "Big", origin: "terminal", baseVersionId: checkout.versionId },
+    });
+
+  expect((await publish("x".repeat(3 * 1024 * 1024))).status).toBe(201);
+
+  const tooBig = await publish("x".repeat(11 * 1024 * 1024));
+  expect(tooBig.status).toBe(413);
+  expect(((await tooBig.json()) as { error: string }).error).toMatch(/10 MB.*assets\//);
 });

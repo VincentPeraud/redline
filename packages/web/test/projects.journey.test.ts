@@ -52,11 +52,11 @@ it("creates a project, then a page from its overview, and opens it on the canvas
   await pageDialog.getByRole("button", { name: "Créer la page" }).click();
 
   await expect.poll(() => tab.url()).toContain("#/pages/");
-  await expect.poll(() => tab.locator("iframe").count()).toBe(1);
+  await tab.getByTestId("canvas-empty").getByRole("heading", { name: "Cette page est vide" }).waitFor();
+  expect(await tab.locator("iframe").count()).toBe(0);
 
   await tab.getByRole("link", { name: "Acme" }).click();
   const card = tab.getByTestId("page-card").filter({ hasText: "Landing" });
   await card.waitFor();
-  await expect.poll(() => card.locator("iframe").count()).toBe(1);
-  await card.getByText("1 artboard").waitFor();
+  await card.getByText("0 artboard").waitFor();
 }, 60_000);

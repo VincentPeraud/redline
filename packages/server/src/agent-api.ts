@@ -12,7 +12,7 @@ import {
 } from "@redline/shared";
 import { mergeOntoCurrent } from "./publish.js";
 import { tokensEqual } from "./request-hardening.js";
-import { requiredString, versionRequestError } from "./validation.js";
+import { requiredString, titleError, versionRequestError } from "./validation.js";
 import { projectContext, putProjectAsset } from "./project-files.js";
 import type { PageLock } from "./page-lock.js";
 import type { OriginRef, Store } from "./store.js";
@@ -44,10 +44,31 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       // `redline init` / `redline agent` pick or create the project a folder serves, before they have anything else to call.
       api.get("/projects", async () => store.listProjects());
 
-      api.post<{ Body: { title?: unknown } }>("/projects", async (req, reply) => {
+      api.post<{ Body: { title?: unknown; designSystem?: unknown } }>("/projects", async (req, reply) => {
+        const { title } = req.body ?? {};
+        const designSystem = req.body?.designSystem || null;
+        if (titleError(title)) return reply.code(400).send({ error: titleError(title) });
+        if (designSystem !== null && (typeof designSystem !== "string" || !store.getDesignSystem(designSystem))) {
+          return reply.code(400).send({ error: "designSystem must be the id of an existing design system" });
+        }
+        return reply.code(201).send(store.createProject((title as string).trim(), undefined, undefined, designSystem));
+      });
+
+      // Terminal mode finds and creates pages without having one checked out. A design system's own project is not one of them.
+      const projectFor = (projectId: string) => (store.getDesignSystem(projectId) ? undefined : store.getProject(projectId));
+
+      api.get<{ Params: { projectId: string } }>("/projects/:projectId/pages", async (req, reply) => {
+        if (!projectFor(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+        return store.listPages(req.params.projectId);
+      });
+
+      api.post<{ Params: { projectId: string }; Body: { title?: unknown } }>("/projects/:projectId/pages", async (req, reply) => {
+        const project = projectFor(req.params.projectId);
+        if (!project) return reply.code(404).send({ error: "project not found" });
         const title = req.body?.title;
-        if (!requiredString(title)) return reply.code(400).send({ error: "title is required" });
-        return reply.code(201).send(store.createProject(title.trim()));
+        if (titleError(title)) return reply.code(400).send({ error: titleError(title) });
+        const name = (title as string).trim();
+        return reply.code(201).send(store.createPage(project.id, name, starterPageFiles(name, project.designSystem), "claude"));
       });
 
       api.get<{ Params: { pageId: string } }>("/pages/:pageId/files", async (req, reply): Promise<AgentCheckout> => {
@@ -110,9 +131,10 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const page = store.getPage(req.params.pageId);
         if (!page) return reply.code(404).send({ error: "page not found" });
         const { title, workId } = req.body ?? {};
-        if (!requiredString(title)) return reply.code(400).send({ error: "title is required" });
+        if (titleError(title)) return reply.code(400).send({ error: titleError(title) });
+        const name = (title as string).trim();
         const designSystem = store.getProject(page.projectId)?.designSystem;
-        const created = store.createPage(page.projectId, title, starterPageFiles(title, designSystem), "claude");
+        const created = store.createPage(page.projectId, name, starterPageFiles(name, designSystem), "claude");
         if (workOrigin(store, pageLock, workId, page.id)) store.recordCreatedPage(workId!, created.id);
         return reply.code(201).send(created);
       });

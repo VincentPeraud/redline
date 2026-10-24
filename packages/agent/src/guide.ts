@@ -1,4 +1,4 @@
-import { ASSETS_DIR, CORE_TOKENS, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, MAX_ASSET_BYTES, TWEAKS_PATH } from "@redline/shared";
+import { ASSETS_DIR, CORE_TOKENS, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, MAX_ASSET_BYTES, MAX_PAGE_BYTES, TWEAKS_PATH } from "@redline/shared";
 
 /** What a session needs to know to edit a Redline page; returned by the `read_guide` tool. */
 export const REDLINE_GUIDE = `# Redline guide
@@ -16,7 +16,7 @@ A Redline page is a set of files. You work on a copy of them (the working copy f
 ## Design system tokens
 - The artboard server injects the page's design system stylesheet into every artboard. Never add your own link to it and never hard-code colors, fonts, radii or spacing that a token covers.
 - Core tokens, always available: ${CORE_TOKENS.join(", ")}.
-- Use them as var(--color-primary), var(--font-body), calc(var(--space-unit) * 2). A design system may define extra tokens.
+- Use them as var(--color-primary, #d92d20), var(--font-body, system-ui, sans-serif), calc(var(--space-unit, 8px) * 2). Always give a fallback value: an artboard opened outside Redline (a file preview, an export) gets no tokens, and a var() without fallback drops the font or the colour. A design system may define extra tokens.
 
 ## Tweaks
 - A tweak is a live control the user can change without asking you. Declare it in ${MANIFEST_PATH} "tweaks": { "id", "type", "label", "default", "options", "min", "max", "unit", "display", "allowCustom", "scope" }.
@@ -36,7 +36,9 @@ A Redline page is a set of files. You work on a copy of them (the working copy f
 - Artboards run in a sandboxed iframe: scripts are allowed, but no same-origin access, no cookies or storage, no network assumptions. Keep each artboard self-contained, apart from the project assets.
 - Answer each comment thread you were given with reply_in_thread, once per thread.
 - A page has no type: it is a canvas of one or more artboards. Never call a page a "planche"; say "page" or "artboard".
-- Use create_page {title} for a new page in the same project; it starts with a manifest and ONE starter artboard. Its content is not in your working copy. Say in your answer that you created it (the user sees a link card to the page under your answer).
+- Use create_page {title} for a new page in the same project; it starts empty (a manifest, no artboard). Its content is not in your working copy. Say in your answer that you created it (the user sees a link card to the page under your answer).
+- In terminal mode (redline mcp), list_projects and list_pages {projectId} find projects and pages, create_project {title} makes a project, and create_page {title, projectId} works without a checked-out page; then checkout_page the new page to add its artboards.
+- A published version carries ${MAX_PAGE_BYTES / 1024 / 1024} MB at most: images and fonts go in ${ASSETS_DIR}/, never inline.
 
 ## DESIGN.md (the project's rules)
 - DESIGN.md at the root of the working copy holds the project's design rules, read by every session. You may edit it (plain Markdown; one rule per line or list item, e.g. "- Primary buttons are always full width on mobile").

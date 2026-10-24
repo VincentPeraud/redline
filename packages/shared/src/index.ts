@@ -251,6 +251,9 @@ export interface SendHeldResponse {
 /** Path of the manifest inside a page's files. */
 export const MANIFEST_PATH = "manifest.json";
 
+/** Largest JSON request the server reads: a published version carries every file of the page (images and fonts go to the project assets instead). */
+export const MAX_PAGE_BYTES = 10 * 1024 * 1024;
+
 export const DEFAULT_ARTBOARD_WIDTH = 800;
 export const DEFAULT_ARTBOARD_HEIGHT = 500;
 /** Horizontal gap between artboards laid out automatically. */
@@ -553,32 +556,10 @@ export function resolveTweakValues(manifest: Manifest, stored: TweakValues): Twe
   return values;
 }
 
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function starterArtboard(title: string): string {
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>${title}</title>
-    <style>body { font-family: system-ui, sans-serif; margin: 0; padding: 32px; }</style>
-  </head>
-  <body>
-    <h1>${title}</h1>
-  </body>
-</html>
-`;
-}
-
-/** Files of a new page: a manifest plus ONE artboard. */
+/** Files of a new page: a manifest naming its title, and no artboard (the session that fills the page adds them). */
 export function starterPageFiles(title: string, designSystem?: string | null): Record<string, string> {
-  const artboards = ["artboard-1.html"];
-  const manifest = { title, ...(designSystem ? { designSystem } : {}), artboards: artboards.map((file) => ({ file })) };
-  const files: Record<string, string> = { [MANIFEST_PATH]: JSON.stringify(manifest, null, 2) };
-  for (const file of artboards) files[file] = starterArtboard(escapeHtml(title));
-  return files;
+  const manifest = { title, ...(designSystem ? { designSystem } : {}), artboards: [] };
+  return { [MANIFEST_PATH]: JSON.stringify(manifest, null, 2) };
 }
 
 export * from "./designSystem.js";

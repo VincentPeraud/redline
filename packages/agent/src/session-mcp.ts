@@ -26,6 +26,8 @@ export interface RedlineToolsContext {
   workId?: string;
   /** Where `reply_in_thread` sends the text; default: the thread right away. A run holds replies back until it succeeds. */
   postReply?: (threadId: string, text: string) => Promise<unknown>;
+  /** Terminal mode registers its own `create_page`, which also works with no page checked out. */
+  ownCreatePage?: boolean;
 }
 
 const text = (message: string, isError = false) => ({ ...(isError ? { isError } : {}), content: [{ type: "text" as const, text: message }] });
@@ -111,17 +113,19 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
       return text(`Artboard ${artboard.file} added to the working copy; it is published with this run.`);
     },
   );
-  server.registerTool(
-    CREATE_PAGE_TOOL,
-    {
-      description: "Create a new page in the same project, with a manifest and one starter artboard. Returns its id.",
-      inputSchema: { title: z.string() },
-    },
-    async ({ title }) => {
-      const page = await api.createPageBeside(context.pageId, title, context.workId);
-      return text(`Page "${page.title}" created (id ${page.id}).`);
-    },
-  );
+  if (!context.ownCreatePage) {
+    server.registerTool(
+      CREATE_PAGE_TOOL,
+      {
+        description: "Create a new, empty page (a manifest, no artboard) in the same project. Returns its id.",
+        inputSchema: { title: z.string() },
+      },
+      async ({ title }) => {
+        const page = await api.createPageBeside(context.pageId, title, context.workId);
+        return text(`Page "${page.title}" created (id ${page.id}).`);
+      },
+    );
+  }
   server.registerTool(
     READ_GUIDE_TOOL,
     { description: "Read the Redline guide: page manifest, artboards, design system tokens, tweaks and rules." },
