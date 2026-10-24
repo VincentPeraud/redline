@@ -6,7 +6,7 @@ export interface PageAddress {
   pageId: string;
   artboard?: string;
   play?: string;
-  rendu?: string;
+  renderingParam?: string;
 }
 
 export type MessageSegment = { kind: "text"; text: string } | { kind: "link"; url: string } | PageAddress;
@@ -30,7 +30,7 @@ function addressOf(url: string, origin: string): PageAddress | null {
     pageId: route.pageId,
     ...(route.artboard === undefined ? {} : { artboard: route.artboard }),
     ...(route.play === undefined ? {} : { play: route.play }),
-    ...(route.rendu === undefined ? {} : { rendu: route.rendu }),
+    ...(route.renderingParam === undefined ? {} : { renderingParam: route.renderingParam }),
   };
 }
 

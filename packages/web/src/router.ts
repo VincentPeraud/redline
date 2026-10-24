@@ -9,7 +9,17 @@ export type Route =
   | { name: "designSystems" }
   | { name: "project"; projectId: string }
   | { name: "designMd"; projectId: string }
-  | { name: "page"; pageId: string; artboard?: string; play?: string; rendu?: string };
+  | { name: "page"; pageId: string; artboard?: string; play?: string; renderingParam?: string };
+
+export type PageRoute = Extract<Route, { name: "page" }>;
+
+/** Route of an artboard in play mode; `renderingParam` is the `?rendu=` value as written. */
+export const playRoute = (pageId: string, file: string, renderingParam?: string): PageRoute => ({
+  name: "page",
+  pageId,
+  play: file,
+  ...(renderingParam === undefined ? {} : { renderingParam }),
+});
 
 export function parseRoute(hash: string): Route {
   const [path = "", query = ""] = hash.split("?", 2);
@@ -22,8 +32,8 @@ export function parseRoute(hash: string): Route {
   if (section === "projects" && id) return { name: "project", projectId: id };
   if (section === "pages" && id && sub === "artboards" && subId) return { name: "page", pageId: id, artboard: subId };
   if (section === "pages" && id && sub === "play" && subId) {
-    const rendu = new URLSearchParams(query).get("rendu");
-    return { name: "page", pageId: id, play: subId, ...(rendu === null ? {} : { rendu }) };
+    const renderingParam = new URLSearchParams(query).get("rendu");
+    return playRoute(id, subId, renderingParam ?? undefined);
   }
   if (section === "pages" && id) return { name: "page", pageId: id };
   return { name: "home" };
@@ -46,7 +56,7 @@ export function routeHref(route: Route): string {
     case "designMd":
       return `#/projects/${encodeURIComponent(route.projectId)}/design-md`;
     case "page": {
-      if (route.play !== undefined) return `${playHash(route.pageId, route.play)}${route.rendu === undefined ? "" : `?rendu=${encodeURIComponent(route.rendu)}`}`;
+      if (route.play !== undefined) return `${playHash(route.pageId, route.play)}${route.renderingParam === undefined ? "" : `?rendu=${encodeURIComponent(route.renderingParam)}`}`;
       return route.artboard === undefined ? pageHash(route.pageId) : artboardHash(route.pageId, route.artboard);
     }
   }

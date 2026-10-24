@@ -1,7 +1,7 @@
 import type { MouseEvent } from "react";
 import { lastKnownTitle, usePageSummary } from "./otherPageArtboards.js";
 import type { PageAddress } from "./messageLinks.js";
-import { navigateTo } from "./router.js";
+import { navigateTo, playRoute } from "./router.js";
 import { cx } from "./ui/index.js";
 import styles from "./AddressPill.module.css";
 
@@ -47,7 +47,7 @@ export function AddressPill({ address, current, onCenter, onMissing }: Props) {
     event.preventDefault();
     if (loading) return;
     if (file !== undefined && missing) onMissing(file);
-    else if (address.play !== undefined) navigateTo({ name: "page", pageId: address.pageId, play: address.play, ...(address.rendu === undefined ? {} : { rendu: address.rendu }) });
+    else if (address.play !== undefined) navigateTo(playRoute(address.pageId, address.play, address.renderingParam));
     else if (address.artboard === undefined) navigateTo({ name: "page", pageId: address.pageId });
     else if (samePage) onCenter(address.artboard);
     else navigateTo({ name: "page", pageId: address.pageId, artboard: address.artboard });

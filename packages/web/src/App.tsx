@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { PageViewSettings, Project } from "@redline/shared";
 import { PageCanvas } from "./PageCanvas.js";
+import type { PageRoute } from "./router.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 
 interface Page {
@@ -16,7 +17,8 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function App({ pageId, artboard, play, rendu }: { pageId: string; artboard?: string; play?: string; rendu?: string }) {
+export function App({ route }: { route: PageRoute }) {
+  const { pageId } = route;
   const [page, setPage] = useState<Page | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [artboardOrigin, setArtboardOrigin] = useState("");
@@ -56,9 +58,7 @@ export function App({ pageId, artboard, play, rendu }: { pageId: string; artboar
         versionId={page.version.id}
         onVersionChange={loadPage}
         viewSettings={page.viewSettings}
-        addressedArtboard={artboard}
-        playFile={play}
-        rendu={rendu}
+        route={route}
       />
     </>
   );

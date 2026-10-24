@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { TocList } from "./TocList.js";
+import { useCloseOnOutsidePointer } from "./useCloseOnOutsidePointer.js";
 import type { TocItem } from "./tocItems.js";
 import styles from "./TocMenu.module.css";
 
@@ -27,20 +28,14 @@ export function TocMenu({ items, currentFile, onSelect }: Props) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
+  useCloseOnOutsidePointer(root, open, () => setOpen(false));
   useEffect(() => {
     if (!open) return;
-    const onPointer = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
-    window.addEventListener("pointerdown", onPointer);
     window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("pointerdown", onPointer);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
   return (
