@@ -124,4 +124,11 @@ describe("page manifest", () => {
     expect(bad({ columns: 4, gutter: 8, margin: "x" })).toThrow(/guides\.margin/);
     expect(bad({ columns: 4, gutter: 8, margin: 16, baseline: 0 })).toThrow(/guides\.baseline/);
   });
+
+  it("accepts expand fill on an artboard and refuses another value naming the field", () => {
+    const manifest = parseManifest(JSON.stringify({ artboards: [{ file: "a.html", expand: "fill" }, { file: "b.html" }] }));
+    expect(manifest.artboards[0]!.expand).toBe("fill");
+    expect(manifest.artboards[1]).not.toHaveProperty("expand");
+    expect(() => parseManifest(JSON.stringify({ artboards: [{ file: "a.html" }, { file: "b.html", expand: "stretch" }] }))).toThrow(/artboards\[1\]\.expand/);
+  });
 });
