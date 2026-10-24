@@ -1,21 +1,21 @@
 import type { ReactNode } from "react";
-import type { ArtboardDevice } from "@redline/shared";
 import { cx } from "./ui/index.js";
-import styles from "./PlayDevice.module.css";
+import type { PresentationFrame } from "./playFrames.js";
+import styles from "./PlayFrame.module.css";
 
 interface Props {
-  device: ArtboardDevice;
-  /** Address bar text of the desktop presentation. */
+  frame: PresentationFrame;
+  /** Address bar text of the browser frame. */
   url?: string;
   children: ReactNode;
 }
 
 /** The decorative shell around the artboard iframe, at its natural size (the caller scales it). */
-export function PlayDevice({ device, url, children }: Props) {
-  switch (device) {
+export function PlayFrame({ frame, url, children }: Props) {
+  switch (frame) {
     case "phone":
       return (
-        <div className={cx(styles.shell, styles.phone)} data-device="phone">
+        <div className={cx(styles.shell, styles.phone)} data-frame="phone">
           {children}
           <span aria-hidden="true" className={styles.camera} />
           <span aria-hidden="true" className={styles.phoneIndicator} />
@@ -23,7 +23,7 @@ export function PlayDevice({ device, url, children }: Props) {
       );
     case "tablet":
       return (
-        <div className={cx(styles.shell, styles.tablet)} data-device="tablet">
+        <div className={cx(styles.shell, styles.tablet)} data-frame="tablet">
           <span aria-hidden="true" className={styles.tabletCamera} />
           {children}
           <div className={styles.tabletStrip}>
@@ -31,9 +31,9 @@ export function PlayDevice({ device, url, children }: Props) {
           </div>
         </div>
       );
-    case "desktop":
+    case "browser":
       return (
-        <div className={cx(styles.shell, styles.desktop)} data-device="desktop">
+        <div className={cx(styles.shell, styles.browser)} data-frame="browser">
           <div aria-hidden="true" className={styles.bar}>
             <span className={styles.lights}>
               <span className={styles.light} />
@@ -48,13 +48,13 @@ export function PlayDevice({ device, url, children }: Props) {
       );
     case "paper":
       return (
-        <div className={cx(styles.shell, styles.paper)} data-device="paper">
+        <div className={cx(styles.shell, styles.paper)} data-frame="paper">
           {children}
         </div>
       );
     case "none":
       return (
-        <div className={cx(styles.shell, styles.none)} data-device="none">
+        <div className={cx(styles.shell, styles.none)} data-frame="none">
           {children}
         </div>
       );

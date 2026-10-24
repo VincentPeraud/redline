@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { ARTBOARD_DEVICES, ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, isSafePath, parseManifest, type ArtboardDevice, type ManifestArtboard } from "@redline/shared";
+import { ARTBOARD_FRAMES, ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, isSafePath, parseManifest, type ArtboardFrame, type ManifestArtboard } from "@redline/shared";
 import { REDLINE_GUIDE } from "./guide.js";
 import { pathInside, readWorkingCopy } from "./working-copy.js";
 import type { ServerApi } from "./server-api.js";
@@ -42,13 +42,13 @@ function artboardFileError(file: string): string | null {
 function declaredArtboard(artboard: ManifestArtboard): unknown {
   if (!artboard.responsive) return artboard;
   const { responsive, width: _width, height: _height, ...rest } = artboard;
-  return { ...rest, responsive: responsive.map(({ format, width, height }) => ({ device: format, width, height })) };
+  return { ...rest, responsive: responsive.map(({ format, width, height }) => ({ format, width, height })) };
 }
 
 /** Writes `file` in the working copy and adds (or updates) its entry in the manifest. */
 function addArtboardToWorkingCopy(
   dir: string,
-  artboard: { file: string; html: string; title?: string; width?: number; height?: number; x?: number; y?: number; device?: ArtboardDevice; url?: string },
+  artboard: { file: string; html: string; title?: string; width?: number; height?: number; x?: number; y?: number; frame?: ArtboardFrame; url?: string },
 ): void {
   const manifestPath = join(dir, MANIFEST_PATH);
   const manifest = existsSync(manifestPath)
@@ -107,8 +107,8 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
         height: z.number().positive().optional(),
         x: z.number().optional(),
         y: z.number().optional(),
-        device: z.enum(ARTBOARD_DEVICES as [ArtboardDevice, ...ArtboardDevice[]]).optional().describe("How play mode presents the artboard; always set it"),
-        url: z.string().optional().describe("Address bar text of a desktop artboard; omit when there is no real address"),
+        frame: z.enum(ARTBOARD_FRAMES as [ArtboardFrame, ...ArtboardFrame[]]).optional().describe("Frame play mode draws around a screen or printed artboard; omit to show it as is"),
+        url: z.string().optional().describe("Address bar text of a browser artboard; omit when there is no real address"),
       },
     },
     async (artboard) => {

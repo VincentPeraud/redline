@@ -122,11 +122,11 @@
   justify-content: center;
 }
 
-.stage[data-device="paper"] {
+.stage[data-frame="paper"] {
   background: var(--play-border-strong);
 }
 
-.stage[data-fill] [data-device] {
+.stage[data-fill] [data-frame] {
   border-radius: 0;
 }
 
@@ -213,7 +213,7 @@
   color: var(--play-bg);
 }
 
-.stage[data-fill] > div[data-device] {
+.stage[data-fill] > div[data-frame] {
   border-radius: 0;
 }
 

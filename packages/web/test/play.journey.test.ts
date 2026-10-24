@@ -78,7 +78,7 @@ it("plays a prototype: one artboard at full size, links switch artboard, exit re
   await tab.locator('iframe[title$="done.html"]').waitFor();
 }, 60_000);
 
-it("presents each artboard by its declared device, and as is when none is declared", async () => {
+it("presents each artboard by its declared frame, and as is when none is declared", async () => {
   const project = (await (await server.post("/api/projects", { title: "Devices" })).json()) as { id: string };
   const html = `<!doctype html><body style="margin:0"><h1>Hi</h1></body>`;
   const page = (await server.post(`/api/projects/${project.id}/pages`, {
@@ -92,11 +92,11 @@ it("presents each artboard by its declared device, and as is when none is declar
       "f.html": html,
       "manifest.json": JSON.stringify({
         artboards: [
-          { file: "a.html", width: 390, height: 844, device: "phone" },
-          { file: "b.html", width: 576, height: 746, device: "tablet" },
-          { file: "c.html", width: 1440, height: 900, device: "desktop", url: "lumora.fr" },
-          { file: "d.html", width: 576, height: 814, device: "paper" },
-          { file: "e.html", width: 400, height: 300, device: "none" },
+          { file: "a.html", width: 390, height: 844, frame: "phone" },
+          { file: "b.html", width: 576, height: 746, frame: "tablet" },
+          { file: "c.html", width: 1440, height: 900, frame: "browser", url: "lumora.fr" },
+          { file: "d.html", width: 576, height: 814, frame: "paper" },
+          { file: "e.html", width: 400, height: 300 },
           { file: "f.html", width: 390, height: 844 },
         ],
       }),
@@ -109,15 +109,15 @@ it("presents each artboard by its declared device, and as is when none is declar
   await tab.getByRole("button", { name: "Lancer a.html en plein écran" }).click();
   const play = tab.getByTestId("play");
 
-  const expected = ["phone", "tablet", "desktop", "paper", "none", "none"];
+  const expected = ["phone", "tablet", "browser", "paper", "none", "none"];
   for (const [index, name] of expected.entries()) {
     await play.getByRole("button", { name: `Artboard ${index + 1}` }).click();
-    await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe(name);
-    expect(await play.locator("main [data-device]").getAttribute("data-device")).toBe(name);
+    await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe(name);
+    expect(await play.locator("main [data-frame]").getAttribute("data-frame")).toBe(name);
   }
 
   await play.getByRole("button", { name: "Artboard 3" }).click();
-  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("desktop");
+  await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("browser");
   expect(await play.getByText("lumora.fr").count()).toBe(1);
   await tab.close();
 }, 60_000);
@@ -132,8 +132,8 @@ it("fills the window with a fluid artboard, ignores fill on a phone, and toggles
       "phone.html": html,
       "manifest.json": JSON.stringify({
         artboards: [
-          { file: "dash.html", width: 1000, height: 600, device: "desktop", expand: "fill", guides: { columns: 12, gutter: 24, margin: 80 } },
-          { file: "phone.html", width: 390, height: 844, device: "phone", expand: "fill" },
+          { file: "dash.html", width: 1000, height: 600, frame: "browser", expand: "fill", guides: { columns: 12, gutter: 24, margin: 80 } },
+          { file: "phone.html", width: 390, height: 844, frame: "phone", expand: "fill" },
         ],
       }),
     },
@@ -161,12 +161,12 @@ it("fills the window with a fluid artboard, ignores fill on a phone, and toggles
   expect(await columns.count()).toBe(0);
 
   await play.getByRole("button", { name: "Artboard 2" }).click();
-  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("phone");
+  await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("phone");
   expect((await frame.boundingBox())!.width).toBeCloseTo(390, 0);
   await tab.close();
 }, 60_000);
 
-it("removes the device frame with Habillage (remembered), and fills the screen without a frame on a narrow window", async () => {
+it("removes the frame with Habillage (remembered), and fills the screen without a frame on a narrow window", async () => {
   const project = (await (await server.post("/api/projects", { title: "Habillage" })).json()) as { id: string };
   const html = `<!doctype html><body style="margin:0"><h1>Hi</h1></body>`;
   const page = (await server.post(`/api/projects/${project.id}/pages`, {
@@ -178,9 +178,9 @@ it("removes the device frame with Habillage (remembered), and fills the screen w
       "manifest.json": JSON.stringify({
         title: "Onboarding",
         artboards: [
-          { file: "phone.html", width: 390, height: 844, device: "phone" },
-          { file: "desk.html", width: 1440, height: 900, device: "desktop" },
-          { file: "plain.html", width: 400, height: 300, device: "none" },
+          { file: "phone.html", width: 390, height: 844, frame: "phone" },
+          { file: "desk.html", width: 1440, height: 900, frame: "browser" },
+          { file: "plain.html", width: 400, height: 300 },
         ],
       }),
     },
@@ -197,7 +197,7 @@ it("removes the device frame with Habillage (remembered), and fills the screen w
   expect(await habillage.getAttribute("aria-pressed")).toBe("true");
   await habillage.click();
   expect(await habillage.getAttribute("aria-pressed")).toBe("false");
-  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("none");
+  await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("none");
   const stage = (await play.locator("main").boundingBox())!;
   const phone = (await frame.boundingBox())!;
   expect([phone.width, phone.height]).toEqual([390, stage.height]);
@@ -217,10 +217,10 @@ it("removes the device frame with Habillage (remembered), and fills the screen w
   await tab.getByRole("button", { name: "Lancer phone.html en plein écran" }).click();
   expect(await habillage.getAttribute("aria-pressed")).toBe("false");
   await habillage.click();
-  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("phone");
+  await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("phone");
 
   await tab.setViewportSize({ width: 390, height: 844 });
-  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("none");
+  await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("none");
   expect(await habillage.count()).toBe(0);
   const bar = (await play.locator("header").boundingBox())!;
   expect(bar.height).toBe(44);
@@ -232,7 +232,7 @@ it("removes the device frame with Habillage (remembered), and fills the screen w
   await tab.close();
 }, 60_000);
 
-it("plays a responsive artboard: a selector of its formats plus Aucun, each format in its device at its own size, remembered", async () => {
+it("plays a responsive artboard: a selector of its formats plus Aucun, each format in its frame at its own size, remembered", async () => {
   const project = (await (await server.post("/api/projects", { title: "Responsive play" })).json()) as { id: string };
   const tall = `<!doctype html><body style="margin:0"><div style="height:2400px;background:#eee">Tall</div></body>`;
   const page = (await server.post(`/api/projects/${project.id}/pages`, {
@@ -242,8 +242,8 @@ it("plays a responsive artboard: a selector of its formats plus Aucun, each form
       "plain.html": tall,
       "manifest.json": JSON.stringify({
         artboards: [
-          { file: "landing.html", x: 0, y: 0, responsive: ["desktop", "tablet", { device: "mobile", width: 414, height: 896 }] },
-          { file: "plain.html", x: 5000, y: 0, width: 400, height: 300, device: "none" },
+          { file: "landing.html", x: 0, y: 0, responsive: ["desktop", "tablet", { format: "mobile", width: 414, height: 896 }] },
+          { file: "plain.html", x: 5000, y: 0, width: 400, height: 300 },
         ],
       }),
     },
@@ -260,19 +260,19 @@ it("plays a responsive artboard: a selector of its formats plus Aucun, each form
 
   expect(await selector.getByRole("button").allTextContents()).toEqual(["Desktop", "Tablette", "Mobile", "Aucun"]);
   expect(await selector.getByRole("button", { name: "Desktop" }).getAttribute("aria-pressed")).toBe("true");
-  expect(await play.locator("main").getAttribute("data-device")).toBe("desktop");
+  expect(await play.locator("main").getAttribute("data-frame")).toBe("browser");
   expect(await size()).toEqual([1440, 900]);
 
   await selector.getByRole("button", { name: "Tablette" }).click();
-  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("tablet");
+  await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("tablet");
   expect(await size()).toEqual([768, 1024]);
 
   await selector.getByRole("button", { name: "Mobile" }).click();
-  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("phone");
+  await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("phone");
   expect(await size()).toEqual([414, 896]);
 
   await selector.getByRole("button", { name: "Aucun" }).click();
-  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("none");
+  await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("none");
   const stage = (await play.locator("main").boundingBox())!;
   expect(await size()).toEqual([stage.width, stage.height]);
   expect(await play.getByRole("button", { name: "Habillage" }).count()).toBe(0);
@@ -282,7 +282,7 @@ it("plays a responsive artboard: a selector of its formats plus Aucun, each form
   await tab.locator("[data-rendering] iframe").first().waitFor();
   await tab.getByRole("button", { name: "Lancer landing.html en plein écran" }).click();
   expect(await selector.getByRole("button", { name: "Tablette" }).getAttribute("aria-pressed")).toBe("true");
-  expect(await play.locator("main").getAttribute("data-device")).toBe("tablet");
+  expect(await play.locator("main").getAttribute("data-frame")).toBe("tablet");
 
   await play.getByRole("button", { name: "Artboard 2" }).click();
   await expect.poll(() => frame.getAttribute("title")).toMatch(/plain\.html$/);

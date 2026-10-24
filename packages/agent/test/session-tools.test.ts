@@ -45,14 +45,14 @@ describe("session MCP tools", () => {
     expect(await seam!.versions(page.id)).toHaveLength(2);
   });
 
-  it("add_artboard records the device and url in the manifest entry", async () => {
+  it("add_artboard records the frame and url in the manifest entry", async () => {
     const engine = new FakeEngine([
-      { callTool: { name: "add_artboard", arguments: { file: "site.html", html: "<h1>Site</h1>", device: "desktop", url: "lumora.fr" } } },
+      { callTool: { name: "add_artboard", arguments: { file: "site.html", html: "<h1>Site</h1>", frame: "browser", url: "lumora.fr" } } },
       { type: "result", summary: "Add site" },
     ]);
     const page = await runOnce(engine);
     const manifest = parseManifest(await seam!.readFile(page.id, "manifest.json"));
-    expect(manifest.artboards.find((a) => a.file === "site.html")).toMatchObject({ device: "desktop", url: "lumora.fr" });
+    expect(manifest.artboards.find((a) => a.file === "site.html")).toMatchObject({ frame: "browser", url: "lumora.fr" });
   });
 
   it("add_artboard keeps a responsive artboard publishable", async () => {
@@ -63,7 +63,7 @@ describe("session MCP tools", () => {
     seam = await startSeam2(engine);
     const page = await seam.createPage({
       "site.html": "<!doctype html><h1>Site</h1>",
-      "manifest.json": JSON.stringify({ artboards: [{ file: "site.html", responsive: ["desktop", { device: "mobile", width: 400, height: 800 }] }] }),
+      "manifest.json": JSON.stringify({ artboards: [{ file: "site.html", responsive: ["desktop", { format: "mobile", width: 400, height: 800 }] }] }),
     });
     await seam.pinThread(page.id, "site.html", "Do it");
     await engine.finished(1);
@@ -122,9 +122,9 @@ describe("session MCP tools", () => {
     await runOnce(engine);
     expect(guide).toContain("manifest.json");
     expect(guide).toContain("tweaks.json");
-    expect(guide).toMatch(/"device"[^\n]*phone[^\n]*tablet[^\n]*desktop[^\n]*paper[^\n]*none/);
+    expect(guide).toMatch(/"frame"[^\n]*phone[^\n]*tablet[^\n]*browser[^\n]*paper/);
     expect(guide).toMatch(/"paper" for anything printed \(business card/);
-    expect(guide).toMatch(/without a device is shown as is, never guessed from its size/);
+    expect(guide).toMatch(/without a frame is shown as is, never guessed from its size/);
     expect(guide).toMatch(/"expand"[^\n]*"fill"/);
     expect(guide).toContain('src="assets/hero.jpg"');
     for (const token of CORE_TOKENS) expect(guide).toContain(token);
@@ -154,8 +154,8 @@ describe("session MCP tools", () => {
     await runOnce(engine);
     expect(guide).toMatch(/"responsive"[^\n]*"desktop"[^\n]*"tablet-landscape"[^\n]*"tablet"[^\n]*"mobile"/);
     for (const size of ["1440x900", "1024x768", "768x1024", "390x844"]) expect(guide).toContain(size);
-    expect(guide).toMatch(/\{ "device", "width", "height" \}/);
-    expect(guide).toMatch(/ignores "device"/);
+    expect(guide).toMatch(/\{ "format", "width", "height" \}/);
+    expect(guide).toMatch(/ignores "frame"/);
     expect(guide).toMatch(/separate (desktop and mobile )?artboards/i);
     expect(guide).toMatch(/ask the user/i);
   });
