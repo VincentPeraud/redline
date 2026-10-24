@@ -231,3 +231,61 @@ it("removes the device frame with Habillage (remembered), and fills the screen w
   await expect.poll(() => play.count()).toBe(0);
   await tab.close();
 }, 60_000);
+
+it("plays a responsive artboard: a selector of its formats plus Aucun, each format in its device at its own size, remembered", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Responsive play" })).json()) as { id: string };
+  const tall = `<!doctype html><body style="margin:0"><div style="height:2400px;background:#eee">Tall</div></body>`;
+  const page = (await server.post(`/api/projects/${project.id}/pages`, {
+    title: "Responsive play",
+    files: {
+      "landing.html": tall,
+      "plain.html": tall,
+      "manifest.json": JSON.stringify({
+        artboards: [
+          { file: "landing.html", x: 0, y: 0, responsive: ["desktop", "tablet", { device: "mobile", width: 414, height: 896 }] },
+          { file: "plain.html", x: 5000, y: 0, width: 400, height: 300, device: "none" },
+        ],
+      }),
+    },
+  }).then((res) => res.json())) as { id: string };
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  await tab.locator("[data-rendering] iframe").first().waitFor();
+  await tab.getByRole("button", { name: "Lancer landing.html en plein écran" }).click();
+  const play = tab.getByTestId("play");
+  const selector = play.getByRole("group", { name: "Rendu responsive" });
+  const frame = play.locator("iframe");
+  const size = () => frame.evaluate((el) => [(el as HTMLElement).offsetWidth, (el as HTMLElement).offsetHeight]);
+
+  expect(await selector.getByRole("button").allTextContents()).toEqual(["Desktop", "Tablette", "Mobile", "Aucun"]);
+  expect(await selector.getByRole("button", { name: "Desktop" }).getAttribute("aria-pressed")).toBe("true");
+  expect(await play.locator("main").getAttribute("data-device")).toBe("desktop");
+  expect(await size()).toEqual([1440, 900]);
+
+  await selector.getByRole("button", { name: "Tablette" }).click();
+  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("tablet");
+  expect(await size()).toEqual([768, 1024]);
+
+  await selector.getByRole("button", { name: "Mobile" }).click();
+  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("phone");
+  expect(await size()).toEqual([414, 896]);
+
+  await selector.getByRole("button", { name: "Aucun" }).click();
+  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("none");
+  const stage = (await play.locator("main").boundingBox())!;
+  expect(await size()).toEqual([stage.width, stage.height]);
+  expect(await play.getByRole("button", { name: "Habillage" }).count()).toBe(0);
+
+  await selector.getByRole("button", { name: "Tablette" }).click();
+  await tab.reload();
+  await tab.locator("[data-rendering] iframe").first().waitFor();
+  await tab.getByRole("button", { name: "Lancer landing.html en plein écran" }).click();
+  expect(await selector.getByRole("button", { name: "Tablette" }).getAttribute("aria-pressed")).toBe("true");
+  expect(await play.locator("main").getAttribute("data-device")).toBe("tablet");
+
+  await play.getByRole("button", { name: "Artboard 2" }).click();
+  await expect.poll(() => frame.getAttribute("title")).toMatch(/plain\.html$/);
+  expect(await selector.count()).toBe(0);
+  await tab.close();
+}, 60_000);
