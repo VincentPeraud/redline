@@ -17,6 +17,10 @@ _Avoid_: Planche (also for a page of variants), board, artefact, page type, prot
 One HTML file placed on a page's canvas.
 _Avoid_: Écran, screen, planche (in the UI: always "artboard")
 
+**Artboard address**:
+The link to one artboard: the page route followed by `/artboards/<file>` (file URI-encoded). Opening it loads the page's canvas, centres it on the artboard and outlines it once; panning and zooming never rewrite it.
+_Avoid_: Artboard URL, deep link
+
 **Design system**:
 A special project whose tokens, components and pages define a style that other projects use.
 _Avoid_: DS (in code and docs), theme, style guide
