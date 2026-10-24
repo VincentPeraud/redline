@@ -26,6 +26,12 @@ afterAll(async () => {
   rmSync(webDir, { recursive: true, force: true });
 });
 
+/** Goes to an artboard through the counter's contents menu. */
+async function openArtboard(play: Locator, file: string) {
+  await play.getByRole("button", { name: /^\d+ \/ \d+/ }).click();
+  await play.getByRole("menuitem", { name: new RegExp(file.replace(".", "\\.")) }).click();
+}
+
 it("plays a prototype: one artboard at full size, links switch artboard, exit returns to the canvas", async () => {
   const project = (await (await server.post("/api/projects", { title: "Shop" })).json()) as { id: string };
   const html = (title: string, body = "") =>
@@ -111,12 +117,12 @@ it("presents each artboard by its declared frame, and as is when none is declare
 
   const expected = ["phone", "tablet", "browser", "paper", "none", "none"];
   for (const [index, name] of expected.entries()) {
-    await play.getByRole("button", { name: `Artboard ${index + 1}` }).click();
+    await openArtboard(play, `${"abcdef"[index]}.html`);
     await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe(name);
     expect(await play.locator("main [data-frame]").getAttribute("data-frame")).toBe(name);
   }
 
-  await play.getByRole("button", { name: "Artboard 3" }).click();
+  await openArtboard(play, "c.html");
   await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("browser");
   expect(await play.getByText("lumora.fr").count()).toBe(1);
   await tab.close();
@@ -155,12 +161,11 @@ it("fills the window with a fluid artboard, ignores fill on a phone, and toggles
   await play.getByRole("button", { name: "Guides (G)" }).click();
   expect(await columns.count()).toBe(12);
   await tab.reload();
-  await tab.getByRole("button", { name: "Lancer dash.html en plein écran" }).click();
-  expect(await columns.count()).toBe(12);
+  await expect.poll(() => columns.count()).toBe(12);
   await tab.locator("body").press("g");
   expect(await columns.count()).toBe(0);
 
-  await play.getByRole("button", { name: "Artboard 2" }).click();
+  await openArtboard(play, "phone.html");
   await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("phone");
   expect((await frame.boundingBox())!.width).toBeCloseTo(390, 0);
   await tab.close();
@@ -203,18 +208,18 @@ it("removes the frame with Habillage (remembered), and fills the screen without 
   expect([phone.width, phone.height]).toEqual([390, stage.height]);
   expect(phone.x + phone.width / 2).toBeCloseTo(stage.x + stage.width / 2, 0);
 
-  await play.getByRole("button", { name: "Artboard 2" }).click();
+  await openArtboard(play, "desk.html");
   await expect.poll(() => frame.getAttribute("title")).toMatch(/desk\.html$/);
   const desk = (await frame.boundingBox())!;
   expect([desk.width, desk.height]).toEqual([stage.width, stage.height]);
 
-  await play.getByRole("button", { name: "Artboard 3" }).click();
+  await openArtboard(play, "plain.html");
   await expect.poll(() => frame.getAttribute("title")).toMatch(/plain\.html$/);
   expect(await habillage.count()).toBe(0);
 
   await tab.reload();
+  await openArtboard(play, "phone.html");
   await tab.locator('iframe[title$="phone.html"]').waitFor();
-  await tab.getByRole("button", { name: "Lancer phone.html en plein écran" }).click();
   expect(await habillage.getAttribute("aria-pressed")).toBe("false");
   await habillage.click();
   await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("phone");
@@ -258,6 +263,7 @@ it("plays a responsive artboard: a selector of its formats plus Aucun, each form
   const frame = play.locator("iframe");
   const size = () => frame.evaluate((el) => [(el as HTMLElement).offsetWidth, (el as HTMLElement).offsetHeight]);
 
+  await selector.waitFor();
   expect(await selector.getByRole("button").allTextContents()).toEqual(["Desktop", "Tablette", "Mobile", "Aucun"]);
   expect(await selector.getByRole("button", { name: "Desktop" }).getAttribute("aria-pressed")).toBe("true");
   expect(await play.locator("main").getAttribute("data-frame")).toBe("browser");
@@ -279,12 +285,11 @@ it("plays a responsive artboard: a selector of its formats plus Aucun, each form
 
   await selector.getByRole("button", { name: "Tablette" }).click();
   await tab.reload();
-  await tab.locator("[data-rendering] iframe").first().waitFor();
-  await tab.getByRole("button", { name: "Lancer landing.html en plein écran" }).click();
+  await selector.waitFor();
   expect(await selector.getByRole("button", { name: "Tablette" }).getAttribute("aria-pressed")).toBe("true");
   expect(await play.locator("main").getAttribute("data-frame")).toBe("tablet");
 
-  await play.getByRole("button", { name: "Artboard 2" }).click();
+  await openArtboard(play, "plain.html");
   await expect.poll(() => frame.getAttribute("title")).toMatch(/plain\.html$/);
   expect(await selector.count()).toBe(0);
   await tab.close();

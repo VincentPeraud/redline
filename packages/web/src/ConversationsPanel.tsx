@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   CONTEXT_WARNING_PERCENT,
   type Conversation,
@@ -19,6 +19,9 @@ import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import { ElementChip } from "./ElementChip.js";
+import { AddressPill, PlainLink } from "./AddressPill.js";
+import { splitMessageLinks } from "./messageLinks.js";
+import { rememberArtboardTitles } from "./otherPageArtboards.js";
 import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./ConversationsPanel.module.css";
 
@@ -51,6 +54,12 @@ interface Props {
   pageId: string;
   pageTitle: string;
   artboardCount: number;
+  /** Artboards of the page, to title the pills that point at them; null until the manifest is known. */
+  artboards: { file: string; title: string }[] | null;
+  /** Centres the canvas on an artboard (a pill of this page). */
+  onCenterArtboard: (file: string) => void;
+  /** Shows "Cet artboard n'existe plus" (a pill whose artboard is gone). */
+  onMissingArtboard: (file: string) => void;
   /** What goes with the next message, live with the canvas view and the tweaks. */
   context: MessageContext;
   runs: ThreadRun[];
@@ -67,9 +76,12 @@ interface Props {
 }
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
-export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
+export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards, onCenterArtboard, onMissingArtboard, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  /** `activeId` as of now, not as of the last render: a message sent right after "+ Nouvelle" must land in the conversation just created. */
+  const activeRef = useRef<string | null>(null);
+  const creating = useRef<Promise<string> | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [text, setText] = useState("");
@@ -100,9 +112,14 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, 
     });
   }, [pageId, refreshList, refreshDetail]);
 
+  const showConversation = (id: string | null) => {
+    activeRef.current = id;
+    setActiveId(id);
+  };
+
   // Open the most recent conversation once the list is known.
   useEffect(() => {
-    setActiveId((current) => current ?? conversations[0]?.id ?? null);
+    if (activeRef.current === null && conversations[0]) showConversation(conversations[0].id);
   }, [conversations]);
 
   useEffect(() => {
@@ -110,11 +127,24 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, 
     else setDetail(null);
   }, [activeId, refreshDetail]);
 
+  /** One creation at a time: a message sent while "+ Nouvelle" is still in flight joins it instead of creating a second conversation. */
+  function createConversation(): Promise<string> {
+    creating.current ??= fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("conversation");
+        const { id } = (await res.json()) as ConversationDetail;
+        showConversation(id);
+        return id;
+      })
+      .finally(() => {
+        creating.current = null;
+      });
+    return creating.current;
+  }
+
   async function create() {
-    const res = await fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-    const created = (await res.json()) as ConversationDetail;
+    await createConversation();
     await refreshList();
-    setActiveId(created.id);
     setListOpen(false);
   }
 
@@ -122,7 +152,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, 
     await fetch(`/api/conversations/${id}/archive`, { method: "POST" });
     const rest = conversations.filter((c) => c.id !== id);
     setConversations(rest);
-    if (activeId === id) setActiveId(rest[0]?.id ?? null);
+    if (activeId === id) showConversation(rest[0]?.id ?? null);
   }
 
   /** Keeps the text and chips when anything fails: they only go once the message is stored. */
@@ -132,13 +162,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, 
     setSendError(null);
     try {
       const request: CreateConversationMessageRequest = { body: text, context: chips.length > 0 ? { ...context, targets: chips } : context, ...choice };
-      let conversationId = activeId;
-      if (!conversationId) {
-        const created = await fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-        if (!created.ok) throw new Error("conversation");
-        conversationId = ((await created.json()) as ConversationDetail).id;
-        setActiveId(conversationId);
-      }
+      const conversationId = activeRef.current ?? (await createConversation());
       const res = await fetch(`/api/conversations/${conversationId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -154,6 +178,11 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, 
     }
   }
 
+  useEffect(() => {
+    if (artboards) rememberArtboardTitles(pageId, artboards.map((a) => [a.file, a.title]));
+  }, [pageId, artboards]);
+
+  const current = { id: pageId, title: pageTitle, artboards };
   const active = conversations.find((c) => c.id === activeId) ?? null;
   const lastRun = detail ? runs.find((r) => r.workId === detail.runWorkId) : undefined;
   const run = lastRun?.status === "answered" ? undefined : lastRun;
@@ -200,7 +229,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, 
                   aria-selected={c.id === activeId}
                   className={styles.optionMain}
                   onClick={() => {
-                    setActiveId(c.id);
+                    showConversation(c.id);
                     setListOpen(false);
                   }}
                 >
@@ -249,7 +278,16 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, 
             ) : (
               <Fragment key={m.id}>
                 <div data-testid="conversation-message" className={styles.claudeMessage}>
-                  <span className={styles.author}>Claude</span> — {m.body}
+                  <span className={styles.author}>Claude</span> —{" "}
+                  {splitMessageLinks(m.body, window.location.origin).map((segment, i) =>
+                    segment.kind === "text" ? (
+                      <Fragment key={i}>{segment.text}</Fragment>
+                    ) : segment.kind === "link" ? (
+                      <PlainLink key={i} url={segment.url} />
+                    ) : (
+                      <AddressPill key={i} address={segment} current={current} onCenter={onCenterArtboard} onMissing={onMissingArtboard} />
+                    ),
+                  )}
                 </div>
                 <CreatedPageCards pages={m.createdPages} />
               </Fragment>

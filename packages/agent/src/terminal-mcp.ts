@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { uploadChangedAssets } from "./assets.js";
 import { readLinkedProjectId } from "./link.js";
+import { pageAddresses } from "./page-addresses.js";
 import type { ServerApi } from "./server-api.js";
 import { CREATE_PAGE_TOOL, createRedlineMcpServer } from "./session-mcp.js";
 import { readDesignMd, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
@@ -120,7 +121,7 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
       const checkout = await api.checkout(pageId);
       const dir = writeWorkingCopy(folder, pageId, checkout);
       current = { pageId, dir, files: checkout.files, designMd: checkout.project.designMd, assets: checkout.project.assets, versionId: checkout.versionId };
-      return `Page checked out into .redline/${pageId}/. Edit its files, then call publish_page.`;
+      return `Page checked out into .redline/${pageId}/. Edit its files, then call publish_page.\n${pageAddresses(api, pageId, checkout.files)}`;
     }),
   );
   server.registerTool(
@@ -147,13 +148,13 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
       });
       if (!version.merged) {
         current = { pageId, dir, files, designMd, assets, versionId: version.id };
-        return `${uploadedNote}Published version ${version.id}.`;
+        return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}.`;
       }
       // The page moved on since the checkout: the new version also holds those changes, so download it again.
       const fresh = await api.checkout(pageId);
       writeWorkingCopy(folder, pageId, fresh);
       current = { pageId, dir, files: fresh.files, designMd: fresh.project.designMd, assets: fresh.project.assets, versionId: fresh.versionId };
-      return `${uploadedNote}Published version ${version.id}, merged with changes made to the page since the checkout. The working copy was refreshed.`;
+      return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}, merged with changes made to the page since the checkout. The working copy was refreshed.`;
     }),
   );
   return server;

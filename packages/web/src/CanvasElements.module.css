@@ -57,6 +57,9 @@
 .linkSubtitle {
   font-size: 22px;
   color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .linkArrow {

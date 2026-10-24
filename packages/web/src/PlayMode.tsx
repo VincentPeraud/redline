@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { RESPONSIVE_FORMATS, renderingKey, renderingLabel, type ArtboardRendering, type Manifest, type TweakValue, type TweakValues } from "@redline/shared";
+import { PlayStepper } from "./PlayStepper.js";
+import type { TocItem } from "./tocItems.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { PlayFrame } from "./PlayFrame.js";
 import { presentationOf, type Presentation } from "./playFrames.js";
@@ -7,25 +9,40 @@ import { ArtboardGuides } from "./ArtboardGuides.js";
 import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
 import { useStoredToggle } from "./useStoredToggle.js";
-import { usePlayRendering } from "./usePlayRendering.js";
+import { renderingParamOf, usePlayRendering } from "./usePlayRendering.js";
+import { navigateTo, playRoute } from "./router.js";
+import { loadPageSummary } from "./otherPageArtboards.js";
+import { copyAddress } from "./copyLink.js";
+import { CopyLinkIcon } from "./CopyLinkIcon.js";
+import { MissingArtboardNotice } from "./MissingArtboardNotice.js";
+import { useCopiedBubble } from "./useCopiedBubble.js";
 import { cx } from "./ui/index.js";
 import styles from "./PlayMode.module.css";
 
-/** Target artboard of the link on `selector` in artboard `from`, if the manifest declares one that exists. */
-export function resolveLink(manifest: Manifest, from: string, selector: string): string | null {
+/** Where a link leads: an artboard of this page (`page` null) or of another page (checked against that page when followed). */
+export type LinkTarget = { page: string | null; file: string };
+
+/** Target of the link on `selector` in artboard `from`, if the manifest declares one; a same-page target must exist. */
+export function resolveLink(manifest: Manifest, pageId: string, from: string, selector: string): LinkTarget | null {
   const link = manifest.links.find((l) => l.from === from && l.selector === selector);
   if (!link) return null;
-  return manifest.artboards.some((a) => a.file === link.to) ? link.to : null;
+  if (link.page !== undefined && link.page !== pageId) return { page: link.page, file: link.to };
+  return manifest.artboards.some((a) => a.file === link.to) ? { page: null, file: link.to } : null;
 }
 
-const NO_RENDERING = "none";
+/** Value of the "Aucun" option of the phone bar's rendering select. */
+const NO_RENDERING_OPTION = "none";
 
 interface Props {
   pageId: string;
   pageTitle: string;
   manifest: Manifest;
-  /** Artboard shown first. */
-  start?: string;
+  /** The artboards in reading order: the counter, the arrows and the contents menu follow it. */
+  tocItems: TocItem[];
+  /** Artboard shown: the file of the play address. */
+  file: string;
+  /** The play address's `?rendu=` value, as written. */
+  renderingParam?: string;
   artboardOrigin: string;
   tweaks: TweakValues;
   onTweak: (id: string, value: TweakValue) => void;
@@ -53,8 +70,10 @@ function fitToStage(presentation: Presentation, stage: { width: number; height: 
 }
 
 /** One artboard at a time at full size; clicks on elements linked in the manifest switch artboard (via the bridge). */
-export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, tweaks, onTweak, guidesVisible, onToggleGuides, onExit }: Props) {
-  const [current, setCurrent] = useState(start ?? manifest.artboards[0]?.file ?? null);
+export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current, renderingParam, artboardOrigin, tweaks, onTweak, guidesVisible, onToggleGuides, onExit }: Props) {
+  const [copied, showCopied] = useCopiedBubble();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [deadLink, setDeadLink] = useState<string | null>(null);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
   const stage = useRef<HTMLElement>(null);
@@ -64,10 +83,30 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
   const [tweaksOpen, toggleTweaks] = useStoredToggle("redline:play-tweaks", true);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const renderings = artboard?.responsive ?? [];
-  const [rendering, selectRendering] = usePlayRendering(renderings);
+  const [rendering, selectRendering] = usePlayRendering(renderings, renderingParam);
   const presentation = artboard && presentationOf(artboard, framed, windowWidth, artboard.responsive ? rendering : undefined);
   const isBrowserFrame = rendering ? rendering.format === "desktop" : artboard?.frame === "browser";
   const fitted = presentation && fitToStage(presentation, stageSize);
+  /** A link the user followed pushes an entry; the header buttons replace the current one. */
+  const showArtboard = (file: string, mode: "push" | "replace") => navigateTo(playRoute(pageId, file, renderingParam), mode);
+  const position = tocItems.findIndex((item) => item.file === current);
+  const goBy = (step: -1 | 1) => {
+    const target = tocItems[position + step];
+    if (target) showArtboard(target.file, "replace");
+  };
+  /** The target page's manifest and tweaks load with its own play route; a gone page or artboard leaves the screen as it is. */
+  const followOtherPage = (otherPageId: string, file: string) =>
+    void loadPageSummary(otherPageId)
+      .catch(() => null)
+      .then((summary) => {
+        if (summary?.artboardTitles.has(file)) navigateTo(playRoute(otherPageId, file), "push");
+        else setDeadLink(file);
+      });
+  const chooseRendering = (choice: ArtboardRendering | null) => {
+    selectRendering(choice);
+    navigateTo(playRoute(pageId, current, renderingParamOf(choice)), "replace");
+  };
+  const copyPlayUrl = () => void copyAddress(playRoute(pageId, current, renderings.length > 0 ? renderingParamOf(rendering) : undefined)).then(() => showCopied());
   /** "Desktop", or "Desktop · 1440" when the artboard has several renderings of the same format. */
   const renderingOptionLabel = (r: ArtboardRendering) => (renderings.filter((o) => o.format === r.format).length > 1 ? renderingLabel(r) : RESPONSIVE_FORMATS[r.format].label);
 
@@ -80,6 +119,8 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => setDeadLink(null), [pageId, current]);
 
   useEffect(() => {
     const onResize = () => setWindowWidth(window.innerWidth);
@@ -94,29 +135,36 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
-      if (event.source !== frame.current?.contentWindow || current === null) return;
-      const data = event.data as { type?: string; selector?: string };
+      if (event.source !== frame.current?.contentWindow) return;
+      const data = event.data as { type?: string; selector?: string; key?: string };
       if (data.type === "redline:ready") {
         const selectors = manifest.links.filter((l) => l.from === current).map((l) => l.selector);
         frame.current?.contentWindow?.postMessage({ type: "redline:set-links", selectors }, "*");
         setBridgeEpoch((n) => n + 1);
       } else if (data.type === "redline:link" && data.selector !== undefined) {
-        const target = resolveLink(manifest, current, data.selector);
-        if (target !== null) setCurrent(target);
+        const target = resolveLink(manifest, pageId, current, data.selector);
+        if (target === null) return;
+        if (target.page === null) showArtboard(target.file, "push");
+        else followOtherPage(target.page, target.file);
+      } else if (data.type === "redline:key" && (data.key === "ArrowLeft" || data.key === "ArrowRight")) {
+        goBy(data.key === "ArrowLeft" ? -1 : 1);
       }
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [manifest, current]);
+  }, [manifest, tocItems, current, renderingParam]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onExit();
+      if (event.key === "Escape") {
+        if (menuOpen) setMenuOpen(false);
+        else onExit();
+      } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !menuOpen && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !isEditableTarget(event.target)) goBy(event.key === "ArrowLeft" ? -1 : 1);
       else if (event.key.toLowerCase() === "g" && !event.metaKey && !event.ctrlKey && !event.altKey && !isEditableTarget(event.target)) onToggleGuides();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onExit, onToggleGuides]);
+  }, [onExit, onToggleGuides, menuOpen, tocItems, current, renderingParam]);
 
   const hasTweaks = manifest.tweaks.length > 0 && !presentation?.mobileBar;
   return (
@@ -124,19 +172,19 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
       {presentation?.mobileBar ? (
         <header className={styles.mobileBar}>
           <button type="button" onClick={onExit} aria-label="Retour au canvas" className={styles.mobileBack}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M15 6l-6 6 6 6" />
             </svg>
           </button>
           <span className={styles.mobileTitle}>
-            {pageTitle} · {artboard?.file}
+            {pageTitle} · {artboard?.title ?? artboard?.file}
           </span>
           {renderings.length > 0 && (
             <span className={styles.mobileRenderingWrap}>
               <select
                 aria-label="Rendu responsive"
-                value={rendering ? renderingKey(rendering) : NO_RENDERING}
-                onChange={(event) => selectRendering(renderings.find((r) => renderingKey(r) === event.target.value) ?? null)}
+                value={rendering ? renderingKey(rendering) : NO_RENDERING_OPTION}
+                onChange={(event) => chooseRendering(renderings.find((r) => renderingKey(r) === event.target.value) ?? null)}
                 className={styles.mobileRendering}
               >
                 {renderings.map((r) => (
@@ -144,20 +192,24 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
                     {renderingOptionLabel(r)}
                   </option>
                 ))}
-                <option value={NO_RENDERING}>Aucun</option>
+                <option value={NO_RENDERING_OPTION}>Aucun</option>
               </select>
               <svg className={styles.mobileRenderingChevron} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M6 9l6 6 6-6" />
               </svg>
             </span>
           )}
+          <nav aria-label="Artboards" className={styles.mobileSteps}>
+            <PlayStepper variant="phone" tocItems={tocItems} current={current} menuOpen={menuOpen} onMenuOpenChange={setMenuOpen} goBy={goBy} onChoose={(file) => showArtboard(file, "replace")} />
+          </nav>
         </header>
       ) : (
         <header className={styles.topbar}>
-          <button type="button" onClick={onExit} title="Échap" className={styles.back}>
-            ← Canvas
-          </button>
-          <div className={styles.title}>{pageTitle} · plein écran</div>
+          <div className={styles.leading}>
+            <button type="button" onClick={onExit} title="Échap" className={styles.back}>
+              ← Canvas
+            </button>
+            <div className={styles.title}>{pageTitle} · {artboard?.title ?? artboard?.file}</div>
           {renderings.length > 0 && (
             <div role="group" aria-label="Rendu responsive" className={styles.renderings}>
               {[...renderings, null].map((r) => (
@@ -165,7 +217,7 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
                   key={r ? renderingKey(r) : "none"}
                   type="button"
                   aria-pressed={r === rendering}
-                  onClick={() => selectRendering(r)}
+                  onClick={() => chooseRendering(r)}
                   className={cx(styles.rendering, r === rendering && styles.renderingCurrent)}
                 >
                   {r ? renderingOptionLabel(r) : "Aucun"}
@@ -173,22 +225,22 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
               ))}
             </div>
           )}
-          <div className={styles.spacer} />
+          </div>
           <nav aria-label="Artboards" className={styles.screens}>
-            {manifest.artboards.map((a, index) => (
-              <button
-                key={a.file}
-                type="button"
-                title={a.file}
-                aria-current={a.file === current ? "page" : undefined}
-                onClick={() => setCurrent(a.file)}
-                className={cx(styles.screen, a.file === current && styles.screenCurrent)}
-              >
-                {a.title ?? `Artboard ${index + 1}`}
-              </button>
-            ))}
+            <PlayStepper variant="header" tocItems={tocItems} current={current} menuOpen={menuOpen} onMenuOpenChange={setMenuOpen} goBy={goBy} onChoose={(file) => showArtboard(file, "replace")} />
           </nav>
-          <div className={styles.spacer} />
+          <div className={styles.actions}>
+          <span className={styles.copyWrap}>
+            {copied !== null && (
+              <div role="status" className={styles.copiedBubble}>
+                Lien copié
+              </div>
+            )}
+            <button type="button" onClick={copyPlayUrl} className={styles.actionButton}>
+              <CopyLinkIcon />
+              Copier le lien
+            </button>
+          </span>
           {presentation?.framable && (
             <button type="button" aria-pressed={framed} title={isBrowserFrame ? "Afficher ou masquer la fenêtre de navigateur" : "Afficher ou masquer le cadre de l'appareil"} onClick={toggleFramed} className={cx(styles.habillage, framed && styles.habillageOn)}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -213,6 +265,7 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
               Tweaks
             </button>
           )}
+          </div>
         </header>
       )}
       <div className={styles.body}>
@@ -240,6 +293,9 @@ export function PlayMode({ pageId, pageTitle, manifest, start, artboardOrigin, t
             <p className={styles.empty}>Aucun artboard</p>
           )}
         </main>
+        {deadLink !== null && (
+          <MissingArtboardNotice file={deadLink} onClose={() => setDeadLink(null)} className={styles.deadLink} />
+        )}
         {hasTweaks && tweaksOpen && (
           <aside aria-label="Tweaks" className={styles.aside}>
             <div className={styles.asideHead}>

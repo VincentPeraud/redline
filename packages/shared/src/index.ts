@@ -3,6 +3,9 @@ import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply,
 export * from "./work.js";
 export * from "./sessions.js";
 export * from "./home.js";
+export * from "./readingOrder.js";
+export * from "./responsiveLayout.js";
+export * from "./addresses.js";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -483,6 +486,8 @@ export interface ManifestPageLinkElement {
   id?: string;
   kind: "link";
   page: string;
+  /** Artboard file of the target page: the card shows that artboard and opens the page centred on it. */
+  file?: string;
   x: number;
   y: number;
 }
@@ -539,17 +544,18 @@ export function canvasElementSummary(element: ManifestElement): string {
     case "arrow":
       return quoted(element.label);
     case "link":
-      return "page" in element ? `link to page ${element.page}` : element.url;
+      return "page" in element ? (element.file === undefined ? `link to page ${element.page}` : `link to artboard ${element.file} of page ${element.page}`) : element.url;
     case "image":
       return element.src;
   }
 }
 
-/** Play mode: clicking `selector` in artboard `from` goes to artboard `to`. */
+/** Play mode: clicking `selector` in artboard `from` goes to artboard `to`, of page `page` when given (a page of the same project), else of this page. */
 export interface ManifestLink {
   from: string;
   selector: string;
   to: string;
+  page?: string;
 }
 
 export type TweakType = "color" | "choice" | "toggle" | "range" | "count" | "text";
@@ -725,8 +731,10 @@ const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unkno
     const y = num(item, "y", name, 0);
     if (item.page !== undefined) {
       if (item.url !== undefined) fail(`${name}.page and ${name}.url cannot be used together`);
-      return { kind: "link", page: str(item, "page", name), x, y };
+      const page = str(item, "page", name);
+      return item.file === undefined ? { kind: "link", page, x, y } : { kind: "link", page, file: str(item, "file", name), x, y };
     }
+    if (item.file !== undefined) fail(`${name}.file needs ${name}.page`);
     if (item.url === undefined) fail(`${name}.page must be a non-empty string (or ${name}.url with ${name}.title)`);
     const url = str(item, "url", name);
     if (!/^https?:\/\/[^\s/]+/i.test(url)) fail(`${name}.url must be an http(s) address`);
@@ -893,7 +901,8 @@ export function parseManifest(text: string): Manifest {
 
   const links = list(root.links, "links").map((item, i): ManifestLink => {
     const name = `links[${i}]`;
-    return { from: str(item, "from", name), selector: str(item, "selector", name), to: str(item, "to", name) };
+    const page = optionalStr(item, "page", name);
+    return { from: str(item, "from", name), selector: str(item, "selector", name), to: str(item, "to", name), ...(page === undefined ? {} : { page }) };
   });
 
   const tweaks = list(root.tweaks, "tweaks").map((item, i): ManifestTweak => {

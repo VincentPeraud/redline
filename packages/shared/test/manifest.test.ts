@@ -81,6 +81,14 @@ describe("page manifest", () => {
     ]);
   });
 
+  it("reads a link card aimed at an artboard of another page, and refuses file without page", () => {
+    const manifest = parseManifest(JSON.stringify({ elements: [{ kind: "link", page: "pg_7f3a", file: "panier.html", x: 0, y: 0 }] }));
+    expect(manifest.elements).toEqual([{ kind: "link", page: "pg_7f3a", file: "panier.html", x: 0, y: 0 }]);
+    const refuse = (element: object) => () => parseManifest(JSON.stringify({ elements: [{ kind: "link", x: 0, y: 0, ...element }] }));
+    expect(refuse({ page: "pg_1", file: "" })).toThrow(/elements\[0\]\.file/);
+    expect(refuse({ url: "https://linear.app", title: "T", file: "a.html" })).toThrow(/elements\[0\]\.file/);
+  });
+
   it("refuses a link card without a page or without a url and title, naming the field", () => {
     const refuse = (element: object) => () => parseManifest(JSON.stringify({ elements: [{ kind: "link", x: 0, y: 0, ...element }] }));
     expect(refuse({})).toThrow(/elements\[0\]\.page/);

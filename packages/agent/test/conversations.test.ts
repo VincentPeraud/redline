@@ -60,6 +60,32 @@ describe("page conversations", () => {
     expect(detail.messages.map((m) => m.body)).toEqual(["First words", "Hello back"]);
   });
 
+  it("gives the session the page address and each artboard's canvas and play addresses, in reading order", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "ok" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(
+      {
+        "home.html": "<!doctype html><h1>Home</h1>",
+        "pay now.html": "<!doctype html><h1>Pay</h1>",
+        "manifest.json": JSON.stringify({ artboards: [{ file: "pay now.html", title: "Paiement", x: 900, y: 0 }, { file: "home.html", x: 0, y: 0 }] }),
+      },
+      "Checkout",
+    );
+    const conversation = await newConversation(seam, page.id);
+    expect((await send(seam, conversation.id, "Hello")).status).toBe(201);
+    await seam.waitForWorkEnd(1);
+
+    const base = `${seam.server.url}/#/pages/${page.id}`;
+    expect(engine.runs[0].message).toContain(
+      [
+        `Page: ${base}`,
+        "Artboards, in reading order:",
+        `1. home.html · canvas ${base}/artboards/home.html · play ${base}/play/home.html`,
+        `2. Paiement · canvas ${base}/artboards/pay%20now.html · play ${base}/play/pay%20now.html`,
+      ].join("\n"),
+    );
+  });
+
   it("follows a message with the artboards the user is looking at and the tweak values", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "ok" }]);
     seam = await startSeam2(engine);

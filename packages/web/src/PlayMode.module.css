@@ -10,7 +10,8 @@
 }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: var(--space-4);
   height: 56px;
@@ -36,9 +37,20 @@
   cursor: pointer;
 }
 
+.leading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
 .title {
+  min-width: 0;
+  overflow: hidden;
   font-size: var(--font-size-md);
   color: var(--play-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .spacer {
@@ -51,20 +63,85 @@
   gap: 6px;
 }
 
-.screen {
-  padding: 6px 10px;
-  border: none;
-  border-radius: var(--radius-sm);
+.step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 36px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
   background: transparent;
+  color: var(--play-text);
+  font: inherit;
   font-size: var(--font-size-sm);
-  color: var(--play-text-muted);
+  font-weight: var(--font-weight-medium);
   cursor: pointer;
 }
 
-.screenCurrent {
+.step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.counterWrap {
+  position: relative;
+  display: flex;
+}
+
+.counter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
   background: var(--play-border);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-inverse);
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.counterOpen {
+  border-color: var(--play-text);
+}
+
+.counterChevron {
+  font-size: 10px;
+  color: var(--play-text-muted);
+}
+
+/* The shared list in the play chrome colours; centred under the counter, 8 px under the header like board PlayNav. */
+.menu {
+  --color-border-strong: var(--play-border-strong);
+  --color-surface: var(--play-border);
+  --color-surface-muted: var(--play-border);
+  --color-accent-soft: var(--play-border-strong);
+  --color-text: var(--play-text);
+  --color-text-muted: var(--play-text-muted);
+  position: absolute;
+  top: 54.5px;
+  left: 50%;
+  z-index: 5;
+  width: 380px;
+  max-height: calc(100vh - 80px);
+  margin-left: -190px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 10px 0;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--play-panel-bg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
 }
 
 .guidesButton {
@@ -195,9 +272,10 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 36px;
   height: 36px;
   box-sizing: border-box;
-  padding: 0 12px;
+  padding: 0 10px;
   border: 1px solid var(--play-border-strong);
   border-radius: var(--radius-md);
   background: transparent;
@@ -220,16 +298,17 @@
 .mobileBar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   height: 44px;
   flex-shrink: 0;
   box-sizing: border-box;
-  padding: 0 8px;
+  padding: 0 4px;
   background: var(--play-bg);
   color: var(--play-text);
 }
 
 .mobileBack {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -242,6 +321,7 @@
 }
 
 .mobileTitle {
+  flex-grow: 1;
   min-width: 0;
   overflow: hidden;
   font-size: var(--font-size-sm);
@@ -254,7 +334,6 @@
 .mobileRenderingWrap {
   position: relative;
   flex-shrink: 0;
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   color: var(--play-text);
@@ -305,4 +384,113 @@
   background: var(--play-border-strong);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-inverse);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.copyWrap {
+  position: relative;
+  display: flex;
+}
+
+.actionButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 36px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+/* Under the button: the header has no room above it. Inverted colours, like the canvas bubble. */
+.copiedBubble {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  z-index: 5;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--play-text);
+  color: var(--play-bg);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.deadLink {
+  position: absolute;
+  bottom: var(--space-6);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+}
+
+.mobileSteps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.mobileStep {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--play-text);
+  cursor: pointer;
+}
+
+.mobileStep:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The menu is positioned against the play screen, not the counter. */
+.mobileCounterWrap {
+  display: flex;
+}
+
+.mobileCounter {
+  height: 44px;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+/* Not on the board (it has no menu state): the dark contents menu, full width under the bar. */
+.mobileMenu {
+  top: 44px;
+  left: 0;
+  right: 0;
+  width: auto;
+  margin-left: 0;
+  max-height: calc(100% - 44px);
+  border-width: 1px 0;
+  border-radius: 0;
 }

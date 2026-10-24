@@ -1,11 +1,13 @@
 import { useAltKey } from "./useAltKey.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   EMPTY_VIEW_SETTINGS,
   MANIFEST_PATH,
   RESPONSIVE_FORMATS,
   defaultManifest,
+  groupTitlesOf,
   parseManifest,
+  readingOrder,
   versionPreviewPath,
   type AgentInfo,
   type CreateThreadRequest,
@@ -29,7 +31,14 @@ import { CanvasHeader } from "./CanvasHeader.js";
 import { useStoredToggle } from "./useStoredToggle.js";
 import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
-import { panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { centerOn, panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { copyAddress } from "./copyLink.js";
+import { CopyLinkIcon } from "./CopyLinkIcon.js";
+import { MissingArtboardNotice } from "./MissingArtboardNotice.js";
+import { useCopiedBubble } from "./useCopiedBubble.js";
+import { navigateTo, playRoute, type PageRoute } from "./router.js";
+import { TocList } from "./TocList.js";
+import { artboardAtCentre, type TocItem } from "./tocItems.js";
 import { CanvasElements } from "./CanvasElements.js";
 import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
 import { ResponsiveFrame } from "./ResponsiveFrame.js";
@@ -57,7 +66,7 @@ const START_BOTTOM = 40;
 /** Pointer travel (screen pixels) under which a press and release count as a click. */
 const CLICK_SLOP = 4;
 
-type SideTab = "conversation" | "comments";
+type SideTab = "conversation" | "comments" | "toc";
 
 function boundsOf(boxes: { x: number; y: number; width: number; height: number }[]) {
   if (boxes.length === 0) return { x: 0, y: 0, width: 1, height: 1 };
@@ -73,6 +82,18 @@ function initialView(manifest: Manifest, stage: { width: number; height: number 
   const bounds = boundsOf(manifest.artboards.map((a) => ({ x: a.x, y: a.y, width: a.width, height: a.height })));
   const zoom = Math.min(1, (stage.height - START_TOP - START_BOTTOM) / bounds.height);
   return { zoom, x: START_LEFT - bounds.x * zoom, y: START_TOP - bounds.y * zoom };
+}
+
+const OUTLINE_MS = 2000;
+
+function CopyPlayLinkIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 11a4 4 0 0 0-6 .4l-.6.6a4 4 0 0 0 5.6 5.6l1-1" />
+      <path d="M7 15l4-4" />
+      <path d="M14 5l7 5-7 5z" />
+    </svg>
+  );
 }
 
 function BubbleIcon({ size }: { size: number }) {
@@ -101,7 +122,7 @@ function draftLabel(draft: PageDraft): string {
 
 function FullscreenIcon() {
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M15 3h6v6" />
       <path d="M9 21H3v-6" />
       <path d="M21 3l-7 7" />
@@ -122,9 +143,12 @@ interface Props {
   onVersionChange: () => void;
   /** The page's view settings as the server has them. */
   viewSettings?: PageViewSettings;
+  /** The page address: `artboard` (`.../artboards/<file>`) is centred and outlined once, `play` (`.../play/<file>`) is shown in play mode with the `?rendu=` value `renderingParam`. */
+  route: PageRoute;
 }
 
-export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings }: Props) {
+export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, route }: Props) {
+  const { artboard: addressedArtboard, play: playFile, renderingParam } = route;
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [picking, setPicking] = useState(false);
@@ -145,7 +169,6 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [tokensVersion, setTokensVersion] = useState(0);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState<string | null>(null);
-  const [playFrom, setPlayFrom] = useState<string | null>(null);
   const [historyOpenFor, setHistoryOpenFor] = useState<string | null>(null);
   /** An old version shown in place of one artboard, read-only, until restored or cancelled. */
   const [preview, setPreview] = useState<{ file: string; versionId: string } | null>(null);
@@ -160,9 +183,20 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const viewport = useRef<HTMLDivElement>(null);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const placed = useRef(false);
+  /** Artboard outlined for a moment after an address centred on it. */
+  const [outlined, setOutlined] = useState<string | null>(null);
+  /** File of an address that names an artboard the manifest no longer has. */
+  const [missingArtboard, setMissingArtboard] = useState<string | null>(null);
+  /** Strip whose "Lien copié" bubble is up; `at` restarts the timer on a second copy. */
+  const [copied, showCopied] = useCopiedBubble<string>();
+  const artboardBoxesRef = useRef<Map<string, Box>>(new Map());
+  const handledAddress = useRef<string | undefined>(undefined);
   const drag = useRef<{ x: number; y: number } | null>(null);
   /** Where the pointer went down, to tell a click on a canvas element from the end of a pan. */
   const pressedAt = useRef<{ x: number; y: number } | null>(null);
+
+  const artboardTitles = useMemo(() => manifest?.artboards.map((a) => ({ file: a.file, title: a.title ?? a.file })) ?? null, [manifest]);
+  const playing = playFile !== undefined && manifest !== null && manifest.artboards.some((a) => a.file === playFile);
 
   const runs = useRuns(pageId);
   const sessions = usePageSessions(pageId);
@@ -216,7 +250,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     }
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [playFrom]);
+  }, [playing]);
 
   useEffect(() => {
     const element = viewport.current;
@@ -226,7 +260,41 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [playFrom]);
+  }, [playing]);
+
+  // An artboard address acts once per address, after the manifest and the viewport are known; panning and zooming never touch the URL.
+  useEffect(() => {
+    if (addressedArtboard === undefined) {
+      handledAddress.current = undefined;
+      return;
+    }
+    if (!manifest || viewportSize.width === 0 || handledAddress.current === addressedArtboard) return;
+    handledAddress.current = addressedArtboard;
+    const box = artboardBoxesRef.current.get(addressedArtboard);
+    if (!box) {
+      setMissingArtboard(addressedArtboard);
+      setOutlined(null);
+      return;
+    }
+    setMissingArtboard(null);
+    setView(centerOn(box, viewportSize));
+    setOutlined(addressedArtboard);
+  }, [addressedArtboard, manifest, viewportSize]);
+
+  // A play address naming an artboard the manifest no longer has lands on the canvas with the same message, and an existing one clears it.
+  useEffect(() => {
+    if (playFile !== undefined && manifest) setMissingArtboard(playing ? null : playFile);
+  }, [playFile, manifest, playing]);
+
+  useEffect(() => {
+    if (outlined === null) return;
+    const timer = setTimeout(() => setOutlined(null), OUTLINE_MS);
+    return () => clearTimeout(timer);
+  }, [outlined]);
+
+  function copyLink(route: PageRoute, file: string) {
+    void copyAddress(route).then(() => showCopied(file));
+  }
 
   function zoomFromCenter(factor: number) {
     const rect = viewport.current?.getBoundingClientRect();
@@ -288,7 +356,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   // C: comment mode, P: back to interactive, G: layout guides.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (playFrom !== null || isEditableTarget(event.target) || event.metaKey || event.ctrlKey) return;
+      if (playing || isEditableTarget(event.target) || event.metaKey || event.ctrlKey) return;
       const key = event.key.toLowerCase();
       if (key === "c") {
         setPicking(true);
@@ -299,7 +367,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggleGuides, playFrom]);
+  }, [toggleGuides, playing]);
 
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
   async function send(held: boolean) {
@@ -350,23 +418,6 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     onVersionChange();
   }
 
-  if (playFrom !== null && manifest) {
-    return (
-      <PlayMode
-        pageId={pageId}
-        pageTitle={pageTitle}
-        manifest={manifest}
-        start={playFrom}
-        artboardOrigin={artboardOrigin}
-        tweaks={tweaks.values}
-        onTweak={tweaks.setValue}
-        guidesVisible={guidesVisible}
-        onToggleGuides={toggleGuides}
-        onExit={() => setPlayFrom(null)}
-      />
-    );
-  }
-
   const openCount = threads.filter((t) => t.status !== "resolved").length;
   const runningCount = runs.filter((r) => r.status === "running" || r.status === "sent" || r.status === "retrying").length;
   const firstArtboard = manifest?.artboards[0]?.file;
@@ -383,6 +434,40 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const artboardBoxes = new Map<string, Box>(
     (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, width: artboard.width, height: artboard.height }]),
   );
+  artboardBoxesRef.current = artboardBoxes;
+  const tocItems: TocItem[] = readingOrder(
+    (manifest?.artboards ?? []).map((artboard) => ({ file: artboard.file, title: artboard.title, ...artboardBoxes.get(artboard.file)! })),
+    manifest ? groupTitlesOf(manifest) : [],
+  ).map((entry) => ({ ...entry, openThreads: threads.filter((t) => t.artboard === entry.file && t.status !== "resolved").length }));
+  if (playing && manifest && playFile !== undefined) {
+    return (
+      <PlayMode
+        pageId={pageId}
+        pageTitle={pageTitle}
+        manifest={manifest}
+        tocItems={tocItems}
+        file={playFile}
+        renderingParam={renderingParam}
+        artboardOrigin={artboardOrigin}
+        tweaks={tweaks.values}
+        onTweak={tweaks.setValue}
+        guidesVisible={guidesVisible}
+        onToggleGuides={toggleGuides}
+        onExit={() => navigateTo({ name: "page", pageId })}
+      />
+    );
+  }
+
+  const currentTocFile = artboardAtCentre(
+    [...artboardBoxes].map(([file, box]) => ({ file, ...box })),
+    view,
+    viewportSize,
+  );
+  function centerOnArtboard(file: string) {
+    const box = artboardBoxes.get(file);
+    if (!box) return;
+    setView(centerOn(box, viewportSize));
+  }
   const conversationContext = messageContext({ view, viewport: viewportSize, boxes: artboardBoxes, manifest, tweakValues: tweaks.values });
   const artboardTweaks = (file: string) => (manifest?.tweaks ?? []).filter((tweak) => (tweak.artboard ? tweak.artboard === file : file === firstArtboard));
 
@@ -404,6 +489,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
         deleted={deleted}
         onPutBack={(item) => restore(item.file, item.lastVersionId)}
         onRenamePage={renamePage}
+        toc={{ items: tocItems, currentFile: currentTocFile, onSelect: centerOnArtboard }}
       />
       <div className={styles.body}>
         <main className={styles.stage}>
@@ -457,6 +543,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                 return (
                 <div
                   key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`}
+                  data-artboard={artboard.file}
                   className={cx(styles.artboard, (historyOpenFor === artboard.file || tweaksOpenFor === artboard.file) && styles.artboardRaised)}
                   style={{ left: artboard.x, top: artboard.y }}
                 >
@@ -476,7 +563,12 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         </span>
                       ) : null,
                     )}
-                    <span className={styles.labelName}>{artboard.title ?? artboard.file}</span>
+                    {copied === artboard.file && (
+                      <div role="status" className={styles.copiedBubble}>
+                        Lien copié
+                      </div>
+                    )}
+                    <span className={cx(styles.labelName, outlined === artboard.file && styles.labelNameOutlined)}>{artboard.title ?? artboard.file}</span>
                     {layout && artboard.responsive && (
                       <>
                         <span className={styles.responsiveBadge}>responsive</span>
@@ -512,7 +604,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         setTab("comments");
                       }}
                     >
-                      <BubbleIcon size={15} />
+                      <BubbleIcon size={13} />
                     </button>
                     <ArtboardHistory
                       pageId={pageId}
@@ -531,14 +623,39 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                     )}
                     <button
                       type="button"
+                      aria-label={`Copier le lien de ${artboard.file}`}
+                      title={`Copier le lien de ${artboard.file}`}
+                      className={styles.iconButton}
+                      onClick={() => copyLink({ name: "page", pageId, artboard: artboard.file }, artboard.file)}
+                    >
+                      <CopyLinkIcon />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Copier le lien plein écran de ${artboard.file}`}
+                      title={`Copier le lien plein écran de ${artboard.file}`}
+                      className={styles.iconButton}
+                      onClick={() => copyLink(playRoute(pageId, artboard.file), artboard.file)}
+                    >
+                      <CopyPlayLinkIcon />
+                    </button>
+                    <button
+                      type="button"
                       aria-label={`Lancer ${artboard.file} en plein écran`}
                       title="Plein écran"
                       className={styles.iconButton}
-                      onClick={() => setPlayFrom(artboard.file)}
+                      onClick={() => navigateTo(playRoute(pageId, artboard.file))}
                     >
                       <FullscreenIcon />
                     </button>
                   </div>
+                  {outlined === artboard.file && (
+                    <span
+                      data-artboard-outline
+                      className={styles.artboardOutline}
+                      style={{ width: frameWidth * view.zoom, height: artboardBoxes.get(artboard.file)!.height * view.zoom, transform: `scale(${1 / view.zoom})` }}
+                    />
+                  )}
                   {layout && artboard.responsive ? (
                     <ResponsiveFrame
                       key={preview?.file === artboard.file ? preview.versionId : "live"}
@@ -632,11 +749,16 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               Sélection : clique sur un élément, un artboard ou une note pour l'ajouter au message <span className={styles.selectionHintKeys}>· Échap pour finir</span>
             </div>
           )}
-          <div className={cx(styles.hintWrap, selecting && styles.hintWrapHidden)}>
+          <div className={cx(styles.hintWrap, (selecting || missingArtboard !== null) && styles.hintWrapHidden)}>
             <div data-testid="mode-indicator" className={styles.hint}>
               {picking ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier." : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
             </div>
           </div>
+          {missingArtboard !== null && (
+            <div className={styles.missingWrap}>
+              <MissingArtboardNotice file={missingArtboard} onClose={() => setMissingArtboard(null)} className={styles.missing} />
+            </div>
+          )}
           {toast && (
             <UndoToast
               message={toast.message}
@@ -679,15 +801,22 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             <button type="button" role="tab" aria-selected={tab === "comments"} className={cx(styles.tab, tab === "comments" && styles.tabActive)} onClick={() => setTab("comments")}>
               Commentaires · {openCount}
             </button>
+            <button type="button" role="tab" aria-selected={tab === "toc"} className={cx(styles.tab, tab === "toc" && styles.tabActive)} onClick={() => setTab("toc")}>
+              Sommaire
+            </button>
           </div>
           {tab === "conversation" ? (
-            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults}
+            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} artboards={artboardTitles} onCenterArtboard={centerOnArtboard} onMissingArtboard={setMissingArtboard} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults}
               chips={chips}
               selecting={selecting}
               onSelectingChange={changeSelecting}
               onRemoveChip={(index) => setChips((current) => removeChip(current, index))}
               onChipsSent={() => setChips([])}
             />
+          ) : tab === "toc" ? (
+            <div className={styles.tocPanel}>
+              <TocList items={tocItems} currentFile={currentTocFile} placeholder={`Filtrer les ${tocItems.length} artboards…`} onSelect={centerOnArtboard} />
+            </div>
           ) : (
             <CommentsPanel
               pageId={pageId}

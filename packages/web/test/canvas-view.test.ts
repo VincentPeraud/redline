@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitView, panBy, zoomAt, MAX_ZOOM, MIN_ZOOM } from "../src/canvasView.js";
+import { centerOn, fitView, panBy, zoomAt, MAX_ZOOM, MIN_ZOOM } from "../src/canvasView.js";
 
 describe("canvas view", () => {
   it("zooms around the cursor so the canvas point under it does not move", () => {
@@ -26,5 +26,14 @@ describe("canvas view", () => {
     expect(view.zoom).toBe(0.5);
     expect(view.x).toBe(0);
     expect(view.y).toBe(125);
+  });
+
+  it("centres an artboard so that it fills 70 % of the viewport, leaving its surroundings visible, never past 100 %", () => {
+    const viewport = { width: 1000, height: 800 };
+    const large = centerOn({ x: 200, y: 100, width: 1400, height: 800 }, viewport);
+    expect(large.zoom).toBeCloseTo(0.5);
+    expect(large.x + (200 + 700) * large.zoom).toBeCloseTo(500);
+    expect(large.y + (100 + 400) * large.zoom).toBeCloseTo(400);
+    expect(centerOn({ x: 0, y: 0, width: 200, height: 100 }, viewport).zoom).toBe(1);
   });
 });
