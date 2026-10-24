@@ -321,7 +321,7 @@ export interface ManifestArtboard {
   height: number;
   x: number;
   y: number;
-  /** Declared presentation in play mode; absent = inferred from the size. */
+  /** Declared presentation in play mode; absent = "none" (shown as is). */
   device?: ArtboardDevice;
   /** Text shown in the address bar of the `desktop` presentation; never invented. */
   url?: string;

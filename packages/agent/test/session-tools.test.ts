@@ -123,7 +123,8 @@ describe("session MCP tools", () => {
     expect(guide).toContain("manifest.json");
     expect(guide).toContain("tweaks.json");
     expect(guide).toMatch(/"device"[^\n]*phone[^\n]*tablet[^\n]*desktop[^\n]*paper[^\n]*none/);
-    expect(guide).toMatch(/always set a device/i);
+    expect(guide).toMatch(/"paper" for anything printed \(business card/);
+    expect(guide).toMatch(/without a device is shown as is, never guessed from its size/);
     expect(guide).toMatch(/"expand"[^\n]*"fill"/);
     expect(guide).toContain('src="assets/hero.jpg"');
     for (const token of CORE_TOKENS) expect(guide).toContain(token);

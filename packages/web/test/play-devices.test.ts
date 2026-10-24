@@ -14,10 +14,9 @@ describe("presentationOf", () => {
     expect(presentationOf(board({ width: 390, height: 800, device: "none" })).device).toBe("none");
   });
 
-  it("infers a phone from a portrait artboard at most 500px wide, else none", () => {
-    expect(presentationOf(board({ width: 390, height: 844 })).device).toBe("phone");
-    expect(presentationOf(board({ width: 500, height: 501 })).device).toBe("phone");
-    expect(presentationOf(board({ width: 501, height: 900 })).device).toBe("none");
+  it("presents an artboard without a declared device as is, whatever its size", () => {
+    expect(presentationOf(board({ width: 390, height: 844 })).device).toBe("none");
+    expect(presentationOf(board({ width: 390, height: 844 })).viewport).toEqual({ width: 390, height: 844 });
     expect(presentationOf(board({ width: 400, height: 300 })).device).toBe("none");
   });
 
@@ -65,7 +64,7 @@ describe("presentationOf", () => {
     expect(presentationOf(board({ width: 800, height: 500 })).fill).toBe("none");
     const phone = presentationOf({ ...board({ width: 390, height: 844, device: "phone" }), expand: "fill" });
     expect(phone).toMatchObject({ device: "phone", fill: "none" });
-    expect(presentationOf({ ...board({ width: 390, height: 844 }), expand: "fill" })).toMatchObject({ device: "phone", fill: "none" });
+    expect(presentationOf({ ...board({ width: 390, height: 844 }), expand: "fill" })).toMatchObject({ device: "none", fill: "both" });
   });
 });
 

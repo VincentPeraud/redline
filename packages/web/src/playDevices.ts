@@ -1,7 +1,5 @@
 import type { ArtboardDevice, ArtboardRendering, ManifestArtboard, ResponsiveFormat } from "@redline/shared";
 
-/** Undeclared artboards up to this width and in portrait are presented as a phone. */
-const PHONE_MAX_WIDTH = 500;
 /** A phone artboard plays in a real phone viewport, so responsive designs reflow. */
 const PHONE_VIEWPORT = { width: 390, height: 760 };
 /** Height of the decorative strip under a tablet screen (home indicator) and over a desktop page (browser bar). */
@@ -43,7 +41,8 @@ export function presentationOf(
     const size = { width: rendering.width, height: rendering.height };
     return { ...presentationOf({ ...size, device }, framed, windowWidth), viewport: size };
   }
-  const declared = artboard.device ?? (artboard.width <= PHONE_MAX_WIDTH && artboard.height > artboard.width ? "phone" : "none");
+  /* No declared device means the artboard is not a device: shown as is. */
+  const declared = artboard.device ?? "none";
   const expanded = artboard.expand === "fill" && declared !== "phone";
   const narrow = (declared === "phone" && windowWidth < PHONE_FILL_BELOW) || (declared === "tablet" && windowWidth < TABLET_FILL_BELOW);
   const framable = declared !== "none" && declared !== "paper" && !narrow && !expanded;

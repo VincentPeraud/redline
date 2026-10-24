@@ -78,7 +78,7 @@ it("plays a prototype: one artboard at full size, links switch artboard, exit re
   await tab.locator('iframe[title$="done.html"]').waitFor();
 }, 60_000);
 
-it("presents each artboard by its declared device, inferring a phone when none is declared", async () => {
+it("presents each artboard by its declared device, and as is when none is declared", async () => {
   const project = (await (await server.post("/api/projects", { title: "Devices" })).json()) as { id: string };
   const html = `<!doctype html><body style="margin:0"><h1>Hi</h1></body>`;
   const page = (await server.post(`/api/projects/${project.id}/pages`, {
@@ -109,7 +109,7 @@ it("presents each artboard by its declared device, inferring a phone when none i
   await tab.getByRole("button", { name: "Lancer a.html en plein écran" }).click();
   const play = tab.getByTestId("play");
 
-  const expected = ["phone", "tablet", "desktop", "paper", "none", "phone"];
+  const expected = ["phone", "tablet", "desktop", "paper", "none", "none"];
   for (const [index, name] of expected.entries()) {
     await play.getByRole("button", { name: `Artboard ${index + 1}` }).click();
     await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe(name);
