@@ -54,6 +54,8 @@ export function elementBox(element: ManifestElement, measured: Size | undefined)
       return null;
     case "link":
       return { x: element.x, y: element.y, width: LINK_CARD_WIDTH, height: LINK_CARD_HEIGHT };
+    case "shape":
+      return { x: element.x, y: element.y, width: element.width, height: element.height };
     default:
       return { x: element.x, y: element.y, width: measured?.width ?? element.width, height: measured?.height ?? 0 };
   }

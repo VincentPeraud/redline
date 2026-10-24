@@ -52,6 +52,10 @@ describe("element box", () => {
     expect(elementBox({ kind: "text", text: "a", width: 360, size: "m", x: 5, y: 6 }, undefined)).toEqual({ x: 5, y: 6, width: 360, height: 0 });
   });
 
+  it("uses the declared size of a shape", () => {
+    expect(elementBox({ kind: "shape", shape: "ellipse", style: "outline", color: "orange", width: 220, height: 64, x: 630, y: 552 }, { width: 1, height: 1 })).toEqual({ x: 630, y: 552, width: 220, height: 64 });
+  });
+
   it("has no box for an arrow", () => {
     expect(elementBox({ kind: "arrow", from: "a", to: "b", color: "gray", line: "solid" }, undefined)).toBeNull();
   });

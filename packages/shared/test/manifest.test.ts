@@ -225,6 +225,27 @@ describe("page manifest", () => {
     });
   });
 
+  describe("shapes", () => {
+    it("applies the defaults", () => {
+      const manifest = parseManifest(JSON.stringify({ elements: [{ kind: "shape", shape: "rect", x: 3, y: 4, width: 300, height: 200 }] }));
+      expect(manifest.elements).toEqual([{ kind: "shape", shape: "rect", style: "outline", color: "gray", width: 300, height: 200, x: 3, y: 4 }]);
+    });
+
+    it("keeps style, colour and label", () => {
+      const manifest = parseManifest(JSON.stringify({ elements: [{ kind: "shape", shape: "ellipse", style: "fill", color: "blue", label: "Variante A", width: 10, height: 20 }] }));
+      expect(manifest.elements).toEqual([{ kind: "shape", shape: "ellipse", style: "fill", color: "blue", label: "Variante A", width: 10, height: 20, x: 0, y: 0 }]);
+    });
+
+    it("refuses an unknown shape, style or colour and a missing size, naming the field", () => {
+      const bad = (shape: object) => () => parseManifest(JSON.stringify({ elements: [{ kind: "shape", shape: "rect", width: 10, height: 10, ...shape }] }));
+      expect(bad({ shape: "star" })).toThrow(/elements\[0\]\.shape/);
+      expect(bad({ style: "dotted" })).toThrow(/elements\[0\]\.style/);
+      expect(bad({ color: "teal" })).toThrow(/elements\[0\]\.color/);
+      expect(bad({ width: undefined })).toThrow(/elements\[0\]\.width/);
+      expect(bad({ height: 0 })).toThrow(/elements\[0\]\.height/);
+    });
+  });
+
   it("accepts expand fill on an artboard and refuses another value naming the field", () => {
     const manifest = parseManifest(JSON.stringify({ artboards: [{ file: "a.html", expand: "fill" }, { file: "b.html" }] }));
     expect(manifest.artboards[0]!.expand).toBe("fill");
