@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Project } from "@redline/shared";
+import type { PageViewSettings, Project } from "@redline/shared";
 import { PageCanvas } from "./PageCanvas.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 
@@ -8,6 +8,7 @@ interface Page {
   projectId: string;
   title: string;
   version: { id: string; files: Record<string, string> };
+  viewSettings: PageViewSettings;
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -54,6 +55,7 @@ export function App({ pageId }: { pageId: string }) {
         artboardOrigin={artboardOrigin}
         versionId={page.version.id}
         onVersionChange={loadPage}
+        viewSettings={page.viewSettings}
       />
     </>
   );

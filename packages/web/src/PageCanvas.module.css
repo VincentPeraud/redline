@@ -115,6 +115,11 @@
   z-index: 5;
 }
 
+.labelResponsive {
+  min-width: max-content;
+  padding-bottom: 8px;
+}
+
 .labelName {
   min-width: 0;
   overflow: hidden;

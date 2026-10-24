@@ -25,6 +25,8 @@ const formatPx = (value: number) => new Intl.NumberFormat("fr-FR").format(value)
  */
 export function ResponsiveFrame({ title, src, renderings, layout, zoom, threads, picking, tweaks, onPick, onDocHeight }: Props) {
   const { frame } = layout;
+  /** Threads from before renderings were recorded follow the first rendering that is shown. */
+  const firstKey = layout.renderings[0]?.key;
   return (
     <div data-responsive-frame className={styles.frame} style={{ width: frame.width, height: frame.height, ["--unit" as string]: 1 / zoom }}>
       {layout.renderings.map((box) => {
@@ -40,7 +42,7 @@ export function ResponsiveFrame({ title, src, renderings, layout, zoom, threads,
               width={box.width}
               height={box.height}
               zoom={zoom}
-              threads={threads.filter((t) => t.rendering !== undefined && renderingKey(t.rendering) === box.key)}
+              threads={threads.filter((t) => (t.rendering ? renderingKey(t.rendering) === box.key : box.key === firstKey))}
               picking={picking}
               tweaks={tweaks}
               onPick={(pick) => onPick(rendering, pick)}

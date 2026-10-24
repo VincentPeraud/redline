@@ -131,3 +131,91 @@ it("pins a comment in one rendering: its pin shows in that rendering only (after
   await expect.poll(() => tab.locator("[data-pin]").count()).toBe(2);
   expect(await tab.getByTestId("thread-rendering").count()).toBe(1);
 }, 60_000);
+
+it("hides renderings from the strip chips and the Rendus menu: counts hidden threads, keeps one rendering, keeps older threads in the first shown one, survives a reload and creates no version", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Hide" })).json()) as { id: string };
+  const html = `<!doctype html><html><body style="margin:0"><h1 style="margin:0">Landing</h1></body></html>`;
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Landing",
+      files: {
+        "landing.html": html,
+        "manifest.json": JSON.stringify({ artboards: [{ file: "landing.html", x: 0, y: 0, responsive: ["desktop", "tablet", "mobile"] }] }),
+      },
+    })
+  ).json()) as Page;
+  const pin = { artboard: "landing.html", selector: "body > h1", xPct: 10, yPct: 10 };
+  await server.post(`/api/pages/${page.id}/threads`, { ...pin, body: "On mobile", rendering: { format: "mobile", width: 390 } });
+  await server.post(`/api/pages/${page.id}/threads`, { ...pin, body: "Older thread" });
+  const versionCount = async () => ((await (await server.get(`/api/pages/${page.id}/versions`)).json()) as unknown[]).length;
+  const versionsBefore = await versionCount();
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  const rendering = (key: string) => tab.locator(`[data-rendering=${key}]`);
+  const chips = tab.getByRole("group", { name: "Rendus affichés sur le canvas" });
+  const chip = (name: RegExp | string) => chips.getByRole("button", { name });
+  await rendering("mobile-390").locator("iframe").waitFor();
+
+  // the older thread (no rendering) sits in the first rendering
+  await expect.poll(() => rendering("desktop-1440").locator("[data-pin]").count()).toBe(1);
+  await expect.poll(() => rendering("mobile-390").locator("[data-pin]").count()).toBe(1);
+
+  // a chip hides its rendering and says how many threads that hides
+  expect(await chips.getByRole("button").count()).toBe(3);
+  await chip("Mobile").click();
+  await expect.poll(() => tab.locator("[data-rendering]").count()).toBe(2);
+  expect(await chip(/Mobile/).textContent()).toBe("Mobile · 1 fil masqué");
+  expect(await chip(/Mobile/).getAttribute("aria-pressed")).toBe("false");
+  const S = RESPONSIVE_SPACING;
+  expect(await tab.locator("[data-responsive-frame]").evaluate((el) => (el as HTMLElement).offsetWidth)).toBe(3 * S + 1440 + 768);
+
+  // it survives a reload, on the server
+  await tab.reload();
+  await expect.poll(() => tab.locator("[data-rendering]").count()).toBe(2);
+  expect(await chip(/Mobile/).textContent()).toBe("Mobile · 1 fil masqué");
+
+  // the last shown rendering cannot be hidden; the older thread follows the first one shown
+  await chip("Desktop").click();
+  await expect.poll(() => tab.locator("[data-rendering]").count()).toBe(1);
+  await chip("Tablette").click();
+  expect(await chip("Tablette").getAttribute("aria-pressed")).toBe("true");
+  expect(await tab.locator("[data-rendering]").count()).toBe(1);
+  await expect.poll(() => rendering("tablet-768").locator("[data-pin]").count()).toBe(1);
+  await chip("Desktop").click();
+  await expect.poll(() => tab.locator("[data-rendering]").count()).toBe(2);
+
+  // the Rendus menu: a global choice applies to the format in every frame and resets the chip's exception
+  const menuButton = tab.getByRole("button", { name: /^Rendus/ });
+  await menuButton.click();
+  const menu = tab.getByRole("group", { name: "Rendus affichés sur toute la page" });
+  expect(await menu.getByRole("checkbox").count()).toBe(3);
+  // the menu follows the global choice, not the frame's exception
+  expect(await menu.getByRole("checkbox", { name: /Mobile/ }).isChecked()).toBe(true);
+  await menu.getByRole("checkbox", { name: /Tablette/ }).uncheck();
+  await expect.poll(() => tab.locator("[data-rendering]").count()).toBe(1);
+  expect(await menuButton.textContent()).toBe("Rendus · 1 masqué");
+  await menu.getByRole("checkbox", { name: /Tablette/ }).check();
+  await expect.poll(() => tab.locator("[data-rendering]").count()).toBe(2);
+  // a chip exception, then the global choice for that format clears it
+  await chip("Mobile").click();
+  await expect.poll(() => tab.locator("[data-rendering]").count()).toBe(3);
+  await chip("Tablette").click();
+  await expect.poll(() => tab.locator("[data-rendering]").count()).toBe(2);
+  await menu.getByRole("checkbox", { name: /Tablette/ }).uncheck();
+  await menu.getByRole("checkbox", { name: /Tablette/ }).check();
+  await expect.poll(() => tab.locator("[data-rendering]").count()).toBe(3);
+
+  await tab.reload();
+  await expect.poll(() => tab.locator("[data-rendering]").count()).toBe(3);
+  expect(await versionCount()).toBe(versionsBefore);
+}, 60_000);
+
+it("shows no Rendus menu on a page without a responsive artboard", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Plain" })).json()) as { id: string };
+  const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Plain", files: { "a.html": "<h1>A</h1>" } })).json()) as Page;
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  await tab.getByRole("button", { name: /Guides/ }).waitFor();
+  expect(await tab.getByRole("button", { name: /^Rendus/ }).count()).toBe(0);
+}, 60_000);
