@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   CONTEXT_WARNING_PERCENT,
   type Conversation,
@@ -79,6 +79,9 @@ interface Props {
 export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards, onCenterArtboard, onMissingArtboard, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  /** `activeId` as of now, not as of the last render: a message sent right after "+ Nouvelle" must land in the conversation just created. */
+  const activeRef = useRef<string | null>(null);
+  const creating = useRef<Promise<string> | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [text, setText] = useState("");
@@ -109,9 +112,14 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
     });
   }, [pageId, refreshList, refreshDetail]);
 
+  const showConversation = (id: string | null) => {
+    activeRef.current = id;
+    setActiveId(id);
+  };
+
   // Open the most recent conversation once the list is known.
   useEffect(() => {
-    setActiveId((current) => current ?? conversations[0]?.id ?? null);
+    if (activeRef.current === null && conversations[0]) showConversation(conversations[0].id);
   }, [conversations]);
 
   useEffect(() => {
@@ -119,11 +127,24 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
     else setDetail(null);
   }, [activeId, refreshDetail]);
 
+  /** One creation at a time: a message sent while "+ Nouvelle" is still in flight joins it instead of creating a second conversation. */
+  function createConversation(): Promise<string> {
+    creating.current ??= fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("conversation");
+        const { id } = (await res.json()) as ConversationDetail;
+        showConversation(id);
+        return id;
+      })
+      .finally(() => {
+        creating.current = null;
+      });
+    return creating.current;
+  }
+
   async function create() {
-    const res = await fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-    const created = (await res.json()) as ConversationDetail;
+    await createConversation();
     await refreshList();
-    setActiveId(created.id);
     setListOpen(false);
   }
 
@@ -131,7 +152,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
     await fetch(`/api/conversations/${id}/archive`, { method: "POST" });
     const rest = conversations.filter((c) => c.id !== id);
     setConversations(rest);
-    if (activeId === id) setActiveId(rest[0]?.id ?? null);
+    if (activeId === id) showConversation(rest[0]?.id ?? null);
   }
 
   /** Keeps the text and chips when anything fails: they only go once the message is stored. */
@@ -141,13 +162,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
     setSendError(null);
     try {
       const request: CreateConversationMessageRequest = { body: text, context: chips.length > 0 ? { ...context, targets: chips } : context, ...choice };
-      let conversationId = activeId;
-      if (!conversationId) {
-        const created = await fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-        if (!created.ok) throw new Error("conversation");
-        conversationId = ((await created.json()) as ConversationDetail).id;
-        setActiveId(conversationId);
-      }
+      const conversationId = activeRef.current ?? (await createConversation());
       const res = await fetch(`/api/conversations/${conversationId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -214,7 +229,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
                   aria-selected={c.id === activeId}
                   className={styles.optionMain}
                   onClick={() => {
-                    setActiveId(c.id);
+                    showConversation(c.id);
                     setListOpen(false);
                   }}
                 >
