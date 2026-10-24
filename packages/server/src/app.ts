@@ -19,6 +19,7 @@ import {
   type CreatePageRequest,
   type CreateProjectRequest,
   type CreateReplyRequest,
+  type CreateElementThreadRequest,
   type CreateThreadRequest,
   type CreateVersionRequest,
   type SendHeldRequest,
@@ -254,12 +255,19 @@ export async function buildMainApp(
     "/api/pages/:pageId/threads",
     async (req, reply) => {
       if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-      const pin = req.body ?? ({} as Partial<CreateThreadRequest>);
+      const pin = (req.body ?? {}) as Partial<CreateElementThreadRequest> & { target?: { kind?: unknown; elementId?: unknown } };
       const isPct = (v: unknown) => typeof v === "number" && v >= 0 && v <= 100;
       if (!requiredString(pin.body)) return reply.code(400).send({ error: "body is required" });
-      if (typeof pin.selector !== "string" || pin.selector === "") return reply.code(400).send({ error: "selector is required" });
-      if (typeof pin.artboard !== "string" || !isSafePath(pin.artboard)) return reply.code(400).send({ error: "invalid artboard" });
-      if (!isPct(pin.xPct) || !isPct(pin.yPct)) return reply.code(400).send({ error: "position must be a percentage" });
+      if (pin.target !== undefined) {
+        const { kind, elementId } = pin.target ?? {};
+        if (kind !== "canvas-element") return reply.code(400).send({ error: "invalid target" });
+        if (!requiredString(elementId)) return reply.code(400).send({ error: "element id is required" });
+        if (!store.canvasElement(req.params.pageId, elementId as string)) return reply.code(400).send({ error: "element is not on the page's canvas" });
+      } else {
+        if (typeof pin.selector !== "string" || pin.selector === "") return reply.code(400).send({ error: "selector is required" });
+        if (typeof pin.artboard !== "string" || !isSafePath(pin.artboard)) return reply.code(400).send({ error: "invalid artboard" });
+        if (!isPct(pin.xPct) || !isPct(pin.yPct)) return reply.code(400).send({ error: "position must be a percentage" });
+      }
       if (pin.title !== undefined && !requiredString(pin.title)) return reply.code(400).send({ error: "title must be a non-empty string" });
       if (pin.held !== undefined && typeof pin.held !== "boolean") return reply.code(400).send({ error: "held must be a boolean" });
       if (pin.elementName !== undefined && (typeof pin.elementName !== "string" || pin.elementName.length > MAX_ELEMENT_NAME_LENGTH)) {
