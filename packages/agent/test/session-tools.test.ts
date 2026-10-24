@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { CORE_TOKENS, parseManifest, type Page } from "@redline/shared";
+import { CORE_TOKENS, PALETTE_COLORS, parseManifest, type Page } from "@redline/shared";
 import { FakeEngine, startSeam2, type Seam2 } from "./support/seam2.js";
 
 const PAGE_FILES = {
@@ -104,6 +104,21 @@ describe("session MCP tools", () => {
     expect(guide).toMatch(/"expand"[^\n]*"fill"/);
     expect(guide).toContain('src="assets/hero.jpg"');
     for (const token of CORE_TOKENS) expect(guide).toContain(token);
+  });
+
+  it("read_guide documents text and sticky notes with the palette and sizes", async () => {
+    let guide = "";
+    const engine = new FakeEngine(async (run) => {
+      guide = await run.callTool("read_guide", {});
+      return [{ type: "result", summary: "Nothing" }];
+    });
+    await runOnce(engine);
+    expect(guide).toMatch(/- text:/);
+    expect(guide).toMatch(/- sticky:/);
+    for (const color of PALETTE_COLORS) expect(guide).toContain(color);
+    expect(guide).toMatch(/"size"[^\n]*"s"[^\n]*"m"[^\n]*"l"/);
+    expect(guide).toContain("360");
+    expect(guide).toContain("240");
   });
 
   it("the server relay rejects calls without the agent token", async () => {

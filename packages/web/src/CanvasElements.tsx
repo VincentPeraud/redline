@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ManifestElement, ManifestImageElement, ManifestLinkElement, ManifestTitleElement, Page, Project } from "@redline/shared";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
 import { routeHref } from "./router.js";
+import { CanvasStickyNote, CanvasTextNote } from "./CanvasNotes.js";
 import styles from "./CanvasElements.module.css";
 
 const TITLE_SIZE = 32;
@@ -150,6 +151,10 @@ function CanvasElement({ element, assetBase, artboardOrigin }: { element: Manife
       return <CanvasTitle element={element} />;
     case "link":
       return <CanvasLink element={element} artboardOrigin={artboardOrigin} />;
+    case "text":
+      return <CanvasTextNote element={element} />;
+    case "sticky":
+      return <CanvasStickyNote element={element} />;
     case "image":
       return <CanvasImage element={element} assetBase={assetBase} />;
   }
