@@ -17,6 +17,10 @@ _Avoid_: Planche (also for a page of variants), board, artefact, page type, prot
 One HTML file placed on a page's canvas.
 _Avoid_: Écran, screen, planche (in the UI: always "artboard")
 
+**Reading order**:
+The order in which a page's artboards are numbered: artboards whose vertical extents overlap form a row, rows go top to bottom and artboards of a row left to right, whatever the manifest order. Each artboard also falls under a group (the nearest group title above its row that covers it horizontally, or none).
+_Avoid_: Manifest order, artboard order
+
 **Design system**:
 A special project whose tokens, components and pages define a style that other projects use.
 _Avoid_: DS (in code and docs), theme, style guide

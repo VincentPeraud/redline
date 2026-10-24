@@ -1,0 +1,43 @@
+.root {
+  position: relative;
+}
+
+.button {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.button[data-open="true"] {
+  border-color: var(--color-text);
+}
+
+.chevron {
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.menu {
+  position: absolute;
+  top: 50px;
+  left: 0;
+  z-index: 5;
+  width: 380px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  padding: 10px 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
