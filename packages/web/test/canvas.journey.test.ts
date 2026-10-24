@@ -335,3 +335,49 @@ it("shows layout guides on the artboards that declare them, from the button or t
   expect(await columns.count()).toBe(0);
   expect(await toggle.getAttribute("aria-pressed")).toBe("false");
 }, 60_000);
+
+it("draws link cards: a page card with title, project and thumbnail that opens in the same tab, and a URL card with its domain that opens in a new tab", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Lumora" })).json()) as { id: string };
+  const target = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Tableau de bord remplaçant",
+      files: { "home.html": "<!doctype html><body>Target</body>" },
+    })
+  ).json()) as Page;
+  const source = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Source",
+      files: {
+        "a.html": "<!doctype html><body>A</body>",
+        "manifest.json": JSON.stringify({
+          artboards: [{ file: "a.html", width: 400, height: 300, x: 0, y: 0 }],
+          elements: [
+            { kind: "link", page: target.id, x: 0, y: 340 },
+            { kind: "link", url: "https://linear.app/loc/issue/LOC-142", title: "Ticket LOC-142", x: 0, y: 476 },
+          ],
+        }),
+      },
+    })
+  ).json()) as Page;
+
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${source.id}`);
+  const pageCard = tab.locator("[data-canvas-link]").filter({ hasText: "Tableau de bord remplaçant" });
+  await pageCard.waitFor();
+  expect(await pageCard.textContent()).toContain("Page · Lumora");
+  expect(await pageCard.getAttribute("href")).toBe(`#/pages/${target.id}`);
+  expect(await pageCard.getAttribute("target")).toBeNull();
+  await pageCard.locator('iframe[title$="home.html"]').waitFor({ state: "attached" });
+  const size = await box(pageCard);
+  expect(Math.round((size.width / size.height) * 100)).toBe(Math.round((640 / 112) * 100));
+
+  const urlCard = tab.locator("[data-canvas-link]").filter({ hasText: "Ticket LOC-142" });
+  expect(await urlCard.textContent()).toContain("linear.app");
+  expect(await urlCard.getAttribute("href")).toBe("https://linear.app/loc/issue/LOC-142");
+  expect(await urlCard.getAttribute("target")).toBe("_blank");
+  expect(await urlCard.getAttribute("rel")).toContain("noopener");
+
+  await pageCard.click();
+  await tab.waitForURL(`${server.url}/#/pages/${target.id}`);
+  await tab.close();
+});

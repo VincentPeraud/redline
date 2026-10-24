@@ -315,8 +315,30 @@ export interface ManifestImageElement {
   y: number;
 }
 
+export const LINK_CARD_WIDTH = 640;
+export const LINK_CARD_HEIGHT = 112;
+
+/** Link card (640x112) to another Redline page; opens in the same tab. */
+export interface ManifestPageLinkElement {
+  kind: "link";
+  page: string;
+  x: number;
+  y: number;
+}
+
+/** Link card (640x112) to an external URL, with the title Claude gives it; opens in a new tab. */
+export interface ManifestUrlLinkElement {
+  kind: "link";
+  url: string;
+  title: string;
+  x: number;
+  y: number;
+}
+
+export type ManifestLinkElement = ManifestPageLinkElement | ManifestUrlLinkElement;
+
 /** Decoration drawn on the canvas, written by Claude. Add a kind here and a parser in ELEMENT_PARSERS. */
-export type ManifestElement = ManifestTitleElement | ManifestImageElement;
+export type ManifestElement = ManifestTitleElement | ManifestImageElement | ManifestLinkElement;
 export type ManifestElementKind = ManifestElement["kind"];
 
 /** Play mode: clicking `selector` in artboard `from` goes to artboard `to`. */
@@ -424,6 +446,18 @@ const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unkno
       x: num(item, "x", name, 0),
       y: num(item, "y", name, 0),
     };
+  },
+  link(item, name) {
+    const x = num(item, "x", name, 0);
+    const y = num(item, "y", name, 0);
+    if (item.page !== undefined) {
+      if (item.url !== undefined) fail(`${name}.page and ${name}.url cannot be used together`);
+      return { kind: "link", page: str(item, "page", name), x, y };
+    }
+    if (item.url === undefined) fail(`${name}.page must be a non-empty string (or ${name}.url with ${name}.title)`);
+    const url = str(item, "url", name);
+    if (!/^https?:\/\/[^\s/]+/i.test(url)) fail(`${name}.url must be an http(s) address`);
+    return { kind: "link", url, title: str(item, "title", name), x, y };
   },
 };
 

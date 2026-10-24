@@ -1,5 +1,7 @@
-import { useLayoutEffect, useRef, useState } from "react";
-import type { ManifestElement, ManifestImageElement, ManifestTitleElement } from "@redline/shared";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { ManifestElement, ManifestImageElement, ManifestLinkElement, ManifestTitleElement, Page, Project } from "@redline/shared";
+import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
+import { routeHref } from "./router.js";
 import styles from "./CanvasElements.module.css";
 
 const TITLE_SIZE = 32;
@@ -56,22 +58,109 @@ function CanvasImage({ element, assetBase }: { element: ManifestImageElement; as
   );
 }
 
+function GlobeIcon() {
+  return (
+    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3a14 14 0 0 1 0 18" />
+      <path d="M12 3a14 14 0 0 0 0 18" />
+    </svg>
+  );
+}
+
+interface LinkedPage {
+  page: Page;
+  projectTitle: string;
+}
+
+/** The target page and its project; null while loading, "missing" when the page does not exist any more. */
+function useLinkedPage(pageId: string): LinkedPage | "missing" | null {
+  const [linked, setLinked] = useState<LinkedPage | "missing" | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const pageResponse = await fetch(`/api/pages/${pageId}`);
+      if (!pageResponse.ok) {
+        if (!cancelled) setLinked("missing");
+        return;
+      }
+      const page = (await pageResponse.json()) as Page;
+      const project = (await (await fetch(`/api/projects/${page.projectId}`)).json()) as Project;
+      if (!cancelled) setLinked({ page, projectTitle: project.title });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pageId]);
+
+  return linked;
+}
+
+function PageLinkCard({ pageId, x, y, artboardOrigin }: { pageId: string; x: number; y: number; artboardOrigin: string }) {
+  const linked = useLinkedPage(pageId);
+  const page = linked && linked !== "missing" ? linked.page : null;
+  const artboards = usePageArtboards(pageId, page?.version.files ?? {});
+  const subtitle = linked === "missing" ? "Page introuvable" : linked ? `Page · ${linked.projectTitle}` : "";
+
+  return (
+    <a data-canvas-link className={styles.linkCard} style={{ left: x, top: y }} href={routeHref({ name: "page", pageId })}>
+      {page ? (
+        <PageThumbnail pageId={pageId} artboards={artboards} artboardOrigin={artboardOrigin} areaHeight={80} areaPadding={10} className={styles.linkThumb} />
+      ) : (
+        <span className={styles.linkThumb} />
+      )}
+      <span className={styles.linkText}>
+        <span className={styles.linkTitle}>{page?.title ?? ""}</span>
+        <span className={styles.linkSubtitle}>{subtitle}</span>
+      </span>
+      <span aria-hidden="true" className={styles.linkArrow}>→</span>
+    </a>
+  );
+}
+
+function UrlLinkCard({ url, title, x, y }: { url: string; title: string; x: number; y: number }) {
+  return (
+    <a data-canvas-link className={styles.linkCard} style={{ left: x, top: y }} href={url} target="_blank" rel="noopener noreferrer">
+      <span aria-hidden="true" className={styles.linkIcon}>
+        <GlobeIcon />
+      </span>
+      <span className={styles.linkText}>
+        <span className={styles.linkTitle}>{title}</span>
+        <span className={styles.linkSubtitle}>{new URL(url).hostname}</span>
+      </span>
+      <span aria-hidden="true" className={styles.linkArrow}>↗</span>
+    </a>
+  );
+}
+
+function CanvasLink({ element, artboardOrigin }: { element: ManifestLinkElement; artboardOrigin: string }) {
+  return "page" in element ? (
+    <PageLinkCard pageId={element.page} x={element.x} y={element.y} artboardOrigin={artboardOrigin} />
+  ) : (
+    <UrlLinkCard url={element.url} title={element.title} x={element.x} y={element.y} />
+  );
+}
+
 /** Add a case here for each new element kind. */
-function CanvasElement({ element, assetBase }: { element: ManifestElement; assetBase: string }) {
+function CanvasElement({ element, assetBase, artboardOrigin }: { element: ManifestElement; assetBase: string; artboardOrigin: string }) {
   switch (element.kind) {
     case "title":
       return <CanvasTitle element={element} />;
+    case "link":
+      return <CanvasLink element={element} artboardOrigin={artboardOrigin} />;
     case "image":
       return <CanvasImage element={element} assetBase={assetBase} />;
   }
 }
 
 /** Decoration written by Claude: drawn in list order, not draggable, no comment pins. */
-export function CanvasElements({ elements, assetBase }: { elements: ManifestElement[]; assetBase: string }) {
+export function CanvasElements({ elements, assetBase, artboardOrigin }: { elements: ManifestElement[]; assetBase: string; artboardOrigin: string }) {
   return (
     <>
       {elements.map((element, i) => (
-        <CanvasElement key={i} element={element} assetBase={assetBase} />
+        <CanvasElement key={i} element={element} assetBase={assetBase} artboardOrigin={artboardOrigin} />
       ))}
     </>
   );

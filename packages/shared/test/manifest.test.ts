@@ -66,6 +66,31 @@ describe("page manifest", () => {
     expect(() => parseManifest(JSON.stringify({ elements: [{ kind: "image", src: "assets/a.png", width: 0 }] }))).toThrow(/elements\[0\]\.width/);
   });
 
+  it("reads link cards to a page or to an external URL", () => {
+    const manifest = parseManifest(
+      JSON.stringify({
+        elements: [
+          { kind: "link", page: "pg_7f3a", x: 1640, y: 1300 },
+          { kind: "link", url: "https://linear.app/loc/issue/LOC-142", title: "Ticket LOC-142", x: 1640, y: 1436 },
+        ],
+      }),
+    );
+    expect(manifest.elements).toEqual([
+      { kind: "link", page: "pg_7f3a", x: 1640, y: 1300 },
+      { kind: "link", url: "https://linear.app/loc/issue/LOC-142", title: "Ticket LOC-142", x: 1640, y: 1436 },
+    ]);
+  });
+
+  it("refuses a link card without a page or without a url and title, naming the field", () => {
+    const refuse = (element: object) => () => parseManifest(JSON.stringify({ elements: [{ kind: "link", x: 0, y: 0, ...element }] }));
+    expect(refuse({})).toThrow(/elements\[0\]\.page/);
+    expect(refuse({ url: "https://linear.app" })).toThrow(/elements\[0\]\.title/);
+    expect(refuse({ title: "Ticket" })).toThrow(/elements\[0\]\.(page|url)/);
+    expect(refuse({ page: "pg_1", url: "https://linear.app", title: "T" })).toThrow(/elements\[0\]\.(page|url)/);
+    expect(refuse({ url: "javascript:alert(1)", title: "T" })).toThrow(/elements\[0\]\.url/);
+    expect(refuse({ url: "not a url", title: "T" })).toThrow(/elements\[0\]\.url/);
+  });
+
   it("rejects malformed manifests with a readable message", () => {
     expect(() => parseManifest("{nope")).toThrow(/not valid JSON/);
     expect(() => parseManifest(JSON.stringify({ artboards: [{ width: 10 }] }))).toThrow(/artboards\[0\]\.file/);
