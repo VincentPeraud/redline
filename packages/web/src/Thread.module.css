@@ -10,6 +10,28 @@
   background: var(--color-surface);
 }
 
+/* Thread of a canvas element Claude removed: greyed, grey number ring, no pin. */
+.removed {
+  background: #fafaf9;
+}
+
+.badgeRemoved {
+  box-sizing: border-box;
+  border: 1.5px solid #a1a1aa;
+  background: transparent;
+  color: #71717a;
+}
+
+.removedTag {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  color: #71717a;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
 .running {
   border: 2px solid var(--color-accent);
 }

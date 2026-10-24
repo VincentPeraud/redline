@@ -671,12 +671,19 @@ export class Store {
     const rows = this.db
       .prepare(`${THREAD_SELECT} WHERE page_id = ? ORDER BY number`)
       .all(pageId) as ThreadRow[];
-    return rows.map((row) => toThread(row, this.repliesOf(row.id)));
+    const elementIds = this.canvasElementIds(pageId);
+    return rows.map((row) => withRemoval(toThread(row, this.repliesOf(row.id)), elementIds));
   }
 
   getThread(id: string): Thread | undefined {
     const row = this.db.prepare(`${THREAD_SELECT} WHERE id = ?`).get(id) as ThreadRow | undefined;
-    return row && toThread(row, this.repliesOf(id));
+    return row && withRemoval(toThread(row, this.repliesOf(id)), this.canvasElementIds(row.page_id));
+  }
+
+  private canvasElementIds(pageId: string): Set<string> {
+    const manifest = this.getPage(pageId)?.version.files[MANIFEST_PATH];
+    const elements = manifest === undefined ? [] : parseManifest(this.blobText(manifest)).elements;
+    return new Set(elements.flatMap((element) => (element.id === undefined ? [] : [element.id])));
   }
 
   /** Held comments of a page, oldest first. */
@@ -1080,6 +1087,10 @@ function targetOf(row: ThreadRow): ThreadTarget {
     yPct: row.y_pct,
     ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
   };
+}
+
+function withRemoval(thread: Thread, elementIds: Set<string>): Thread {
+  return thread.target.kind === "canvas-element" && !elementIds.has(thread.target.elementId) ? { ...thread, removed: true } : thread;
 }
 
 function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {

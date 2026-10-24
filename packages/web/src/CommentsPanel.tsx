@@ -42,10 +42,15 @@ const GROUP_ORDER: Record<Thread["status"], number> = { held: 0, open: 1, resolv
 function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNode }) {
   return (
     <div className={styles.head}>
-      <span className={styles.badge}>{thread.number}</span>
+      <span className={cx(styles.badge, thread.removed && styles.badgeRemoved)}>{thread.number}</span>
       <span className={styles.where}>{threadWhere(thread)}</span>
       <RenderingChip thread={thread} />
       <span className={styles.spacer} />
+      {thread.removed && (
+        <span data-testid="removed-tag" className={styles.removedTag}>
+          retiré du canvas
+        </span>
+      )}
       {children}
     </div>
   );
@@ -104,7 +109,7 @@ function ThreadCard({
   }
 
   return (
-    <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running)}>
+    <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running, thread.removed && styles.removed)}>
       <ThreadHeader thread={thread}>
         {queued && (
           <span data-testid="queued" className={styles.queued}>
