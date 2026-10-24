@@ -8,3 +8,4 @@ dist
 .redline
 .claude/worktrees/
 .demo-url
+.playwright-mcp/
