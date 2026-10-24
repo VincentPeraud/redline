@@ -3,6 +3,7 @@
 }
 
 .clip {
+  position: relative;
   overflow: hidden;
   border-radius: 28px;
   background: var(--color-surface);
