@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import { chromium, type Browser, type BrowserContext, type Locator } from "playwright";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -20,7 +20,25 @@ beforeAll(async () => {
   server = await startTestServer({ webDir });
   browser = await chromium.launch();
   context = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ["clipboard-read", "clipboard-write"] });
+  await context.tracing.start({ screenshots: true, snapshots: true });
 }, 60_000);
+
+// These journeys once timed out together under a full run and never again: record each test so a failure leaves a trace to open with `npx playwright show-trace`.
+beforeEach(async () => {
+  await context.tracing.startChunk();
+});
+
+afterEach(async ({ task }) => {
+  if (task.result?.state === "fail") {
+    const path = join(tmpdir(), `redline-trace-${task.name.slice(0, 40).replace(/\W+/g, "-")}-${Date.now()}.zip`);
+    await context.tracing.stopChunk({ path });
+    console.log(`Playwright trace of the failed journey: ${path}`);
+  } else {
+    await context.tracing.stopChunk();
+  }
+  // A failed journey leaves its tabs open: close them so the next journey starts alone in the context.
+  await Promise.all(context.pages().map((page) => page.close()));
+});
 
 afterAll(async () => {
   await browser?.close();
