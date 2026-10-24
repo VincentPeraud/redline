@@ -334,6 +334,24 @@ export interface ManifestStickyElement {
   y: number;
 }
 
+export const SHAPE_KINDS = ["rect", "ellipse"] as const;
+export type ShapeKind = (typeof SHAPE_KINDS)[number];
+export const SHAPE_STYLES = ["outline", "fill"] as const;
+export type ShapeStyle = (typeof SHAPE_STYLES)[number];
+
+/** Frame around a group of variants or one detail, drawn under the artboards. `fill` is a light 15 % fill. */
+export interface ManifestShapeElement {
+  kind: "shape";
+  shape: ShapeKind;
+  style: ShapeStyle;
+  color: PaletteColor;
+  label?: string;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+}
+
 export const DEFAULT_IMAGE_WIDTH = 400;
 
 /** Image from the project assets (screenshot, reference), shown with its file name as caption. */
@@ -370,7 +388,7 @@ export interface ManifestUrlLinkElement {
 export type ManifestLinkElement = ManifestPageLinkElement | ManifestUrlLinkElement;
 
 /** Decoration drawn on the canvas, written by Claude. Add a kind here and a parser in ELEMENT_PARSERS. */
-export type ManifestElement = ManifestTitleElement | ManifestTextElement | ManifestStickyElement | ManifestImageElement | ManifestLinkElement;
+export type ManifestElement = ManifestTitleElement | ManifestTextElement | ManifestStickyElement | ManifestShapeElement | ManifestImageElement | ManifestLinkElement;
 export type ManifestElementKind = ManifestElement["kind"];
 
 /** Play mode: clicking `selector` in artboard `from` goes to artboard `to`. */
@@ -496,6 +514,24 @@ const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unkno
       x: num(item, "x", name, 0),
       y: num(item, "y", name, 0),
     };
+  },
+  shape(item, name) {
+    const shape = oneOf(item, "shape", name, SHAPE_KINDS);
+    if (!shape) fail(`${name}.shape must be one of ${SHAPE_KINDS.join(", ")}`);
+    if (item.width === undefined) fail(`${name}.width must be a positive number`);
+    if (item.height === undefined) fail(`${name}.height must be a positive number`);
+    const element: ManifestShapeElement = {
+      kind: "shape",
+      shape,
+      style: oneOf(item, "style", name, SHAPE_STYLES) ?? "outline",
+      color: oneOf(item, "color", name, PALETTE_COLORS) ?? "gray",
+      width: num(item, "width", name, 0, true),
+      height: num(item, "height", name, 0, true),
+      x: num(item, "x", name, 0),
+      y: num(item, "y", name, 0),
+    };
+    if (typeof item.label === "string" && item.label !== "") element.label = item.label;
+    return element;
   },
   image(item, name) {
     const src = str(item, "src", name);

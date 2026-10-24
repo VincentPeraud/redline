@@ -4,29 +4,31 @@ import type { PaletteColor } from "@redline/shared";
 export interface PaletteShades {
   fill: string;
   stroke: string;
+  /** Mid tone of the colour; shapes use it at 15 % opacity for their light fill. */
+  tint: string;
   text: string;
 }
 
 export type CanvasTheme = "light" | "dark";
 
 const LIGHT: Record<PaletteColor, PaletteShades> = {
-  yellow: { fill: "#FEF3C7", stroke: "#FACC15", text: "#422006" },
-  orange: { fill: "#FFEDD5", stroke: "#EA580C", text: "#431407" },
-  pink: { fill: "#FCE7F3", stroke: "#DB2777", text: "#500724" },
-  green: { fill: "#DCFCE7", stroke: "#16A34A", text: "#052E16" },
-  blue: { fill: "#DBEAFE", stroke: "#1D4ED8", text: "#172554" },
-  purple: { fill: "#EDE9FE", stroke: "#7C3AED", text: "#2E1065" },
-  gray: { fill: "#F4F4F5", stroke: "#3F3F46", text: "#18181B" },
+  yellow: { fill: "#FEF3C7", stroke: "#FACC15", tint: "#EAB308", text: "#422006" },
+  orange: { fill: "#FFEDD5", stroke: "#EA580C", tint: "#F97316", text: "#431407" },
+  pink: { fill: "#FCE7F3", stroke: "#DB2777", tint: "#EC4899", text: "#500724" },
+  green: { fill: "#DCFCE7", stroke: "#16A34A", tint: "#22C55E", text: "#052E16" },
+  blue: { fill: "#DBEAFE", stroke: "#1D4ED8", tint: "#3B82F6", text: "#172554" },
+  purple: { fill: "#EDE9FE", stroke: "#7C3AED", tint: "#8B5CF6", text: "#2E1065" },
+  gray: { fill: "#F4F4F5", stroke: "#3F3F46", tint: "#71717A", text: "#18181B" },
 };
 
 const DARK: Record<PaletteColor, PaletteShades> = {
-  yellow: { fill: "#713F12", stroke: "#FACC15", text: "#FEF9C3" },
-  orange: { fill: "#7C2D12", stroke: "#FB923C", text: "#FFEDD5" },
-  pink: { fill: "#831843", stroke: "#F472B6", text: "#FCE7F3" },
-  green: { fill: "#14532D", stroke: "#4ADE80", text: "#DCFCE7" },
-  blue: { fill: "#1E3A8A", stroke: "#60A5FA", text: "#DBEAFE" },
-  purple: { fill: "#4C1D95", stroke: "#A78BFA", text: "#EDE9FE" },
-  gray: { fill: "#3F3F46", stroke: "#A1A1AA", text: "#F4F4F5" },
+  yellow: { fill: "#713F12", stroke: "#FACC15", tint: "#FACC15", text: "#FEF9C3" },
+  orange: { fill: "#7C2D12", stroke: "#FB923C", tint: "#FB923C", text: "#FFEDD5" },
+  pink: { fill: "#831843", stroke: "#F472B6", tint: "#F472B6", text: "#FCE7F3" },
+  green: { fill: "#14532D", stroke: "#4ADE80", tint: "#4ADE80", text: "#DCFCE7" },
+  blue: { fill: "#1E3A8A", stroke: "#60A5FA", tint: "#60A5FA", text: "#DBEAFE" },
+  purple: { fill: "#4C1D95", stroke: "#A78BFA", tint: "#A78BFA", text: "#EDE9FE" },
+  gray: { fill: "#3F3F46", stroke: "#A1A1AA", tint: "#A1A1AA", text: "#F4F4F5" },
 };
 
 export const PALETTE: Record<CanvasTheme, Record<PaletteColor, PaletteShades>> = { light: LIGHT, dark: DARK };
