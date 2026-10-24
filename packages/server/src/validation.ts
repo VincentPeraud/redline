@@ -14,7 +14,8 @@ import {
   type CreateVersionRequest,
   type Effort,
   type MessageContext,
-  type ThreadTarget,
+  MAX_ELEMENT_NAME_LENGTH,
+  type CreateElementThreadRequest,
   CANVAS_ELEMENT_KIND_LABELS,
   type ModelChoice,
   type PageViewSettings,
@@ -37,30 +38,64 @@ export function modelChoiceError({ model, effort }: { model?: unknown; effort?: 
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
-const isThreadTarget = (value: unknown): value is ThreadTarget => {
-  if (!isObject(value)) return false;
-  if (value.kind === "artboard") return requiredString(value.artboard);
-  if (value.kind === "canvas-element") return requiredString(value.elementId) && typeof value.elementKind === "string" && value.elementKind in CANVAS_ELEMENT_KIND_LABELS && (value.elementSummary === undefined || typeof value.elementSummary === "string");
-  return (
-    value.kind === "element" &&
-    requiredString(value.artboard) &&
-    requiredString(value.selector) &&
-    (value.elementName === null || typeof value.elementName === "string") &&
-    typeof value.xPct === "number" &&
-    typeof value.yPct === "number"
-  );
-};
+const isPct = (value: unknown) => typeof value === "number" && value >= 0 && value <= 100;
+
+/**
+ * Error message when a thread target is malformed, else null. One validator for both uses of a target:
+ * `request` is what a client sends to create a thread (an artboard or a canvas element by id; the server fills the rest),
+ * `chip` is a full `ThreadTarget` as stored and as pointed at by a conversation message.
+ */
+export function threadTargetError(target: unknown, use: "request" | "chip"): string | null {
+  if (!isObject(target)) return "invalid target";
+  if (target.kind === "artboard") return typeof target.artboard === "string" && isSafePath(target.artboard) ? null : "invalid artboard";
+  if (target.kind === "canvas-element") {
+    if (!requiredString(target.elementId)) return "element id is required";
+    if (use === "request") return null;
+    const kindOk = typeof target.elementKind === "string" && Object.hasOwn(CANVAS_ELEMENT_KIND_LABELS, target.elementKind);
+    return kindOk && (target.elementSummary === undefined || typeof target.elementSummary === "string") ? null : "invalid target";
+  }
+  if (use === "chip" && target.kind === "element") {
+    const valid =
+      requiredString(target.artboard) &&
+      requiredString(target.selector) &&
+      (target.elementName === null || typeof target.elementName === "string") &&
+      typeof target.xPct === "number" &&
+      typeof target.yPct === "number";
+    if (!valid) return "invalid target";
+    return target.rendering === undefined ? null : threadRenderingError(target.rendering);
+  }
+  return "invalid target";
+}
+
+/** Error message when the body of `POST /api/pages/:pageId/threads` is malformed (shape only; the page's artboards and elements are checked by the route), else null. */
+export function createThreadRequestError(request: unknown): string | null {
+  const pin = (request ?? {}) as Partial<CreateElementThreadRequest> & { target?: unknown };
+  if (!requiredString(pin.body)) return "body is required";
+  if (pin.target !== undefined) {
+    const invalidTarget = threadTargetError(pin.target, "request");
+    if (invalidTarget) return invalidTarget;
+  } else {
+    if (typeof pin.selector !== "string" || pin.selector === "") return "selector is required";
+    if (typeof pin.artboard !== "string" || !isSafePath(pin.artboard)) return "invalid artboard";
+    if (!isPct(pin.xPct) || !isPct(pin.yPct)) return "position must be a percentage";
+  }
+  if (pin.title !== undefined && !requiredString(pin.title)) return "title must be a non-empty string";
+  if (pin.held !== undefined && typeof pin.held !== "boolean") return "held must be a boolean";
+  if (pin.elementName !== undefined && (typeof pin.elementName !== "string" || pin.elementName.length > MAX_ELEMENT_NAME_LENGTH)) {
+    return `elementName must be a string of at most ${MAX_ELEMENT_NAME_LENGTH} characters`;
+  }
+  if (pin.rendering !== undefined) {
+    const invalidRendering = threadRenderingError(pin.rendering);
+    if (invalidRendering) return invalidRendering;
+  }
+  return modelChoiceError(pin);
+}
 
 /** True for the visible artboards, tweaks and chips of a message context (what Claude is told about). */
 export function isMessageContext(value: unknown): value is MessageContext {
   if (!isObject(value) || !Array.isArray(value.visibleArtboards) || !Array.isArray(value.tweaks)) return false;
-  const artboardsOk = value.visibleArtboards.every((a) => {
-    if (!isObject(a) || !requiredString(a.file)) return false;
-    if (a.rendering === undefined) return true;
-    const r = a.rendering;
-    return isObject(r) && typeof r.format === "string" && r.format in RESPONSIVE_FORMATS && typeof r.width === "number";
-  });
-  const targetsOk = value.targets === undefined || (Array.isArray(value.targets) && value.targets.every(isThreadTarget));
+  const artboardsOk = value.visibleArtboards.every((a) => isObject(a) && requiredString(a.file) && (a.rendering === undefined || threadRenderingError(a.rendering) === null));
+  const targetsOk = value.targets === undefined || (Array.isArray(value.targets) && value.targets.every((t) => threadTargetError(t, "chip") === null));
   return artboardsOk && targetsOk && value.tweaks.every((t) => isObject(t) && typeof t.label === "string" && typeof t.value === "string");
 }
 

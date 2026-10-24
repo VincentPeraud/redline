@@ -86,7 +86,7 @@ describe("page conversations", () => {
     const page = await seam.createPage(PAGE_FILES);
     const conversation = await newConversation(seam, page.id);
     const targets = [
-      { kind: "element", artboard: "home.html", selector: "h1", elementName: "Titre · Old title", xPct: 10, yPct: 20 },
+      { kind: "element", artboard: "home.html", selector: "h1", elementName: "Titre · Old title", xPct: 10, yPct: 20, rendering: { format: "mobile", width: 390 } },
       { kind: "artboard", artboard: "pay.html" },
       { kind: "canvas-element", elementId: "note-1", elementKind: "sticky", elementSummary: "« Parcours »" },
     ];
@@ -96,7 +96,7 @@ describe("page conversations", () => {
 
     const message = engine.runs[0].message;
     expect(message).toContain(
-      "Elements the user points at:\n1: element `h1` (named « Titre · Old title ») on artboard home.html\n2: the whole artboard pay.html\n3: canvas element `note-1` (sticky, « Parcours »)",
+      "Elements the user points at:\n1: element `h1` (named « Titre · Old title ») on artboard home.html (vu en Mobile · 390 px)\n2: the whole artboard pay.html\n3: the canvas element `note-1` (sticky, « Parcours ») of manifest.json",
     );
     expect((await getConversation(seam, conversation.id)).messages[0].targets).toEqual(targets);
   });
@@ -107,6 +107,13 @@ describe("page conversations", () => {
     const conversation = await newConversation(seam, page.id);
     const bad = { visibleArtboards: [], tweaks: [], targets: [{ kind: "element", artboard: "home.html" }] };
     expect((await send(seam, conversation.id, "Hi", { context: bad })).status).toBe(400);
+    const chip = (target: object) => ({ visibleArtboards: [], tweaks: [], targets: [target] });
+    const canvas = { kind: "canvas-element", elementId: "note-1", elementKind: "sticky" };
+    const element = { kind: "element", artboard: "home.html", selector: "h1", elementName: null, xPct: 1, yPct: 2 };
+    expect((await send(seam, conversation.id, "Hi", { context: chip({ ...canvas, elementKind: "toString" }) })).status).toBe(400);
+    expect((await send(seam, conversation.id, "Hi", { context: chip({ ...element, rendering: { format: "toString", width: 390 } }) })).status).toBe(400);
+    expect((await send(seam, conversation.id, "Hi", { context: chip({ ...element, rendering: { format: "mobile", width: 0 } }) })).status).toBe(400);
+    expect((await send(seam, conversation.id, "Hi", { context: { visibleArtboards: [{ file: "home.html", rendering: { format: "mobile", width: 0 } }], tweaks: [] } })).status).toBe(400);
   });
 
   it("omits the tweak line when the page has no tweaks and refuses a malformed context", async () => {

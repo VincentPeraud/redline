@@ -8,8 +8,6 @@ import {
   MAX_ASSET_BYTES,
   MAX_PAGE_BYTES,
   TWEAKS_PATH,
-  MAX_ELEMENT_NAME_LENGTH,
-  isSafePath,
   parseManifest,
   starterDesignSystemFiles,
   parseTweaks,
@@ -19,7 +17,6 @@ import {
   type CreatePageRequest,
   type CreateProjectRequest,
   type CreateReplyRequest,
-  type CreateElementThreadRequest,
   type CreateThreadRequest,
   type CreateVersionRequest,
   type SendHeldRequest,
@@ -38,7 +35,7 @@ import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRou
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
-import { designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, threadRenderingError, titleError, versionRequestError, viewSettingsError } from "./validation.js";
+import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
 import { registerContextTracking } from "./context.js";
 import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
@@ -255,37 +252,18 @@ export async function buildMainApp(
     "/api/pages/:pageId/threads",
     async (req, reply) => {
       if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-      const pin = (req.body ?? {}) as Partial<CreateElementThreadRequest> & { target?: { kind?: unknown; artboard?: unknown; elementId?: unknown } };
-      const isPct = (v: unknown) => typeof v === "number" && v >= 0 && v <= 100;
-      if (!requiredString(pin.body)) return reply.code(400).send({ error: "body is required" });
-      if (pin.target !== undefined) {
-        const { kind, artboard, elementId } = pin.target ?? {};
-        if (kind === "artboard") {
-          if (typeof artboard !== "string" || !isSafePath(artboard)) return reply.code(400).send({ error: "invalid artboard" });
-          if (!store.hasArtboard(req.params.pageId, artboard)) return reply.code(400).send({ error: "artboard is not on the page" });
-        } else if (kind === "canvas-element") {
-          if (!requiredString(elementId)) return reply.code(400).send({ error: "element id is required" });
-          if (!store.canvasElement(req.params.pageId, elementId as string)) return reply.code(400).send({ error: "element is not on the page's canvas" });
-        } else {
-          return reply.code(400).send({ error: "invalid target" });
-        }
-      } else {
-        if (typeof pin.selector !== "string" || pin.selector === "") return reply.code(400).send({ error: "selector is required" });
-        if (typeof pin.artboard !== "string" || !isSafePath(pin.artboard)) return reply.code(400).send({ error: "invalid artboard" });
-        if (!isPct(pin.xPct) || !isPct(pin.yPct)) return reply.code(400).send({ error: "position must be a percentage" });
+      const invalid = createThreadRequestError(req.body);
+      if (invalid) return reply.code(400).send({ error: invalid });
+      const request = req.body;
+      if ("target" in request && request.target.kind === "artboard" && !store.hasArtboard(req.params.pageId, request.target.artboard)) {
+        return reply.code(400).send({ error: "artboard is not on the page" });
       }
-      if (pin.title !== undefined && !requiredString(pin.title)) return reply.code(400).send({ error: "title must be a non-empty string" });
-      if (pin.held !== undefined && typeof pin.held !== "boolean") return reply.code(400).send({ error: "held must be a boolean" });
-      if (pin.elementName !== undefined && (typeof pin.elementName !== "string" || pin.elementName.length > MAX_ELEMENT_NAME_LENGTH)) {
-        return reply.code(400).send({ error: `elementName must be a string of at most ${MAX_ELEMENT_NAME_LENGTH} characters` });
+      if ("target" in request && request.target.kind === "canvas-element" && !store.canvasElement(req.params.pageId, request.target.elementId)) {
+        return reply.code(400).send({ error: "element is not on the page's canvas" });
       }
-      const invalidRendering = pin.rendering !== undefined ? threadRenderingError(pin.rendering) : null;
-      if (invalidRendering) return reply.code(400).send({ error: invalidRendering });
-      const invalidChoice = modelChoiceError(pin);
-      if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
-      const thread = store.createThread(req.params.pageId, pin as CreateThreadRequest);
+      const thread = store.createThread(req.params.pageId, request);
       if (thread.status === "held") return reply.code(201).send(thread);
-      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(pin));
+      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(request));
       return reply.code(201).send(thread);
     },
   );

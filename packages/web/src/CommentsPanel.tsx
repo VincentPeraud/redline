@@ -1,5 +1,5 @@
 import { Fragment, useState, type ReactNode } from "react";
-import type { QueueEntry, type SessionRow, type Thread, type ThreadRun } from "@redline/shared";
+import type { QueueEntry, SessionRow, Thread, ThreadRun } from "@redline/shared";
 import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
