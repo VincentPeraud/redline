@@ -19,6 +19,9 @@ import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import { ElementChip } from "./ElementChip.js";
+import { AddressPill, PlainLink } from "./AddressPill.js";
+import { splitMessageLinks } from "./messageLinks.js";
+import { rememberArtboardTitles } from "./otherPageArtboards.js";
 import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./ConversationsPanel.module.css";
 
@@ -51,6 +54,12 @@ interface Props {
   pageId: string;
   pageTitle: string;
   artboardCount: number;
+  /** Artboards of the page, to title the pills that point at them; null until the manifest is known. */
+  artboards: { file: string; title: string }[] | null;
+  /** Centres the canvas on an artboard (a pill of this page). */
+  onCenterArtboard: (file: string) => void;
+  /** Shows "Cet artboard n'existe plus" (a pill whose artboard is gone). */
+  onMissingArtboard: (file: string) => void;
   /** What goes with the next message, live with the canvas view and the tweaks. */
   context: MessageContext;
   runs: ThreadRun[];
@@ -67,7 +76,7 @@ interface Props {
 }
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
-export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
+export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards, onCenterArtboard, onMissingArtboard, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
@@ -154,6 +163,11 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, 
     }
   }
 
+  useEffect(() => {
+    if (artboards) rememberArtboardTitles(pageId, artboards.map((a) => [a.file, a.title]));
+  }, [pageId, artboards]);
+
+  const current = { id: pageId, title: pageTitle, artboards };
   const active = conversations.find((c) => c.id === activeId) ?? null;
   const lastRun = detail ? runs.find((r) => r.workId === detail.runWorkId) : undefined;
   const run = lastRun?.status === "answered" ? undefined : lastRun;
@@ -249,7 +263,16 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, context, 
             ) : (
               <Fragment key={m.id}>
                 <div data-testid="conversation-message" className={styles.claudeMessage}>
-                  <span className={styles.author}>Claude</span> — {m.body}
+                  <span className={styles.author}>Claude</span> —{" "}
+                  {splitMessageLinks(m.body, window.location.origin).map((segment, i) =>
+                    segment.kind === "text" ? (
+                      <Fragment key={i}>{segment.text}</Fragment>
+                    ) : segment.kind === "link" ? (
+                      <PlainLink key={i} url={segment.url} />
+                    ) : (
+                      <AddressPill key={i} address={segment} current={current} onCenter={onCenterArtboard} onMissing={onMissingArtboard} />
+                    ),
+                  )}
                 </div>
                 <CreatedPageCards pages={m.createdPages} />
               </Fragment>
