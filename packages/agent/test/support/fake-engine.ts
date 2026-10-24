@@ -10,8 +10,8 @@ import { readWorkingCopy } from "../../src/working-copy.js";
 /** One scripted step: an engine event to emit, or a side effect the fake session performs. */
 export type FakeAction =
   | EngineEvent
-  /** Writes a file in the working copy. */
-  | { edit: { path: string; content: string } }
+  /** Writes a file in the working copy (bytes for images and fonts). */
+  | { edit: { path: string; content: string | Buffer } }
   /** Deletes a file from the working copy. */
   | { remove: string }
   /** Calls the "reply in thread" MCP tool, through the run's real local MCP server. */

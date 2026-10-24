@@ -2,6 +2,8 @@
 export const DESIGN_MD_PATH = "DESIGN.md";
 /** Folder of the project's shared images and fonts, in the working copy and relative to every artboard. */
 export const ASSETS_DIR = "assets";
+/** Largest project asset (image, font) the server accepts, from the web UI or from an agent. */
+export const MAX_ASSET_BYTES = 20 * 1024 * 1024;
 /** Folder of the design system files inside a working copy. */
 export const WORKING_COPY_DESIGN_SYSTEM_DIR = "design-system";
 

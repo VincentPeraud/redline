@@ -1,8 +1,9 @@
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import {
   ASSETS_DIR,
   DESIGN_MD_PATH,
+  MAX_ASSET_BYTES,
   WORKING_COPY_DESIGN_SYSTEM_DIR,
   isProjectContextPath,
   isSafePath,
@@ -51,7 +52,8 @@ export function readWorkingCopy(dir: string): Record<string, string> {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const full = join(current, entry.name);
       if (entry.isDirectory()) walk(full);
-      else {
+      // Regular files only: a symlink would publish whatever it points to.
+      else if (entry.isFile()) {
         const path = relative(dir, full).split("\\").join("/");
         if (!isProjectContextPath(path)) files[path] = readFileSync(full, "utf8");
       }
@@ -59,6 +61,38 @@ export function readWorkingCopy(dir: string): Record<string, string> {
   };
   walk(dir);
   return files;
+}
+
+/**
+ * Assets under `assets/` of the working copy that are new or differ from `base` (name -> base64, as checked out).
+ * Deleted assets are not reported: assets are shared by every page of the project, a working copy never removes one.
+ * Throws on an asset the server would refuse (unsafe name, over `MAX_ASSET_BYTES`).
+ */
+export function readChangedAssets(dir: string, base: Record<string, string>): Record<string, Buffer> {
+  const root = join(dir, ASSETS_DIR);
+  const changed: Record<string, Buffer> = {};
+  const walk = (current: string) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      // Hidden files (.DS_Store and the like) are not assets.
+      if (entry.name.startsWith(".")) continue;
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      // Regular files only: a symlink would upload whatever it points to.
+      else if (entry.isFile()) {
+        const name = relative(root, full).split("\\").join("/");
+        if (!isSafePath(name)) throw new Error(`${ASSETS_DIR}/${name} is not a valid asset name (no ":", "\\" or empty, "." and ".." segments).`);
+        // Checked before reading: the run fails before any upload, without loading a huge file.
+        const size = statSync(full).size;
+        if (size > MAX_ASSET_BYTES) {
+          throw new Error(`${ASSETS_DIR}/${name} is ${(size / 1024 / 1024).toFixed(1)} MB; assets are limited to ${MAX_ASSET_BYTES / 1024 / 1024} MB.`);
+        }
+        const bytes = readFileSync(full);
+        if (bytes.toString("base64") !== base[name]) changed[name] = bytes;
+      }
+    }
+  };
+  if (existsSync(root)) walk(root);
+  return changed;
 }
 
 /** The session's DESIGN.md, or undefined when it deleted the file (that is not a change). */

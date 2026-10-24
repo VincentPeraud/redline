@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import {
   ASSETS_DIR,
   DESIGN_MD_PATH,
+  MAX_ASSET_BYTES,
   MANIFEST_PATH,
   NEUTRAL_DESIGN_SYSTEM_ID,
   isSafePath,
@@ -16,9 +17,6 @@ import {
   type SaveDesignMdRequest,
 } from "@redline/shared";
 import type { Store } from "./store.js";
-
-/** Largest asset (image, font) accepted by `PUT /api/projects/:id/assets/*`; every other request body keeps Fastify's 1 MB limit. */
-export const MAX_ASSET_BYTES = 20 * 1024 * 1024;
 
 /** Design system a page uses: the one its manifest names if it exists, else the neutral one. */
 export function designSystemIdOf(store: Store, pageId: string): string {
@@ -49,14 +47,21 @@ export function projectContext(store: Store, pageId: string): ProjectContext {
   };
 }
 
-/** Asset name from a raw (still percent-encoded) URL path, or undefined if malformed or unsafe. */
-function assetNameOf(rawName: string): string | undefined {
-  try {
-    const name = decodeURIComponent(rawName);
-    return isSafePath(name) ? name : undefined;
-  } catch {
-    return undefined;
-  }
+/** Asset name from a URL wildcard (the router already percent-decoded it: decoding again would break "50%.png"), or undefined if unsafe. */
+function assetNameOf(name: string): string | undefined {
+  return isSafePath(name) ? name : undefined;
+}
+
+/**
+ * Stores an asset sent as raw bytes (`PUT .../assets/<name>`), for the web UI and for agents.
+ * Asset bodies may reach `MAX_ASSET_BYTES`; every other request body keeps Fastify's 1 MB limit.
+ */
+export function putProjectAsset(store: Store, projectId: string, name: string, body: unknown): ProjectAsset | { error: string } {
+  const safe = assetNameOf(name);
+  if (safe === undefined) return { error: "invalid asset name" };
+  if (!Buffer.isBuffer(body)) return { error: "file content is required" };
+  const hash = store.setProjectFile(projectId, `${ASSETS_DIR}/${safe}`, body);
+  return { name: safe, hash, size: body.length };
 }
 
 /** An asset of the project the page belongs to, so every artboard reaches it as `assets/<name>`. */
@@ -141,11 +146,8 @@ export async function registerProjectFileRoutes(app: FastifyInstance, store: Sto
     scope.addContentTypeParser("*", { parseAs: "buffer" }, (_req, body, done) => done(null, body));
     scope.put<{ Params: { projectId: string; "*": string }; Body: Buffer }>("/api/projects/:projectId/assets/*", { bodyLimit: MAX_ASSET_BYTES }, async (req, reply) => {
       if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-      const name = assetNameOf(req.params["*"]);
-      if (name === undefined) return reply.code(400).send({ error: "invalid asset name" });
-      if (!Buffer.isBuffer(req.body)) return reply.code(400).send({ error: "file content is required" });
-      const hash = store.setProjectFile(req.params.projectId, `${ASSETS_DIR}/${name}`, req.body);
-      return reply.code(201).send({ name, hash, size: req.body.length } satisfies ProjectAsset);
+      const asset = putProjectAsset(store, req.params.projectId, req.params["*"], req.body);
+      return reply.code("error" in asset ? 400 : 201).send(asset);
     });
   });
 }

@@ -149,4 +149,62 @@ describe("project context in the working copy", () => {
     expect(engine.runs[0].filesAtStart).toEqual(PAGE_FILES);
     expect(await seam.versions(page.id)).toHaveLength(1);
   });
+
+  it("publishes the assets a session adds or changes to the project, and never deletes one", async () => {
+    const hero = Buffer.from([255, 216, 255, 0, 1]);
+    const newLogo = Buffer.from([9, 9, 9]);
+    const engine = new FakeEngine([
+      { edit: { path: "assets/photos/hero.jpg", content: hero } },
+      { edit: { path: "assets/logo.png", content: newLogo } },
+      { remove: "assets/old.png" },
+      { edit: { path: "home.html", content: '<!doctype html><img src="assets/photos/hero.jpg">' } },
+      { type: "result", summary: "Add a hero image" },
+    ]);
+    seam = await startSeam2(engine);
+    const base = `${seam.server.url}/api/projects/${seam.project.id}/assets`;
+    for (const [name, bytes] of [["logo.png", [1, 2]], ["old.png", [3]], ["kept.png", [4]]] as const) {
+      await fetch(`${base}/${name}`, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: Buffer.from(bytes) });
+    }
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "Add a hero image");
+    await seam.waitForWorkEnd();
+
+    const asset = async (name: string) => Buffer.from(await (await fetch(`${seam!.server.artboardOrigin}/pages/${page.id}/assets/${name}`)).arrayBuffer());
+    expect((await asset("photos/hero.jpg")).equals(hero)).toBe(true);
+    expect((await asset("logo.png")).equals(newLogo)).toBe(true);
+    const names = ((await (await fetch(base)).json()) as { name: string }[]).map((a) => a.name).sort();
+    expect(names).toEqual(["kept.png", "logo.png", "old.png", "photos/hero.jpg"]);
+    expect(await seam.versions(page.id)).toHaveLength(2);
+  });
+
+  it("uploads a session's new asset even when no page file changed, without a new version", async () => {
+    const engine = new FakeEngine([
+      { edit: { path: "assets/font.woff2", content: Buffer.from([1, 2, 3]) } },
+      { type: "result", summary: "Add the font" },
+    ]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "Add the font");
+    await seam.waitForWorkEnd();
+
+    const names = ((await (await fetch(`${seam.server.url}/api/projects/${seam.project.id}/assets`)).json()) as { name: string }[]).map((a) => a.name);
+    expect(names).toEqual(["font.woff2"]);
+    expect(await seam.versions(page.id)).toHaveLength(1);
+    expect(seam.workMessages().at(-1)).toMatchObject({ type: "work-done" });
+  });
+
+  it("fails the run with a clear message when a session's asset is over the size limit", async () => {
+    const engine = new FakeEngine([
+      { edit: { path: "assets/huge.png", content: Buffer.alloc(20 * 1024 * 1024 + 1) } },
+      { edit: { path: "home.html", content: "<h1>Changed</h1>" } },
+      { type: "result", summary: "Huge" },
+    ]);
+    seam = await startSeam2(engine, { retryDelaysMs: [] });
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "Huge");
+    await seam.waitForWorkEnd();
+
+    expect(seam.workMessages().find((m) => m.type === "work-failed")).toMatchObject({ message: expect.stringMatching(/assets\/huge\.png.*20 MB/) });
+    expect(await seam.versions(page.id)).toHaveLength(1);
+  });
 });

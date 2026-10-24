@@ -11,6 +11,16 @@ export interface Pick {
   yPct: number;
 }
 
+interface ForwardedWheel {
+  deltaX: number;
+  deltaY: number;
+  deltaMode: number;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  clientX: number;
+  clientY: number;
+}
+
 interface PinPosition {
   id: string;
   xPct: number;
@@ -52,6 +62,28 @@ export function ArtboardFrame({ src, title, width, height, zoom, threads, pickin
       if (data.type === "redline:ready") setBridgeEpoch((n) => n + 1);
       else if (data.type === "redline:picked") onPickRef.current(data as Pick);
       else if (data.type === "redline:pin-positions") setPositions(data.positions ?? []);
+      else if (data.type === "redline:wheel") replayWheel(data as unknown as ForwardedWheel);
+    }
+    // The iframe swallows wheel and pinch: the bridge hands them back, and we replay them on the iframe
+    // element so they bubble to the canvas, with the cursor mapped from artboard to page coordinates.
+    function replayWheel(wheel: ForwardedWheel) {
+      const element = frame.current;
+      if (!element) return;
+      const rect = element.getBoundingClientRect();
+      const scale = rect.width / element.offsetWidth || 1;
+      element.dispatchEvent(
+        new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          deltaX: wheel.deltaX,
+          deltaY: wheel.deltaY,
+          deltaMode: wheel.deltaMode,
+          ctrlKey: wheel.ctrlKey,
+          metaKey: wheel.metaKey,
+          clientX: rect.left + wheel.clientX * scale,
+          clientY: rect.top + wheel.clientY * scale,
+        }),
+      );
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -59,7 +91,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, threads, pickin
 
   useEffect(() => {
     if (bridgeEpoch === 0) return;
-    frame.current?.contentWindow?.postMessage({ type: "redline:set-mode", picking }, "*");
+    frame.current?.contentWindow?.postMessage({ type: "redline:set-mode", picking, forwardWheel: true }, "*");
   }, [picking, bridgeEpoch]);
 
   useEffect(() => {

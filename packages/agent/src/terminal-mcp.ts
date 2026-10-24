@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { uploadChangedAssets } from "./assets.js";
 import type { ServerApi } from "./server-api.js";
 import { createRedlineMcpServer } from "./session-mcp.js";
 import { readDesignMd, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
@@ -17,6 +18,8 @@ interface Checkout {
   files: Record<string, string>;
   /** DESIGN.md as published or downloaded last. */
   designMd: string;
+  /** Project assets as uploaded or downloaded last (name -> base64). */
+  assets: Record<string, string>;
   versionId: string;
 }
 
@@ -54,7 +57,7 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
         workingCopyDir(folder, pageId);
         const checkout = await api.checkout(pageId);
         const dir = writeWorkingCopy(folder, pageId, checkout);
-        current = { pageId, dir, files: checkout.files, designMd: checkout.project.designMd, versionId: checkout.versionId };
+        current = { pageId, dir, files: checkout.files, designMd: checkout.project.designMd, assets: checkout.project.assets, versionId: checkout.versionId };
         return text(`Page checked out into .redline/${pageId}/. Edit its files, then call publish_page.`);
       } catch (error) {
         return text((error as Error).message, true);
@@ -69,23 +72,30 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
     },
     async ({ message }) => {
       try {
-        const { pageId, dir, files: base, designMd: baseDesignMd, versionId } = checkedOut();
+        const checkout = checkedOut();
+        const { pageId, dir, files: base, designMd: baseDesignMd, versionId } = checkout;
         const files = readWorkingCopy(dir);
         // DESIGN.md is published with the page, as in a session run (a deleted file counts as unchanged).
         const designMd = readDesignMd(dir) ?? baseDesignMd;
-        if (sameFiles(files, base) && designMd === baseDesignMd) return text("Nothing changed; no version published.");
+        // Assets belong to the project: new or changed ones go up first, so the version that uses them shows them.
+        const { uploaded, assets } = await uploadChangedAssets(api, pageId, dir, checkout.assets);
+        checkout.assets = assets;
+        const uploadedNote = uploaded.length ? `Uploaded ${uploaded.map((name) => `assets/${name}`).join(", ")}. ` : "";
+        if (sameFiles(files, base) && designMd === baseDesignMd) {
+          return text(uploaded.length ? `${uploadedNote}No page file changed; no version published.` : "Nothing changed; no version published.");
+        }
         const version = await api.publish(pageId, files, message, "terminal", versionId, {
           ...(designMd !== baseDesignMd ? { designMd: { content: designMd, base: baseDesignMd } } : {}),
         });
         if (!version.merged) {
-          current = { pageId, dir, files, designMd, versionId: version.id };
-          return text(`Published version ${version.id}.`);
+          current = { pageId, dir, files, designMd, assets, versionId: version.id };
+          return text(`${uploadedNote}Published version ${version.id}.`);
         }
         // The page moved on since the checkout: the new version also holds those changes, so download it again.
         const fresh = await api.checkout(pageId);
         writeWorkingCopy(folder, pageId, fresh);
-        current = { pageId, dir, files: fresh.files, designMd: fresh.project.designMd, versionId: fresh.versionId };
-        return text(`Published version ${version.id}, merged with changes made to the page since the checkout. The working copy was refreshed.`);
+        current = { pageId, dir, files: fresh.files, designMd: fresh.project.designMd, assets: fresh.project.assets, versionId: fresh.versionId };
+        return text(`${uploadedNote}Published version ${version.id}, merged with changes made to the page since the checkout. The working copy was refreshed.`);
       } catch (error) {
         return text((error as Error).message, true);
       }
