@@ -32,6 +32,7 @@ import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
 import { centerOn, panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { COPIED_BUBBLE_MS, copyAddress } from "./copyLink.js";
+import { TocList } from "./TocList.js";
 import { artboardAtCentre, type TocItem } from "./tocItems.js";
 import { CanvasElements } from "./CanvasElements.js";
 import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
@@ -60,7 +61,7 @@ const START_BOTTOM = 40;
 /** Pointer travel (screen pixels) under which a press and release count as a click. */
 const CLICK_SLOP = 4;
 
-type SideTab = "conversation" | "comments";
+type SideTab = "conversation" | "comments" | "toc";
 
 function boundsOf(boxes: { x: number; y: number; width: number; height: number }[]) {
   if (boxes.length === 0) return { x: 0, y: 0, width: 1, height: 1 };
@@ -786,6 +787,9 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             <button type="button" role="tab" aria-selected={tab === "comments"} className={cx(styles.tab, tab === "comments" && styles.tabActive)} onClick={() => setTab("comments")}>
               Commentaires · {openCount}
             </button>
+            <button type="button" role="tab" aria-selected={tab === "toc"} className={cx(styles.tab, tab === "toc" && styles.tabActive)} onClick={() => setTab("toc")}>
+              Sommaire
+            </button>
           </div>
           {tab === "conversation" ? (
             <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults}
@@ -795,6 +799,10 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               onRemoveChip={(index) => setChips((current) => removeChip(current, index))}
               onChipsSent={() => setChips([])}
             />
+          ) : tab === "toc" ? (
+            <div className={styles.tocPanel}>
+              <TocList items={tocItems} currentFile={currentTocFile} placeholder={`Filtrer les ${tocItems.length} artboards…`} onSelect={centerOnArtboard} />
+            </div>
           ) : (
             <CommentsPanel
               pageId={pageId}
