@@ -241,6 +241,33 @@
   cursor: pointer;
 }
 
+.zoomSeparator {
+  width: 1px;
+  height: 20px;
+  background: var(--color-border);
+}
+
+.guidesButton {
+  height: 32px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.guidesButtonOn {
+  background: var(--color-text);
+  color: var(--color-text-inverse);
+}
+
 .zoomValue {
   min-width: 44px;
   text-align: center;

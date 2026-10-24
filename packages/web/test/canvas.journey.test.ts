@@ -262,3 +262,47 @@ it("shrinks a long title down to half then ellipsises it, clamps the subtitle to
   expect(await tab.getByLabel("Nouveau commentaire").count()).toBe(0);
   expect(await tab.locator("[data-pin]").count()).toBe(0);
 }, 60_000);
+
+it("shows layout guides on the artboards that declare them, from the button or the G key, and remembers the choice", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Guides" })).json()) as { id: string };
+  const html = "<!doctype html><body style=\"margin:0\"><h1>Hi</h1></body>";
+  const guided = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Guided",
+      files: {
+        "a.html": html,
+        "b.html": html,
+        "manifest.json": JSON.stringify({
+          artboards: [
+            { file: "a.html", width: 400, height: 300, x: 0, y: 0, guides: { columns: 4, gutter: 8, margin: 16, baseline: 8 } },
+            { file: "b.html", width: 400, height: 300, x: 500, y: 0 },
+          ],
+        }),
+      },
+    })
+  ).json()) as Page;
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${guided.id}`);
+  await tab.locator('iframe[title$="a.html"]').waitFor();
+  const columns = tab.locator("[data-guide-column]");
+  const toggle = tab.getByRole("button", { name: "Guides (G)" });
+
+  expect(await toggle.getAttribute("aria-pressed")).toBe("false");
+  expect(await columns.count()).toBe(0);
+
+  await toggle.click();
+  expect(await toggle.getAttribute("aria-pressed")).toBe("true");
+  expect(await columns.count()).toBe(4);
+  expect(await tab.locator("[data-guide-baseline]").count()).toBe(1);
+  const first = await box(columns.first());
+  const frame = await box(tab.locator('iframe[title$="a.html"]'));
+  expect(first.x - frame.x).toBeCloseTo(16 * (frame.width / 400), 0);
+
+  await tab.reload();
+  await tab.locator('iframe[title$="a.html"]').waitFor();
+  expect(await columns.count()).toBe(4);
+
+  await tab.locator("body").press("g");
+  expect(await columns.count()).toBe(0);
+  expect(await toggle.getAttribute("aria-pressed")).toBe("false");
+}, 60_000);

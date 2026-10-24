@@ -85,16 +85,13 @@
   justify-content: center;
 }
 
-.device {
-  flex-shrink: 0;
-  overflow: hidden;
-  border-radius: var(--radius-xl);
-  background: #ffffff;
+.stage[data-device="paper"] {
+  background: var(--play-border-strong);
 }
 
-.phone {
-  border-radius: 44px;
-  box-shadow: 0 0 0 10px var(--play-border);
+.viewport {
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .frame {

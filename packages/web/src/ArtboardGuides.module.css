@@ -1,0 +1,17 @@
+.guides {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: grid;
+  pointer-events: none;
+}
+
+.column {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.baseline {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(to bottom, transparent calc(100% - 1px), rgba(239, 68, 68, 0.22) 100%);
+}

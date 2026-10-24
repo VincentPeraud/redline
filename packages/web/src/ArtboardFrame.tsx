@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { Thread, TweakValues } from "@redline/shared";
+import type { ArtboardGuides as Guides, Thread, TweakValues } from "@redline/shared";
+import { ArtboardGuides } from "./ArtboardGuides.js";
 import { threadWhere } from "./threadLabel.js";
 import { cx } from "./ui/index.js";
 import styles from "./ArtboardFrame.module.css";
@@ -35,6 +36,8 @@ interface Props {
   height: number;
   /** Canvas zoom; pins are counter-scaled so they keep their size. */
   zoom: number;
+  /** Layout guides to draw over the artboard; absent when hidden or not declared. */
+  guides?: Guides;
   threads: Thread[];
   picking: boolean;
   tweaks: TweakValues;
@@ -46,7 +49,7 @@ interface Props {
  * and pin placement go through the bridge script the server injects (see conventions.md).
  * Messages are trusted only when `event.source` is this iframe's window.
  */
-export function ArtboardFrame({ src, title, width, height, zoom, threads, picking, tweaks, onPick }: Props) {
+export function ArtboardFrame({ src, title, width, height, zoom, guides, threads, picking, tweaks, onPick }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [positions, setPositions] = useState<PinPosition[]>([]);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
@@ -111,6 +114,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, threads, pickin
     <div className={styles.frame} style={{ width, height }}>
       <div className={styles.clip} style={{ width, height }}>
         <iframe ref={frame} title={title} src={src} sandbox="allow-scripts" className={styles.iframe} style={{ width, height }} />
+        {guides && <ArtboardGuides guides={guides} />}
       </div>
       {pinned.map((thread) => {
         const position = positions.find((p) => p.id === thread.id) ?? thread;

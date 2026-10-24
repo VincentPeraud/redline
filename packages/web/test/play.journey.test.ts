@@ -77,3 +77,47 @@ it("plays a prototype: one artboard at full size, links switch artboard, exit re
   await tab.locator('iframe[title$="cart.html"]').waitFor();
   await tab.locator('iframe[title$="done.html"]').waitFor();
 }, 60_000);
+
+it("presents each artboard by its declared device, inferring a phone when none is declared", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Devices" })).json()) as { id: string };
+  const html = `<!doctype html><body style="margin:0"><h1>Hi</h1></body>`;
+  const page = (await server.post(`/api/projects/${project.id}/pages`, {
+    title: "Devices",
+    files: {
+      "a.html": html,
+      "b.html": html,
+      "c.html": html,
+      "d.html": html,
+      "e.html": html,
+      "f.html": html,
+      "manifest.json": JSON.stringify({
+        artboards: [
+          { file: "a.html", width: 390, height: 844, device: "phone" },
+          { file: "b.html", width: 576, height: 746, device: "tablet" },
+          { file: "c.html", width: 1440, height: 900, device: "desktop", url: "lumora.fr" },
+          { file: "d.html", width: 576, height: 814, device: "paper" },
+          { file: "e.html", width: 400, height: 300, device: "none" },
+          { file: "f.html", width: 390, height: 844 },
+        ],
+      }),
+    },
+  }).then((res) => res.json())) as { id: string };
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  await tab.locator('iframe[title$="a.html"]').waitFor();
+  await tab.getByRole("button", { name: "Lancer a.html en plein écran" }).click();
+  const play = tab.getByTestId("play");
+
+  const expected = ["phone", "tablet", "desktop", "paper", "none", "phone"];
+  for (const [index, name] of expected.entries()) {
+    await play.getByRole("button", { name: `Artboard ${index + 1}` }).click();
+    await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe(name);
+    expect(await play.locator("main [data-device]").getAttribute("data-device")).toBe(name);
+  }
+
+  await play.getByRole("button", { name: "Artboard 3" }).click();
+  await expect.poll(() => play.locator("main").getAttribute("data-device")).toBe("desktop");
+  expect(await play.getByText("lumora.fr").count()).toBe(1);
+  await tab.close();
+}, 60_000);
