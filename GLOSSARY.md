@@ -37,6 +37,10 @@ _Avoid_: Theme, project layer, local design system
 A project-style token that replaces the design system's token of the same name; its CSS comes later, so the project value wins.
 _Avoid_: Customisation, exception
 
+**Component**:
+An artboard file `components/<name>.html` of a page of a design system or of a project; its name is its file name (`[a-z0-9-]`). Its style lives in `<style data-component>` blocks, its description in `<meta name="description">`, its usage in `<template data-usage>`; its variants are the tweaks of its artboard and its states go through `data-state` or modifier classes. Redline assembles the components of a design system, or of a project, into a `components.css` served to artboards; the canvas marks a component with a ◆ and its name on the strip. Two components of one design system or one project cannot share a name.
+_Avoid_: Widget, block, symbol
+
 **Core tokens**:
 The fixed set of named design variables every design system must define, so pages work with any design system.
 _Avoid_: Base variables, required tokens

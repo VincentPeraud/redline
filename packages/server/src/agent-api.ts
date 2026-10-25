@@ -13,6 +13,7 @@ import {
 } from "@redline/shared";
 import { mergeOntoCurrent } from "./publish.js";
 import { tokensEqual } from "./request-hardening.js";
+import { versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
 import { requiredString, titleError, versionRequestError } from "./validation.js";
 import { projectContext, putProjectAsset } from "./project-files.js";
@@ -81,7 +82,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
 
       api.post<{ Params: { pageId: string }; Body: CreateVersionRequest }>("/pages/:pageId/versions", async (req, reply) => {
         if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-        const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId), true) ?? crossPageReferencesError(store, req.params.pageId, req.body.files);
+        const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId), true) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files);
         if (invalid) return reply.code(400).send({ error: invalid });
         const { files, message, origin, baseVersionId, workId, designMd, projectStyle } = req.body;
         if (!requiredString(baseVersionId)) return reply.code(400).send({ error: "baseVersionId is required" });
@@ -94,7 +95,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const record = () => {
           const result = mergeOntoCurrent(store, req.params.pageId, files, baseVersionId);
           if ("error" in result) return reply.code(result.conflict ? 409 : 400).send({ error: result.error });
-          const invalidMerged = versionRequestError({ ...req.body, files: result.files }, store.isDesignSystemPage(req.params.pageId));
+          const invalidMerged = versionRequestError({ ...req.body, files: result.files }, store.isDesignSystemPage(req.params.pageId)) ?? versionComponentsError(store, req.params.pageId, result.files);
           if (invalidMerged) return reply.code(409).send({ error: invalidMerged });
           const projectId = store.getPage(req.params.pageId)!.projectId;
           const storedDesignMd = store.readProjectFile(projectId, DESIGN_MD_PATH)?.toString("utf8") ?? "";

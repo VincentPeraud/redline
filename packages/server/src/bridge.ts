@@ -1,4 +1,4 @@
-import { designSystemTokensUrlPath, projectStyleUrlPath, HOVER_FINISH, MARK_FINISH, hoverLabelCss, hoverOutlineCss, markBadgeCss } from "@redline/shared";
+import { designSystemComponentsUrlPath, designSystemTokensUrlPath, projectComponentsUrlPath, projectStyleUrlPath, HOVER_FINISH, MARK_FINISH, hoverLabelCss, hoverOutlineCss, markBadgeCss } from "@redline/shared";
 
 /**
  * Script injected into every served artboard HTML. Artboards run in a sandboxed iframe with an
@@ -465,12 +465,15 @@ export function injectBridge(html: string): string {
 }
 
 /**
- * Links a design system's live tokens, then the project style's when the project has one (it wins over the design
- * system), at the start of the document head, before the page's own styles.
+ * Links, at the start of the document head and before the page's own styles: the design system's tokens and components,
+ * then, when the project has a style (`projectId`), its tokens and its components (they win over the design system by CSS order).
  */
 export function injectDesignSystem(html: string, designSystemId: string, projectId?: string): string {
   const link = (href: string) => `<link rel="stylesheet" href="${href}">`;
-  const tag = link(designSystemTokensUrlPath(designSystemId)) + (projectId === undefined ? "" : link(projectStyleUrlPath(projectId)));
+  const tag =
+    link(designSystemTokensUrlPath(designSystemId)) +
+    link(designSystemComponentsUrlPath(designSystemId)) +
+    (projectId === undefined ? "" : link(projectStyleUrlPath(projectId)) + link(projectComponentsUrlPath(projectId)));
   const head = /<head[^>]*>/i.exec(html);
   if (head) return html.slice(0, head.index + head[0].length) + tag + html.slice(head.index + head[0].length);
   return tag + html;

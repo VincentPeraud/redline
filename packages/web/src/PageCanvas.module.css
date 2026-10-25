@@ -130,6 +130,17 @@
   color: var(--color-text-muted);
 }
 
+.componentName {
+  flex-shrink: 1;
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+}
+
+.componentMarker {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+
 .responsiveBadge {
   flex-shrink: 0;
   padding: 2px 8px;
