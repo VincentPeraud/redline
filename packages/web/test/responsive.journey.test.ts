@@ -76,7 +76,7 @@ it("lays a responsive artboard out as one frame: renderings side by side at the 
   expect(await tab.locator("[data-canvas-arrow] > path").getAttribute("d")).toMatch(new RegExp(`^M${width} ${height / 2} C[\\d. ]+ 5000 0$`));
 
   // a tweak reaches every rendering
-  await tab.getByRole("button", { name: "Tweaks", exact: true }).click();
+  await tab.getByRole("button", { name: "Tweaks · 1" }).click();
   await tab.getByRole("button", { name: "grid" }).click();
   for (const index of [0, 1, 2]) {
     await expect.poll(() => tab.locator("[data-rendering] iframe").nth(index).contentFrame().locator("html").getAttribute("data-tweak-layout")).toBe("grid");
