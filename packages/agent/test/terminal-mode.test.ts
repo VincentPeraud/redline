@@ -322,4 +322,21 @@ describe("terminal mode: projects and pages", () => {
     rmSync(bare, { recursive: true, force: true });
     rmSync(linked, { recursive: true, force: true });
   });
+  it("moves an artboard of the checked-out page to another page, refreshes the working copy and explains refusals", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const manifest = JSON.stringify({ artboards: [{ file: "home.html", x: 0, y: 0 }, { file: "btn.html", x: 900, y: 0 }] });
+    const web = await seam.createPage({ "manifest.json": manifest, "home.html": "<p>h</p>", "btn.html": "<button>Ok</button>" }, "Web");
+    const buttons = await seam.createPage({ "manifest.json": JSON.stringify({ artboards: [] }) }, "Boutons");
+    const call = await connectTerminal(seam.folder);
+
+    expect(await call("move_artboard", { file: "btn.html", pageId: buttons.id })).toMatch(/No page checked out/);
+    await call("checkout_page", { pageId: web.id });
+    expect(await call("move_artboard", { file: "btn.html", pageId: buttons.id })).toMatch(/Boutons/);
+
+    expect(await seam.readFile(buttons.id, "btn.html")).toBe("<button>Ok</button>");
+    expect(existsSync(join(seam.folder, ".redline", web.id, "btn.html"))).toBe(false);
+    expect(await call("publish_page", { message: "Nothing to publish" })).toMatch(/Nothing changed/);
+
+    expect(await call("move_artboard", { file: "ghost.html", pageId: buttons.id })).toMatch(/not an artboard/);
+  });
 });
