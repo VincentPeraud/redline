@@ -1,6 +1,6 @@
 import { createContext, useCallback, useRef, useState } from "react";
 import type { Gap, PageGaps } from "@redline/shared";
-import { gapCountLabel, gapSuggestion, gapSummary, type Piece } from "./gapLabels.js";
+import { exceptionCountLabel, gapCountLabel, gapSuggestion, gapSummary, type Piece } from "./gapLabels.js";
 import { Button, Tooltip, cx } from "./ui/index.js";
 import { useCloseOnOutsidePointer } from "./useCloseOnOutsidePointer.js";
 import styles from "./GapsReport.module.css";
@@ -34,7 +34,7 @@ function Pieces({ pieces }: { pieces: Piece[] }) {
   );
 }
 
-function GapRow({ gap, onSee }: { gap: Gap; onSee: (gap: Gap) => void }) {
+function GapRow({ gap, onSee, onException }: { gap: Gap; onSee: (gap: Gap) => void; onException: (gap: Gap) => void }) {
   const suggestion = gapSuggestion(gap);
   return (
     <li data-gap={gap.key} data-gap-kind={gap.kind} className={styles.row}>
@@ -42,11 +42,14 @@ function GapRow({ gap, onSee }: { gap: Gap; onSee: (gap: Gap) => void }) {
         <span className={styles.file}>{gap.file}</span>
         {gap.kind === "deprecated" && <span className={styles.deprecated}>déprécié</span>}
         <span className={styles.spacer} />
-        {gap.selector !== null && (
+        {gap.selector !== null ? (
           <Button size="sm" className={styles.rowButton} onClick={() => onSee(gap)}>
             Voir
           </Button>
-        )}
+        ) : null}
+        <Button size="sm" className={styles.rowButton} onClick={() => onException(gap)}>
+          Exception voulue
+        </Button>
       </div>
       <div className={styles.summary}>
         <Pieces pieces={gapSummary(gap)} />
@@ -61,7 +64,19 @@ function GapRow({ gap, onSee }: { gap: Gap; onSee: (gap: Gap) => void }) {
 }
 
 /** "◆ N écarts" next to the page menu and its list; nothing while the page has no gap. */
-export function GapsButton({ report, onSee }: { report: PageGaps | null; onSee: (gap: Gap) => void }) {
+export function GapsButton({
+  report,
+  exceptionCount,
+  onSee,
+  onException,
+  onAsk,
+}: {
+  report: PageGaps | null;
+  exceptionCount: number;
+  onSee: (gap: Gap) => void;
+  onException: (gap: Gap) => void;
+  onAsk: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
@@ -89,12 +104,31 @@ export function GapsButton({ report, onSee }: { report: PageGaps | null; onSee: 
           </div>
           <ul className={styles.list}>
             {report.gaps.map((gap) => (
-              <GapRow key={gap.key} gap={gap} onSee={(seen) => {
-                close();
-                onSee(seen);
-              }} />
+              <GapRow
+                key={gap.key}
+                gap={gap}
+                onSee={(seen) => {
+                  close();
+                  onSee(seen);
+                }}
+                onException={onException}
+              />
             ))}
           </ul>
+          <div className={styles.footer}>
+            {exceptionCount > 0 && <span className={styles.hidden}>{exceptionCountLabel(exceptionCount)}</span>}
+            <span className={styles.spacer} />
+            <Button
+              variant="accent"
+              className={styles.ask}
+              onClick={() => {
+                close();
+                onAsk();
+              }}
+            >
+              Demander à Claude de corriger
+            </Button>
+          </div>
         </div>
       )}
     </div>

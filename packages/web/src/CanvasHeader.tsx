@@ -203,11 +203,14 @@ interface Props {
   previewOf?: string;
   /** Design system gaps of the page; the button shows only when there are some. */
   gaps: PageGaps | null;
+  gapExceptionCount: number;
   onSeeGap: (gap: Gap) => void;
+  onGapException: (gap: Gap) => void;
+  onAskFixGaps: () => void;
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, onSeeGap, previewOf }: Props) {
+export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onAskFixGaps, previewOf }: Props) {
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -239,7 +242,7 @@ export function CanvasHeader({ project, designSystemId, versionId, pageId, pageT
       </nav>
       {previewOf === undefined && (
         <>
-          <GapsButton report={gaps} onSee={onSeeGap} />
+          <GapsButton report={gaps} exceptionCount={gapExceptionCount} onSee={onSeeGap} onException={onGapException} onAsk={onAskFixGaps} />
           <TocMenu {...toc} />
         </>
       )}

@@ -35,7 +35,8 @@ import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { ArtboardHistory } from "./ArtboardHistory.js";
 import { restoreArtboard, useDeletedArtboards } from "./restoreArtboard.js";
 import { SeenGapContext, type SeenGap } from "./GapsReport.js";
-import { gapCountLabel } from "./gapLabels.js";
+import { fixGapsMessage, gapCountLabel } from "./gapLabels.js";
+import { postInPageConversation } from "./askClaudeToFix.js";
 import { useGaps } from "./useGaps.js";
 import { UndoToast } from "./UndoToast.js";
 import { CanvasHeader } from "./CanvasHeader.js";
@@ -186,8 +187,6 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
   const [preview, setPreview] = useState<{ file: string; versionId: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; undo: () => Promise<void> } | null>(null);
   const deleted = useDeletedArtboards(pageId, versionId);
-  const gapReport = useGaps(pageId, `${versionId}:${tokensVersion}`);
-  const gapsOf = (file: string) => (gapReport?.gaps ?? []).filter((gap) => gap.file === file).length;
   /** The gap "Voir" points at: its artboard outlines the element. */
   const [seenGap, setSeenGap] = useState<SeenGap | null>(null);
   const seenFile = useRef<string | null>(null);
@@ -201,6 +200,10 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
   /** Real page height of each rendering of a responsive artboard, by artboard file then rendering key, as reported by the bridge. */
   const [docHeights, setDocHeights] = useState<Record<string, Record<string, number>>>({});
   const [viewSettings, setViewSettings] = useState<PageViewSettings>(savedViewSettings ?? EMPTY_VIEW_SETTINGS);
+  const allGaps = useGaps(pageId, `${versionId}:${tokensVersion}`);
+  const gapReport = allGaps && { ...allGaps, gaps: allGaps.gaps.filter((gap) => !viewSettings.gapExceptions.includes(gap.key)) };
+  const gapExceptionCount = allGaps ? allGaps.gaps.length - gapReport!.gaps.length : 0;
+  const gapsOf = (file: string) => (gapReport?.gaps ?? []).filter((gap) => gap.file === file).length;
   const [renderingsMenuOpen, setRenderingsMenuOpen] = useState(false);
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   const viewport = useRef<HTMLDivElement>(null);
@@ -497,6 +500,12 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
     seenFile.current = layoutOf(artboard) || gridOf(artboard) ? null : gap.file;
     if (seenFile.current === null) centerOnArtboard(gap.file);
   }
+  async function askClaudeToFixGaps() {
+    if (!gapReport) return;
+    setTab("conversation");
+    await postInPageConversation(pageId, fixGapsMessage(gapReport.designSystemTitle, gapReport.gaps));
+  }
+
   function centerOnSeenGap(rect: { x: number; y: number; width: number; height: number }) {
     const box = seenFile.current === null ? undefined : artboardBoxesRef.current.get(seenFile.current);
     seenFile.current = null;
@@ -535,7 +544,10 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
         onRenamePage={renamePage}
         toc={{ items: tocItems, currentFile: currentTocFile, onSelect: centerOnArtboard }}
         gaps={gapReport}
+        gapExceptionCount={gapExceptionCount}
         onSeeGap={seeGap}
+        onGapException={(gap) => changeViewSettings({ ...viewSettings, gapExceptions: [...viewSettings.gapExceptions, gap.key] })}
+        onAskFixGaps={() => void askClaudeToFixGaps()}
       />
       <div className={styles.body}>
         <main className={styles.stage}>

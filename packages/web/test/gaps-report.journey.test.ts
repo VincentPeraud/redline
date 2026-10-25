@@ -119,3 +119,56 @@ it("shows no button and no pill on a page without gaps", async () => {
   expect(await tab.getByTestId("gaps-button").count()).toBe(0);
   expect(await tab.getByTestId("artboard-gaps").count()).toBe(0);
 }, 60_000);
+
+it("Exception voulue hides a gap for good: counts, footer, pill and a reload all follow", async () => {
+  const pageId = await setup({ "story-1.html": clean, "story-2.html": drifting });
+  const tab = await context.newPage();
+  await tab.goto(`${server.url}/#/pages/${pageId}`);
+  await tab.getByTestId("gaps-button").click();
+  const list = tab.getByRole("dialog", { name: "Écarts au design system" });
+  expect(await list.innerText()).not.toContain("masquée");
+
+  await list.locator('[data-gap-kind="font"]').getByRole("button", { name: "Exception voulue" }).click();
+  await list.locator('[data-gap-kind="font"]').waitFor({ state: "detached" });
+  expect(await list.innerText()).toContain("3 écarts au design system");
+  expect(await list.innerText()).toContain("1 exception voulue masquée");
+  expect(await tab.getByTestId("gaps-button").innerText()).toBe("3 écarts");
+  expect(await tab.locator('[data-strip="story-2.html"]').getByTestId("artboard-gaps").innerText()).toBe("3 écarts");
+
+  await list.locator('[data-gap-kind="deprecated"]').getByRole("button", { name: "Exception voulue" }).click();
+  await expect.poll(async () => list.innerText()).toContain("2 exceptions voulues masquées");
+
+  const reloaded = await context.newPage();
+  await reloaded.goto(`${server.url}/#/pages/${pageId}`);
+  await reloaded.getByTestId("gaps-button").waitFor();
+  expect(await reloaded.getByTestId("gaps-button").innerText()).toBe("2 écarts");
+  const versions = (await (await server.get(`/api/pages/${pageId}/versions`)).json()) as unknown[];
+  expect(versions).toHaveLength(1);
+}, 60_000);
+
+it("Demander à Claude de corriger posts the visible gaps, not the exceptions, in the page's conversation", async () => {
+  const pageId = await setup({ "story-1.html": clean, "story-2.html": drifting });
+  const tab = await context.newPage();
+  await tab.goto(`${server.url}/#/pages/${pageId}`);
+  await tab.getByTestId("gaps-button").click();
+  const list = tab.getByRole("dialog", { name: "Écarts au design system" });
+  await list.locator('[data-gap-kind="font"]').getByRole("button", { name: "Exception voulue" }).click();
+  await list.getByRole("button", { name: "Demander à Claude de corriger" }).click();
+  await list.waitFor({ state: "detached" });
+
+  type Detail = { messages: { author: string; body: string }[] };
+  const firstConversation = async () => {
+    const [first] = (await (await server.get(`/api/pages/${pageId}/conversations`)).json()) as { id: string }[];
+    return first ? ((await (await server.get(`/api/conversations/${first.id}`)).json()) as Detail) : null;
+  };
+  await expect.poll(async () => (await firstConversation())?.messages.length).toBe(1);
+  const detail = (await firstConversation())!;
+  const { author, body } = detail.messages[0]!;
+  expect(author).toBe("user");
+  expect(body).toContain("story-2.html");
+  expect(body).toContain("Couleur en dur #FF6B00 sur un bouton");
+  expect(body).toContain("--color-highlight");
+  expect(body).not.toContain("Arial");
+  expect(body).toContain("data-ds-libre");
+  await tab.getByTestId("conversations").getByText("Couleur en dur #FF6B00 sur un bouton").first().waitFor();
+}, 60_000);

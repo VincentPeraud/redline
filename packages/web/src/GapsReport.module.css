@@ -74,10 +74,6 @@
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
-.row:last-child {
-  border-bottom: none;
-}
-
 .rowTop {
   display: flex;
   align-items: center;
@@ -126,4 +122,22 @@
 
 .codeLarge {
   font-size: var(--font-size-xs);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 12px 14px;
+}
+
+.hidden {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.ask {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
 }

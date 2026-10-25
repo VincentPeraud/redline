@@ -61,3 +61,22 @@ export function gapSuggestion(gap: Gap): Piece[] | null {
 }
 
 export const gapCountLabel = (count: number) => `${count} ${count === 1 ? "écart" : "écarts"}`;
+
+export const exceptionCountLabel = (count: number) => `${count} ${count === 1 ? "exception voulue masquée" : "exceptions voulues masquées"}`;
+
+const plain = (pieces: Piece[]) => pieces.map((piece) => (typeof piece === "string" ? piece : piece.code)).join("");
+
+/** The message "Demander à Claude de corriger" posts: one line per visible gap, with its suggestion. */
+export function fixGapsMessage(designSystemTitle: string, gaps: readonly Gap[]): string {
+  const lines = gaps.map((gap) => {
+    const suggestion = gapSuggestion(gap);
+    return `- ${gap.file} : ${plain(gapSummary(gap))}${suggestion ? ` (${plain(suggestion)})` : ""}`;
+  });
+  return [
+    `Corrige ces ${gapCountLabel(gaps.length)} au design system ${designSystemTitle} : utilise les tokens et les composants à la place des valeurs en dur.`,
+    "",
+    ...lines,
+    "",
+    "Si un écart est voulu pour une illustration ponctuelle, laisse-le et marque l'élément avec l'attribut data-ds-libre.",
+  ].join("\n");
+}

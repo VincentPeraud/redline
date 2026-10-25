@@ -186,14 +186,15 @@ export function versionRequestError(body: Partial<CreateVersionRequest> | undefi
 
 /** Error message when a request body is not valid page view settings, else null. */
 export function viewSettingsError(body: unknown): string | null {
-  const { hiddenFormats, renderingOverrides } = (body ?? {}) as Partial<Record<keyof PageViewSettings, unknown>>;
+  const { hiddenFormats, renderingOverrides, gapExceptions } = (body ?? {}) as Partial<Record<keyof PageViewSettings, unknown>>;
   if (!Array.isArray(hiddenFormats) || !hiddenFormats.every((format) => typeof format === "string" && Object.hasOwn(RESPONSIVE_FORMATS, format))) {
     return "hiddenFormats must be a list of responsive formats";
   }
   const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
   if (!isRecord(renderingOverrides)) return "renderingOverrides must be an object";
   const valid = Object.values(renderingOverrides).every((byKey) => isRecord(byKey) && Object.values(byKey).every((shown) => typeof shown === "boolean"));
-  return valid ? null : "renderingOverrides must map artboard files to rendering keys to booleans";
+  if (!valid) return "renderingOverrides must map artboard files to rendering keys to booleans";
+  return Array.isArray(gapExceptions) && gapExceptions.every((key) => typeof key === "string") ? null : "gapExceptions must be a list of gap keys";
 }
 
 /** Error message when a thread's rendering (format and viewport width) is malformed, else null. */
