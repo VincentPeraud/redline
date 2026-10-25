@@ -10,7 +10,7 @@ export type Route =
   | { name: "project"; projectId: string }
   | { name: "designMd"; projectId: string }
   | { name: "projectDesignSystem"; projectId: string }
-  | { name: "page"; pageId: string; artboard?: string; play?: string; renderingParam?: string };
+  | { name: "page"; pageId: string; artboard?: string; play?: string; renderingParam?: string; previewOf?: string };
 
 export type PageRoute = Extract<Route, { name: "page" }>;
 
@@ -21,6 +21,9 @@ export const playRoute = (pageId: string, file: string, renderingParam?: string)
   play: file,
   ...(renderingParam === undefined ? {} : { renderingParam }),
 });
+
+/** `?apercu=<design system id>` on a page address: the page is shown read-only with that design system's draft (nothing stored). */
+const PREVIEW_PARAM = "apercu";
 
 export function parseRoute(hash: string): Route {
   const [path = "", query = ""] = hash.split("?", 2);
@@ -37,7 +40,10 @@ export function parseRoute(hash: string): Route {
     const renderingParam = new URLSearchParams(query).get("rendu");
     return playRoute(id, subId, renderingParam ?? undefined);
   }
-  if (section === "pages" && id) return { name: "page", pageId: id };
+  if (section === "pages" && id) {
+    const previewOf = new URLSearchParams(query).get(PREVIEW_PARAM);
+    return { name: "page", pageId: id, ...(previewOf === null ? {} : { previewOf }) };
+  }
   return { name: "home" };
 }
 
@@ -61,6 +67,7 @@ export function routeHref(route: Route): string {
       return `#/projects/${encodeURIComponent(route.projectId)}/design-system`;
     case "page": {
       if (route.play !== undefined) return `${playHash(route.pageId, route.play)}${route.renderingParam === undefined ? "" : `?rendu=${encodeURIComponent(route.renderingParam)}`}`;
+      if (route.previewOf !== undefined) return `${pageHash(route.pageId)}?${PREVIEW_PARAM}=${encodeURIComponent(route.previewOf)}`;
       return route.artboard === undefined ? pageHash(route.pageId) : artboardHash(route.pageId, route.artboard);
     }
   }

@@ -43,9 +43,11 @@ interface PageMenuProps {
   deleted: DeletedArtboard[];
   onPutBack: (item: DeletedArtboard) => Promise<void>;
   onRenamePage: (title: string) => Promise<void>;
+  /** Design system whose draft the page is previewed with: the menu keeps the preview from page to page and offers no edit. */
+  previewOf?: string;
 }
 
-function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBack, onRenamePage }: PageMenuProps) {
+function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBack, onRenamePage, previewOf }: PageMenuProps) {
   const [open, setOpen] = useState(false);
   const [deletedOpen, setDeletedOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -122,7 +124,7 @@ function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBa
             ▼
           </span>
         </button>
-        <RenamePencil label="Renommer la page" size="bare" onClick={() => setRenaming(true)} />
+        {previewOf === undefined && <RenamePencil label="Renommer la page" size="bare" onClick={() => setRenaming(true)} />}
       </div>
       {deletedOpen && (
         <DeletedArtboardsList
@@ -144,7 +146,7 @@ function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBa
             <a
               key={page.id}
               role="menuitem"
-              href={routeHref({ name: "page", pageId: page.id })}
+              href={routeHref({ name: "page", pageId: page.id, ...(previewOf === undefined ? {} : { previewOf }) })}
               className={cx(styles.menuItem, page.id === pageId && styles.menuItemCurrent)}
               onClick={() => setOpen(false)}
             >
@@ -196,10 +198,12 @@ interface Props {
   onPutBack: (item: DeletedArtboard) => Promise<void>;
   onRenamePage: (title: string) => Promise<void>;
   toc: { items: TocItem[]; currentFile?: string; onSelect: (file: string) => void };
+  /** Design system whose draft the page is previewed with: the header is then read-only (no comment mode, no agent, no diffusion). */
+  previewOf?: string;
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc }: Props) {
+export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, previewOf }: Props) {
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -208,9 +212,13 @@ export function CanvasHeader({ project, designSystemId, versionId, pageId, pageT
       <nav aria-label="Fil d'Ariane" className={styles.crumbs}>
         {project && (
           <>
-            <a href={routeHref({ name: "project", projectId: project.id })} className={styles.crumbLink}>
-              {project.title}
-            </a>
+            {previewOf === undefined ? (
+              <a href={routeHref({ name: "project", projectId: project.id })} className={styles.crumbLink}>
+                {project.title}
+              </a>
+            ) : (
+              <span>{project.title}</span>
+            )}
             <span aria-hidden="true">/</span>
           </>
         )}
@@ -222,20 +230,27 @@ export function CanvasHeader({ project, designSystemId, versionId, pageId, pageT
           deleted={deleted}
           onPutBack={onPutBack}
           onRenamePage={onRenamePage}
+          previewOf={previewOf}
         />
       </nav>
-      <TocMenu {...toc} />
+      {previewOf === undefined && <TocMenu {...toc} />}
       <div className={styles.spacer} />
-      <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />
-      <AgentPill project={project} running={runningCount} />
-      <div role="group" aria-label="Mode du canvas" className={styles.modes}>
-        <button type="button" aria-pressed={!picking} className={cx(styles.mode, !picking && styles.modeInteract)} onClick={() => onPickingChange(false)}>
-          Interagir (P)
-        </button>
-        <button type="button" aria-pressed={picking} className={cx(styles.mode, picking && styles.modeComment)} onClick={() => onPickingChange(true)}>
-          Commenter (C)
-        </button>
-      </div>
+      {previewOf !== undefined ? (
+        <div className={styles.previewNote}>Commentaires et conversations désactivés pendant l'aperçu</div>
+      ) : (
+        <>
+          <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />
+          <AgentPill project={project} running={runningCount} />
+          <div role="group" aria-label="Mode du canvas" className={styles.modes}>
+            <button type="button" aria-pressed={!picking} className={cx(styles.mode, !picking && styles.modeInteract)} onClick={() => onPickingChange(false)}>
+              Interagir (P)
+            </button>
+            <button type="button" aria-pressed={picking} className={cx(styles.mode, picking && styles.modeComment)} onClick={() => onPickingChange(true)}>
+              Commenter (C)
+            </button>
+          </div>
+        </>
+      )}
     </header>
   );
 }

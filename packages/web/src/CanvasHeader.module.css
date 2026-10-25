@@ -207,3 +207,8 @@
   color: var(--color-text-inverse);
   font-weight: var(--font-weight-semibold);
 }
+
+.previewNote {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

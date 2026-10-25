@@ -518,8 +518,9 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"]), req.params.versionId),
   );
 
-  app.get<{ Params: { pageId: string; "*": string } }>("/pages/:pageId/*", async (req, reply) =>
-    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readPageFile(req.params.pageId, req.params["*"])),
+  // `?preview=draft`: the viewer's preview of a project with the design system draft; it is the same call without a diffusion number.
+  app.get<{ Params: { pageId: string; "*": string }; Querystring: { preview?: string } }>("/pages/:pageId/*", async (req, reply) =>
+    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readPageFile(req.params.pageId, req.params["*"]), undefined, req.query.preview === "draft"),
   );
 
   /** The page's project when it has a project style (every project but a design system's own). */
@@ -540,7 +541,7 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     return store.currentDiffusion(renderedDesignSystemOf(pageId))?.number;
   }
 
-  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, versionId?: string) {
+  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, versionId?: string, draftPreview = false) {
     const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, pageId, path.slice("assets/".length)) : undefined);
     if (!asset) return reply.code(404).send("not found");
     // Artboards are opaque-origin, so fonts of the project assets need CORS to load.
@@ -550,7 +551,7 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[extname(path)] ?? "application/octet-stream")
-      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), renderedDesignSystemOf(pageId, versionId), projectStyleProjectOf(pageId), diffusionOf(pageId, versionId))) : content);
+      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), renderedDesignSystemOf(pageId, versionId), projectStyleProjectOf(pageId), draftPreview ? undefined : diffusionOf(pageId, versionId))) : content);
   }
 
   return app;

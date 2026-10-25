@@ -95,3 +95,6 @@ export const diffusionFileUrlPath = (designSystemId: string, diffusion: number, 
  */
 export const componentPreviewUrlPath = (designSystemId: string, name: string, diffusion?: number) =>
   `/design-systems/${encodeURIComponent(designSystemId)}/component-previews/${encodeURIComponent(name)}${diffusion === undefined ? "" : `?diffusion=${diffusion}`}`;
+
+/** Query on an artboard URL asking for the design system draft instead of the current diffusion (the viewer's preview, nothing stored). */
+export const DRAFT_PREVIEW_QUERY = "preview=draft";
