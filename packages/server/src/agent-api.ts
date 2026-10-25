@@ -8,10 +8,12 @@ import {
   type AgentReplyRequest,
   type CreateSiblingRequest,
   type CreateVersionRequest,
+  type MoveArtboardRequest,
   type DesignMdAuthor,
   starterPageFiles,
 } from "@redline/shared";
 import { mergeOntoCurrent } from "./publish.js";
+import { moveArtboard } from "./move-artboard.js";
 import { tokensEqual } from "./request-hardening.js";
 import { versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
@@ -147,6 +149,17 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const created = store.createPage(page.projectId, name, starterPageFiles(name, designSystem), "claude");
         if (workOrigin(store, pageLock, workId, page.id)) store.recordCreatedPage(workId!, created.id);
         return reply.code(201).send(created);
+      });
+
+      api.post<{ Params: { pageId: string }; Body: Partial<MoveArtboardRequest> }>("/pages/:pageId/move-artboard", async (req, reply) => {
+        const { workId } = req.body ?? {};
+        const from = workOrigin(store, pageLock, workId, req.params.pageId);
+        const outcome = moveArtboard(store, pageLock, req.params.pageId, req.body, {
+          origin: from?.kind ?? "terminal",
+          ref: from && { originId: from.originId, originLabel: from.originLabel },
+          exceptWorkId: from ? workId : undefined,
+        });
+        return reply.code(outcome.status).send(outcome.body);
       });
 
       api.post<{ Params: { threadId: string }; Body: AgentReplyRequest }>("/threads/:threadId/replies", async (req, reply) => {

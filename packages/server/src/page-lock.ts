@@ -230,6 +230,12 @@ export class PageLock {
     return { running, waiting };
   }
 
+  /** Whether a work item other than `exceptWorkId` is running on the page (a session, or terminal mode publishing). */
+  isHeldByOther(pageId: string, exceptWorkId?: string): boolean {
+    for (const [workId, held] of this.active) if (held.queued.item.pageId === pageId && workId !== exceptWorkId) return true;
+    return false;
+  }
+
   private isPageLocked(pageId: string): boolean {
     for (const held of this.active.values()) if (held.queued.item.pageId === pageId) return true;
     return false;

@@ -663,6 +663,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       </button>
                     </Tooltip>
                     <ArtboardMoreMenu
+                      pageId={pageId}
                       file={artboard.file}
                       open={moreOpenFor === artboard.file}
                       onOpenChange={(open) => setMoreOpenFor(open ? artboard.file : null)}

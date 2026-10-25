@@ -160,6 +160,17 @@ export interface RestoreArtboardResponse {
   previousVersionId: string;
 }
 
+/** Body of `POST /api/pages/:pageId/move-artboard` (and of the agent API's twin): move `file` to another page of the project, or to a new page. */
+export type MoveArtboardRequest = { file: string; /** Agent API: the run whose own page lock may be passed. */ workId?: string } & ({ targetPageId: string } | { newPageTitle: string });
+
+export interface MoveArtboardResponse {
+  /** The page the artboard landed on (just created when the request had `newPageTitle`). */
+  targetPage: Page;
+  /** The version each page got. */
+  sourceVersion: PageVersionSummary;
+  targetVersion: PageVersionSummary;
+}
+
 export interface PageVersion {
   id: string;
   /** Maps each file path of the page to the content hash of its blob. */

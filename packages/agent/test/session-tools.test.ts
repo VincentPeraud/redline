@@ -26,7 +26,7 @@ describe("session MCP tools", () => {
   it("offers add_artboard, create_page and read_guide", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing" }]);
     await runOnce(engine);
-    expect(engine.runs[0].mcpTools).toEqual(expect.arrayContaining(["add_artboard", "create_page", "read_guide"]));
+    expect(engine.runs[0].mcpTools).toEqual(expect.arrayContaining(["add_artboard", "create_page", "move_artboard", "read_guide"]));
   });
 
   it("add_artboard writes the HTML and its manifest entry, published with the run", async () => {
@@ -111,6 +111,67 @@ describe("session MCP tools", () => {
     expect(created?.createdBy).toBe("claude");
     expect(Object.keys(created!.version.files).sort()).toEqual(["manifest.json"]);
     expect(answer).toContain(created!.id);
+  });
+
+  describe("move_artboard", () => {
+    const TWO_ARTBOARDS = {
+      "home.html": "<!doctype html><h1>Home</h1>",
+      "btn.html": "<button>Ok</button>",
+      "manifest.json": JSON.stringify({
+        artboards: [
+          { file: "home.html", width: 400, height: 300, x: 0, y: 0 },
+          { file: "btn.html", width: 200, height: 100, x: 500, y: 0 },
+        ],
+      }),
+    };
+    async function runOn(engine: FakeEngine) {
+      seam = await startSeam2(engine);
+      const page = await seam.createPage(TWO_ARTBOARDS);
+      await seam.pinThread(page.id, "home.html", "Split the page");
+      await engine.finished(1);
+      await seam.waitForWorkEnd();
+      return page;
+    }
+    const pagesOf = async () => (await (await seam!.server.get(`/api/projects/${seam!.project.id}/pages`)).json()) as Page[];
+
+    it("moves an artboard to a new page from inside a run, and answers with the page id", async () => {
+      let answer = "";
+      const engine = new FakeEngine(async (run) => {
+        answer = await run.callTool("move_artboard", { file: "btn.html", newPageTitle: "Boutons" });
+        return [{ type: "result", summary: "Moved" }];
+      });
+      const page = await runOn(engine);
+      const boutons = (await pagesOf()).find((p) => p.title === "Boutons")!;
+
+      expect(answer).toContain(boutons.id);
+      expect(Object.keys(boutons.version.files).sort()).toEqual(["btn.html", "manifest.json"]);
+      const source = (await pagesOf()).find((p) => p.id === page.id)!;
+      expect(Object.keys(source.version.files).sort()).toEqual(["home.html", "manifest.json"]);
+      const sourceVersions = await seam!.versions(page.id);
+      expect(sourceVersions.map((v) => v.message)).toEqual(["btn.html déplacé vers Boutons", "Page created"]);
+    });
+
+    it("tells Claude why a move is refused", async () => {
+      let answer = "";
+      const engine = new FakeEngine(async (run) => {
+        answer = await run.callTool("move_artboard", { file: "nope.html", newPageTitle: "Boutons" });
+        return [{ type: "result", summary: "Nothing" }];
+      });
+      await runOn(engine);
+      expect(answer).toMatch(/not an artboard/);
+    });
+
+    it("does not make the run's own publish bring the artboard back", async () => {
+      const engine = new FakeEngine(async (run) => {
+        await run.callTool("move_artboard", { file: "btn.html", newPageTitle: "Boutons" });
+        await run.callTool("add_artboard", { file: "extra.html", html: "<p>extra</p>" });
+        return [{ type: "result", summary: "Moved and added" }];
+      });
+      const page = await runOn(engine);
+      const source = (await pagesOf()).find((p) => p.id === page.id)!;
+      expect(Object.keys(source.version.files).sort()).toEqual(["extra.html", "home.html", "manifest.json"]);
+      expect(parseManifest(await seam!.readFile(page.id, "manifest.json")).artboards.map((a) => a.file).sort()).toEqual(["extra.html", "home.html"]);
+    });
   });
 
   it("read_guide returns the manifest, tweaks, assets and design system rules", async () => {
