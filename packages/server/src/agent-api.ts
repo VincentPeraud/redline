@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import {
   AGENT_API_PREFIX,
   DESIGN_MD_PATH,
+  DESIGN_SYSTEM_TOKENS_PATH,
   PROJECT_STYLE_PATH,
   MAX_ASSET_BYTES,
   type AgentCheckout,
@@ -18,6 +19,7 @@ import { mergeOntoCurrent } from "./publish.js";
 import { moveArtboard } from "./move-artboard.js";
 import { tokensEqual } from "./request-hardening.js";
 import { versionComponentsError } from "./components.js";
+import { removalsError } from "./removals.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
 import { requiredString, titleError, tokensError, versionRequestError } from "./validation.js";
 import { projectContext, putProjectAsset } from "./project-files.js";
@@ -140,6 +142,8 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           // On a design system's own project this file is the design system's tokens: the core tokens must stay.
           const invalidStyle = styleChanged && store.isDesignSystemProject(projectId) ? tokensError(projectStyle.content) : null;
           if (invalidStyle) return reply.code(400).send({ error: invalidStyle });
+          const invalidRemoval = removalsError(store, req.params.pageId, result.files, styleChanged && store.isDesignSystemProject(projectId) ? projectStyle.content : result.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true);
+          if (invalidRemoval) return reply.code(400).send({ error: invalidRemoval });
           const from = workOrigin(store, pageLock, workId, req.params.pageId);
           const ref: OriginRef | undefined = from && { originId: from.originId, originLabel: from.originLabel };
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });

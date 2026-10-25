@@ -44,6 +44,7 @@ import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRou
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
+import { removalsError } from "./removals.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
 import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
@@ -425,7 +426,7 @@ export async function buildMainApp(
     "/api/pages/:pageId/versions",
     async (req, reply) => {
       if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-      const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files);
+      const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files) ?? removalsError(store, req.params.pageId, req.body.files, req.body.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true);
       if (invalid) return reply.code(400).send({ error: invalid });
       const { files, message, origin } = req.body;
       return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));

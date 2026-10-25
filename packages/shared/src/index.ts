@@ -105,6 +105,11 @@ export interface CreateVersionRequest {
   designMd?: { content: string; base: string };
   /** `/agent-api` only: the project style `tokens.css` of the working copy, sent when the session changed it; same `base` rule as `designMd`. */
   projectStyle?: { content: string; base: string };
+  /**
+   * Design system pages only: removing a token or a component that pages of a using project still reference is refused with the list
+   * of pages, unless this is true (Claude asks the user first).
+   */
+  confirmRemovals?: boolean;
 }
 
 // Per-artboard history (decision 3 of 2026-10-22). Storage is the page versions; these are derived views.

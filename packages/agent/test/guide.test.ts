@@ -72,6 +72,12 @@ it("explains overrides, deprecated aliases and the publish hint", () => {
   expect(REDLINE_GUIDE).toContain("Hint:");
 });
 
+it("tells Claude that a removal in use is refused until the user agrees and confirm_removals is called", () => {
+  expect(REDLINE_GUIDE).toContain("is refused at publish");
+  expect(REDLINE_GUIDE).not.toContain("may be refused");
+  expect(REDLINE_GUIDE).toContain("confirm_removals");
+});
+
 it("explains how to recreate a Claude Design design system and the terminal tools", () => {
   expect(REDLINE_GUIDE).toContain("## Recreating a Claude Design design system");
   expect(REDLINE_GUIDE).toContain("README");
