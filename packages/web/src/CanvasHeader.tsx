@@ -206,11 +206,12 @@ interface Props {
   gapExceptionCount: number;
   onSeeGap: (gap: Gap) => void;
   onGapException: (gap: Gap) => void;
+  onShowGapExceptions: () => void;
   onAskFixGaps: () => void;
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onAskFixGaps, previewOf }: Props) {
+export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, previewOf }: Props) {
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -242,7 +243,7 @@ export function CanvasHeader({ project, designSystemId, versionId, pageId, pageT
       </nav>
       {previewOf === undefined && (
         <>
-          <GapsButton report={gaps} exceptionCount={gapExceptionCount} onSee={onSeeGap} onException={onGapException} onAsk={onAskFixGaps} />
+          <GapsButton report={gaps} exceptionCount={gapExceptionCount} onSee={onSeeGap} onException={onGapException} onAsk={onAskFixGaps} onShowExceptions={onShowGapExceptions} />
           <TocMenu {...toc} />
         </>
       )}

@@ -61,7 +61,7 @@ import { RenderingChips, RenderingsMenu } from "./RenderingControls.js";
 import { PageTweaksContext } from "./RenderingChip.js";
 import { hiddenRenderingKeys, hiddenThreadCounts, setFormatShown, toggleRendering } from "./viewSettings.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
-import { ConversationsPanel } from "./ConversationsPanel.js";
+import { ConversationsPanel, type FocusedConversation } from "./ConversationsPanel.js";
 import type { AgentDefaults, ModelEffortChoice } from "./ModelEffortControls.js";
 import { PlayMode } from "./PlayMode.js";
 import { addChip, marksFor, removeChip } from "./elementChips.js";
@@ -185,6 +185,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
   const [historyOpenFor, setHistoryOpenFor] = useState<string | null>(null);
   /** An old version shown in place of one artboard, read-only, until restored or cancelled. */
   const [preview, setPreview] = useState<{ file: string; versionId: string } | null>(null);
+  /** The conversation the panel must show, set when something posts a message in it from outside the panel. */
+  const [focusedConversation, setFocusedConversation] = useState<FocusedConversation | null>(null);
   const [toast, setToast] = useState<{ message: string; undo: () => Promise<void> } | null>(null);
   const deleted = useDeletedArtboards(pageId, versionId);
   /** The gap "Voir" points at: its artboard outlines the element. */
@@ -503,7 +505,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
   async function askClaudeToFixGaps() {
     if (!gapReport) return;
     setTab("conversation");
-    await postInPageConversation(pageId, fixGapsMessage(gapReport.designSystemTitle, gapReport.gaps));
+    const conversationId = await postInPageConversation(pageId, fixGapsMessage(gapReport.designSystemTitle, gapReport.gaps));
+    setFocusedConversation({ id: conversationId, nonce: Date.now() });
   }
 
   function centerOnSeenGap(rect: { x: number; y: number; width: number; height: number }) {
@@ -547,6 +550,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
         gapExceptionCount={gapExceptionCount}
         onSeeGap={seeGap}
         onGapException={(gap) => changeViewSettings({ ...viewSettings, gapExceptions: [...viewSettings.gapExceptions, gap.key] })}
+        onShowGapExceptions={() => changeViewSettings({ ...viewSettings, gapExceptions: [] })}
         onAskFixGaps={() => void askClaudeToFixGaps()}
       />
       <div className={styles.body}>
@@ -926,7 +930,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
             </button>
           </div>
           {tab === "conversation" ? (
-            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} versionId={versionId} artboardCount={manifest?.artboards.length ?? 0} artboards={artboardTitles} onCenterArtboard={centerOnArtboard} onMissingArtboard={setMissingArtboard} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults}
+            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} versionId={versionId} artboardCount={manifest?.artboards.length ?? 0} artboards={artboardTitles} onCenterArtboard={centerOnArtboard} onMissingArtboard={setMissingArtboard} focusedConversation={focusedConversation} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults}
               chips={chips}
               selecting={selecting}
               onSelectingChange={changeSelecting}
