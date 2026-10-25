@@ -23,6 +23,7 @@ import {
   StatusBadge,
   Table,
   TextInput,
+  Tooltip,
   Textarea,
   cx,
   type TableColumn,
@@ -194,9 +195,11 @@ export function SessionsScreen() {
               </StatusBadge>
               <SessionStatusBadge status={detail.status} size="sm" />
               <span className={styles.spacer} />
-              <button type="button" className={styles.close} aria-label="Fermer le panneau" onClick={() => setOpenId(null)}>
-                ×
-              </button>
+              <Tooltip label="Fermer le panneau">
+                <button type="button" className={styles.close} aria-label="Fermer le panneau" onClick={() => setOpenId(null)}>
+                  ×
+                </button>
+              </Tooltip>
             </div>
             <h2 className={styles.title}>{detail.name}</h2>
             <div className={styles.where}>

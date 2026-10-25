@@ -20,3 +20,5 @@ export { SESSION_STATUS_LABEL, SESSION_STATUS_TONE, SessionStatusBadge, StatusBa
 export type { BadgeTone, StatusBadgeProps } from "./StatusBadge.js";
 export { Table } from "./Table.js";
 export type { TableColumn, TableProps } from "./Table.js";
+export { Tooltip } from "./Tooltip.js";
+export type { TooltipProps } from "./Tooltip.js";

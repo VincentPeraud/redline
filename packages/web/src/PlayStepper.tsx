@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { TocList } from "./TocList.js";
 import type { TocItem } from "./tocItems.js";
 import { useCloseOnOutsidePointer } from "./useCloseOnOutsidePointer.js";
-import { cx } from "./ui/index.js";
+import { Tooltip, cx } from "./ui/index.js";
 import styles from "./PlayMode.module.css";
 
 type Variant = "header" | "phone";
@@ -21,9 +21,7 @@ interface Props {
 const VARIANTS = {
   header: {
     previousLabel: "Artboard précédent (←)",
-    previousTitle: "Artboard précédent (←)",
     nextLabel: "Artboard suivant (→)",
-    nextTitle: "Artboard suivant (→)",
     counterTitle: "Sommaire",
     step: styles.step,
     counterWrap: styles.counterWrap,
@@ -34,9 +32,7 @@ const VARIANTS = {
   },
   phone: {
     previousLabel: "Artboard précédent",
-    previousTitle: undefined,
     nextLabel: "Artboard suivant",
-    nextTitle: undefined,
     counterTitle: undefined,
     step: styles.mobileStep,
     counterWrap: styles.mobileCounterWrap,
@@ -63,11 +59,13 @@ export function PlayStepper({ variant, tocItems, current, menuOpen, onMenuOpenCh
 
   return (
     <>
-      <button type="button" aria-label={v.previousLabel} title={v.previousTitle} disabled={position <= 0} onClick={() => goBy(-1)} className={v.step}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M15 6l-6 6 6 6" />
-        </svg>
-      </button>
+      <Tooltip label={v.previousLabel}>
+        <button type="button" aria-label={v.previousLabel} disabled={position <= 0} onClick={() => goBy(-1)} className={v.step}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
+        </button>
+      </Tooltip>
       <span ref={menuRoot} className={v.counterWrap}>
         <button
           type="button"
@@ -100,11 +98,13 @@ export function PlayStepper({ variant, tocItems, current, menuOpen, onMenuOpenCh
           </div>
         )}
       </span>
-      <button type="button" aria-label={v.nextLabel} title={v.nextTitle} disabled={position < 0 || position >= tocItems.length - 1} onClick={() => goBy(1)} className={v.step}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M9 6l6 6-6 6" />
-        </svg>
-      </button>
+      <Tooltip label={v.nextLabel}>
+        <button type="button" aria-label={v.nextLabel} disabled={position < 0 || position >= tocItems.length - 1} onClick={() => goBy(1)} className={v.step}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M9 6l6 6-6 6" />
+          </svg>
+        </button>
+      </Tooltip>
     </>
   );
 }
