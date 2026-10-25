@@ -96,6 +96,38 @@ describe("changing a project's design system and promoting its style", () => {
     expect(await artboard(page)).toContain(`/design-systems/${ds.id}/diffusions/1/tokens.css`);
   });
 
+  it("promotes a component with its manifest entry, group title, variants and assets", async () => {
+    const project = await createProject();
+    const withAsset = `<!doctype html><html><head><style data-component>.s{background:url(assets/dot.png)}</style></head><body><img src="assets/logo.svg"></body></html>`;
+    const manifest = {
+      artboards: [
+        { file: "a.html", x: 0, y: 0, width: 200, height: 100 },
+        { file: "components/sticker.html", title: "Sticker", x: 40, y: 500, width: 320, height: 240 },
+      ],
+      elements: [
+        { kind: "title", text: "Stickers", x: 40, y: 440, width: 600 },
+        { kind: "title", text: "Unrelated", x: 40, y: 900, width: 600 },
+      ],
+      tweaks: [
+        { id: "tone", type: "choice", label: "Tone", options: ["warm", "cold"], artboard: "components/sticker.html" },
+        { id: "other", type: "toggle", label: "Other", artboard: "a.html" },
+      ],
+    };
+    await createPage(project, { "a.html": html, "components/sticker.html": withAsset, "manifest.json": JSON.stringify(manifest) });
+    for (const name of ["dot.png", "logo.svg", "unused.png"]) await fetch(`${server.url}/api/projects/${project.id}/assets/${name}`, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: name });
+
+    const ds = (await (await promote(project.id, { title: "Halloween DS" })).json()) as DesignSystem;
+
+    const files = async (path: string) => await (await server.get(`/api/pages/${ds.pageId}/files/${path}`)).text();
+    const copied = JSON.parse(await files("manifest.json")) as { artboards: { file: string; title?: string; width: number; height: number }[]; elements: { text: string }[]; tweaks: { id: string }[] };
+    expect(copied.artboards.find((a) => a.file === "components/sticker.html")).toMatchObject({ title: "Sticker", width: 320, height: 240 });
+    expect(copied.artboards.some((a) => a.file === "a.html")).toBe(false);
+    expect(copied.elements.map((e) => e.text)).toEqual(["Stickers"]);
+    expect(copied.tweaks.map((t) => t.id)).toEqual(["tone"]);
+    const assets = (await (await server.get(`/api/projects/${ds.id}/assets`)).json()) as { name: string }[];
+    expect(assets.map((a) => a.name).sort()).toEqual(["dot.png", "logo.svg"]);
+  });
+
   it("refuses to promote a project that follows a shared design system, a missing title, or an unknown project", async () => {
     const ds = await createDesignSystem();
     const following = await createProject(ds.id);

@@ -1,13 +1,21 @@
 import type { FastifyInstance } from "fastify";
 import {
+  ASSETS_DIR,
   CORE_TOKENS,
   DESIGN_SYSTEM_TOKENS_PATH,
+  MANIFEST_PATH,
   NEUTRAL_TOKENS_PAGE_HTML,
   PROJECT_STYLE_PATH,
+  componentNameOf,
+  defaultManifest,
+  parseManifest,
   parseTokens,
   removeToken,
   setToken,
   tokenValueError,
+  type ManifestArtboard,
+  type ManifestElement,
+  type ManifestTweak,
   type ProjectComponentInfo,
   type ProjectDesignSystem,
   type ProjectStyleToken,
@@ -68,6 +76,51 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
   };
 }
 
+const PREVIEW_ARTBOARD = { file: "index.html", x: 0, y: 0, width: 280, height: 200 };
+const PAGE_GAP = 100;
+const ASSET_REFERENCE = /\bassets\/([A-Za-z0-9._\/-]+)/g;
+
+/**
+ * The manifest of a design system made from a project's components: each component keeps its artboard entry, its tweaks (the variants)
+ * and the title above it on its page; the source pages are stacked under the preview artboard so nothing overlaps.
+ */
+function promotedManifest(store: Store, projectId: string): { artboards: ManifestArtboard[]; elements: ManifestElement[]; tweaks: ManifestTweak[] } {
+  const artboards: ManifestArtboard[] = [PREVIEW_ARTBOARD];
+  const elements: ManifestElement[] = [];
+  const tweaks: ManifestTweak[] = [];
+  let nextY = PREVIEW_ARTBOARD.y + PREVIEW_ARTBOARD.height + PAGE_GAP;
+  for (const page of store.listPages(projectId)) {
+    const files = store.readPageFiles(page.id)?.files ?? {};
+    const manifest = files[MANIFEST_PATH] === undefined ? defaultManifest(Object.keys(files)) : parseManifest(files[MANIFEST_PATH]);
+    const mine = manifest.artboards.filter((a) => componentNameOf(a.file) !== null && files[a.file] !== undefined);
+    if (mine.length === 0) continue;
+    const titles = new Set<ManifestElement>();
+    for (const artboard of mine) {
+      const above = manifest.elements.filter((e) => e.kind === "title" && e.y <= artboard.y).sort((a, b) => b.y - a.y)[0];
+      if (above) titles.add(above);
+    }
+    const top = Math.min(...mine.map((a) => a.y), ...[...titles].map((t) => t.y));
+    const shift = nextY - top;
+    artboards.push(...mine.map((a) => ({ ...a, y: a.y + shift })));
+    elements.push(...[...titles].map((t) => ({ ...t, y: t.y + shift })));
+    tweaks.push(...manifest.tweaks.filter((t) => t.artboard !== undefined && mine.some((a) => a.file === t.artboard)));
+    nextY = Math.max(...mine.map((a) => a.y + shift + a.height)) + PAGE_GAP;
+  }
+  return { artboards, elements, tweaks };
+}
+
+/** Project assets the given component files reference, by asset name. */
+function assetsUsedBy(store: Store, projectId: string, components: Record<string, string>): Record<string, Buffer> {
+  const assets: Record<string, Buffer> = {};
+  for (const content of Object.values(components)) {
+    for (const [, name] of content.matchAll(ASSET_REFERENCE)) {
+      const asset = store.readProjectFile(projectId, `${ASSETS_DIR}/${name}`);
+      if (asset) assets[name] = asset;
+    }
+  }
+  return assets;
+}
+
 export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: Store): void {
   const hasProjectStyle = (projectId: string) => store.projectExists(projectId) && !store.isDesignSystemProject(projectId);
   const styleOf = (projectId: string) => store.readProjectFile(projectId, PROJECT_STYLE_PATH)?.toString("utf8") ?? "";
@@ -97,14 +150,14 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     const title = req.body?.title;
     if (titleError(title)) return reply.code(400).send({ error: titleError(title) });
     const components = componentFilesOf(store, projectId);
-    const preview = "index.html";
-    const manifest = { artboards: [preview, ...Object.keys(components)].map((file, i) => ({ file, x: i * 300, y: 0, width: 280, height: 200 })) };
+    const manifest = promotedManifest(store, projectId);
     const designSystem = store.createDesignSystem((title as string).trim(), {
       [DESIGN_SYSTEM_TOKENS_PATH]: styleOf(projectId),
-      [preview]: NEUTRAL_TOKENS_PAGE_HTML,
+      [PREVIEW_ARTBOARD.file]: NEUTRAL_TOKENS_PAGE_HTML,
       ...components,
-      "manifest.json": `${JSON.stringify(manifest, null, 2)}\n`,
+      [MANIFEST_PATH]: `${JSON.stringify(manifest, null, 2)}\n`,
     });
+    for (const [name, asset] of Object.entries(assetsUsedBy(store, projectId, components))) store.setProjectFile(designSystem.id, `${ASSETS_DIR}/${name}`, asset);
     save(projectId, "");
     store.setProjectDesignSystem(projectId, designSystem.id, "user");
     return reply.code(201).send(designSystem);
