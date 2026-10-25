@@ -37,6 +37,10 @@ _Avoid_: Base variables, required tokens
 A setting declared on a page (color, choice, toggle, range, count, text) whose chosen value is part of the design.
 _Avoid_: Variant, option, control
 
+**Tweak grid**:
+An artboard rendered once per combination of up to three of its tweaks (rows, columns, blocks), drawn as one labelled frame.
+_Avoid_: Matrix (the manifest key only), variant sheet
+
 **Version**:
 A saved state of a page's files, created each time a session publishes; any version can be restored.
 _Avoid_: Commit, revision, snapshot

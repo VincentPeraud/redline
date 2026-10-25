@@ -1,10 +1,12 @@
 import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply, WorkItem } from "./work.js";
+import { tweakGridError, type TweakGridDeclaration } from "./tweakGrid.js";
 
 export * from "./work.js";
 export * from "./sessions.js";
 export * from "./home.js";
 export * from "./readingOrder.js";
 export * from "./responsiveLayout.js";
+export * from "./tweakGrid.js";
 export * from "./addresses.js";
 
 export const PROTOCOL_VERSION = 1;
@@ -389,6 +391,8 @@ export interface ManifestArtboard {
   guides?: ArtboardGuides;
   /** One HTML file rendered at several widths, side by side in one frame; `frame` is ignored. `width`/`height` then describe the frame with the declared heights. */
   responsive?: ArtboardRendering[];
+  /** Tweak grid: the file rendered once per combination of up to three of its tweaks. `width`/`height` are the size of one cell. */
+  matrix?: TweakGridDeclaration;
 }
 
 export const DEFAULT_TITLE_WIDTH = 1200;
@@ -886,6 +890,11 @@ export function parseManifest(text: string): Manifest {
       artboard.expand = "fill";
     }
     if (item.guides !== undefined) artboard.guides = parseGuides(item.guides, `${name}.guides`);
+    if (item.matrix !== undefined) {
+      if (typeof item.matrix !== "object" || item.matrix === null || Array.isArray(item.matrix)) fail(`${name} (${artboard.file}).matrix must be an object`);
+      if (artboard.responsive) fail(`${name} (${artboard.file}).matrix cannot be used with responsive`);
+      artboard.matrix = item.matrix as TweakGridDeclaration;
+    }
     nextX = artboard.x + artboard.width + ARTBOARD_GAP;
     return artboard;
   });
@@ -913,6 +922,12 @@ export function parseManifest(text: string): Manifest {
     if (item.display !== undefined && !TWEAK_DISPLAYS.includes(item.display as TweakDisplay)) fail(`${name}.display must be one of ${TWEAK_DISPLAYS.join(", ")}`);
     if (item.scope !== undefined && !TWEAK_SCOPES.includes(item.scope as TweakScope)) fail(`${name}.scope must be one of ${TWEAK_SCOPES.join(", ")}`);
     return { ...(item as unknown as ManifestTweak), id: str(item, "id", name), type: type as TweakType, label: str(item, "label", name) };
+  });
+
+  artboards.forEach((artboard, i) => {
+    if (!artboard.matrix) return;
+    const invalid = tweakGridError(artboard.matrix as Record<string, unknown>, tweaks, artboard.file, artboards[0]?.file);
+    if (invalid) fail(`artboards[${i}] (${artboard.file}).${invalid}`);
   });
 
   const manifest: Manifest = { artboards, elements, links, tweaks };
