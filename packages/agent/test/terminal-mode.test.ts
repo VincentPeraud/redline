@@ -211,6 +211,23 @@ describe("terminal mode (redline mcp)", () => {
     expect(await call("publish_page", { message: "Again" })).toMatch(/Nothing changed/);
   });
 
+  it("publishes a project style (tokens.css) edited in the working copy as a terminal version", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+
+    writeFileSync(join(seam.folder, ".redline", page.id, "tokens.css"), ":root { --color-primary: #7c3aed; }\n");
+    expect(await call("publish_page", { message: "Purple" })).toMatch(/Published/);
+
+    const style = (await (await seam.server.get(`/api/projects/${seam.project.id}/project-style`)).json()) as { content: string };
+    expect(style.content).toBe(":root { --color-primary: #7c3aed; }\n");
+    const versions = (await (await seam.server.get(`/api/projects/${seam.project.id}/project-style/versions`)).json()) as { origin: string }[];
+    expect(versions[0]).toMatchObject({ origin: "terminal" });
+    expect((await seam.server.get(`/api/pages/${page.id}/files/tokens.css`)).status).toBe(404);
+    expect(await call("publish_page", { message: "Again" })).toMatch(/Nothing changed/);
+  });
+
   it("publish waits for the page lock while a session runs on the page", async () => {
     let finishSession!: () => void;
     const sessionMayEnd = new Promise<void>((resolve) => (finishSession = resolve));

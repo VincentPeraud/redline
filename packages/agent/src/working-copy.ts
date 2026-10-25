@@ -4,6 +4,7 @@ import {
   ASSETS_DIR,
   DESIGN_MD_PATH,
   MAX_ASSET_BYTES,
+  PROJECT_STYLE_PATH,
   WORKING_COPY_DESIGN_SYSTEM_DIR,
   isProjectContextPath,
   isSafePath,
@@ -36,8 +37,9 @@ export function writeWorkingCopy(folder: string, pageId: string, checkout: Agent
   };
   for (const [path, content] of Object.entries(checkout.files)) write(path, content);
   // Project context for the session to read; never published back (see `readWorkingCopy`).
-  const { designMd, assets, designSystem } = checkout.project;
+  const { designMd, assets, designSystem, projectStyle } = checkout.project;
   write(DESIGN_MD_PATH, designMd);
+  if (projectStyle !== undefined) write(PROJECT_STYLE_PATH, projectStyle);
   for (const [name, base64] of Object.entries(assets)) write(`${ASSETS_DIR}/${name}`, Buffer.from(base64, "base64"));
   for (const [path, content] of Object.entries(designSystem.files)) write(`${WORKING_COPY_DESIGN_SYSTEM_DIR}/${path}`, content);
   mkdirSync(dir, { recursive: true });
@@ -45,8 +47,11 @@ export function writeWorkingCopy(folder: string, pageId: string, checkout: Agent
   return dir;
 }
 
-/** Every page file of the working copy (DESIGN.md, assets and design system files excluded), as path -> UTF-8 content (paths use `/`). */
-export function readWorkingCopy(dir: string): Record<string, string> {
+/**
+ * Every page file of the working copy (DESIGN.md, assets and design system files excluded), as path -> UTF-8 content
+ * (paths use `/`). With `hasProjectStyle`, the root `tokens.css` is the project style, not a page file.
+ */
+export function readWorkingCopy(dir: string, hasProjectStyle = false): Record<string, string> {
   const files: Record<string, string> = {};
   const walk = (current: string) => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
@@ -55,7 +60,7 @@ export function readWorkingCopy(dir: string): Record<string, string> {
       // Regular files only: a symlink would publish whatever it points to.
       else if (entry.isFile()) {
         const path = relative(dir, full).split("\\").join("/");
-        if (!isProjectContextPath(path)) files[path] = readFileSync(full, "utf8");
+        if (!isProjectContextPath(path) && !(hasProjectStyle && path === PROJECT_STYLE_PATH)) files[path] = readFileSync(full, "utf8");
       }
     }
   };
@@ -99,6 +104,15 @@ export function readChangedAssets(dir: string, base: Record<string, string>): Re
 export function readDesignMd(dir: string): string | undefined {
   try {
     return readFileSync(join(dir, DESIGN_MD_PATH), "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+/** The session's project style, or undefined when it deleted the file (that is not a change). */
+export function readProjectStyle(dir: string): string | undefined {
+  try {
+    return readFileSync(join(dir, PROJECT_STYLE_PATH), "utf8");
   } catch {
     return undefined;
   }

@@ -36,7 +36,7 @@ export class ServerApi {
     message: string,
     origin: VersionOrigin,
     baseVersionId: string,
-    extra: Pick<CreateVersionRequest, "workId" | "designMd"> = {},
+    extra: Pick<CreateVersionRequest, "workId" | "designMd" | "projectStyle"> = {},
   ): Promise<PageVersionSummary> {
     const body: CreateVersionRequest = { files, message, origin, baseVersionId, ...extra };
     return this.request("POST", `/pages/${pageId}/versions`, body);
