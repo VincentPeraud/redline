@@ -14,6 +14,9 @@ export const PUBLISH_PAGE_TOOL = "publish_page";
 export const LIST_PROJECTS_TOOL = "list_projects";
 export const LIST_PAGES_TOOL = "list_pages";
 export const CREATE_PROJECT_TOOL = "create_project";
+export const LIST_DESIGN_SYSTEMS_TOOL = "list_design_systems";
+export const CREATE_DESIGN_SYSTEM_TOOL = "create_design_system";
+export const SET_PROJECT_DESIGN_SYSTEM_TOOL = "set_project_design_system";
 
 const text = (message: string, isError = false) => ({ ...(isError ? { isError } : {}), content: [{ type: "text" as const, text: message }] });
 
@@ -103,6 +106,50 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
     tool(async ({ title, designSystem }: { title: string; designSystem?: string }) => {
       const project = await api.createProject(title, designSystem);
       return `Project "${project.title}" created (id ${project.id}): ${api.projectUrl(project.id)}. Add its first page with create_page.`;
+    }),
+  );
+  server.registerTool(
+    LIST_DESIGN_SYSTEMS_TOOL,
+    { description: "List the shared design systems, with their ids, their pages (check these out with checkout_page to edit the design system) and the projects using them." },
+    tool(async () => {
+      const list = await api.listDesignSystems();
+      if (list.length === 0) return "No design system yet. Create one with create_design_system.";
+      return list
+        .map((ds) => {
+          const pages = ds.pages.map((page) => `  - ${page.title} · page ${page.id} · ${api.pageUrl(page.id)}`).join("\n");
+          const used = ds.usedBy.length > 0 ? `used by ${ds.usedBy.map((p) => p.title).join(", ")}` : "used by no project";
+          return `- ${ds.title} · id ${ds.id} · ${used}\n${pages}`;
+        })
+        .join("\n");
+    }),
+  );
+  server.registerTool(
+    CREATE_DESIGN_SYSTEM_TOOL,
+    {
+      description:
+        "Create a shared design system, starting with the core tokens and one page. Check that page out with checkout_page to fill tokens.css, DESIGN.md and components/, then publish_page. Projects only see it after the user diffuses it in Redline.",
+      inputSchema: { title: z.string() },
+    },
+    tool(async ({ title }: { title: string }) => {
+      const ds = await api.createDesignSystem(title);
+      return `Design system "${ds.title}" created (id ${ds.id}), first page: page ${ds.pageId} · ${api.pageUrl(ds.pageId)}. Call checkout_page with that page id to fill it.`;
+    }),
+  );
+  server.registerTool(
+    SET_PROJECT_DESIGN_SYSTEM_TOOL,
+    {
+      description:
+        "Point a project at a shared design system, or at none (designSystem null: its tokens.css becomes its whole style). Existing pages are switched with it.",
+      inputSchema: {
+        projectId: z.string().describe("Id of the project (see list_projects)"),
+        designSystem: z.string().nullable().describe("Id of a design system (see list_design_systems), or null for none"),
+      },
+    },
+    tool(async ({ projectId, designSystem }: { projectId: string; designSystem: string | null }) => {
+      const project = await api.setProjectDesignSystem(projectId, designSystem);
+      return designSystem === null
+        ? `Project "${project.title}" now has no shared design system: its own tokens.css is its whole style.`
+        : `Project "${project.title}" now uses the design system ${designSystem}.`;
     }),
   );
   server.registerTool(

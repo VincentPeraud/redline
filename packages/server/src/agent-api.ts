@@ -10,7 +10,9 @@ import {
   type CreateVersionRequest,
   type MoveArtboardRequest,
   type DesignMdAuthor,
+  starterDesignSystemFiles,
   starterPageFiles,
+  type AgentDesignSystem,
 } from "@redline/shared";
 import { mergeOntoCurrent } from "./publish.js";
 import { moveArtboard } from "./move-artboard.js";
@@ -57,6 +59,31 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           return reply.code(400).send({ error: "designSystem must be the id of an existing design system" });
         }
         return reply.code(201).send(store.createProject((title as string).trim(), undefined, undefined, designSystem));
+      });
+
+      // Terminal mode sets up brands: list and create design systems, and point a project at one (or at none).
+      api.get("/design-systems", async (): Promise<AgentDesignSystem[]> =>
+        store.listDesignSystems().map((designSystem) => ({
+          ...designSystem,
+          pages: store.listPages(designSystem.id).map((page) => ({ id: page.id, title: page.title })),
+          usedBy: store.projectsUsingDesignSystem(designSystem.id),
+        })),
+      );
+
+      api.post<{ Body: { title?: unknown } }>("/design-systems", async (req, reply) => {
+        const title = req.body?.title;
+        if (titleError(title)) return reply.code(400).send({ error: titleError(title) });
+        return reply.code(201).send(store.createDesignSystem((title as string).trim(), starterDesignSystemFiles()));
+      });
+
+      api.put<{ Params: { projectId: string }; Body: { designSystem?: unknown } }>("/projects/:projectId/design-system", async (req, reply) => {
+        const designSystem = req.body?.designSystem ?? null;
+        if (store.getDesignSystem(req.params.projectId) || !store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+        if (designSystem !== null && (typeof designSystem !== "string" || !store.getDesignSystem(designSystem))) {
+          return reply.code(400).send({ error: "designSystem must be the id of an existing design system, or null for none" });
+        }
+        store.setProjectDesignSystem(req.params.projectId, designSystem, "terminal");
+        return store.getProject(req.params.projectId);
       });
 
       // Terminal mode finds and creates pages without having one checked out. A design system's own project is not one of them.

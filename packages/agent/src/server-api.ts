@@ -4,11 +4,13 @@ import {
   pageHash,
   playHash,
   type AgentCheckout,
+  type AgentDesignSystem,
   type AgentReplyRequest,
   type CreateSiblingRequest,
   type CreateVersionRequest,
   type MoveArtboardRequest,
   type MoveArtboardResponse,
+  type DesignSystem,
   type Page,
   type PageVersionSummary,
   type Project,
@@ -71,6 +73,19 @@ export class ServerApi {
 
   createProject(title: string, designSystem?: string): Promise<Project> {
     return this.request("POST", "/projects", { title, ...(designSystem ? { designSystem } : {}) });
+  }
+
+  listDesignSystems(): Promise<AgentDesignSystem[]> {
+    return this.request("GET", "/design-systems");
+  }
+
+  createDesignSystem(title: string): Promise<DesignSystem> {
+    return this.request("POST", "/design-systems", { title });
+  }
+
+  /** Points the project at a design system, or at none (null). */
+  setProjectDesignSystem(projectId: string, designSystem: string | null): Promise<Project> {
+    return this.request("PUT", `/projects/${encodeURIComponent(projectId)}/design-system`, { designSystem });
   }
 
   listPages(projectId: string): Promise<Page[]> {

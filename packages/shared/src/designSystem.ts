@@ -38,6 +38,12 @@ export interface DesignSystemSummary extends DesignSystem {
   updatedAt?: string;
 }
 
+/** A design system as terminal mode lists it (`GET /agent-api/design-systems`): its pages are the ones to check out. */
+export interface AgentDesignSystem extends DesignSystem {
+  pages: { id: string; title: string }[];
+  usedBy: { id: string; title: string }[];
+}
+
 export interface CreateDesignSystemRequest extends ModelChoice {
   title: string;
   /** File path -> UTF-8 content; must include `tokens.css` defining every core token. Omitted = the neutral starter files. */
