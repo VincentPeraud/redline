@@ -120,6 +120,6 @@ describe("undo and roll back a diffusion", () => {
     await addComponent("unused", "unused");
     await diffuse();
     const impact = (await (await server.get(`/api/design-systems/${ds.id}/diffusions/1/rollback-impact`)).json()) as RollbackImpact;
-    expect(impact.components).toEqual([{ name: "cta", usedBy: ['page "Stories" of project "Halloween"'] }]);
+    expect(impact.components).toEqual([{ name: "cta", usedBy: [{ project: "Halloween", page: "Stories" }] }]);
   });
 });

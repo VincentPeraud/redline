@@ -1,4 +1,4 @@
-import type { DesignSystemUser, DiffusionDiff } from "@redline/shared";
+import type { DesignSystemUser, DiffusionDiff, UsagePlace } from "@redline/shared";
 import { agree, counted } from "./plural.js";
 
 export function projectCountLabel(count: number): string {
@@ -7,6 +7,11 @@ export function projectCountLabel(count: number): string {
 
 export function diffusionToastMessage(number: number, projects: number): string {
   return `Diffusion ${number} envoyée à ${projectCountLabel(projects)}`;
+}
+
+/** « page « Stories » du projet « Halloween » » or « style du projet « Halloween » ». */
+export function usagePlaceLabel(place: UsagePlace): string {
+  return place.page === undefined ? `style du projet « ${place.project} »` : `page « ${place.page} » du projet « ${place.project} »`;
 }
 
 const countOf = (group: Record<string, unknown[]>) => Object.values(group).reduce((sum, items) => sum + items.length, 0);

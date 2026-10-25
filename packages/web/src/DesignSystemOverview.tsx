@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { DesignMdResponse, DesignSystemDetail, DiffusionListItem, RollbackImpact } from "@redline/shared";
 import { useDesignSystemDetail, useOpenDiffusionDialog } from "./DiffusionDialog.js";
-import { componentCountLabel, diffusionChangeParts, pageCountLabel, pendingCountLabel, pendingNames, tokenCountLabel, usedByHeading, userSummary } from "./diffusionLabels.js";
+import { componentCountLabel, diffusionChangeParts, pageCountLabel, pendingCountLabel, pendingNames, tokenCountLabel, usagePlaceLabel, usedByHeading, userSummary } from "./diffusionLabels.js";
 import { agree } from "./plural.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
@@ -86,7 +86,7 @@ function RollbackDialog({ designSystemId, target, onClose, onRolledBack }: { des
           <ul className={styles.rollbackList}>
             {impact.components.map((component) => (
               <li key={component.name}>
-                <span className={styles.mono}>{component.name}</span> : {component.usedBy.join(", ")}
+                <span className={styles.mono}>{component.name}</span> : {component.usedBy.map(usagePlaceLabel).join(", ")}
               </li>
             ))}
           </ul>

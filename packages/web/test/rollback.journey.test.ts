@@ -113,7 +113,7 @@ it("rolls back to an earlier diffusion after a warning about pages using a compo
   await dialog.waitFor();
   const warning = await dialog.getByTestId("rollback-warning").innerText();
   expect(warning).toContain("cta");
-  expect(warning).toContain('page "Stories" of project "Semaine Halloween"');
+  expect(warning).toContain("page « Stories » du projet « Semaine Halloween »");
 
   await dialog.getByRole("button", { name: "Annuler" }).click();
   expect(await tab.getByRole("dialog").count()).toBe(0);

@@ -1,4 +1,4 @@
-import { DESIGN_SYSTEM_TOKENS_PATH, PROJECT_STYLE_PATH, assembleComponents, classesUsedIn, componentClassesOf, parseTokens, type RollbackImpact } from "@redline/shared";
+import { DESIGN_SYSTEM_TOKENS_PATH, PROJECT_STYLE_PATH, assembleComponents, classesUsedIn, componentClassesOf, parseTokens, type RollbackImpact, type UsagePlace } from "@redline/shared";
 import { componentPages } from "./components.js";
 import type { Store } from "./store.js";
 
@@ -11,22 +11,22 @@ export function referencesToken(text: string, name: string): boolean {
 
 /**
  * Where the latest version of the pages of the projects using `designSystemId`, and their project styles, still read
- * the given tokens or use the given components' classes. Each entry of the result names its places, e.g. `page "Stories" of project "Halloween"`.
+ * the given tokens or use the given components' classes. Each entry of the result lists its places (`placeText` words one for an error).
  * Reusable by anything that must know what a change of the design system would break (removals, rollbacks).
  */
 export function designSystemUsages(
   store: Store,
   designSystemId: string,
   wanted: { tokens: string[]; components: { name: string; classes: string[] }[] },
-): { tokens: Map<string, string[]>; components: Map<string, string[]> } {
-  const tokens = new Map<string, string[]>(wanted.tokens.map((name) => [name, []]));
-  const components = new Map<string, string[]>(wanted.components.map((c) => [c.name, []]));
+): { tokens: Map<string, UsagePlace[]>; components: Map<string, UsagePlace[]> } {
+  const tokens = new Map<string, UsagePlace[]>(wanted.tokens.map((name) => [name, []]));
+  const components = new Map<string, UsagePlace[]>(wanted.components.map((c) => [c.name, []]));
   for (const project of store.projectsUsingDesignSystem(designSystemId)) {
     const style = store.readProjectText(project.id, PROJECT_STYLE_PATH);
-    for (const name of wanted.tokens) if (referencesToken(style, name)) tokens.get(name)!.push(`project style of "${project.title}"`);
+    for (const name of wanted.tokens) if (referencesToken(style, name)) tokens.get(name)!.push({ project: project.title });
     for (const page of store.listPages(project.id)) {
       const files = Object.entries(store.readPageFiles(page.id)?.files ?? {});
-      const where = `page "${page.title}" of project "${project.title}"`;
+      const where: UsagePlace = { project: project.title, page: page.title };
       for (const name of wanted.tokens) if (files.some(([, content]) => referencesToken(content, name))) tokens.get(name)!.push(where);
       const classes = new Set<string>();
       for (const [path, content] of files) if (path.endsWith(".html")) for (const used of classesUsedIn(content)) classes.add(used);
@@ -34,6 +34,11 @@ export function designSystemUsages(
     }
   }
   return { tokens, components };
+}
+
+/** `page "Stories" of project "Halloween"` or `project style of "Halloween"`, for English error messages. */
+export function placeText(place: UsagePlace): string {
+  return place.page === undefined ? `project style of "${place.project}"` : `page "${place.page}" of project "${place.project}"`;
 }
 
 function removedTokenNames(store: Store, designSystemId: string, newTokensCss: string): string[] {
@@ -64,8 +69,8 @@ export function removalsError(store: Store, pageId: string, files: Record<string
   if (removedTokens.length === 0 && classes.length === 0) return null;
   const used = designSystemUsages(store, designSystem.id, { tokens: removedTokens, components: classes });
   const lines = [
-    ...removedTokens.filter((name) => used.tokens.get(name)!.length > 0).map((name) => `token ${name} is still used by ${used.tokens.get(name)!.join(", ")}`),
-    ...classes.filter((c) => used.components.get(c.name)!.length > 0).map((c) => `component "${c.name}" is still used by ${used.components.get(c.name)!.join(", ")}`),
+    ...removedTokens.filter((name) => used.tokens.get(name)!.length > 0).map((name) => `token ${name} is still used by ${used.tokens.get(name)!.map(placeText).join(", ")}`),
+    ...classes.filter((c) => used.components.get(c.name)!.length > 0).map((c) => `component "${c.name}" is still used by ${used.components.get(c.name)!.map(placeText).join(", ")}`),
   ];
   if (lines.length === 0) return null;
   return `Removal refused: ${lines.join("; ")}. Ask the user; only if they agree, publish again with confirmRemovals: true. To rename a token instead, keep the old name as a deprecated alias.`;

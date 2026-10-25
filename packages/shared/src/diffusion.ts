@@ -76,8 +76,14 @@ export interface DiffusionInfo {
 }
 
 /** `GET /api/design-systems/:id/diffusions/:n/rollback-impact`: what rolling back to `n` takes away from pages that use it. */
+/** Where a design system token or component is used: a page of a project, or (no `page`) the project's style. */
+export interface UsagePlace {
+  project: string;
+  page?: string;
+}
+
 export interface RollbackImpact {
-  components: { name: string; usedBy: string[] }[];
+  components: { name: string; usedBy: UsagePlace[] }[];
 }
 
 /** A diffusion as listed by `GET /api/design-systems/:id/diffusions`: with what it changed since the previous one (the first: everything). */
