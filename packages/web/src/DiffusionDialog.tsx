@@ -55,7 +55,7 @@ async function openPreview(designSystemId: string, projectId: string) {
 
 export function DiffusionProvider({ children }: { children: ReactNode }) {
   const [openFor, setOpenFor] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; designSystemId: string } | null>(null);
   const [version, setVersion] = useState(0);
   const open = useCallback((designSystemId: string) => setOpenFor(designSystemId), []);
   const controls = useMemo(() => ({ open, version }), [open, version]);
@@ -76,14 +76,25 @@ export function DiffusionProvider({ children }: { children: ReactNode }) {
           onOpenPreview={(projectId) => void openPreview(openFor, projectId)}
           onDiffused={(diffusion, projects) => {
             setOpenFor(null);
-            setToast(diffusionToastMessage(diffusion.number, projects));
+            setToast({ message: diffusionToastMessage(diffusion.number, projects), designSystemId: openFor });
             setVersion((v) => v + 1);
           }}
         />
       )}
       {toast && (
         <div role="status" data-testid="diffusion-toast" className={styles.toast}>
-          {toast}
+          {toast.message}
+          <button
+            type="button"
+            className={styles.toastUndo}
+            onClick={async () => {
+              await fetch(`/api/design-systems/${toast.designSystemId}/diffusions/undo`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+              setToast(null);
+              setVersion((v) => v + 1);
+            }}
+          >
+            Annuler
+          </button>
         </div>
       )}
     </DiffusionContext.Provider>

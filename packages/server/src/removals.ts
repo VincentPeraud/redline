@@ -1,4 +1,4 @@
-import { DESIGN_SYSTEM_TOKENS_PATH, PROJECT_STYLE_PATH, assembleComponents, classesUsedIn, componentClassesOf, parseTokens } from "@redline/shared";
+import { DESIGN_SYSTEM_TOKENS_PATH, PROJECT_STYLE_PATH, assembleComponents, classesUsedIn, componentClassesOf, parseTokens, type RollbackImpact } from "@redline/shared";
 import { componentPages } from "./components.js";
 import type { Store } from "./store.js";
 
@@ -69,4 +69,15 @@ export function removalsError(store: Store, pageId: string, files: Record<string
   ];
   if (lines.length === 0) return null;
   return `Removal refused: ${lines.join("; ")}. Ask the user; only if they agree, publish again with confirmRemovals: true. To rename a token instead, keep the old name as a deprecated alias.`;
+}
+
+/** Components of the current diffusion that diffusion `target` does not have (added since) and the places of projects using them. */
+export function rollbackImpact(store: Store, designSystemId: string, target: number): RollbackImpact {
+  const current = store.currentDiffusion(designSystemId)!;
+  const kept = new Set(store.diffusionState(designSystemId, target).components.map((c) => c.name));
+  const files = JSON.parse(store.readDiffusionFile(designSystemId, current.number, "component-files.json") ?? "{}") as Record<string, string>;
+  const listed = JSON.parse(store.readDiffusionFile(designSystemId, current.number, "components.json") ?? "[]") as { name: string; file: string }[];
+  const wanted = listed.filter((c) => !kept.has(c.name)).map((c) => ({ name: c.name, classes: componentClassesOf(files[c.file] ?? "") }));
+  const used = designSystemUsages(store, designSystemId, { tokens: [], components: wanted });
+  return { components: wanted.filter((c) => used.components.get(c.name)!.length > 0).map((c) => ({ name: c.name, usedBy: used.components.get(c.name)! })) };
 }

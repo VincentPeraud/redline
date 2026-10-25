@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import type { DesignMdResponse, DesignSystemDetail, DiffusionListItem } from "@redline/shared";
+import type { DesignMdResponse, DesignSystemDetail, DiffusionListItem, RollbackImpact } from "@redline/shared";
 import { useDesignSystemDetail, useOpenDiffusionDialog } from "./DiffusionDialog.js";
 import { componentCountLabel, diffusionChangeParts, pendingCountLabel, pendingNames, usedByHeading, userSummary } from "./diffusionLabels.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { routeHref } from "./router.js";
-import { Logo, cx } from "./ui/index.js";
+import { Button, Dialog, DialogActions, Logo, cx } from "./ui/index.js";
 import styles from "./DesignSystemOverview.module.css";
 
 const dayAndTime = (iso: string) => {
@@ -59,14 +59,62 @@ function PageCard({ page, palette }: { page: DesignSystemDetail["pages"][number]
   );
 }
 
-function DiffusionRow({ diffusion, isCurrent, isFirst }: { diffusion: DiffusionListItem; isCurrent: boolean; isFirst: boolean }) {
+function RollbackDialog({ designSystemId, target, onClose, onRolledBack }: { designSystemId: string; target: number; onClose: () => void; onRolledBack: () => void }) {
+  const [impact, setImpact] = useState<RollbackImpact | null>(null);
+  const [busy, setBusy] = useState(false);
+  const label = `Revenir à la diffusion ${target}`;
+
+  useEffect(() => {
+    fetch(`/api/design-systems/${designSystemId}/diffusions/${target}/rollback-impact`)
+      .then((res) => res.json() as Promise<RollbackImpact>)
+      .then(setImpact);
+  }, [designSystemId, target]);
+
+  async function rollBack() {
+    setBusy(true);
+    await fetch(`/api/design-systems/${designSystemId}/diffusions/${target}/rollback`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    onRolledBack();
+  }
+
+  return (
+    <Dialog title={label} onClose={onClose} width={520}>
+      <div className={styles.rollbackText}>Tous les projets reçoivent à nouveau la diffusion {target}. Les pages du design system gardent leur version actuelle, pour que tu puisses la corriger.</div>
+      {impact && impact.components.length > 0 && (
+        <div role="alert" data-testid="rollback-warning" className={styles.rollbackWarning}>
+          <b>Des pages utilisent des composants ajoutés depuis :</b>
+          <ul className={styles.rollbackList}>
+            {impact.components.map((component) => (
+              <li key={component.name}>
+                <span className={styles.mono}>{component.name}</span> : {component.usedBy.join(", ")}
+              </li>
+            ))}
+          </ul>
+          Ces pages perdront le style de ces composants.
+        </div>
+      )}
+      <DialogActions>
+        <Button size="lg" onClick={onClose}>
+          Annuler
+        </Button>
+        <Button variant="accent" size="lg" disabled={busy || impact === null} onClick={() => void rollBack()}>
+          {label}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function DiffusionRow({ diffusion, isCurrent, isFirst, canRollBack, onRollBack }: { diffusion: DiffusionListItem; isCurrent: boolean; isFirst: boolean; canRollBack: boolean; onRollBack: () => void }) {
   const parts = diffusionChangeParts(diffusion.changes);
   return (
-    <div data-testid="diffusion-row" className={styles.diffusionRow}>
+    <div data-testid="diffusion-row" className={cx(styles.diffusionRow, diffusion.undone && styles.diffusionUndone)}>
       <span className={styles.diffusionNumber}>Diffusion {diffusion.number}</span>
       {isCurrent && <span className={styles.currentPill}>en cours</span>}
+      {diffusion.undone && <span className={styles.undonePill}>annulée</span>}
       <span className={styles.diffusionSummary}>
-        {isFirst
+        {diffusion.rolledBackTo !== undefined
+          ? `Retour à la diffusion ${diffusion.rolledBackTo}`
+          : isFirst
           ? "Version initiale"
           : parts.length === 0
             ? "Aucun changement"
@@ -84,24 +132,32 @@ function DiffusionRow({ diffusion, isCurrent, isFirst }: { diffusion: DiffusionL
               ))}
       </span>
       <span className={styles.diffusionDate}>{dayAndTime(diffusion.createdAt)}</span>
-      <span className={styles.diffusionAction} />
+      {canRollBack ? (
+        <button type="button" className={styles.rollBack} onClick={onRollBack}>
+          Revenir à cette diffusion
+        </button>
+      ) : (
+        <span className={styles.diffusionAction} />
+      )}
     </div>
   );
 }
 
 export function DesignSystemOverview({ designSystemId }: { designSystemId: string }) {
-  const detail = useDesignSystemDetail(designSystemId);
+  const [reloads, setReloads] = useState(0);
+  const detail = useDesignSystemDetail(designSystemId, String(reloads));
   const openDiffusion = useOpenDiffusionDialog();
   const [diffusions, setDiffusions] = useState<DiffusionListItem[]>([]);
   const [designMd, setDesignMd] = useState("");
   const [creatingPage, setCreatingPage] = useState(false);
+  const [rollbackTo, setRollbackTo] = useState<number | null>(null);
   const currentNumber = detail?.current.number;
 
   useEffect(() => {
     fetch(`/api/design-systems/${designSystemId}/diffusions`)
       .then((res) => res.json() as Promise<DiffusionListItem[]>)
       .then(setDiffusions);
-  }, [designSystemId, currentNumber]);
+  }, [designSystemId, currentNumber, reloads]);
 
   useEffect(() => {
     fetch(`/api/projects/${designSystemId}/design-md`)
@@ -171,8 +227,18 @@ export function DesignSystemOverview({ designSystemId }: { designSystemId: strin
             <h2 className={styles.sectionTitle}>Diffusions</h2>
             <div className={styles.diffusions}>
               {diffusions.map((diffusion, index) => (
-                <DiffusionRow key={diffusion.number} diffusion={diffusion} isCurrent={diffusion.number === detail.current.number} isFirst={index === diffusions.length - 1} />
+                <DiffusionRow
+                  key={diffusion.number}
+                  diffusion={diffusion}
+                  isCurrent={diffusion.number === detail.current.number}
+                  isFirst={index === diffusions.length - 1}
+                  canRollBack={diffusion.number < detail.current.number && !diffusion.undone}
+                  onRollBack={() => setRollbackTo(diffusion.number)}
+                />
               ))}
+            </div>
+            <div className={styles.diffusionNote}>
+              Revenir à une diffusion la renvoie à tous les projets. Les pages du design system gardent leur version actuelle, pour que tu puisses la corriger.
             </div>
           </section>
         </main>
@@ -205,6 +271,18 @@ export function DesignSystemOverview({ designSystemId }: { designSystemId: strin
           </section>
         </aside>
       </div>
+
+      {rollbackTo !== null && (
+        <RollbackDialog
+          designSystemId={detail.id}
+          target={rollbackTo}
+          onClose={() => setRollbackTo(null)}
+          onRolledBack={() => {
+            setRollbackTo(null);
+            setReloads((n) => n + 1);
+          }}
+        />
+      )}
 
       {creatingPage && (
         <NewPageDialog

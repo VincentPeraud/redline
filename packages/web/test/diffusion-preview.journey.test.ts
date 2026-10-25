@@ -84,7 +84,7 @@ it("previews a project with the pending version: banner, read-only, diffuse from
   // Diffuser from the banner diffuses.
   await banner.getByRole("button", { name: "Diffuser", exact: true }).click();
   await preview.getByRole("dialog", { name: "Diffuser la version 2 de Lumora" }).getByRole("button", { name: "Diffuser", exact: true }).click();
-  await expect.poll(async () => preview.getByTestId("diffusion-toast").textContent()).toBe("Diffusion 2 envoyée à 1 projet");
+  await expect.poll(async () => preview.getByTestId("diffusion-toast").textContent()).toBe("Diffusion 2 envoyée à 1 projetAnnuler");
   expect(((await (await server.get(`/api/design-systems/${ds.id}`)).json()) as DesignSystemDetail).current.number).toBe(2);
 
   // Fermer l'aperçu closes the tab.
