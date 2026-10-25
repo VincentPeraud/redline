@@ -140,6 +140,17 @@
   font-weight: var(--font-weight-semibold);
 }
 
+.gridBadge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+}
+
 .tweaksButton {
   height: 24px;
   box-sizing: border-box;

@@ -16,6 +16,16 @@
   background: var(--color-surface);
 }
 
+.clipBare {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.iframeBare {
+  background: transparent;
+}
+
 .pin {
   position: absolute;
   width: 28px;
