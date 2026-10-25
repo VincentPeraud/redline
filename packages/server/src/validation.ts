@@ -62,7 +62,8 @@ export function threadTargetError(target: unknown, use: "request" | "chip"): str
       typeof target.xPct === "number" &&
       typeof target.yPct === "number";
     if (!valid) return "invalid target";
-    return target.rendering === undefined ? null : threadRenderingError(target.rendering);
+    const invalidRendering = target.rendering === undefined ? null : threadRenderingError(target.rendering);
+    return invalidRendering ?? (target.cell === undefined ? null : threadCellError(target.cell));
   }
   return "invalid target";
 }
@@ -87,6 +88,10 @@ export function createThreadRequestError(request: unknown): string | null {
   if (pin.rendering !== undefined) {
     const invalidRendering = threadRenderingError(pin.rendering);
     if (invalidRendering) return invalidRendering;
+  }
+  if (pin.cell !== undefined) {
+    const invalidCell = threadCellError(pin.cell);
+    if (invalidCell) return invalidCell;
   }
   return modelChoiceError(pin);
 }
@@ -191,4 +196,14 @@ export function threadRenderingError(rendering: unknown): string | null {
   const { format, width } = (rendering ?? {}) as { format?: unknown; width?: unknown };
   const valid = typeof format === "string" && Object.hasOwn(RESPONSIVE_FORMATS, format) && typeof width === "number" && Number.isFinite(width) && width > 0;
   return valid ? null : "rendering must be { format: a responsive format, width: a positive number }";
+}
+
+/** Error message when a thread's tweak grid cell (tweak id to value) is malformed, else null. */
+export function threadCellError(cell: unknown): string | null {
+  const valid =
+    isObject(cell) &&
+    !Array.isArray(cell) &&
+    Object.keys(cell).length > 0 &&
+    Object.values(cell).every((v) => typeof v === "string" || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v)));
+  return valid ? null : "cell must map tweak ids to a string, number or boolean";
 }

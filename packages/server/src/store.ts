@@ -24,6 +24,7 @@ import type {
   ConversationMessage,
   CreateThreadRequest,
   ThreadRendering,
+  TweakValues,
   ThreadTarget,
   ManifestElement,
   ManifestElementKind,
@@ -196,6 +197,7 @@ export class Store {
     addColumn("versions", "origin_label", "TEXT");
     addColumn("threads", "element_name", "TEXT");
     addColumn("threads", "rendering", "TEXT");
+    addColumn("threads", "cell", "TEXT");
     addColumn("threads", "target_kind", "TEXT NOT NULL DEFAULT 'element'");
     addColumn("threads", "element_id", "TEXT");
     addColumn("threads", "element_kind", "TEXT");
@@ -684,7 +686,7 @@ export class Store {
     const placement =
       "target" in request
         ? request.target.kind === "artboard"
-          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
+          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, cell: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
           : this.canvasElementPlacement(pageId, request.target.elementId)
         : {
             kind: "element",
@@ -692,6 +694,7 @@ export class Store {
             selector: request.selector,
             elementName: request.elementName ?? null,
             rendering: request.rendering ? JSON.stringify({ format: request.rendering.format, width: request.rendering.width }) : null,
+            cell: request.cell ? JSON.stringify(request.cell) : null,
             xPct: request.xPct,
             yPct: request.yPct,
             elementId: null,
@@ -700,10 +703,10 @@ export class Store {
           };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, x_pct, y_pct, title, body, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, x_pct, y_pct, title, body, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now());
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now());
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -716,6 +719,7 @@ export class Store {
       selector: "",
       elementName: null,
       rendering: null,
+      cell: null,
       xPct: 0,
       yPct: 0,
       elementId,
@@ -747,7 +751,7 @@ export class Store {
   listHeldThreads(pageId: string): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status
          FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId) as ThreadRow[];
@@ -1126,7 +1130,7 @@ export interface SessionOrigin {
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -1136,6 +1140,7 @@ interface ThreadRow {
   selector: string;
   element_name: string | null;
   rendering: string | null;
+  cell: string | null;
   target_kind: ThreadTarget["kind"];
   element_id: string | null;
   element_kind: ManifestElementKind | null;
@@ -1165,6 +1170,7 @@ function targetOf(row: ThreadRow): ThreadTarget {
     xPct: row.x_pct,
     yPct: row.y_pct,
     ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
+    ...(row.cell ? { cell: JSON.parse(row.cell) as TweakValues } : {}),
   };
 }
 
@@ -1188,6 +1194,7 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     selector: row.selector,
     elementName: row.element_name,
     ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
+    ...(row.cell ? { cell: JSON.parse(row.cell) as TweakValues } : {}),
     xPct: row.x_pct,
     yPct: row.y_pct,
     title: row.title,

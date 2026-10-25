@@ -115,6 +115,7 @@ describe("page conversations", () => {
       { kind: "element", artboard: "home.html", selector: "h1", elementName: "Titre · Old title", xPct: 10, yPct: 20, rendering: { format: "mobile", width: 390 } },
       { kind: "artboard", artboard: "pay.html" },
       { kind: "canvas-element", elementId: "note-1", elementKind: "sticky", elementSummary: "« Parcours »" },
+      { kind: "element", artboard: "home.html", selector: "button", elementName: null, xPct: 1, yPct: 2, cell: { state: "Hover", icon: true } },
     ];
     const context = { visibleArtboards: [{ file: "home.html" }], tweaks: [], targets };
     expect((await send(seam, conversation.id, "Give 2 the style of 1", { context })).status).toBe(201);
@@ -122,7 +123,7 @@ describe("page conversations", () => {
 
     const message = engine.runs[0].message;
     expect(message).toContain(
-      "Elements the user points at:\n1: element `h1` (named « Titre · Old title ») on artboard home.html (vu en Mobile · 390 px)\n2: the whole artboard pay.html\n3: the canvas element `note-1` (sticky, « Parcours ») of manifest.json",
+      "Elements the user points at:\n1: element `h1` (named « Titre · Old title ») on artboard home.html (vu en Mobile · 390 px)\n2: the whole artboard pay.html\n3: the canvas element `note-1` (sticky, « Parcours ») of manifest.json\n4: element `button` on artboard home.html (vu en Hover · icon on)",
     );
     expect((await getConversation(seam, conversation.id)).messages[0].targets).toEqual(targets);
   });

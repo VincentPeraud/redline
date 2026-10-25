@@ -60,6 +60,24 @@ describe("pinned threads over the server HTTP API", () => {
     expect(held.rendering).toEqual({ format: "tablet", width: 768 });
   });
 
+  it("stores the tweak grid cell a thread was pinned in, keeps it after a reload and on a held comment", async () => {
+    const cell = { state: "Hover", variant: "Outlined", icon: false };
+    const thread = await createThread("Too tight", { cell });
+    expect(thread.cell).toEqual(cell);
+    expect(thread.target).toMatchObject({ kind: "element", cell });
+    const [listed] = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+    expect(listed.cell).toEqual(cell);
+    expect((await createThread("No cell")).cell).toBeUndefined();
+    await createThread("Later", { held: true, cell });
+    const [held] = (await (await server.get(`/api/pages/${page.id}/held`)).json()) as Thread[];
+    expect(held.cell).toEqual(cell);
+  });
+
+  it.each([[[]], ["Hover"], [{ state: { a: 1 } }], [{}], [{ state: null }]])("refuses the cell %j", async (cell) => {
+    const res = await server.post(`/api/pages/${page.id}/threads`, pin("Bad", { cell }));
+    expect(res.status).toBe(400);
+  });
+
   it.each([{ format: "watch", width: 390 }, { format: "mobile", width: 0 }, { format: "mobile" }, "mobile"])("refuses the rendering %j", async (rendering) => {
     const res = await server.post(`/api/pages/${page.id}/threads`, pin("Bad", { rendering }));
     expect(res.status).toBe(400);

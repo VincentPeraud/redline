@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import type { ArtboardGuides, Thread, TweakGridLayout, TweakValues } from "@redline/shared";
+import { cellKey, type ArtboardGuides, type Thread, type TweakGridLayout, type TweakValues } from "@redline/shared";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
+import { cx } from "./ui/index.js";
 import styles from "./TweakGridFrame.module.css";
 
 interface Props {
@@ -9,14 +10,15 @@ interface Props {
   layout: TweakGridLayout;
   zoom: number;
   guides?: ArtboardGuides;
-  /** Threads of this artboard; until threads record their cell, the first cell shows them all. */
+  /** Threads of this artboard; each cell shows the ones pinned in it, the first cell also the ones from before cells were recorded. */
   threads: Thread[];
   picking: boolean;
   selecting: boolean;
-  marks: { number: number; selector: string }[];
+  /** Numbered marks of the message's chips in one cell, by the cell's values. */
+  marksOf: (cell: TweakValues) => { number: number; selector: string }[];
   /** Tweak values of the page; each cell overrides the ones of its combination. */
   tweaks: TweakValues;
-  onPick: (pick: Pick) => void;
+  onPick: (pick: Pick, cell: TweakValues) => void;
   onEscape: () => void;
 }
 
@@ -25,11 +27,23 @@ interface CellProps extends Omit<Props, "layout"> {
   first: boolean;
 }
 
-function Cell({ cell, first, title, tweaks, threads, marks, ...props }: CellProps) {
+function Cell({ cell, first, title, tweaks, threads, marksOf, onPick, ...props }: CellProps) {
   const values = useMemo(() => ({ ...tweaks, ...cell.values }), [tweaks, cell.values]);
+  const cellThreads = threads.filter((t) => (t.cell ? cellKey(t.cell) === cellKey(cell.values) : first));
+  const marks = marksOf(cell.values);
   return (
-    <div data-grid-cell={cell.key} className={styles.cell} style={{ left: cell.x, top: cell.y }}>
-      <ArtboardFrame {...props} title={`${title} · ${cell.key}`} bare width={cell.width} height={cell.height} threads={first ? threads : []} marks={first ? marks : []} tweaks={values} />
+    <div data-grid-cell={cell.key} className={cx(styles.cell, (cellThreads.length > 0 || marks.length > 0) && styles.cellWithPins)} style={{ left: cell.x, top: cell.y }}>
+      <ArtboardFrame
+        {...props}
+        title={`${title} · ${cell.key}`}
+        bare
+        width={cell.width}
+        height={cell.height}
+        threads={cellThreads}
+        marks={marks}
+        tweaks={values}
+        onPick={(pick) => onPick(pick, cell.values)}
+      />
     </div>
   );
 }
