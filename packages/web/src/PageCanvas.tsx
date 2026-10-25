@@ -29,6 +29,7 @@ import {
   type TweakValues,
 } from "@redline/shared";
 import { ComponentMarker } from "./ComponentMarker.js";
+import { useDesignSystemDetail } from "./DiffusionDialog.js";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { ArtboardHistory } from "./ArtboardHistory.js";
 import { restoreArtboard, useDeletedArtboards } from "./restoreArtboard.js";
@@ -181,6 +182,12 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
   const [preview, setPreview] = useState<{ file: string; versionId: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; undo: () => Promise<void> } | null>(null);
   const deleted = useDeletedArtboards(pageId, versionId);
+  const pendingComponents = useDesignSystemDetail(projectId, versionId)?.pending.components;
+  const componentChange = (file: string): "modifié" | "nouveau" | null => {
+    const name = componentNameOf(file);
+    if (name === null || !pendingComponents) return null;
+    return pendingComponents.added.includes(name) ? "nouveau" : pendingComponents.changed.includes(name) ? "modifié" : null;
+  };
   const [guidesVisible, toggleGuides] = useStoredToggle("redline:guides", false);
   /** Real page height of each rendering of a responsive artboard, by artboard file then rendering key, as reported by the bridge. */
   const [docHeights, setDocHeights] = useState<Record<string, Record<string, number>>>({});
@@ -590,6 +597,11 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
                     >
                       {componentNameOf(artboard.file) ?? artboard.title ?? artboard.file}
                     </span>
+                    {componentChange(artboard.file) && (
+                      <span data-testid="component-change" className={cx(styles.changePill, componentChange(artboard.file) === "nouveau" ? styles.newPill : styles.modifiedPill)}>
+                        {componentChange(artboard.file)}
+                      </span>
+                    )}
                     {layout && artboard.responsive && (
                       <>
                         <span className={styles.responsiveBadge}>responsive</span>
@@ -871,7 +883,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
             </button>
           </div>
           {tab === "conversation" ? (
-            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} artboards={artboardTitles} onCenterArtboard={centerOnArtboard} onMissingArtboard={setMissingArtboard} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults}
+            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} versionId={versionId} artboardCount={manifest?.artboards.length ?? 0} artboards={artboardTitles} onCenterArtboard={centerOnArtboard} onMissingArtboard={setMissingArtboard} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults}
               chips={chips}
               selecting={selecting}
               onSelectingChange={changeSelecting}

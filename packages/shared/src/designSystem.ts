@@ -36,6 +36,8 @@ export interface DesignSystemSummary extends DesignSystem {
   usedBy: { id: string; title: string }[];
   /** Time of the last version of the design system's page. */
   updatedAt?: string;
+  /** Changes of the draft not yet diffused (`DiffusionDiff.count`); 0 = nothing pending. */
+  pendingChanges: number;
 }
 
 /** A design system as terminal mode lists it (`GET /agent-api/design-systems`): its pages are the ones to check out. */

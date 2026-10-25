@@ -68,10 +68,10 @@ export interface CreateProjectRequest {
   designSystem?: string | null;
 }
 
-/** "creation": the first version of a page (new page, design system, page created by Claude); "terminal": a publish from the user's own Claude Code. */
-export type VersionOrigin = "creation" | "thread" | "conversation" | "terminal" | "tweak" | "restore";
+/** "creation": the first version of a page (new page, design system, page created by Claude); "terminal": a publish from the user's own Claude Code; "user": a change made by hand in Redline (e.g. switching the project's design system). */
+export type VersionOrigin = "creation" | "thread" | "conversation" | "terminal" | "tweak" | "restore" | "user";
 
-export const VERSION_ORIGINS: readonly VersionOrigin[] = ["creation", "thread", "conversation", "terminal", "tweak", "restore"];
+export const VERSION_ORIGINS: readonly VersionOrigin[] = ["creation", "thread", "conversation", "terminal", "tweak", "restore", "user"];
 
 export interface PageVersionSummary {
   id: string;

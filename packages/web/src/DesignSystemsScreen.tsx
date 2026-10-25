@@ -158,7 +158,15 @@ export function DesignSystemsScreen() {
           <a key={ds.id} className={styles.card} data-testid="design-system" href={routeHref({ name: "page", pageId: ds.pageId })}>
             <PreviewSheet variant={index} />
             <div className={styles.body}>
-              <div className={styles.name}>{ds.title}</div>
+              <div className={styles.nameRow}>
+                <div className={styles.name}>{ds.title}</div>
+                {ds.pendingChanges > 0 && (
+                  <span data-testid="pending-pill" className={styles.pendingPill}>
+                    <span aria-hidden="true" className={styles.pendingDot} />
+                    non diffusé
+                  </span>
+                )}
+              </div>
               <div className={styles.usedBy}>{usedByLabel(ds)}</div>
               {ds.updatedAt && <div className={styles.modified}>Modifié {relativeTime(ds.updatedAt)}</div>}
             </div>

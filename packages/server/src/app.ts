@@ -197,6 +197,7 @@ export async function buildMainApp(
       ...designSystem,
       usedBy: store.projectsUsingDesignSystem(designSystem.id),
       updatedAt: store.listVersions(designSystem.pageId)[0]?.createdAt,
+      pendingChanges: diffDiffusionStates(store.diffusionState(designSystem.id, store.currentDiffusion(designSystem.id)!.number), store.designSystemDraft(designSystem.id).state).count,
     })),
   );
 

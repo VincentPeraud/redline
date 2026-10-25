@@ -156,6 +156,17 @@ describe("diffusions: projects follow the diffused version of a design system", 
     expect((await artboardGet(`/design-systems/${ds.id}/component-previews/nope`)).status).toBe(404);
   });
 
+  it("tells in the design systems list how many changes are pending, until a diffusion", async () => {
+    const { ds, page } = await createDesignSystem();
+    const pendingOf = async () =>
+      ((await (await server.get("/api/design-systems")).json()) as { id: string; pendingChanges: number }[]).find((d) => d.id === ds.id)!.pendingChanges;
+    expect(await pendingOf()).toBe(0);
+    await publish(page, { "tokens.css": tokensCss("#222222"), "manifest.json": manifestOf(["components/button.html"]), "components/button.html": component(".btn{color:red}") });
+    expect(await pendingOf()).toBe(1);
+    await server.post(`/api/design-systems/${ds.id}/diffusions`, {});
+    expect(await pendingOf()).toBe(0);
+  });
+
   it("refuses a diffusion when nothing is pending", async () => {
     const { ds } = await createDesignSystem();
     expect((await server.post(`/api/design-systems/${ds.id}/diffusions`, {})).status).toBe(409);
