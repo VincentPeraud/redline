@@ -485,6 +485,10 @@ export async function buildMainApp(
   app.post<{ Params: { pageId: string; versionId: string } }>(
     "/api/pages/:pageId/versions/:versionId/restore",
     async (req, reply) => {
+      const files = store.readVersionFiles(req.params.pageId, req.params.versionId);
+      // Restoring publishes the old files again: the same checks as a publish apply.
+      const invalid = files && (versionComponentsError(store, req.params.pageId, files) ?? removalsError(store, req.params.pageId, files, undefined, false));
+      if (invalid) return reply.code(400).send({ error: invalid });
       const restored = store.restoreVersion(req.params.pageId, req.params.versionId);
       return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });
     },

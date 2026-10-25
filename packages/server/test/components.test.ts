@@ -90,4 +90,17 @@ describe("components of design systems and projects", () => {
     expect((await publish(page, { ...files, "components/sticker.html": component("c{}") })).status).toBe(201);
     expect(await projectCss(one)).toBe("c{}\n");
   });
+
+  it("refuses restoring a version that brings back a component name another page now defines", async () => {
+    const project = await createProject();
+    const stories = (await (await addPage(project, "Stories", { "manifest.json": manifestOf(["components/sticker.html"]), "components/sticker.html": component(".s{x:1}") })).json()) as Page;
+    const [first] = (await (await server.get(`/api/pages/${stories.id}/versions`)).json()) as { id: string }[];
+    await publish(stories, { "manifest.json": manifestOf([]) });
+    await addPage(project, "Reels", { "manifest.json": manifestOf(["components/sticker.html"]), "components/sticker.html": component(".s{y:2}") });
+
+    const res = await server.post(`/api/pages/${stories.id}/versions/${first!.id}/restore`, {});
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain("sticker");
+    expect(((await (await server.get(`/api/pages/${stories.id}/versions`)).json()) as unknown[]).length).toBe(2);
+  });
 });

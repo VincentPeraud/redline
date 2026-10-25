@@ -107,6 +107,18 @@ describe("safe removals on a design system publish", () => {
     expect((await publishDs(files, { confirmRemovals: true })).status).toBe(201);
   });
 
+  it("refuses restoring a design system version that would remove a component a page still uses", async () => {
+    const [before] = (await (await server.get(`/api/pages/${dsPage.id}/versions`)).json()) as { id: string }[];
+    await publishDs({ "manifest.json": manifestOf(["components/post-cta.html", "components/badge.html"]), "components/post-cta.html": component(".cta{color:red}"), "components/badge.html": component(".badge{x:1}") });
+    const project = await createProject(ds.id);
+    await createPage(project, { "a.html": '<span class="badge">New</span>' });
+    await publishDs({ "manifest.json": manifestOf(["components/post-cta.html", "components/badge.html"]), "components/post-cta.html": component(".cta{color:red}"), "components/badge.html": component(".badge{x:1}") });
+
+    const res = await server.post(`/api/pages/${dsPage.id}/versions/${before!.id}/restore`, {});
+    expect(res.status).toBe(400);
+    expect(await error(res)).toContain('component "badge"');
+  });
+
   it("removes a component nobody uses", async () => {
     const project = await createProject(ds.id);
     await createPage(project, { "a.html": '<button class="other">Go</button>' });
