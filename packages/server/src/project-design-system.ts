@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import {
   CORE_TOKENS,
+  DESIGN_SYSTEM_TOKENS_PATH,
+  NEUTRAL_TOKENS_PAGE_HTML,
   PROJECT_STYLE_PATH,
   parseTokens,
   removeToken,
@@ -9,10 +11,13 @@ import {
   type ProjectComponentInfo,
   type ProjectDesignSystem,
   type ProjectStyleToken,
+  type PromoteProjectStyleRequest,
   type SetProjectTokenRequest,
+  type SetProjectDesignSystemRequest,
 } from "@redline/shared";
-import { projectComponents } from "./components.js";
+import { componentFilesOf, projectComponents } from "./components.js";
 import type { Store } from "./store.js";
+import { requiredString } from "./validation.js";
 
 const TOKEN_NAME = /^--[A-Za-z0-9_-]+$/;
 
@@ -71,6 +76,38 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/design-system", async (req, reply) => {
     if (!hasProjectStyle(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
     return projectDesignSystem(store, req.params.projectId);
+  });
+
+  app.put<{ Params: { projectId: string }; Body: SetProjectDesignSystemRequest }>("/api/projects/:projectId/design-system", async (req, reply) => {
+    const { projectId } = req.params;
+    if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
+    const designSystem = req.body?.designSystem ?? null;
+    if (designSystem !== null && (typeof designSystem !== "string" || !store.getDesignSystem(designSystem))) {
+      return reply.code(400).send({ error: "designSystem must be the id of an existing design system, or null for none" });
+    }
+    store.setProjectDesignSystem(projectId, designSystem, "user");
+    return projectDesignSystem(store, projectId);
+  });
+
+  // "En faire un design system…": the project style becomes a shared design system (diffusion 1) the project then follows, with an empty style.
+  app.post<{ Params: { projectId: string }; Body: PromoteProjectStyleRequest }>("/api/projects/:projectId/design-system/promote", async (req, reply) => {
+    const { projectId } = req.params;
+    if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
+    if (store.getProject(projectId)!.designSystem !== null) return reply.code(400).send({ error: "the project already follows a shared design system" });
+    const title = req.body?.title;
+    if (!requiredString(title)) return reply.code(400).send({ error: "title is required" });
+    const components = componentFilesOf(store, projectId);
+    const preview = "index.html";
+    const manifest = { artboards: [preview, ...Object.keys(components)].map((file, i) => ({ file, x: i * 300, y: 0, width: 280, height: 200 })) };
+    const designSystem = store.createDesignSystem(title.trim(), {
+      [DESIGN_SYSTEM_TOKENS_PATH]: styleOf(projectId),
+      [preview]: NEUTRAL_TOKENS_PAGE_HTML,
+      ...components,
+      "manifest.json": `${JSON.stringify(manifest, null, 2)}\n`,
+    });
+    save(projectId, "");
+    store.setProjectDesignSystem(projectId, designSystem.id, "user");
+    return reply.code(201).send(designSystem);
   });
 
   app.put<{ Params: { projectId: string; name: string }; Body: SetProjectTokenRequest }>("/api/projects/:projectId/project-style/tokens/:name", async (req, reply) => {

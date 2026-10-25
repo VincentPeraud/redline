@@ -129,3 +129,32 @@ it("lists the whole style of a project without a shared design system", async ()
   await tab.getByText("Pas de design system partagé").waitFor();
   await tab.close();
 });
+
+it("chooses 'Aucun' in the select: the project style becomes the whole style", async () => {
+  const { project } = await seed();
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
+  await tab.goto(`${server.url}/#/projects/${project.id}/design-system`);
+  await tab.getByTestId("token---radius").waitFor();
+  await tab.getByLabel("Design system", { exact: true }).selectOption("none");
+  await tab.getByText("Ce style n'est pas partagé").waitFor();
+  expect((await detail(project)).designSystem).toBeNull();
+  await tab.getByLabel("Design system", { exact: true }).selectOption({ label: "Lumora" });
+  await tab.getByText("Diffusion 1 du").waitFor();
+  expect((await detail(project)).designSystem?.title).toBe("Lumora");
+  await tab.close();
+});
+
+it("promotes the project's own style with 'En faire un design system…'", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Solo promo" })).json()) as Project;
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
+  await tab.goto(`${server.url}/#/projects/${project.id}/design-system`);
+  await tab.getByRole("button", { name: "En faire un design system…" }).click();
+  const dialog = tab.getByRole("dialog", { name: "En faire un design system" });
+  await dialog.getByRole("textbox").fill("Solo DS");
+  await dialog.getByRole("button", { name: "Créer le design system" }).click();
+  await tab.getByText("Diffusion 1 du").waitFor();
+  expect((await detail(project)).designSystem?.title).toBe("Solo DS");
+  expect((await detail(project)).overrideCount).toBe(0);
+  expect(await tab.getByLabel("Design system", { exact: true }).locator("option").allTextContents()).toContain("Solo DS");
+  await tab.close();
+});
