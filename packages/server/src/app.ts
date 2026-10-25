@@ -37,6 +37,7 @@ import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectDesignSystem } from "./
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
+import { registerProjectDesignSystemRoutes } from "./project-design-system.js";
 import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
@@ -107,6 +108,7 @@ export async function buildMainApp(
   app.addHook("onClose", async () => pageLock.dispose());
   await registerAgentApi(app, store, pageLock);
   await registerProjectFileRoutes(app, store);
+  registerProjectDesignSystemRoutes(app, store);
   registerEventRoutes(app, store);
   registerDesignSystemReload(app, store);
   const runs = registerRunRoutes(app, store);

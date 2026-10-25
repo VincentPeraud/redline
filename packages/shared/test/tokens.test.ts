@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTokens } from "@redline/shared";
+import { parseTokens, removeToken, setToken, tokenValueError } from "@redline/shared";
 
 describe("parseTokens", () => {
   it("lists custom properties in declaration order with their values", () => {
@@ -42,5 +42,34 @@ describe("parseTokens", () => {
 
   it("returns nothing for empty css", () => {
     expect(parseTokens("")).toEqual([]);
+  });
+});
+
+describe("setToken and removeToken", () => {
+  const css = `/* brand */\n:root {\n  --color-primary: #18181b;\n  --radius: 6px;\n}\n`;
+
+  it("replaces the value of a declared token and keeps the rest of the file", () => {
+    expect(setToken(css, "--radius", "12px")).toBe(`/* brand */\n:root {\n  --color-primary: #18181b;\n  --radius: 12px;\n}\n`);
+  });
+
+  it("adds a missing token at the end of the last block", () => {
+    expect(setToken(css, "--space-unit", "8px")).toBe(`/* brand */\n:root {\n  --color-primary: #18181b;\n  --radius: 6px;\n  --space-unit: 8px;\n}\n`);
+  });
+
+  it("creates a :root block when the file has none", () => {
+    expect(parseTokens(setToken("", "--radius", "4px"))).toEqual([{ name: "--radius", value: "4px", isColor: false }]);
+  });
+
+  it("removes a token", () => {
+    expect(removeToken(css, "--radius")).toBe(`/* brand */\n:root {\n  --color-primary: #18181b;\n}\n`);
+  });
+
+  it("does not mistake a longer name for the token", () => {
+    expect(setToken(":root { --color-primary-dark: red; }", "--color-primary", "blue")).toContain("--color-primary-dark: red;");
+  });
+
+  it("refuses values that would break the file", () => {
+    for (const value of ["", "red; color: blue", "a } b", "a\nb", "/* x */"]) expect(tokenValueError(value)).not.toBeNull();
+    expect(tokenValueError('"Inter", system-ui')).toBeNull();
   });
 });
