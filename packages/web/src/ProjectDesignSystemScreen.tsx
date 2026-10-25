@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DesignMdVersion, DesignSystemSummary, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, SaveDesignMdRequest } from "@redline/shared";
+import type { DesignMdVersion, DesignSystemSummary, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
 import { dayLabel, designMdAuthor, originLabel } from "./historyLabels.js";
 import { pickerHex } from "./projectDesignSystemLabels.js";
 import { relativeTime } from "./relativeTime.js";
 import { routeHref } from "./router.js";
-import { Button, Dialog, Logo, Tooltip, cx } from "./ui/index.js";
+import { Button, Dialog, DialogActions, Field, Logo, TextInput, Tooltip, cx } from "./ui/index.js";
 import styles from "./ProjectDesignSystemScreen.module.css";
 
 const CHEVRON = (
@@ -155,12 +155,44 @@ function HistoryDialog({ versions, onRestore, onClose }: { versions: DesignMdVer
   );
 }
 
+function PromoteDialog({ initialTitle, onSubmit, onClose }: { initialTitle: string; onSubmit: (title: string) => Promise<void>; onClose: () => void }) {
+  const [title, setTitle] = useState(initialTitle);
+  const [busy, setBusy] = useState(false);
+  const canCreate = title.trim() !== "" && !busy;
+  return (
+    <Dialog title="En faire un design system" onClose={onClose} width={520}>
+      <form
+        className={styles.promoteForm}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!canCreate) return;
+          setBusy(true);
+          void onSubmit(title.trim());
+        }}
+      >
+        <Field label="Nom du design system" hint="Les variables et les composants du projet deviennent la diffusion 1. Le projet le suit ensuite, sans surcharge.">
+          <TextInput autoFocus value={title} onChange={(event) => setTitle(event.target.value)} />
+        </Field>
+        <DialogActions>
+          <Button size="lg" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button type="submit" variant="accent" size="lg" disabled={!canCreate}>
+            Créer le design system
+          </Button>
+        </DialogActions>
+      </form>
+    </Dialog>
+  );
+}
+
 export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [detail, setDetail] = useState<ProjectDesignSystem | null>(null);
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
   const [versions, setVersions] = useState<DesignMdVersion[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [promoteOpen, setPromoteOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadVersions = useCallback(
@@ -171,6 +203,14 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
     [projectId],
   );
 
+  const loadDesignSystems = useCallback(
+    () =>
+      fetch("/api/design-systems")
+        .then((res) => res.json() as Promise<DesignSystemSummary[]>)
+        .then(setDesignSystems),
+    [],
+  );
+
   useEffect(() => {
     fetch(`/api/projects/${projectId}`)
       .then((res) => res.json() as Promise<Project>)
@@ -178,11 +218,9 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
     fetch(`/api/projects/${projectId}/design-system`)
       .then((res) => res.json() as Promise<ProjectDesignSystem>)
       .then(setDetail);
-    fetch("/api/design-systems")
-      .then((res) => res.json() as Promise<DesignSystemSummary[]>)
-      .then(setDesignSystems);
+    void loadDesignSystems();
     void loadVersions();
-  }, [projectId, loadVersions]);
+  }, [projectId, loadVersions, loadDesignSystems]);
 
   const change = useCallback(
     async (request: Promise<Response>) => {
@@ -207,6 +245,21 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   );
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const resetToken = useCallback((name: string) => change(fetch(tokenUrl(name), { method: "DELETE" })), [change, projectId]);
+
+  function changeDesignSystem(id: string) {
+    const body: SetProjectDesignSystemRequest = { designSystem: id === "none" ? null : id };
+    void change(fetch(`/api/projects/${projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+  }
+
+  async function promote(title: string) {
+    const body: PromoteProjectStyleRequest = { title };
+    const res = await fetch(`/api/projects/${projectId}/design-system/promote`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    setPromoteOpen(false);
+    if (!res.ok) return setError(((await res.json()) as { error: string }).error);
+    setError(null);
+    setDetail((await (await fetch(`/api/projects/${projectId}/design-system`)).json()) as ProjectDesignSystem);
+    await Promise.all([loadVersions(), loadDesignSystems()]);
+  }
 
   async function restore(version: DesignMdVersion) {
     const body: SaveDesignMdRequest = { content: version.content };
@@ -260,7 +313,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
               Design system
             </label>
             <span className={styles.selectWrap}>
-              <select id="ds-select" className={styles.select} value={selectedId} disabled>
+              <select id="ds-select" className={styles.select} value={selectedId} onChange={(event) => changeDesignSystem(event.target.value)}>
                 {designSystems.map((system) => (
                   <option key={system.id} value={system.id}>
                     {system.title}
@@ -279,7 +332,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
               <>
                 <span className={styles.chooserNote}>Ce style n'est pas partagé et n'apparaît pas dans la liste des design systems.</span>
                 <div className={styles.grow} />
-                <button type="button" className={styles.promote} disabled>
+                <button type="button" className={styles.promote} onClick={() => setPromoteOpen(true)}>
                   En faire un design system…
                 </button>
               </>
@@ -335,6 +388,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
         </aside>
       </div>
 
+      {promoteOpen && <PromoteDialog initialTitle={project.title} onSubmit={promote} onClose={() => setPromoteOpen(false)} />}
       {historyOpen && <HistoryDialog versions={versions} onRestore={restore} onClose={() => setHistoryOpen(false)} />}
     </div>
   );
