@@ -132,3 +132,26 @@ it("spans a responsive frame's strip across the frame so its buttons end on the 
   expect(Math.abs(more.x + more.width - (frame.x + frame.width))).toBeLessThan(2);
   await tab.close();
 }, 60_000);
+
+it("marks only component artboards with a ◆ and the component name on the strip", async () => {
+  const pageId = await createPage(
+    { "components/button.html": html, "home.html": html },
+    {
+      artboards: [
+        { file: "components/button.html", title: "Primary button", width: 400, height: 200, x: 0, y: 0 },
+        { file: "home.html", title: "Home", width: 400, height: 200, x: 600, y: 0 },
+      ],
+    },
+  );
+  const tab = await context.newPage();
+  await tab.goto(`${server.url}/#/pages/${pageId}`);
+  await tab.locator('[data-artboard="components/button.html"]').waitFor();
+
+  const component = tab.locator('[data-strip="components/button.html"]');
+  await component.getByRole("img", { name: "Composant" }).waitFor();
+  expect(await component.getByTestId("component-name").textContent()).toBe("button");
+  expect(await component.getByTestId("component-name").evaluate((el) => getComputedStyle(el).fontFamily)).toContain("JetBrains Mono");
+  expect(await tab.locator('[data-strip="home.html"]').getByRole("img", { name: "Composant" }).count()).toBe(0);
+  expect(await tab.locator('[data-strip="home.html"]').textContent()).toContain("Home");
+  await tab.close();
+}, 60_000);

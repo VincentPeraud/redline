@@ -1,4 +1,4 @@
-import { designSystemTokensUrlPath, HOVER_FINISH, MARK_FINISH, hoverLabelCss, hoverOutlineCss, markBadgeCss } from "@redline/shared";
+import { designSystemComponentsUrlPath, designSystemTokensUrlPath, projectComponentsUrlPath, HOVER_FINISH, MARK_FINISH, hoverLabelCss, hoverOutlineCss, markBadgeCss } from "@redline/shared";
 
 /**
  * Script injected into every served artboard HTML. Artboards run in a sandboxed iframe with an
@@ -470,4 +470,16 @@ export function injectDesignSystem(html: string, designSystemId: string): string
   const head = /<head[^>]*>/i.exec(html);
   if (head) return html.slice(0, head.index + head[0].length) + tag + html.slice(head.index + head[0].length);
   return tag + html;
+}
+
+/**
+ * Links the component stylesheets at the start of the document head: the design system's, then the project's (skipped
+ * for a design system's own project, whose components are the design system's). Call it before `injectDesignSystem`, which then puts the tokens first.
+ */
+export function injectComponents(html: string, designSystemId: string, projectId: string | null): string {
+  const paths = [designSystemComponentsUrlPath(designSystemId), ...(projectId === null ? [] : [projectComponentsUrlPath(projectId)])];
+  const tags = paths.map((path) => `<link rel="stylesheet" href="${path}">`).join("");
+  const head = /<head[^>]*>/i.exec(html);
+  if (head) return html.slice(0, head.index + head[0].length) + tags + html.slice(head.index + head[0].length);
+  return tags + html;
 }

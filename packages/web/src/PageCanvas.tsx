@@ -4,6 +4,7 @@ import {
   EMPTY_VIEW_SETTINGS,
   MANIFEST_PATH,
   RESPONSIVE_FORMATS,
+  componentNameOf,
   defaultManifest,
   groupTitlesOf,
   parseManifest,
@@ -23,6 +24,7 @@ import {
   type ThreadRendering,
   type ThreadTarget,
 } from "@redline/shared";
+import { ComponentMarker } from "./ComponentMarker.js";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { ArtboardHistory } from "./ArtboardHistory.js";
 import { restoreArtboard, useDeletedArtboards } from "./restoreArtboard.js";
@@ -560,7 +562,13 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         Lien copié
                       </div>
                     )}
-                    <span className={cx(styles.labelName, outlined === artboard.file && styles.labelNameOutlined)}>{artboard.title ?? artboard.file}</span>
+                    {componentNameOf(artboard.file) !== null && <ComponentMarker />}
+                    <span
+                      data-testid={componentNameOf(artboard.file) !== null ? "component-name" : undefined}
+                      className={cx(styles.labelName, componentNameOf(artboard.file) !== null && styles.componentName, outlined === artboard.file && styles.labelNameOutlined)}
+                    >
+                      {componentNameOf(artboard.file) ?? artboard.title ?? artboard.file}
+                    </span>
                     {layout && artboard.responsive && (
                       <>
                         <span className={styles.responsiveBadge}>responsive</span>
