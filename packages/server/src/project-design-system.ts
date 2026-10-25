@@ -14,7 +14,7 @@ import {
   setToken,
   tokenValueError,
   type ManifestArtboard,
-  type ManifestElement,
+  type ManifestTitleElement,
   type ManifestTweak,
   type ProjectComponentInfo,
   type ProjectDesignSystem,
@@ -37,7 +37,7 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
   const designSystemTokens = new Map(
     parseTokens(shared && diffusion ? (store.readDiffusionFile(shared.id, diffusion.number, "tokens.css") ?? "") : "").map((t) => [t.name, t]),
   );
-  const projectTokens = parseTokens(store.readProjectFile(projectId, PROJECT_STYLE_PATH)?.toString("utf8") ?? "");
+  const projectTokens = parseTokens(store.readProjectText(projectId, PROJECT_STYLE_PATH));
   const projectValues = new Map(projectTokens.map((t) => [t.name, t]));
   const names = [...designSystemTokens.keys(), ...projectTokens.map((t) => t.name).filter((name) => !designSystemTokens.has(name))];
 
@@ -59,7 +59,7 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
   });
 
   const diffusedComponents = new Set(
-    (JSON.parse((shared && diffusion ? store.readDiffusionFile(shared.id, diffusion.number, "components.json") : undefined) ?? "[]") as { name: string }[]).map((c) => c.name),
+    (shared && diffusion ? store.diffusionComponents(shared.id, diffusion.number) : []).map((c) => c.name),
   );
   const components = projectComponents(store, projectId).components.map(
     (c): ProjectComponentInfo => ({ name: c.name, file: c.file, page: c.page, status: diffusedComponents.has(c.name) ? "override" : "new" }),
@@ -84,9 +84,9 @@ const ASSET_REFERENCE = /\bassets\/([A-Za-z0-9._\/-]+)/g;
  * The manifest of a design system made from a project's components: each component keeps its artboard entry, its tweaks (the variants)
  * and the title above it on its page; the source pages are stacked under the preview artboard so nothing overlaps.
  */
-function promotedManifest(store: Store, projectId: string): { artboards: ManifestArtboard[]; elements: ManifestElement[]; tweaks: ManifestTweak[] } {
+function promotedManifest(store: Store, projectId: string): { artboards: ManifestArtboard[]; elements: ManifestTitleElement[]; tweaks: ManifestTweak[] } {
   const artboards: ManifestArtboard[] = [PREVIEW_ARTBOARD];
-  const elements: ManifestElement[] = [];
+  const elements: ManifestTitleElement[] = [];
   const tweaks: ManifestTweak[] = [];
   let nextY = PREVIEW_ARTBOARD.y + PREVIEW_ARTBOARD.height + PAGE_GAP;
   for (const page of store.listPages(projectId)) {
@@ -94,9 +94,9 @@ function promotedManifest(store: Store, projectId: string): { artboards: Manifes
     const manifest = files[MANIFEST_PATH] === undefined ? defaultManifest(Object.keys(files)) : parseManifest(files[MANIFEST_PATH]);
     const mine = manifest.artboards.filter((a) => componentNameOf(a.file) !== null && files[a.file] !== undefined);
     if (mine.length === 0) continue;
-    const titles = new Set<ManifestElement>();
+    const titles = new Set<ManifestTitleElement>();
     for (const artboard of mine) {
-      const above = manifest.elements.filter((e) => e.kind === "title" && e.y <= artboard.y).sort((a, b) => b.y - a.y)[0];
+      const above = manifest.elements.filter((e): e is ManifestTitleElement => e.kind === "title" && e.y <= artboard.y).sort((a, b) => b.y - a.y)[0];
       if (above) titles.add(above);
     }
     const top = Math.min(...mine.map((a) => a.y), ...[...titles].map((t) => t.y));
@@ -123,7 +123,7 @@ function assetsUsedBy(store: Store, projectId: string, components: Record<string
 
 export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: Store): void {
   const hasProjectStyle = (projectId: string) => store.projectExists(projectId) && !store.isDesignSystemProject(projectId);
-  const styleOf = (projectId: string) => store.readProjectFile(projectId, PROJECT_STYLE_PATH)?.toString("utf8") ?? "";
+  const styleOf = (projectId: string) => store.readProjectText(projectId, PROJECT_STYLE_PATH);
   const save = (projectId: string, css: string) => store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(css, "utf8"));
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/design-system", async (req, reply) => {

@@ -5,6 +5,7 @@ import fastifyStatic from "@fastify/static";
 import {
   type PageViewSettings,
   COMPONENTS_CSS_PATH,
+  withoutComponentStyles,
   DESIGN_SYSTEM_TOKENS_PATH,
   PROJECT_STYLE_PATH,
   parseTokens,
@@ -203,7 +204,7 @@ export async function buildMainApp(
       ...designSystem,
       usedBy: store.projectsUsingDesignSystem(designSystem.id),
       updatedAt: store.listVersions(designSystem.pageId)[0]?.createdAt,
-      pendingChanges: diffDiffusionStates(store.diffusionState(designSystem.id, store.currentDiffusion(designSystem.id)!.number), store.designSystemDraft(designSystem.id).state).count,
+      pendingChanges: store.pendingDiffusion(designSystem.id).pending.count,
     })),
   );
 
@@ -212,11 +213,10 @@ export async function buildMainApp(
     if (!designSystem) return void reply.code(404).send({ error: "design system not found" });
     const current = store.currentDiffusion(designSystem.id)!;
     const usedBy = store.projectsUsingDesignSystem(designSystem.id);
-    const draft = store.designSystemDraft(designSystem.id);
-    const pending = diffDiffusionStates(store.diffusionState(designSystem.id, current.number), draft.state);
+    const { draft, pending } = store.pendingDiffusion(designSystem.id);
     const changed = new Set(pending.tokens.changed.map((token) => token.name));
     const overrides = usedBy.flatMap((project) => {
-      const style = store.readProjectFile(project.id, PROJECT_STYLE_PATH)?.toString("utf8") ?? "";
+      const style = store.readProjectText(project.id, PROJECT_STYLE_PATH);
       const tokens = parseTokens(style).map((token) => token.name).filter((name) => changed.has(name));
       return tokens.length > 0 ? [{ ...project, tokens }] : [];
     });
@@ -260,8 +260,7 @@ export async function buildMainApp(
   app.post<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/diffusions", async (req, reply) => {
     const designSystem = store.getDesignSystem(req.params.designSystemId);
     if (!designSystem) return reply.code(404).send({ error: "design system not found" });
-    const pending = diffDiffusionStates(store.diffusionState(designSystem.id, store.currentDiffusion(designSystem.id)!.number), store.designSystemDraft(designSystem.id).state);
-    if (pending.count === 0) return reply.code(409).send({ error: "nothing to diffuse" });
+    if (store.pendingDiffusion(designSystem.id).pending.count === 0) return reply.code(409).send({ error: "nothing to diffuse" });
     const created = store.createDiffusion(designSystem.id, "user");
     announceDiffusion(store, designSystem.id);
     return reply.code(201).send(created);
@@ -300,7 +299,7 @@ export async function buildMainApp(
 
   app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/tokens", async (req, reply) => {
     if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
-    return { content: store.readProjectFile(req.params.designSystemId, DESIGN_SYSTEM_TOKENS_PATH)?.toString("utf8") ?? "" };
+    return { content: store.readProjectText(req.params.designSystemId, DESIGN_SYSTEM_TOKENS_PATH) };
   });
 
   app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/tokens/versions", async (req, reply) => {
@@ -534,7 +533,8 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
 
   app.get<{ Params: { designSystemId: string; number: string; file: string } }>("/design-systems/:designSystemId/diffusions/:number/:file", async (req, reply) => {
     const { designSystemId, number, file } = req.params;
-    const content = file === "tokens.css" || file === "components.css" ? store.readDiffusionFile(designSystemId, Number(number), file) : undefined;
+    const content =
+      /^\d+$/.test(number) && (file === DESIGN_SYSTEM_TOKENS_PATH || file === COMPONENTS_CSS_PATH) ? store.readDiffusionFile(designSystemId, Number(number), file) : undefined;
     if (content === undefined) return reply.code(404).send("not found");
     return sendStylesheet(reply, content, "public, max-age=31536000, immutable");
   });
@@ -546,13 +546,14 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     const component = store.designSystemDraft(designSystemId).assembly.components.find((c) => c.name === name);
     const html = component && store.readPageFile(component.page.id, component.file)?.toString("utf8");
     if (html === undefined) return reply.code(404).send("not found");
+    if (req.query.diffusion !== undefined && !/^\d+$/.test(req.query.diffusion)) return reply.code(400).send("diffusion must be a number");
     const diffusion = req.query.diffusion === undefined ? undefined : Number(req.query.diffusion);
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .header("cache-control", "no-cache")
       .type(MIME[".html"])
       // The component's own style blocks are what components.css assembles: dropped here so that the chosen diffusion's css decides.
-      .send(injectDesignSystem(html.replace(/<style\b[^>]*\bdata-component\b[^>]*>[\s\S]*?<\/style>/gi, ""), designSystemId, undefined, diffusion));
+      .send(injectDesignSystem(withoutComponentStyles(html), designSystemId, undefined, diffusion));
   });
 
   app.get<{ Params: { designSystemId: string; "*": string } }>("/design-systems/:designSystemId/*", async (req, reply) => {
@@ -610,12 +611,11 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     if (!asset) return reply.code(404).send("not found");
     // Artboards are opaque-origin, so fonts of the project assets need CORS to load.
     if (!pageFile) reply.header("access-control-allow-origin", "*");
-    const content = asset;
     const isHtml = extname(path) === ".html";
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[extname(path)] ?? "application/octet-stream")
-      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), renderedDesignSystemOf(pageId, versionId), projectStyleProjectOf(pageId), draftPreview ? undefined : diffusionOf(pageId, versionId))) : content);
+      .send(isHtml ? injectBridge(injectDesignSystem(asset.toString("utf8"), renderedDesignSystemOf(pageId, versionId), projectStyleProjectOf(pageId), draftPreview ? undefined : diffusionOf(pageId, versionId))) : asset);
   }
 
   return app;

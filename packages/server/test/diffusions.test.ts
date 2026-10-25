@@ -154,6 +154,8 @@ describe("diffusions: projects follow the diffused version of a design system", 
     expect(after).not.toContain("color:blue");
     expect(before).not.toContain("color:blue");
     expect((await artboardGet(`/design-systems/${ds.id}/component-previews/nope`)).status).toBe(404);
+    expect((await artboardGet(`/design-systems/${ds.id}/component-previews/button?diffusion=abc`)).status).toBe(400);
+    expect((await artboardGet(`/design-systems/${ds.id}/diffusions/abc/tokens.css`)).status).toBe(404);
   });
 
   it("tells in the design systems list how many changes are pending, until a diffusion", async () => {
