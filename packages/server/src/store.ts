@@ -560,6 +560,30 @@ export class Store {
     return project;
   }
 
+  /**
+   * Points a project at a shared design system, or at none (null: its project style becomes its whole style). Pages follow the
+   * `designSystem` of their manifest, so each page whose manifest says otherwise gets a version with the new value.
+   */
+  setProjectDesignSystem(projectId: string, designSystem: string | null, origin: VersionOrigin): void {
+    this.db.prepare("UPDATE projects SET design_system = ? WHERE id = ?").run(designSystem, projectId);
+    if (designSystem === null && !this.readProjectFile(projectId, PROJECT_STYLE_PATH)) {
+      this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(NEUTRAL_TOKENS_CSS, "utf8"));
+    }
+    for (const page of this.listPages(projectId)) {
+      const { files } = this.readPageFiles(page.id)!;
+      let manifest: Record<string, unknown>;
+      try {
+        manifest = JSON.parse(files[MANIFEST_PATH] ?? "");
+      } catch {
+        continue;
+      }
+      if ((manifest.designSystem ?? null) === designSystem) continue;
+      if (designSystem === null) delete manifest.designSystem;
+      else manifest.designSystem = designSystem;
+      this.addVersion(page.id, { ...files, [MANIFEST_PATH]: `${JSON.stringify(manifest, null, 2)}\n` }, designSystem === null ? "No shared design system" : "Design system changed", origin);
+    }
+  }
+
   /** True when `projectId` is a design system's own project (it has no project style: its `tokens.css` is the design system's). */
   isDesignSystemProject(projectId: string): boolean {
     return this.db.prepare("SELECT 1 FROM design_systems WHERE project_id = ?").get(projectId) !== undefined;

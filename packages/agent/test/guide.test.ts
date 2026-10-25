@@ -40,3 +40,43 @@ it("documents move_artboard, its target page id and its refusals", () => {
   expect(REDLINE_GUIDE).toContain("reuse it for the next artboards");
   expect(REDLINE_GUIDE).toContain("another session works on either page");
 });
+
+it("documents the design system folder, 'Ce projet utilise' and design system sessions editing tokens.css", () => {
+  expect(REDLINE_GUIDE).toContain("## Design system and components");
+  expect(REDLINE_GUIDE).toContain(".design-system/");
+  expect(REDLINE_GUIDE).toContain("Ce projet utilise");
+  expect(REDLINE_GUIDE).toContain("design system session");
+  expect(REDLINE_GUIDE).toContain("draft");
+  expect(REDLINE_GUIDE).toContain("Never edit a shared design system from a project session");
+});
+
+it("lists the recommended extra token names and asks for var() fallbacks", () => {
+  for (const name of ["--color-accent", "--color-success", "--color-warning", "--color-error", "--text-xs", "--text-3xl", "--shadow", "--radius-sm", "--radius-lg"]) {
+    expect(REDLINE_GUIDE).toContain(name);
+  }
+  expect(REDLINE_GUIDE).toContain("nothing refuses other names");
+});
+
+it("explains components: file layout, description, usage, variants as tweaks, data-state, data-ds-libre", () => {
+  expect(REDLINE_GUIDE).toContain("components/<name>.html");
+  expect(REDLINE_GUIDE).toContain('<meta name="description"');
+  expect(REDLINE_GUIDE).toContain("<template data-usage>");
+  expect(REDLINE_GUIDE).toContain("<style data-component>");
+  expect(REDLINE_GUIDE).toContain("Variants are tweaks");
+  expect(REDLINE_GUIDE).toContain("data-ds-libre");
+});
+
+it("explains overrides, deprecated aliases and the publish hint", () => {
+  expect(REDLINE_GUIDE).toContain("Override only when the user asks");
+  expect(REDLINE_GUIDE).toContain("/* deprecated: renamed to --new */");
+  expect(REDLINE_GUIDE).toContain("Hint:");
+});
+
+it("explains how to recreate a Claude Design design system and the terminal tools", () => {
+  expect(REDLINE_GUIDE).toContain("## Recreating a Claude Design design system");
+  expect(REDLINE_GUIDE).toContain("README");
+  expect(REDLINE_GUIDE).toContain("tokens.json");
+  expect(REDLINE_GUIDE).toContain("create_design_system");
+  expect(REDLINE_GUIDE).toContain("set_project_design_system");
+  expect(REDLINE_GUIDE).toContain("list_design_systems");
+});
