@@ -106,7 +106,7 @@ it("shows what goes with a message, follows pan and tweaks, and sends it with th
   await panel.getByText("Visibles : accueil, paiement, confirmation", { exact: true }).waitFor();
   await panel.getByText("Tweaks : thème clair", { exact: true }).waitFor();
 
-  await tab.getByRole("button", { name: "Tweaks", exact: true }).click();
+  await tab.getByRole("button", { name: "Tweaks · 1" }).click();
   await tab.getByRole("button", { name: "sombre" }).click();
   await panel.getByText("Tweaks : thème sombre", { exact: true }).waitFor();
 

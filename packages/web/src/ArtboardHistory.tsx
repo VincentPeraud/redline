@@ -7,8 +7,9 @@ import styles from "./ArtboardHistory.module.css";
 function ClockIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
+      <path d="M3 12a9 9 0 1 0 2.64-6.36L3 8.3" />
+      <path d="M3 3.5v4.8h4.8" />
+      <path d="M12 7.5V12l3 2" />
     </svg>
   );
 }

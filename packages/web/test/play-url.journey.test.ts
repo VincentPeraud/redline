@@ -183,7 +183,8 @@ it("copies the full-screen address from the name strip and the current play URL,
   const tab = await context.newPage();
   await tab.goto(`${server.url}/#/pages/${pageId}`);
 
-  await tab.getByRole("button", { name: "Copier le lien plein écran de landing.html" }).click();
+  await tab.getByRole("button", { name: "Autres actions pour landing.html" }).click();
+  await tab.getByRole("menuitem", { name: "Copier le lien plein écran" }).click();
   const bubble = tab.getByRole("status").filter({ hasText: "Lien copié" });
   await bubble.waitFor();
   expect(await tab.evaluate(() => navigator.clipboard.readText())).toBe(`${server.url}/#/pages/${pageId}/play/landing.html`);
