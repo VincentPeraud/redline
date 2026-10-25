@@ -187,7 +187,8 @@ function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBa
 interface Props {
   project: Project | null;
   /** The project id; `DiffuseButton` shows only when it is a design system with pending changes. */
-  designSystemId: string;
+  /** Set on a design system's own page only. */
+  designSystemId?: string;
   versionId: string;
   pageId: string;
   pageTitle: string;

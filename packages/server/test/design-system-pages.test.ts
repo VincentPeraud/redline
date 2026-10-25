@@ -41,6 +41,15 @@ describe("a design system with several pages", () => {
     expect((await pagesOf(ds.id)).map((p) => p.title)).toEqual(["Acme DS", "Forms", "Navigation & menus", "Feedback"]);
   });
 
+  it("tells whether a page belongs to a design system", async () => {
+    const ds = await createDesignSystem();
+    const dsPage = (await pagesOf(ds.id))[0];
+    const project = (await (await server.post("/api/projects", { title: "Campagne" })).json()) as { id: string };
+    const projectPage = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Stories", files: { "a.html": html } })).json()) as Page;
+    expect(((await (await server.get(`/api/pages/${dsPage.id}`)).json()) as Page).designSystem).toBe(true);
+    expect(((await (await server.get(`/api/pages/${projectPage.id}`)).json()) as Page).designSystem).toBe(false);
+  });
+
   it("keeps tokens.css at the project level, not in any page", async () => {
     const ds = await createDesignSystem({ "tokens.css": tokensCss({ "--color-primary": "#123456" }), "buttons.html": html });
     const [first] = await pagesOf(ds.id);

@@ -360,7 +360,7 @@ export async function buildMainApp(
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId", async (req, reply) => {
     const page = store.getPage(req.params.pageId);
-    return page ? { ...page, viewSettings: store.getViewSettings(page.id) } : reply.code(404).send({ error: "page not found" });
+    return page ? { ...page, viewSettings: store.getViewSettings(page.id), designSystem: store.isDesignSystemProject(page.projectId) } : reply.code(404).send({ error: "page not found" });
   });
 
   app.post<{ Params: { pageId: string }; Body: PageViewSettings }>("/api/pages/:pageId/view-settings", async (req, reply) => {

@@ -33,14 +33,15 @@ export function App({ route }: { route: PageRoute }) {
   }, [pageId]);
 
   useEffect(() => {
-    if (page) getJson<Project>(`/api/projects/${page.projectId}`).then(setProject);
-  }, [page?.projectId]);
+    // A design system's own project is not a project of the API.
+    if (page && !page.designSystem) getJson<Project>(`/api/projects/${page.projectId}`).then(setProject);
+  }, [page?.projectId, page?.designSystem]);
 
   useEffect(
     () =>
       subscribeServerEvents((event) => {
         if (event.type === "page-updated" && event.pageId === pageId) void loadPage();
-        if (event.type === "agents-updated" && page) void getJson<Project>(`/api/projects/${page.projectId}`).then(setProject);
+        if (event.type === "agents-updated" && page && !page.designSystem) void getJson<Project>(`/api/projects/${page.projectId}`).then(setProject);
       }),
     [pageId, page?.projectId],
   );
@@ -54,6 +55,7 @@ export function App({ route }: { route: PageRoute }) {
         pageTitle={page.title}
         project={project}
         projectId={page.projectId}
+        designSystemPage={page.designSystem ?? false}
         files={page.version.files}
         artboardOrigin={artboardOrigin}
         versionId={page.version.id}

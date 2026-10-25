@@ -143,6 +143,8 @@ interface Props {
   project: Project | null;
   /** Id of the page's project; for a design system's own page it is the design system's id (`project` is null then). */
   projectId: string;
+  /** The page belongs to a design system's own project. */
+  designSystemPage: boolean;
   /** Path -> content hash of the current version. */
   files: Record<string, string>;
   artboardOrigin: string;
@@ -155,7 +157,7 @@ interface Props {
   route: PageRoute;
 }
 
-export function PageCanvas({ pageId, pageTitle, project, projectId, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, route }: Props) {
+export function PageCanvas({ pageId, pageTitle, project, projectId, designSystemPage, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, route }: Props) {
   const { artboard: addressedArtboard, play: playFile, renderingParam, previewOf } = route;
   /** Previewed with a design system's draft: read-only, nothing here comments, converses, saves or publishes. */
   const previewing = previewOf !== undefined;
@@ -192,7 +194,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
   /** The gap "Voir" points at: its artboard outlines the element. */
   const [seenGap, setSeenGap] = useState<SeenGap | null>(null);
   const seenFile = useRef<string | null>(null);
-  const pendingComponents = useDesignSystemDetail(projectId, versionId)?.pending.components;
+  const designSystemId = designSystemPage ? projectId : undefined;
+  const pendingComponents = useDesignSystemDetail(designSystemId, versionId)?.pending.components;
   const componentChange = (file: string): "modifié" | "nouveau" | null => {
     const name = componentNameOf(file);
     if (name === null || !pendingComponents) return null;
@@ -531,7 +534,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
       <CanvasHeader
         previewOf={previewOf}
         project={project}
-        designSystemId={projectId}
+        designSystemId={designSystemId}
         versionId={versionId}
         pageId={pageId}
         pageTitle={pageTitle}

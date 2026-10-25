@@ -193,6 +193,8 @@ export interface Page {
   version: PageVersion;
   /** Only on `GET /api/pages/:pageId`. */
   viewSettings?: PageViewSettings;
+  /** Only on `GET /api/pages/:pageId`: the page belongs to a design system's own project (its `projectId` is the design system's id). */
+  designSystem?: boolean;
 }
 
 export type PageCreator = "claude" | "user";
