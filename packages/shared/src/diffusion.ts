@@ -79,6 +79,8 @@ export interface DesignSystemDetail {
   pages: { id: string; title: string }[];
   usedBy: { id: string; title: string }[];
   current: DiffusionInfo;
+  /** Projects of `usedBy` whose own style redefines tokens that the pending changes alter: the change has no effect there. */
+  overrides: { id: string; title: string; tokens: string[] }[];
   /** Draft compared with the current diffusion; `count` 0 = nothing pending. */
   pending: DiffusionDiff;
 }
@@ -86,3 +88,10 @@ export interface DesignSystemDetail {
 /** Path on the artboard origin serving a file of one diffusion (immutable, so cacheable forever). */
 export const diffusionFileUrlPath = (designSystemId: string, diffusion: number, file: "tokens.css" | "components.css") =>
   `/design-systems/${encodeURIComponent(designSystemId)}/diffusions/${diffusion}/${file}`;
+
+/**
+ * Path on the artboard origin rendering one component alone: with the files of `diffusion` when given (the "before"
+ * of a pending change), else with the live draft (the "after").
+ */
+export const componentPreviewUrlPath = (designSystemId: string, name: string, diffusion?: number) =>
+  `/design-systems/${encodeURIComponent(designSystemId)}/component-previews/${encodeURIComponent(name)}${diffusion === undefined ? "" : `?diffusion=${diffusion}`}`;

@@ -114,6 +114,33 @@ describe("diffusions: projects follow the diffused version of a design system", 
     expect(((await (await server.get(`/api/design-systems/${ds.id}/diffusions`)).json()) as DiffusionInfo[]).map((d) => d.number)).toEqual([2, 1]);
   });
 
+  it("lists the projects whose own style overrides a pending token change", async () => {
+    const { ds, page } = await createDesignSystem();
+    const halloween = (await (await server.post("/api/projects", { title: "Halloween", designSystem: ds.id })).json()) as { id: string };
+    const plain = (await (await server.post("/api/projects", { title: "Plain", designSystem: ds.id })).json()) as { id: string };
+    const putStyle = (id: string, content: string) =>
+      fetch(`${server.url}/api/projects/${id}/project-style`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ content }) });
+    await putStyle(halloween.id, ":root { --color-primary: #ff6600; --color-other: #123456; }");
+    await putStyle(plain.id, ":root { --color-other: #123456; }");
+
+    expect((await detailOf(ds.id)).overrides).toEqual([]);
+    await publish(page, { "tokens.css": tokensCss("#222222"), "manifest.json": manifestOf(["components/button.html"]), "components/button.html": component(".btn{color:red}") });
+    expect((await detailOf(ds.id)).overrides).toEqual([{ id: halloween.id, title: "Halloween", tokens: ["--color-primary"] }]);
+  });
+
+  it("previews a component before (current diffusion) and after (draft) a pending change", async () => {
+    const { ds, page } = await createDesignSystem();
+    await publish(page, { "tokens.css": tokensCss("#222222"), "manifest.json": manifestOf(["components/button.html"]), "components/button.html": component(".btn{color:blue}") });
+
+    const after = await (await artboardGet(`/design-systems/${ds.id}/component-previews/button`)).text();
+    expect(hrefOf(after, "tokens.css")).toBe(`/design-systems/${ds.id}/tokens.css`);
+    const before = await (await artboardGet(`/design-systems/${ds.id}/component-previews/button?diffusion=1`)).text();
+    expect(hrefOf(before, "tokens.css")).toBe(`/design-systems/${ds.id}/diffusions/1/tokens.css`);
+    expect(after).not.toContain("color:blue");
+    expect(before).not.toContain("color:blue");
+    expect((await artboardGet(`/design-systems/${ds.id}/component-previews/nope`)).status).toBe(404);
+  });
+
   it("refuses a diffusion when nothing is pending", async () => {
     const { ds } = await createDesignSystem();
     expect((await server.post(`/api/design-systems/${ds.id}/diffusions`, {})).status).toBe(409);

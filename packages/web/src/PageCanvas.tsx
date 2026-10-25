@@ -133,6 +133,8 @@ interface Props {
   pageId: string;
   pageTitle: string;
   project: Project | null;
+  /** Id of the page's project; for a design system's own page it is the design system's id (`project` is null then). */
+  projectId: string;
   /** Path -> content hash of the current version. */
   files: Record<string, string>;
   artboardOrigin: string;
@@ -145,7 +147,7 @@ interface Props {
   route: PageRoute;
 }
 
-export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, route }: Props) {
+export function PageCanvas({ pageId, pageTitle, project, projectId, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, route }: Props) {
   const { artboard: addressedArtboard, play: playFile, renderingParam } = route;
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
@@ -478,6 +480,8 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     <div className={styles.page}>
       <CanvasHeader
         project={project}
+        designSystemId={projectId}
+        versionId={versionId}
         pageId={pageId}
         pageTitle={pageTitle}
         picking={picking}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DeletedArtboard, Page, Project, Thread } from "@redline/shared";
+import { DiffuseButton } from "./DiffusionDialog.js";
 import { DeletedArtboardsList } from "./DeletedArtboardsList.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
 import { TocMenu } from "./TocMenu.js";
@@ -182,6 +183,9 @@ function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBa
 
 interface Props {
   project: Project | null;
+  /** The project id; `DiffuseButton` shows only when it is a design system with pending changes. */
+  designSystemId: string;
+  versionId: string;
   pageId: string;
   pageTitle: string;
   picking: boolean;
@@ -195,7 +199,7 @@ interface Props {
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc }: Props) {
+export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc }: Props) {
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -222,6 +226,7 @@ export function CanvasHeader({ project, pageId, pageTitle, picking, onPickingCha
       </nav>
       <TocMenu {...toc} />
       <div className={styles.spacer} />
+      <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />
       <AgentPill project={project} running={runningCount} />
       <div role="group" aria-label="Mode du canvas" className={styles.modes}>
         <button type="button" aria-pressed={!picking} className={cx(styles.mode, !picking && styles.modeInteract)} onClick={() => onPickingChange(false)}>
