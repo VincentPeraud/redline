@@ -29,6 +29,14 @@ _Avoid_: Manifest order, artboard order
 A special project whose tokens, components and pages define a style that other projects use.
 _Avoid_: DS (in code and docs), theme, style guide
 
+**Project style**:
+A project's own tokens (project-level `tokens.css`, next to DESIGN.md), injected after the design system's. With a shared design system it holds the project's overrides; without one it is the project's whole style, starting from the neutral values.
+_Avoid_: Theme, project layer, local design system
+
+**Override**:
+A project-style token that replaces the design system's token of the same name; its CSS comes later, so the project value wins.
+_Avoid_: Customisation, exception
+
 **Core tokens**:
 The fixed set of named design variables every design system must define, so pages work with any design system.
 _Avoid_: Base variables, required tokens

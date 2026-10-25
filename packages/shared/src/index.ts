@@ -103,6 +103,8 @@ export interface CreateVersionRequest {
    * working copy started from; the server answers 409 when DESIGN.md changed meanwhile (nothing is published).
    */
   designMd?: { content: string; base: string };
+  /** `/agent-api` only: the project style `tokens.css` of the working copy, sent when the session changed it; same `base` rule as `designMd`. */
+  projectStyle?: { content: string; base: string };
 }
 
 // Per-artboard history (decision 3 of 2026-10-22). Storage is the page versions; these are derived views.

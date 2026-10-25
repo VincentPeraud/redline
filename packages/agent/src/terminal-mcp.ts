@@ -6,7 +6,7 @@ import { readLinkedProjectId } from "./link.js";
 import { pageAddresses } from "./page-addresses.js";
 import type { ServerApi } from "./server-api.js";
 import { CREATE_PAGE_TOOL, createRedlineMcpServer } from "./session-mcp.js";
-import { readDesignMd, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
+import { readDesignMd, readProjectStyle, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
 
 export const CHECKOUT_PAGE_TOOL = "checkout_page";
 export const PUBLISH_PAGE_TOOL = "publish_page";
@@ -23,6 +23,8 @@ interface Checkout {
   files: Record<string, string>;
   /** DESIGN.md as published or downloaded last. */
   designMd: string;
+  /** Project style `tokens.css` as published or downloaded last (undefined for a design system's own project). */
+  projectStyle: string | undefined;
   /** Project assets as uploaded or downloaded last (name -> base64). */
   assets: Record<string, string>;
   versionId: string;
@@ -120,7 +122,15 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
       workingCopyDir(folder, pageId);
       const checkout = await api.checkout(pageId);
       const dir = writeWorkingCopy(folder, pageId, checkout);
-      current = { pageId, dir, files: checkout.files, designMd: checkout.project.designMd, assets: checkout.project.assets, versionId: checkout.versionId };
+      current = {
+        pageId,
+        dir,
+        files: checkout.files,
+        designMd: checkout.project.designMd,
+        projectStyle: checkout.project.projectStyle,
+        assets: checkout.project.assets,
+        versionId: checkout.versionId,
+      };
       return `Page checked out into .redline/${pageId}/. Edit its files, then call publish_page.\n${pageAddresses(api, pageId, checkout.files)}`;
     }),
   );
@@ -132,28 +142,38 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
     },
     tool(async ({ message }: { message: string }) => {
       const checkout = checkedOut();
-      const { pageId, dir, files: base, designMd: baseDesignMd, versionId } = checkout;
-      const files = readWorkingCopy(dir);
+      const { pageId, dir, files: base, designMd: baseDesignMd, projectStyle: baseStyle, versionId } = checkout;
+      const files = readWorkingCopy(dir, baseStyle !== undefined);
       // DESIGN.md is published with the page, as in a session run (a deleted file counts as unchanged).
       const designMd = readDesignMd(dir) ?? baseDesignMd;
+      const projectStyle = baseStyle === undefined ? undefined : (readProjectStyle(dir) ?? baseStyle);
       // Assets belong to the project: new or changed ones go up first, so the version that uses them shows them.
       const { uploaded, assets } = await uploadChangedAssets(api, pageId, dir, checkout.assets);
       checkout.assets = assets;
       const uploadedNote = uploaded.length ? `Uploaded ${uploaded.map((name) => `assets/${name}`).join(", ")}. ` : "";
-      if (sameFiles(files, base) && designMd === baseDesignMd) {
+      if (sameFiles(files, base) && designMd === baseDesignMd && projectStyle === baseStyle) {
         return uploaded.length ? `${uploadedNote}No page file changed; no version published.` : "Nothing changed; no version published.";
       }
       const version = await api.publish(pageId, files, message, "terminal", versionId, {
         ...(designMd !== baseDesignMd ? { designMd: { content: designMd, base: baseDesignMd } } : {}),
+        ...(projectStyle !== baseStyle ? { projectStyle: { content: projectStyle!, base: baseStyle! } } : {}),
       });
       if (!version.merged) {
-        current = { pageId, dir, files, designMd, assets, versionId: version.id };
+        current = { pageId, dir, files, designMd, projectStyle, assets, versionId: version.id };
         return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}.`;
       }
       // The page moved on since the checkout: the new version also holds those changes, so download it again.
       const fresh = await api.checkout(pageId);
       writeWorkingCopy(folder, pageId, fresh);
-      current = { pageId, dir, files: fresh.files, designMd: fresh.project.designMd, assets: fresh.project.assets, versionId: fresh.versionId };
+      current = {
+        pageId,
+        dir,
+        files: fresh.files,
+        designMd: fresh.project.designMd,
+        projectStyle: fresh.project.projectStyle,
+        assets: fresh.project.assets,
+        versionId: fresh.versionId,
+      };
       return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}, merged with changes made to the page since the checkout. The working copy was refreshed.`;
     }),
   );
