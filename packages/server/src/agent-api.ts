@@ -14,6 +14,7 @@ import {
   starterDesignSystemFiles,
   starterPageFiles,
   type AgentDesignSystem,
+  type ProjectStyleStart,
 } from "@redline/shared";
 import { mergeOntoCurrent } from "./publish.js";
 import { moveArtboard } from "./move-artboard.js";
@@ -23,6 +24,7 @@ import { removalsError } from "./removals.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
 import { requiredString, titleError, tokensError, versionRequestError } from "./validation.js";
 import { projectContext, putProjectAsset } from "./project-files.js";
+import { designSystemChangeError } from "./project-design-system.js";
 import type { PageLock } from "./page-lock.js";
 import type { OriginRef, Store } from "./store.js";
 
@@ -78,13 +80,12 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         return reply.code(201).send(store.createDesignSystem((title as string).trim(), starterDesignSystemFiles()));
       });
 
-      api.put<{ Params: { projectId: string }; Body: { designSystem?: unknown } }>("/projects/:projectId/design-system", async (req, reply) => {
+      api.put<{ Params: { projectId: string }; Body: { designSystem?: unknown; startFrom?: unknown } }>("/projects/:projectId/design-system", async (req, reply) => {
         const designSystem = req.body?.designSystem ?? null;
         if (store.getDesignSystem(req.params.projectId) || !store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-        if (designSystem !== null && (typeof designSystem !== "string" || !store.getDesignSystem(designSystem))) {
-          return reply.code(400).send({ error: "designSystem must be the id of an existing design system, or null for none" });
-        }
-        store.setProjectDesignSystem(req.params.projectId, designSystem, "terminal");
+        const invalid = designSystemChangeError(store, req.params.projectId, designSystem, req.body?.startFrom);
+        if (invalid) return reply.code(400).send({ error: invalid });
+        store.setProjectDesignSystem(req.params.projectId, designSystem, "terminal", req.body?.startFrom as ProjectStyleStart | undefined);
         return store.getProject(req.params.projectId);
       });
 

@@ -86,7 +86,10 @@ describe("terminal design system tools", () => {
     expect((await projectOf(projectId)).designSystem).toBe(ds.id);
     expect((await designSystems()).find((d) => d.id === ds.id)!.usedBy.map((p) => p.id)).toContain(projectId);
 
-    const none = await call("set_project_design_system", { projectId, designSystem: null });
+    const refused = await call("set_project_design_system", { projectId, designSystem: null });
+    expect(refused.isError).toBe(true);
+    expect((await projectOf(projectId)).designSystem).toBe(ds.id);
+    const none = await call("set_project_design_system", { projectId, designSystem: null, startFrom: "design-system" });
     expect(none.isError).toBe(false);
     expect((await projectOf(projectId)).designSystem).toBeNull();
   });
@@ -101,7 +104,7 @@ describe("terminal design system tools", () => {
     await call("set_project_design_system", { projectId: seam.project.id, designSystem: ds.id });
     expect(JSON.parse(await seam.readFile(page.id, "manifest.json")).designSystem).toBe(ds.id);
 
-    await call("set_project_design_system", { projectId: seam.project.id, designSystem: null });
+    await call("set_project_design_system", { projectId: seam.project.id, designSystem: null, startFrom: "neutral" });
     expect(JSON.parse(await seam.readFile(page.id, "manifest.json")).designSystem).toBeUndefined();
   });
 

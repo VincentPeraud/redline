@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import type { ProjectStyleStart } from "@redline/shared";
 import { uploadChangedAssets } from "./assets.js";
 import { readLinkedProjectId } from "./link.js";
 import { pageAddresses } from "./page-addresses.js";
@@ -143,14 +144,15 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
     SET_PROJECT_DESIGN_SYSTEM_TOOL,
     {
       description:
-        "Point a project at a shared design system, or at none (designSystem null: its tokens.css becomes its whole style). Existing pages are switched with it.",
+        "Point a project at a shared design system, or at none (designSystem null: its tokens.css becomes its whole style). Existing pages are switched with it. Leaving a shared design system for none requires startFrom: \"design-system\" copies that design system's current values into the project's tokens.css, \"neutral\" starts from the neutral values; the project's own overrides keep their value either way.",
       inputSchema: {
         projectId: z.string().describe("Id of the project (see list_projects)"),
         designSystem: z.string().nullable().describe("Id of a design system (see list_design_systems), or null for none"),
+        startFrom: z.enum(["design-system", "neutral"]).optional().describe("Required when the project follows a shared design system and designSystem is null"),
       },
     },
-    tool(async ({ projectId, designSystem }: { projectId: string; designSystem: string | null }) => {
-      const project = await api.setProjectDesignSystem(projectId, designSystem);
+    tool(async ({ projectId, designSystem, startFrom }: { projectId: string; designSystem: string | null; startFrom?: ProjectStyleStart }) => {
+      const project = await api.setProjectDesignSystem(projectId, designSystem, startFrom);
       return designSystem === null
         ? `Project "${project.title}" now has no shared design system: its own tokens.css is its whole style.`
         : `Project "${project.title}" now uses the design system ${designSystem}.`;
