@@ -4,6 +4,7 @@ import { AgentsScreen } from "./AgentsScreen";
 import { App } from "./App";
 import { DesignSystemsScreen } from "./DesignSystemsScreen";
 import { DesignMdScreen } from "./DesignMdScreen";
+import { DiffusionProvider } from "./DiffusionDialog";
 import { HomeScreen } from "./HomeScreen";
 import { ProjectOverview } from "./ProjectOverview";
 import { ProjectsScreen } from "./ProjectsScreen";
@@ -33,4 +34,8 @@ function Root() {
   }
 }
 
-createRoot(document.getElementById("root")!).render(<Root />);
+createRoot(document.getElementById("root")!).render(
+  <DiffusionProvider>
+    <Root />
+  </DiffusionProvider>,
+);

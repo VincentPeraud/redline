@@ -53,6 +53,7 @@ export function App({ route }: { route: PageRoute }) {
         pageId={page.id}
         pageTitle={page.title}
         project={project}
+        projectId={page.projectId}
         files={page.version.files}
         artboardOrigin={artboardOrigin}
         versionId={page.version.id}

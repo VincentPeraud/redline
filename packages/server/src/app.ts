@@ -7,6 +7,7 @@ import {
   COMPONENTS_CSS_PATH,
   DESIGN_SYSTEM_TOKENS_PATH,
   PROJECT_STYLE_PATH,
+  parseTokens,
   MANIFEST_PATH,
   MAX_ASSET_BYTES,
   MAX_PAGE_BYTES,
@@ -201,12 +202,21 @@ export async function buildMainApp(
     const designSystem = store.getDesignSystem(req.params.designSystemId);
     if (!designSystem) return void reply.code(404).send({ error: "design system not found" });
     const current = store.currentDiffusion(designSystem.id)!;
+    const usedBy = store.projectsUsingDesignSystem(designSystem.id);
+    const pending = diffDiffusionStates(store.diffusionState(designSystem.id, current.number), store.designSystemDraft(designSystem.id).state);
+    const changed = new Set(pending.tokens.changed.map((token) => token.name));
+    const overrides = usedBy.flatMap((project) => {
+      const style = store.readProjectFile(project.id, PROJECT_STYLE_PATH)?.toString("utf8") ?? "";
+      const tokens = parseTokens(style).map((token) => token.name).filter((name) => changed.has(name));
+      return tokens.length > 0 ? [{ ...project, tokens }] : [];
+    });
     return {
       ...designSystem,
       pages: store.listPages(designSystem.id).map((page) => ({ id: page.id, title: page.title })),
-      usedBy: store.projectsUsingDesignSystem(designSystem.id),
+      usedBy,
       current,
-      pending: diffDiffusionStates(store.diffusionState(designSystem.id, current.number), store.designSystemDraft(designSystem.id).state),
+      overrides,
+      pending,
     };
   });
 
@@ -461,6 +471,22 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     const content = file === "tokens.css" || file === "components.css" ? store.readDiffusionFile(designSystemId, Number(number), file) : undefined;
     if (content === undefined) return reply.code(404).send("not found");
     return sendStylesheet(reply, content, "public, max-age=31536000, immutable");
+  });
+
+  // One component alone, for the diffusion dialog: with the files of `?diffusion=n` (before) or the draft (after).
+  app.get<{ Params: { designSystemId: string; name: string }; Querystring: { diffusion?: string } }>("/design-systems/:designSystemId/component-previews/:name", async (req, reply) => {
+    const { designSystemId, name } = req.params;
+    if (!store.getDesignSystem(designSystemId)) return reply.code(404).send("not found");
+    const component = store.designSystemDraft(designSystemId).assembly.components.find((c) => c.name === name);
+    const html = component && store.readPageFile(component.page.id, component.file)?.toString("utf8");
+    if (html === undefined) return reply.code(404).send("not found");
+    const diffusion = req.query.diffusion === undefined ? undefined : Number(req.query.diffusion);
+    return reply
+      .header("content-security-policy", "sandbox allow-scripts")
+      .header("cache-control", "no-cache")
+      .type(MIME[".html"])
+      // The component's own style blocks are what components.css assembles: dropped here so that the chosen diffusion's css decides.
+      .send(injectDesignSystem(html.replace(/<style\b[^>]*\bdata-component\b[^>]*>[\s\S]*?<\/style>/gi, ""), designSystemId, undefined, diffusion));
   });
 
   app.get<{ Params: { designSystemId: string; "*": string } }>("/design-systems/:designSystemId/*", async (req, reply) => {
