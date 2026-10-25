@@ -144,6 +144,12 @@ export class Store {
         component_files_hash TEXT,
         PRIMARY KEY (design_system_id, number)
       );
+      CREATE TABLE IF NOT EXISTS design_system_diffusion_undos (
+        design_system_id TEXT NOT NULL REFERENCES design_systems(project_id),
+        number INTEGER NOT NULL,
+        undone_at TEXT NOT NULL,
+        PRIMARY KEY (design_system_id, number)
+      );
       CREATE TABLE IF NOT EXISTS project_files (
         project_id TEXT NOT NULL REFERENCES projects(id),
         path TEXT NOT NULL,
@@ -208,6 +214,7 @@ export class Store {
     if (columnsOf("pages").includes("type")) this.db.exec("ALTER TABLE pages DROP COLUMN type");
     addColumn("design_systems", "current_diffusion", "INTEGER");
     addColumn("design_system_diffusions", "component_files_hash", "TEXT");
+    addColumn("design_system_diffusions", "rolled_back_to", "INTEGER");
     addColumn("pages", "created_by", "TEXT NOT NULL DEFAULT 'user'");
     // The old per-project boolean (default 0) becomes a nullable override of the global setting: only an explicit "allow" is kept.
     if (!columnsOf("projects").includes("takeover_override")) {
@@ -359,7 +366,38 @@ export class Store {
         blob(JSON.stringify(draft.assembly.components)), blob(JSON.stringify(draft.assembly.indexes)), blob(JSON.stringify(draft.componentFiles)),
       );
     this.db.prepare("UPDATE design_systems SET current_diffusion = ? WHERE project_id = ?").run(number, designSystemId);
-    return { number, createdAt, origin, summary: text };
+    return { number, createdAt, origin, summary: text, undone: false };
+  }
+
+  /**
+   * Undo: the current diffusion stays listed, marked undone, and projects use the closest earlier diffusion that is not undone.
+   * Undefined when there is none (the first diffusion cannot be undone).
+   */
+  undoDiffusion(designSystemId: string): DiffusionInfo | undefined {
+    const current = this.currentDiffusion(designSystemId);
+    const previous = current && this.listDiffusions(designSystemId).find((d) => d.number < current.number && !d.undone);
+    if (!current || !previous) return undefined;
+    this.db.prepare("INSERT INTO design_system_diffusion_undos (design_system_id, number, undone_at) VALUES (?, ?, ?)").run(designSystemId, current.number, now());
+    this.db.prepare("UPDATE design_systems SET current_diffusion = ? WHERE project_id = ?").run(previous.number, designSystemId);
+    return previous;
+  }
+
+  /** Roll back: a new entry of the list that points at the same files as diffusion `target` (no new blob); it becomes the current diffusion. The draft is untouched. */
+  rollbackDiffusion(designSystemId: string, target: number): DiffusionInfo {
+    const last = this.db.prepare("SELECT MAX(number) AS n FROM design_system_diffusions WHERE design_system_id = ?").get(designSystemId) as { n: number };
+    const number = last.n + 1;
+    const createdAt = now();
+    const summary = `Rolled back to diffusion ${target}`;
+    this.db
+      .prepare(
+        `INSERT INTO design_system_diffusions
+         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, rolled_back_to)
+         SELECT design_system_id, ?, ?, 'rollback', ?, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, ?
+         FROM design_system_diffusions WHERE design_system_id = ? AND number = ?`,
+      )
+      .run(number, createdAt, summary, target, designSystemId, target);
+    this.db.prepare("UPDATE design_systems SET current_diffusion = ? WHERE project_id = ?").run(number, designSystemId);
+    return { number, createdAt, origin: "rollback", summary, rolledBackTo: target, undone: false };
   }
 
   /** The diffusion projects use, or undefined before the design system has one. */
@@ -371,9 +409,14 @@ export class Store {
   /** Diffusions of a design system, newest first. */
   listDiffusions(designSystemId: string): DiffusionInfo[] {
     const rows = this.db
-      .prepare("SELECT number, created_at AS createdAt, origin, summary FROM design_system_diffusions WHERE design_system_id = ? ORDER BY number DESC")
-      .all(designSystemId) as DiffusionInfo[];
-    return rows;
+      .prepare(
+        `SELECT d.number, d.created_at AS createdAt, d.origin, d.summary, d.rolled_back_to AS rolledBackTo, u.number IS NOT NULL AS undone
+         FROM design_system_diffusions d
+         LEFT JOIN design_system_diffusion_undos u ON u.design_system_id = d.design_system_id AND u.number = d.number
+         WHERE d.design_system_id = ? ORDER BY d.number DESC`,
+      )
+      .all(designSystemId) as (Omit<DiffusionInfo, "undone" | "rolledBackTo"> & { rolledBackTo: number | null; undone: number })[];
+    return rows.map(({ rolledBackTo, undone, ...rest }) => ({ ...rest, undone: undone === 1, ...(rolledBackTo !== null && { rolledBackTo }) }));
   }
 
   /** One file of a diffusion (`tokens.css`, `components.css`, `DESIGN.md`, `components.json` the component list, `index.json` the per-page index, `component-files.json` the component files by path). */

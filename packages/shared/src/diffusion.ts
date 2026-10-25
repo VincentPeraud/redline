@@ -67,8 +67,17 @@ export interface DiffusionInfo {
   /** 1, 2, ... per design system; never reused. */
   number: number;
   createdAt: string;
-  origin: "user" | "migration";
+  /** `rollback`: projects were sent back to the diffusion `rolledBackTo` (same files, no new snapshot content). */
+  origin: "user" | "migration" | "rollback";
   summary: string;
+  rolledBackTo?: number;
+  /** Undone from the toast or the list: kept, but projects no longer use it. */
+  undone: boolean;
+}
+
+/** `GET /api/design-systems/:id/diffusions/:n/rollback-impact`: what rolling back to `n` takes away from pages that use it. */
+export interface RollbackImpact {
+  components: { name: string; usedBy: string[] }[];
 }
 
 /** A diffusion as listed by `GET /api/design-systems/:id/diffusions`: with what it changed since the previous one (the first: everything). */

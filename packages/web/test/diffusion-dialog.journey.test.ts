@@ -72,7 +72,7 @@ it("shows the diffuse button while changes are pending, lists them with the over
 
   await button.click();
   await tab.getByRole("button", { name: "Diffuser", exact: true }).click();
-  await expect.poll(async () => tab.getByTestId("diffusion-toast").textContent()).toBe("Diffusion 2 envoyée à 2 projets");
+  await expect.poll(async () => tab.getByTestId("diffusion-toast").textContent()).toBe("Diffusion 2 envoyée à 2 projetsAnnuler");
   expect(await tab.getByRole("dialog").count()).toBe(0);
   await expect.poll(async () => tab.getByRole("button", { name: /Diffuser aux projets/ }).count()).toBe(0);
   expect(((await (await server.get(`/api/design-systems/${ds.id}`)).json()) as DesignSystemDetail).current.number).toBe(2);

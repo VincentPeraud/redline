@@ -44,7 +44,7 @@ import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRou
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
-import { removalsError } from "./removals.js";
+import { removalsError, rollbackImpact } from "./removals.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
 import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
@@ -262,6 +262,37 @@ export async function buildMainApp(
     if (pending.count === 0) return reply.code(409).send({ error: "nothing to diffuse" });
     const created = store.createDiffusion(designSystem.id, "user");
     announceDiffusion(store, designSystem.id);
+    return reply.code(201).send(created);
+  });
+
+  // Undo and rollback add pointers, they delete nothing: the design system's pages (the draft) stay as they are.
+  app.post<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/diffusions/undo", async (req, reply) => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
+    const back = store.undoDiffusion(req.params.designSystemId);
+    if (!back) return reply.code(409).send({ error: "nothing to undo" });
+    announceDiffusion(store, req.params.designSystemId);
+    return back;
+  });
+
+  /** The diffusion number to roll back to, or the status and message to answer. */
+  function rollbackTarget(designSystemId: string, number: string): { target: number } | { status: number; error: string } {
+    const target = Number(number);
+    if (!store.getDesignSystem(designSystemId) || !store.listDiffusions(designSystemId).some((d) => d.number === target)) return { status: 404, error: "diffusion not found" };
+    if (store.currentDiffusion(designSystemId)!.number === target) return { status: 409, error: "already the current diffusion" };
+    return { target };
+  }
+
+  app.get<{ Params: { designSystemId: string; number: string } }>("/api/design-systems/:designSystemId/diffusions/:number/rollback-impact", async (req, reply) => {
+    const found = rollbackTarget(req.params.designSystemId, req.params.number);
+    if ("error" in found) return reply.code(found.status).send({ error: found.error });
+    return rollbackImpact(store, req.params.designSystemId, found.target);
+  });
+
+  app.post<{ Params: { designSystemId: string; number: string } }>("/api/design-systems/:designSystemId/diffusions/:number/rollback", async (req, reply) => {
+    const found = rollbackTarget(req.params.designSystemId, req.params.number);
+    if ("error" in found) return reply.code(found.status).send({ error: found.error });
+    const created = store.rollbackDiffusion(req.params.designSystemId, found.target);
+    announceDiffusion(store, req.params.designSystemId);
     return reply.code(201).send(created);
   });
 
