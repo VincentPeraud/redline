@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { componentPreviewUrlPath, isColorValue, type DesignSystemDetail, type DiffusionInfo, type Page } from "@redline/shared";
 import { routeHref } from "./router.js";
 import { diffusionToastMessage } from "./diffusionLabels.js";
+import { agree } from "./plural.js";
 import { Select, cx } from "./ui/index.js";
 import styles from "./DiffusionDialog.module.css";
 
@@ -276,7 +277,7 @@ export function DiffusionDialog({ designSystemId, onClose, onDiffused, onOpenPre
                       <span className={styles.mono}>{token}</span>
                     </span>
                   ))}{" "}
-                  : {project.tokens.length > 1 ? "ces changements y seront sans effet." : "ce changement y sera sans effet."}
+                  : {agree(project.tokens.length, "ce changement y sera sans effet.", "ces changements y seront sans effet.")}
                 </span>
               </div>
             ))}

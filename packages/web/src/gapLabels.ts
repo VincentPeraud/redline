@@ -1,4 +1,5 @@
 import type { Gap } from "@redline/shared";
+import { counted } from "./plural.js";
 
 const ON_ELEMENT: Record<string, string> = {
   button: "un bouton",
@@ -60,9 +61,9 @@ export function gapSuggestion(gap: Gap): Piece[] | null {
   }
 }
 
-export const gapCountLabel = (count: number) => `${count} ${count === 1 ? "écart" : "écarts"}`;
+export const gapCountLabel = (count: number) => counted(count, "écart", "écarts");
 
-export const exceptionCountLabel = (count: number) => `${count} ${count === 1 ? "exception voulue masquée" : "exceptions voulues masquées"}`;
+export const exceptionCountLabel = (count: number) => counted(count, "exception voulue masquée", "exceptions voulues masquées");
 
 const plain = (pieces: Piece[]) => pieces.map((piece) => (typeof piece === "string" ? piece : piece.code)).join("");
 
