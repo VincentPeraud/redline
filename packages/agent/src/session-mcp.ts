@@ -14,6 +14,7 @@ export const REPLY_IN_THREAD_TOOL = "reply_in_thread";
 export const ADD_ARTBOARD_TOOL = "add_artboard";
 export const CREATE_PAGE_TOOL = "create_page";
 export const MOVE_ARTBOARD_TOOL = "move_artboard";
+export const CONFIRM_REMOVALS_TOOL = "confirm_removals";
 export const READ_GUIDE_TOOL = "read_guide";
 
 export interface RedlineToolsContext {
@@ -31,6 +32,8 @@ export interface RedlineToolsContext {
   ownCreatePage?: boolean;
   /** Called after an artboard of the page was moved away and dropped from the working copy: the caller re-bases what it publishes later on the page as it is now. */
   afterArtboardMoved?: (file: string) => Promise<void>;
+  /** Called when Claude confirms, after the user agreed, that a design system publish may remove tokens or components pages still use. */
+  onRemovalsConfirmed?: () => void;
 }
 
 const text = (message: string, isError = false) => ({ ...(isError ? { isError } : {}), content: [{ type: "text" as const, text: message }] });
@@ -170,6 +173,17 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
       } catch (error) {
         return text((error as Error).message, true);
       }
+    },
+  );
+  server.registerTool(
+    CONFIRM_REMOVALS_TOOL,
+    {
+      description:
+        "Confirm that the next publish of this design system may remove tokens or components that pages still use. Call it only after the user explicitly agreed to the removal when you asked them; never on your own.",
+    },
+    async () => {
+      context.onRemovalsConfirmed?.();
+      return text("Removals confirmed for the next publish.");
     },
   );
   server.registerTool(

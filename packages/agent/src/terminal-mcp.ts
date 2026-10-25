@@ -44,6 +44,7 @@ interface Checkout {
  */
 export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folder: string }): McpServer {
   let current: Checkout | undefined;
+  let removalsConfirmed = false;
   const checkedOut = (): Checkout => {
     if (!current) throw new Error("No page checked out. Call checkout_page first.");
     return current;
@@ -58,6 +59,7 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
       return checkedOut().dir;
     },
     ownCreatePage: true,
+    onRemovalsConfirmed: () => void (removalsConfirmed = true),
     // The page changed on the server: take its new state as the base of the next publish.
     afterArtboardMoved: async () => {
       const { pageId } = checkedOut();
@@ -216,7 +218,10 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
       }
       const hint = designSystemHint(pageFiles, designSystemFiles);
       const hintAfter = hint ? `\n${hint}` : "";
+      const confirmRemovals = removalsConfirmed;
+      removalsConfirmed = false;
       const version = await api.publish(pageId, files, message, "terminal", versionId, {
+        ...(confirmRemovals ? { confirmRemovals: true } : {}),
         ...(designMd !== baseDesignMd ? { designMd: { content: designMd, base: baseDesignMd } } : {}),
         ...(projectStyle !== baseStyle ? { projectStyle: { content: projectStyle!, base: baseStyle! } } : {}),
       });

@@ -31,12 +31,14 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
     const dir = writeWorkingCopy(folder, item.pageId, checkout);
     // Replies are held back until the run succeeded: a retried run must not leave the first attempt's answers in the threads.
     const replies = new Map<string, string[]>();
+    let removalsConfirmed = false;
     const mcp = await startSessionMcp({
       api,
       allowedThreadIds: item.threads.map((t) => t.threadId),
       pageId: item.pageId,
       workingCopyDir: dir,
       workId: item.id,
+      onRemovalsConfirmed: () => void (removalsConfirmed = true),
       // The page changed under the run: what it publishes is measured against the page as it is now.
       afterArtboardMoved: async () => void (checkout = await api.checkout(item.pageId)),
       postReply: async (threadId, text) => void replies.set(threadId, [...(replies.get(threadId) ?? []), text]),
@@ -80,6 +82,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
     }
     const version = await api.publish(item.pageId, files, versionMessage(item, result.summary), item.kind === "conversation" ? "conversation" : "thread", checkout.versionId, {
       workId: item.id,
+      ...(removalsConfirmed ? { confirmRemovals: true } : {}),
       ...(designMdChanged ? { designMd: { content: designMd, base: checkout.project.designMd } } : {}),
       ...(projectStyleChanged && baseStyle !== undefined ? { projectStyle: { content: projectStyle, base: baseStyle } } : {}),
     });

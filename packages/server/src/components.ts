@@ -2,7 +2,7 @@ import { assembleComponents, componentNameOf, type ComponentAssembly, type Compo
 import type { Store } from "./store.js";
 
 /** The pages of a project (a design system is one) as the component assembly takes them, `replacing` the files of one page. */
-function componentPages(store: Store, projectId: string, replacing?: { pageId: string; files: Record<string, string> }): ComponentPage[] {
+export function componentPages(store: Store, projectId: string, replacing?: { pageId: string; files: Record<string, string> }): ComponentPage[] {
   return store.listPages(projectId).map((page) => ({
     id: page.id,
     title: page.title,
