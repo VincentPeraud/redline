@@ -49,3 +49,13 @@ export interface ProjectDesignSystem {
 export interface SetProjectTokenRequest {
   value: string;
 }
+
+/** `PUT /api/projects/:id/design-system`: a shared design system id, or null for "Aucun : style propre au projet". */
+export interface SetProjectDesignSystemRequest {
+  designSystem: string | null;
+}
+
+/** `POST /api/projects/:id/design-system/promote`: makes the project's own style a shared design system (201 `DesignSystem`). */
+export interface PromoteProjectStyleRequest {
+  title: string;
+}
