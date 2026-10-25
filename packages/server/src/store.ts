@@ -6,10 +6,12 @@ import {
   EMPTY_VIEW_SETTINGS,
   DESIGN_MD_PATH,
   DESIGN_SYSTEM_TOKENS_PATH,
+  ARTBOARD_GAP,
   MANIFEST_PATH,
   canvasElementSummary,
   defaultManifest,
   parseManifest,
+  starterPageFiles,
   NEUTRAL_DESIGN_SYSTEM_ID,
   NEUTRAL_TOKENS_CSS,
   NEUTRAL_TOKENS_PAGE_HTML,
@@ -1024,6 +1026,62 @@ export class Store {
     return this.insertVersion(pageId, JSON.stringify(hashes), message, origin);
   }
 
+  /**
+   * Moves an artboard (file, manifest entry, threads) from `sourceId` to another page of the same project, or to a page
+   * created here, in one transaction: the artboard is on both pages or on neither at no moment. The caller checked the
+   * request (see `move-artboard.ts`). The artboard lands right of the target's artboards, same size.
+   */
+  moveArtboard(
+    sourceId: string,
+    file: string,
+    target: { pageId: string } | { newPageTitle: string },
+    origin: VersionOrigin,
+    ref?: OriginRef,
+  ): { targetPage: Page; sourceVersion: PageVersionSummary; targetVersion: PageVersionSummary } {
+    const movedThreadIds: string[] = [];
+    const result = this.db.transaction(() => {
+      const source = this.getPage(sourceId)!;
+      const targetPage = "pageId" in target ? this.getPage(target.pageId)! : this.createPage(source.projectId, target.newPageTitle, starterPageFiles(target.newPageTitle, this.getProject(source.projectId)?.designSystem));
+      const sourceFiles = { ...source.version.files };
+      const targetFiles = { ...targetPage.version.files };
+      const rawManifest = (page: Page) => {
+        const hash = page.version.files[MANIFEST_PATH];
+        return hash === undefined ? (defaultManifest(Object.keys(page.version.files)) as unknown as RawManifest) : (JSON.parse(this.blobText(hash)) as RawManifest);
+      };
+      const sourceManifest = rawManifest(source);
+      const targetManifest = rawManifest(targetPage);
+      const entry = (sourceManifest.artboards ?? []).find((a) => a.file === file)!;
+      const placed = parseManifest(JSON.stringify(targetManifest)).artboards;
+      const x = placed.length === 0 ? 0 : Math.max(...placed.map((a) => a.x + a.width)) + ARTBOARD_GAP;
+      const y = placed.length === 0 ? 0 : Math.min(...placed.map((a) => a.y));
+
+      targetFiles[file] = sourceFiles[file];
+      delete sourceFiles[file];
+      targetManifest.artboards = [...(targetManifest.artboards ?? []), { ...entry, x, y }];
+      targetFiles[MANIFEST_PATH] = this.putText(JSON.stringify(targetManifest, null, 2));
+      if (source.version.files[MANIFEST_PATH] !== undefined) {
+        sourceManifest.artboards = (sourceManifest.artboards ?? []).filter((a) => a.file !== file);
+        sourceFiles[MANIFEST_PATH] = this.putText(JSON.stringify(sourceManifest, null, 2));
+      }
+
+      const threadIds = this.db.prepare("SELECT id FROM threads WHERE page_id = ? AND artboard = ? ORDER BY number").all(sourceId, file) as { id: string }[];
+      let { next } = this.db.prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?").get(targetPage.id) as { next: number };
+      for (const { id } of threadIds) {
+        this.db.prepare("UPDATE threads SET page_id = ?, number = ? WHERE id = ?").run(targetPage.id, next++, id);
+        movedThreadIds.push(id);
+      }
+
+      const sourceVersion = this.insertVersion(sourceId, JSON.stringify(sourceFiles), `${file} déplacé vers ${targetPage.title}`, origin, ref);
+      const targetVersion = this.insertVersion(targetPage.id, JSON.stringify(targetFiles), `${file} reçu de ${source.title}`, origin, ref);
+      return { targetPage, sourceVersion, targetVersion };
+    })();
+    for (const threadId of movedThreadIds) {
+      this.emit({ type: "thread-updated", pageId: sourceId, threadId });
+      this.emit({ type: "thread-updated", pageId: result.targetPage.id, threadId });
+    }
+    return { ...result, targetPage: this.getPage(result.targetPage.id)! };
+  }
+
   /** Versions of a page, newest first. */
   listVersions(pageId: string): PageVersionSummary[] {
     const rows = this.db
@@ -1197,6 +1255,12 @@ interface VersionRow {
 }
 
 /** The thread or conversation a version comes from. */
+/** A stored manifest as JSON, so a move keeps every field it does not know. */
+interface RawManifest {
+  artboards?: ({ file: string } & Record<string, unknown>)[];
+  [key: string]: unknown;
+}
+
 export interface OriginRef {
   originId?: string;
   originLabel?: string;

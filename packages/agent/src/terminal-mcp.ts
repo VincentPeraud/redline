@@ -50,6 +50,13 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
       return checkedOut().dir;
     },
     ownCreatePage: true,
+    // The page changed on the server: take its new state as the base of the next publish.
+    afterArtboardMoved: async () => {
+      const { pageId } = checkedOut();
+      const fresh = await api.checkout(pageId);
+      const dir = writeWorkingCopy(folder, pageId, fresh);
+      current = { pageId, dir, files: fresh.files, designMd: fresh.project.designMd, assets: fresh.project.assets, versionId: fresh.versionId };
+    },
   });
   const tool = <T,>(run: (args: T) => Promise<string>) => async (args: T) => {
     try {

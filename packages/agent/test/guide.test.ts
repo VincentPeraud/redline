@@ -28,3 +28,9 @@ it("explains play links to an artboard of another page with `page`", () => {
   expect(REDLINE_GUIDE).toContain('"links": [{ "from", "selector", "to", "page"? }]');
   expect(REDLINE_GUIDE).toContain('add "page" (a page id of the same project) to go to an artboard of another page');
 });
+
+it("documents move_artboard, its target page id and its refusals", () => {
+  expect(REDLINE_GUIDE).toContain("move_artboard {file, pageId | newPageTitle}");
+  expect(REDLINE_GUIDE).toContain("reuse it for the next artboards");
+  expect(REDLINE_GUIDE).toContain("another session works on either page");
+});

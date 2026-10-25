@@ -7,6 +7,8 @@ import {
   type AgentReplyRequest,
   type CreateSiblingRequest,
   type CreateVersionRequest,
+  type MoveArtboardRequest,
+  type MoveArtboardResponse,
   type Page,
   type PageVersionSummary,
   type Project,
@@ -56,6 +58,11 @@ export class ServerApi {
   createPageBeside(pageId: string, title: string, workId?: string): Promise<Page> {
     const body: CreateSiblingRequest = { title, ...(workId ? { workId } : {}) };
     return this.request("POST", `/pages/${pageId}/siblings`, body);
+  }
+
+  /** Moves an artboard of `pageId` to another page of its project (`targetPageId`), or to a new page (`newPageTitle`). */
+  moveArtboard(pageId: string, request: MoveArtboardRequest): Promise<MoveArtboardResponse> {
+    return this.request("POST", `/pages/${pageId}/move-artboard`, request);
   }
 
   listProjects(): Promise<Project[]> {
