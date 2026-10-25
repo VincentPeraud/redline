@@ -78,7 +78,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
     const version = await api.publish(item.pageId, files, versionMessage(item, result.summary), item.kind === "conversation" ? "conversation" : "thread", checkout.versionId, {
       workId: item.id,
       ...(designMdChanged ? { designMd: { content: designMd, base: checkout.project.designMd } } : {}),
-      ...(projectStyleChanged ? { projectStyle: { content: projectStyle, base: baseStyle } } : {}),
+      ...(projectStyleChanged && baseStyle !== undefined ? { projectStyle: { content: projectStyle, base: baseStyle } } : {}),
     });
     await postReplies();
     send({ type: "work-done", workId: item.id, versionId: version.id });
