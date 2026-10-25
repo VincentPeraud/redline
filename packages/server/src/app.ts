@@ -19,6 +19,7 @@ import {
   type SetTweakRequest,
   type CreateDesignSystemRequest,
   type DesignSystemDetail,
+  type DiffusionListItem,
   diffDiffusionStates,
   type CreatePageRequest,
   type CreateProjectRequest,
@@ -38,7 +39,7 @@ import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectDesignSystem } from "./
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
-import { registerProjectDesignSystemRoutes } from "./project-design-system.js";
+import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
 import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
@@ -57,6 +58,8 @@ import { registerSessionRoutes } from "./sessions.js";
 import { registerHomeRoutes } from "./home.js";
 import { moveArtboard } from "./move-artboard.js";
 import { dispatchBatch, dispatchReply, dispatchThread } from "./work.js";
+
+const PALETTE_TOKENS = ["--color-primary", "--color-text", "--color-background"];
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -205,17 +208,33 @@ export async function buildMainApp(
     if (!designSystem) return void reply.code(404).send({ error: "design system not found" });
     const current = store.currentDiffusion(designSystem.id)!;
     const usedBy = store.projectsUsingDesignSystem(designSystem.id);
-    const pending = diffDiffusionStates(store.diffusionState(designSystem.id, current.number), store.designSystemDraft(designSystem.id).state);
+    const draft = store.designSystemDraft(designSystem.id);
+    const pending = diffDiffusionStates(store.diffusionState(designSystem.id, current.number), draft.state);
     const changed = new Set(pending.tokens.changed.map((token) => token.name));
     const overrides = usedBy.flatMap((project) => {
       const style = store.readProjectFile(project.id, PROJECT_STYLE_PATH)?.toString("utf8") ?? "";
       const tokens = parseTokens(style).map((token) => token.name).filter((name) => changed.has(name));
       return tokens.length > 0 ? [{ ...project, tokens }] : [];
     });
+    const components = projectComponents(store, designSystem.id).components;
+    const notDiffused = new Set([...pending.components.added, ...pending.components.changed]);
+    const draftTokens = parseTokens(draft.state.tokensCss);
+    const colours = draftTokens.filter((token) => token.isColor);
+    const preferred = PALETTE_TOKENS.flatMap((name) => colours.filter((token) => token.name === name));
+    const palette = [...preferred, ...colours.filter((token) => !preferred.includes(token))].slice(0, 3).map((token) => token.value);
     return {
       ...designSystem,
-      pages: store.listPages(designSystem.id).map((page) => ({ id: page.id, title: page.title })),
-      usedBy,
+      pages: store.listPages(designSystem.id).map((page) => {
+        const own = components.filter((component) => component.page.id === page.id).map((component) => component.name).sort();
+        return { id: page.id, title: page.title, componentCount: own.length, componentNames: own, pendingCount: own.filter((name) => notDiffused.has(name)).length };
+      }),
+      usedBy: usedBy.map((project) => {
+        const style = projectDesignSystem(store, project.id);
+        return { ...project, overrideCount: style.overrideCount, componentCount: style.components.length };
+      }),
+      componentCount: components.length,
+      tokenCount: draftTokens.length,
+      palette,
       current,
       overrides,
       pending,
@@ -224,7 +243,13 @@ export async function buildMainApp(
 
   app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/diffusions", async (req, reply) => {
     if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
-    return store.listDiffusions(req.params.designSystemId);
+    const id = req.params.designSystemId;
+    const diffusions = store.listDiffusions(id);
+    return diffusions.map((diffusion, index): DiffusionListItem => {
+      const previous = diffusions[index + 1];
+      const before = previous ? store.diffusionState(id, previous.number) : { tokensCss: "", designMd: "", components: [] };
+      return { ...diffusion, changes: diffDiffusionStates(before, store.diffusionState(id, diffusion.number)) };
+    });
   });
 
   // User action only: Claude never diffuses (no equivalent in the agent API or the session tools).

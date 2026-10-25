@@ -155,7 +155,7 @@ export function DesignSystemsScreen() {
       />
       <div className={styles.grid} data-testid="design-systems">
         {designSystems?.map((ds, index) => (
-          <a key={ds.id} className={styles.card} data-testid="design-system" href={routeHref({ name: "page", pageId: ds.pageId })}>
+          <a key={ds.id} className={styles.card} data-testid="design-system" href={routeHref({ name: "designSystem", designSystemId: ds.id })}>
             <PreviewSheet variant={index} />
             <div className={styles.body}>
               <div className={styles.name}>{ds.title}</div>

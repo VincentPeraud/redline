@@ -44,6 +44,7 @@
   --color-override-ring: #ea580c;
   --color-warning-text: #9a3412;
   --color-warning-strong: #c2410c;
+  --color-warning-ink: #7c2d12;
   --color-warning-border: #f1c4b0;
   --color-danger-bg: #fef3f2;
   --color-danger-border: #f5c2bc;
@@ -92,6 +93,7 @@
   --font-size-h3: 18px;
   --font-size-h2: 20px;
   --font-size-h1: 28px;
+  --font-size-title: 32px;
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
