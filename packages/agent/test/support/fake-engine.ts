@@ -80,7 +80,7 @@ export class FakeEngine implements Engine {
   private async *run(request: EngineRunRequest, resume: boolean): AsyncGenerator<EngineEvent> {
     try {
       const mcpTools = await withMcpClient(request.mcpUrl, async (client) => (await client.listTools()).tools.map((t) => t.name));
-      this.runs.push({ ...request, resume, filesAtStart: readWorkingCopy(request.workingCopyDir), mcpTools });
+      this.runs.push({ ...request, resume, filesAtStart: readWorkingCopy(request.workingCopyDir, true), mcpTools });
       const callTool = (name: string, args: Record<string, unknown>) =>
         withMcpClient(request.mcpUrl, async (client) => toolText(await client.callTool({ name, arguments: args })));
       const context: FakeRunContext = {

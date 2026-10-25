@@ -1,16 +1,21 @@
 import { useAltKey } from "./useAltKey.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  DRAFT_PREVIEW_QUERY,
   EMPTY_VIEW_SETTINGS,
   MANIFEST_PATH,
   RESPONSIVE_FORMATS,
+  componentNameOf,
   defaultManifest,
   groupTitlesOf,
   parseManifest,
   readingOrder,
+  tweakGrid,
+  tweakGridLayout,
   versionPreviewPath,
   type AgentInfo,
   type CreateThreadRequest,
+  type Gap,
   canvasElementSummary,
   threadTargetLabel,
   type Manifest,
@@ -22,17 +27,26 @@ import {
   type Thread,
   type ThreadRendering,
   type ThreadTarget,
+  type TweakValues,
 } from "@redline/shared";
+import { ComponentMarker } from "./ComponentMarker.js";
+import { useDesignSystemDetail } from "./DiffusionDialog.js";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { ArtboardHistory } from "./ArtboardHistory.js";
 import { restoreArtboard, useDeletedArtboards } from "./restoreArtboard.js";
+import { SeenGapContext, type SeenGap } from "./GapsReport.js";
+import { fixGapsMessage, gapCountLabel } from "./gapLabels.js";
+import { postInPageConversation } from "./askClaudeToFix.js";
+import { useGaps } from "./useGaps.js";
 import { UndoToast } from "./UndoToast.js";
 import { CanvasHeader } from "./CanvasHeader.js";
+import { PreviewBanner } from "./PreviewBanner.js";
 import { useStoredToggle } from "./useStoredToggle.js";
 import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
 import { centerOn, panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { copyAddress } from "./copyLink.js";
+import { ArtboardMoreMenu } from "./ArtboardMoreMenu.js";
 import { CopyLinkIcon } from "./CopyLinkIcon.js";
 import { MissingArtboardNotice } from "./MissingArtboardNotice.js";
 import { useCopiedBubble } from "./useCopiedBubble.js";
@@ -42,17 +56,19 @@ import { artboardAtCentre, type TocItem } from "./tocItems.js";
 import { CanvasElements } from "./CanvasElements.js";
 import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
 import { ResponsiveFrame } from "./ResponsiveFrame.js";
+import { TweakGridFrame } from "./TweakGridFrame.js";
 import { RenderingChips, RenderingsMenu } from "./RenderingControls.js";
+import { PageTweaksContext } from "./RenderingChip.js";
 import { hiddenRenderingKeys, hiddenThreadCounts, setFormatShown, toggleRendering } from "./viewSettings.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
-import { ConversationsPanel } from "./ConversationsPanel.js";
+import { ConversationsPanel, type FocusedConversation } from "./ConversationsPanel.js";
 import type { AgentDefaults, ModelEffortChoice } from "./ModelEffortControls.js";
 import { PlayMode } from "./PlayMode.js";
 import { addChip, marksFor, removeChip } from "./elementChips.js";
 import { messageContext } from "./messageContext.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { subscribeServerEvents } from "./serverEvents.js";
-import { cx } from "./ui/index.js";
+import { Tooltip, cx } from "./ui/index.js";
 import { usePageSessions } from "./usePageSessions.js";
 import { useRuns } from "./useRuns.js";
 import { useTweaks } from "./useTweaks.js";
@@ -86,16 +102,6 @@ function initialView(manifest: Manifest, stage: { width: number; height: number 
 
 const OUTLINE_MS = 2000;
 
-function CopyPlayLinkIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M9 11a4 4 0 0 0-6 .4l-.6.6a4 4 0 0 0 5.6 5.6l1-1" />
-      <path d="M7 15l4-4" />
-      <path d="M14 5l7 5-7 5z" />
-    </svg>
-  );
-}
-
 function BubbleIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -106,7 +112,7 @@ function BubbleIcon({ size }: { size: number }) {
 
 /** A comment being written: pinned on an element of an artboard, or on a whole artboard. */
 type PageDraft =
-  | (Pick & { artboard: string; rendering?: ThreadRendering })
+  | (Pick & { artboard: string; rendering?: ThreadRendering; cell?: TweakValues })
   | { target: { kind: "artboard"; artboard: string } }
   | { target: { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind } };
 
@@ -135,6 +141,8 @@ interface Props {
   pageId: string;
   pageTitle: string;
   project: Project | null;
+  /** Id of the page's project; for a design system's own page it is the design system's id (`project` is null then). */
+  projectId: string;
   /** Path -> content hash of the current version. */
   files: Record<string, string>;
   artboardOrigin: string;
@@ -147,12 +155,16 @@ interface Props {
   route: PageRoute;
 }
 
-export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, route }: Props) {
-  const { artboard: addressedArtboard, play: playFile, renderingParam } = route;
+export function PageCanvas({ pageId, pageTitle, project, projectId, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, route }: Props) {
+  const { artboard: addressedArtboard, play: playFile, renderingParam, previewOf } = route;
+  /** Previewed with a design system's draft: read-only, nothing here comments, converses, saves or publishes. */
+  const previewing = previewOf !== undefined;
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
-  const [picking, setPicking] = useState(false);
-  const alt = useAltKey();
+  const [pickingRequested, setPicking] = useState(false);
+  const picking = pickingRequested && !previewing;
+  const altPressed = useAltKey();
+  const alt = altPressed && !previewing;
   /** The conversation's selection mode ("+ Élément"), exclusive with comment mode. */
   const [selecting, setSelecting] = useState(false);
   /** Elements the user points at for the next conversation message, numbered by position. */
@@ -165,6 +177,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   /** Artboard whose whole-artboard threads the Commentaires tab scrolls to once shown. */
   const [scrollToArtboard, setScrollToArtboard] = useState<string | null>(null);
   const [tweaksOpenFor, setTweaksOpenFor] = useState<string | null>(null);
+  const [moreOpenFor, setMoreOpenFor] = useState<string | null>(null);
   /** Bumped when the page's design system changed: artboards remount to load the new tokens. */
   const [tokensVersion, setTokensVersion] = useState(0);
   const [manifest, setManifest] = useState<Manifest | null>(null);
@@ -172,12 +185,27 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const [historyOpenFor, setHistoryOpenFor] = useState<string | null>(null);
   /** An old version shown in place of one artboard, read-only, until restored or cancelled. */
   const [preview, setPreview] = useState<{ file: string; versionId: string } | null>(null);
+  /** The conversation the panel must show, set when something posts a message in it from outside the panel. */
+  const [focusedConversation, setFocusedConversation] = useState<FocusedConversation | null>(null);
   const [toast, setToast] = useState<{ message: string; undo: () => Promise<void> } | null>(null);
   const deleted = useDeletedArtboards(pageId, versionId);
+  /** The gap "Voir" points at: its artboard outlines the element. */
+  const [seenGap, setSeenGap] = useState<SeenGap | null>(null);
+  const seenFile = useRef<string | null>(null);
+  const pendingComponents = useDesignSystemDetail(projectId, versionId)?.pending.components;
+  const componentChange = (file: string): "modifié" | "nouveau" | null => {
+    const name = componentNameOf(file);
+    if (name === null || !pendingComponents) return null;
+    return pendingComponents.added.includes(name) ? "nouveau" : pendingComponents.changed.includes(name) ? "modifié" : null;
+  };
   const [guidesVisible, toggleGuides] = useStoredToggle("redline:guides", false);
   /** Real page height of each rendering of a responsive artboard, by artboard file then rendering key, as reported by the bridge. */
   const [docHeights, setDocHeights] = useState<Record<string, Record<string, number>>>({});
   const [viewSettings, setViewSettings] = useState<PageViewSettings>(savedViewSettings ?? EMPTY_VIEW_SETTINGS);
+  const allGaps = useGaps(pageId, `${versionId}:${tokensVersion}`);
+  const gapReport = allGaps && { ...allGaps, gaps: allGaps.gaps.filter((gap) => !viewSettings.gapExceptions.includes(gap.key)) };
+  const gapExceptionCount = allGaps ? allGaps.gaps.length - gapReport!.gaps.length : 0;
+  const gapsOf = (file: string) => (gapReport?.gaps ?? []).filter((gap) => gap.file === file).length;
   const [renderingsMenuOpen, setRenderingsMenuOpen] = useState(false);
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   const viewport = useRef<HTMLDivElement>(null);
@@ -386,6 +414,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   /** View settings are per page and live on the server; they are not a version and no session hears of them. */
   function changeViewSettings(next: PageViewSettings) {
     setViewSettings(next);
+    if (previewing) return;
     void fetch(`/api/pages/${pageId}/view-settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(next) });
   }
 
@@ -409,8 +438,8 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     if (next) setPicking(false);
   }
 
-  const pickElement = (pick: Pick, artboard: string, rendering?: ThreadRendering) =>
-    setChips((current) => addChip(current, { kind: "element", artboard, selector: pick.selector, elementName: pick.elementName ?? null, xPct: pick.xPct, yPct: pick.yPct, ...(rendering && { rendering }) }));
+  const pickElement = (pick: Pick, artboard: string, rendering?: ThreadRendering, cell?: TweakValues) =>
+    setChips((current) => addChip(current, { kind: "element", artboard, selector: pick.selector, elementName: pick.elementName ?? null, xPct: pick.xPct, yPct: pick.yPct, ...(rendering && { rendering }), ...(cell && { cell }) }));
 
   async function renamePage(title: string) {
     const res = await fetch(`/api/pages/${pageId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) });
@@ -427,12 +456,14 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const hiddenOf = (artboard: Manifest["artboards"][number]) => (artboard.responsive ? hiddenRenderingKeys(artboard.responsive, viewSettings, artboard.file) : new Set<string>());
   const layoutOf = (artboard: Manifest["artboards"][number]) =>
     artboard.responsive ? responsiveFrameLayout(artboard, renderingSlots(artboard.responsive), { measuredHeights: docHeights[artboard.file], hidden: hiddenOf(artboard) }) : null;
+  const gridOf = (artboard: Manifest["artboards"][number]) =>
+    artboard.matrix ? tweakGridLayout(tweakGrid(artboard.matrix, manifest?.tweaks ?? []), artboard) : null;
   const responsiveArtboards = (manifest?.artboards ?? []).filter((artboard) => artboard.responsive);
   const formatsOnPage = (Object.keys(RESPONSIVE_FORMATS) as ResponsiveFormat[])
     .map((format) => ({ format, frames: responsiveArtboards.filter((a) => a.responsive!.some((r) => r.format === format)).length }))
     .filter(({ frames }) => frames > 0);
   const artboardBoxes = new Map<string, Box>(
-    (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, width: artboard.width, height: artboard.height }]),
+    (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, ...(gridOf(artboard) ?? artboard) }]),
   );
   artboardBoxesRef.current = artboardBoxes;
   const tocItems: TocItem[] = readingOrder(
@@ -463,6 +494,26 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     view,
     viewportSize,
   );
+  function seeGap(gap: Gap) {
+    const artboard = manifest?.artboards.find((a) => a.file === gap.file);
+    if (!artboard || gap.selector === null) return;
+    setSeenGap({ src: `${artboardOrigin}/pages/${pageId}/${gap.file}`, selector: gap.selector, nonce: Date.now() });
+    // A plain artboard is centred on the element once the bridge reports its box; a frame of renderings or cells on the artboard.
+    seenFile.current = layoutOf(artboard) || gridOf(artboard) ? null : gap.file;
+    if (seenFile.current === null) centerOnArtboard(gap.file);
+  }
+  async function askClaudeToFixGaps() {
+    if (!gapReport) return;
+    setTab("conversation");
+    const conversationId = await postInPageConversation(pageId, fixGapsMessage(gapReport.designSystemTitle, gapReport.gaps));
+    setFocusedConversation({ id: conversationId, nonce: Date.now() });
+  }
+
+  function centerOnSeenGap(rect: { x: number; y: number; width: number; height: number }) {
+    const box = seenFile.current === null ? undefined : artboardBoxesRef.current.get(seenFile.current);
+    seenFile.current = null;
+    if (box) setView(centerOn({ x: box.x + rect.x, y: box.y + rect.y, width: rect.width, height: rect.height }, viewportSize));
+  }
   function centerOnArtboard(file: string) {
     const box = artboardBoxes.get(file);
     if (!box) return;
@@ -474,9 +525,14 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const canvasMarks = chips.flatMap((chip, index) => (chip.kind === "canvas-element" ? [{ number: index + 1, elementId: chip.elementId }] : []));
 
   return (
+    <SeenGapContext.Provider value={{ seen: seenGap, onRect: centerOnSeenGap }}>
     <div className={styles.page}>
+      {previewOf !== undefined && <PreviewBanner designSystemId={previewOf} onLeave={() => navigateTo({ name: "page", pageId })} />}
       <CanvasHeader
+        previewOf={previewOf}
         project={project}
+        designSystemId={projectId}
+        versionId={versionId}
         pageId={pageId}
         pageTitle={pageTitle}
         picking={picking}
@@ -486,10 +542,16 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
         }}
         runningCount={runningCount}
         artboardOrigin={artboardOrigin}
-        deleted={deleted}
+        deleted={previewing ? [] : deleted}
         onPutBack={(item) => restore(item.file, item.lastVersionId)}
         onRenamePage={renamePage}
         toc={{ items: tocItems, currentFile: currentTocFile, onSelect: centerOnArtboard }}
+        gaps={gapReport}
+        gapExceptionCount={gapExceptionCount}
+        onSeeGap={seeGap}
+        onGapException={(gap) => changeViewSettings({ ...viewSettings, gapExceptions: [...viewSettings.gapExceptions, gap.key] })}
+        onShowGapExceptions={() => changeViewSettings({ ...viewSettings, gapExceptions: [] })}
+        onAskFixGaps={() => void askClaudeToFixGaps()}
       />
       <div className={styles.body}>
         <main className={styles.stage}>
@@ -501,6 +563,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             className={styles.viewport}
             style={{ backgroundPosition: `${view.x}px ${view.y}px` }}
             onPointerDown={(e) => {
+              if (seenGap) setSeenGap(null);
               pressedAt.current = { x: e.clientX, y: e.clientY };
               if ((e.target as HTMLElement).closest("button, a, [data-no-pan]")) return;
               drag.current = { x: e.clientX, y: e.clientY };
@@ -517,7 +580,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               drag.current = null;
               const pressed = pressedAt.current;
               pressedAt.current = null;
-              if ((picking || selecting || e.altKey) && manifest && pressed && Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < CLICK_SLOP) {
+              if ((picking || selecting || (e.altKey && !previewing)) && manifest && pressed && Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < CLICK_SLOP) {
                 const id = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-canvas-element-id]")?.getAttribute("data-canvas-element-id");
                 const element = manifest.elements.find((candidate) => candidate.id === id);
                 if (element?.id !== undefined && selecting) {
@@ -534,23 +597,24 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking || selecting || alt} zoom={view.zoom} threads={threads} marks={canvasMarks}>
               {manifest.artboards.map((artboard) => {
                 const layout = layoutOf(artboard);
+                const grid = gridOf(artboard);
                 const hidden = hiddenOf(artboard);
                 const frameWidth = artboardBoxes.get(artboard.file)!.width;
                 const src =
                   preview?.file === artboard.file
                     ? `${artboardOrigin}${versionPreviewPath(pageId, preview.versionId, artboard.file)}`
-                    : `${artboardOrigin}/pages/${pageId}/${artboard.file}`;
+                    : `${artboardOrigin}/pages/${pageId}/${artboard.file}${previewing ? `?${DRAFT_PREVIEW_QUERY}` : ""}`;
                 return (
                 <div
                   key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`}
                   data-artboard={artboard.file}
-                  className={cx(styles.artboard, (historyOpenFor === artboard.file || tweaksOpenFor === artboard.file) && styles.artboardRaised)}
+                  className={cx(styles.artboard, (historyOpenFor === artboard.file || tweaksOpenFor === artboard.file || moreOpenFor === artboard.file) && styles.artboardRaised)}
                   style={{ left: artboard.x, top: artboard.y }}
                 >
                   <div
                     data-no-pan
                     data-strip={artboard.file}
-                    className={cx(styles.label, layout && styles.labelResponsive, selecting && styles.labelSelecting)}
+                    className={cx(styles.label, (layout || grid) && styles.labelResponsive, selecting && styles.labelSelecting)}
                     style={{ width: frameWidth * view.zoom, transform: `scale(${1 / view.zoom})` }}
                     onClick={(e) => {
                       if (selecting && !(e.target as HTMLElement).closest("button")) setChips((current) => addChip(current, { kind: "artboard", artboard: artboard.file }));
@@ -568,7 +632,23 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         Lien copié
                       </div>
                     )}
-                    <span className={cx(styles.labelName, outlined === artboard.file && styles.labelNameOutlined)}>{artboard.title ?? artboard.file}</span>
+                    {componentNameOf(artboard.file) !== null && <ComponentMarker />}
+                    <span
+                      data-testid={componentNameOf(artboard.file) !== null ? "component-name" : undefined}
+                      className={cx(styles.labelName, componentNameOf(artboard.file) !== null && styles.componentName, outlined === artboard.file && styles.labelNameOutlined)}
+                    >
+                      {componentNameOf(artboard.file) ?? artboard.title ?? artboard.file}
+                    </span>
+                    {componentChange(artboard.file) && (
+                      <span data-testid="component-change" className={cx(styles.changePill, componentChange(artboard.file) === "nouveau" ? styles.newPill : styles.modifiedPill)}>
+                        {componentChange(artboard.file)}
+                      </span>
+                    )}
+                    {gapsOf(artboard.file) > 0 && (
+                      <span data-testid="artboard-gaps" className={cx(styles.changePill, styles.modifiedPill)}>
+                        {gapCountLabel(gapsOf(artboard.file))}
+                      </span>
+                    )}
                     {layout && artboard.responsive && (
                       <>
                         <span className={styles.responsiveBadge}>responsive</span>
@@ -580,7 +660,12 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         />
                       </>
                     )}
-                    {wholeArtboardThreads(artboard.file).length > 0 && (
+                    {grid && artboard.matrix && (
+                      <span className={styles.gridBadge}>
+                        grille · {[artboard.matrix.rows, artboard.matrix.columns, artboard.matrix.blocks].flatMap((id) => (manifest?.tweaks.find((t) => t.id === id)?.label.toLowerCase() ?? [])).join(" × ")}
+                      </span>
+                    )}
+                    {!previewing && wholeArtboardThreads(artboard.file).length > 0 && (
                       <button
                         type="button"
                         className={styles.threadsChip}
@@ -594,18 +679,33 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       </button>
                     )}
                     <span className={styles.spacer} />
-                    <button
-                      type="button"
-                      aria-label={`Commenter tout ${artboard.file}`}
-                      title="Commenter l'artboard entier"
-                      className={styles.iconButton}
-                      onClick={() => {
-                        setDraft({ target: { kind: "artboard", artboard: artboard.file } });
-                        setTab("comments");
-                      }}
-                    >
-                      <BubbleIcon size={13} />
-                    </button>
+                    {!previewing && artboardTweaks(artboard.file).length > 0 && (
+                      <button
+                        type="button"
+                        aria-label={`Tweaks · ${artboardTweaks(artboard.file).length}`}
+                        aria-expanded={tweaksOpenFor === artboard.file}
+                        className={styles.tweaksButton}
+                        onClick={() => setTweaksOpenFor(tweaksOpenFor === artboard.file ? null : artboard.file)}
+                      >
+                        Tweaks
+                        <span className={styles.tweaksCount}>{artboardTweaks(artboard.file).length}</span>
+                      </button>
+                    )}
+                    {!previewing && (
+                    <>
+                    <Tooltip label="Commenter l'artboard entier">
+                      <button
+                        type="button"
+                        aria-label={`Commenter tout ${artboard.file}`}
+                        className={styles.iconButton}
+                        onClick={() => {
+                          setDraft({ target: { kind: "artboard", artboard: artboard.file } });
+                          setTab("comments");
+                        }}
+                      >
+                        <BubbleIcon size={13} />
+                      </button>
+                    </Tooltip>
                     <ArtboardHistory
                       pageId={pageId}
                       file={artboard.file}
@@ -616,38 +716,35 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       onPreview={(previewId) => setPreview(previewId ? { file: artboard.file, versionId: previewId } : null)}
                       onRestore={(restoreId) => restore(artboard.file, restoreId)}
                     />
-                    {artboardTweaks(artboard.file).length > 0 && (
-                      <button type="button" aria-expanded={tweaksOpenFor === artboard.file} className={styles.tweaksButton} onClick={() => setTweaksOpenFor(tweaksOpenFor === artboard.file ? null : artboard.file)}>
-                        Tweaks
+                    <Tooltip label={`Copier le lien de ${artboard.file}`}>
+                      <button
+                        type="button"
+                        aria-label={`Copier le lien de ${artboard.file}`}
+                        className={styles.iconButton}
+                        onClick={() => copyLink({ name: "page", pageId, artboard: artboard.file }, artboard.file)}
+                      >
+                        <CopyLinkIcon />
                       </button>
+                    </Tooltip>
+                    <Tooltip label="Plein écran">
+                      <button
+                        type="button"
+                        aria-label={`Lancer ${artboard.file} en plein écran`}
+                        className={styles.iconButton}
+                        onClick={() => navigateTo(playRoute(pageId, artboard.file))}
+                      >
+                        <FullscreenIcon />
+                      </button>
+                    </Tooltip>
+                    <ArtboardMoreMenu
+                      pageId={pageId}
+                      file={artboard.file}
+                      open={moreOpenFor === artboard.file}
+                      onOpenChange={(open) => setMoreOpenFor(open ? artboard.file : null)}
+                      onCopyPlayLink={() => copyLink(playRoute(pageId, artboard.file), artboard.file)}
+                    />
+                    </>
                     )}
-                    <button
-                      type="button"
-                      aria-label={`Copier le lien de ${artboard.file}`}
-                      title={`Copier le lien de ${artboard.file}`}
-                      className={styles.iconButton}
-                      onClick={() => copyLink({ name: "page", pageId, artboard: artboard.file }, artboard.file)}
-                    >
-                      <CopyLinkIcon />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Copier le lien plein écran de ${artboard.file}`}
-                      title={`Copier le lien plein écran de ${artboard.file}`}
-                      className={styles.iconButton}
-                      onClick={() => copyLink(playRoute(pageId, artboard.file), artboard.file)}
-                    >
-                      <CopyPlayLinkIcon />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Lancer ${artboard.file} en plein écran`}
-                      title="Plein écran"
-                      className={styles.iconButton}
-                      onClick={() => navigateTo(playRoute(pageId, artboard.file))}
-                    >
-                      <FullscreenIcon />
-                    </button>
                   </div>
                   {outlined === artboard.file && (
                     <span
@@ -680,6 +777,26 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       onDocHeight={(key, height) =>
                         setDocHeights((current) => (current[artboard.file]?.[key] === height ? current : { ...current, [artboard.file]: { ...current[artboard.file], [key]: height } }))
                       }
+                    />
+                  ) : grid ? (
+                    <TweakGridFrame
+                      key={preview?.file === artboard.file ? preview.versionId : "live"}
+                      title={`${pageTitle} / ${artboard.file}`}
+                      src={src}
+                      layout={grid}
+                      zoom={view.zoom}
+                      guides={guidesVisible ? artboard.guides : undefined}
+                      threads={preview?.file === artboard.file ? [] : pinnedOn(artboard.file)}
+                      picking={picking && preview?.file !== artboard.file}
+                      selecting={selecting && preview?.file !== artboard.file}
+                      marksOf={(cell) => marksFor(chips, artboard.file, undefined, cell)}
+                      tweaks={tweaks.values}
+                      onPick={(pick, cell) => {
+                        if (selecting) return pickElement(pick, artboard.file, undefined, cell);
+                        setDraft({ ...pick, artboard: artboard.file, cell });
+                        setTab("comments");
+                      }}
+                      onEscape={() => setSelecting(false)}
                     />
                   ) : (
                   <ArtboardFrame
@@ -714,9 +831,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       <div className={styles.popoverHead}>
                         <span className={styles.popoverTitle}>Tweaks · {artboard.file.replace(/\.html$/, "")}</span>
                         <span className={styles.spacer} />
-                        <button type="button" aria-label="Fermer les tweaks" className={styles.popoverClose} onClick={() => setTweaksOpenFor(null)}>
-                          ×
-                        </button>
+                        <Tooltip label="Fermer les tweaks">
+                          <button type="button" aria-label="Fermer les tweaks" className={styles.popoverClose} onClick={() => setTweaksOpenFor(null)}>
+                            ×
+                          </button>
+                        </Tooltip>
                       </div>
                       <TweaksPanel tweaks={artboardTweaks(artboard.file)} values={tweaks.values} onChange={tweaks.setValue} previews={{ pageId, artboardOrigin, artboard }} />
                       <div className={styles.popoverHint}>
@@ -749,7 +868,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               Sélection : clique sur un élément, un artboard ou une note pour l'ajouter au message <span className={styles.selectionHintKeys}>· Échap pour finir</span>
             </div>
           )}
-          <div className={cx(styles.hintWrap, (selecting || missingArtboard !== null) && styles.hintWrapHidden)}>
+          <div className={cx(styles.hintWrap, (previewing || selecting || missingArtboard !== null) && styles.hintWrapHidden)}>
             <div data-testid="mode-indicator" className={styles.hint}>
               {picking ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier." : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
             </div>
@@ -769,13 +888,17 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             />
           )}
           <div className={styles.zoom}>
-            <button type="button" aria-label="Dézoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(1 / ZOOM_STEP)}>
-              −
-            </button>
+            <Tooltip label="Dézoomer">
+              <button type="button" aria-label="Dézoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(1 / ZOOM_STEP)}>
+                −
+              </button>
+            </Tooltip>
             <span className={styles.zoomValue}>{Math.round(view.zoom * 100)} %</span>
-            <button type="button" aria-label="Zoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(ZOOM_STEP)}>
-              +
-            </button>
+            <Tooltip label="Zoomer">
+              <button type="button" aria-label="Zoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(ZOOM_STEP)}>
+                +
+              </button>
+            </Tooltip>
             <span aria-hidden="true" className={styles.zoomSeparator} />
             <GuidesButton pressed={guidesVisible} onToggle={toggleGuides} className={cx(styles.guidesButton, guidesVisible && styles.guidesButtonOn)} />
             {responsiveArtboards.length > 0 && (
@@ -793,6 +916,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
           </div>
         </main>
 
+        {!previewing && (
         <aside aria-label="Commentaires" className={styles.aside}>
           <div role="tablist" aria-label="Panneau latéral" className={styles.tabs}>
             <button type="button" role="tab" aria-selected={tab === "conversation"} className={cx(styles.tab, tab === "conversation" && styles.tabActive)} onClick={() => setTab("conversation")}>
@@ -806,7 +930,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             </button>
           </div>
           {tab === "conversation" ? (
-            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} artboardCount={manifest?.artboards.length ?? 0} artboards={artboardTitles} onCenterArtboard={centerOnArtboard} onMissingArtboard={setMissingArtboard} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults}
+            <ConversationsPanel pageId={pageId} pageTitle={pageTitle} versionId={versionId} artboardCount={manifest?.artboards.length ?? 0} artboards={artboardTitles} onCenterArtboard={centerOnArtboard} onMissingArtboard={setMissingArtboard} focusedConversation={focusedConversation} context={conversationContext} runs={runs} queue={queue} sessions={sessions} defaults={agentDefaults}
               chips={chips}
               selecting={selecting}
               onSelectingChange={changeSelecting}
@@ -818,27 +942,31 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               <TocList items={tocItems} currentFile={currentTocFile} placeholder={`Filtrer les ${tocItems.length} artboards…`} onSelect={centerOnArtboard} />
             </div>
           ) : (
-            <CommentsPanel
-              pageId={pageId}
-              threads={threads}
-              queue={queue}
-              runs={runs}
-              sessions={sessions}
-              defaults={agentDefaults}
-              choice={choice}
-              onChoice={setChoice}
-              draft={draftInfo}
-              text={text}
-              onText={setText}
-              onSend={(held) => void send(held)}
-              onCancel={() => {
-                setDraft(null);
-                setText("");
-              }}
-            />
+            <PageTweaksContext.Provider value={manifest?.tweaks ?? []}>
+              <CommentsPanel
+                pageId={pageId}
+                threads={threads}
+                queue={queue}
+                runs={runs}
+                sessions={sessions}
+                defaults={agentDefaults}
+                choice={choice}
+                onChoice={setChoice}
+                draft={draftInfo}
+                text={text}
+                onText={setText}
+                onSend={(held) => void send(held)}
+                onCancel={() => {
+                  setDraft(null);
+                  setText("");
+                }}
+              />
+            </PageTweaksContext.Provider>
           )}
         </aside>
+        )}
       </div>
     </div>
+    </SeenGapContext.Provider>
   );
 }

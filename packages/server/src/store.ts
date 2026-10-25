@@ -2,15 +2,25 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
+import { componentFilesOf, projectComponents } from "./components.js";
 import {
   EMPTY_VIEW_SETTINGS,
+  diffDiffusionStates,
+  diffusionSummary,
+  DESIGN_MD_PATH,
   DESIGN_SYSTEM_TOKENS_PATH,
+  ARTBOARD_GAP,
   MANIFEST_PATH,
   canvasElementSummary,
   defaultManifest,
   parseManifest,
+  starterPageFiles,
   NEUTRAL_DESIGN_SYSTEM_ID,
   NEUTRAL_TOKENS_CSS,
+  parseTokens,
+  setToken,
+  type ProjectStyleStart,
+  PROJECT_STYLE_PATH,
   NEUTRAL_TOKENS_PAGE_HTML,
   type DesignSystem,
   type DesignMdAuthor,
@@ -18,10 +28,14 @@ import {
   type ProjectAsset,
 } from "@redline/shared";
 import type {
+  ComponentInfo,
+  DiffusionInfo,
+  DiffusionState,
   Conversation,
   ConversationMessage,
   CreateThreadRequest,
   ThreadRendering,
+  TweakValues,
   ThreadTarget,
   ManifestElement,
   ManifestElementKind,
@@ -120,6 +134,26 @@ export class Store {
         project_id TEXT PRIMARY KEY REFERENCES projects(id),
         page_id TEXT NOT NULL REFERENCES pages(id)
       );
+      CREATE TABLE IF NOT EXISTS design_system_diffusions (
+        design_system_id TEXT NOT NULL REFERENCES design_systems(project_id),
+        number INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        tokens_hash TEXT NOT NULL,
+        components_hash TEXT NOT NULL,
+        design_md_hash TEXT NOT NULL,
+        component_list_hash TEXT NOT NULL,
+        index_hash TEXT NOT NULL,
+        component_files_hash TEXT,
+        PRIMARY KEY (design_system_id, number)
+      );
+      CREATE TABLE IF NOT EXISTS design_system_diffusion_undos (
+        design_system_id TEXT NOT NULL REFERENCES design_systems(project_id),
+        number INTEGER NOT NULL,
+        undone_at TEXT NOT NULL,
+        PRIMARY KEY (design_system_id, number)
+      );
       CREATE TABLE IF NOT EXISTS project_files (
         project_id TEXT NOT NULL REFERENCES projects(id),
         path TEXT NOT NULL,
@@ -182,6 +216,9 @@ export class Store {
     };
     // Page types were removed (2026-10-22); the column was NOT NULL, so databases from before must drop it.
     if (columnsOf("pages").includes("type")) this.db.exec("ALTER TABLE pages DROP COLUMN type");
+    addColumn("design_systems", "current_diffusion", "INTEGER");
+    addColumn("design_system_diffusions", "component_files_hash", "TEXT");
+    addColumn("design_system_diffusions", "rolled_back_to", "INTEGER");
     addColumn("pages", "created_by", "TEXT NOT NULL DEFAULT 'user'");
     // The old per-project boolean (default 0) becomes a nullable override of the global setting: only an explicit "allow" is kept.
     if (!columnsOf("projects").includes("takeover_override")) {
@@ -192,8 +229,10 @@ export class Store {
     }
     addColumn("versions", "origin_id", "TEXT");
     addColumn("versions", "origin_label", "TEXT");
+    addColumn("versions", "diffusion", "INTEGER");
     addColumn("threads", "element_name", "TEXT");
     addColumn("threads", "rendering", "TEXT");
+    addColumn("threads", "cell", "TEXT");
     addColumn("threads", "target_kind", "TEXT NOT NULL DEFAULT 'element'");
     addColumn("threads", "element_id", "TEXT");
     addColumn("threads", "element_kind", "TEXT");
@@ -201,6 +240,7 @@ export class Store {
     addColumn("thread_replies", "created_page_ids", "TEXT");
     addColumn("conversation_messages", "created_page_ids", "TEXT");
     addColumn("conversation_messages", "targets", "TEXT");
+    addColumn("design_md_versions", "path", `TEXT NOT NULL DEFAULT '${DESIGN_MD_PATH}'`);
     addColumn("design_md_versions", "origin", "TEXT NOT NULL DEFAULT 'user'");
     addColumn("design_md_versions", "origin_id", "TEXT");
     addColumn("design_md_versions", "origin_label", "TEXT");
@@ -214,6 +254,9 @@ export class Store {
     if (!this.getDesignSystem(NEUTRAL_DESIGN_SYSTEM_ID)) {
       this.createDesignSystem("Neutral", { [DESIGN_SYSTEM_TOKENS_PATH]: NEUTRAL_TOKENS_CSS, "index.html": NEUTRAL_TOKENS_PAGE_HTML }, NEUTRAL_DESIGN_SYSTEM_ID);
     }
+    this.moveDesignSystemTokensToProjects();
+    this.giveProjectsTheirStyle();
+    this.giveDesignSystemsTheirFirstDiffusion();
   }
 
   /** Replaces the persisted work queue (see `PageLock`) with `rows`, in order. */
@@ -267,12 +310,156 @@ export class Store {
     }));
   }
 
-  /** A design system is a project (same id) with one page holding its tokens and components. */
+  /**
+   * A design system is a project (same id) with any number of pages, plus project-level `tokens.css` and DESIGN.md.
+   * `files` are those of its first page; a `tokens.css` among them is stored at the project level instead.
+   */
   createDesignSystem(title: string, files: Record<string, string>, id: string = randomUUID()): DesignSystem {
-    this.createProject(title, id);
-    const page = this.createPage(id, title, files);
+    this.insertProject(title, id, "", null);
+    const { [DESIGN_SYSTEM_TOKENS_PATH]: tokens, ...pageFiles } = files;
+    if (tokens !== undefined) this.saveDesignMd(id, DESIGN_SYSTEM_TOKENS_PATH, Buffer.from(tokens, "utf8"));
+    const page = this.createPage(id, title, pageFiles);
     this.db.prepare("INSERT INTO design_systems (project_id, page_id) VALUES (?, ?)").run(id, page.id);
+    this.createDiffusion(id, "user", "Initial diffusion");
     return { id, title, pageId: page.id };
+  }
+
+  /** Migration (every store start, idempotent): a design system without diffusion gets diffusion 1 from its current files. */
+  private giveDesignSystemsTheirFirstDiffusion(): void {
+    for (const { id } of this.listDesignSystems()) {
+      if (this.currentDiffusion(id) === undefined) this.createDiffusion(id, "migration", "Initial diffusion");
+    }
+  }
+
+  /**
+   * The draft of a design system: its current project-level tokens and DESIGN.md and the components of its pages.
+   * It becomes a diffusion with `createDiffusion`; "pending" = the draft differs from the current diffusion.
+   */
+  designSystemDraft(id: string): { state: DiffusionState; componentsCss: string; componentFiles: Record<string, string>; assembly: ReturnType<typeof projectComponents> } {
+    const assembly = projectComponents(this, id);
+    return {
+      componentFiles: componentFilesOf(this, id),
+      state: {
+        tokensCss: this.readProjectText(id, DESIGN_SYSTEM_TOKENS_PATH),
+        designMd: this.readProjectText(id, DESIGN_MD_PATH),
+        components: assembly.components.map(({ name, hash }) => ({ name, hash })),
+      },
+      componentsCss: assembly.css,
+      assembly,
+    };
+  }
+
+  /** The draft of a design system with what differs from its current diffusion (the pending changes). */
+  pendingDiffusion(designSystemId: string): { draft: ReturnType<Store["designSystemDraft"]>; pending: ReturnType<typeof diffDiffusionStates> } {
+    const draft = this.designSystemDraft(designSystemId);
+    const current = this.currentDiffusion(designSystemId)!;
+    return { draft, pending: diffDiffusionStates(this.diffusionState(designSystemId, current.number), draft.state) };
+  }
+
+  /** Freezes the draft of a design system as its next diffusion and makes it the current one. Diffusions are never edited. */
+  createDiffusion(designSystemId: string, origin: DiffusionInfo["origin"], summary?: string): DiffusionInfo {
+    const draft = this.designSystemDraft(designSystemId);
+    const current = this.currentDiffusion(designSystemId);
+    const text = summary ?? diffusionSummary(diffDiffusionStates(current ? this.diffusionState(designSystemId, current.number) : { tokensCss: "", designMd: "", components: [] }, draft.state));
+    const blob = (content: string) => this.putBlob(Buffer.from(content, "utf8"));
+    const last = this.db.prepare("SELECT MAX(number) AS n FROM design_system_diffusions WHERE design_system_id = ?").get(designSystemId) as { n: number | null };
+    const number = (last.n ?? 0) + 1;
+    const createdAt = now();
+    this.db
+      .prepare(
+        `INSERT INTO design_system_diffusions
+         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        designSystemId, number, createdAt, origin, text,
+        blob(draft.state.tokensCss), blob(draft.componentsCss), blob(draft.state.designMd),
+        blob(JSON.stringify(draft.assembly.components)), blob(JSON.stringify(draft.assembly.indexes)), blob(JSON.stringify(draft.componentFiles)),
+      );
+    this.db.prepare("UPDATE design_systems SET current_diffusion = ? WHERE project_id = ?").run(number, designSystemId);
+    return { number, createdAt, origin, summary: text, undone: false };
+  }
+
+  /**
+   * Undo: the current diffusion stays listed, marked undone, and projects use the closest earlier diffusion that is not undone.
+   * Undefined when there is none (the first diffusion cannot be undone).
+   */
+  undoDiffusion(designSystemId: string): DiffusionInfo | undefined {
+    const current = this.currentDiffusion(designSystemId);
+    const previous = current && this.listDiffusions(designSystemId).find((d) => d.number < current.number && !d.undone);
+    if (!current || !previous) return undefined;
+    this.db.prepare("INSERT INTO design_system_diffusion_undos (design_system_id, number, undone_at) VALUES (?, ?, ?)").run(designSystemId, current.number, now());
+    this.db.prepare("UPDATE design_systems SET current_diffusion = ? WHERE project_id = ?").run(previous.number, designSystemId);
+    return previous;
+  }
+
+  /** Roll back: a new entry of the list that points at the same files as diffusion `target` (no new blob); it becomes the current diffusion. The draft is untouched. */
+  rollbackDiffusion(designSystemId: string, target: number): DiffusionInfo {
+    const last = this.db.prepare("SELECT MAX(number) AS n FROM design_system_diffusions WHERE design_system_id = ?").get(designSystemId) as { n: number };
+    const number = last.n + 1;
+    const createdAt = now();
+    const summary = `Rolled back to diffusion ${target}`;
+    this.db
+      .prepare(
+        `INSERT INTO design_system_diffusions
+         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, rolled_back_to)
+         SELECT design_system_id, ?, ?, 'rollback', ?, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, ?
+         FROM design_system_diffusions WHERE design_system_id = ? AND number = ?`,
+      )
+      .run(number, createdAt, summary, target, designSystemId, target);
+    this.db.prepare("UPDATE design_systems SET current_diffusion = ? WHERE project_id = ?").run(number, designSystemId);
+    return { number, createdAt, origin: "rollback", summary, rolledBackTo: target, undone: false };
+  }
+
+  /** The diffusion projects use, or undefined before the design system has one. */
+  currentDiffusion(designSystemId: string): DiffusionInfo | undefined {
+    const row = this.db.prepare("SELECT current_diffusion AS n FROM design_systems WHERE project_id = ?").get(designSystemId) as { n: number | null } | undefined;
+    return row?.n == null ? undefined : this.listDiffusions(designSystemId).find((d) => d.number === row.n);
+  }
+
+  /** Diffusions of a design system, newest first. */
+  listDiffusions(designSystemId: string): DiffusionInfo[] {
+    const rows = this.db
+      .prepare(
+        `SELECT d.number, d.created_at AS createdAt, d.origin, d.summary, d.rolled_back_to AS rolledBackTo, u.number IS NOT NULL AS undone
+         FROM design_system_diffusions d
+         LEFT JOIN design_system_diffusion_undos u ON u.design_system_id = d.design_system_id AND u.number = d.number
+         WHERE d.design_system_id = ? ORDER BY d.number DESC`,
+      )
+      .all(designSystemId) as (Omit<DiffusionInfo, "undone" | "rolledBackTo"> & { rolledBackTo: number | null; undone: number })[];
+    return rows.map(({ rolledBackTo, undone, ...rest }) => ({ ...rest, undone: undone === 1, ...(rolledBackTo !== null && { rolledBackTo }) }));
+  }
+
+  /** One file of a diffusion (`tokens.css`, `components.css`, `DESIGN.md`, `components.json` the component list, `index.json` the per-page index, `component-files.json` the component files by path). */
+  readDiffusionFile(designSystemId: string, number: number, file: "tokens.css" | "components.css" | "DESIGN.md" | "components.json" | "index.json" | "component-files.json"): string | undefined {
+    const column = { "tokens.css": "tokens_hash", "components.css": "components_hash", "DESIGN.md": "design_md_hash", "components.json": "component_list_hash", "index.json": "index_hash", "component-files.json": "component_files_hash" }[file];
+    const row = this.db.prepare(`SELECT ${column} AS hash FROM design_system_diffusions WHERE design_system_id = ? AND number = ?`).get(designSystemId, number) as { hash: string | null } | undefined;
+    return row?.hash ? readFileSync(join(this.blobDir, row.hash), "utf8") : undefined;
+  }
+
+  /** The components of a diffusion (`components.json`). */
+  diffusionComponents(designSystemId: string, number: number): ComponentInfo[] {
+    return JSON.parse(this.readDiffusionFile(designSystemId, number, "components.json") ?? "[]") as ComponentInfo[];
+  }
+
+  /** The component files of a diffusion by path (`component-files.json`). */
+  diffusionComponentFiles(designSystemId: string, number: number): Record<string, string> {
+    return JSON.parse(this.readDiffusionFile(designSystemId, number, "component-files.json") ?? "{}") as Record<string, string>;
+  }
+
+  /** The per-page component index text of a diffusion, by page id (`index.json`). */
+  diffusionPageIndexes(designSystemId: string, number: number): Record<string, string> {
+    return JSON.parse(this.readDiffusionFile(designSystemId, number, "index.json") ?? "{}") as Record<string, string>;
+  }
+
+  /** A diffusion as the diff reads it. */
+  diffusionState(designSystemId: string, number: number): DiffusionState {
+    const components = this.diffusionComponents(designSystemId, number);
+    return {
+      tokensCss: this.readDiffusionFile(designSystemId, number, "tokens.css") ?? "",
+      designMd: this.readDiffusionFile(designSystemId, number, "DESIGN.md") ?? "",
+      components: components.map(({ name, hash }) => ({ name, hash })),
+    };
   }
 
   getDesignSystem(id: string): DesignSystem | undefined {
@@ -320,11 +507,34 @@ export class Store {
       .all(designSystemId) as { id: string; title: string }[];
   }
 
-  /** The design system a page belongs to as its own page (the page that holds its tokens), if any. */
+  /** The design system a page belongs to (one of its own pages), if any. */
   designSystemOfPage(pageId: string): DesignSystem | undefined {
     return this.db
-      .prepare("SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id WHERE d.page_id = ?")
+      .prepare(
+        `SELECT p.id, p.title, d.page_id AS pageId FROM pages pg JOIN design_systems d ON d.project_id = pg.project_id
+         JOIN projects p ON p.id = d.project_id WHERE pg.id = ?`,
+      )
       .get(pageId) as DesignSystem | undefined;
+  }
+
+  /**
+   * Design systems stored before tokens became project-level kept `tokens.css` in their page: move it to the project
+   * (as its first version) and record a page version without it. Idempotent.
+   */
+  private moveDesignSystemTokensToProjects(): void {
+    for (const designSystem of this.listDesignSystems()) {
+      for (const page of this.listPages(designSystem.id)) {
+        const hash = page.version.files[DESIGN_SYSTEM_TOKENS_PATH];
+        if (hash === undefined) continue;
+        const { [DESIGN_SYSTEM_TOKENS_PATH]: _moved, ...rest } = page.version.files;
+        this.db.transaction(() => {
+          if (!this.readProjectFile(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH)) {
+            this.saveDesignMd(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH, readFileSync(join(this.blobDir, hash)));
+          }
+          this.insertVersion(page.id, JSON.stringify(rest), "Tokens moved to the design system", "creation");
+        })();
+      }
+    }
   }
 
   listPageIds(): string[] {
@@ -332,7 +542,7 @@ export class Store {
   }
 
   isDesignSystemPage(pageId: string): boolean {
-    return this.db.prepare("SELECT 1 FROM design_systems WHERE page_id = ?").get(pageId) !== undefined;
+    return this.designSystemOfPage(pageId) !== undefined;
   }
 
   close(): void {
@@ -405,11 +615,70 @@ export class Store {
     return rows.map(({ model, effort, ...agent }) => ({ ...agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}) }));
   }
 
-  createProject(title: string, id: string = randomUUID(), instructions = "", designSystem: string | null = null): Project {
+  private insertProject(title: string, id: string, instructions: string, designSystem: string | null): Project {
     this.db
       .prepare("INSERT INTO projects (id, title, instructions, design_system, created_at) VALUES (?, ?, ?, ?, ?)")
       .run(id, title, instructions, designSystem, now());
     return { id, title, instructions, designSystem, globalTakeover: this.getGlobalTakeover(), globalTakeoverOverride: null };
+  }
+
+  /** A project without a shared design system starts with the neutral values as its project style. */
+  createProject(title: string, id: string = randomUUID(), instructions = "", designSystem: string | null = null): Project {
+    const project = this.insertProject(title, id, instructions, designSystem);
+    if (designSystem === null) this.saveDesignMd(id, PROJECT_STYLE_PATH, Buffer.from(NEUTRAL_TOKENS_CSS, "utf8"));
+    return project;
+  }
+
+  /**
+   * Points a project at a shared design system, or at none (null: its project style becomes its whole style). Pages follow the
+   * `designSystem` of their manifest, so each page whose manifest says otherwise gets a version with the new value.
+   */
+  setProjectDesignSystem(projectId: string, designSystem: string | null, origin: VersionOrigin, startFrom?: ProjectStyleStart): void {
+    const previous = this.getProject(projectId)!.designSystem;
+    if (designSystem === null && previous !== null && startFrom) {
+      this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(this.startingStyle(projectId, previous, startFrom), "utf8"));
+    }
+    this.db.prepare("UPDATE projects SET design_system = ? WHERE id = ?").run(designSystem, projectId);
+    if (designSystem === null && !this.readProjectFile(projectId, PROJECT_STYLE_PATH)) {
+      this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(NEUTRAL_TOKENS_CSS, "utf8"));
+    }
+    for (const page of this.listPages(projectId)) {
+      const { files } = this.readPageFiles(page.id)!;
+      let manifest: Record<string, unknown>;
+      try {
+        manifest = JSON.parse(files[MANIFEST_PATH] ?? "");
+      } catch {
+        continue;
+      }
+      if ((manifest.designSystem ?? null) === designSystem) continue;
+      if (designSystem === null) delete manifest.designSystem;
+      else manifest.designSystem = designSystem;
+      this.addVersion(page.id, { ...files, [MANIFEST_PATH]: `${JSON.stringify(manifest, null, 2)}\n` }, designSystem === null ? "No shared design system" : "Design system changed", origin);
+    }
+  }
+
+  /** The project style after leaving `fromDesignSystem`: the base values (its current diffusion, or neutral) with the project's overrides on top. */
+  private startingStyle(projectId: string, fromDesignSystem: string, startFrom: ProjectStyleStart): string {
+    const diffusion = this.currentDiffusion(fromDesignSystem);
+    const base = startFrom === "design-system" && diffusion ? (this.readDiffusionFile(fromDesignSystem, diffusion.number, "tokens.css") ?? NEUTRAL_TOKENS_CSS) : NEUTRAL_TOKENS_CSS;
+    const overrides = parseTokens(this.readProjectText(projectId, PROJECT_STYLE_PATH));
+    return overrides.reduce((css, token) => setToken(css, token.name, token.value), base);
+  }
+
+  /** True when `projectId` is a design system's own project (it has no project style: its `tokens.css` is the design system's). */
+  isDesignSystemProject(projectId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM design_systems WHERE project_id = ?").get(projectId) !== undefined;
+  }
+
+  /** Existing projects without a shared design system get the neutral values as project style, so they render as before. Idempotent. */
+  private giveProjectsTheirStyle(): void {
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM projects WHERE design_system IS NULL AND id NOT IN (SELECT project_id FROM design_systems)
+         AND id NOT IN (SELECT project_id FROM project_files WHERE path = ?)`,
+      )
+      .all(PROJECT_STYLE_PATH) as { id: string }[];
+    for (const { id } of rows) this.saveDesignMd(id, PROJECT_STYLE_PATH, Buffer.from(NEUTRAL_TOKENS_CSS, "utf8"));
   }
 
   listProjects(): Project[] {
@@ -498,23 +767,31 @@ export class Store {
     return hash;
   }
 
-  /** Saves DESIGN.md and records a version with its author, unless the content is the one already stored. */
+  /** Saves a versioned project-level file (DESIGN.md, a design system's `tokens.css`) and records a version with its author, unless the content is the one already stored. */
   saveDesignMd(projectId: string, path: string, content: Buffer, author: DesignMdAuthor = { origin: "user" }): void {
     const unchanged = this.readProjectFile(projectId, path)?.equals(content) ?? false;
     const hash = this.setProjectFile(projectId, path, content);
     if (unchanged) return;
     this.db
-      .prepare("INSERT INTO design_md_versions (id, project_id, hash, created_at, origin, origin_id, origin_label) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(randomUUID(), projectId, hash, now(), author.origin, author.originId ?? null, author.originLabel ?? null);
+      .prepare("INSERT INTO design_md_versions (id, project_id, path, hash, created_at, origin, origin_id, origin_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(randomUUID(), projectId, path, hash, now(), author.origin, author.originId ?? null, author.originLabel ?? null);
+    if (path === PROJECT_STYLE_PATH && !this.isDesignSystemProject(projectId)) this.announceProjectStyleChange(projectId);
   }
 
-  /** DESIGN.md versions, newest first. */
-  listDesignMdVersions(projectId: string): DesignMdVersion[] {
+  /** Open pages link the project style through a stylesheet: tell them to reload (`design-system-updated`). */
+  announceProjectStyleChange(projectId: string): void {
+    const row = this.db.prepare("SELECT design_system AS designSystem FROM projects WHERE id = ?").get(projectId) as { designSystem: string | null } | undefined;
+    const pageIds = this.listPages(projectId).map((page) => page.id);
+    if (row && pageIds.length > 0) this.emit({ type: "design-system-updated", designSystemId: row.designSystem ?? NEUTRAL_DESIGN_SYSTEM_ID, pageIds });
+  }
+
+  /** Versions of DESIGN.md (or of another versioned project-level file, `path`), newest first. */
+  listDesignMdVersions(projectId: string, path: string = DESIGN_MD_PATH): DesignMdVersion[] {
     const rows = this.db
       .prepare(
-        "SELECT id, hash, created_at, origin, origin_id, origin_label FROM design_md_versions WHERE project_id = ? ORDER BY created_at DESC, rowid DESC",
+        "SELECT id, hash, created_at, origin, origin_id, origin_label FROM design_md_versions WHERE project_id = ? AND path = ? ORDER BY created_at DESC, rowid DESC",
       )
-      .all(projectId) as { id: string; hash: string; created_at: string; origin: DesignMdVersion["origin"]; origin_id: string | null; origin_label: string | null }[];
+      .all(projectId, path) as { id: string; hash: string; created_at: string; origin: DesignMdVersion["origin"]; origin_id: string | null; origin_label: string | null }[];
     return rows.map((r) => ({
       id: r.id,
       content: readFileSync(join(this.blobDir, r.hash), "utf8"),
@@ -523,6 +800,11 @@ export class Store {
       ...(r.origin_id ? { originId: r.origin_id } : {}),
       ...(r.origin_label ? { originLabel: r.origin_label } : {}),
     }));
+  }
+
+  /** A project-level file as UTF-8 text, empty when there is none. */
+  readProjectText(projectId: string, path: string): string {
+    return this.readProjectFile(projectId, path)?.toString("utf8") ?? "";
   }
 
   readProjectFile(projectId: string, path: string): Buffer | undefined {
@@ -574,11 +856,11 @@ export class Store {
 
   getViewSettings(pageId: string): PageViewSettings {
     const row = this.db.prepare("SELECT settings FROM page_view_settings WHERE page_id = ?").get(pageId) as { settings: string } | undefined;
-    return row ? (JSON.parse(row.settings) as PageViewSettings) : EMPTY_VIEW_SETTINGS;
+    return row ? { ...EMPTY_VIEW_SETTINGS, ...(JSON.parse(row.settings) as Partial<PageViewSettings>) } : EMPTY_VIEW_SETTINGS;
   }
 
   setViewSettings(pageId: string, settings: PageViewSettings): PageViewSettings {
-    const stored: PageViewSettings = { hiddenFormats: settings.hiddenFormats, renderingOverrides: settings.renderingOverrides };
+    const stored: PageViewSettings = { hiddenFormats: settings.hiddenFormats, renderingOverrides: settings.renderingOverrides, gapExceptions: settings.gapExceptions };
     this.db
       .prepare("INSERT INTO page_view_settings (page_id, settings) VALUES (?, ?) ON CONFLICT(page_id) DO UPDATE SET settings = excluded.settings")
       .run(pageId, JSON.stringify(stored));
@@ -628,7 +910,7 @@ export class Store {
     const placement =
       "target" in request
         ? request.target.kind === "artboard"
-          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
+          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, cell: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
           : this.canvasElementPlacement(pageId, request.target.elementId)
         : {
             kind: "element",
@@ -636,6 +918,7 @@ export class Store {
             selector: request.selector,
             elementName: request.elementName ?? null,
             rendering: request.rendering ? JSON.stringify({ format: request.rendering.format, width: request.rendering.width }) : null,
+            cell: request.cell ? JSON.stringify(request.cell) : null,
             xPct: request.xPct,
             yPct: request.yPct,
             elementId: null,
@@ -644,10 +927,10 @@ export class Store {
           };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, x_pct, y_pct, title, body, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, x_pct, y_pct, title, body, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now());
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now());
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -660,6 +943,7 @@ export class Store {
       selector: "",
       elementName: null,
       rendering: null,
+      cell: null,
       xPct: 0,
       yPct: 0,
       elementId,
@@ -691,7 +975,7 @@ export class Store {
   listHeldThreads(pageId: string): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status
          FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId) as ThreadRow[];
@@ -949,7 +1233,17 @@ export class Store {
 
   /** Records a new version of the page from file contents. */
   addVersion(pageId: string, files: Record<string, string>, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
-    return this.createVersion(pageId, files, message, origin, ref);
+    const designSystem = this.designSystemOfPage(pageId);
+    const { [DESIGN_SYSTEM_TOKENS_PATH]: tokens, ...pageFiles } = files;
+    if (!designSystem || tokens === undefined) return this.createVersion(pageId, files, message, origin, ref);
+    // A design system's tokens belong to the design system, not to the page they were published from.
+    const author: DesignMdAuthor = {
+      origin: origin === "thread" || origin === "conversation" || origin === "terminal" ? origin : "user",
+      ...(ref?.originId ? { originId: ref.originId } : {}),
+      ...(ref?.originLabel ? { originLabel: ref.originLabel } : {}),
+    };
+    this.saveDesignMd(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH, Buffer.from(tokens, "utf8"), author);
+    return this.createVersion(pageId, pageFiles, message, origin, ref);
   }
 
   /** Records a version whose files are given as path -> blob hash (hashes of this store). */
@@ -965,9 +1259,9 @@ export class Store {
   /** Every version of a page with its file hashes, OLDEST first. */
   listVersionRecords(pageId: string): VersionRecord[] {
     const rows = this.db
-      .prepare("SELECT id, files, message, origin, origin_id, origin_label, created_at FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
-      .all(pageId) as (VersionRow & { files: string })[];
-    return rows.map((row) => ({ ...toSummary(row), files: JSON.parse(row.files) as Record<string, string> }));
+      .prepare("SELECT id, files, message, origin, origin_id, origin_label, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
+      .all(pageId) as (VersionRow & { files: string; diffusion: number | null })[];
+    return rows.map((row) => ({ ...toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1 }));
   }
 
   /** One file of one version of a page, or undefined if either is unknown. */
@@ -981,6 +1275,62 @@ export class Store {
   setPageFile(pageId: string, path: string, content: string, message: string, origin: VersionOrigin): PageVersionSummary {
     const hashes = { ...this.getPage(pageId)!.version.files, [path]: this.putBlob(Buffer.from(content, "utf8")) };
     return this.insertVersion(pageId, JSON.stringify(hashes), message, origin);
+  }
+
+  /**
+   * Moves an artboard (file, manifest entry, threads) from `sourceId` to another page of the same project, or to a page
+   * created here, in one transaction: the artboard is on both pages or on neither at no moment. The caller checked the
+   * request (see `move-artboard.ts`). The artboard lands right of the target's artboards, same size.
+   */
+  moveArtboard(
+    sourceId: string,
+    file: string,
+    target: { pageId: string } | { newPageTitle: string },
+    origin: VersionOrigin,
+    ref?: OriginRef,
+  ): { targetPage: Page; sourceVersion: PageVersionSummary; targetVersion: PageVersionSummary } {
+    const movedThreadIds: string[] = [];
+    const result = this.db.transaction(() => {
+      const source = this.getPage(sourceId)!;
+      const targetPage = "pageId" in target ? this.getPage(target.pageId)! : this.createPage(source.projectId, target.newPageTitle, starterPageFiles(target.newPageTitle, this.getProject(source.projectId)?.designSystem));
+      const sourceFiles = { ...source.version.files };
+      const targetFiles = { ...targetPage.version.files };
+      const rawManifest = (page: Page) => {
+        const hash = page.version.files[MANIFEST_PATH];
+        return hash === undefined ? (defaultManifest(Object.keys(page.version.files)) as unknown as RawManifest) : (JSON.parse(this.blobText(hash)) as RawManifest);
+      };
+      const sourceManifest = rawManifest(source);
+      const targetManifest = rawManifest(targetPage);
+      const entry = (sourceManifest.artboards ?? []).find((a) => a.file === file)!;
+      const placed = parseManifest(JSON.stringify(targetManifest)).artboards;
+      const x = placed.length === 0 ? 0 : Math.max(...placed.map((a) => a.x + a.width)) + ARTBOARD_GAP;
+      const y = placed.length === 0 ? 0 : Math.min(...placed.map((a) => a.y));
+
+      targetFiles[file] = sourceFiles[file];
+      delete sourceFiles[file];
+      targetManifest.artboards = [...(targetManifest.artboards ?? []), { ...entry, x, y }];
+      targetFiles[MANIFEST_PATH] = this.putText(JSON.stringify(targetManifest, null, 2));
+      if (source.version.files[MANIFEST_PATH] !== undefined) {
+        sourceManifest.artboards = (sourceManifest.artboards ?? []).filter((a) => a.file !== file);
+        sourceFiles[MANIFEST_PATH] = this.putText(JSON.stringify(sourceManifest, null, 2));
+      }
+
+      const threadIds = this.db.prepare("SELECT id FROM threads WHERE page_id = ? AND artboard = ? ORDER BY number").all(sourceId, file) as { id: string }[];
+      let { next } = this.db.prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?").get(targetPage.id) as { next: number };
+      for (const { id } of threadIds) {
+        this.db.prepare("UPDATE threads SET page_id = ?, number = ? WHERE id = ?").run(targetPage.id, next++, id);
+        movedThreadIds.push(id);
+      }
+
+      const sourceVersion = this.insertVersion(sourceId, JSON.stringify(sourceFiles), `${file} déplacé vers ${targetPage.title}`, origin, ref);
+      const targetVersion = this.insertVersion(targetPage.id, JSON.stringify(targetFiles), `${file} reçu de ${source.title}`, origin, ref);
+      return { targetPage, sourceVersion, targetVersion };
+    })();
+    for (const threadId of movedThreadIds) {
+      this.emit({ type: "thread-updated", pageId: sourceId, threadId });
+      this.emit({ type: "thread-updated", pageId: result.targetPage.id, threadId });
+    }
+    return { ...result, targetPage: this.getPage(result.targetPage.id)! };
   }
 
   /** Versions of a page, newest first. */
@@ -1019,10 +1369,38 @@ export class Store {
   private insertVersion(pageId: string, filesJson: string, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
     const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, created_at: now() };
     this.db
-      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label);
+      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, this.diffusionForNewVersion(pageId, filesJson) ?? null);
     this.emit({ type: "page-updated", pageId, versionId: row.id });
     return toSummary(row);
+  }
+
+  /** The diffusion a version recorded now is drawn with: the current one of the design system its manifest names; none for a design system's own pages (they read the draft). */
+  private diffusionForNewVersion(pageId: string, filesJson: string): number | undefined {
+    if (this.isDesignSystemPage(pageId)) return undefined;
+    const manifestHash = (JSON.parse(filesJson) as Record<string, string>)[MANIFEST_PATH];
+    const designSystemId = this.designSystemIdOfManifest(manifestHash === undefined ? undefined : this.blobText(manifestHash));
+    return this.currentDiffusion(designSystemId)?.number;
+  }
+
+  /** Design system a manifest names if it exists, else the neutral one. */
+  designSystemIdOfManifest(manifestText: string | undefined): string {
+    if (manifestText !== undefined) {
+      try {
+        const id = parseManifest(manifestText).designSystem;
+        if (id !== undefined && this.getDesignSystem(id)) return id;
+      } catch {
+        // An invalid stored manifest must not break serving the artboard.
+      }
+    }
+    return NEUTRAL_DESIGN_SYSTEM_ID;
+  }
+
+  /** Diffusion a version is drawn with: the one recorded when it was published, 1 for versions from before diffusions; none for a design system's own pages. */
+  versionDiffusion(pageId: string, versionId: string): number | undefined {
+    if (this.isDesignSystemPage(pageId)) return undefined;
+    const row = this.db.prepare("SELECT diffusion FROM versions WHERE id = ? AND page_id = ?").get(versionId, pageId) as { diffusion: number | null } | undefined;
+    return row === undefined ? undefined : (row.diffusion ?? 1);
   }
 
   private putBlob(content: Buffer): string {
@@ -1060,7 +1438,7 @@ export interface SessionOrigin {
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -1070,6 +1448,7 @@ interface ThreadRow {
   selector: string;
   element_name: string | null;
   rendering: string | null;
+  cell: string | null;
   target_kind: ThreadTarget["kind"];
   element_id: string | null;
   element_kind: ManifestElementKind | null;
@@ -1099,6 +1478,7 @@ function targetOf(row: ThreadRow): ThreadTarget {
     xPct: row.x_pct,
     yPct: row.y_pct,
     ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
+    ...(row.cell ? { cell: JSON.parse(row.cell) as TweakValues } : {}),
   };
 }
 
@@ -1122,6 +1502,7 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     selector: row.selector,
     elementName: row.element_name,
     ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
+    ...(row.cell ? { cell: JSON.parse(row.cell) as TweakValues } : {}),
     xPct: row.x_pct,
     yPct: row.y_pct,
     title: row.title,
@@ -1156,6 +1537,12 @@ interface VersionRow {
 }
 
 /** The thread or conversation a version comes from. */
+/** A stored manifest as JSON, so a move keeps every field it does not know. */
+interface RawManifest {
+  artboards?: ({ file: string } & Record<string, unknown>)[];
+  [key: string]: unknown;
+}
+
 export interface OriginRef {
   originId?: string;
   originLabel?: string;
@@ -1164,6 +1551,8 @@ export interface OriginRef {
 export interface VersionRecord extends PageVersionSummary {
   /** Path -> blob hash. */
   files: Record<string, string>;
+  /** Diffusion recorded with the version (1 for versions from before diffusions); meaningless on a design system's own pages. */
+  diffusion: number;
 }
 
 function toSummary(row: VersionRow): PageVersionSummary {

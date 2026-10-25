@@ -4,6 +4,11 @@ import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
   type PageViewSettings,
+  COMPONENTS_CSS_PATH,
+  withoutComponentStyles,
+  DESIGN_SYSTEM_TOKENS_PATH,
+  PROJECT_STYLE_PATH,
+  parseTokens,
   MANIFEST_PATH,
   MAX_ASSET_BYTES,
   MAX_PAGE_BYTES,
@@ -14,6 +19,9 @@ import {
   tweakValueError,
   type SetTweakRequest,
   type CreateDesignSystemRequest,
+  type DesignSystemDetail,
+  type DiffusionListItem,
+  diffDiffusionStates,
   type CreatePageRequest,
   type CreateProjectRequest,
   type CreateReplyRequest,
@@ -24,6 +32,7 @@ import {
   type UpdateThreadRequest,
   type ServerConfig,
   type Settings,
+  type MoveArtboardRequest,
   type UpdatePageRequest,
   type UpdateProjectRequest,
 } from "@redline/shared";
@@ -31,10 +40,13 @@ import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectDesignSystem } from "./
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
+import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
 import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
+import { removalsError, rollbackImpact } from "./removals.js";
+import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
 import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
 import { registerContextTracking } from "./context.js";
@@ -42,11 +54,22 @@ import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
+import { registerGapRoutes } from "./gaps.js";
 import { registerRequestHardening } from "./request-hardening.js";
-import { registerDesignSystemReload } from "./design-system-reload.js";
+import { announceDiffusion, registerDesignSystemReload } from "./design-system-reload.js";
 import { registerSessionRoutes } from "./sessions.js";
 import { registerHomeRoutes } from "./home.js";
+import { moveArtboard } from "./move-artboard.js";
 import { dispatchBatch, dispatchReply, dispatchThread } from "./work.js";
+
+const PALETTE_TOKENS = ["--color-primary", "--color-text", "--color-background"];
+
+/** Up to three colours that sum up a design system's tokens: the main tokens first, then the others in order. */
+function paletteOf(tokensCss: string): string[] {
+  const colours = parseTokens(tokensCss).filter((token) => token.isColor);
+  const preferred = PALETTE_TOKENS.flatMap((name) => colours.filter((token) => token.name === name));
+  return [...preferred, ...colours.filter((token) => !preferred.includes(token))].slice(0, 3).map((token) => token.value);
+}
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -99,6 +122,7 @@ export async function buildMainApp(
   app.addHook("onClose", async () => pageLock.dispose());
   await registerAgentApi(app, store, pageLock);
   await registerProjectFileRoutes(app, store);
+  registerProjectDesignSystemRoutes(app, store);
   registerEventRoutes(app, store);
   registerDesignSystemReload(app, store);
   const runs = registerRunRoutes(app, store);
@@ -108,6 +132,7 @@ export async function buildMainApp(
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
   registerSessionRoutes(app, store, pageLock, runs, lastConversationWork);
   registerArtboardHistoryRoutes(app, store);
+  registerGapRoutes(app, store);
   pageLock.restore();
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {
@@ -175,18 +200,123 @@ export async function buildMainApp(
       const { title, files } = req.body ?? ({} as Partial<CreatePageRequest>);
       if (!requiredString(title)) return reply.code(400).send({ error: "title is required" });
       const invalidFiles = pageFilesError(files);
-      if (invalidFiles) return reply.code(400).send({ error: invalidFiles });
+      const invalid = invalidFiles ?? newPageComponentsError(store, req.params.projectId, title, files!);
+      if (invalid) return reply.code(400).send({ error: invalid });
       return reply.code(201).send(store.createPage(req.params.projectId, title, files!));
     },
   );
 
   app.get("/api/design-systems", async () =>
-    store.listDesignSystems().map((designSystem) => ({
-      ...designSystem,
-      usedBy: store.projectsUsingDesignSystem(designSystem.id),
-      updatedAt: store.listVersions(designSystem.pageId)[0]?.createdAt,
-    })),
+    store.listDesignSystems().map((designSystem) => {
+      const { draft, pending } = store.pendingDiffusion(designSystem.id);
+      return {
+        ...designSystem,
+        usedBy: store.projectsUsingDesignSystem(designSystem.id),
+        updatedAt: store.listVersions(designSystem.pageId)[0]?.createdAt,
+        pendingChanges: pending.count,
+        pageCount: store.listPages(designSystem.id).length,
+        componentCount: draft.assembly.components.length,
+        diffusion: store.currentDiffusion(designSystem.id)!.number,
+        palette: paletteOf(draft.state.tokensCss),
+      };
+    }),
   );
+
+  app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId", async (req, reply): Promise<DesignSystemDetail | undefined> => {
+    const designSystem = store.getDesignSystem(req.params.designSystemId);
+    if (!designSystem) return void reply.code(404).send({ error: "design system not found" });
+    const current = store.currentDiffusion(designSystem.id)!;
+    const usedBy = store.projectsUsingDesignSystem(designSystem.id);
+    const { draft, pending } = store.pendingDiffusion(designSystem.id);
+    const changed = new Set(pending.tokens.changed.map((token) => token.name));
+    const overrides = usedBy.flatMap((project) => {
+      const style = store.readProjectText(project.id, PROJECT_STYLE_PATH);
+      const tokens = parseTokens(style).map((token) => token.name).filter((name) => changed.has(name));
+      return tokens.length > 0 ? [{ ...project, tokens }] : [];
+    });
+    const components = projectComponents(store, designSystem.id).components;
+    const notDiffused = new Set([...pending.components.added, ...pending.components.changed]);
+    const draftTokens = parseTokens(draft.state.tokensCss);
+    return {
+      ...designSystem,
+      pages: store.listPages(designSystem.id).map((page) => {
+        const own = components.filter((component) => component.page.id === page.id).map((component) => component.name).sort();
+        return { id: page.id, title: page.title, componentCount: own.length, componentNames: own, pendingCount: own.filter((name) => notDiffused.has(name)).length };
+      }),
+      usedBy: usedBy.map((project) => {
+        const style = projectDesignSystem(store, project.id);
+        return { ...project, overrideCount: style.overrideCount, componentCount: style.components.length };
+      }),
+      componentCount: components.length,
+      tokenCount: draftTokens.length,
+      palette: paletteOf(draft.state.tokensCss),
+      current,
+      overrides,
+      pending,
+    };
+  });
+
+  app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/diffusions", async (req, reply) => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
+    const id = req.params.designSystemId;
+    const diffusions = store.listDiffusions(id);
+    return diffusions.map((diffusion, index): DiffusionListItem => {
+      const previous = diffusions[index + 1];
+      const before = previous ? store.diffusionState(id, previous.number) : { tokensCss: "", designMd: "", components: [] };
+      return { ...diffusion, changes: diffDiffusionStates(before, store.diffusionState(id, diffusion.number)) };
+    });
+  });
+
+  // User action only: Claude never diffuses (no equivalent in the agent API or the session tools).
+  app.post<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/diffusions", async (req, reply) => {
+    const designSystem = store.getDesignSystem(req.params.designSystemId);
+    if (!designSystem) return reply.code(404).send({ error: "design system not found" });
+    if (store.pendingDiffusion(designSystem.id).pending.count === 0) return reply.code(409).send({ error: "nothing to diffuse" });
+    const created = store.createDiffusion(designSystem.id, "user");
+    announceDiffusion(store, designSystem.id);
+    return reply.code(201).send(created);
+  });
+
+  // Undo and rollback add pointers, they delete nothing: the design system's pages (the draft) stay as they are.
+  app.post<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/diffusions/undo", async (req, reply) => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
+    const back = store.undoDiffusion(req.params.designSystemId);
+    if (!back) return reply.code(409).send({ error: "nothing to undo" });
+    announceDiffusion(store, req.params.designSystemId);
+    return back;
+  });
+
+  /** The diffusion number to roll back to, or the status and message to answer. */
+  function rollbackTarget(designSystemId: string, number: string): { target: number } | { status: number; error: string } {
+    const target = Number(number);
+    if (!store.getDesignSystem(designSystemId) || !store.listDiffusions(designSystemId).some((d) => d.number === target)) return { status: 404, error: "diffusion not found" };
+    if (store.currentDiffusion(designSystemId)!.number === target) return { status: 409, error: "already the current diffusion" };
+    return { target };
+  }
+
+  app.get<{ Params: { designSystemId: string; number: string } }>("/api/design-systems/:designSystemId/diffusions/:number/rollback-impact", async (req, reply) => {
+    const found = rollbackTarget(req.params.designSystemId, req.params.number);
+    if ("error" in found) return reply.code(found.status).send({ error: found.error });
+    return rollbackImpact(store, req.params.designSystemId, found.target);
+  });
+
+  app.post<{ Params: { designSystemId: string; number: string } }>("/api/design-systems/:designSystemId/diffusions/:number/rollback", async (req, reply) => {
+    const found = rollbackTarget(req.params.designSystemId, req.params.number);
+    if ("error" in found) return reply.code(found.status).send({ error: found.error });
+    const created = store.rollbackDiffusion(req.params.designSystemId, found.target);
+    announceDiffusion(store, req.params.designSystemId);
+    return reply.code(201).send(created);
+  });
+
+  app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/tokens", async (req, reply) => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
+    return { content: store.readProjectText(req.params.designSystemId, DESIGN_SYSTEM_TOKENS_PATH) };
+  });
+
+  app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/tokens/versions", async (req, reply) => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
+    return store.listDesignMdVersions(req.params.designSystemId, DESIGN_SYSTEM_TOKENS_PATH);
+  });
 
   app.post<{ Body: CreateDesignSystemRequest }>("/api/design-systems", async (req, reply) => {
     const { title, files = starterDesignSystemFiles(), fromProjectId, instructions, model, effort } =
@@ -238,6 +368,11 @@ export async function buildMainApp(
     const invalid = viewSettingsError(req.body);
     if (invalid) return reply.code(400).send({ error: invalid });
     return store.setViewSettings(req.params.pageId, req.body);
+  });
+
+  app.post<{ Params: { pageId: string }; Body: Partial<MoveArtboardRequest> }>("/api/pages/:pageId/move-artboard", async (req, reply) => {
+    const outcome = moveArtboard(store, pageLock, req.params.pageId, req.body, { origin: "user" });
+    return reply.code(outcome.status).send(outcome.body);
   });
 
   app.patch<{ Params: { pageId: string }; Body: UpdatePageRequest }>("/api/pages/:pageId", async (req, reply) => {
@@ -334,7 +469,7 @@ export async function buildMainApp(
     "/api/pages/:pageId/versions",
     async (req, reply) => {
       if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-      const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files);
+      const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files) ?? removalsError(store, req.params.pageId, req.body.files, req.body.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true);
       if (invalid) return reply.code(400).send({ error: invalid });
       const { files, message, origin } = req.body;
       return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
@@ -360,6 +495,10 @@ export async function buildMainApp(
   app.post<{ Params: { pageId: string; versionId: string } }>(
     "/api/pages/:pageId/versions/:versionId/restore",
     async (req, reply) => {
+      const files = store.readVersionFiles(req.params.pageId, req.params.versionId);
+      // Restoring publishes the old files again: the same checks as a publish apply.
+      const invalid = files && (versionComponentsError(store, req.params.pageId, files) ?? removalsError(store, req.params.pageId, files, undefined, false));
+      if (invalid) return reply.code(400).send({ error: invalid });
       const restored = store.restoreVersion(req.params.pageId, req.params.versionId);
       return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });
     },
@@ -400,37 +539,94 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(BRIDGE_SOURCE),
   );
 
-  app.get<{ Params: { designSystemId: string; "*": string } }>("/design-systems/:designSystemId/*", async (req, reply) => {
-    const designSystem = store.getDesignSystem(req.params.designSystemId);
-    const content = designSystem && store.readPageFile(designSystem.pageId, req.params["*"]);
-    if (!content) return reply.code(404).send("not found");
+  const sendStylesheet = (reply: FastifyReply, css: string | Buffer, cacheControl = "no-cache") =>
+    reply.header("content-security-policy", "sandbox allow-scripts").header("cache-control", cacheControl).type(MIME[".css"]).send(css);
+
+  app.get<{ Params: { designSystemId: string; number: string; file: string } }>("/design-systems/:designSystemId/diffusions/:number/:file", async (req, reply) => {
+    const { designSystemId, number, file } = req.params;
+    const content =
+      /^\d+$/.test(number) && (file === DESIGN_SYSTEM_TOKENS_PATH || file === COMPONENTS_CSS_PATH) ? store.readDiffusionFile(designSystemId, Number(number), file) : undefined;
+    if (content === undefined) return reply.code(404).send("not found");
+    return sendStylesheet(reply, content, "public, max-age=31536000, immutable");
+  });
+
+  // One component alone, for the diffusion dialog: with the files of `?diffusion=n` (before) or the draft (after).
+  app.get<{ Params: { designSystemId: string; name: string }; Querystring: { diffusion?: string } }>("/design-systems/:designSystemId/component-previews/:name", async (req, reply) => {
+    const { designSystemId, name } = req.params;
+    if (!store.getDesignSystem(designSystemId)) return reply.code(404).send("not found");
+    const component = store.designSystemDraft(designSystemId).assembly.components.find((c) => c.name === name);
+    const html = component && store.readPageFile(component.page.id, component.file)?.toString("utf8");
+    if (html === undefined) return reply.code(404).send("not found");
+    if (req.query.diffusion !== undefined && !/^\d+$/.test(req.query.diffusion)) return reply.code(400).send("diffusion must be a number");
+    const diffusion = req.query.diffusion === undefined ? undefined : Number(req.query.diffusion);
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .header("cache-control", "no-cache")
-      .type(MIME[extname(req.params["*"])] ?? "application/octet-stream")
-      .send(content);
+      .type(MIME[".html"])
+      // The component's own style blocks are what components.css assembles: dropped here so that the chosen diffusion's css decides.
+      .send(injectDesignSystem(withoutComponentStyles(html), designSystemId, undefined, diffusion));
+  });
+
+  app.get<{ Params: { designSystemId: string; "*": string } }>("/design-systems/:designSystemId/*", async (req, reply) => {
+    const designSystem = store.getDesignSystem(req.params.designSystemId);
+    if (designSystem && req.params["*"] === COMPONENTS_CSS_PATH) return sendStylesheet(reply, projectComponents(store, designSystem.id).css);
+    const content = designSystem && req.params["*"] === DESIGN_SYSTEM_TOKENS_PATH ? store.readProjectFile(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH) : undefined;
+    if (!content) return reply.code(404).send("not found");
+    return sendStylesheet(reply, content);
+  });
+
+  app.get<{ Params: { projectId: string } }>(`/projects/:projectId/${COMPONENTS_CSS_PATH}`, async (req, reply) =>
+    store.projectExists(req.params.projectId) ? sendStylesheet(reply, projectComponents(store, req.params.projectId).css) : reply.code(404).send("not found"),
+  );
+
+  app.get<{ Params: { projectId: string; "*": string } }>("/project-styles/:projectId/*", async (req, reply) => {
+    const { projectId } = req.params;
+    if (!store.projectExists(projectId) || store.isDesignSystemProject(projectId) || req.params["*"] !== PROJECT_STYLE_PATH) return reply.code(404).send("not found");
+    return reply
+      .header("content-security-policy", "sandbox allow-scripts")
+      .header("cache-control", "no-cache")
+      .type(MIME[extname(PROJECT_STYLE_PATH)] ?? "text/css")
+      .send(store.readProjectFile(projectId, PROJECT_STYLE_PATH) ?? "");
   });
 
   // A page as it was in one version (history preview): same sandbox and injections as the live artboards, read-only.
   app.get<{ Params: { pageId: string; versionId: string; "*": string } }>("/page-versions/:pageId/:versionId/*", async (req, reply) =>
-    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"])),
+    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"]), req.params.versionId),
   );
 
-  app.get<{ Params: { pageId: string; "*": string } }>("/pages/:pageId/*", async (req, reply) =>
-    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readPageFile(req.params.pageId, req.params["*"])),
+  // `?preview=draft`: the viewer's preview of a project with the design system draft; it is the same call without a diffusion number.
+  app.get<{ Params: { pageId: string; "*": string }; Querystring: { preview?: string } }>("/pages/:pageId/*", async (req, reply) =>
+    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readPageFile(req.params.pageId, req.params["*"]), undefined, req.query.preview === "draft"),
   );
 
-  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined) {
+  /** The page's project when it has a project style (every project but a design system's own). */
+  function projectStyleProjectOf(pageId: string): string | undefined {
+    const projectId = store.getPage(pageId)?.projectId;
+    return projectId !== undefined && !store.isDesignSystemProject(projectId) ? projectId : undefined;
+  }
+
+  /** The design system a page is rendered with: its own project's when it is a design system page, else the one its manifest names. */
+  function renderedDesignSystemOf(pageId: string, versionId?: string): string {
+    return store.designSystemOfPage(pageId)?.id ?? designSystemIdOf(store, pageId, versionId);
+  }
+
+  /** Diffusion a page is rendered with: the current one for a project's pages, the one recorded with the version for a version preview, none (the draft) for a design system's own pages. */
+  function diffusionOf(pageId: string, versionId?: string): number | undefined {
+    if (store.isDesignSystemPage(pageId)) return undefined;
+    if (versionId !== undefined) return store.versionDiffusion(pageId, versionId) ?? 1;
+    return store.currentDiffusion(renderedDesignSystemOf(pageId))?.number;
+  }
+
+  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, versionId?: string, draftPreview = false) {
     const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, pageId, path.slice("assets/".length)) : undefined);
     if (!asset) return reply.code(404).send("not found");
     // Artboards are opaque-origin, so fonts of the project assets need CORS to load.
     if (!pageFile) reply.header("access-control-allow-origin", "*");
-    const content = asset;
     const isHtml = extname(path) === ".html";
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[extname(path)] ?? "application/octet-stream")
-      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), designSystemIdOf(store, pageId))) : content);
+      .send(isHtml ? injectBridge(injectDesignSystem(asset.toString("utf8"), renderedDesignSystemOf(pageId, versionId), projectStyleProjectOf(pageId), draftPreview ? undefined : diffusionOf(pageId, versionId))) : asset);
   }
 
   return app;

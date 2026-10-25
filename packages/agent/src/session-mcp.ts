@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { ARTBOARD_FRAMES, ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, isSafePath, parseManifest, type ArtboardFrame, type ManifestArtboard } from "@redline/shared";
@@ -13,6 +13,8 @@ import type { ServerApi } from "./server-api.js";
 export const REPLY_IN_THREAD_TOOL = "reply_in_thread";
 export const ADD_ARTBOARD_TOOL = "add_artboard";
 export const CREATE_PAGE_TOOL = "create_page";
+export const MOVE_ARTBOARD_TOOL = "move_artboard";
+export const CONFIRM_REMOVALS_TOOL = "confirm_removals";
 export const READ_GUIDE_TOOL = "read_guide";
 
 export interface RedlineToolsContext {
@@ -28,6 +30,10 @@ export interface RedlineToolsContext {
   postReply?: (threadId: string, text: string) => Promise<unknown>;
   /** Terminal mode registers its own `create_page`, which also works with no page checked out. */
   ownCreatePage?: boolean;
+  /** Called after an artboard of the page was moved away and dropped from the working copy: the caller re-bases what it publishes later on the page as it is now. */
+  afterArtboardMoved?: (file: string) => Promise<void>;
+  /** Called when Claude confirms, after the user agreed, that a design system publish may remove tokens or components pages still use. */
+  onRemovalsConfirmed?: () => void;
 }
 
 const text = (message: string, isError = false) => ({ ...(isError ? { isError } : {}), content: [{ type: "text" as const, text: message }] });
@@ -73,6 +79,15 @@ function addArtboardToWorkingCopy(
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, html);
   writeFileSync(manifestPath, JSON.stringify({ ...manifest, artboards: artboards.map(declaredArtboard) }, null, 2));
+}
+
+/** Deletes `file` and its manifest entry from the working copy, as the server did on the page when the artboard moved away. */
+function dropArtboardFromWorkingCopy(dir: string, file: string): void {
+  rmSync(pathInside(dir, file), { force: true });
+  const manifestPath = join(dir, MANIFEST_PATH);
+  if (!existsSync(manifestPath)) return;
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { artboards?: { file: string }[] };
+  writeFileSync(manifestPath, JSON.stringify({ ...manifest, artboards: (manifest.artboards ?? []).filter((a) => a.file !== file) }, null, 2));
 }
 
 /** Redline's tools for a session. Add new tools here: the agent's session server and `redline mcp` both use it. */
@@ -135,6 +150,42 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
       },
     );
   }
+  server.registerTool(
+    MOVE_ARTBOARD_TOOL,
+    {
+      description:
+        "Move an artboard of this page to another page of the same project, or to a new page, at once (with its comments). The move is refused when the target already has a file of that name or when another session works on either page. Give pageId or newPageTitle; the answer carries the target page's id, to use for the next moves to that page.",
+      inputSchema: {
+        file: z.string().describe("Artboard file of this page, e.g. btn.html"),
+        pageId: z.string().optional().describe("Id of the target page (see create_page, list_pages)"),
+        newPageTitle: z.string().optional().describe("Title of a new page to create and move the artboard to"),
+      },
+    },
+    async ({ file, pageId, newPageTitle }) => {
+      if ((pageId === undefined) === (newPageTitle === undefined)) return text("Give either pageId or newPageTitle.", true);
+      try {
+        const sourceId = context.pageId;
+        const request = pageId !== undefined ? { file, targetPageId: pageId } : { file, newPageTitle: newPageTitle! };
+        const { targetPage } = await api.moveArtboard(sourceId, { ...request, ...(context.workId ? { workId: context.workId } : {}) });
+        dropArtboardFromWorkingCopy(context.workingCopyDir, file);
+        await context.afterArtboardMoved?.(file);
+        return text(`${file} moved to page "${targetPage.title}" (id ${targetPage.id}). Do not edit its manifest entry in this working copy.`);
+      } catch (error) {
+        return text((error as Error).message, true);
+      }
+    },
+  );
+  server.registerTool(
+    CONFIRM_REMOVALS_TOOL,
+    {
+      description:
+        "Confirm that the next publish of this design system may remove tokens or components that pages still use. Call it only after the user explicitly agreed to the removal when you asked them; never on your own.",
+    },
+    async () => {
+      context.onRemovalsConfirmed?.();
+      return text("Removals confirmed for the next publish.");
+    },
+  );
   server.registerTool(
     READ_GUIDE_TOOL,
     { description: "Read the Redline guide: page manifest, artboards, design system tokens, tweaks and rules." },

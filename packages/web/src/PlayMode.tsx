@@ -16,7 +16,7 @@ import { copyAddress } from "./copyLink.js";
 import { CopyLinkIcon } from "./CopyLinkIcon.js";
 import { MissingArtboardNotice } from "./MissingArtboardNotice.js";
 import { useCopiedBubble } from "./useCopiedBubble.js";
-import { cx } from "./ui/index.js";
+import { Tooltip, cx } from "./ui/index.js";
 import styles from "./PlayMode.module.css";
 
 /** Where a link leads: an artboard of this page (`page` null) or of another page (checked against that page when followed). */
@@ -171,11 +171,13 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
     <div data-testid="play" className={styles.play}>
       {presentation?.mobileBar ? (
         <header className={styles.mobileBar}>
-          <button type="button" onClick={onExit} aria-label="Retour au canvas" className={styles.mobileBack}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M15 6l-6 6 6 6" />
-            </svg>
-          </button>
+          <Tooltip label="Retour au canvas">
+            <button type="button" onClick={onExit} aria-label="Retour au canvas" className={styles.mobileBack}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M15 6l-6 6 6 6" />
+              </svg>
+            </button>
+          </Tooltip>
           <span className={styles.mobileTitle}>
             {pageTitle} · {artboard?.title ?? artboard?.file}
           </span>

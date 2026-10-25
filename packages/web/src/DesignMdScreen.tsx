@@ -3,7 +3,7 @@ import type { DesignMdInfo, DesignMdResponse, DesignMdVersion, Project, SaveDesi
 import { rulesToShow } from "./designMdRules.js";
 import { dayLabel, designMdAuthor, originLabel, ruleOrigin } from "./historyLabels.js";
 import { relativeTime } from "./relativeTime.js";
-import { routeHref } from "./router.js";
+import { routeHref, type Route } from "./router.js";
 import { Button, Dialog, Logo, cx } from "./ui/index.js";
 import styles from "./DesignMdScreen.module.css";
 
@@ -36,7 +36,8 @@ function HistoryDialog({ versions, onRestore, onClose }: { versions: DesignMdVer
 }
 
 export function DesignMdScreen({ projectId }: { projectId: string }) {
-  const [project, setProject] = useState<Project | null>(null);
+  /** Whose DESIGN.md it is: a project, or a design system (same id space, reached from its overview). */
+  const [owner, setOwner] = useState<{ title: string; designSystem: boolean } | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [justSaved, setJustSaved] = useState(false);
@@ -54,9 +55,12 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
     });
 
   useEffect(() => {
-    fetch(`/api/projects/${projectId}`)
-      .then((res) => res.json() as Promise<Project>)
-      .then(setProject);
+    void (async () => {
+      const designSystem = await fetch(`/api/design-systems/${projectId}`);
+      if (designSystem.ok) return setOwner({ title: ((await designSystem.json()) as { title: string }).title, designSystem: true });
+      const project = (await (await fetch(`/api/projects/${projectId}`)).json()) as Project;
+      setOwner({ title: project.title, designSystem: false });
+    })();
     fetch(`/api/projects/${projectId}/design-md`)
       .then((res) => res.json() as Promise<DesignMdResponse>)
       .then(({ content }) => {
@@ -66,7 +70,7 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
     void loadVersions();
   }, [projectId]);
 
-  if (!project || saved === null) return <main className={styles.screen}>Chargement…</main>;
+  if (!owner || saved === null) return <main className={styles.screen}>Chargement…</main>;
 
   const dirty = text !== saved;
   const latest = info?.lastModified;
@@ -97,6 +101,7 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
   }
 
   const rules = rulesToShow(text, info?.rules ?? []);
+  const back: Route = owner.designSystem ? { name: "designSystem", designSystemId: projectId } : { name: "project", projectId };
   const firstVersionId = versions[versions.length - 1]?.id;
 
   return (
@@ -106,9 +111,9 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
           <Logo />
         </a>
         <nav aria-label="Fil d'Ariane" className={styles.breadcrumb}>
-          <a href={routeHref({ name: "projects" })}>Projets</a>
+          <a href={routeHref(owner.designSystem ? { name: "designSystems" } : { name: "projects" })}>{owner.designSystem ? "Design systems" : "Projets"}</a>
           <span aria-hidden="true">/</span>
-          <a href={routeHref({ name: "project", projectId })}>{project.title}</a>
+          <a href={routeHref(back)}>{owner.title}</a>
           <span aria-hidden="true">/</span>
           <span className={styles.current}>DESIGN.md</span>
         </nav>
@@ -116,7 +121,7 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
         <div data-testid="design-md-status" className={cx(styles.status, dirty && styles.statusDirty)}>
           {status}
         </div>
-        <a href={routeHref({ name: "project", projectId })} className={styles.closeLink}>
+        <a href={routeHref(back)} className={styles.closeLink}>
           Fermer
         </a>
         <button type="button" className={styles.save} onClick={save} disabled={!dirty}>

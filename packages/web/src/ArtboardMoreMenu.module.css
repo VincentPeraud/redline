@@ -1,0 +1,99 @@
+.root {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+}
+
+.button {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.buttonOpen {
+  border-color: var(--color-text);
+}
+
+.menu {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  z-index: 30;
+  width: 250px;
+  box-sizing: border-box;
+  padding: 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item {
+  height: 34px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.item:hover {
+  background: var(--color-surface-hover);
+}
+
+.itemIndented {
+  padding-left: 30px;
+}
+
+.separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--color-border-subtle);
+}
+
+.groupLabel {
+  padding: 4px 8px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hint {
+  padding: 4px 8px 6px 30px;
+  font-size: var(--font-size-2xs);
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.refusal {
+  margin: 0 0 18px;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+}

@@ -2,19 +2,29 @@ import type { FastifyInstance } from "fastify";
 import {
   AGENT_API_PREFIX,
   DESIGN_MD_PATH,
+  DESIGN_SYSTEM_TOKENS_PATH,
+  PROJECT_STYLE_PATH,
   MAX_ASSET_BYTES,
   type AgentCheckout,
   type AgentReplyRequest,
   type CreateSiblingRequest,
   type CreateVersionRequest,
+  type MoveArtboardRequest,
   type DesignMdAuthor,
+  starterDesignSystemFiles,
   starterPageFiles,
+  type AgentDesignSystem,
+  type ProjectStyleStart,
 } from "@redline/shared";
 import { mergeOntoCurrent } from "./publish.js";
+import { moveArtboard } from "./move-artboard.js";
 import { tokensEqual } from "./request-hardening.js";
+import { versionComponentsError } from "./components.js";
+import { removalsError } from "./removals.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
-import { requiredString, titleError, versionRequestError } from "./validation.js";
+import { requiredString, titleError, tokensError, versionRequestError } from "./validation.js";
 import { projectContext, putProjectAsset } from "./project-files.js";
+import { designSystemChangeError } from "./project-design-system.js";
 import type { PageLock } from "./page-lock.js";
 import type { OriginRef, Store } from "./store.js";
 
@@ -55,6 +65,30 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         return reply.code(201).send(store.createProject((title as string).trim(), undefined, undefined, designSystem));
       });
 
+      // Terminal mode sets up brands: list and create design systems, and point a project at one (or at none).
+      api.get("/design-systems", async (): Promise<AgentDesignSystem[]> =>
+        store.listDesignSystems().map((designSystem) => ({
+          ...designSystem,
+          pages: store.listPages(designSystem.id).map((page) => ({ id: page.id, title: page.title })),
+          usedBy: store.projectsUsingDesignSystem(designSystem.id),
+        })),
+      );
+
+      api.post<{ Body: { title?: unknown } }>("/design-systems", async (req, reply) => {
+        const title = req.body?.title;
+        if (titleError(title)) return reply.code(400).send({ error: titleError(title) });
+        return reply.code(201).send(store.createDesignSystem((title as string).trim(), starterDesignSystemFiles()));
+      });
+
+      api.put<{ Params: { projectId: string }; Body: { designSystem?: unknown; startFrom?: unknown } }>("/projects/:projectId/design-system", async (req, reply) => {
+        const designSystem = req.body?.designSystem ?? null;
+        if (store.getDesignSystem(req.params.projectId) || !store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+        const invalid = designSystemChangeError(store, req.params.projectId, designSystem, req.body?.startFrom);
+        if (invalid) return reply.code(400).send({ error: invalid });
+        store.setProjectDesignSystem(req.params.projectId, designSystem as string | null, "terminal", req.body?.startFrom as ProjectStyleStart | undefined);
+        return store.getProject(req.params.projectId);
+      });
+
       // Terminal mode finds and creates pages without having one checked out. A design system's own project is not one of them.
       const projectFor = (projectId: string) => (store.getDesignSystem(projectId) ? undefined : store.getProject(projectId));
 
@@ -80,31 +114,48 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
 
       api.post<{ Params: { pageId: string }; Body: CreateVersionRequest }>("/pages/:pageId/versions", async (req, reply) => {
         if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-        const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId), true) ?? crossPageReferencesError(store, req.params.pageId, req.body.files);
+        const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId), true) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files);
         if (invalid) return reply.code(400).send({ error: invalid });
-        const { files, message, origin, baseVersionId, workId, designMd } = req.body;
+        const { files, message, origin, baseVersionId, workId, designMd, projectStyle } = req.body;
+        // A session works inside its own project: its work never publishes to the pages of another one (a shared design system's, say).
+        const workPage = typeof workId === "string" ? pageLock.itemOf(workId)?.pageId : undefined;
+        if (workPage !== undefined && store.getPage(workPage)?.projectId !== store.getPage(req.params.pageId)!.projectId) {
+          return reply.code(403).send({ error: "This work belongs to a page of another project: it cannot publish here." });
+        }
         if (!requiredString(baseVersionId)) return reply.code(400).send({ error: "baseVersionId is required" });
         if (designMd !== undefined && (typeof designMd?.content !== "string" || typeof designMd.base !== "string")) {
           return reply.code(400).send({ error: "designMd needs content and base" });
         }
+        if (projectStyle !== undefined && (typeof projectStyle?.content !== "string" || typeof projectStyle.base !== "string")) {
+          return reply.code(400).send({ error: "projectStyle needs content and base" });
+        }
         const record = () => {
           const result = mergeOntoCurrent(store, req.params.pageId, files, baseVersionId);
           if ("error" in result) return reply.code(result.conflict ? 409 : 400).send({ error: result.error });
-          const invalidMerged = versionRequestError({ ...req.body, files: result.files }, store.isDesignSystemPage(req.params.pageId));
+          const invalidMerged = versionRequestError({ ...req.body, files: result.files }, store.isDesignSystemPage(req.params.pageId)) ?? versionComponentsError(store, req.params.pageId, result.files);
           if (invalidMerged) return reply.code(409).send({ error: invalidMerged });
           const projectId = store.getPage(req.params.pageId)!.projectId;
-          const storedDesignMd = store.readProjectFile(projectId, DESIGN_MD_PATH)?.toString("utf8") ?? "";
+          const storedDesignMd = store.readProjectText(projectId, DESIGN_MD_PATH);
           const designMdChanged = designMd !== undefined && designMd.content !== storedDesignMd;
           if (designMdChanged && storedDesignMd !== designMd.base) {
             return reply.code(409).send({ error: "DESIGN.md changed since it was checked out. Check the page out again and redo the DESIGN.md change." });
           }
+          const storedStyle = store.readProjectText(projectId, PROJECT_STYLE_PATH);
+          const styleChanged = projectStyle !== undefined && projectStyle.content !== storedStyle;
+          if (styleChanged && storedStyle !== projectStyle.base) {
+            return reply.code(409).send({ error: "The project style (tokens.css) changed since it was checked out. Check the page out again and redo the tokens.css change." });
+          }
+          // On a design system's own project this file is the design system's tokens: the core tokens must stay.
+          const invalidStyle = styleChanged && store.isDesignSystemProject(projectId) ? tokensError(projectStyle.content) : null;
+          if (invalidStyle) return reply.code(400).send({ error: invalidStyle });
+          const invalidRemoval = removalsError(store, req.params.pageId, result.files, styleChanged && store.isDesignSystemProject(projectId) ? projectStyle.content : result.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true);
+          if (invalidRemoval) return reply.code(400).send({ error: invalidRemoval });
           const from = workOrigin(store, pageLock, workId, req.params.pageId);
           const ref: OriginRef | undefined = from && { originId: from.originId, originLabel: from.originLabel };
+          const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
-          if (designMdChanged) {
-            const author: DesignMdAuthor = from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" };
-            store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author);
-          }
+          if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());
+          if (styleChanged) store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(projectStyle.content, "utf8"), author());
           return reply.code(201).send(result.merged ? { ...version, merged: true } : version);
         };
         if (origin !== "terminal") return record();
@@ -138,6 +189,17 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const created = store.createPage(page.projectId, name, starterPageFiles(name, designSystem), "claude");
         if (workOrigin(store, pageLock, workId, page.id)) store.recordCreatedPage(workId!, created.id);
         return reply.code(201).send(created);
+      });
+
+      api.post<{ Params: { pageId: string }; Body: Partial<MoveArtboardRequest> }>("/pages/:pageId/move-artboard", async (req, reply) => {
+        const { workId } = req.body ?? {};
+        const from = workOrigin(store, pageLock, workId, req.params.pageId);
+        const outcome = moveArtboard(store, pageLock, req.params.pageId, req.body, {
+          origin: from?.kind ?? "terminal",
+          ref: from && { originId: from.originId, originLabel: from.originLabel },
+          exceptWorkId: from ? workId : undefined,
+        });
+        return reply.code(outcome.status).send(outcome.body);
       });
 
       api.post<{ Params: { threadId: string }; Body: AgentReplyRequest }>("/threads/:threadId/replies", async (req, reply) => {

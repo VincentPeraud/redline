@@ -1,5 +1,5 @@
-// Design systems (ticket 26). A design system is a special project with one page whose files
-// include `tokens.css`; artboards read it live from the artboard origin.
+// Design systems (ticket 26). A design system is a special project with any number of pages and project-level
+// `tokens.css` and DESIGN.md; artboards read the tokens live from the artboard origin.
 
 import type { ModelChoice } from "./work.js";
 
@@ -27,7 +27,7 @@ export interface DesignSystem {
   /** Same as the id of the underlying project, and the value of a manifest's `designSystem`. */
   id: string;
   title: string;
-  /** The page showing tokens and components; publish new versions of it to change the design system. */
+  /** Its first page (the design system may have many); a `tokens.css` published through any of its pages becomes the design system's tokens. */
   pageId: string;
 }
 
@@ -36,6 +36,21 @@ export interface DesignSystemSummary extends DesignSystem {
   usedBy: { id: string; title: string }[];
   /** Time of the last version of the design system's page. */
   updatedAt?: string;
+  /** Changes of the draft not yet diffused (`DiffusionDiff.count`); 0 = nothing pending. */
+  pendingChanges: number;
+  pageCount: number;
+  /** Components of the draft (the pages as they are now). */
+  componentCount: number;
+  /** Number of the current diffusion. */
+  diffusion: number;
+  /** Up to three colours of the draft tokens, for the card's preview. */
+  palette: string[];
+}
+
+/** A design system as terminal mode lists it (`GET /agent-api/design-systems`): its pages are the ones to check out. */
+export interface AgentDesignSystem extends DesignSystem {
+  pages: { id: string; title: string }[];
+  usedBy: { id: string; title: string }[];
 }
 
 export interface CreateDesignSystemRequest extends ModelChoice {

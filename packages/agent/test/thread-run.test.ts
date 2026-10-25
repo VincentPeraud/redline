@@ -71,6 +71,15 @@ describe("running a thread with the fake engine", () => {
     expect(engine.runs[0].message).toContain("vu en Mobile · 390 px");
   });
 
+  it("tells the session which tweak grid cell the comment was pinned in", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "Too tight", { cell: { state: "Hover", variant: "Outlined", icon: false } });
+    await engine.finished(1);
+    expect(engine.runs[0].message).toContain("vu en Hover · Outlined · icon off");
+  });
+
   it("does not mention a rendering for a comment on a plain artboard", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
     seam = await startSeam2(engine);
@@ -148,7 +157,7 @@ describe("running a thread with the fake engine", () => {
 });
 
 describe("project context in the working copy", () => {
-  it("writes DESIGN.md, assets and design system files for the session, and never publishes them", async () => {
+  it("writes DESIGN.md, assets and design system folder for the session, and never publishes them", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
     seam = await startSeam2(engine);
     const bytes = Buffer.from([0, 255, 128, 7]);
@@ -163,7 +172,7 @@ describe("project context in the working copy", () => {
     const dir = join(seam.folder, ".redline", page.id);
     expect(readFileSync(join(dir, "DESIGN.md"), "utf8")).toBe("# Rules");
     expect(readFileSync(join(dir, "assets", "logo.png")).equals(bytes)).toBe(true);
-    expect(readFileSync(join(dir, "design-system", "tokens.css"), "utf8")).toContain("--color-primary");
+    expect(readFileSync(join(dir, ".design-system", "tokens.css"), "utf8")).toContain("--color-primary");
     expect(engine.runs[0].filesAtStart).toEqual(PAGE_FILES);
     expect(await seam.versions(page.id)).toHaveLength(1);
   });

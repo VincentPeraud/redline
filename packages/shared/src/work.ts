@@ -188,6 +188,8 @@ export interface Conversation {
 
 export interface ConversationMessage extends ModelChoice {
   id: string;
+  /** Claude's answer only: the design system whose page the answering run published a version of (what is left pending is in `GET /api/design-systems/:id`). */
+  designSystemId?: string;
   author: "user" | "claude";
   body: string;
   createdAt: string;

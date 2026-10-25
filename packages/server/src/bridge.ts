@@ -1,4 +1,4 @@
-import { designSystemTokensUrlPath, HOVER_FINISH, MARK_FINISH, hoverLabelCss, hoverOutlineCss, markBadgeCss } from "@redline/shared";
+import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokensUrlPath, projectComponentsUrlPath, projectStyleUrlPath, GAP_OUTLINE_CSS, HOVER_FINISH, MARK_FINISH, hoverLabelCss, hoverOutlineCss, markBadgeCss } from "@redline/shared";
 
 /**
  * Script injected into every served artboard HTML. Artboards run in a sandboxed iframe with an
@@ -7,6 +7,7 @@ import { designSystemTokensUrlPath, HOVER_FINISH, MARK_FINISH, hoverLabelCss, ho
  * Parent -> artboard: { type: "redline:set-mode", picking: boolean, selecting: boolean, alt: boolean }  (selecting: the conversation's selection mode, which hovers and picks like comment mode; alt: the Alt key is held in the parent page, where keyboard focus usually is)
  *                     { type: "redline:set-pins", pins: [{ id, selector, xPct, yPct }] }
  *                     { type: "redline:set-marks", marks: [{ number, selector }] }  (numbered selection marks, drawn whenever there are some)
+ *                     { type: "redline:set-gap", selector: string | null }  (outlines the element a design system gap points at, and answers redline:gap-rect when it exists)
  *                     { type: "redline:set-links", selectors: string[] | null }  (play mode: clicks on a match are reported, not performed)
  *                     { type: "redline:set-tweaks", values: { [tweakId]: string | number | boolean } }  (full set; applied as --tweak-<id> CSS variables, data-tweak-<id> attributes on <html>, window.redlineTweaks and a "redline:tweaks" window event)
  *                     (comment mode, and Alt held in interactive mode, draw the hover outline and label in an overlay of the artboard document)
@@ -16,6 +17,7 @@ import { designSystemTokensUrlPath, HOVER_FINISH, MARK_FINISH, hoverLabelCss, ho
  *                     { type: "redline:key", key: "ArrowLeft" | "ArrowRight" }  (arrow pressed with no modifier outside a text field: the iframe holds the keyboard focus, so play mode cannot hear it)
  *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched }] }
  *                     { type: "redline:link", selector }
+ *                     { type: "redline:gap-rect", x, y, width, height }  (box of the element outlined by redline:set-gap, in page pixels)
  *                     { type: "redline:doc-height", height }  (height of the whole page in pixels; sent on load and whenever it changes)
  *
  * Plain ES5 on purpose: it is served as-is to the browser.
@@ -329,6 +331,30 @@ export const BRIDGE_SOURCE = `(function () {
     });
   }
 
+  var GAP_CSS = ${JSON.stringify(GAP_OUTLINE_CSS)};
+  var gapSelector = null;
+  var gapOutline = null;
+
+  function drawGap() {
+    var el = null;
+    if (gapSelector) {
+      try { el = document.querySelector(gapSelector); } catch (e) { el = null; }
+    }
+    if (!el) {
+      if (gapOutline && gapOutline.parentNode) gapOutline.parentNode.removeChild(gapOutline);
+      gapOutline = null;
+      return null;
+    }
+    var rect = el.getBoundingClientRect();
+    if (!gapOutline || !gapOutline.parentNode) {
+      gapOutline = document.createElement("div");
+      gapOutline.id = "__redline-gap";
+      document.documentElement.appendChild(gapOutline);
+    }
+    gapOutline.style.cssText = "position: fixed; z-index: 2147483646; pointer-events: none; left: " + rect.left + "px; top: " + rect.top + "px; width: " + rect.width + "px; height: " + rect.height + "px; border-radius: " + (window.getComputedStyle(el).borderRadius || "0") + "; " + GAP_CSS;
+    return rect;
+  }
+
   function hoverAt(event) {
     altHeld = !!event.altKey;
     hoverTarget = event.target && event.target.nodeType === 1 ? event.target : null;
@@ -401,6 +427,10 @@ export const BRIDGE_SOURCE = `(function () {
     } else if (event.data.type === "redline:set-marks") {
       marks = event.data.marks || [];
       drawMarks();
+    } else if (event.data.type === "redline:set-gap") {
+      gapSelector = typeof event.data.selector === "string" ? event.data.selector : null;
+      var gapBox = drawGap();
+      if (gapBox) send({ type: "redline:gap-rect", x: gapBox.left + (window.scrollX || 0), y: gapBox.top + (window.scrollY || 0), width: gapBox.width, height: gapBox.height });
     } else if (event.data.type === "redline:set-pins") {
       pins = event.data.pins || [];
       reportPins();
@@ -443,6 +473,7 @@ export const BRIDGE_SOURCE = `(function () {
   window.addEventListener("resize", function () {
     drawHover();
     drawMarks();
+    drawGap();
     reportPins();
     reportHeight();
   });
@@ -464,9 +495,17 @@ export function injectBridge(html: string): string {
   return end === -1 ? html + tag : html.slice(0, end) + tag + html.slice(end);
 }
 
-/** Links a design system's live tokens at the start of the document head, before the page's own styles. */
-export function injectDesignSystem(html: string, designSystemId: string): string {
-  const tag = `<link rel="stylesheet" href="${designSystemTokensUrlPath(designSystemId)}">`;
+/**
+ * Links, at the start of the document head and before the page's own styles: the design system's tokens and components
+ * (the files of `diffusion` when given, else the live draft), then, when the project has a style (`projectId`), its tokens and its components (they win over the design system by CSS order).
+ */
+export function injectDesignSystem(html: string, designSystemId: string, projectId?: string, diffusion?: number): string {
+  const link = (href: string) => `<link rel="stylesheet" href="${href}">`;
+  const tag =
+    (diffusion === undefined
+      ? link(designSystemTokensUrlPath(designSystemId)) + link(designSystemComponentsUrlPath(designSystemId))
+      : link(diffusionFileUrlPath(designSystemId, diffusion, "tokens.css")) + link(diffusionFileUrlPath(designSystemId, diffusion, "components.css"))) +
+    (projectId === undefined ? "" : link(projectStyleUrlPath(projectId)) + link(projectComponentsUrlPath(projectId)));
   const head = /<head[^>]*>/i.exec(html);
   if (head) return html.slice(0, head.index + head[0].length) + tag + html.slice(head.index + head[0].length);
   return tag + html;

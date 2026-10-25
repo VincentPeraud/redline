@@ -1,10 +1,12 @@
 import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply, WorkItem } from "./work.js";
+import { tweakGridError, type TweakGridDeclaration } from "./tweakGrid.js";
 
 export * from "./work.js";
 export * from "./sessions.js";
 export * from "./home.js";
 export * from "./readingOrder.js";
 export * from "./responsiveLayout.js";
+export * from "./tweakGrid.js";
 export * from "./addresses.js";
 
 export const PROTOCOL_VERSION = 1;
@@ -66,10 +68,10 @@ export interface CreateProjectRequest {
   designSystem?: string | null;
 }
 
-/** "creation": the first version of a page (new page, design system, page created by Claude); "terminal": a publish from the user's own Claude Code. */
-export type VersionOrigin = "creation" | "thread" | "conversation" | "terminal" | "tweak" | "restore";
+/** "creation": the first version of a page (new page, design system, page created by Claude); "terminal": a publish from the user's own Claude Code; "user": a change made by hand in Redline (e.g. switching the project's design system). */
+export type VersionOrigin = "creation" | "thread" | "conversation" | "terminal" | "tweak" | "restore" | "user";
 
-export const VERSION_ORIGINS: readonly VersionOrigin[] = ["creation", "thread", "conversation", "terminal", "tweak", "restore"];
+export const VERSION_ORIGINS: readonly VersionOrigin[] = ["creation", "thread", "conversation", "terminal", "tweak", "restore", "user"];
 
 export interface PageVersionSummary {
   id: string;
@@ -101,6 +103,13 @@ export interface CreateVersionRequest {
    * working copy started from; the server answers 409 when DESIGN.md changed meanwhile (nothing is published).
    */
   designMd?: { content: string; base: string };
+  /** `/agent-api` only: the project style `tokens.css` of the working copy, sent when the session changed it; same `base` rule as `designMd`. */
+  projectStyle?: { content: string; base: string };
+  /**
+   * Design system pages only: removing a token or a component that pages of a using project still reference is refused with the list
+   * of pages, unless this is true (Claude asks the user first).
+   */
+  confirmRemovals?: boolean;
 }
 
 // Per-artboard history (decision 3 of 2026-10-22). Storage is the page versions; these are derived views.
@@ -117,6 +126,8 @@ export interface ArtboardVersion {
   createdAt: string;
   /** The content the page shows now. At most one entry per artboard is current. */
   current: boolean;
+  /** Design system and diffusion the version is drawn with (1 for versions from before diffusions); absent on a design system's own pages, which read the draft. */
+  diffusion?: { designSystemTitle: string; number: number };
 }
 
 /** `GET /api/pages/:pageId/artboard-versions?file=<artboard file>` -> ArtboardVersion[], newest first (tweaks excluded). */
@@ -154,6 +165,17 @@ export interface RestoreArtboardResponse {
   version: PageVersionSummary;
   /** To undo: POST the same request with `versionId = previousVersionId`. */
   previousVersionId: string;
+}
+
+/** Body of `POST /api/pages/:pageId/move-artboard` (and of the agent API's twin): move `file` to another page of the project, or to a new page. */
+export type MoveArtboardRequest = { file: string; /** Agent API: the run whose own page lock may be passed. */ workId?: string } & ({ targetPageId: string } | { newPageTitle: string });
+
+export interface MoveArtboardResponse {
+  /** The page the artboard landed on (just created when the request had `newPageTitle`). */
+  targetPage: Page;
+  /** The version each page got. */
+  sourceVersion: PageVersionSummary;
+  targetVersion: PageVersionSummary;
 }
 
 export interface PageVersion {
@@ -205,6 +227,7 @@ export type ThreadTarget =
       xPct: number;
       yPct: number;
       rendering?: ThreadRendering;
+      cell?: TweakValues;
     }
   | { kind: "artboard"; artboard: string }
   | { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind; /** What the element shows now (`canvasElementSummary`); what it showed when the user commented it once the element is removed. */ elementSummary?: string };
@@ -249,6 +272,8 @@ export interface Thread {
   elementName: string | null;
   /** Rendering of a responsive artboard the thread was pinned in; absent on other artboards. */
   rendering?: ThreadRendering;
+  /** Tweak grid cell the thread was pinned in: the values of the grid's tweaks (tweak id to value); absent on other artboards. */
+  cell?: TweakValues;
   /** First line of the comment, kept visible when the thread is resolved. */
   title: string;
   body: string;
@@ -281,6 +306,8 @@ export interface CreateElementThreadRequest extends CreateThreadCommon {
   elementName?: string;
   /** Rendering of a responsive artboard the comment was pinned in. */
   rendering?: ThreadRendering;
+  /** Tweak grid cell the comment was pinned in (tweak id to value). */
+  cell?: TweakValues;
 }
 
 /** A comment on a whole artboard: no element, no pin, no rendering. The artboard must be on the page. */
@@ -361,12 +388,14 @@ export const renderingLabel = (rendering: ThreadRendering) => `${RESPONSIVE_FORM
  * How a viewer sees a page, kept on the server per page: not part of a version, never sent to a session.
  * `hiddenFormats`: formats hidden in every responsive frame. `renderingOverrides[artboard file][renderingKey]`:
  * a frame's own choice (true = shown) for one rendering, which wins over the format's.
+ * `gapExceptions`: keys of the design system gaps marked "Exception voulue" (hidden from the list and the counts).
  */
 export interface PageViewSettings {
   hiddenFormats: ResponsiveFormat[];
   renderingOverrides: Record<string, Record<string, boolean>>;
+  gapExceptions: string[];
 }
-export const EMPTY_VIEW_SETTINGS: PageViewSettings = { hiddenFormats: [], renderingOverrides: {} };
+export const EMPTY_VIEW_SETTINGS: PageViewSettings = { hiddenFormats: [], renderingOverrides: {}, gapExceptions: [] };
 
 /** Padding of a responsive frame, and gap between its renderings (canvas pixels). */
 export const RESPONSIVE_SPACING = 96;
@@ -389,6 +418,8 @@ export interface ManifestArtboard {
   guides?: ArtboardGuides;
   /** One HTML file rendered at several widths, side by side in one frame; `frame` is ignored. `width`/`height` then describe the frame with the declared heights. */
   responsive?: ArtboardRendering[];
+  /** Tweak grid: the file rendered once per combination of up to three of its tweaks. `width`/`height` are the size of one cell. */
+  matrix?: TweakGridDeclaration;
 }
 
 export const DEFAULT_TITLE_WIDTH = 1200;
@@ -886,6 +917,11 @@ export function parseManifest(text: string): Manifest {
       artboard.expand = "fill";
     }
     if (item.guides !== undefined) artboard.guides = parseGuides(item.guides, `${name}.guides`);
+    if (item.matrix !== undefined) {
+      if (typeof item.matrix !== "object" || item.matrix === null || Array.isArray(item.matrix)) fail(`${name} (${artboard.file}).matrix must be an object`);
+      if (artboard.responsive) fail(`${name} (${artboard.file}).matrix cannot be used with responsive`);
+      artboard.matrix = item.matrix as TweakGridDeclaration;
+    }
     nextX = artboard.x + artboard.width + ARTBOARD_GAP;
     return artboard;
   });
@@ -913,6 +949,12 @@ export function parseManifest(text: string): Manifest {
     if (item.display !== undefined && !TWEAK_DISPLAYS.includes(item.display as TweakDisplay)) fail(`${name}.display must be one of ${TWEAK_DISPLAYS.join(", ")}`);
     if (item.scope !== undefined && !TWEAK_SCOPES.includes(item.scope as TweakScope)) fail(`${name}.scope must be one of ${TWEAK_SCOPES.join(", ")}`);
     return { ...(item as unknown as ManifestTweak), id: str(item, "id", name), type: type as TweakType, label: str(item, "label", name) };
+  });
+
+  artboards.forEach((artboard, i) => {
+    if (!artboard.matrix) return;
+    const invalid = tweakGridError(artboard.matrix as Record<string, unknown>, tweaks, artboard.file, artboards[0]?.file);
+    if (invalid) fail(`artboards[${i}] (${artboard.file}).${invalid}`);
   });
 
   const manifest: Manifest = { artboards, elements, links, tweaks };
@@ -1076,5 +1118,10 @@ export function starterPageFiles(title: string, designSystem?: string | null): R
 }
 
 export * from "./designSystem.js";
+export * from "./tokens.js";
 export * from "./projectFiles.js";
 export * from "./hoverFinish.js";
+export * from "./components.js";
+export * from "./diffusion.js";
+export * from "./projectDesignSystem.js";
+export * from "./gaps.js";

@@ -36,6 +36,7 @@ it("lists design systems with their projects, creates one and shows the hint in 
   await tab.goto(`${server.url}/#/design-systems`);
   await expect.poll(async () => tab.getByTestId("design-systems").textContent()).toContain("DS Lumora");
   expect(await tab.getByTestId("design-systems").textContent()).toContain("Utilisé par Lumora");
+  expect(await tab.getByTestId("design-system-stats").first().innerText()).toBe("1 page · 0 composant · diffusion 1");
 
   await tab.getByRole("button", { name: "Ajouter un design system" }).first().click();
   await tab.getByLabel("Nom").fill("DS Blog");

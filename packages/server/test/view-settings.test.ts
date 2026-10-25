@@ -16,10 +16,10 @@ describe("per-page view settings over the server HTTP API", () => {
   });
 
   const read = async () => (await (await server.get(`/api/pages/${page.id}`)).json()) as Page & { viewSettings: PageViewSettings };
-  const settings: PageViewSettings = { hiddenFormats: ["mobile"], renderingOverrides: { "home.html": { "desktop-1440": false } } };
+  const settings: PageViewSettings = { hiddenFormats: ["mobile"], renderingOverrides: { "home.html": { "desktop-1440": false } }, gapExceptions: ["{\"file\":\"home.html\"}"] };
 
   it("reads empty settings with the page, then what was written, also after a restart", async () => {
-    expect((await read()).viewSettings).toEqual({ hiddenFormats: [], renderingOverrides: {} });
+    expect((await read()).viewSettings).toEqual({ hiddenFormats: [], renderingOverrides: {}, gapExceptions: [] });
     const res = await server.post(`/api/pages/${page.id}/view-settings`, settings);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(settings);
@@ -47,15 +47,20 @@ describe("per-page view settings over the server HTTP API", () => {
     for (const body of [
       null,
       {},
-      { hiddenFormats: ["watch"], renderingOverrides: {} },
-      { hiddenFormats: ["constructor"], renderingOverrides: {} },
-      { hiddenFormats: "mobile", renderingOverrides: {} },
+      { hiddenFormats: ["watch"], renderingOverrides: {}, gapExceptions: [] },
+      { hiddenFormats: ["constructor"], renderingOverrides: {}, gapExceptions: [] },
+      { hiddenFormats: "mobile", renderingOverrides: {}, gapExceptions: [] },
       { hiddenFormats: [], renderingOverrides: { "home.html": { "mobile-390": "no" } } },
-      { hiddenFormats: [], renderingOverrides: [] },
+      { hiddenFormats: [], renderingOverrides: [], gapExceptions: [] },
+      { hiddenFormats: [], renderingOverrides: {} },
+      { hiddenFormats: [], renderingOverrides: {}, gapExceptions: "x" },
+      { hiddenFormats: [], renderingOverrides: {}, gapExceptions: [1] },
+      { hiddenFormats: [], renderingOverrides: {}, gapExceptions: Array.from({ length: 1001 }, (_, i) => `key-${i}`) },
+      { hiddenFormats: [], renderingOverrides: {}, gapExceptions: ["x".repeat(2049)] },
     ]) {
       expect((await server.post(`/api/pages/${page.id}/view-settings`, body)).status).toBe(400);
     }
     expect((await server.post("/api/pages/nope/view-settings", settings)).status).toBe(404);
-    expect((await read()).viewSettings).toEqual({ hiddenFormats: [], renderingOverrides: {} });
+    expect((await read()).viewSettings).toEqual({ hiddenFormats: [], renderingOverrides: {}, gapExceptions: [] });
   });
 });

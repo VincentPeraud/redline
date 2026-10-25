@@ -130,6 +130,35 @@
   color: var(--color-text-muted);
 }
 
+.componentName {
+  flex-shrink: 1;
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+}
+
+.changePill {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-2xs);
+  line-height: normal;
+}
+
+.modifiedPill {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+}
+
+.newPill {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.componentMarker {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+
 .responsiveBadge {
   flex-shrink: 0;
   padding: 2px 8px;
@@ -140,16 +169,47 @@
   font-weight: var(--font-weight-semibold);
 }
 
+.gridBadge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+}
+
 .tweaksButton {
   height: 24px;
-  padding: 0 10px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 4px 0 8px;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
+  font: inherit;
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-medium);
   color: var(--color-text);
   cursor: pointer;
+}
+
+.tweaksCount {
+  min-width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--color-text);
+  color: var(--color-text-inverse);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
 }
 
 .iconButton {

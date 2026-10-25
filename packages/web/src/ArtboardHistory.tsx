@@ -1,14 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { artboardVersionsPath, type ArtboardVersion } from "@redline/shared";
 import { historyDate, originLabel } from "./historyLabels.js";
-import { cx } from "./ui/index.js";
+import { Tooltip, cx } from "./ui/index.js";
 import styles from "./ArtboardHistory.module.css";
 
 function ClockIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
+      <path d="M3 12a9 9 0 1 0 2.64-6.36L3 8.3" />
+      <path d="M3 3.5v4.8h4.8" />
+      <path d="M12 7.5V12l3 2" />
     </svg>
   );
 }
@@ -99,29 +100,33 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
 
   return (
     <div ref={root} className={cx(styles.root, className)}>
-      <button
-        type="button"
-        aria-label={`Historique de ${file}`}
-        title="Historique"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        className={cx(styles.button, open && styles.buttonOpen)}
-        onClick={() => (open ? close() : onOpenChange(true))}
-      >
-        <ClockIcon />
-      </button>
+      <Tooltip label="Historique">
+        <button
+          type="button"
+          aria-label={`Historique de ${file}`}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className={cx(styles.button, open && styles.buttonOpen)}
+          onClick={() => (open ? close() : onOpenChange(true))}
+        >
+          <ClockIcon />
+        </button>
+      </Tooltip>
       {open && (
         <div role="dialog" aria-label={`Historique de ${file}`} className={cx(styles.popover, onLeft && styles.popoverLeft)}>
           <div className={styles.head}>
             <span className={styles.title}>Historique · {name}</span>
             <span className={styles.spacer} />
-            <button type="button" aria-label="Fermer l'historique" className={styles.close} onClick={close}>
-              ×
-            </button>
+            <Tooltip label="Fermer l'historique">
+              <button type="button" aria-label="Fermer l'historique" className={styles.close} onClick={close}>
+                ×
+              </button>
+            </Tooltip>
           </div>
           {(versions ?? []).map((version) => {
             const previewing = version.versionId === previewVersionId;
             const meta = `${originLabel(version.origin, version.originLabel)} · ${historyDate(version.createdAt, { withTime: true })}`;
+            const diffusion = version.diffusion && `affichée avec ${version.diffusion.designSystemTitle} · diffusion ${version.diffusion.number}`;
             if (previewing) {
               return (
                 <div key={version.versionId} data-testid="history-preview" className={styles.previewRow}>
@@ -129,6 +134,7 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
                     <div className={styles.rowText}>
                       <div className={styles.rowTitle}>{version.title}</div>
                       <div className={styles.rowMeta}>{meta}</div>
+                      {diffusion && <div className={styles.rowMeta}>{diffusion}</div>}
                     </div>
                     <span className={styles.previewTag}>en aperçu</span>
                   </div>
@@ -156,6 +162,7 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
                 <span className={styles.rowText}>
                   <span className={styles.rowTitle}>{version.title}</span>
                   <span className={styles.rowMeta}>{meta}</span>
+                  {diffusion && <span className={styles.rowMeta}>{diffusion}</span>}
                 </span>
                 {version.current && <span className={styles.currentTag}>actuelle</span>}
               </button>

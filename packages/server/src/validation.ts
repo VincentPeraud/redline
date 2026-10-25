@@ -1,5 +1,7 @@
 import {
   DESIGN_SYSTEM_TOKENS_PATH,
+  WORKING_COPY_DESIGN_SYSTEM_DIR,
+  WORKING_COPY_PROJECT_COMPONENTS_DIR,
   EFFORTS,
   MANIFEST_PATH,
   MAX_TITLE_LENGTH,
@@ -62,7 +64,8 @@ export function threadTargetError(target: unknown, use: "request" | "chip"): str
       typeof target.xPct === "number" &&
       typeof target.yPct === "number";
     if (!valid) return "invalid target";
-    return target.rendering === undefined ? null : threadRenderingError(target.rendering);
+    const invalidRendering = target.rendering === undefined ? null : threadRenderingError(target.rendering);
+    return invalidRendering ?? (target.cell === undefined ? null : threadCellError(target.cell));
   }
   return "invalid target";
 }
@@ -87,6 +90,10 @@ export function createThreadRequestError(request: unknown): string | null {
   if (pin.rendering !== undefined) {
     const invalidRendering = threadRenderingError(pin.rendering);
     if (invalidRendering) return invalidRendering;
+  }
+  if (pin.cell !== undefined) {
+    const invalidCell = threadCellError(pin.cell);
+    if (invalidCell) return invalidCell;
   }
   return modelChoiceError(pin);
 }
@@ -139,12 +146,16 @@ export function manifestError(files: Record<string, string>, requireElementIds =
   }
 }
 
-/** Error message when a design system's files miss `tokens.css` or a core token, else null. */
-export function designSystemError(files: Record<string, string>): string | null {
-  const css = files[DESIGN_SYSTEM_TOKENS_PATH];
-  if (css === undefined) return `${DESIGN_SYSTEM_TOKENS_PATH} is required`;
+/** Error message when a design system's `tokens.css` misses a core token, else null. */
+export function tokensError(css: string): string | null {
   const missing = missingCoreTokens(css);
   return missing.length === 0 ? null : `Missing core tokens: ${missing.join(", ")}`;
+}
+
+/** Error message when the files of a new design system miss `tokens.css` or a core token, else null. */
+export function designSystemError(files: Record<string, string>): string | null {
+  const css = files[DESIGN_SYSTEM_TOKENS_PATH];
+  return css === undefined ? `${DESIGN_SYSTEM_TOKENS_PATH} is required` : tokensError(css);
 }
 
 /** Error message when the files of a new page are invalid, else null. */
@@ -154,31 +165,45 @@ export function pageFilesError(files: unknown, requireElementIds = false): strin
 
 /**
  * Error message when a request to record a version is invalid, else null. The one check behind `/api` and `/agent-api`.
- * `designSystemPage`: the page is a design system's, whose tokens must stay complete.
+ * `designSystemPage`: the page is one of a design system's; a `tokens.css` it publishes goes to the design system and must stay complete.
  */
 export function versionRequestError(body: Partial<CreateVersionRequest> | undefined, designSystemPage: boolean, requireElementIds = false): string | null {
   const { files, message, origin } = body ?? {};
   const invalidFiles = pageFilesError(files, requireElementIds);
   if (invalidFiles) return invalidFiles;
-  if (designSystemPage) {
-    const invalidDesignSystem = designSystemError(files!);
-    if (invalidDesignSystem) return invalidDesignSystem;
+  const readOnly = Object.keys(files!).find((path) => path.startsWith(`${WORKING_COPY_DESIGN_SYSTEM_DIR}/`));
+  if (readOnly) {
+    return `${readOnly}: ${WORKING_COPY_DESIGN_SYSTEM_DIR}/ is the read-only copy of the design system's current diffusion. A project session cannot edit the design system: propose the change to the user instead.`;
+  }
+  const readOnlyComponents = Object.keys(files!).find((path) => path.startsWith(`${WORKING_COPY_PROJECT_COMPONENTS_DIR}/`));
+  if (readOnlyComponents) {
+    return `${readOnlyComponents}: ${WORKING_COPY_PROJECT_COMPONENTS_DIR}/ is the read-only copy of the project's components. Edit a component in the page that defines it (components/<name>.html in that page's files).`;
+  }
+  const tokens = files![DESIGN_SYSTEM_TOKENS_PATH];
+  if (designSystemPage && tokens !== undefined) {
+    const invalidTokens = tokensError(tokens);
+    if (invalidTokens) return invalidTokens;
   }
   if (!requiredString(message)) return "message is required";
   if (!(VERSION_ORIGINS as readonly string[]).includes(origin as string)) return "invalid origin";
   return null;
 }
 
+const MAX_GAP_EXCEPTIONS = 1000;
+const MAX_GAP_KEY_LENGTH = 2048;
+
 /** Error message when a request body is not valid page view settings, else null. */
 export function viewSettingsError(body: unknown): string | null {
-  const { hiddenFormats, renderingOverrides } = (body ?? {}) as Partial<Record<keyof PageViewSettings, unknown>>;
+  const { hiddenFormats, renderingOverrides, gapExceptions } = (body ?? {}) as Partial<Record<keyof PageViewSettings, unknown>>;
   if (!Array.isArray(hiddenFormats) || !hiddenFormats.every((format) => typeof format === "string" && Object.hasOwn(RESPONSIVE_FORMATS, format))) {
     return "hiddenFormats must be a list of responsive formats";
   }
   const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
   if (!isRecord(renderingOverrides)) return "renderingOverrides must be an object";
   const valid = Object.values(renderingOverrides).every((byKey) => isRecord(byKey) && Object.values(byKey).every((shown) => typeof shown === "boolean"));
-  return valid ? null : "renderingOverrides must map artboard files to rendering keys to booleans";
+  if (!valid) return "renderingOverrides must map artboard files to rendering keys to booleans";
+  const validKeys = Array.isArray(gapExceptions) && gapExceptions.length <= MAX_GAP_EXCEPTIONS && gapExceptions.every((key) => typeof key === "string" && key.length <= MAX_GAP_KEY_LENGTH);
+  return validKeys ? null : `gapExceptions must be a list of at most ${MAX_GAP_EXCEPTIONS} gap keys of at most ${MAX_GAP_KEY_LENGTH} characters`;
 }
 
 /** Error message when a thread's rendering (format and viewport width) is malformed, else null. */
@@ -186,4 +211,14 @@ export function threadRenderingError(rendering: unknown): string | null {
   const { format, width } = (rendering ?? {}) as { format?: unknown; width?: unknown };
   const valid = typeof format === "string" && Object.hasOwn(RESPONSIVE_FORMATS, format) && typeof width === "number" && Number.isFinite(width) && width > 0;
   return valid ? null : "rendering must be { format: a responsive format, width: a positive number }";
+}
+
+/** Error message when a thread's tweak grid cell (tweak id to value) is malformed, else null. */
+export function threadCellError(cell: unknown): string | null {
+  const valid =
+    isObject(cell) &&
+    !Array.isArray(cell) &&
+    Object.keys(cell).length > 0 &&
+    Object.values(cell).every((v) => typeof v === "string" || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v)));
+  return valid ? null : "cell must map tweak ids to a string, number or boolean";
 }

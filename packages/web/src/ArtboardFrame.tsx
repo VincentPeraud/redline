@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import type { ArtboardGuides as Guides, Thread, TweakValues } from "@redline/shared";
 import { ArtboardGuides } from "./ArtboardGuides.js";
+import { SeenGapContext } from "./GapsReport.js";
 import { threadWhere } from "./threadLabel.js";
 import { cx } from "./ui/index.js";
 import styles from "./ArtboardFrame.module.css";
@@ -46,6 +47,8 @@ interface Props {
   /** Numbered marks of the message's chips on this artboard, drawn by the bridge. */
   marks: { number: number; selector: string }[];
   tweaks: TweakValues;
+  /** No rounded corners, shadow or background: the artboard sits straight on what is behind it (a tweak grid cell). */
+  bare?: boolean;
   onPick: (pick: Pick) => void;
   /** Escape pressed inside the artboard while selecting (the iframe holds the keyboard focus). */
   onEscape?: () => void;
@@ -58,7 +61,7 @@ interface Props {
  * and pin placement go through the bridge script the server injects (see conventions.md).
  * Messages are trusted only when `event.source` is this iframe's window.
  */
-export function ArtboardFrame({ src, title, width, height, zoom, guides, threads, picking, selecting, marks, tweaks, onPick, onEscape, onDocHeight }: Props) {
+export function ArtboardFrame({ src, title, width, height, zoom, guides, threads, picking, selecting, marks, tweaks, bare, onPick, onEscape, onDocHeight }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const alt = useAltKey();
   const [positions, setPositions] = useState<PinPosition[]>([]);
@@ -71,6 +74,10 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
   onDocHeightRef.current = onDocHeight;
 
   const pinned = threads;
+  const { seen, onRect } = useContext(SeenGapContext);
+  const onRectRef = useRef(onRect);
+  onRectRef.current = onRect;
+  const seenHere = seen !== null && seen.src === src ? seen : null;
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -81,6 +88,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
       else if (data.type === "redline:escape") onEscapeRef.current?.();
       else if (data.type === "redline:pin-positions") setPositions(data.positions ?? []);
       else if (data.type === "redline:doc-height") onDocHeightRef.current?.((data as unknown as { height: number }).height);
+      else if (data.type === "redline:gap-rect") onRectRef.current(data as unknown as { x: number; y: number; width: number; height: number });
       else if (data.type === "redline:wheel") replayWheel(data as unknown as ForwardedWheel);
     }
     // The iframe swallows wheel and pinch: the bridge hands them back, and we replay them on the iframe
@@ -125,6 +133,12 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
     frame.current?.contentWindow?.postMessage({ type: "redline:set-tweaks", values: tweaks }, "*");
   }, [tweaks, bridgeEpoch]);
 
+  useEffect(() => {
+    if (bridgeEpoch === 0) return;
+    frame.current?.contentWindow?.postMessage({ type: "redline:set-gap", selector: seenHere?.selector ?? null }, "*");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seenHere?.selector, seenHere?.nonce, bridgeEpoch]);
+
   const pinsKey = JSON.stringify(pinned.map((t) => [t.id, t.selector, t.xPct, t.yPct]));
   useEffect(() => {
     if (bridgeEpoch === 0) return;
@@ -135,8 +149,8 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
 
   return (
     <div className={styles.frame} style={{ width, height }}>
-      <div className={styles.clip} style={{ width, height }}>
-        <iframe ref={frame} title={title} src={src} sandbox="allow-scripts" className={styles.iframe} style={{ width, height }} />
+      <div className={cx(styles.clip, bare && styles.clipBare)} style={{ width, height }}>
+        <iframe ref={frame} title={title} src={src} sandbox="allow-scripts" className={cx(styles.iframe, bare && styles.iframeBare)} style={{ width, height }} />
         {guides && <ArtboardGuides guides={guides} />}
       </div>
       {pinned.map((thread) => {

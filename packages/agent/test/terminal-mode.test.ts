@@ -211,6 +211,23 @@ describe("terminal mode (redline mcp)", () => {
     expect(await call("publish_page", { message: "Again" })).toMatch(/Nothing changed/);
   });
 
+  it("publishes a project style (tokens.css) edited in the working copy as a terminal version", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+
+    writeFileSync(join(seam.folder, ".redline", page.id, "tokens.css"), ":root { --color-primary: #7c3aed; }\n");
+    expect(await call("publish_page", { message: "Purple" })).toMatch(/Published/);
+
+    const style = (await (await seam.server.get(`/api/projects/${seam.project.id}/project-style`)).json()) as { content: string };
+    expect(style.content).toBe(":root { --color-primary: #7c3aed; }\n");
+    const versions = (await (await seam.server.get(`/api/projects/${seam.project.id}/project-style/versions`)).json()) as { origin: string }[];
+    expect(versions[0]).toMatchObject({ origin: "terminal" });
+    expect((await seam.server.get(`/api/pages/${page.id}/files/tokens.css`)).status).toBe(404);
+    expect(await call("publish_page", { message: "Again" })).toMatch(/Nothing changed/);
+  });
+
   it("publish waits for the page lock while a session runs on the page", async () => {
     let finishSession!: () => void;
     const sessionMayEnd = new Promise<void>((resolve) => (finishSession = resolve));
@@ -304,5 +321,22 @@ describe("terminal mode: projects and pages", () => {
 
     rmSync(bare, { recursive: true, force: true });
     rmSync(linked, { recursive: true, force: true });
+  });
+  it("moves an artboard of the checked-out page to another page, refreshes the working copy and explains refusals", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const manifest = JSON.stringify({ artboards: [{ file: "home.html", x: 0, y: 0 }, { file: "btn.html", x: 900, y: 0 }] });
+    const web = await seam.createPage({ "manifest.json": manifest, "home.html": "<p>h</p>", "btn.html": "<button>Ok</button>" }, "Web");
+    const buttons = await seam.createPage({ "manifest.json": JSON.stringify({ artboards: [] }) }, "Boutons");
+    const call = await connectTerminal(seam.folder);
+
+    expect(await call("move_artboard", { file: "btn.html", pageId: buttons.id })).toMatch(/No page checked out/);
+    await call("checkout_page", { pageId: web.id });
+    expect(await call("move_artboard", { file: "btn.html", pageId: buttons.id })).toMatch(/Boutons/);
+
+    expect(await seam.readFile(buttons.id, "btn.html")).toBe("<button>Ok</button>");
+    expect(existsSync(join(seam.folder, ".redline", web.id, "btn.html"))).toBe(false);
+    expect(await call("publish_page", { message: "Nothing to publish" })).toMatch(/Nothing changed/);
+
+    expect(await call("move_artboard", { file: "ghost.html", pageId: buttons.id })).toMatch(/not an artboard/);
   });
 });

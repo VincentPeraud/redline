@@ -14,6 +14,7 @@ import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from 
 import { contextChips } from "./messageContext.js";
 import { workQueueLabel } from "./queueLabel.js";
 import { CreatedPageCards } from "./CreatedPageCards.js";
+import { PendingDiffusionCard } from "./PendingDiffusionCard.js";
 import { activityLabel } from "./sessionsView.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
@@ -22,7 +23,7 @@ import { ElementChip } from "./ElementChip.js";
 import { AddressPill, PlainLink } from "./AddressPill.js";
 import { splitMessageLinks } from "./messageLinks.js";
 import { rememberArtboardTitles } from "./otherPageArtboards.js";
-import { Button, Textarea, cx } from "./ui/index.js";
+import { Button, Textarea, Tooltip, cx } from "./ui/index.js";
 import styles from "./ConversationsPanel.module.css";
 
 const AGENT_DEFAULT = "défaut de l'agent";
@@ -50,9 +51,17 @@ function SessionLine({ conversation }: { conversation: ConversationDetail }) {
   );
 }
 
+/** A conversation to bring up, `nonce` making a second request for the same one act again. */
+export interface FocusedConversation {
+  id: string;
+  nonce: number;
+}
+
 interface Props {
   pageId: string;
   pageTitle: string;
+  /** Version of the page: a run publishes after storing its answer, so the conversation reloads when it changes. */
+  versionId: string;
   artboardCount: number;
   /** Artboards of the page, to title the pills that point at them; null until the manifest is known. */
   artboards: { file: string; title: string }[] | null;
@@ -60,6 +69,8 @@ interface Props {
   onCenterArtboard: (file: string) => void;
   /** Shows "Cet artboard n'existe plus" (a pill whose artboard is gone). */
   onMissingArtboard: (file: string) => void;
+  /** Shown as soon as it changes: the conversation that just received a message posted from outside the panel. */
+  focusedConversation: FocusedConversation | null;
   /** What goes with the next message, live with the canvas view and the tweaks. */
   context: MessageContext;
   runs: ThreadRun[];
@@ -76,7 +87,7 @@ interface Props {
 }
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
-export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards, onCenterArtboard, onMissingArtboard, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
+export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, focusedConversation, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   /** `activeId` as of now, not as of the last render: a message sent right after "+ Nouvelle" must land in the conversation just created. */
@@ -117,6 +128,12 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
     setActiveId(id);
   };
 
+  useEffect(() => {
+    if (!focusedConversation) return;
+    showConversation(focusedConversation.id);
+    void refreshList();
+  }, [focusedConversation, refreshList]);
+
   // Open the most recent conversation once the list is known.
   useEffect(() => {
     if (activeRef.current === null && conversations[0]) showConversation(conversations[0].id);
@@ -125,7 +142,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
   useEffect(() => {
     if (activeId) void refreshDetail(activeId);
     else setDetail(null);
-  }, [activeId, refreshDetail]);
+  }, [activeId, versionId, refreshDetail]);
 
   /** One creation at a time: a message sent while "+ Nouvelle" is still in flight joins it instead of creating a second conversation. */
   function createConversation(): Promise<string> {
@@ -187,6 +204,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
   const lastRun = detail ? runs.find((r) => r.workId === detail.runWorkId) : undefined;
   const run = lastRun?.status === "answered" ? undefined : lastRun;
   const queued = workQueueLabel(queue, detail?.runWorkId);
+  const lastDesignSystemAnswer = [...(detail?.messages ?? [])].reverse().find((m) => m.designSystemId)?.id;
   const sessionId = activeId ? sessions.get(activeId)?.sessionId : undefined;
 
   return (
@@ -209,15 +227,17 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
         <Button variant="accent" className={styles.newButton} onClick={() => void create()}>
           + Nouvelle
         </Button>
-        <button
-          type="button"
-          aria-label="Supprimer cette conversation"
-          className={styles.iconButton}
-          disabled={!active}
-          onClick={() => active && void archive(active.id)}
-        >
-          <TrashIcon />
-        </button>
+        <Tooltip label="Supprimer cette conversation">
+          <button
+            type="button"
+            aria-label="Supprimer cette conversation"
+            className={styles.iconButton}
+            disabled={!active}
+            onClick={() => active && void archive(active.id)}
+          >
+            <TrashIcon />
+          </button>
+        </Tooltip>
         {listOpen && (
           <div role="listbox" aria-label="Conversations de la page" className={styles.list}>
             <div className={styles.listTitle}>Conversations · {pageTitle}</div>
@@ -238,9 +258,11 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
                     {c.exchangeCount} {c.exchangeCount === 1 ? "échange" : "échanges"} · {activityLabel(c.lastActivityAt)}
                   </span>
                 </button>
-                <button type="button" aria-label={`Supprimer la conversation ${c.title}`} className={styles.optionDelete} onClick={() => void archive(c.id)}>
-                  <TrashIcon />
-                </button>
+                <Tooltip label={`Supprimer la conversation ${c.title}`}>
+                  <button type="button" aria-label={`Supprimer la conversation ${c.title}`} className={styles.optionDelete} onClick={() => void archive(c.id)}>
+                    <TrashIcon />
+                  </button>
+                </Tooltip>
               </div>
             ))}
             {conversations.length === 0 && <div className={styles.listEmpty}>Aucune conversation sur cette page.</div>}
@@ -290,6 +312,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
                   )}
                 </div>
                 <CreatedPageCards pages={m.createdPages} />
+                {m.designSystemId && m.id === lastDesignSystemAnswer && <PendingDiffusionCard designSystemId={m.designSystemId} refreshKey={versionId} />}
               </Fragment>
             ),
           )}

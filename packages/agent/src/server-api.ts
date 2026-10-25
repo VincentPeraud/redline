@@ -4,15 +4,20 @@ import {
   pageHash,
   playHash,
   type AgentCheckout,
+  type AgentDesignSystem,
   type AgentReplyRequest,
   type CreateSiblingRequest,
   type CreateVersionRequest,
+  type MoveArtboardRequest,
+  type MoveArtboardResponse,
+  type DesignSystem,
   type Page,
   type PageVersionSummary,
   type Project,
   type ProjectAsset,
   type ThreadReply,
   type VersionOrigin,
+  type ProjectStyleStart,
 } from "@redline/shared";
 
 /** The agent's token-guarded view of the server (`/agent-api`); shared by sessions' MCP tools and terminal mode. */
@@ -36,7 +41,7 @@ export class ServerApi {
     message: string,
     origin: VersionOrigin,
     baseVersionId: string,
-    extra: Pick<CreateVersionRequest, "workId" | "designMd"> = {},
+    extra: Pick<CreateVersionRequest, "workId" | "designMd" | "projectStyle" | "confirmRemovals"> = {},
   ): Promise<PageVersionSummary> {
     const body: CreateVersionRequest = { files, message, origin, baseVersionId, ...extra };
     return this.request("POST", `/pages/${pageId}/versions`, body);
@@ -58,12 +63,30 @@ export class ServerApi {
     return this.request("POST", `/pages/${pageId}/siblings`, body);
   }
 
+  /** Moves an artboard of `pageId` to another page of its project (`targetPageId`), or to a new page (`newPageTitle`). */
+  moveArtboard(pageId: string, request: MoveArtboardRequest): Promise<MoveArtboardResponse> {
+    return this.request("POST", `/pages/${pageId}/move-artboard`, request);
+  }
+
   listProjects(): Promise<Project[]> {
     return this.request("GET", "/projects");
   }
 
   createProject(title: string, designSystem?: string): Promise<Project> {
     return this.request("POST", "/projects", { title, ...(designSystem ? { designSystem } : {}) });
+  }
+
+  listDesignSystems(): Promise<AgentDesignSystem[]> {
+    return this.request("GET", "/design-systems");
+  }
+
+  createDesignSystem(title: string): Promise<DesignSystem> {
+    return this.request("POST", "/design-systems", { title });
+  }
+
+  /** Points the project at a design system, or at none (null; `startFrom` is required when it leaves a shared one). */
+  setProjectDesignSystem(projectId: string, designSystem: string | null, startFrom?: ProjectStyleStart): Promise<Project> {
+    return this.request("PUT", `/projects/${encodeURIComponent(projectId)}/design-system`, { designSystem, startFrom });
   }
 
   listPages(projectId: string): Promise<Page[]> {

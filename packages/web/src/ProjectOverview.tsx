@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import {
-  NEUTRAL_DESIGN_SYSTEM_ID,
   type DesignMdInfo,
   type DesignMdResponse,
-  type DesignSystemSummary,
   type Page,
   type PageVersionSummary,
   type Project,
+  type ProjectDesignSystem,
   type ProjectAsset,
   type Thread,
 } from "@redline/shared";
@@ -15,6 +14,9 @@ import { dayLabel, designMdAuthor } from "./historyLabels.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
+import { overrideCountLabel, projectComponentCountLabel } from "./diffusionLabels.js";
+import { counted } from "./plural.js";
+import { previewSwatches } from "./projectDesignSystemLabels.js";
 import { relativeTime } from "./relativeTime.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
 import { routeHref } from "./router.js";
@@ -30,7 +32,6 @@ const IMAGE_EXTENSION = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
 const FONT_EXTENSION = /\.(woff2?|ttf|otf)$/i;
 
 const folderName = (path: string) => path.split("/").filter(Boolean).pop() ?? path;
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 function PageCard({
   page,
@@ -47,7 +48,7 @@ function PageCard({
 }) {
   const artboards = usePageArtboards(page.id, page.version.files);
   const [renaming, setRenaming] = useState(false);
-  const count = plural(artboards?.length ?? 0, "artboard", "artboards");
+  const count = counted(artboards?.length ?? 0, "artboard", "artboards");
   const modified = stats?.updatedAt ? ` · modifié ${relativeTime(stats.updatedAt)}` : "";
 
   return (
@@ -75,7 +76,7 @@ function PageCard({
             <span className={styles.spacer} />
             {stats && stats.openThreads > 0 && (
               <StatusBadge tone="warning" className={styles.chip}>
-                {plural(stats.openThreads, "fil", "fils")}
+                {counted(stats.openThreads, "fil", "fils")}
               </StatusBadge>
             )}
           </div>
@@ -89,43 +90,49 @@ function PageCard({
   );
 }
 
-function DesignSystemCard({
-  designSystem,
-  pageCount,
-  artboardOrigin,
-}: {
-  designSystem: DesignSystemSummary;
-  pageCount: number;
-  artboardOrigin: string;
-}) {
-  const [page, setPage] = useState<Page | null>(null);
-
-  useEffect(() => {
-    fetch(`/api/pages/${designSystem.pageId}`)
-      .then((res) => res.json() as Promise<Page>)
-      .then(setPage);
-  }, [designSystem.pageId]);
-
+function DesignSystemBox({ projectId, detail }: { projectId: string; detail: ProjectDesignSystem }) {
+  const swatches = previewSwatches(detail);
+  const components = projectComponentCountLabel(detail.components.length);
   return (
-    <a href={routeHref({ name: "designSystems" })} className={styles.dsCard}>
-      {page ? (
-        <DesignSystemPreview page={page} artboardOrigin={artboardOrigin} />
-      ) : (
-        <div className={styles.dsPlaceholder} />
-      )}
-      <div className={styles.pageInfo}>
-        <div className={styles.pageTitleRow}>
-          <span className={styles.pageTitle}>{designSystem.title}</span>
-        </div>
-        <div className={styles.pageMeta}>{pageCount === 1 ? "Utilisé par la page du projet" : `Utilisé par les ${pageCount} pages du projet`}</div>
+    <section className={styles.panelSection}>
+      <div className={styles.panelHeading}>
+        <h2 className={styles.panelTitle}>Design system</h2>
+        <span className={styles.spacer} />
+        <a href={routeHref({ name: "projectDesignSystem", projectId })}>Modifier</a>
       </div>
-    </a>
+      <a href={routeHref({ name: "projectDesignSystem", projectId })} className={styles.dsCard}>
+        <div aria-hidden="true" className={styles.dsPreview}>
+          {swatches.map((swatch, index) => (
+            <div
+              key={index}
+              className={cx(styles.dsSwatch, swatch.overridden && styles.dsSwatchOverridden, swatch.bordered && styles.dsSwatchBordered)}
+              style={{ background: swatch.value }}
+            />
+          ))}
+          <div className={styles.dsAa}>Aa</div>
+        </div>
+        <div className={styles.dsInfo}>
+          {detail.designSystem && detail.diffusion ? (
+            <>
+              <div className={styles.dsNameRow}>
+                <span className={styles.dsName}>{detail.designSystem.title}</span>
+                <span className={styles.dsDiffusion}>diffusion {detail.diffusion.number}</span>
+              </div>
+              <div className={styles.dsPills}>
+                <span className={styles.dsPillWarning}>{overrideCountLabel(detail.overrideCount)}</span>
+                <span className={styles.dsPillNeutral}>{components}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <span className={styles.dsName}>Aucun : style propre au projet</span>
+              <span className={styles.dsMeta}>Pas de design system partagé · {components}</span>
+            </>
+          )}
+        </div>
+      </a>
+    </section>
   );
-}
-
-function DesignSystemPreview({ page, artboardOrigin }: { page: Page; artboardOrigin: string }) {
-  const artboards = usePageArtboards(page.id, page.version.files);
-  return <PageThumbnail pageId={page.id} artboards={artboards?.slice(0, 1) ?? null} artboardOrigin={artboardOrigin} />;
 }
 
 function AssetTile({ asset, previewUrl }: { asset: AssetEntry; previewUrl: string | null }) {
@@ -180,7 +187,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
   const [pages, setPages] = useState<Page[]>([]);
   const [pageStats, setPageStats] = useState<Record<string, PageStats>>({});
   const [artboardOrigin, setArtboardOrigin] = useState("");
-  const [designSystem, setDesignSystem] = useState<DesignSystemSummary | null>(null);
+  const [designSystem, setDesignSystem] = useState<ProjectDesignSystem | null>(null);
   const [designMd, setDesignMd] = useState<string | null>(null);
   const [designMdInfo, setDesignMdInfo] = useState<DesignMdInfo | null>(null);
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
@@ -199,12 +206,8 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
       .then((config) => setArtboardOrigin(config.artboardOrigin));
     fetch(`/api/projects/${projectId}`)
       .then((res) => res.json() as Promise<Project>)
-      .then(async (loaded) => {
-        setProject(loaded);
-        const systems = (await (await fetch("/api/design-systems")).json()) as DesignSystemSummary[];
-        const id = loaded.designSystem ?? NEUTRAL_DESIGN_SYSTEM_ID;
-        setDesignSystem(systems.find((system) => system.id === id) ?? null);
-      });
+      .then(setProject);
+    fetch(`/api/projects/${projectId}/design-system`).then(async (res) => setDesignSystem(res.ok ? ((await res.json()) as ProjectDesignSystem) : null));
     fetch(`/api/projects/${projectId}/pages`)
       .then((res) => res.json() as Promise<Page[]>)
       .then(async (loaded) => {
@@ -260,7 +263,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
   }
 
   const openThreads = Object.values(pageStats).reduce((sum, stats) => sum + stats.openThreads, 0);
-  const summary = `${plural(pages.length, "page", "pages")} · ${plural(openThreads, "fil ouvert", "fils ouverts")}`;
+  const summary = `${counted(pages.length, "page", "pages")} · ${counted(openThreads, "fil ouvert", "fils ouverts")}`;
   const assetPreviewPage = pages[0];
   const assetEntries = groupAssets(assets);
 
@@ -356,16 +359,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
 
       <SidePanel label="Contexte du projet" width={380} className={styles.aside}>
         <SidePanelBody className={styles.panelBody}>
-          {designSystem && (
-            <section className={styles.panelSection}>
-              <div className={styles.panelHeading}>
-                <h2 className={styles.panelTitle}>Design system</h2>
-                <span className={styles.spacer} />
-                <a href={routeHref({ name: "designSystems" })}>Ouvrir</a>
-              </div>
-              <DesignSystemCard designSystem={designSystem} pageCount={pages.length} artboardOrigin={artboardOrigin} />
-            </section>
-          )}
+          {designSystem && <DesignSystemBox projectId={projectId} detail={designSystem} />}
 
           <section className={cx(styles.panelSection, styles.grow)}>
             <div className={styles.panelHeading}>

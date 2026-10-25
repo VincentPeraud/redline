@@ -56,4 +56,46 @@ describe("page manifest over the server HTTP API", () => {
     });
     expect(version.status).toBe(400);
   });
+
+  it("accepts a tweak grid and refuses an invalid one, naming the artboard", async () => {
+    const tweaks = [
+      { id: "state", type: "choice", label: "State", options: ["default", "hover"] },
+      { id: "icon", type: "toggle", label: "Icon" },
+      { id: "text", type: "text", label: "Text" },
+      { id: "other", type: "toggle", label: "Other", artboard: "b.html" },
+    ];
+    const manifest = (artboard: object) => JSON.stringify({ artboards: [{ file: "a.html", ...artboard }, { file: "b.html" }], tweaks });
+    const created = await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Grid",
+      files: { "a.html": html, "b.html": html, "manifest.json": manifest({ matrix: { rows: "state", columns: "icon" } }) },
+    });
+    expect(created.status).toBe(201);
+    const page = (await created.json()) as Page;
+
+    const refused: [string, object][] = [
+      ["unknown tweak", { matrix: { rows: "ghost" } }],
+      ["tweak of another artboard", { matrix: { rows: "other" } }],
+      ["text tweak", { matrix: { rows: "text" } }],
+      ["four dimensions", { matrix: { rows: "state", columns: "icon", blocks: "icon", more: "state" } }],
+      ["responsive too", { matrix: { rows: "state" }, responsive: ["desktop"] }],
+    ];
+    for (const [, artboard] of refused) {
+      const res = await server.post(`/api/pages/${page.id}/versions`, {
+        files: { "a.html": html, "b.html": html, "manifest.json": manifest(artboard) },
+        message: "Grid",
+        origin: "thread",
+      });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toMatch(/a\.html/);
+    }
+
+    const many = (id: string) => ({ id, type: "choice", label: id, options: Array.from({ length: 8 }, (_, i) => `v${i}`) });
+    const tooMany = await server.post(`/api/pages/${page.id}/versions`, {
+      files: { "a.html": html, "manifest.json": JSON.stringify({ artboards: [{ file: "a.html", matrix: { rows: "r", columns: "c" } }], tweaks: [many("r"), many("c")] }) },
+      message: "Grid",
+      origin: "thread",
+    });
+    expect(tooMany.status).toBe(400);
+    expect(((await tooMany.json()) as { error: string }).error).toMatch(/a\.html.*64 cells/);
+  });
 });

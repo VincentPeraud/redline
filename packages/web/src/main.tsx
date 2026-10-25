@@ -2,9 +2,12 @@ import { createRoot } from "react-dom/client";
 import "./styles/global.css";
 import { AgentsScreen } from "./AgentsScreen";
 import { App } from "./App";
+import { DesignSystemOverview } from "./DesignSystemOverview";
 import { DesignSystemsScreen } from "./DesignSystemsScreen";
 import { DesignMdScreen } from "./DesignMdScreen";
+import { DiffusionProvider } from "./DiffusionDialog";
 import { HomeScreen } from "./HomeScreen";
+import { ProjectDesignSystemScreen } from "./ProjectDesignSystemScreen";
 import { ProjectOverview } from "./ProjectOverview";
 import { ProjectsScreen } from "./ProjectsScreen";
 import { Shell } from "./Sidebar";
@@ -24,8 +27,12 @@ function Root() {
       return <ProjectOverview key={route.projectId} projectId={route.projectId} />;
     case "designMd":
       return <DesignMdScreen key={route.projectId} projectId={route.projectId} />;
+    case "projectDesignSystem":
+      return <ProjectDesignSystemScreen key={route.projectId} projectId={route.projectId} />;
     case "designSystems":
       return <Shell><DesignSystemsScreen /></Shell>;
+    case "designSystem":
+      return <DesignSystemOverview key={route.designSystemId} designSystemId={route.designSystemId} />;
     case "projects":
       return <Shell><ProjectsScreen /></Shell>;
     case "sessions":
@@ -33,4 +40,8 @@ function Root() {
   }
 }
 
-createRoot(document.getElementById("root")!).render(<Root />);
+createRoot(document.getElementById("root")!).render(
+  <DiffusionProvider>
+    <Root />
+  </DiffusionProvider>,
+);

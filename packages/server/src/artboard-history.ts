@@ -73,6 +73,11 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
     const headHash = records[records.length - 1]?.files[file];
     const changes = contentChanges(records, file);
     const newest = changes[changes.length - 1];
+    const ownPage = store.isDesignSystemPage(req.params.pageId);
+    const designSystemOf = (record: VersionRecord) => {
+      const hash = record.files[MANIFEST_PATH];
+      return store.designSystemIdOfManifest(hash === undefined ? undefined : store.blobText(hash));
+    };
     return changes
       .map(
         (record): ArtboardVersion => ({
@@ -83,6 +88,7 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
           ...(record.originLabel ? { originLabel: record.originLabel } : {}),
           createdAt: record.createdAt,
           current: record === newest && headHash !== undefined,
+          ...(ownPage ? {} : { diffusion: { designSystemTitle: store.getDesignSystem(designSystemOf(record))!.title, number: record.diffusion } }),
         }),
       )
       .reverse();
@@ -103,7 +109,7 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
       .map(([file, { deletedIn, lastIn, artboard }]): DeletedArtboard => ({
         file,
         ...(artboard.title ? { title: artboard.title } : {}),
-        deletedBy: deletedIn.origin === "restore" || deletedIn.origin === "creation" || deletedIn.origin === "tweak" ? "user" : "claude",
+        deletedBy: deletedIn.origin === "restore" || deletedIn.origin === "user" || deletedIn.origin === "creation" || deletedIn.origin === "tweak" ? "user" : "claude",
         origin: deletedIn.origin,
         ...(deletedIn.originId ? { originId: deletedIn.originId } : {}),
         ...(deletedIn.originLabel ? { originLabel: deletedIn.originLabel } : {}),
