@@ -4,7 +4,9 @@ import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
   type PageViewSettings,
+  COMPONENTS_CSS_PATH,
   DESIGN_SYSTEM_TOKENS_PATH,
+  PROJECT_STYLE_PATH,
   MANIFEST_PATH,
   MAX_ASSET_BYTES,
   MAX_PAGE_BYTES,
@@ -37,6 +39,7 @@ import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRou
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
+import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
 import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
 import { registerContextTracking } from "./context.js";
@@ -178,7 +181,8 @@ export async function buildMainApp(
       const { title, files } = req.body ?? ({} as Partial<CreatePageRequest>);
       if (!requiredString(title)) return reply.code(400).send({ error: "title is required" });
       const invalidFiles = pageFilesError(files);
-      if (invalidFiles) return reply.code(400).send({ error: invalidFiles });
+      const invalid = invalidFiles ?? newPageComponentsError(store, req.params.projectId, title, files!);
+      if (invalid) return reply.code(400).send({ error: invalid });
       return reply.code(201).send(store.createPage(req.params.projectId, title, files!));
     },
   );
@@ -352,7 +356,7 @@ export async function buildMainApp(
     "/api/pages/:pageId/versions",
     async (req, reply) => {
       if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-      const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files);
+      const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files);
       if (invalid) return reply.code(400).send({ error: invalid });
       const { files, message, origin } = req.body;
       return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
@@ -418,15 +422,29 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(BRIDGE_SOURCE),
   );
 
+  const sendStylesheet = (reply: FastifyReply, css: string | Buffer) =>
+    reply.header("content-security-policy", "sandbox allow-scripts").header("cache-control", "no-cache").type(MIME[".css"]).send(css);
+
   app.get<{ Params: { designSystemId: string; "*": string } }>("/design-systems/:designSystemId/*", async (req, reply) => {
     const designSystem = store.getDesignSystem(req.params.designSystemId);
+    if (designSystem && req.params["*"] === COMPONENTS_CSS_PATH) return sendStylesheet(reply, projectComponents(store, designSystem.id).css);
     const content = designSystem && req.params["*"] === DESIGN_SYSTEM_TOKENS_PATH ? store.readProjectFile(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH) : undefined;
     if (!content) return reply.code(404).send("not found");
+    return sendStylesheet(reply, content);
+  });
+
+  app.get<{ Params: { projectId: string } }>(`/projects/:projectId/${COMPONENTS_CSS_PATH}`, async (req, reply) =>
+    store.projectExists(req.params.projectId) ? sendStylesheet(reply, projectComponents(store, req.params.projectId).css) : reply.code(404).send("not found"),
+  );
+
+  app.get<{ Params: { projectId: string; "*": string } }>("/project-styles/:projectId/*", async (req, reply) => {
+    const { projectId } = req.params;
+    if (!store.projectExists(projectId) || store.isDesignSystemProject(projectId) || req.params["*"] !== PROJECT_STYLE_PATH) return reply.code(404).send("not found");
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .header("cache-control", "no-cache")
-      .type(MIME[extname(req.params["*"])] ?? "application/octet-stream")
-      .send(content);
+      .type(MIME[extname(PROJECT_STYLE_PATH)] ?? "text/css")
+      .send(store.readProjectFile(projectId, PROJECT_STYLE_PATH) ?? "");
   });
 
   // A page as it was in one version (history preview): same sandbox and injections as the live artboards, read-only.
@@ -438,6 +456,12 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readPageFile(req.params.pageId, req.params["*"])),
   );
 
+  /** The page's project when it has a project style (every project but a design system's own). */
+  function projectStyleProjectOf(pageId: string): string | undefined {
+    const projectId = store.getPage(pageId)?.projectId;
+    return projectId !== undefined && !store.isDesignSystemProject(projectId) ? projectId : undefined;
+  }
+
   function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined) {
     const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, pageId, path.slice("assets/".length)) : undefined);
     if (!asset) return reply.code(404).send("not found");
@@ -448,7 +472,7 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[extname(path)] ?? "application/octet-stream")
-      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), designSystemIdOf(store, pageId))) : content);
+      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), designSystemIdOf(store, pageId), projectStyleProjectOf(pageId))) : content);
   }
 
   return app;

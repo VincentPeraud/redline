@@ -4,10 +4,13 @@ import {
   EMPTY_VIEW_SETTINGS,
   MANIFEST_PATH,
   RESPONSIVE_FORMATS,
+  componentNameOf,
   defaultManifest,
   groupTitlesOf,
   parseManifest,
   readingOrder,
+  tweakGrid,
+  tweakGridLayout,
   versionPreviewPath,
   type AgentInfo,
   type CreateThreadRequest,
@@ -23,6 +26,7 @@ import {
   type ThreadRendering,
   type ThreadTarget,
 } from "@redline/shared";
+import { ComponentMarker } from "./ComponentMarker.js";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { ArtboardHistory } from "./ArtboardHistory.js";
 import { restoreArtboard, useDeletedArtboards } from "./restoreArtboard.js";
@@ -43,6 +47,7 @@ import { artboardAtCentre, type TocItem } from "./tocItems.js";
 import { CanvasElements } from "./CanvasElements.js";
 import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
 import { ResponsiveFrame } from "./ResponsiveFrame.js";
+import { TweakGridFrame } from "./TweakGridFrame.js";
 import { RenderingChips, RenderingsMenu } from "./RenderingControls.js";
 import { hiddenRenderingKeys, hiddenThreadCounts, setFormatShown, toggleRendering } from "./viewSettings.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
@@ -419,12 +424,14 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   const hiddenOf = (artboard: Manifest["artboards"][number]) => (artboard.responsive ? hiddenRenderingKeys(artboard.responsive, viewSettings, artboard.file) : new Set<string>());
   const layoutOf = (artboard: Manifest["artboards"][number]) =>
     artboard.responsive ? responsiveFrameLayout(artboard, renderingSlots(artboard.responsive), { measuredHeights: docHeights[artboard.file], hidden: hiddenOf(artboard) }) : null;
+  const gridOf = (artboard: Manifest["artboards"][number]) =>
+    artboard.matrix ? tweakGridLayout(tweakGrid(artboard.matrix, manifest?.tweaks ?? []), artboard) : null;
   const responsiveArtboards = (manifest?.artboards ?? []).filter((artboard) => artboard.responsive);
   const formatsOnPage = (Object.keys(RESPONSIVE_FORMATS) as ResponsiveFormat[])
     .map((format) => ({ format, frames: responsiveArtboards.filter((a) => a.responsive!.some((r) => r.format === format)).length }))
     .filter(({ frames }) => frames > 0);
   const artboardBoxes = new Map<string, Box>(
-    (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, width: artboard.width, height: artboard.height }]),
+    (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, ...(gridOf(artboard) ?? artboard) }]),
   );
   artboardBoxesRef.current = artboardBoxes;
   const tocItems: TocItem[] = readingOrder(
@@ -526,6 +533,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking || selecting || alt} zoom={view.zoom} threads={threads} marks={canvasMarks}>
               {manifest.artboards.map((artboard) => {
                 const layout = layoutOf(artboard);
+                const grid = gridOf(artboard);
                 const hidden = hiddenOf(artboard);
                 const frameWidth = artboardBoxes.get(artboard.file)!.width;
                 const src =
@@ -542,7 +550,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                   <div
                     data-no-pan
                     data-strip={artboard.file}
-                    className={cx(styles.label, layout && styles.labelResponsive, selecting && styles.labelSelecting)}
+                    className={cx(styles.label, (layout || grid) && styles.labelResponsive, selecting && styles.labelSelecting)}
                     style={{ width: frameWidth * view.zoom, transform: `scale(${1 / view.zoom})` }}
                     onClick={(e) => {
                       if (selecting && !(e.target as HTMLElement).closest("button")) setChips((current) => addChip(current, { kind: "artboard", artboard: artboard.file }));
@@ -560,7 +568,13 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         Lien copié
                       </div>
                     )}
-                    <span className={cx(styles.labelName, outlined === artboard.file && styles.labelNameOutlined)}>{artboard.title ?? artboard.file}</span>
+                    {componentNameOf(artboard.file) !== null && <ComponentMarker />}
+                    <span
+                      data-testid={componentNameOf(artboard.file) !== null ? "component-name" : undefined}
+                      className={cx(styles.labelName, componentNameOf(artboard.file) !== null && styles.componentName, outlined === artboard.file && styles.labelNameOutlined)}
+                    >
+                      {componentNameOf(artboard.file) ?? artboard.title ?? artboard.file}
+                    </span>
                     {layout && artboard.responsive && (
                       <>
                         <span className={styles.responsiveBadge}>responsive</span>
@@ -571,6 +585,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                           onToggle={(key) => changeViewSettings(toggleRendering(viewSettings, artboard.file, artboard.responsive!, key))}
                         />
                       </>
+                    )}
+                    {grid && artboard.matrix && (
+                      <span className={styles.gridBadge}>
+                        grille · {[artboard.matrix.rows, artboard.matrix.columns, artboard.matrix.blocks].flatMap((id) => (manifest?.tweaks.find((t) => t.id === id)?.label.toLowerCase() ?? [])).join(" × ")}
+                      </span>
                     )}
                     {wholeArtboardThreads(artboard.file).length > 0 && (
                       <button
@@ -680,6 +699,26 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       onDocHeight={(key, height) =>
                         setDocHeights((current) => (current[artboard.file]?.[key] === height ? current : { ...current, [artboard.file]: { ...current[artboard.file], [key]: height } }))
                       }
+                    />
+                  ) : grid ? (
+                    <TweakGridFrame
+                      key={preview?.file === artboard.file ? preview.versionId : "live"}
+                      title={`${pageTitle} / ${artboard.file}`}
+                      src={src}
+                      layout={grid}
+                      zoom={view.zoom}
+                      guides={guidesVisible ? artboard.guides : undefined}
+                      threads={preview?.file === artboard.file ? [] : pinnedOn(artboard.file)}
+                      picking={picking && preview?.file !== artboard.file}
+                      selecting={selecting && preview?.file !== artboard.file}
+                      marks={marksFor(chips, artboard.file)}
+                      tweaks={tweaks.values}
+                      onPick={(pick) => {
+                        if (selecting) return pickElement(pick, artboard.file);
+                        setDraft({ ...pick, artboard: artboard.file });
+                        setTab("comments");
+                      }}
+                      onEscape={() => setSelecting(false)}
                     />
                   ) : (
                   <ArtboardFrame

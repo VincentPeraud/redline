@@ -29,6 +29,18 @@ _Avoid_: Manifest order, artboard order
 A special project whose tokens, components and pages define a style that other projects use.
 _Avoid_: DS (in code and docs), theme, style guide
 
+**Project style**:
+A project's own tokens (project-level `tokens.css`, next to DESIGN.md), injected after the design system's. With a shared design system it holds the project's overrides; without one it is the project's whole style, starting from the neutral values.
+_Avoid_: Theme, project layer, local design system
+
+**Override**:
+A project-style token that replaces the design system's token of the same name; its CSS comes later, so the project value wins.
+_Avoid_: Customisation, exception
+
+**Component**:
+An artboard file `components/<name>.html` of a page of a design system or of a project; its name is its file name (`[a-z0-9-]`). Its style lives in `<style data-component>` blocks, its description in `<meta name="description">`, its usage in `<template data-usage>`; its variants are the tweaks of its artboard and its states go through `data-state` or modifier classes. Redline assembles the components of a design system, or of a project, into a `components.css` served to artboards; the canvas marks a component with a ◆ and its name on the strip. Two components of one design system or one project cannot share a name.
+_Avoid_: Widget, block, symbol
+
 **Core tokens**:
 The fixed set of named design variables every design system must define, so pages work with any design system.
 _Avoid_: Base variables, required tokens
@@ -36,6 +48,10 @@ _Avoid_: Base variables, required tokens
 **Tweak**:
 A setting declared on a page (color, choice, toggle, range, count, text) whose chosen value is part of the design.
 _Avoid_: Variant, option, control
+
+**Tweak grid**:
+An artboard rendered once per combination of up to three of its tweaks (rows, columns, blocks), drawn as one labelled frame.
+_Avoid_: Matrix (the manifest key only), variant sheet
 
 **Version**:
 A saved state of a page's files, created each time a session publishes; any version can be restored.

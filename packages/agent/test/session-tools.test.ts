@@ -221,6 +221,20 @@ describe("session MCP tools", () => {
     expect(guide).toMatch(/ask the user/i);
   });
 
+  it("read_guide documents the tweak grid: matrix dimensions, limits, refusals and data-state", async () => {
+    let guide = "";
+    const engine = new FakeEngine(async (run) => {
+      guide = await run.callTool("read_guide", {});
+      return [{ type: "result", summary: "Nothing" }];
+    });
+    await runOnce(engine);
+    expect(guide).toMatch(/"matrix"[^\n]*"rows"[^\n]*"columns"[^\n]*"blocks"/);
+    expect(guide).toMatch(/choice or toggle/);
+    expect(guide).toMatch(/60 cells/);
+    expect(guide).toMatch(/not with "responsive"/);
+    expect(guide).toMatch(/data-state/);
+  });
+
   it("read_guide documents element ids and arrows", async () => {
     let guide = "";
     const engine = new FakeEngine(async (run) => {
