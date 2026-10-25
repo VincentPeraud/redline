@@ -33,6 +33,7 @@ import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
 import { centerOn, panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { copyAddress } from "./copyLink.js";
+import { ArtboardMoreMenu } from "./ArtboardMoreMenu.js";
 import { CopyLinkIcon } from "./CopyLinkIcon.js";
 import { MissingArtboardNotice } from "./MissingArtboardNotice.js";
 import { useCopiedBubble } from "./useCopiedBubble.js";
@@ -85,16 +86,6 @@ function initialView(manifest: Manifest, stage: { width: number; height: number 
 }
 
 const OUTLINE_MS = 2000;
-
-function CopyPlayLinkIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M9 11a4 4 0 0 0-6 .4l-.6.6a4 4 0 0 0 5.6 5.6l1-1" />
-      <path d="M7 15l4-4" />
-      <path d="M14 5l7 5-7 5z" />
-    </svg>
-  );
-}
 
 function BubbleIcon({ size }: { size: number }) {
   return (
@@ -165,6 +156,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
   /** Artboard whose whole-artboard threads the Commentaires tab scrolls to once shown. */
   const [scrollToArtboard, setScrollToArtboard] = useState<string | null>(null);
   const [tweaksOpenFor, setTweaksOpenFor] = useState<string | null>(null);
+  const [moreOpenFor, setMoreOpenFor] = useState<string | null>(null);
   /** Bumped when the page's design system changed: artboards remount to load the new tokens. */
   const [tokensVersion, setTokensVersion] = useState(0);
   const [manifest, setManifest] = useState<Manifest | null>(null);
@@ -544,7 +536,7 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                 <div
                   key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`}
                   data-artboard={artboard.file}
-                  className={cx(styles.artboard, (historyOpenFor === artboard.file || tweaksOpenFor === artboard.file) && styles.artboardRaised)}
+                  className={cx(styles.artboard, (historyOpenFor === artboard.file || tweaksOpenFor === artboard.file || moreOpenFor === artboard.file) && styles.artboardRaised)}
                   style={{ left: artboard.x, top: artboard.y }}
                 >
                   <div
@@ -594,6 +586,18 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       </button>
                     )}
                     <span className={styles.spacer} />
+                    {artboardTweaks(artboard.file).length > 0 && (
+                      <button
+                        type="button"
+                        aria-label={`Tweaks · ${artboardTweaks(artboard.file).length}`}
+                        aria-expanded={tweaksOpenFor === artboard.file}
+                        className={styles.tweaksButton}
+                        onClick={() => setTweaksOpenFor(tweaksOpenFor === artboard.file ? null : artboard.file)}
+                      >
+                        Tweaks
+                        <span className={styles.tweaksCount}>{artboardTweaks(artboard.file).length}</span>
+                      </button>
+                    )}
                     <Tooltip label="Commenter l'artboard entier">
                       <button
                         type="button"
@@ -617,11 +621,6 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       onPreview={(previewId) => setPreview(previewId ? { file: artboard.file, versionId: previewId } : null)}
                       onRestore={(restoreId) => restore(artboard.file, restoreId)}
                     />
-                    {artboardTweaks(artboard.file).length > 0 && (
-                      <button type="button" aria-expanded={tweaksOpenFor === artboard.file} className={styles.tweaksButton} onClick={() => setTweaksOpenFor(tweaksOpenFor === artboard.file ? null : artboard.file)}>
-                        Tweaks
-                      </button>
-                    )}
                     <Tooltip label={`Copier le lien de ${artboard.file}`}>
                       <button
                         type="button"
@@ -630,16 +629,6 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         onClick={() => copyLink({ name: "page", pageId, artboard: artboard.file }, artboard.file)}
                       >
                         <CopyLinkIcon />
-                      </button>
-                    </Tooltip>
-                    <Tooltip label={`Copier le lien plein écran de ${artboard.file}`}>
-                      <button
-                        type="button"
-                        aria-label={`Copier le lien plein écran de ${artboard.file}`}
-                        className={styles.iconButton}
-                        onClick={() => copyLink(playRoute(pageId, artboard.file), artboard.file)}
-                      >
-                        <CopyPlayLinkIcon />
                       </button>
                     </Tooltip>
                     <Tooltip label="Plein écran">
@@ -652,6 +641,12 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         <FullscreenIcon />
                       </button>
                     </Tooltip>
+                    <ArtboardMoreMenu
+                      file={artboard.file}
+                      open={moreOpenFor === artboard.file}
+                      onOpenChange={(open) => setMoreOpenFor(open ? artboard.file : null)}
+                      onCopyPlayLink={() => copyLink(playRoute(pageId, artboard.file), artboard.file)}
+                    />
                   </div>
                   {outlined === artboard.file && (
                     <span
