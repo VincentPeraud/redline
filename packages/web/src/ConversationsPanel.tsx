@@ -14,6 +14,7 @@ import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from 
 import { contextChips } from "./messageContext.js";
 import { workQueueLabel } from "./queueLabel.js";
 import { CreatedPageCards } from "./CreatedPageCards.js";
+import { PendingDiffusionCard } from "./PendingDiffusionCard.js";
 import { activityLabel } from "./sessionsView.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
@@ -53,6 +54,8 @@ function SessionLine({ conversation }: { conversation: ConversationDetail }) {
 interface Props {
   pageId: string;
   pageTitle: string;
+  /** Version of the page: a run publishes after storing its answer, so the conversation reloads when it changes. */
+  versionId: string;
   artboardCount: number;
   /** Artboards of the page, to title the pills that point at them; null until the manifest is known. */
   artboards: { file: string; title: string }[] | null;
@@ -76,7 +79,7 @@ interface Props {
 }
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
-export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards, onCenterArtboard, onMissingArtboard, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
+export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   /** `activeId` as of now, not as of the last render: a message sent right after "+ Nouvelle" must land in the conversation just created. */
@@ -125,7 +128,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
   useEffect(() => {
     if (activeId) void refreshDetail(activeId);
     else setDetail(null);
-  }, [activeId, refreshDetail]);
+  }, [activeId, versionId, refreshDetail]);
 
   /** One creation at a time: a message sent while "+ Nouvelle" is still in flight joins it instead of creating a second conversation. */
   function createConversation(): Promise<string> {
@@ -187,6 +190,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
   const lastRun = detail ? runs.find((r) => r.workId === detail.runWorkId) : undefined;
   const run = lastRun?.status === "answered" ? undefined : lastRun;
   const queued = workQueueLabel(queue, detail?.runWorkId);
+  const lastDesignSystemAnswer = [...(detail?.messages ?? [])].reverse().find((m) => m.designSystemId)?.id;
   const sessionId = activeId ? sessions.get(activeId)?.sessionId : undefined;
 
   return (
@@ -294,6 +298,7 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
                   )}
                 </div>
                 <CreatedPageCards pages={m.createdPages} />
+                {m.designSystemId && m.id === lastDesignSystemAnswer && <PendingDiffusionCard designSystemId={m.designSystemId} refreshKey={versionId} />}
               </Fragment>
             ),
           )}
