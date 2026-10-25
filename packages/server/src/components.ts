@@ -1,4 +1,4 @@
-import { assembleComponents, type ComponentAssembly, type ComponentPage } from "@redline/shared";
+import { assembleComponents, componentNameOf, type ComponentAssembly, type ComponentPage } from "@redline/shared";
 import type { Store } from "./store.js";
 
 /** The pages of a project (a design system is one) as the component assembly takes them, `replacing` the files of one page. */
@@ -13,6 +13,15 @@ function componentPages(store: Store, projectId: string, replacing?: { pageId: s
 /** Components assembled from the current pages of a project or design system. */
 export function projectComponents(store: Store, projectId: string): ComponentAssembly {
   return assembleComponents(componentPages(store, projectId));
+}
+
+/** The component files (`components/<name>.html`) of the pages of a project or design system, by path. */
+export function componentFilesOf(store: Store, projectId: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  for (const page of componentPages(store, projectId)) {
+    for (const [path, content] of Object.entries(page.files)) if (componentNameOf(path) !== null) files[path] = content;
+  }
+  return files;
 }
 
 /** Error message when publishing `files` on `pageId` would define a component name twice in its project, else null. */

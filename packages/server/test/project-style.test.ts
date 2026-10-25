@@ -76,13 +76,16 @@ describe("project style", () => {
     expect(list[1]!.content).toBe(NEUTRAL_TOKENS_CSS);
   });
 
-  it("puts the project style in the working copy, but not for a design system page", async () => {
+  it("puts the project style in the working copy, and the draft tokens for a design system page", async () => {
     const project = await createProject();
     const page = await createPage(project);
     expect((await checkout(page)).project.projectStyle).toBe(NEUTRAL_TOKENS_CSS);
     const ds = await createDesignSystem();
     const dsPage = ((await (await server.get(`/api/projects/${ds.id}/pages`)).json()) as Page[])[0]!;
-    expect((await checkout(dsPage)).project.projectStyle).toBeUndefined();
+    const dsCheckout = await checkout(dsPage);
+    expect(dsCheckout.project.projectStyle).toContain("--color-primary");
+    expect(dsCheckout.project.designSystem).toBeUndefined();
+    expect(dsCheckout.project.editsDesignSystem?.id).toBe(ds.id);
   });
 
   it("saves a project style published with a page as a version carrying its origin, and refuses a stale base", async () => {

@@ -1,5 +1,6 @@
 import {
   DESIGN_SYSTEM_TOKENS_PATH,
+  WORKING_COPY_DESIGN_SYSTEM_DIR,
   EFFORTS,
   MANIFEST_PATH,
   MAX_TITLE_LENGTH,
@@ -169,6 +170,10 @@ export function versionRequestError(body: Partial<CreateVersionRequest> | undefi
   const { files, message, origin } = body ?? {};
   const invalidFiles = pageFilesError(files, requireElementIds);
   if (invalidFiles) return invalidFiles;
+  const readOnly = Object.keys(files!).find((path) => path.startsWith(`${WORKING_COPY_DESIGN_SYSTEM_DIR}/`));
+  if (readOnly) {
+    return `${readOnly}: ${WORKING_COPY_DESIGN_SYSTEM_DIR}/ is the read-only copy of the design system's current diffusion. A project session cannot edit the design system: propose the change to the user instead.`;
+  }
   const tokens = files![DESIGN_SYSTEM_TOKENS_PATH];
   if (designSystemPage && tokens !== undefined) {
     const invalidTokens = tokensError(tokens);

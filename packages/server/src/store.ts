@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { projectComponents } from "./components.js";
+import { componentFilesOf, projectComponents } from "./components.js";
 import {
   EMPTY_VIEW_SETTINGS,
   diffDiffusionStates,
@@ -141,6 +141,7 @@ export class Store {
         design_md_hash TEXT NOT NULL,
         component_list_hash TEXT NOT NULL,
         index_hash TEXT NOT NULL,
+        component_files_hash TEXT,
         PRIMARY KEY (design_system_id, number)
       );
       CREATE TABLE IF NOT EXISTS project_files (
@@ -206,6 +207,7 @@ export class Store {
     // Page types were removed (2026-10-22); the column was NOT NULL, so databases from before must drop it.
     if (columnsOf("pages").includes("type")) this.db.exec("ALTER TABLE pages DROP COLUMN type");
     addColumn("design_systems", "current_diffusion", "INTEGER");
+    addColumn("design_system_diffusions", "component_files_hash", "TEXT");
     addColumn("pages", "created_by", "TEXT NOT NULL DEFAULT 'user'");
     // The old per-project boolean (default 0) becomes a nullable override of the global setting: only an explicit "allow" is kept.
     if (!columnsOf("projects").includes("takeover_override")) {
@@ -322,9 +324,10 @@ export class Store {
    * The draft of a design system: its current project-level tokens and DESIGN.md and the components of its pages.
    * It becomes a diffusion with `createDiffusion`; "pending" = the draft differs from the current diffusion.
    */
-  designSystemDraft(id: string): { state: DiffusionState; componentsCss: string; assembly: ReturnType<typeof projectComponents> } {
+  designSystemDraft(id: string): { state: DiffusionState; componentsCss: string; componentFiles: Record<string, string>; assembly: ReturnType<typeof projectComponents> } {
     const assembly = projectComponents(this, id);
     return {
+      componentFiles: componentFilesOf(this, id),
       state: {
         tokensCss: this.readProjectFile(id, DESIGN_SYSTEM_TOKENS_PATH)?.toString("utf8") ?? "",
         designMd: this.readProjectFile(id, DESIGN_MD_PATH)?.toString("utf8") ?? "",
@@ -347,13 +350,13 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO design_system_diffusions
-         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         designSystemId, number, createdAt, origin, text,
         blob(draft.state.tokensCss), blob(draft.componentsCss), blob(draft.state.designMd),
-        blob(JSON.stringify(draft.assembly.components)), blob(JSON.stringify(draft.assembly.indexes)),
+        blob(JSON.stringify(draft.assembly.components)), blob(JSON.stringify(draft.assembly.indexes)), blob(JSON.stringify(draft.componentFiles)),
       );
     this.db.prepare("UPDATE design_systems SET current_diffusion = ? WHERE project_id = ?").run(number, designSystemId);
     return { number, createdAt, origin, summary: text };
@@ -373,11 +376,11 @@ export class Store {
     return rows;
   }
 
-  /** One file of a diffusion (`tokens.css`, `components.css`, `DESIGN.md`, `components.json` the component list, `index.json` the per-page index). */
-  readDiffusionFile(designSystemId: string, number: number, file: "tokens.css" | "components.css" | "DESIGN.md" | "components.json" | "index.json"): string | undefined {
-    const column = { "tokens.css": "tokens_hash", "components.css": "components_hash", "DESIGN.md": "design_md_hash", "components.json": "component_list_hash", "index.json": "index_hash" }[file];
-    const row = this.db.prepare(`SELECT ${column} AS hash FROM design_system_diffusions WHERE design_system_id = ? AND number = ?`).get(designSystemId, number) as { hash: string } | undefined;
-    return row && readFileSync(join(this.blobDir, row.hash), "utf8");
+  /** One file of a diffusion (`tokens.css`, `components.css`, `DESIGN.md`, `components.json` the component list, `index.json` the per-page index, `component-files.json` the component files by path). */
+  readDiffusionFile(designSystemId: string, number: number, file: "tokens.css" | "components.css" | "DESIGN.md" | "components.json" | "index.json" | "component-files.json"): string | undefined {
+    const column = { "tokens.css": "tokens_hash", "components.css": "components_hash", "DESIGN.md": "design_md_hash", "components.json": "component_list_hash", "index.json": "index_hash", "component-files.json": "component_files_hash" }[file];
+    const row = this.db.prepare(`SELECT ${column} AS hash FROM design_system_diffusions WHERE design_system_id = ? AND number = ?`).get(designSystemId, number) as { hash: string | null } | undefined;
+    return row?.hash ? readFileSync(join(this.blobDir, row.hash), "utf8") : undefined;
   }
 
   /** A diffusion as the diff reads it. */

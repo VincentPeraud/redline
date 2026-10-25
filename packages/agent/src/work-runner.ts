@@ -4,7 +4,8 @@ import type { Engine } from "./engine.js";
 import { pageAddresses } from "./page-addresses.js";
 import { startSessionMcp } from "./session-mcp.js";
 import type { ServerApi } from "./server-api.js";
-import { readDesignMd, readProjectStyle, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
+import { designSystemNote } from "./design-system-note.js";
+import { readDesignMd, readDesignSystemEdits, readProjectStyle, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
 
 export interface RunContext {
   folder: string;
@@ -44,7 +45,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
     try {
       const request = {
         sessionId: item.sessionId,
-        message: `Working copy of the page: .redline/${item.pageId}/ (edit its files; write nowhere else).\n${pageAddresses(api, item.pageId, checkout.files)}\n\n${item.message}`,
+        message: `Working copy of the page: .redline/${item.pageId}/ (edit its files; write nowhere else).\n${pageAddresses(api, item.pageId, checkout.files)}\n${designSystemNote(checkout.project)}\n\n${item.message}`,
         cwd: folder,
         workingCopyDir: workingCopyDir(folder, item.pageId),
         mcpUrl: mcp.url,
@@ -62,7 +63,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
     if (result?.type !== "result") throw new Error("The engine ended without a result.");
 
     const baseStyle = checkout.project.projectStyle;
-    const files = readWorkingCopy(dir, baseStyle !== undefined);
+    const files = { ...readWorkingCopy(dir, baseStyle !== undefined), ...readDesignSystemEdits(dir, checkout.project.designSystem?.files) };
     // Assets belong to the project: new or changed ones go up first, so the version that uses them shows them.
     await uploadChangedAssets(api, item.pageId, dir, checkout.project.assets);
     const postReplies = async () => {

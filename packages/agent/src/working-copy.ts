@@ -30,10 +30,10 @@ export function pathInside(dir: string, path: string): string {
 export function writeWorkingCopy(folder: string, pageId: string, checkout: AgentCheckout): string {
   const dir = workingCopyDir(folder, pageId);
   rmSync(dir, { recursive: true, force: true });
-  const write = (path: string, content: string | Buffer) => {
+  const write = (path: string, content: string | Buffer, mode?: number) => {
     const target = pathInside(dir, path);
     mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, content);
+    writeFileSync(target, content, mode === undefined ? undefined : { mode });
   };
   for (const [path, content] of Object.entries(checkout.files)) write(path, content);
   // Project context for the session to read; never published back (see `readWorkingCopy`).
@@ -41,7 +41,8 @@ export function writeWorkingCopy(folder: string, pageId: string, checkout: Agent
   write(DESIGN_MD_PATH, designMd);
   if (projectStyle !== undefined) write(PROJECT_STYLE_PATH, projectStyle);
   for (const [name, base64] of Object.entries(assets)) write(`${ASSETS_DIR}/${name}`, Buffer.from(base64, "base64"));
-  for (const [path, content] of Object.entries(designSystem.files)) write(`${WORKING_COPY_DESIGN_SYSTEM_DIR}/${path}`, content);
+  // The design system's current diffusion is for reading: read-only files (a publish touching them is refused anyway).
+  for (const [path, content] of Object.entries(designSystem?.files ?? {})) write(`${WORKING_COPY_DESIGN_SYSTEM_DIR}/${path}`, content, 0o444);
   mkdirSync(dir, { recursive: true });
   ensureGitignored(folder);
   return dir;
@@ -66,6 +67,28 @@ export function readWorkingCopy(dir: string, hasProjectStyle = false): Record<st
   };
   walk(dir);
   return files;
+}
+
+/**
+ * Files of `.design-system/` that the session added or changed (path as in the working copy). They are never part of a
+ * page, so the caller publishes them with the page files only to have the server refuse them.
+ */
+export function readDesignSystemEdits(dir: string, base: Record<string, string> = {}): Record<string, string> {
+  const root = join(dir, WORKING_COPY_DESIGN_SYSTEM_DIR);
+  const edits: Record<string, string> = {};
+  const walk = (current: string) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile()) {
+        const path = relative(root, full).split("\\").join("/");
+        const content = readFileSync(full, "utf8");
+        if (base[path] !== content) edits[`${WORKING_COPY_DESIGN_SYSTEM_DIR}/${path}`] = content;
+      }
+    }
+  };
+  if (existsSync(root)) walk(root);
+  return edits;
 }
 
 /**
