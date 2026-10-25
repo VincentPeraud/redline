@@ -47,7 +47,7 @@ it("lets the new comment choose the model and effort of the thread's first run",
   await tab.close();
 }, 60_000);
 
-it("reloads the open artboards when their design system gets a new version", async () => {
+it("reloads the open artboards when their design system gets a new diffusion", async () => {
   // A project that follows a shared design system (its project style is empty, so the design system's values show).
   const designSystem = (await (await seam.server.post("/api/design-systems", { title: "Live", files: { "tokens.css": NEUTRAL_TOKENS_CSS, "index.html": "<h1>Live</h1>" } })).json()) as DesignSystem;
   const project = (await (await seam.server.post("/api/projects", { title: "Follower", designSystem: designSystem.id })).json()) as Project;
@@ -75,6 +75,8 @@ it("reloads the open artboards when their design system gets a new version", asy
     origin: "thread",
   });
   expect(res.status).toBe(201);
+  // The edit is a draft: the project keeps its diffusion until the user diffuses.
+  expect((await seam.server.post(`/api/design-systems/${designSystem.id}/diffusions`, {})).status).toBe(201);
 
   await expect.poll(colour).toBe("rgb(255, 0, 0)");
   expect(before).not.toBe("rgb(255, 0, 0)");
