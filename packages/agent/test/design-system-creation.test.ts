@@ -17,7 +17,7 @@ describe("design system creation", () => {
     const res = await seam.server.post("/api/design-systems", { title: "Fresh" });
     expect(res.status).toBe(201);
     const ds = (await res.json()) as DesignSystem;
-    expect(await seam.readFile(ds.pageId, "tokens.css")).toContain("--color-primary");
+    expect(((await (await seam.server.get(`/api/design-systems/${ds.id}/tokens`)).json()) as { content: string }).content).toContain("--color-primary");
     expect(engine.runs).toHaveLength(0);
     const list = (await (await seam.server.get("/api/design-systems")).json()) as DesignSystemSummary[];
     expect(list.find((d) => d.id === ds.id)?.usedBy).toEqual([]);
@@ -43,7 +43,7 @@ describe("design system creation", () => {
     const message = engine.runs[0].message;
     expect(message).toContain("#abcdef");
     expect(message).toContain("Keep it playful");
-    expect(await seam.readFile(ds.pageId, "tokens.css")).toContain("#0f766e");
+    expect(((await (await seam.server.get(`/api/design-systems/${ds.id}/tokens`)).json()) as { content: string }).content).toContain("#0f766e");
     const conversations = (await (await seam.server.get(`/api/pages/${ds.pageId}/conversations`)).json()) as { id: string }[];
     const detail = (await (await seam.server.get(`/api/conversations/${conversations[0].id}`)).json()) as ConversationDetail;
     expect(detail.messages[0].body).toBe("Keep it playful");
