@@ -59,6 +59,8 @@ describe("moving an artboard to another page over the server HTTP API", () => {
 
     expect((await versions(web))[0].message).toBe("btn.html déplacé vers Boutons");
     expect((await versions(buttons))[0].message).toBe("btn.html reçu de Web");
+    expect((await versions(web))[0].origin).toBe("user");
+    expect((await versions(buttons))[0].origin).toBe("user");
     expect(result.sourceVersion.id).toBe((await versions(web))[0].id);
     expect(result.targetVersion.id).toBe((await versions(buttons))[0].id);
   });

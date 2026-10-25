@@ -360,7 +360,7 @@ export async function buildMainApp(
   });
 
   app.post<{ Params: { pageId: string }; Body: Partial<MoveArtboardRequest> }>("/api/pages/:pageId/move-artboard", async (req, reply) => {
-    const outcome = moveArtboard(store, pageLock, req.params.pageId, req.body, { origin: "restore" });
+    const outcome = moveArtboard(store, pageLock, req.params.pageId, req.body, { origin: "user" });
     return reply.code(outcome.status).send(outcome.body);
   });
 
