@@ -19,6 +19,7 @@ import {
   type ProjectContext,
   type SaveDesignMdRequest,
 } from "@redline/shared";
+import { componentFilesOf } from "./components.js";
 import type { Store } from "./store.js";
 
 /** Design system a page uses (as of one of its versions when given): the one its manifest names if it exists, else the neutral one. */
@@ -105,6 +106,7 @@ export function projectContext(store: Store, pageId: string): ProjectContext {
     assets,
     // A project's style, or the draft tokens of a design system's own project: the same root file either way.
     projectStyle: store.readProjectFile(page.projectId, PROJECT_STYLE_PATH)?.toString("utf8") ?? "",
+    ...(own ? {} : { projectComponents: componentFilesOf(store, page.projectId) }),
     ...(own ? { editsDesignSystem: { id: own.id, title: own.title } } : { designSystem: designSystemContext(store, page.projectId, designSystemIdOf(store, pageId)) }),
   };
 }

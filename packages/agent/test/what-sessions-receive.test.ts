@@ -123,6 +123,49 @@ describe("a project session's .design-system/ folder", () => {
   });
 });
 
+describe("a project session's .project-components/ folder", () => {
+  const sticker = { "components/sticker.html": component(".sticker{color:red}", "A sticker"), "manifest.json": JSON.stringify({ artboards: [{ file: "components/sticker.html", x: 0, y: 0, width: 200, height: 100 }] }) };
+
+  it("holds the components of every page of the project, read-only, and the message says so", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Looked" }]);
+    seam = await startSeam2(engine);
+    await seam.createPage(sticker, "Stickers");
+    const page = await seam.createPage({ "index.html": "<h1>Home</h1>" });
+    await seam.pinThread(page.id, "index.html", "Look");
+    await seam.waitForWorkEnd();
+
+    const file = join(seam.folder, ".redline", page.id, ".project-components", "components", "sticker.html");
+    expect(readFileSync(file, "utf8")).toContain(".sticker{color:red}");
+    expect(statSync(file).mode & 0o222).toBe(0);
+    expect(engine.runs[0].message).toContain(".project-components/");
+    expect(engine.runs[0].message).toContain("sticker");
+  });
+
+  it("is refused when a session edits it, and nothing is published", async () => {
+    const engine = new FakeEngine([{ edit: { path: ".project-components/components/sticker.html", content: "<p>mine</p>" } }, { type: "result", summary: "Tried" }]);
+    seam = await startSeam2(engine, { retryDelaysMs: [] });
+    await seam.createPage(sticker, "Stickers");
+    const page = await seam.createPage({ "index.html": "<h1>Home</h1>" });
+    await seam.pinThread(page.id, "index.html", "Change the sticker");
+    await seam.waitForWorkEnd();
+
+    expect(seam.workMessages().find((m) => m.type === "work-failed")).toMatchObject({ message: expect.stringContaining(".project-components/") });
+    expect(await listVersions(page.id)).toBe(1);
+  });
+
+  it("is refused by the server for any publish carrying its files", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage({ "index.html": "<h1>Home</h1>" });
+    const res = await seam.server.post(`/api/pages/${page.id}/versions`, {
+      files: { "index.html": "<h1>Home</h1>", ".project-components/components/x.html": "x" },
+      message: "Sneaky",
+      origin: "user",
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain(".project-components/");
+  });
+});
+
 describe("the session message", () => {
   it("lists the design system pages and the pages the project uses, from component classes", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Looked" }]);

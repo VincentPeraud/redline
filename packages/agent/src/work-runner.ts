@@ -65,7 +65,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
     if (result?.type !== "result") throw new Error("The engine ended without a result.");
 
     const baseStyle = checkout.project.projectStyle;
-    const files = { ...readWorkingCopy(dir, baseStyle !== undefined), ...readDesignSystemEdits(dir, checkout.project.designSystem?.files) };
+    const files = { ...readWorkingCopy(dir, baseStyle !== undefined), ...readDesignSystemEdits(dir, checkout.project.designSystem?.files, checkout.project.projectComponents) };
     // Assets belong to the project: new or changed ones go up first, so the version that uses them shows them.
     await uploadChangedAssets(api, item.pageId, dir, checkout.project.assets);
     const postReplies = async () => {

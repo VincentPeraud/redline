@@ -8,6 +8,8 @@ export const ASSETS_DIR = "assets";
 export const MAX_ASSET_BYTES = 20 * 1024 * 1024;
 /** Read-only folder of a project session's working copy holding the design system's current diffusion. */
 export const WORKING_COPY_DESIGN_SYSTEM_DIR = ".design-system";
+/** Read-only folder of a project session's working copy holding the component files of every page of the project. */
+export const WORKING_COPY_PROJECT_COMPONENTS_DIR = ".project-components";
 
 export interface ProjectAsset {
   /** Path relative to the asset folder, e.g. `logo.png` or `fonts/inter.woff2`. */
@@ -78,6 +80,8 @@ export interface ProjectContext {
   projectStyle?: string;
   /** Project sessions: the design system's current diffusion, written to `.design-system/` (read-only). Absent for a design system's own pages. */
   designSystem?: DesignSystemContext;
+  /** Project sessions: the component files (`components/<name>.html`) of every page of the project, written to `.project-components/` (read-only). Absent for a design system's own pages. */
+  projectComponents?: Record<string, string>;
   /** Design system sessions: the design system whose draft (tokens, DESIGN.md, pages) the session edits. */
   editsDesignSystem?: { id: string; title: string };
 }
@@ -96,5 +100,5 @@ export interface DesignSystemContext {
 
 /** True for working copy paths that belong to the project, not to the page. */
 export function isProjectContextPath(path: string): boolean {
-  return path === DESIGN_MD_PATH || path.startsWith(`${ASSETS_DIR}/`) || path.startsWith(`${WORKING_COPY_DESIGN_SYSTEM_DIR}/`);
+  return path === DESIGN_MD_PATH || path.startsWith(`${ASSETS_DIR}/`) || path.startsWith(`${WORKING_COPY_DESIGN_SYSTEM_DIR}/`) || path.startsWith(`${WORKING_COPY_PROJECT_COMPONENTS_DIR}/`);
 }

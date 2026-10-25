@@ -1,6 +1,7 @@
 import {
   DESIGN_SYSTEM_TOKENS_PATH,
   WORKING_COPY_DESIGN_SYSTEM_DIR,
+  WORKING_COPY_PROJECT_COMPONENTS_DIR,
   EFFORTS,
   MANIFEST_PATH,
   MAX_TITLE_LENGTH,
@@ -173,6 +174,10 @@ export function versionRequestError(body: Partial<CreateVersionRequest> | undefi
   const readOnly = Object.keys(files!).find((path) => path.startsWith(`${WORKING_COPY_DESIGN_SYSTEM_DIR}/`));
   if (readOnly) {
     return `${readOnly}: ${WORKING_COPY_DESIGN_SYSTEM_DIR}/ is the read-only copy of the design system's current diffusion. A project session cannot edit the design system: propose the change to the user instead.`;
+  }
+  const readOnlyComponents = Object.keys(files!).find((path) => path.startsWith(`${WORKING_COPY_PROJECT_COMPONENTS_DIR}/`));
+  if (readOnlyComponents) {
+    return `${readOnlyComponents}: ${WORKING_COPY_PROJECT_COMPONENTS_DIR}/ is the read-only copy of the project's components. Edit a component in the page that defines it (components/<name>.html in that page's files).`;
   }
   const tokens = files![DESIGN_SYSTEM_TOKENS_PATH];
   if (designSystemPage && tokens !== undefined) {
