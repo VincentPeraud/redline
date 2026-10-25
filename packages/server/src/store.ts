@@ -4,6 +4,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import {
   EMPTY_VIEW_SETTINGS,
+  DESIGN_MD_PATH,
   DESIGN_SYSTEM_TOKENS_PATH,
   MANIFEST_PATH,
   canvasElementSummary,
@@ -201,6 +202,7 @@ export class Store {
     addColumn("thread_replies", "created_page_ids", "TEXT");
     addColumn("conversation_messages", "created_page_ids", "TEXT");
     addColumn("conversation_messages", "targets", "TEXT");
+    addColumn("design_md_versions", "path", `TEXT NOT NULL DEFAULT '${DESIGN_MD_PATH}'`);
     addColumn("design_md_versions", "origin", "TEXT NOT NULL DEFAULT 'user'");
     addColumn("design_md_versions", "origin_id", "TEXT");
     addColumn("design_md_versions", "origin_label", "TEXT");
@@ -214,6 +216,7 @@ export class Store {
     if (!this.getDesignSystem(NEUTRAL_DESIGN_SYSTEM_ID)) {
       this.createDesignSystem("Neutral", { [DESIGN_SYSTEM_TOKENS_PATH]: NEUTRAL_TOKENS_CSS, "index.html": NEUTRAL_TOKENS_PAGE_HTML }, NEUTRAL_DESIGN_SYSTEM_ID);
     }
+    this.moveDesignSystemTokensToProjects();
   }
 
   /** Replaces the persisted work queue (see `PageLock`) with `rows`, in order. */
@@ -267,10 +270,15 @@ export class Store {
     }));
   }
 
-  /** A design system is a project (same id) with one page holding its tokens and components. */
+  /**
+   * A design system is a project (same id) with any number of pages, plus project-level `tokens.css` and DESIGN.md.
+   * `files` are those of its first page; a `tokens.css` among them is stored at the project level instead.
+   */
   createDesignSystem(title: string, files: Record<string, string>, id: string = randomUUID()): DesignSystem {
     this.createProject(title, id);
-    const page = this.createPage(id, title, files);
+    const { [DESIGN_SYSTEM_TOKENS_PATH]: tokens, ...pageFiles } = files;
+    if (tokens !== undefined) this.saveDesignMd(id, DESIGN_SYSTEM_TOKENS_PATH, Buffer.from(tokens, "utf8"));
+    const page = this.createPage(id, title, pageFiles);
     this.db.prepare("INSERT INTO design_systems (project_id, page_id) VALUES (?, ?)").run(id, page.id);
     return { id, title, pageId: page.id };
   }
@@ -320,11 +328,34 @@ export class Store {
       .all(designSystemId) as { id: string; title: string }[];
   }
 
-  /** The design system a page belongs to as its own page (the page that holds its tokens), if any. */
+  /** The design system a page belongs to (one of its own pages), if any. */
   designSystemOfPage(pageId: string): DesignSystem | undefined {
     return this.db
-      .prepare("SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id WHERE d.page_id = ?")
+      .prepare(
+        `SELECT p.id, p.title, d.page_id AS pageId FROM pages pg JOIN design_systems d ON d.project_id = pg.project_id
+         JOIN projects p ON p.id = d.project_id WHERE pg.id = ?`,
+      )
       .get(pageId) as DesignSystem | undefined;
+  }
+
+  /**
+   * Design systems stored before tokens became project-level kept `tokens.css` in their page: move it to the project
+   * (as its first version) and record a page version without it. Idempotent.
+   */
+  private moveDesignSystemTokensToProjects(): void {
+    for (const designSystem of this.listDesignSystems()) {
+      for (const page of this.listPages(designSystem.id)) {
+        const hash = page.version.files[DESIGN_SYSTEM_TOKENS_PATH];
+        if (hash === undefined) continue;
+        const { [DESIGN_SYSTEM_TOKENS_PATH]: _moved, ...rest } = page.version.files;
+        this.db.transaction(() => {
+          if (!this.readProjectFile(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH)) {
+            this.saveDesignMd(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH, readFileSync(join(this.blobDir, hash)));
+          }
+          this.insertVersion(page.id, JSON.stringify(rest), "Tokens moved to the design system", "creation");
+        })();
+      }
+    }
   }
 
   listPageIds(): string[] {
@@ -332,7 +363,7 @@ export class Store {
   }
 
   isDesignSystemPage(pageId: string): boolean {
-    return this.db.prepare("SELECT 1 FROM design_systems WHERE page_id = ?").get(pageId) !== undefined;
+    return this.designSystemOfPage(pageId) !== undefined;
   }
 
   close(): void {
@@ -498,23 +529,23 @@ export class Store {
     return hash;
   }
 
-  /** Saves DESIGN.md and records a version with its author, unless the content is the one already stored. */
+  /** Saves a versioned project-level file (DESIGN.md, a design system's `tokens.css`) and records a version with its author, unless the content is the one already stored. */
   saveDesignMd(projectId: string, path: string, content: Buffer, author: DesignMdAuthor = { origin: "user" }): void {
     const unchanged = this.readProjectFile(projectId, path)?.equals(content) ?? false;
     const hash = this.setProjectFile(projectId, path, content);
     if (unchanged) return;
     this.db
-      .prepare("INSERT INTO design_md_versions (id, project_id, hash, created_at, origin, origin_id, origin_label) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(randomUUID(), projectId, hash, now(), author.origin, author.originId ?? null, author.originLabel ?? null);
+      .prepare("INSERT INTO design_md_versions (id, project_id, path, hash, created_at, origin, origin_id, origin_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(randomUUID(), projectId, path, hash, now(), author.origin, author.originId ?? null, author.originLabel ?? null);
   }
 
-  /** DESIGN.md versions, newest first. */
-  listDesignMdVersions(projectId: string): DesignMdVersion[] {
+  /** Versions of DESIGN.md (or of another versioned project-level file, `path`), newest first. */
+  listDesignMdVersions(projectId: string, path: string = DESIGN_MD_PATH): DesignMdVersion[] {
     const rows = this.db
       .prepare(
-        "SELECT id, hash, created_at, origin, origin_id, origin_label FROM design_md_versions WHERE project_id = ? ORDER BY created_at DESC, rowid DESC",
+        "SELECT id, hash, created_at, origin, origin_id, origin_label FROM design_md_versions WHERE project_id = ? AND path = ? ORDER BY created_at DESC, rowid DESC",
       )
-      .all(projectId) as { id: string; hash: string; created_at: string; origin: DesignMdVersion["origin"]; origin_id: string | null; origin_label: string | null }[];
+      .all(projectId, path) as { id: string; hash: string; created_at: string; origin: DesignMdVersion["origin"]; origin_id: string | null; origin_label: string | null }[];
     return rows.map((r) => ({
       id: r.id,
       content: readFileSync(join(this.blobDir, r.hash), "utf8"),
@@ -949,7 +980,17 @@ export class Store {
 
   /** Records a new version of the page from file contents. */
   addVersion(pageId: string, files: Record<string, string>, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
-    return this.createVersion(pageId, files, message, origin, ref);
+    const designSystem = this.designSystemOfPage(pageId);
+    const { [DESIGN_SYSTEM_TOKENS_PATH]: tokens, ...pageFiles } = files;
+    if (!designSystem || tokens === undefined) return this.createVersion(pageId, files, message, origin, ref);
+    // A design system's tokens belong to the design system, not to the page they were published from.
+    const author: DesignMdAuthor = {
+      origin: origin === "thread" || origin === "conversation" || origin === "terminal" ? origin : "user",
+      ...(ref?.originId ? { originId: ref.originId } : {}),
+      ...(ref?.originLabel ? { originLabel: ref.originLabel } : {}),
+    };
+    this.saveDesignMd(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH, Buffer.from(tokens, "utf8"), author);
+    return this.createVersion(pageId, pageFiles, message, origin, ref);
   }
 
   /** Records a version whose files are given as path -> blob hash (hashes of this store). */

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import {
   ASSETS_DIR,
   DESIGN_MD_PATH,
+  DESIGN_SYSTEM_TOKENS_PATH,
   MAX_ASSET_BYTES,
   MANIFEST_PATH,
   NEUTRAL_DESIGN_SYSTEM_ID,
@@ -43,7 +44,13 @@ export function projectContext(store: Store, pageId: string): ProjectContext {
   return {
     designMd: store.readProjectFile(page.projectId, DESIGN_MD_PATH)?.toString("utf8") ?? "",
     assets,
-    designSystem: { id: designSystem.id, files: store.readPageFiles(designSystem.pageId)!.files },
+    designSystem: {
+      id: designSystem.id,
+      files: {
+        ...store.readPageFiles(designSystem.pageId)!.files,
+        [DESIGN_SYSTEM_TOKENS_PATH]: store.readProjectFile(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH)?.toString("utf8") ?? "",
+      },
+    },
   };
 }
 
