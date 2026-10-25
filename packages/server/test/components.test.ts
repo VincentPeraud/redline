@@ -48,13 +48,13 @@ describe("components of design systems and projects", () => {
     expect(await projectCss(project)).toBe(".sticker{x:1}\n.frame{y:2}\n");
   });
 
-  it("serves the artboards of a project the design system's stylesheet, then the project's", async () => {
+  it("serves the artboards of a project the design system's stylesheets, then the project's", async () => {
     const ds = await createDesignSystem({});
     const project = await createProject();
     const page = (await (await addPage(project, "Flow", { "manifest.json": manifestOf(["a.html"], ds.id), "a.html": "<!doctype html><html><head></head><body></body></html>" })).json()) as Page;
     const html = await (await fetch(`${server.artboardOrigin}/pages/${page.id}/a.html`)).text();
     const hrefs = [...html.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map((m) => m[1]);
-    expect(hrefs).toEqual([`/design-systems/${ds.id}/tokens.css`, `/design-systems/${ds.id}/components.css`, `/projects/${project}/components.css`]);
+    expect(hrefs).toEqual([`/design-systems/${ds.id}/tokens.css`, `/design-systems/${ds.id}/components.css`, `/project-styles/${project}/tokens.css`, `/projects/${project}/components.css`]);
   });
 
   it("does not link a design system's own components twice on its pages", async () => {

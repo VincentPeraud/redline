@@ -6,6 +6,7 @@ import {
   type PageViewSettings,
   COMPONENTS_CSS_PATH,
   DESIGN_SYSTEM_TOKENS_PATH,
+  PROJECT_STYLE_PATH,
   MANIFEST_PATH,
   MAX_ASSET_BYTES,
   MAX_PAGE_BYTES,
@@ -29,7 +30,7 @@ import {
   type UpdatePageRequest,
   type UpdateProjectRequest,
 } from "@redline/shared";
-import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectComponents, injectDesignSystem } from "./bridge.js";
+import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
@@ -429,6 +430,16 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     store.projectExists(req.params.projectId) ? sendStylesheet(reply, projectComponents(store, req.params.projectId).css) : reply.code(404).send("not found"),
   );
 
+  app.get<{ Params: { projectId: string; "*": string } }>("/project-styles/:projectId/*", async (req, reply) => {
+    const { projectId } = req.params;
+    if (!store.projectExists(projectId) || store.isDesignSystemProject(projectId) || req.params["*"] !== PROJECT_STYLE_PATH) return reply.code(404).send("not found");
+    return reply
+      .header("content-security-policy", "sandbox allow-scripts")
+      .header("cache-control", "no-cache")
+      .type(MIME[extname(PROJECT_STYLE_PATH)] ?? "text/css")
+      .send(store.readProjectFile(projectId, PROJECT_STYLE_PATH) ?? "");
+  });
+
   // A page as it was in one version (history preview): same sandbox and injections as the live artboards, read-only.
   app.get<{ Params: { pageId: string; versionId: string; "*": string } }>("/page-versions/:pageId/:versionId/*", async (req, reply) =>
     serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"])),
@@ -438,11 +449,10 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readPageFile(req.params.pageId, req.params["*"])),
   );
 
-  /** Tokens first, then the design system's components, then the project's. */
-  function withStyles(html: string, pageId: string): string {
-    const designSystemId = designSystemIdOf(store, pageId);
-    const { projectId } = store.getPage(pageId)!;
-    return injectDesignSystem(injectComponents(html, designSystemId, store.getDesignSystem(projectId) ? null : projectId), designSystemId);
+  /** The page's project when it has a project style (every project but a design system's own). */
+  function projectStyleProjectOf(pageId: string): string | undefined {
+    const projectId = store.getPage(pageId)?.projectId;
+    return projectId !== undefined && !store.isDesignSystemProject(projectId) ? projectId : undefined;
   }
 
   function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined) {
@@ -455,7 +465,7 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[extname(path)] ?? "application/octet-stream")
-      .send(isHtml ? injectBridge(withStyles(content.toString("utf8"), pageId)) : content);
+      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), designSystemIdOf(store, pageId), projectStyleProjectOf(pageId))) : content);
   }
 
   return app;

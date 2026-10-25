@@ -4,7 +4,7 @@ import type { Engine } from "./engine.js";
 import { pageAddresses } from "./page-addresses.js";
 import { startSessionMcp } from "./session-mcp.js";
 import type { ServerApi } from "./server-api.js";
-import { readDesignMd, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
+import { readDesignMd, readProjectStyle, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
 
 export interface RunContext {
   folder: string;
@@ -59,7 +59,8 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
     if (result?.type === "error") throw new Error(result.message);
     if (result?.type !== "result") throw new Error("The engine ended without a result.");
 
-    const files = readWorkingCopy(dir);
+    const baseStyle = checkout.project.projectStyle;
+    const files = readWorkingCopy(dir, baseStyle !== undefined);
     // Assets belong to the project: new or changed ones go up first, so the version that uses them shows them.
     await uploadChangedAssets(api, item.pageId, dir, checkout.project.assets);
     const postReplies = async () => {
@@ -68,13 +69,16 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
     // The session may edit DESIGN.md (the rules of the project); a changed one is published with the run.
     const designMd = readDesignMd(dir);
     const designMdChanged = designMd !== undefined && designMd !== checkout.project.designMd;
-    if (sameFiles(files, checkout.files) && !designMdChanged) {
+    const projectStyle = baseStyle === undefined ? undefined : readProjectStyle(dir);
+    const projectStyleChanged = projectStyle !== undefined && projectStyle !== baseStyle;
+    if (sameFiles(files, checkout.files) && !designMdChanged && !projectStyleChanged) {
       await postReplies();
       return send({ type: "work-done", workId: item.id });
     }
     const version = await api.publish(item.pageId, files, versionMessage(item, result.summary), item.kind === "conversation" ? "conversation" : "thread", checkout.versionId, {
       workId: item.id,
       ...(designMdChanged ? { designMd: { content: designMd, base: checkout.project.designMd } } : {}),
+      ...(projectStyleChanged ? { projectStyle: { content: projectStyle, base: baseStyle } } : {}),
     });
     await postReplies();
     send({ type: "work-done", workId: item.id, versionId: version.id });

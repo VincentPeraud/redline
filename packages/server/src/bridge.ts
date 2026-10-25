@@ -1,4 +1,4 @@
-import { designSystemComponentsUrlPath, designSystemTokensUrlPath, projectComponentsUrlPath, HOVER_FINISH, MARK_FINISH, hoverLabelCss, hoverOutlineCss, markBadgeCss } from "@redline/shared";
+import { designSystemComponentsUrlPath, designSystemTokensUrlPath, projectComponentsUrlPath, projectStyleUrlPath, HOVER_FINISH, MARK_FINISH, hoverLabelCss, hoverOutlineCss, markBadgeCss } from "@redline/shared";
 
 /**
  * Script injected into every served artboard HTML. Artboards run in a sandboxed iframe with an
@@ -464,22 +464,17 @@ export function injectBridge(html: string): string {
   return end === -1 ? html + tag : html.slice(0, end) + tag + html.slice(end);
 }
 
-/** Links a design system's live tokens at the start of the document head, before the page's own styles. */
-export function injectDesignSystem(html: string, designSystemId: string): string {
-  const tag = `<link rel="stylesheet" href="${designSystemTokensUrlPath(designSystemId)}">`;
+/**
+ * Links, at the start of the document head and before the page's own styles: the design system's tokens and components,
+ * then, when the project has a style (`projectId`), its tokens and its components (they win over the design system by CSS order).
+ */
+export function injectDesignSystem(html: string, designSystemId: string, projectId?: string): string {
+  const link = (href: string) => `<link rel="stylesheet" href="${href}">`;
+  const tag =
+    link(designSystemTokensUrlPath(designSystemId)) +
+    link(designSystemComponentsUrlPath(designSystemId)) +
+    (projectId === undefined ? "" : link(projectStyleUrlPath(projectId)) + link(projectComponentsUrlPath(projectId)));
   const head = /<head[^>]*>/i.exec(html);
   if (head) return html.slice(0, head.index + head[0].length) + tag + html.slice(head.index + head[0].length);
   return tag + html;
-}
-
-/**
- * Links the component stylesheets at the start of the document head: the design system's, then the project's (skipped
- * for a design system's own project, whose components are the design system's). Call it before `injectDesignSystem`, which then puts the tokens first.
- */
-export function injectComponents(html: string, designSystemId: string, projectId: string | null): string {
-  const paths = [designSystemComponentsUrlPath(designSystemId), ...(projectId === null ? [] : [projectComponentsUrlPath(projectId)])];
-  const tags = paths.map((path) => `<link rel="stylesheet" href="${path}">`).join("");
-  const head = /<head[^>]*>/i.exec(html);
-  if (head) return html.slice(0, head.index + head[0].length) + tags + html.slice(head.index + head[0].length);
-  return tags + html;
 }

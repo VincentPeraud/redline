@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import {
   AGENT_API_PREFIX,
   DESIGN_MD_PATH,
+  PROJECT_STYLE_PATH,
   MAX_ASSET_BYTES,
   type AgentCheckout,
   type AgentReplyRequest,
@@ -83,10 +84,13 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
         const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId), true) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files);
         if (invalid) return reply.code(400).send({ error: invalid });
-        const { files, message, origin, baseVersionId, workId, designMd } = req.body;
+        const { files, message, origin, baseVersionId, workId, designMd, projectStyle } = req.body;
         if (!requiredString(baseVersionId)) return reply.code(400).send({ error: "baseVersionId is required" });
         if (designMd !== undefined && (typeof designMd?.content !== "string" || typeof designMd.base !== "string")) {
           return reply.code(400).send({ error: "designMd needs content and base" });
+        }
+        if (projectStyle !== undefined && (typeof projectStyle?.content !== "string" || typeof projectStyle.base !== "string")) {
+          return reply.code(400).send({ error: "projectStyle needs content and base" });
         }
         const record = () => {
           const result = mergeOntoCurrent(store, req.params.pageId, files, baseVersionId);
@@ -99,13 +103,17 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           if (designMdChanged && storedDesignMd !== designMd.base) {
             return reply.code(409).send({ error: "DESIGN.md changed since it was checked out. Check the page out again and redo the DESIGN.md change." });
           }
+          const storedStyle = store.readProjectFile(projectId, PROJECT_STYLE_PATH)?.toString("utf8") ?? "";
+          const styleChanged = projectStyle !== undefined && projectStyle.content !== storedStyle && !store.isDesignSystemProject(projectId);
+          if (styleChanged && storedStyle !== projectStyle.base) {
+            return reply.code(409).send({ error: "The project style (tokens.css) changed since it was checked out. Check the page out again and redo the tokens.css change." });
+          }
           const from = workOrigin(store, pageLock, workId, req.params.pageId);
           const ref: OriginRef | undefined = from && { originId: from.originId, originLabel: from.originLabel };
+          const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
-          if (designMdChanged) {
-            const author: DesignMdAuthor = from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" };
-            store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author);
-          }
+          if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());
+          if (styleChanged) store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(projectStyle.content, "utf8"), author());
           return reply.code(201).send(result.merged ? { ...version, merged: true } : version);
         };
         if (origin !== "terminal") return record();

@@ -12,6 +12,7 @@ import {
   parseManifest,
   NEUTRAL_DESIGN_SYSTEM_ID,
   NEUTRAL_TOKENS_CSS,
+  PROJECT_STYLE_PATH,
   NEUTRAL_TOKENS_PAGE_HTML,
   type DesignSystem,
   type DesignMdAuthor,
@@ -217,6 +218,7 @@ export class Store {
       this.createDesignSystem("Neutral", { [DESIGN_SYSTEM_TOKENS_PATH]: NEUTRAL_TOKENS_CSS, "index.html": NEUTRAL_TOKENS_PAGE_HTML }, NEUTRAL_DESIGN_SYSTEM_ID);
     }
     this.moveDesignSystemTokensToProjects();
+    this.giveProjectsTheirStyle();
   }
 
   /** Replaces the persisted work queue (see `PageLock`) with `rows`, in order. */
@@ -275,7 +277,7 @@ export class Store {
    * `files` are those of its first page; a `tokens.css` among them is stored at the project level instead.
    */
   createDesignSystem(title: string, files: Record<string, string>, id: string = randomUUID()): DesignSystem {
-    this.createProject(title, id);
+    this.insertProject(title, id, "", null);
     const { [DESIGN_SYSTEM_TOKENS_PATH]: tokens, ...pageFiles } = files;
     if (tokens !== undefined) this.saveDesignMd(id, DESIGN_SYSTEM_TOKENS_PATH, Buffer.from(tokens, "utf8"));
     const page = this.createPage(id, title, pageFiles);
@@ -436,11 +438,34 @@ export class Store {
     return rows.map(({ model, effort, ...agent }) => ({ ...agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}) }));
   }
 
-  createProject(title: string, id: string = randomUUID(), instructions = "", designSystem: string | null = null): Project {
+  private insertProject(title: string, id: string, instructions: string, designSystem: string | null): Project {
     this.db
       .prepare("INSERT INTO projects (id, title, instructions, design_system, created_at) VALUES (?, ?, ?, ?, ?)")
       .run(id, title, instructions, designSystem, now());
     return { id, title, instructions, designSystem, globalTakeover: this.getGlobalTakeover(), globalTakeoverOverride: null };
+  }
+
+  /** A project without a shared design system starts with the neutral values as its project style. */
+  createProject(title: string, id: string = randomUUID(), instructions = "", designSystem: string | null = null): Project {
+    const project = this.insertProject(title, id, instructions, designSystem);
+    if (designSystem === null) this.saveDesignMd(id, PROJECT_STYLE_PATH, Buffer.from(NEUTRAL_TOKENS_CSS, "utf8"));
+    return project;
+  }
+
+  /** True when `projectId` is a design system's own project (it has no project style: its `tokens.css` is the design system's). */
+  isDesignSystemProject(projectId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM design_systems WHERE project_id = ?").get(projectId) !== undefined;
+  }
+
+  /** Existing projects without a shared design system get the neutral values as project style, so they render as before. Idempotent. */
+  private giveProjectsTheirStyle(): void {
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM projects WHERE design_system IS NULL AND id NOT IN (SELECT project_id FROM design_systems)
+         AND id NOT IN (SELECT project_id FROM project_files WHERE path = ?)`,
+      )
+      .all(PROJECT_STYLE_PATH) as { id: string }[];
+    for (const { id } of rows) this.saveDesignMd(id, PROJECT_STYLE_PATH, Buffer.from(NEUTRAL_TOKENS_CSS, "utf8"));
   }
 
   listProjects(): Project[] {

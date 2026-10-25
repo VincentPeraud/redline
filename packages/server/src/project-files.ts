@@ -3,6 +3,7 @@ import {
   ASSETS_DIR,
   DESIGN_MD_PATH,
   DESIGN_SYSTEM_TOKENS_PATH,
+  PROJECT_STYLE_PATH,
   MAX_ASSET_BYTES,
   MANIFEST_PATH,
   NEUTRAL_DESIGN_SYSTEM_ID,
@@ -44,6 +45,7 @@ export function projectContext(store: Store, pageId: string): ProjectContext {
   return {
     designMd: store.readProjectFile(page.projectId, DESIGN_MD_PATH)?.toString("utf8") ?? "",
     assets,
+    ...(store.isDesignSystemProject(page.projectId) ? {} : { projectStyle: store.readProjectFile(page.projectId, PROJECT_STYLE_PATH)?.toString("utf8") ?? "" }),
     designSystem: {
       id: designSystem.id,
       files: {
@@ -125,6 +127,24 @@ export async function registerProjectFileRoutes(app: FastifyInstance, store: Sto
     if (typeof content !== "string") return reply.code(400).send({ error: "content is required" });
     store.saveDesignMd(req.params.projectId, DESIGN_MD_PATH, Buffer.from(content, "utf8"));
     return { content };
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/project-style", async (req, reply): Promise<DesignMdResponse> => {
+    if (!store.projectExists(req.params.projectId) || store.isDesignSystemProject(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    return { content: store.readProjectFile(req.params.projectId, PROJECT_STYLE_PATH)?.toString("utf8") ?? "" };
+  });
+
+  app.put<{ Params: { projectId: string }; Body: SaveDesignMdRequest }>("/api/projects/:projectId/project-style", async (req, reply) => {
+    if (!store.projectExists(req.params.projectId) || store.isDesignSystemProject(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    const content = req.body?.content;
+    if (typeof content !== "string") return reply.code(400).send({ error: "content is required" });
+    store.saveDesignMd(req.params.projectId, PROJECT_STYLE_PATH, Buffer.from(content, "utf8"));
+    return { content };
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/project-style/versions", async (req, reply): Promise<DesignMdVersion[]> => {
+    if (!store.projectExists(req.params.projectId) || store.isDesignSystemProject(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    return store.listDesignMdVersions(req.params.projectId, PROJECT_STYLE_PATH);
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/design-md/versions", async (req, reply): Promise<DesignMdVersion[]> => {
