@@ -216,6 +216,7 @@ export class Store {
     }
     addColumn("versions", "origin_id", "TEXT");
     addColumn("versions", "origin_label", "TEXT");
+    addColumn("versions", "diffusion", "INTEGER");
     addColumn("threads", "element_name", "TEXT");
     addColumn("threads", "rendering", "TEXT");
     addColumn("threads", "cell", "TEXT");
@@ -1137,9 +1138,9 @@ export class Store {
   /** Every version of a page with its file hashes, OLDEST first. */
   listVersionRecords(pageId: string): VersionRecord[] {
     const rows = this.db
-      .prepare("SELECT id, files, message, origin, origin_id, origin_label, created_at FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
-      .all(pageId) as (VersionRow & { files: string })[];
-    return rows.map((row) => ({ ...toSummary(row), files: JSON.parse(row.files) as Record<string, string> }));
+      .prepare("SELECT id, files, message, origin, origin_id, origin_label, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
+      .all(pageId) as (VersionRow & { files: string; diffusion: number | null })[];
+    return rows.map((row) => ({ ...toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1 }));
   }
 
   /** One file of one version of a page, or undefined if either is unknown. */
@@ -1247,10 +1248,38 @@ export class Store {
   private insertVersion(pageId: string, filesJson: string, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
     const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, created_at: now() };
     this.db
-      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label);
+      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, this.diffusionForNewVersion(pageId, filesJson) ?? null);
     this.emit({ type: "page-updated", pageId, versionId: row.id });
     return toSummary(row);
+  }
+
+  /** The diffusion a version recorded now is drawn with: the current one of the design system its manifest names; none for a design system's own pages (they read the draft). */
+  private diffusionForNewVersion(pageId: string, filesJson: string): number | undefined {
+    if (this.isDesignSystemPage(pageId)) return undefined;
+    const manifestHash = (JSON.parse(filesJson) as Record<string, string>)[MANIFEST_PATH];
+    const designSystemId = this.designSystemIdOfManifest(manifestHash === undefined ? undefined : this.blobText(manifestHash));
+    return this.currentDiffusion(designSystemId)?.number;
+  }
+
+  /** Design system a manifest names if it exists, else the neutral one. */
+  designSystemIdOfManifest(manifestText: string | undefined): string {
+    if (manifestText !== undefined) {
+      try {
+        const id = parseManifest(manifestText).designSystem;
+        if (id !== undefined && this.getDesignSystem(id)) return id;
+      } catch {
+        // An invalid stored manifest must not break serving the artboard.
+      }
+    }
+    return NEUTRAL_DESIGN_SYSTEM_ID;
+  }
+
+  /** Diffusion a version is drawn with: the one recorded when it was published, 1 for versions from before diffusions; none for a design system's own pages. */
+  versionDiffusion(pageId: string, versionId: string): number | undefined {
+    if (this.isDesignSystemPage(pageId)) return undefined;
+    const row = this.db.prepare("SELECT diffusion FROM versions WHERE id = ? AND page_id = ?").get(versionId, pageId) as { diffusion: number | null } | undefined;
+    return row === undefined ? undefined : (row.diffusion ?? 1);
   }
 
   private putBlob(content: Buffer): string {
@@ -1401,6 +1430,8 @@ export interface OriginRef {
 export interface VersionRecord extends PageVersionSummary {
   /** Path -> blob hash. */
   files: Record<string, string>;
+  /** Diffusion recorded with the version (1 for versions from before diffusions); meaningless on a design system's own pages. */
+  diffusion: number;
 }
 
 function toSummary(row: VersionRow): PageVersionSummary {
