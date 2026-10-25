@@ -126,6 +126,7 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
           {(versions ?? []).map((version) => {
             const previewing = version.versionId === previewVersionId;
             const meta = `${originLabel(version.origin, version.originLabel)} · ${historyDate(version.createdAt, { withTime: true })}`;
+            const diffusion = version.diffusion && `affichée avec ${version.diffusion.designSystemTitle} · diffusion ${version.diffusion.number}`;
             if (previewing) {
               return (
                 <div key={version.versionId} data-testid="history-preview" className={styles.previewRow}>
@@ -133,6 +134,7 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
                     <div className={styles.rowText}>
                       <div className={styles.rowTitle}>{version.title}</div>
                       <div className={styles.rowMeta}>{meta}</div>
+                      {diffusion && <div className={styles.rowMeta}>{diffusion}</div>}
                     </div>
                     <span className={styles.previewTag}>en aperçu</span>
                   </div>
@@ -160,6 +162,7 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
                 <span className={styles.rowText}>
                   <span className={styles.rowTitle}>{version.title}</span>
                   <span className={styles.rowMeta}>{meta}</span>
+                  {diffusion && <span className={styles.rowMeta}>{diffusion}</span>}
                 </span>
                 {version.current && <span className={styles.currentTag}>actuelle</span>}
               </button>

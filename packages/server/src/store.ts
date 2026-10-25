@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { projectComponents } from "./components.js";
+import { componentFilesOf, projectComponents } from "./components.js";
 import {
   EMPTY_VIEW_SETTINGS,
   diffDiffusionStates,
@@ -141,6 +141,7 @@ export class Store {
         design_md_hash TEXT NOT NULL,
         component_list_hash TEXT NOT NULL,
         index_hash TEXT NOT NULL,
+        component_files_hash TEXT,
         PRIMARY KEY (design_system_id, number)
       );
       CREATE TABLE IF NOT EXISTS project_files (
@@ -206,6 +207,7 @@ export class Store {
     // Page types were removed (2026-10-22); the column was NOT NULL, so databases from before must drop it.
     if (columnsOf("pages").includes("type")) this.db.exec("ALTER TABLE pages DROP COLUMN type");
     addColumn("design_systems", "current_diffusion", "INTEGER");
+    addColumn("design_system_diffusions", "component_files_hash", "TEXT");
     addColumn("pages", "created_by", "TEXT NOT NULL DEFAULT 'user'");
     // The old per-project boolean (default 0) becomes a nullable override of the global setting: only an explicit "allow" is kept.
     if (!columnsOf("projects").includes("takeover_override")) {
@@ -216,6 +218,7 @@ export class Store {
     }
     addColumn("versions", "origin_id", "TEXT");
     addColumn("versions", "origin_label", "TEXT");
+    addColumn("versions", "diffusion", "INTEGER");
     addColumn("threads", "element_name", "TEXT");
     addColumn("threads", "rendering", "TEXT");
     addColumn("threads", "cell", "TEXT");
@@ -321,9 +324,10 @@ export class Store {
    * The draft of a design system: its current project-level tokens and DESIGN.md and the components of its pages.
    * It becomes a diffusion with `createDiffusion`; "pending" = the draft differs from the current diffusion.
    */
-  designSystemDraft(id: string): { state: DiffusionState; componentsCss: string; assembly: ReturnType<typeof projectComponents> } {
+  designSystemDraft(id: string): { state: DiffusionState; componentsCss: string; componentFiles: Record<string, string>; assembly: ReturnType<typeof projectComponents> } {
     const assembly = projectComponents(this, id);
     return {
+      componentFiles: componentFilesOf(this, id),
       state: {
         tokensCss: this.readProjectFile(id, DESIGN_SYSTEM_TOKENS_PATH)?.toString("utf8") ?? "",
         designMd: this.readProjectFile(id, DESIGN_MD_PATH)?.toString("utf8") ?? "",
@@ -346,13 +350,13 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO design_system_diffusions
-         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         designSystemId, number, createdAt, origin, text,
         blob(draft.state.tokensCss), blob(draft.componentsCss), blob(draft.state.designMd),
-        blob(JSON.stringify(draft.assembly.components)), blob(JSON.stringify(draft.assembly.indexes)),
+        blob(JSON.stringify(draft.assembly.components)), blob(JSON.stringify(draft.assembly.indexes)), blob(JSON.stringify(draft.componentFiles)),
       );
     this.db.prepare("UPDATE design_systems SET current_diffusion = ? WHERE project_id = ?").run(number, designSystemId);
     return { number, createdAt, origin, summary: text };
@@ -372,11 +376,11 @@ export class Store {
     return rows;
   }
 
-  /** One file of a diffusion (`tokens.css`, `components.css`, `DESIGN.md`, `components.json` the component list, `index.json` the per-page index). */
-  readDiffusionFile(designSystemId: string, number: number, file: "tokens.css" | "components.css" | "DESIGN.md" | "components.json" | "index.json"): string | undefined {
-    const column = { "tokens.css": "tokens_hash", "components.css": "components_hash", "DESIGN.md": "design_md_hash", "components.json": "component_list_hash", "index.json": "index_hash" }[file];
-    const row = this.db.prepare(`SELECT ${column} AS hash FROM design_system_diffusions WHERE design_system_id = ? AND number = ?`).get(designSystemId, number) as { hash: string } | undefined;
-    return row && readFileSync(join(this.blobDir, row.hash), "utf8");
+  /** One file of a diffusion (`tokens.css`, `components.css`, `DESIGN.md`, `components.json` the component list, `index.json` the per-page index, `component-files.json` the component files by path). */
+  readDiffusionFile(designSystemId: string, number: number, file: "tokens.css" | "components.css" | "DESIGN.md" | "components.json" | "index.json" | "component-files.json"): string | undefined {
+    const column = { "tokens.css": "tokens_hash", "components.css": "components_hash", "DESIGN.md": "design_md_hash", "components.json": "component_list_hash", "index.json": "index_hash", "component-files.json": "component_files_hash" }[file];
+    const row = this.db.prepare(`SELECT ${column} AS hash FROM design_system_diffusions WHERE design_system_id = ? AND number = ?`).get(designSystemId, number) as { hash: string | null } | undefined;
+    return row?.hash ? readFileSync(join(this.blobDir, row.hash), "utf8") : undefined;
   }
 
   /** A diffusion as the diff reads it. */
@@ -1145,9 +1149,9 @@ export class Store {
   /** Every version of a page with its file hashes, OLDEST first. */
   listVersionRecords(pageId: string): VersionRecord[] {
     const rows = this.db
-      .prepare("SELECT id, files, message, origin, origin_id, origin_label, created_at FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
-      .all(pageId) as (VersionRow & { files: string })[];
-    return rows.map((row) => ({ ...toSummary(row), files: JSON.parse(row.files) as Record<string, string> }));
+      .prepare("SELECT id, files, message, origin, origin_id, origin_label, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
+      .all(pageId) as (VersionRow & { files: string; diffusion: number | null })[];
+    return rows.map((row) => ({ ...toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1 }));
   }
 
   /** One file of one version of a page, or undefined if either is unknown. */
@@ -1255,10 +1259,38 @@ export class Store {
   private insertVersion(pageId: string, filesJson: string, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
     const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, created_at: now() };
     this.db
-      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label);
+      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, this.diffusionForNewVersion(pageId, filesJson) ?? null);
     this.emit({ type: "page-updated", pageId, versionId: row.id });
     return toSummary(row);
+  }
+
+  /** The diffusion a version recorded now is drawn with: the current one of the design system its manifest names; none for a design system's own pages (they read the draft). */
+  private diffusionForNewVersion(pageId: string, filesJson: string): number | undefined {
+    if (this.isDesignSystemPage(pageId)) return undefined;
+    const manifestHash = (JSON.parse(filesJson) as Record<string, string>)[MANIFEST_PATH];
+    const designSystemId = this.designSystemIdOfManifest(manifestHash === undefined ? undefined : this.blobText(manifestHash));
+    return this.currentDiffusion(designSystemId)?.number;
+  }
+
+  /** Design system a manifest names if it exists, else the neutral one. */
+  designSystemIdOfManifest(manifestText: string | undefined): string {
+    if (manifestText !== undefined) {
+      try {
+        const id = parseManifest(manifestText).designSystem;
+        if (id !== undefined && this.getDesignSystem(id)) return id;
+      } catch {
+        // An invalid stored manifest must not break serving the artboard.
+      }
+    }
+    return NEUTRAL_DESIGN_SYSTEM_ID;
+  }
+
+  /** Diffusion a version is drawn with: the one recorded when it was published, 1 for versions from before diffusions; none for a design system's own pages. */
+  versionDiffusion(pageId: string, versionId: string): number | undefined {
+    if (this.isDesignSystemPage(pageId)) return undefined;
+    const row = this.db.prepare("SELECT diffusion FROM versions WHERE id = ? AND page_id = ?").get(versionId, pageId) as { diffusion: number | null } | undefined;
+    return row === undefined ? undefined : (row.diffusion ?? 1);
   }
 
   private putBlob(content: Buffer): string {
@@ -1409,6 +1441,8 @@ export interface OriginRef {
 export interface VersionRecord extends PageVersionSummary {
   /** Path -> blob hash. */
   files: Record<string, string>;
+  /** Diffusion recorded with the version (1 for versions from before diffusions); meaningless on a design system's own pages. */
+  diffusion: number;
 }
 
 function toSummary(row: VersionRow): PageVersionSummary {
