@@ -1,0 +1,25 @@
+# Serve Redline behind a Traefik already running on the external `traefik` network (see README, "Behind Traefik").
+# Use with: COMPOSE_FILE=docker-compose.yml:docker-compose.traefik.yml (e.g. in a local .env).
+services:
+  redline:
+    environment:
+      REDLINE_ARTBOARD_ORIGIN: http://${REDLINE_ARTBOARD_HOST:-artboards.redline.localhost}
+    networks:
+      - default
+      - traefik
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: traefik
+      traefik.http.routers.redline.entrypoints: web
+      traefik.http.routers.redline.rule: Host(`${REDLINE_HOST_NAME:-redline.localhost}`)
+      traefik.http.routers.redline.service: redline
+      traefik.http.services.redline.loadbalancer.server.port: "3000"
+      # Artboards need their own origin (sandboxed, never the UI's).
+      traefik.http.routers.redline-artboards.entrypoints: web
+      traefik.http.routers.redline-artboards.rule: Host(`${REDLINE_ARTBOARD_HOST:-artboards.redline.localhost}`)
+      traefik.http.routers.redline-artboards.service: redline-artboards
+      traefik.http.services.redline-artboards.loadbalancer.server.port: "3001"
+
+networks:
+  traefik:
+    external: true

@@ -10,3 +10,4 @@ dist
 .demo-url
 .playwright-mcp/
 *.tsbuildinfo
+.env

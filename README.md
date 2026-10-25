@@ -34,6 +34,18 @@ Redline has no login, and `GET /api/agent-token` hands out the agents' token to 
 
 Redline has no login of its own. The proxy must protect everything (web UI, API, artboard origin) except the agent endpoints `/agent` (a WebSocket on the main port) and `/agent-api/*`, which are guarded by the agents' token. The proxy must forward the original `Host` header (or `X-Forwarded-Host`): state-changing API calls are refused when their `Origin` header names another host. Serve the artboard port on its own host name (a different origin from the UI) and set `REDLINE_ARTBOARD_ORIGIN` to it. Agents upload project assets of up to 20 MB through `/agent-api/*`: raise the proxy's body size limit for that path (nginx allows 1 MB by default, `client_max_body_size`).
 
+### Behind Traefik (local)
+
+With a Traefik already running on an external Docker network named `traefik` (entrypoint `web`), `docker-compose.traefik.yml` serves the UI on `http://redline.localhost` and the artboards on `http://artboards.redline.localhost`:
+
+```sh
+echo "COMPOSE_FILE=docker-compose.yml:docker-compose.traefik.yml" > .env
+docker compose up -d --build
+redline login http://redline.localhost
+```
+
+`REDLINE_HOST_NAME` and `REDLINE_ARTBOARD_HOST` change the two host names. The loopback ports stay published, so `http://localhost:3000` keeps working.
+
 ## Development
 
 ```sh
