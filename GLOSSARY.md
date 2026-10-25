@@ -29,6 +29,10 @@ _Avoid_: Manifest order, artboard order
 A special project whose tokens, components and pages define a style that other projects use.
 _Avoid_: DS (in code and docs), theme, style guide
 
+**Diffusion**:
+A numbered (1, 2, ...), immutable snapshot of a shared design system (its `tokens.css`, `components.css`, DESIGN.md, component list and index) that projects use. The design system points at its current diffusion; its own pages and everything edited since are the **draft**, and the changes between the draft and the current diffusion are **pending** until the user creates a new diffusion. Projects only ever see diffused files.
+_Avoid_: Release, publish, version (a version is a saved state of one page)
+
 **Project style**:
 A project's own tokens (project-level `tokens.css`, next to DESIGN.md), injected after the design system's. With a shared design system it holds the project's overrides; without one it is the project's whole style, starting from the neutral values.
 _Avoid_: Theme, project layer, local design system

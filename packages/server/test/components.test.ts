@@ -54,7 +54,7 @@ describe("components of design systems and projects", () => {
     const page = (await (await addPage(project, "Flow", { "manifest.json": manifestOf(["a.html"], ds.id), "a.html": "<!doctype html><html><head></head><body></body></html>" })).json()) as Page;
     const html = await (await fetch(`${server.artboardOrigin}/pages/${page.id}/a.html`)).text();
     const hrefs = [...html.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map((m) => m[1]);
-    expect(hrefs).toEqual([`/design-systems/${ds.id}/tokens.css`, `/design-systems/${ds.id}/components.css`, `/project-styles/${project}/tokens.css`, `/projects/${project}/components.css`]);
+    expect(hrefs).toEqual([`/design-systems/${ds.id}/diffusions/1/tokens.css`, `/design-systems/${ds.id}/diffusions/1/components.css`, `/project-styles/${project}/tokens.css`, `/projects/${project}/components.css`]);
   });
 
   it("does not link a design system's own components twice on its pages", async () => {
