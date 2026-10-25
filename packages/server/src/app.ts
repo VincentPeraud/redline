@@ -27,6 +27,7 @@ import {
   type UpdateThreadRequest,
   type ServerConfig,
   type Settings,
+  type MoveArtboardRequest,
   type UpdatePageRequest,
   type UpdateProjectRequest,
 } from "@redline/shared";
@@ -50,6 +51,7 @@ import { registerRequestHardening } from "./request-hardening.js";
 import { registerDesignSystemReload } from "./design-system-reload.js";
 import { registerSessionRoutes } from "./sessions.js";
 import { registerHomeRoutes } from "./home.js";
+import { moveArtboard } from "./move-artboard.js";
 import { dispatchBatch, dispatchReply, dispatchThread } from "./work.js";
 
 const MIME: Record<string, string> = {
@@ -253,6 +255,11 @@ export async function buildMainApp(
     const invalid = viewSettingsError(req.body);
     if (invalid) return reply.code(400).send({ error: invalid });
     return store.setViewSettings(req.params.pageId, req.body);
+  });
+
+  app.post<{ Params: { pageId: string }; Body: Partial<MoveArtboardRequest> }>("/api/pages/:pageId/move-artboard", async (req, reply) => {
+    const outcome = moveArtboard(store, pageLock, req.params.pageId, req.body, { origin: "restore" });
+    return reply.code(outcome.status).send(outcome.body);
   });
 
   app.patch<{ Params: { pageId: string }; Body: UpdatePageRequest }>("/api/pages/:pageId", async (req, reply) => {

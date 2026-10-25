@@ -26,7 +26,7 @@ function versionMessage(item: WorkItem, summary: string): string {
  */
 export async function runWorkItem(item: WorkItem, { folder, api, engine, send }: RunContext): Promise<void> {
   try {
-    const checkout = await api.checkout(item.pageId);
+    let checkout = await api.checkout(item.pageId);
     const dir = writeWorkingCopy(folder, item.pageId, checkout);
     // Replies are held back until the run succeeded: a retried run must not leave the first attempt's answers in the threads.
     const replies = new Map<string, string[]>();
@@ -36,6 +36,8 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
       pageId: item.pageId,
       workingCopyDir: dir,
       workId: item.id,
+      // The page changed under the run: what it publishes is measured against the page as it is now.
+      afterArtboardMoved: async () => void (checkout = await api.checkout(item.pageId)),
       postReply: async (threadId, text) => void replies.set(threadId, [...(replies.get(threadId) ?? []), text]),
     });
     let result: EngineEvent | undefined;
