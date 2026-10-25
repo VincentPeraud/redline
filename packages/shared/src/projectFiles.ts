@@ -1,5 +1,7 @@
 /** Project-level files read by every session of the project, written into each working copy. */
 export const DESIGN_MD_PATH = "DESIGN.md";
+/** The project style's tokens: a project-level file next to DESIGN.md, at the root of the working copy. */
+export const PROJECT_STYLE_PATH = "tokens.css";
 /** Folder of the project's shared images and fonts, in the working copy and relative to every artboard. */
 export const ASSETS_DIR = "assets";
 /** Largest project asset (image, font) the server accepts, from the web UI or from an agent. */
@@ -61,12 +63,19 @@ export interface SaveDesignMdRequest {
   content: string;
 }
 
+/** Path on the artboard origin serving a project's style tokens, live. */
+export function projectStyleUrlPath(projectId: string): string {
+  return `/project-styles/${encodeURIComponent(projectId)}/${PROJECT_STYLE_PATH}`;
+}
+
 /** What a working copy carries besides the page's own files. */
 export interface ProjectContext {
   /** Current DESIGN.md text, empty if none was written yet. */
   designMd: string;
   /** Asset name -> content, base64. */
   assets: Record<string, string>;
+  /** Project style `tokens.css` (empty when the project only follows its design system); absent for a design system's own project. */
+  projectStyle?: string;
   designSystem: { id: string; files: Record<string, string> };
 }
 

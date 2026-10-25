@@ -1,6 +1,12 @@
 import { expect, it } from "vitest";
 import { REDLINE_GUIDE } from "../src/guide.js";
 
+it("explains the project style: tokens.css wins over the design system, DESIGN.md of the project wins on conflict", () => {
+  expect(REDLINE_GUIDE).toContain("## Project style (tokens.css)");
+  expect(REDLINE_GUIDE).toContain("wins over the design system's token of the same name");
+  expect(REDLINE_GUIDE).toContain("the project's DESIGN.md wins");
+});
+
 it("tells Claude that every element needs a stable, readable id", () => {
   expect(REDLINE_GUIDE).toContain("Every element, arrows included, needs an \"id\"");
   expect(REDLINE_GUIDE).toContain("fleche-vers-paiement");

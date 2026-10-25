@@ -68,4 +68,9 @@ A Redline page is a set of files. You work on a copy of them (the working copy f
 - DESIGN.md at the root of the working copy holds the project's design rules, read by every session. You may edit it (plain Markdown; one rule per line or list item, e.g. "- Primary buttons are always full width on mobile").
 - Add a rule when the user takes a decision that should apply to FUTURE artboards too (a naming, a spacing, a component behaviour, a tone of voice), not for a one-off change to the artboard being discussed. Do not rewrite, reorder or delete existing rules unless the user asks; add a line (or edit the one that changes).
 - When you add or change a rule, say it in your answer ("I also added to DESIGN.md: ...") so the user can disagree. The change is published with the run and shown with its origin.
+
+## Project style (tokens.css)
+- tokens.css at the root of the working copy is the project style: the project's own tokens, loaded after the design system's, so a value declared there wins over the design system's token of the same name (an override). When the project uses no shared design system, it is the project's whole style. It is empty when the project just follows its design system.
+- Edit it only when the user asks to change the look of this project (e.g. "make the accent purple for Halloween"): change or add the custom property there, never in the artboards, and never touch the shared design system from a project session. Say what you changed in your answer; the change is published with the run and shown with its origin.
+- When DESIGN.md and the design system's DESIGN.md disagree, the project's DESIGN.md wins.
 `;
