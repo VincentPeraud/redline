@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { cx } from "./ui/index.js";
+import { Tooltip, cx } from "./ui/index.js";
 import styles from "./Rename.module.css";
 
 export type RenameSize = "project" | "page" | "bare";
@@ -16,9 +16,11 @@ function PencilIcon({ size }: { size: number }) {
 /** Pencil next to a title: hidden until the host (`.renameHost`) is hovered or the button is focused. */
 export function RenamePencil({ label, size, onClick }: { label: string; size: RenameSize; onClick: () => void }) {
   return (
-    <button type="button" aria-label={label} className={cx(styles.pencil, styles[`pencil-${size}`])} onClick={onClick}>
-      <PencilIcon size={size === "project" ? 18 : 15} />
-    </button>
+    <Tooltip label={label}>
+      <button type="button" aria-label={label} className={cx(styles.pencil, styles[`pencil-${size}`])} onClick={onClick}>
+        <PencilIcon size={size === "project" ? 18 : 15} />
+      </button>
+    </Tooltip>
   );
 }
 

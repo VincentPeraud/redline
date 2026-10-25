@@ -22,7 +22,7 @@ import { ElementChip } from "./ElementChip.js";
 import { AddressPill, PlainLink } from "./AddressPill.js";
 import { splitMessageLinks } from "./messageLinks.js";
 import { rememberArtboardTitles } from "./otherPageArtboards.js";
-import { Button, Textarea, cx } from "./ui/index.js";
+import { Button, Textarea, Tooltip, cx } from "./ui/index.js";
 import styles from "./ConversationsPanel.module.css";
 
 const AGENT_DEFAULT = "défaut de l'agent";
@@ -209,15 +209,17 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
         <Button variant="accent" className={styles.newButton} onClick={() => void create()}>
           + Nouvelle
         </Button>
-        <button
-          type="button"
-          aria-label="Supprimer cette conversation"
-          className={styles.iconButton}
-          disabled={!active}
-          onClick={() => active && void archive(active.id)}
-        >
-          <TrashIcon />
-        </button>
+        <Tooltip label="Supprimer cette conversation">
+          <button
+            type="button"
+            aria-label="Supprimer cette conversation"
+            className={styles.iconButton}
+            disabled={!active}
+            onClick={() => active && void archive(active.id)}
+          >
+            <TrashIcon />
+          </button>
+        </Tooltip>
         {listOpen && (
           <div role="listbox" aria-label="Conversations de la page" className={styles.list}>
             <div className={styles.listTitle}>Conversations · {pageTitle}</div>
@@ -238,9 +240,11 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, artboards
                     {c.exchangeCount} {c.exchangeCount === 1 ? "échange" : "échanges"} · {activityLabel(c.lastActivityAt)}
                   </span>
                 </button>
-                <button type="button" aria-label={`Supprimer la conversation ${c.title}`} className={styles.optionDelete} onClick={() => void archive(c.id)}>
-                  <TrashIcon />
-                </button>
+                <Tooltip label={`Supprimer la conversation ${c.title}`}>
+                  <button type="button" aria-label={`Supprimer la conversation ${c.title}`} className={styles.optionDelete} onClick={() => void archive(c.id)}>
+                    <TrashIcon />
+                  </button>
+                </Tooltip>
               </div>
             ))}
             {conversations.length === 0 && <div className={styles.listEmpty}>Aucune conversation sur cette page.</div>}

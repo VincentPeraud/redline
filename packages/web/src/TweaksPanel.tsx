@@ -1,5 +1,5 @@
 import { DEFAULT_TWEAK_MAX, DEFAULT_TWEAK_MIN, TWEAK_SCOPES, type ManifestTweak, type TweakValue, type TweakValues } from "@redline/shared";
-import { cx } from "./ui/index.js";
+import { Tooltip, cx } from "./ui/index.js";
 import { TweakPreview, type PreviewSource } from "./TweakPreview.js";
 import styles from "./TweaksPanel.module.css";
 
@@ -131,18 +131,22 @@ function CountControl({ tweak, value, onChange }: ControlProps) {
   const max = tweak.max ?? DEFAULT_TWEAK_MAX;
   return (
     <div role="group" aria-label={tweak.label} className={styles.stepper}>
-      <button type="button" aria-label={`Diminuer ${tweak.label}`} disabled={Number(value) <= min} onClick={() => onChange(Number(value) - 1)} className={styles.stepButton}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
-          <path d="M5 12h14" />
-        </svg>
-      </button>
+      <Tooltip label={`Diminuer ${tweak.label}`}>
+        <button type="button" aria-label={`Diminuer ${tweak.label}`} disabled={Number(value) <= min} onClick={() => onChange(Number(value) - 1)} className={styles.stepButton}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+            <path d="M5 12h14" />
+          </svg>
+        </button>
+      </Tooltip>
       <output className={styles.count}>{String(value)}</output>
-      <button type="button" aria-label={`Augmenter ${tweak.label}`} disabled={Number(value) >= max} onClick={() => onChange(Number(value) + 1)} className={styles.stepButton}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
-          <path d="M5 12h14" />
-          <path d="M12 5v14" />
-        </svg>
-      </button>
+      <Tooltip label={`Augmenter ${tweak.label}`}>
+        <button type="button" aria-label={`Augmenter ${tweak.label}`} disabled={Number(value) >= max} onClick={() => onChange(Number(value) + 1)} className={styles.stepButton}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+            <path d="M5 12h14" />
+            <path d="M12 5v14" />
+          </svg>
+        </button>
+      </Tooltip>
       {tweak.unit && <span className={styles.unit}>{tweak.unit}</span>}
     </div>
   );
