@@ -56,7 +56,7 @@ async function openPreview(designSystemId: string, projectId: string) {
 
 export function DiffusionProvider({ children }: { children: ReactNode }) {
   const [openFor, setOpenFor] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ message: string; designSystemId: string } | null>(null);
+  const [toast, setToast] = useState<{ message: string; designSystemId: string; error?: string } | null>(null);
   const [version, setVersion] = useState(0);
   const open = useCallback((designSystemId: string) => setOpenFor(designSystemId), []);
   const controls = useMemo(() => ({ open, version }), [open, version]);
@@ -85,11 +85,13 @@ export function DiffusionProvider({ children }: { children: ReactNode }) {
       {toast && (
         <div role="status" data-testid="diffusion-toast" className={styles.toast}>
           {toast.message}
+          {toast.error && <span className={styles.toastError}>{toast.error}</span>}
           <button
             type="button"
             className={styles.toastUndo}
             onClick={async () => {
-              await fetch(`/api/design-systems/${toast.designSystemId}/diffusions/undo`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+              const res = await fetch(`/api/design-systems/${toast.designSystemId}/diffusions/undo`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+              if (!res.ok) return setToast({ ...toast, error: res.status === 409 ? "Rien à annuler : cette diffusion l'a déjà été." : "L'annulation a échoué." });
               setToast(null);
               setVersion((v) => v + 1);
             }}
