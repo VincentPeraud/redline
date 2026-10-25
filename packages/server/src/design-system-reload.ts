@@ -1,4 +1,6 @@
 import type { FastifyInstance } from "fastify";
+import { NEUTRAL_DESIGN_SYSTEM_ID } from "@redline/shared";
+import { projectComponents } from "./components.js";
 import { designSystemIdOf } from "./project-files.js";
 import type { Store } from "./store.js";
 
@@ -8,10 +10,22 @@ import type { Store } from "./store.js";
  * version; project pages show its current diffusion, so they reload when a diffusion is created (`announceDiffusion`).
  */
 export function registerDesignSystemReload(app: FastifyInstance, store: Store): void {
+  // Project pages also link the project's assembled components, live: when a version of one of its pages changes
+  // them, every page of the project reloads. The first version seen after a start has nothing to compare with.
+  const componentsCss = new Map<string, string>();
   const unsubscribe = store.onChange((event) => {
     if (event.type !== "page-updated") return;
     const designSystem = store.designSystemOfPage(event.pageId);
-    if (!designSystem) return;
+    if (!designSystem) {
+      const page = store.getPage(event.pageId);
+      if (!page) return;
+      const css = projectComponents(store, page.projectId).css;
+      if (componentsCss.get(page.projectId) === css) return;
+      componentsCss.set(page.projectId, css);
+      const project = store.getProject(page.projectId);
+      store.emit({ type: "design-system-updated", designSystemId: project?.designSystem ?? NEUTRAL_DESIGN_SYSTEM_ID, pageIds: store.listPages(page.projectId).map((p) => p.id) });
+      return;
+    }
     const pageIds = store.listPages(designSystem.id).map((page) => page.id);
     store.emit({ type: "design-system-updated", designSystemId: designSystem.id, pageIds });
   });

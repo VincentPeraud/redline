@@ -40,6 +40,8 @@
   --color-warning-bg: #fdebdd;
   --color-warning-note-bg: #fff4e5;
   --color-warning-soft-bg: #fff7ed;
+  --color-warning-faint-bg: #fffbf7;
+  --color-override-ring: #ea580c;
   --color-warning-text: #9a3412;
   --color-warning-strong: #c2410c;
   --color-warning-border: #f1c4b0;

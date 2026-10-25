@@ -670,6 +670,14 @@ export class Store {
     this.db
       .prepare("INSERT INTO design_md_versions (id, project_id, path, hash, created_at, origin, origin_id, origin_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(randomUUID(), projectId, path, hash, now(), author.origin, author.originId ?? null, author.originLabel ?? null);
+    if (path === PROJECT_STYLE_PATH && !this.isDesignSystemProject(projectId)) this.announceProjectStyleChange(projectId);
+  }
+
+  /** Open pages link the project style through a stylesheet: tell them to reload (`design-system-updated`). */
+  announceProjectStyleChange(projectId: string): void {
+    const row = this.db.prepare("SELECT design_system AS designSystem FROM projects WHERE id = ?").get(projectId) as { designSystem: string | null } | undefined;
+    const pageIds = this.listPages(projectId).map((page) => page.id);
+    if (row && pageIds.length > 0) this.emit({ type: "design-system-updated", designSystemId: row.designSystem ?? NEUTRAL_DESIGN_SYSTEM_ID, pageIds });
   }
 
   /** Versions of DESIGN.md (or of another versioned project-level file, `path`), newest first. */

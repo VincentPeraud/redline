@@ -6,6 +6,7 @@ import { DesignSystemsScreen } from "./DesignSystemsScreen";
 import { DesignMdScreen } from "./DesignMdScreen";
 import { DiffusionProvider } from "./DiffusionDialog";
 import { HomeScreen } from "./HomeScreen";
+import { ProjectDesignSystemScreen } from "./ProjectDesignSystemScreen";
 import { ProjectOverview } from "./ProjectOverview";
 import { ProjectsScreen } from "./ProjectsScreen";
 import { Shell } from "./Sidebar";
@@ -25,6 +26,8 @@ function Root() {
       return <ProjectOverview key={route.projectId} projectId={route.projectId} />;
     case "designMd":
       return <DesignMdScreen key={route.projectId} projectId={route.projectId} />;
+    case "projectDesignSystem":
+      return <ProjectDesignSystemScreen key={route.projectId} projectId={route.projectId} />;
     case "designSystems":
       return <Shell><DesignSystemsScreen /></Shell>;
     case "projects":

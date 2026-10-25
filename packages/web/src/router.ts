@@ -9,6 +9,7 @@ export type Route =
   | { name: "designSystems" }
   | { name: "project"; projectId: string }
   | { name: "designMd"; projectId: string }
+  | { name: "projectDesignSystem"; projectId: string }
   | { name: "page"; pageId: string; artboard?: string; play?: string; renderingParam?: string };
 
 export type PageRoute = Extract<Route, { name: "page" }>;
@@ -29,6 +30,7 @@ export function parseRoute(hash: string): Route {
   if (section === "projects" && !id) return { name: "projects" };
   if (section === "design-systems") return { name: "designSystems" };
   if (section === "projects" && id && sub === "design-md") return { name: "designMd", projectId: id };
+  if (section === "projects" && id && sub === "design-system") return { name: "projectDesignSystem", projectId: id };
   if (section === "projects" && id) return { name: "project", projectId: id };
   if (section === "pages" && id && sub === "artboards" && subId) return { name: "page", pageId: id, artboard: subId };
   if (section === "pages" && id && sub === "play" && subId) {
@@ -55,6 +57,8 @@ export function routeHref(route: Route): string {
       return `#/projects/${encodeURIComponent(route.projectId)}`;
     case "designMd":
       return `#/projects/${encodeURIComponent(route.projectId)}/design-md`;
+    case "projectDesignSystem":
+      return `#/projects/${encodeURIComponent(route.projectId)}/design-system`;
     case "page": {
       if (route.play !== undefined) return `${playHash(route.pageId, route.play)}${route.renderingParam === undefined ? "" : `?rendu=${encodeURIComponent(route.renderingParam)}`}`;
       return route.artboard === undefined ? pageHash(route.pageId) : artboardHash(route.pageId, route.artboard);

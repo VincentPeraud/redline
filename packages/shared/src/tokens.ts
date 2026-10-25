@@ -40,3 +40,58 @@ export function parseTokens(css: string): TokenDeclaration[] {
   }
   return [...byName.values()];
 }
+
+const maskComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, (comment) => " ".repeat(comment.length));
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Declarations of one token in comment-masked css, with the spans of their value and of the whole declaration. */
+function declarationsOf(masked: string, name: string): { valueStart: number; valueEnd: number; start: number; end: number }[] {
+  const pattern = new RegExp(
+    `(?<![A-Za-z0-9_-])${escapeRegExp(name)}\\s*:\\s*((?:"[^"]*"|'[^']*'|\\([^)]*\\)|[^;{}"'(])*?)\\s*(?:;|(?=\\}))`,
+    "dg",
+  );
+  return [...masked.matchAll(pattern)].map((match) => ({
+    valueStart: match.indices![1][0],
+    valueEnd: match.indices![1][1],
+    start: match.index,
+    end: match.index + match[0].length,
+  }));
+}
+
+/** Why a value cannot be written to a token declaration, or null. */
+export function tokenValueError(value: string): string | null {
+  if (value.trim() === "") return "value is required";
+  if (/[;{}\n\r]|\/\*|\*\//.test(value)) return "value must not contain ; { } line breaks or comments";
+  return null;
+}
+
+/** `css` with the token set to `value`: the last declaration is edited in place, else the token ends the last `:root` block. */
+export function setToken(css: string, name: string, value: string): string {
+  const masked = maskComments(css);
+  const last = declarationsOf(masked, name).at(-1);
+  if (last) return css.slice(0, last.valueStart) + value + css.slice(last.valueEnd);
+  const declaration = `  ${name}: ${value};\n`;
+  const rootStart = [...masked.matchAll(/:root\s*\{/g)].at(-1)?.index;
+  const close = rootStart === undefined ? -1 : masked.indexOf("}", rootStart);
+  if (close < 0) return `${css}${css === "" || css.endsWith("\n") ? "" : "\n"}${css === "" ? "" : "\n"}:root {\n${declaration}}\n`;
+  const before = css.slice(0, close);
+  const lineStart = /\n[ \t]*$/.exec(before);
+  if (lineStart) return css.slice(0, lineStart.index + 1) + declaration + css.slice(lineStart.index + 1);
+  const trimmed = before.trimEnd();
+  return `${trimmed}${/[;{]$/.test(trimmed) ? "" : ";"}\n${declaration}${css.slice(close)}`;
+}
+
+/** `css` without the declarations of the token (a declaration alone on its line takes the line with it). */
+export function removeToken(css: string, name: string): string {
+  const masked = maskComments(css);
+  let result = css;
+  for (const { start, end } of declarationsOf(masked, name).reverse()) {
+    const note = /^[ \t]*\/\*\s*deprecated:[\s\S]*?\*\//.exec(result.slice(end));
+    const to = end + (note?.[0].length ?? 0);
+    const before = /(^|\n)[ \t]*$/.exec(result.slice(0, start));
+    const after = /^[ \t]*(\n|$)/.exec(result.slice(to));
+    result = before && after ? result.slice(0, before.index + before[1].length) + result.slice(to + after[0].length) : result.slice(0, start) + result.slice(to);
+  }
+  return result;
+}
