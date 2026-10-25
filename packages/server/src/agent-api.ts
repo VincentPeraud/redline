@@ -85,7 +85,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (store.getDesignSystem(req.params.projectId) || !store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
         const invalid = designSystemChangeError(store, req.params.projectId, designSystem, req.body?.startFrom);
         if (invalid) return reply.code(400).send({ error: invalid });
-        store.setProjectDesignSystem(req.params.projectId, designSystem, "terminal", req.body?.startFrom as ProjectStyleStart | undefined);
+        store.setProjectDesignSystem(req.params.projectId, designSystem as string | null, "terminal", req.body?.startFrom as ProjectStyleStart | undefined);
         return store.getProject(req.params.projectId);
       });
 
