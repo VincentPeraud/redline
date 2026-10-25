@@ -46,3 +46,6 @@ export function markBadgeCss(): string {
   const f = MARK_FINISH;
   return `width: ${f.badgeSize}px; height: ${f.badgeSize}px; border-radius: 50%; background: ${HOVER_FINISH.color}; color: ${HOVER_FINISH.labelText}; font: ${f.badgeFont}; text-align: center; box-shadow: ${f.badgeEdge}`;
 }
+
+/** Outline of the element a design system gap points at ("Voir", board DsAudit); the caller adds position, size and border-radius. */
+export const GAP_OUTLINE_CSS = "outline: 2px dashed #EA580C; outline-offset: 3px";

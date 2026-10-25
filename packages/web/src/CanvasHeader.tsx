@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { DeletedArtboard, Page, Project, Thread } from "@redline/shared";
+import type { DeletedArtboard, Gap, Page, PageGaps, Project, Thread } from "@redline/shared";
 import { DiffuseButton } from "./DiffusionDialog.js";
 import { DeletedArtboardsList } from "./DeletedArtboardsList.js";
+import { GapsButton } from "./GapsReport.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
 import { TocMenu } from "./TocMenu.js";
 import type { TocItem } from "./tocItems.js";
@@ -200,10 +201,13 @@ interface Props {
   toc: { items: TocItem[]; currentFile?: string; onSelect: (file: string) => void };
   /** Design system whose draft the page is previewed with: the header is then read-only (no comment mode, no agent, no diffusion). */
   previewOf?: string;
+  /** Design system gaps of the page; the button shows only when there are some. */
+  gaps: PageGaps | null;
+  onSeeGap: (gap: Gap) => void;
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, previewOf }: Props) {
+export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, onSeeGap, previewOf }: Props) {
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -233,7 +237,12 @@ export function CanvasHeader({ project, designSystemId, versionId, pageId, pageT
           previewOf={previewOf}
         />
       </nav>
-      {previewOf === undefined && <TocMenu {...toc} />}
+      {previewOf === undefined && (
+        <>
+          <GapsButton report={gaps} onSee={onSeeGap} />
+          <TocMenu {...toc} />
+        </>
+      )}
       <div className={styles.spacer} />
       {previewOf !== undefined ? (
         <div className={styles.previewNote}>Commentaires et conversations désactivés pendant l'aperçu</div>

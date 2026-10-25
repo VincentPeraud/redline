@@ -45,6 +45,10 @@ _Avoid_: Customisation, exception
 An artboard file `components/<name>.html` of a page of a design system or of a project; its name is its file name (`[a-z0-9-]`). Its style lives in `<style data-component>` blocks, its description in `<meta name="description">`, its usage in `<template data-usage>`; its variants are the tweaks of its artboard and its states go through `data-state` or modifier classes. Redline assembles the components of a design system, or of a project, into a `components.css` served to artboards; the canvas marks a component with a ◆ and its name on the strip. Two components of one design system or one project cannot share a name.
 _Avoid_: Widget, block, symbol
 
+**Gap** (UI word "écart"):
+An element of an artboard that bypasses the design system: a hard-coded colour or font, a `<button>`, `<input>`, `<select>` or `<textarea>` without any component class when components of that kind exist, or the use of a deprecated token. Measured against the page's design system (current diffusion) and project style; listed in the page header with the closest token or the component meant for the case. A gap never blocks a publish; an element carrying `data-ds-libre`, and its descendants, is outside the analysis.
+_Avoid_: Violation, lint error, warning
+
 **Core tokens**:
 The fixed set of named design variables every design system must define, so pages work with any design system.
 _Avoid_: Base variables, required tokens
