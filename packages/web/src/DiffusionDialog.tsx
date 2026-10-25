@@ -157,6 +157,8 @@ export function DiffusionDialog({ designSystemId, onClose, onDiffused, onOpenPre
   const [detail, setDetail] = useState<DesignSystemDetail | null>(null);
   const [artboardOrigin, setArtboardOrigin] = useState("");
   const [previewProject, setPreviewProject] = useState("");
+  /** Pages of the project chosen for the preview; null while unknown. */
+  const [previewPageCount, setPreviewPageCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -171,6 +173,20 @@ export function DiffusionDialog({ designSystemId, onClose, onDiffused, onOpenPre
       setPreviewProject((loaded.overrides[0] ?? loaded.usedBy[0])?.id ?? "");
     })();
   }, [designSystemId]);
+
+  useEffect(() => {
+    if (previewProject === "") return;
+    setPreviewPageCount(null);
+    let cancelled = false;
+    void fetch(`/api/projects/${previewProject}/pages`)
+      .then((res) => res.json() as Promise<Page[]>)
+      .then((pages) => {
+        if (!cancelled) setPreviewPageCount(pages.length);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewProject]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -299,9 +315,10 @@ export function DiffusionDialog({ designSystemId, onClose, onDiffused, onOpenPre
                   ))}
                 </Select>
               </span>
-              <button type="button" className={styles.secondary} disabled={!onOpenPreview} onClick={() => onOpenPreview?.(previewProject)}>
+              <button type="button" className={styles.secondary} disabled={!onOpenPreview || previewPageCount === 0} onClick={() => onOpenPreview?.(previewProject)}>
                 Ouvrir l'aperçu ↗
               </button>
+              {previewPageCount === 0 && <span className={styles.muted}>Aucune page</span>}
             </>
           )}
           <div className={styles.grow} />
