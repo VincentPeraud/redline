@@ -139,12 +139,16 @@ export function manifestError(files: Record<string, string>, requireElementIds =
   }
 }
 
-/** Error message when a design system's files miss `tokens.css` or a core token, else null. */
-export function designSystemError(files: Record<string, string>): string | null {
-  const css = files[DESIGN_SYSTEM_TOKENS_PATH];
-  if (css === undefined) return `${DESIGN_SYSTEM_TOKENS_PATH} is required`;
+/** Error message when a design system's `tokens.css` misses a core token, else null. */
+export function tokensError(css: string): string | null {
   const missing = missingCoreTokens(css);
   return missing.length === 0 ? null : `Missing core tokens: ${missing.join(", ")}`;
+}
+
+/** Error message when the files of a new design system miss `tokens.css` or a core token, else null. */
+export function designSystemError(files: Record<string, string>): string | null {
+  const css = files[DESIGN_SYSTEM_TOKENS_PATH];
+  return css === undefined ? `${DESIGN_SYSTEM_TOKENS_PATH} is required` : tokensError(css);
 }
 
 /** Error message when the files of a new page are invalid, else null. */
@@ -154,15 +158,16 @@ export function pageFilesError(files: unknown, requireElementIds = false): strin
 
 /**
  * Error message when a request to record a version is invalid, else null. The one check behind `/api` and `/agent-api`.
- * `designSystemPage`: the page is a design system's, whose tokens must stay complete.
+ * `designSystemPage`: the page is one of a design system's; a `tokens.css` it publishes goes to the design system and must stay complete.
  */
 export function versionRequestError(body: Partial<CreateVersionRequest> | undefined, designSystemPage: boolean, requireElementIds = false): string | null {
   const { files, message, origin } = body ?? {};
   const invalidFiles = pageFilesError(files, requireElementIds);
   if (invalidFiles) return invalidFiles;
-  if (designSystemPage) {
-    const invalidDesignSystem = designSystemError(files!);
-    if (invalidDesignSystem) return invalidDesignSystem;
+  const tokens = files![DESIGN_SYSTEM_TOKENS_PATH];
+  if (designSystemPage && tokens !== undefined) {
+    const invalidTokens = tokensError(tokens);
+    if (invalidTokens) return invalidTokens;
   }
   if (!requiredString(message)) return "message is required";
   if (!(VERSION_ORIGINS as readonly string[]).includes(origin as string)) return "invalid origin";

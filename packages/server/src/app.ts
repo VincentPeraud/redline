@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
   type PageViewSettings,
+  DESIGN_SYSTEM_TOKENS_PATH,
   MANIFEST_PATH,
   MAX_ASSET_BYTES,
   MAX_PAGE_BYTES,
@@ -187,6 +188,16 @@ export async function buildMainApp(
       updatedAt: store.listVersions(designSystem.pageId)[0]?.createdAt,
     })),
   );
+
+  app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/tokens", async (req, reply) => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
+    return { content: store.readProjectFile(req.params.designSystemId, DESIGN_SYSTEM_TOKENS_PATH)?.toString("utf8") ?? "" };
+  });
+
+  app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/tokens/versions", async (req, reply) => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
+    return store.listDesignMdVersions(req.params.designSystemId, DESIGN_SYSTEM_TOKENS_PATH);
+  });
 
   app.post<{ Body: CreateDesignSystemRequest }>("/api/design-systems", async (req, reply) => {
     const { title, files = starterDesignSystemFiles(), fromProjectId, instructions, model, effort } =
@@ -402,7 +413,7 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
 
   app.get<{ Params: { designSystemId: string; "*": string } }>("/design-systems/:designSystemId/*", async (req, reply) => {
     const designSystem = store.getDesignSystem(req.params.designSystemId);
-    const content = designSystem && store.readPageFile(designSystem.pageId, req.params["*"]);
+    const content = designSystem && req.params["*"] === DESIGN_SYSTEM_TOKENS_PATH ? store.readProjectFile(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH) : undefined;
     if (!content) return reply.code(404).send("not found");
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
