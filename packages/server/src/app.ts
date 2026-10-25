@@ -597,7 +597,7 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
   /** Diffusion a page is rendered with: the current one for a project's pages, the one recorded with the version for a version preview, none (the draft) for a design system's own pages. */
   function diffusionOf(pageId: string, versionId?: string): number | undefined {
     if (store.isDesignSystemPage(pageId)) return undefined;
-    if (versionId !== undefined) return store.versionDiffusion(pageId, versionId);
+    if (versionId !== undefined) return store.versionDiffusion(pageId, versionId) ?? 1;
     return store.currentDiffusion(renderedDesignSystemOf(pageId))?.number;
   }
 

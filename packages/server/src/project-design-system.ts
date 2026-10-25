@@ -17,7 +17,7 @@ import {
 } from "@redline/shared";
 import { componentFilesOf, projectComponents } from "./components.js";
 import type { Store } from "./store.js";
-import { requiredString } from "./validation.js";
+import { titleError } from "./validation.js";
 
 const TOKEN_NAME = /^--[A-Za-z0-9_-]+$/;
 
@@ -95,11 +95,11 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
     if (store.getProject(projectId)!.designSystem !== null) return reply.code(400).send({ error: "the project already follows a shared design system" });
     const title = req.body?.title;
-    if (!requiredString(title)) return reply.code(400).send({ error: "title is required" });
+    if (titleError(title)) return reply.code(400).send({ error: titleError(title) });
     const components = componentFilesOf(store, projectId);
     const preview = "index.html";
     const manifest = { artboards: [preview, ...Object.keys(components)].map((file, i) => ({ file, x: i * 300, y: 0, width: 280, height: 200 })) };
-    const designSystem = store.createDesignSystem(title.trim(), {
+    const designSystem = store.createDesignSystem((title as string).trim(), {
       [DESIGN_SYSTEM_TOKENS_PATH]: styleOf(projectId),
       [preview]: NEUTRAL_TOKENS_PAGE_HTML,
       ...components,

@@ -116,6 +116,11 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId), true) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files);
         if (invalid) return reply.code(400).send({ error: invalid });
         const { files, message, origin, baseVersionId, workId, designMd, projectStyle } = req.body;
+        // A session works inside its own project: its work never publishes to the pages of another one (a shared design system's, say).
+        const workPage = typeof workId === "string" ? pageLock.itemOf(workId)?.pageId : undefined;
+        if (workPage !== undefined && store.getPage(workPage)?.projectId !== store.getPage(req.params.pageId)!.projectId) {
+          return reply.code(403).send({ error: "This work belongs to a page of another project: it cannot publish here." });
+        }
         if (!requiredString(baseVersionId)) return reply.code(400).send({ error: "baseVersionId is required" });
         if (designMd !== undefined && (typeof designMd?.content !== "string" || typeof designMd.base !== "string")) {
           return reply.code(400).send({ error: "designMd needs content and base" });

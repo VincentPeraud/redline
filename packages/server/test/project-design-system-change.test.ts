@@ -102,6 +102,7 @@ describe("changing a project's design system and promoting its style", () => {
     const own = await createProject();
     expect((await promote(following.id, { title: "X" })).status).toBe(400);
     expect((await promote(own.id, {})).status).toBe(400);
+    expect((await promote(own.id, { title: "x".repeat(300) })).status).toBe(400);
     expect((await promote("nope", { title: "X" })).status).toBe(404);
   });
 });

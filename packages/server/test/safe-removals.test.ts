@@ -135,4 +135,23 @@ describe("safe removals on a design system publish", () => {
     expect(await error(refused)).toContain("--brand");
     expect((await publish({ confirmRemovals: true })).status).toBe(201);
   });
+
+  it("refuses a publish on the design system carrying the work of a page of another project, and never honours its confirmRemovals", async () => {
+    const project = await createProject(ds.id);
+    const page = await createPage(project, { "home.html": "<h1>Home</h1>", "a.html": usingToken("--brand") });
+    const agent = await server.connectAgent({ projectId: project.id });
+    await agent.hello;
+    await server.post(`/api/pages/${page.id}/threads`, { artboard: "home.html", selector: "h1", xPct: 10, yPct: 10, body: "Change it" });
+    for (let i = 0; i < 100 && !agent.messages.some((m) => m.type === "work"); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    const work = agent.messages.flatMap((m) => (m.type === "work" ? [m.item] : []))[0]!;
+    const checkout = (await (await fetch(`${server.url}${AGENT_API_PREFIX}/pages/${dsPage.id}/files`, { headers: { authorization: `Bearer ${token}` } })).json()) as AgentCheckout;
+    const publish = await fetch(`${server.url}${AGENT_API_PREFIX}/pages/${dsPage.id}/versions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ files: { ...checkout.files, "tokens.css": tokensCss() }, message: "m", origin: "thread", baseVersionId: checkout.versionId, workId: work.id, confirmRemovals: true }),
+    });
+    expect(publish.status).toBe(403);
+    expect(await error(publish)).toContain("another project");
+    expect(await (await fetch(`${server.artboardOrigin}/design-systems/${ds.id}/tokens.css`)).text()).toContain("--brand:");
+  });
 });

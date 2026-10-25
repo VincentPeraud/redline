@@ -55,6 +55,8 @@ describe("per-page view settings over the server HTTP API", () => {
       { hiddenFormats: [], renderingOverrides: {} },
       { hiddenFormats: [], renderingOverrides: {}, gapExceptions: "x" },
       { hiddenFormats: [], renderingOverrides: {}, gapExceptions: [1] },
+      { hiddenFormats: [], renderingOverrides: {}, gapExceptions: Array.from({ length: 1001 }, (_, i) => `key-${i}`) },
+      { hiddenFormats: [], renderingOverrides: {}, gapExceptions: ["x".repeat(2049)] },
     ]) {
       expect((await server.post(`/api/pages/${page.id}/view-settings`, body)).status).toBe(400);
     }
