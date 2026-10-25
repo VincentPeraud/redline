@@ -80,6 +80,28 @@ const usageOf = (html: string) => /<template\b[^>]*\bdata-usage\b[^>]*>([\s\S]*?
 
 const styleBlocksOf = (html: string) => [...html.matchAll(/<style\b[^>]*\bdata-component\b[^>]*>([\s\S]*?)<\/style>/gi)].map((match) => match[1].trim());
 
+/** Class names a component defines: the class selectors of its `<style data-component>` blocks. */
+export function componentClassesOf(html: string): string[] {
+  const classes = new Set<string>();
+  for (const block of styleBlocksOf(html)) {
+    // Only selectors (what precedes a `{`), not declarations: `0.5em` or `url(a.png)` are not classes.
+    for (const [, prelude] of block.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{/g)) {
+      if (prelude.trim().startsWith("@")) continue;
+      for (const [, name] of prelude.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) classes.add(name);
+    }
+  }
+  return [...classes];
+}
+
+/** Class names an HTML document puts in `class` attributes. */
+export function classesUsedIn(html: string): Set<string> {
+  const used = new Set<string>();
+  for (const [, double, single] of html.matchAll(/\sclass\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)) {
+    for (const name of (double ?? single ?? "").split(/\s+/)) if (name) used.add(name);
+  }
+  return used;
+}
+
 function manifestOf(page: ComponentPage): Manifest {
   const text = page.files[MANIFEST_PATH];
   try {

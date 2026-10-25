@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assembleComponents, componentNameOf, type ComponentPage } from "@redline/shared";
+import { assembleComponents, classesUsedIn, componentClassesOf, componentNameOf, type ComponentPage } from "@redline/shared";
 
 const manifest = (artboards: object[], extra: object = {}) => JSON.stringify({ artboards, ...extra });
 const board = (file: string, x: number, y = 0) => ({ file, x, y, width: 200, height: 100 });
@@ -88,5 +88,17 @@ describe("assembleComponents", () => {
   it("keeps components of a page without a manifest entry", () => {
     const { components } = assembleComponents([{ id: "p", title: "P", files: { "components/z.html": component("z{}") } }]);
     expect(components.map((c) => c.name)).toEqual(["z"]);
+  });
+});
+
+describe("component classes", () => {
+  it("reads the class selectors of the data-component style blocks only", () => {
+    const html = `<style data-component>.btn, .btn-primary:hover { margin: 0.5em; background: url(a.png) }\n@media (min-width: 1px) { .btn.wide > .icon { top: 1.5px } }</style><style>.other{}</style>`;
+    expect(componentClassesOf(html).sort()).toEqual(["btn", "btn-primary", "icon", "wide"]);
+  });
+
+  it("reads the class names of class attributes", () => {
+    const html = `<button class="btn  btn-primary" data-x='1'>a</button><a class='link'>b</a><p classname="no">c</p>`;
+    expect([...classesUsedIn(html)].sort()).toEqual(["btn", "btn-primary", "link"]);
   });
 });

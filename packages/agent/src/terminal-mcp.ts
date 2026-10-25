@@ -6,7 +6,8 @@ import { readLinkedProjectId } from "./link.js";
 import { pageAddresses } from "./page-addresses.js";
 import type { ServerApi } from "./server-api.js";
 import { CREATE_PAGE_TOOL, createRedlineMcpServer } from "./session-mcp.js";
-import { readDesignMd, readProjectStyle, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
+import { designSystemHint, designSystemNote } from "./design-system-note.js";
+import { readDesignMd, readDesignSystemEdits, readProjectStyle, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
 
 export const CHECKOUT_PAGE_TOOL = "checkout_page";
 export const PUBLISH_PAGE_TOOL = "publish_page";
@@ -25,6 +26,8 @@ interface Checkout {
   designMd: string;
   /** Project style `tokens.css` as published or downloaded last (undefined for a design system's own project). */
   projectStyle: string | undefined;
+  /** Files of `.design-system/` as downloaded (project pages only): what an edit of that read-only folder is measured against. */
+  designSystemFiles: Record<string, string> | undefined;
   /** Project assets as uploaded or downloaded last (name -> base64). */
   assets: Record<string, string>;
   versionId: string;
@@ -57,7 +60,7 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
       const { pageId } = checkedOut();
       const fresh = await api.checkout(pageId);
       const dir = writeWorkingCopy(folder, pageId, fresh);
-      current = { pageId, dir, files: fresh.files, designMd: fresh.project.designMd, projectStyle: fresh.project.projectStyle, assets: fresh.project.assets, versionId: fresh.versionId };
+      current = { pageId, dir, files: fresh.files, designMd: fresh.project.designMd, projectStyle: fresh.project.projectStyle, designSystemFiles: fresh.project.designSystem?.files, assets: fresh.project.assets, versionId: fresh.versionId };
     },
   });
   const tool = <T,>(run: (args: T) => Promise<string>) => async (args: T) => {
@@ -135,10 +138,11 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
         files: checkout.files,
         designMd: checkout.project.designMd,
         projectStyle: checkout.project.projectStyle,
+        designSystemFiles: checkout.project.designSystem?.files,
         assets: checkout.project.assets,
         versionId: checkout.versionId,
       };
-      return `Page checked out into .redline/${pageId}/. Edit its files, then call publish_page.\n${pageAddresses(api, pageId, checkout.files)}`;
+      return `Page checked out into .redline/${pageId}/. Edit its files, then call publish_page.\n${pageAddresses(api, pageId, checkout.files)}\n${designSystemNote(checkout.project)}`;
     }),
   );
   server.registerTool(
@@ -149,8 +153,10 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
     },
     tool(async ({ message }: { message: string }) => {
       const checkout = checkedOut();
-      const { pageId, dir, files: base, designMd: baseDesignMd, projectStyle: baseStyle, versionId } = checkout;
-      const files = readWorkingCopy(dir, baseStyle !== undefined);
+      const { pageId, dir, files: base, designMd: baseDesignMd, projectStyle: baseStyle, designSystemFiles, versionId } = checkout;
+      const pageFiles = readWorkingCopy(dir, baseStyle !== undefined);
+      // Edits of the read-only `.design-system/` go up with the page files so that the server refuses them.
+      const files = { ...pageFiles, ...readDesignSystemEdits(dir, designSystemFiles) };
       // DESIGN.md is published with the page, as in a session run (a deleted file counts as unchanged).
       const designMd = readDesignMd(dir) ?? baseDesignMd;
       const projectStyle = baseStyle === undefined ? undefined : (readProjectStyle(dir) ?? baseStyle);
@@ -161,13 +167,15 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
       if (sameFiles(files, base) && designMd === baseDesignMd && projectStyle === baseStyle) {
         return uploaded.length ? `${uploadedNote}No page file changed; no version published.` : "Nothing changed; no version published.";
       }
+      const hint = designSystemHint(pageFiles, designSystemFiles);
+      const hintAfter = hint ? `\n${hint}` : "";
       const version = await api.publish(pageId, files, message, "terminal", versionId, {
         ...(designMd !== baseDesignMd ? { designMd: { content: designMd, base: baseDesignMd } } : {}),
         ...(projectStyle !== baseStyle ? { projectStyle: { content: projectStyle!, base: baseStyle! } } : {}),
       });
       if (!version.merged) {
-        current = { pageId, dir, files, designMd, projectStyle, assets, versionId: version.id };
-        return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}.`;
+        current = { pageId, dir, files, designMd, projectStyle, designSystemFiles, assets, versionId: version.id };
+        return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}.${hintAfter}`;
       }
       // The page moved on since the checkout: the new version also holds those changes, so download it again.
       const fresh = await api.checkout(pageId);
@@ -178,10 +186,11 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
         files: fresh.files,
         designMd: fresh.project.designMd,
         projectStyle: fresh.project.projectStyle,
+        designSystemFiles: fresh.project.designSystem?.files,
         assets: fresh.project.assets,
         versionId: fresh.versionId,
       };
-      return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}, merged with changes made to the page since the checkout. The working copy was refreshed.`;
+      return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}, merged with changes made to the page since the checkout. The working copy was refreshed.${hintAfter}`;
     }),
   );
   return server;

@@ -17,7 +17,7 @@ import { moveArtboard } from "./move-artboard.js";
 import { tokensEqual } from "./request-hardening.js";
 import { versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
-import { requiredString, titleError, versionRequestError } from "./validation.js";
+import { requiredString, titleError, tokensError, versionRequestError } from "./validation.js";
 import { projectContext, putProjectAsset } from "./project-files.js";
 import type { PageLock } from "./page-lock.js";
 import type { OriginRef, Store } from "./store.js";
@@ -106,10 +106,13 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
             return reply.code(409).send({ error: "DESIGN.md changed since it was checked out. Check the page out again and redo the DESIGN.md change." });
           }
           const storedStyle = store.readProjectFile(projectId, PROJECT_STYLE_PATH)?.toString("utf8") ?? "";
-          const styleChanged = projectStyle !== undefined && projectStyle.content !== storedStyle && !store.isDesignSystemProject(projectId);
+          const styleChanged = projectStyle !== undefined && projectStyle.content !== storedStyle;
           if (styleChanged && storedStyle !== projectStyle.base) {
             return reply.code(409).send({ error: "The project style (tokens.css) changed since it was checked out. Check the page out again and redo the tokens.css change." });
           }
+          // On a design system's own project this file is the design system's tokens: the core tokens must stay.
+          const invalidStyle = styleChanged && store.isDesignSystemProject(projectId) ? tokensError(projectStyle.content) : null;
+          if (invalidStyle) return reply.code(400).send({ error: invalidStyle });
           const from = workOrigin(store, pageLock, workId, req.params.pageId);
           const ref: OriginRef | undefined = from && { originId: from.originId, originLabel: from.originLabel };
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });

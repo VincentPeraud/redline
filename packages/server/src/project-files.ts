@@ -2,14 +2,17 @@ import type { FastifyInstance } from "fastify";
 import {
   ASSETS_DIR,
   DESIGN_MD_PATH,
-  DESIGN_SYSTEM_TOKENS_PATH,
   PROJECT_STYLE_PATH,
   MAX_ASSET_BYTES,
   MANIFEST_PATH,
   NEUTRAL_DESIGN_SYSTEM_ID,
   isSafePath,
   parseManifest,
+  classesUsedIn,
+  componentClassesOf,
+  type ComponentInfo,
   type DesignMdAuthor,
+  type DesignSystemContext,
   type DesignMdInfo,
   type DesignMdResponse,
   type DesignMdRule,
@@ -34,25 +37,85 @@ export function designSystemIdOf(store: Store, pageId: string): string {
   return NEUTRAL_DESIGN_SYSTEM_ID;
 }
 
-/** DESIGN.md, assets and design system that go into the working copy of a page. */
+const slugOf = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "page";
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/**
+ * What a project session gets of its design system: the CURRENT diffusion (never the draft) as the files of
+ * `.design-system/`, and which of the design system's pages the project's pages use (through component classes).
+ */
+function designSystemContext(store: Store, projectId: string, designSystemId: string): DesignSystemContext {
+  const designSystem = store.getDesignSystem(designSystemId)!;
+  const { number } = store.currentDiffusion(designSystemId)!;
+  const read = (file: Parameters<Store["readDiffusionFile"]>[2]) => store.readDiffusionFile(designSystemId, number, file);
+  const components = JSON.parse(read("components.json") ?? "[]") as ComponentInfo[];
+  const indexes = JSON.parse(read("index.json") ?? "{}") as Record<string, string>;
+  const componentFiles = JSON.parse(read("component-files.json") ?? "{}") as Record<string, string>;
+
+  const classesOfPage = new Map<string, Set<string>>();
+  for (const component of components) {
+    const classes = classesOfPage.get(component.page.id) ?? new Set<string>();
+    for (const name of componentClassesOf(componentFiles[component.file] ?? "")) classes.add(name);
+    classesOfPage.set(component.page.id, classes);
+  }
+  const used = new Set<string>();
+  for (const page of store.listPages(projectId)) {
+    for (const [path, content] of Object.entries(store.readPageFiles(page.id)?.files ?? {})) {
+      if (!path.endsWith(".html")) continue;
+      const classes = classesUsedIn(content);
+      for (const [pageId, own] of classesOfPage) if ([...own].some((name) => classes.has(name))) used.add(pageId);
+    }
+  }
+
+  const taken = new Set<string>();
+  const pages = Object.keys(indexes).map((id) => {
+    const own = components.filter((c) => c.page.id === id);
+    const title = store.getPage(id)?.title ?? own[0]?.page.title ?? id;
+    let slug = slugOf(title);
+    for (let n = 2; taken.has(slug); n++) slug = `${slugOf(title)}-${n}`;
+    taken.add(slug);
+    return { id, title, slug, own };
+  });
+  const files: Record<string, string> = {
+    "tokens.css": read("tokens.css") ?? "",
+    "DESIGN.md": read("DESIGN.md") ?? "",
+    ...componentFiles,
+  };
+  for (const { id, title, slug } of pages) {
+    files[`pages/${slug}.md`] = `# ${title}\n\n${indexes[id].trim() === "" ? "No component on this page.\n" : indexes[id]}`;
+  }
+  files["index.md"] = [
+    `# ${designSystem.title} (diffusion ${number})`,
+    "",
+    "Pages of the design system (read the page file to see its components; the full files are in components/):",
+    "",
+    ...pages.map(({ title, slug, own }) => `- ${title} (pages/${slug}.md): ${plural(own.length, "component")}${own.length ? ` (${own.map((c) => c.name).join(", ")})` : ""}`),
+    "",
+  ].join("\n");
+  return {
+    id: designSystem.id,
+    title: designSystem.title,
+    diffusion: number,
+    files,
+    pages: pages.map(({ id, title, own }) => ({ title, components: own.length, used: used.has(id) })),
+  };
+}
+
+/** DESIGN.md, assets, project style and design system that go into the working copy of a page. */
 export function projectContext(store: Store, pageId: string): ProjectContext {
   const page = store.getPage(pageId)!;
-  const designSystem = store.getDesignSystem(designSystemIdOf(store, pageId))!;
   const assets: Record<string, string> = {};
   for (const { name } of store.listProjectFiles(page.projectId, `${ASSETS_DIR}/`)) {
     assets[name] = store.readProjectFile(page.projectId, `${ASSETS_DIR}/${name}`)!.toString("base64");
   }
+  const own = store.getDesignSystem(page.projectId);
   return {
     designMd: store.readProjectFile(page.projectId, DESIGN_MD_PATH)?.toString("utf8") ?? "",
     assets,
-    ...(store.isDesignSystemProject(page.projectId) ? {} : { projectStyle: store.readProjectFile(page.projectId, PROJECT_STYLE_PATH)?.toString("utf8") ?? "" }),
-    designSystem: {
-      id: designSystem.id,
-      files: {
-        ...store.readPageFiles(designSystem.pageId)!.files,
-        [DESIGN_SYSTEM_TOKENS_PATH]: store.readProjectFile(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH)?.toString("utf8") ?? "",
-      },
-    },
+    // A project's style, or the draft tokens of a design system's own project: the same root file either way.
+    projectStyle: store.readProjectFile(page.projectId, PROJECT_STYLE_PATH)?.toString("utf8") ?? "",
+    ...(own ? { editsDesignSystem: { id: own.id, title: own.title } } : { designSystem: designSystemContext(store, page.projectId, designSystemIdOf(store, pageId)) }),
   };
 }
 

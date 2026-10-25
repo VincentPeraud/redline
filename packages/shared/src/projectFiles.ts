@@ -6,8 +6,8 @@ export const PROJECT_STYLE_PATH = "tokens.css";
 export const ASSETS_DIR = "assets";
 /** Largest project asset (image, font) the server accepts, from the web UI or from an agent. */
 export const MAX_ASSET_BYTES = 20 * 1024 * 1024;
-/** Folder of the design system files inside a working copy. */
-export const WORKING_COPY_DESIGN_SYSTEM_DIR = "design-system";
+/** Read-only folder of a project session's working copy holding the design system's current diffusion. */
+export const WORKING_COPY_DESIGN_SYSTEM_DIR = ".design-system";
 
 export interface ProjectAsset {
   /** Path relative to the asset folder, e.g. `logo.png` or `fonts/inter.woff2`. */
@@ -74,9 +74,24 @@ export interface ProjectContext {
   designMd: string;
   /** Asset name -> content, base64. */
   assets: Record<string, string>;
-  /** Project style `tokens.css` (empty when the project only follows its design system); absent for a design system's own project. */
+  /** Root `tokens.css`: the project style (empty when the project only follows its design system), or the draft tokens of a design system's own project. */
   projectStyle?: string;
-  designSystem: { id: string; files: Record<string, string> };
+  /** Project sessions: the design system's current diffusion, written to `.design-system/` (read-only). Absent for a design system's own pages. */
+  designSystem?: DesignSystemContext;
+  /** Design system sessions: the design system whose draft (tokens, DESIGN.md, pages) the session edits. */
+  editsDesignSystem?: { id: string; title: string };
+}
+
+/** What a project session is told about its design system. */
+export interface DesignSystemContext {
+  id: string;
+  title: string;
+  /** Number of the current diffusion. */
+  diffusion: number;
+  /** Files of `.design-system/`: `index.md`, `pages/<page>.md`, `tokens.css`, `DESIGN.md`, `components/<name>.html`. */
+  files: Record<string, string>;
+  /** Pages of the design system, with their component count and whether the project's pages use one of their components. */
+  pages: { title: string; components: number; used: boolean }[];
 }
 
 /** True for working copy paths that belong to the project, not to the page. */
