@@ -23,9 +23,9 @@ function gapContext(store: Store, pageId: string, projectId: string): GapContext
   const read = (file: Parameters<Store["readDiffusionFile"]>[2]) => (diffusion ? store.readDiffusionFile(designSystemId, diffusion.number, file) : undefined);
 
   const tokens = new Map(parseTokens(read("tokens.css") ?? "").map((t) => [t.name, t]));
-  for (const token of parseTokens(store.readProjectFile(projectId, PROJECT_STYLE_PATH)?.toString("utf8") ?? "")) tokens.set(token.name, token);
+  for (const token of parseTokens(store.readProjectText(projectId, PROJECT_STYLE_PATH))) tokens.set(token.name, token);
 
-  const sharedFiles = JSON.parse(read("component-files.json") ?? "{}") as Record<string, string>;
+  const sharedFiles = diffusion ? store.diffusionComponentFiles(designSystemId, diffusion.number) : {};
   const components = new Map<string, string[]>();
   for (const [path, content] of [...Object.entries(sharedFiles), ...Object.entries(componentFilesOf(store, projectId))]) {
     components.set(componentNameOf(path)!, componentClassesOf(content));

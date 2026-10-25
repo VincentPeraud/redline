@@ -72,6 +72,26 @@ it("undoes a diffusion from the toast", async () => {
   await tab.close();
 });
 
+it("keeps the toast and says why when the undo is refused", async () => {
+  const { ds, dsPage, files } = await seed();
+  await server.post("/api/projects", { title: "Semaine Halloween", designSystem: ds.id });
+  expect((await addComponent(dsPage, files, "cta")).status).toBe(201);
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/design-systems/${ds.id}`);
+  await tab.getByRole("button", { name: "Diffuser…" }).click();
+  await tab.getByRole("button", { name: "Diffuser", exact: true }).click();
+  const toast = tab.getByTestId("diffusion-toast");
+  await expect.poll(async () => toast.textContent()).toBe("Diffusion 2 envoyée à 1 projetAnnuler");
+  // Someone else already undid it.
+  expect((await server.post(`/api/design-systems/${ds.id}/diffusions/undo`, {})).status).toBe(200);
+
+  await toast.getByRole("button", { name: "Annuler" }).click();
+  await toast.getByText("Rien à annuler : cette diffusion l'a déjà été.").waitFor();
+  expect(await toast.getByRole("button", { name: "Annuler" }).count()).toBe(1);
+  await tab.close();
+});
+
 it("rolls back to an earlier diffusion after a warning about pages using a component added since", async () => {
   const { ds, dsPage, files } = await seed();
   const project = (await (await server.post("/api/projects", { title: "Semaine Halloween", designSystem: ds.id })).json()) as { id: string };

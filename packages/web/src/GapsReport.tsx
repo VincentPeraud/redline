@@ -70,18 +70,20 @@ export function GapsButton({
   onSee,
   onException,
   onAsk,
+  onShowExceptions,
 }: {
   report: PageGaps | null;
   exceptionCount: number;
   onSee: (gap: Gap) => void;
   onException: (gap: Gap) => void;
   onAsk: () => void;
+  onShowExceptions: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
   useCloseOnOutsidePointer(root, open, close);
-  if (!report || report.gaps.length === 0) return null;
+  if (!report || (report.gaps.length === 0 && exceptionCount === 0)) return null;
   const label = gapCountLabel(report.gaps.length);
   const trigger = (
     <button type="button" data-testid="gaps-button" aria-haspopup="dialog" aria-expanded={open} className={styles.button} onClick={() => setOpen(!open)}>
@@ -116,11 +118,19 @@ export function GapsButton({
             ))}
           </ul>
           <div className={styles.footer}>
-            {exceptionCount > 0 && <span className={styles.hidden}>{exceptionCountLabel(exceptionCount)}</span>}
+            {exceptionCount > 0 && (
+              <>
+                <span className={styles.hidden}>{exceptionCountLabel(exceptionCount)}</span>
+                <button type="button" className={styles.showExceptions} onClick={onShowExceptions}>
+                  Réafficher
+                </button>
+              </>
+            )}
             <span className={styles.spacer} />
             <Button
               variant="accent"
               className={styles.ask}
+              disabled={report.gaps.length === 0}
               onClick={() => {
                 close();
                 onAsk();

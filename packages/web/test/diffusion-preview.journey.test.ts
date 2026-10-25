@@ -92,3 +92,25 @@ it("previews a project with the pending version: banner, read-only, diffuse from
   await expect.poll(() => preview.isClosed()).toBe(true);
   await context.close();
 }, 90_000);
+
+it("cannot open a preview in a project without a page", async () => {
+  const ds = (await (await server.post("/api/design-systems", {
+    title: "Vide",
+    files: { "tokens.css": tokensCss("#111111"), "manifest.json": manifestOf(["components/card.html"]), "components/card.html": component(".card{color:red}") },
+  })).json()) as DesignSystem;
+  await server.post("/api/projects", { title: "Sans page", designSystem: ds.id });
+  const dsPage = ((await (await server.get(`/api/projects/${ds.id}/pages`)).json()) as Page[])[0]!;
+  await server.post(`/api/pages/${dsPage.id}/versions`, {
+    files: { "tokens.css": tokensCss("#222222"), "manifest.json": manifestOf(["components/card.html"]), "components/card.html": component(".card{color:blue}") },
+    message: "Edit",
+    origin: "thread",
+  });
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/design-systems/${ds.id}`);
+  await tab.getByRole("button", { name: "Diffuser…" }).click();
+  const dialog = tab.getByRole("dialog");
+  await dialog.getByText("Aucune page", { exact: true }).waitFor();
+  expect(await dialog.getByRole("button", { name: /Ouvrir l'aperçu/ }).isDisabled()).toBe(true);
+  await tab.close();
+}, 60_000);

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { DesignMdResponse, DesignSystemDetail, DiffusionListItem, RollbackImpact } from "@redline/shared";
 import { useDesignSystemDetail, useOpenDiffusionDialog } from "./DiffusionDialog.js";
-import { componentCountLabel, diffusionChangeParts, pendingCountLabel, pendingNames, usedByHeading, userSummary } from "./diffusionLabels.js";
+import { componentCountLabel, diffusionChangeParts, pageCountLabel, pendingCountLabel, pendingNames, tokenCountLabel, usedByHeading, userSummary } from "./diffusionLabels.js";
+import { agree } from "./plural.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { routeHref } from "./router.js";
@@ -45,7 +46,7 @@ function PageCard({ page, palette }: { page: DesignSystemDetail["pages"][number]
             <>
               <span className={styles.grow} />
               <span className={styles.pendingPill}>
-                {page.pendingCount} non diffusé{page.pendingCount > 1 ? "s" : ""}
+                {page.pendingCount} {agree(page.pendingCount, "non diffusé", "non diffusés")}
               </span>
             </>
           )}
@@ -197,7 +198,7 @@ export function DesignSystemOverview({ designSystemId }: { designSystemId: strin
           <div className={styles.heading}>
             <h1 className={styles.title}>{detail.title}</h1>
             <div data-testid="ds-stats" className={styles.stats}>
-              {`Design system · ${detail.pages.length} page${detail.pages.length > 1 ? "s" : ""} · ${componentCountLabel(detail.componentCount)} · ${detail.tokenCount} token${detail.tokenCount > 1 ? "s" : ""} · diffusion ${detail.current.number} en cours`}
+              {`Design system · ${pageCountLabel(detail.pages.length)} · ${componentCountLabel(detail.componentCount)} · ${tokenCountLabel(detail.tokenCount)} · diffusion ${detail.current.number} en cours`}
             </div>
           </div>
 

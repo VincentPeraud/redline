@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { DesignSystemSummary, MoveArtboardRequest, Page } from "@redline/shared";
+import { moveRefusalMessage } from "./moveRefusal.js";
 import { Button, Dialog, DialogActions, Field, TextInput, Tooltip, cx } from "./ui/index.js";
 import { useCloseOnOutsidePointer } from "./useCloseOnOutsidePointer.js";
 import styles from "./ArtboardMoreMenu.module.css";
@@ -101,7 +102,7 @@ export function ArtboardMoreMenu({ pageId, file, open, onOpenChange, onCopyPlayL
   async function move(target: { targetPageId: string } | { newPageTitle: string }): Promise<void> {
     const request: MoveArtboardRequest = { file, ...target };
     const res = await fetch(`/api/pages/${pageId}/move-artboard`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
-    if (!res.ok) setRefusal(((await res.json()) as { error: string }).error);
+    if (!res.ok) setRefusal(moveRefusalMessage(((await res.json()) as { error: string }).error));
   }
 
   return (

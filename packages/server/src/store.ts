@@ -25,6 +25,7 @@ import {
   type ProjectAsset,
 } from "@redline/shared";
 import type {
+  ComponentInfo,
   DiffusionInfo,
   DiffusionState,
   Conversation,
@@ -336,13 +337,20 @@ export class Store {
     return {
       componentFiles: componentFilesOf(this, id),
       state: {
-        tokensCss: this.readProjectFile(id, DESIGN_SYSTEM_TOKENS_PATH)?.toString("utf8") ?? "",
-        designMd: this.readProjectFile(id, DESIGN_MD_PATH)?.toString("utf8") ?? "",
+        tokensCss: this.readProjectText(id, DESIGN_SYSTEM_TOKENS_PATH),
+        designMd: this.readProjectText(id, DESIGN_MD_PATH),
         components: assembly.components.map(({ name, hash }) => ({ name, hash })),
       },
       componentsCss: assembly.css,
       assembly,
     };
+  }
+
+  /** The draft of a design system with what differs from its current diffusion (the pending changes). */
+  pendingDiffusion(designSystemId: string): { draft: ReturnType<Store["designSystemDraft"]>; pending: ReturnType<typeof diffDiffusionStates> } {
+    const draft = this.designSystemDraft(designSystemId);
+    const current = this.currentDiffusion(designSystemId)!;
+    return { draft, pending: diffDiffusionStates(this.diffusionState(designSystemId, current.number), draft.state) };
   }
 
   /** Freezes the draft of a design system as its next diffusion and makes it the current one. Diffusions are never edited. */
@@ -426,9 +434,24 @@ export class Store {
     return row?.hash ? readFileSync(join(this.blobDir, row.hash), "utf8") : undefined;
   }
 
+  /** The components of a diffusion (`components.json`). */
+  diffusionComponents(designSystemId: string, number: number): ComponentInfo[] {
+    return JSON.parse(this.readDiffusionFile(designSystemId, number, "components.json") ?? "[]") as ComponentInfo[];
+  }
+
+  /** The component files of a diffusion by path (`component-files.json`). */
+  diffusionComponentFiles(designSystemId: string, number: number): Record<string, string> {
+    return JSON.parse(this.readDiffusionFile(designSystemId, number, "component-files.json") ?? "{}") as Record<string, string>;
+  }
+
+  /** The per-page component index text of a diffusion, by page id (`index.json`). */
+  diffusionPageIndexes(designSystemId: string, number: number): Record<string, string> {
+    return JSON.parse(this.readDiffusionFile(designSystemId, number, "index.json") ?? "{}") as Record<string, string>;
+  }
+
   /** A diffusion as the diff reads it. */
   diffusionState(designSystemId: string, number: number): DiffusionState {
-    const components = JSON.parse(this.readDiffusionFile(designSystemId, number, "components.json") ?? "[]") as { name: string; hash: string }[];
+    const components = this.diffusionComponents(designSystemId, number);
     return {
       tokensCss: this.readDiffusionFile(designSystemId, number, "tokens.css") ?? "",
       designMd: this.readDiffusionFile(designSystemId, number, "DESIGN.md") ?? "",
@@ -762,6 +785,11 @@ export class Store {
       ...(r.origin_id ? { originId: r.origin_id } : {}),
       ...(r.origin_label ? { originLabel: r.origin_label } : {}),
     }));
+  }
+
+  /** A project-level file as UTF-8 text, empty when there is none. */
+  readProjectText(projectId: string, path: string): string {
+    return this.readProjectFile(projectId, path)?.toString("utf8") ?? "";
   }
 
   readProjectFile(projectId: string, path: string): Buffer | undefined {

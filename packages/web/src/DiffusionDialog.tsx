@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { componentPreviewUrlPath, isColorValue, type DesignSystemDetail, type DiffusionInfo, type Page } from "@redline/shared";
 import { routeHref } from "./router.js";
 import { diffusionToastMessage } from "./diffusionLabels.js";
+import { agree } from "./plural.js";
 import { Select, cx } from "./ui/index.js";
 import styles from "./DiffusionDialog.module.css";
 
@@ -55,7 +56,7 @@ async function openPreview(designSystemId: string, projectId: string) {
 
 export function DiffusionProvider({ children }: { children: ReactNode }) {
   const [openFor, setOpenFor] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ message: string; designSystemId: string } | null>(null);
+  const [toast, setToast] = useState<{ message: string; designSystemId: string; error?: string } | null>(null);
   const [version, setVersion] = useState(0);
   const open = useCallback((designSystemId: string) => setOpenFor(designSystemId), []);
   const controls = useMemo(() => ({ open, version }), [open, version]);
@@ -84,11 +85,13 @@ export function DiffusionProvider({ children }: { children: ReactNode }) {
       {toast && (
         <div role="status" data-testid="diffusion-toast" className={styles.toast}>
           {toast.message}
+          {toast.error && <span className={styles.toastError}>{toast.error}</span>}
           <button
             type="button"
             className={styles.toastUndo}
             onClick={async () => {
-              await fetch(`/api/design-systems/${toast.designSystemId}/diffusions/undo`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+              const res = await fetch(`/api/design-systems/${toast.designSystemId}/diffusions/undo`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+              if (!res.ok) return setToast({ ...toast, error: res.status === 409 ? "Rien à annuler : cette diffusion l'a déjà été." : "L'annulation a échoué." });
               setToast(null);
               setVersion((v) => v + 1);
             }}
@@ -154,6 +157,8 @@ export function DiffusionDialog({ designSystemId, onClose, onDiffused, onOpenPre
   const [detail, setDetail] = useState<DesignSystemDetail | null>(null);
   const [artboardOrigin, setArtboardOrigin] = useState("");
   const [previewProject, setPreviewProject] = useState("");
+  /** Pages of the project chosen for the preview; null while unknown. */
+  const [previewPageCount, setPreviewPageCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -168,6 +173,20 @@ export function DiffusionDialog({ designSystemId, onClose, onDiffused, onOpenPre
       setPreviewProject((loaded.overrides[0] ?? loaded.usedBy[0])?.id ?? "");
     })();
   }, [designSystemId]);
+
+  useEffect(() => {
+    if (previewProject === "") return;
+    setPreviewPageCount(null);
+    let cancelled = false;
+    void fetch(`/api/projects/${previewProject}/pages`)
+      .then((res) => res.json() as Promise<Page[]>)
+      .then((pages) => {
+        if (!cancelled) setPreviewPageCount(pages.length);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewProject]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -276,7 +295,7 @@ export function DiffusionDialog({ designSystemId, onClose, onDiffused, onOpenPre
                       <span className={styles.mono}>{token}</span>
                     </span>
                   ))}{" "}
-                  : {project.tokens.length > 1 ? "ces changements y seront sans effet." : "ce changement y sera sans effet."}
+                  : {agree(project.tokens.length, "ce changement y sera sans effet.", "ces changements y seront sans effet.")}
                 </span>
               </div>
             ))}
@@ -296,9 +315,10 @@ export function DiffusionDialog({ designSystemId, onClose, onDiffused, onOpenPre
                   ))}
                 </Select>
               </span>
-              <button type="button" className={styles.secondary} disabled={!onOpenPreview} onClick={() => onOpenPreview?.(previewProject)}>
+              <button type="button" className={styles.secondary} disabled={!onOpenPreview || previewPageCount === 0} onClick={() => onOpenPreview?.(previewProject)}>
                 Ouvrir l'aperçu ↗
               </button>
+              {previewPageCount === 0 && <span className={styles.muted}>Aucune page</span>}
             </>
           )}
           <div className={styles.grow} />

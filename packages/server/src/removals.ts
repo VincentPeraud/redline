@@ -22,7 +22,7 @@ export function designSystemUsages(
   const tokens = new Map<string, string[]>(wanted.tokens.map((name) => [name, []]));
   const components = new Map<string, string[]>(wanted.components.map((c) => [c.name, []]));
   for (const project of store.projectsUsingDesignSystem(designSystemId)) {
-    const style = store.readProjectFile(project.id, PROJECT_STYLE_PATH)?.toString("utf8") ?? "";
+    const style = store.readProjectText(project.id, PROJECT_STYLE_PATH);
     for (const name of wanted.tokens) if (referencesToken(style, name)) tokens.get(name)!.push(`project style of "${project.title}"`);
     for (const page of store.listPages(project.id)) {
       const files = Object.entries(store.readPageFiles(page.id)?.files ?? {});
@@ -38,7 +38,7 @@ export function designSystemUsages(
 
 function removedTokenNames(store: Store, designSystemId: string, newTokensCss: string): string[] {
   const kept = new Set(parseTokens(newTokensCss).map((t) => t.name));
-  const current = store.readProjectFile(designSystemId, DESIGN_SYSTEM_TOKENS_PATH)?.toString("utf8") ?? "";
+  const current = store.readProjectText(designSystemId, DESIGN_SYSTEM_TOKENS_PATH);
   return parseTokens(current).map((t) => t.name).filter((name) => !kept.has(name));
 }
 
@@ -75,8 +75,8 @@ export function removalsError(store: Store, pageId: string, files: Record<string
 export function rollbackImpact(store: Store, designSystemId: string, target: number): RollbackImpact {
   const current = store.currentDiffusion(designSystemId)!;
   const kept = new Set(store.diffusionState(designSystemId, target).components.map((c) => c.name));
-  const files = JSON.parse(store.readDiffusionFile(designSystemId, current.number, "component-files.json") ?? "{}") as Record<string, string>;
-  const listed = JSON.parse(store.readDiffusionFile(designSystemId, current.number, "components.json") ?? "[]") as { name: string; file: string }[];
+  const files = store.diffusionComponentFiles(designSystemId, current.number);
+  const listed = store.diffusionComponents(designSystemId, current.number);
   const wanted = listed.filter((c) => !kept.has(c.name)).map((c) => ({ name: c.name, classes: componentClassesOf(files[c.file] ?? "") }));
   const used = designSystemUsages(store, designSystemId, { tokens: [], components: wanted });
   return { components: wanted.filter((c) => used.components.get(c.name)!.length > 0).map((c) => ({ name: c.name, usedBy: used.components.get(c.name)! })) };

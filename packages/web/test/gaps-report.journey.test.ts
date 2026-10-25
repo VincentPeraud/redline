@@ -172,3 +172,46 @@ it("Demander à Claude de corriger posts the visible gaps, not the exceptions, i
   expect(body).toContain("data-ds-libre");
   await tab.getByTestId("conversations").getByText("Couleur en dur #FF6B00 sur un bouton").first().waitFor();
 }, 60_000);
+
+it("keeps the button when every gap is an exception, and Réafficher brings the exceptions back", async () => {
+  const pageId = await setup({ "story-1.html": clean, "story-2.html": drifting });
+  const tab = await context.newPage();
+  await tab.goto(`${server.url}/#/pages/${pageId}`);
+  await tab.getByTestId("gaps-button").click();
+  const list = tab.getByRole("dialog", { name: "Écarts au design system" });
+  for (let remaining = 4; remaining > 0; remaining--) {
+    await list.locator("[data-gap]").first().getByRole("button", { name: "Exception voulue" }).click();
+    await expect.poll(() => list.locator("[data-gap]").count()).toBe(remaining - 1);
+  }
+  expect(await list.innerText()).toContain("0 écart au design system");
+  expect(await list.innerText()).toContain("4 exceptions voulues masquées");
+  expect(await list.getByRole("button", { name: "Demander à Claude de corriger" }).isDisabled()).toBe(true);
+  expect(await tab.getByTestId("gaps-button").innerText()).toBe("0 écart");
+
+  await list.getByRole("button", { name: "Réafficher" }).click();
+  await expect.poll(() => list.locator("[data-gap]").count()).toBe(4);
+  expect(await list.innerText()).not.toContain("masquée");
+  expect(await tab.getByTestId("gaps-button").innerText()).toBe("4 écarts");
+}, 60_000);
+
+it("Demander à Claude de corriger shows the conversation that received the message, even when another one was open", async () => {
+  const pageId = await setup({ "story-1.html": clean, "story-2.html": drifting });
+  const post = (path: string, body: object) => server.post(path, body);
+  const older = (await (await post(`/api/pages/${pageId}/conversations`, {})).json()) as { id: string };
+  await post(`/api/conversations/${older.id}/messages`, { body: "Ancienne discussion" });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const newer = (await (await post(`/api/pages/${pageId}/conversations`, {})).json()) as { id: string };
+  await post(`/api/conversations/${newer.id}/messages`, { body: "Discussion récente" });
+
+  const tab = await context.newPage();
+  await tab.goto(`${server.url}/#/pages/${pageId}`);
+  const panel = tab.getByTestId("conversations");
+  await panel.getByTestId("conversation-message").first().waitFor();
+  await panel.getByRole("button", { name: "Conversation", exact: true }).click();
+  await panel.getByRole("option").nth(1).click();
+  await expect.poll(() => panel.getByTestId("conversation-message").first().textContent()).toBe("Ancienne discussion");
+
+  await tab.getByTestId("gaps-button").click();
+  await tab.getByRole("dialog", { name: "Écarts au design system" }).getByRole("button", { name: "Demander à Claude de corriger" }).click();
+  await expect.poll(() => panel.getByTestId("conversation-message").allTextContents().then((all) => all.some((text) => text.includes("Couleur en dur #FF6B00")))).toBe(true);
+}, 60_000);

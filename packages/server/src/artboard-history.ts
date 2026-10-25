@@ -109,7 +109,7 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
       .map(([file, { deletedIn, lastIn, artboard }]): DeletedArtboard => ({
         file,
         ...(artboard.title ? { title: artboard.title } : {}),
-        deletedBy: deletedIn.origin === "restore" || deletedIn.origin === "creation" || deletedIn.origin === "tweak" ? "user" : "claude",
+        deletedBy: deletedIn.origin === "restore" || deletedIn.origin === "user" || deletedIn.origin === "creation" || deletedIn.origin === "tweak" ? "user" : "claude",
         origin: deletedIn.origin,
         ...(deletedIn.originId ? { originId: deletedIn.originId } : {}),
         ...(deletedIn.originLabel ? { originLabel: deletedIn.originLabel } : {}),

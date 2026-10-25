@@ -78,7 +78,12 @@ function descriptionOf(html: string): string {
 
 const usageOf = (html: string) => /<template\b[^>]*\bdata-usage\b[^>]*>([\s\S]*?)<\/template>/i.exec(html)?.[1].trim() ?? "";
 
-const styleBlocksOf = (html: string) => [...html.matchAll(/<style\b[^>]*\bdata-component\b[^>]*>([\s\S]*?)<\/style>/gi)].map((match) => match[1].trim());
+const STYLE_BLOCK = /<style\b[^>]*\bdata-component\b[^>]*>([\s\S]*?)<\/style>/gi;
+
+const styleBlocksOf = (html: string) => [...html.matchAll(STYLE_BLOCK)].map((match) => match[1].trim());
+
+/** The HTML without its `<style data-component>` blocks (the component's own css). */
+export const withoutComponentStyles = (html: string) => html.replace(STYLE_BLOCK, "");
 
 /** Class names a component defines: the class selectors of its `<style data-component>` blocks. */
 export function componentClassesOf(html: string): string[] {

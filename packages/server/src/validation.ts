@@ -1,6 +1,7 @@
 import {
   DESIGN_SYSTEM_TOKENS_PATH,
   WORKING_COPY_DESIGN_SYSTEM_DIR,
+  WORKING_COPY_PROJECT_COMPONENTS_DIR,
   EFFORTS,
   MANIFEST_PATH,
   MAX_TITLE_LENGTH,
@@ -174,6 +175,10 @@ export function versionRequestError(body: Partial<CreateVersionRequest> | undefi
   if (readOnly) {
     return `${readOnly}: ${WORKING_COPY_DESIGN_SYSTEM_DIR}/ is the read-only copy of the design system's current diffusion. A project session cannot edit the design system: propose the change to the user instead.`;
   }
+  const readOnlyComponents = Object.keys(files!).find((path) => path.startsWith(`${WORKING_COPY_PROJECT_COMPONENTS_DIR}/`));
+  if (readOnlyComponents) {
+    return `${readOnlyComponents}: ${WORKING_COPY_PROJECT_COMPONENTS_DIR}/ is the read-only copy of the project's components. Edit a component in the page that defines it (components/<name>.html in that page's files).`;
+  }
   const tokens = files![DESIGN_SYSTEM_TOKENS_PATH];
   if (designSystemPage && tokens !== undefined) {
     const invalidTokens = tokensError(tokens);
@@ -183,6 +188,9 @@ export function versionRequestError(body: Partial<CreateVersionRequest> | undefi
   if (!(VERSION_ORIGINS as readonly string[]).includes(origin as string)) return "invalid origin";
   return null;
 }
+
+const MAX_GAP_EXCEPTIONS = 1000;
+const MAX_GAP_KEY_LENGTH = 2048;
 
 /** Error message when a request body is not valid page view settings, else null. */
 export function viewSettingsError(body: unknown): string | null {
@@ -194,7 +202,8 @@ export function viewSettingsError(body: unknown): string | null {
   if (!isRecord(renderingOverrides)) return "renderingOverrides must be an object";
   const valid = Object.values(renderingOverrides).every((byKey) => isRecord(byKey) && Object.values(byKey).every((shown) => typeof shown === "boolean"));
   if (!valid) return "renderingOverrides must map artboard files to rendering keys to booleans";
-  return Array.isArray(gapExceptions) && gapExceptions.every((key) => typeof key === "string") ? null : "gapExceptions must be a list of gap keys";
+  const validKeys = Array.isArray(gapExceptions) && gapExceptions.length <= MAX_GAP_EXCEPTIONS && gapExceptions.every((key) => typeof key === "string" && key.length <= MAX_GAP_KEY_LENGTH);
+  return validKeys ? null : `gapExceptions must be a list of at most ${MAX_GAP_EXCEPTIONS} gap keys of at most ${MAX_GAP_KEY_LENGTH} characters`;
 }
 
 /** Error message when a thread's rendering (format and viewport width) is malformed, else null. */

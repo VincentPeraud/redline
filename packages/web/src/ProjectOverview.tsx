@@ -14,7 +14,9 @@ import { dayLabel, designMdAuthor } from "./historyLabels.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
-import { componentCountLabel, overrideCountLabel, previewSwatches } from "./projectDesignSystemLabels.js";
+import { overrideCountLabel, projectComponentCountLabel } from "./diffusionLabels.js";
+import { counted } from "./plural.js";
+import { previewSwatches } from "./projectDesignSystemLabels.js";
 import { relativeTime } from "./relativeTime.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
 import { routeHref } from "./router.js";
@@ -30,7 +32,6 @@ const IMAGE_EXTENSION = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
 const FONT_EXTENSION = /\.(woff2?|ttf|otf)$/i;
 
 const folderName = (path: string) => path.split("/").filter(Boolean).pop() ?? path;
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 function PageCard({
   page,
@@ -47,7 +48,7 @@ function PageCard({
 }) {
   const artboards = usePageArtboards(page.id, page.version.files);
   const [renaming, setRenaming] = useState(false);
-  const count = plural(artboards?.length ?? 0, "artboard", "artboards");
+  const count = counted(artboards?.length ?? 0, "artboard", "artboards");
   const modified = stats?.updatedAt ? ` · modifié ${relativeTime(stats.updatedAt)}` : "";
 
   return (
@@ -75,7 +76,7 @@ function PageCard({
             <span className={styles.spacer} />
             {stats && stats.openThreads > 0 && (
               <StatusBadge tone="warning" className={styles.chip}>
-                {plural(stats.openThreads, "fil", "fils")}
+                {counted(stats.openThreads, "fil", "fils")}
               </StatusBadge>
             )}
           </div>
@@ -91,7 +92,7 @@ function PageCard({
 
 function DesignSystemBox({ projectId, detail }: { projectId: string; detail: ProjectDesignSystem }) {
   const swatches = previewSwatches(detail);
-  const components = componentCountLabel(detail.components.length);
+  const components = projectComponentCountLabel(detail.components.length);
   return (
     <section className={styles.panelSection}>
       <div className={styles.panelHeading}>
@@ -262,7 +263,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
   }
 
   const openThreads = Object.values(pageStats).reduce((sum, stats) => sum + stats.openThreads, 0);
-  const summary = `${plural(pages.length, "page", "pages")} · ${plural(openThreads, "fil ouvert", "fils ouverts")}`;
+  const summary = `${counted(pages.length, "page", "pages")} · ${counted(openThreads, "fil ouvert", "fils ouverts")}`;
   const assetPreviewPage = pages[0];
   const assetEntries = groupAssets(assets);
 

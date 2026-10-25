@@ -57,7 +57,7 @@ export function DeletedArtboardsList({ pageId, pageTitle, artboardOrigin, items,
       <div className={styles.title}>Artboards supprimés · {pageTitle}</div>
       {items.map((item) => {
         const by = item.deletedBy === "claude" ? "Claude" : "toi";
-        const source = item.origin === "restore" ? null : lowerFirst(originLabel(item.origin, item.originLabel));
+        const source = item.origin === "restore" || item.origin === "user" ? null : lowerFirst(originLabel(item.origin, item.originLabel));
         return (
           <div key={item.file} data-testid="deleted-artboard" className={styles.row}>
             <Thumbnail pageId={pageId} artboardOrigin={artboardOrigin} item={item} />

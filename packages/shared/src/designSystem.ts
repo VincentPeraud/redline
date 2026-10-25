@@ -38,6 +38,13 @@ export interface DesignSystemSummary extends DesignSystem {
   updatedAt?: string;
   /** Changes of the draft not yet diffused (`DiffusionDiff.count`); 0 = nothing pending. */
   pendingChanges: number;
+  pageCount: number;
+  /** Components of the draft (the pages as they are now). */
+  componentCount: number;
+  /** Number of the current diffusion. */
+  diffusion: number;
+  /** Up to three colours of the draft tokens, for the card's preview. */
+  palette: string[];
 }
 
 /** A design system as terminal mode lists it (`GET /agent-api/design-systems`): its pages are the ones to check out. */

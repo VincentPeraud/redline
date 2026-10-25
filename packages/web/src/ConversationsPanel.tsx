@@ -51,6 +51,12 @@ function SessionLine({ conversation }: { conversation: ConversationDetail }) {
   );
 }
 
+/** A conversation to bring up, `nonce` making a second request for the same one act again. */
+export interface FocusedConversation {
+  id: string;
+  nonce: number;
+}
+
 interface Props {
   pageId: string;
   pageTitle: string;
@@ -63,6 +69,8 @@ interface Props {
   onCenterArtboard: (file: string) => void;
   /** Shows "Cet artboard n'existe plus" (a pill whose artboard is gone). */
   onMissingArtboard: (file: string) => void;
+  /** Shown as soon as it changes: the conversation that just received a message posted from outside the panel. */
+  focusedConversation: FocusedConversation | null;
   /** What goes with the next message, live with the canvas view and the tweaks. */
   context: MessageContext;
   runs: ThreadRun[];
@@ -79,7 +87,7 @@ interface Props {
 }
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
-export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
+export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, focusedConversation, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   /** `activeId` as of now, not as of the last render: a message sent right after "+ Nouvelle" must land in the conversation just created. */
@@ -119,6 +127,12 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
     activeRef.current = id;
     setActiveId(id);
   };
+
+  useEffect(() => {
+    if (!focusedConversation) return;
+    showConversation(focusedConversation.id);
+    void refreshList();
+  }, [focusedConversation, refreshList]);
 
   // Open the most recent conversation once the list is known.
   useEffect(() => {

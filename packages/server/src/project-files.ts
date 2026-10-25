@@ -8,7 +8,6 @@ import {
   isSafePath,
   classesUsedIn,
   componentClassesOf,
-  type ComponentInfo,
   type DesignMdAuthor,
   type DesignSystemContext,
   type DesignMdInfo,
@@ -19,6 +18,7 @@ import {
   type ProjectContext,
   type SaveDesignMdRequest,
 } from "@redline/shared";
+import { componentFilesOf } from "./components.js";
 import type { Store } from "./store.js";
 
 /** Design system a page uses (as of one of its versions when given): the one its manifest names if it exists, else the neutral one. */
@@ -39,9 +39,9 @@ function designSystemContext(store: Store, projectId: string, designSystemId: st
   const designSystem = store.getDesignSystem(designSystemId)!;
   const { number } = store.currentDiffusion(designSystemId)!;
   const read = (file: Parameters<Store["readDiffusionFile"]>[2]) => store.readDiffusionFile(designSystemId, number, file);
-  const components = JSON.parse(read("components.json") ?? "[]") as ComponentInfo[];
-  const indexes = JSON.parse(read("index.json") ?? "{}") as Record<string, string>;
-  const componentFiles = JSON.parse(read("component-files.json") ?? "{}") as Record<string, string>;
+  const components = store.diffusionComponents(designSystemId, number);
+  const indexes = store.diffusionPageIndexes(designSystemId, number);
+  const componentFiles = store.diffusionComponentFiles(designSystemId, number);
 
   const classesOfPage = new Map<string, Set<string>>();
   for (const component of components) {
@@ -101,10 +101,11 @@ export function projectContext(store: Store, pageId: string): ProjectContext {
   }
   const own = store.getDesignSystem(page.projectId);
   return {
-    designMd: store.readProjectFile(page.projectId, DESIGN_MD_PATH)?.toString("utf8") ?? "",
+    designMd: store.readProjectText(page.projectId, DESIGN_MD_PATH),
     assets,
     // A project's style, or the draft tokens of a design system's own project: the same root file either way.
-    projectStyle: store.readProjectFile(page.projectId, PROJECT_STYLE_PATH)?.toString("utf8") ?? "",
+    projectStyle: store.readProjectText(page.projectId, PROJECT_STYLE_PATH),
+    ...(own ? {} : { projectComponents: componentFilesOf(store, page.projectId) }),
     ...(own ? { editsDesignSystem: { id: own.id, title: own.title } } : { designSystem: designSystemContext(store, page.projectId, designSystemIdOf(store, pageId)) }),
   };
 }
@@ -171,7 +172,7 @@ export function designMdRules(versions: DesignMdVersion[]): DesignMdRule[] {
 export async function registerProjectFileRoutes(app: FastifyInstance, store: Store): Promise<void> {
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/design-md", async (req, reply): Promise<DesignMdResponse> => {
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-    return { content: store.readProjectFile(req.params.projectId, DESIGN_MD_PATH)?.toString("utf8") ?? "" };
+    return { content: store.readProjectText(req.params.projectId, DESIGN_MD_PATH) };
   });
 
   app.put<{ Params: { projectId: string }; Body: SaveDesignMdRequest }>("/api/projects/:projectId/design-md", async (req, reply) => {
@@ -184,7 +185,7 @@ export async function registerProjectFileRoutes(app: FastifyInstance, store: Sto
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/project-style", async (req, reply): Promise<DesignMdResponse> => {
     if (!store.projectExists(req.params.projectId) || store.isDesignSystemProject(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-    return { content: store.readProjectFile(req.params.projectId, PROJECT_STYLE_PATH)?.toString("utf8") ?? "" };
+    return { content: store.readProjectText(req.params.projectId, PROJECT_STYLE_PATH) };
   });
 
   app.put<{ Params: { projectId: string }; Body: SaveDesignMdRequest }>("/api/projects/:projectId/project-style", async (req, reply) => {

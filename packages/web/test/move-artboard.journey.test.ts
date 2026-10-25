@@ -113,7 +113,7 @@ it("says why a move is refused and leaves the artboard where it is", async () =>
   await tab.getByRole("menuitem", { name: "Boutons" }).click();
 
   const dialog = tab.getByRole("dialog", { name: "Déplacement impossible" });
-  await dialog.getByText(/already has a file named btn\.html/).waitFor();
+  await dialog.getByText("« Boutons » a déjà un fichier nommé btn.html.").waitFor();
   await dialog.getByRole("button", { name: "Fermer" }).first().click();
   expect(await tab.locator('[data-artboard="btn.html"]').count()).toBe(1);
   expect(await filesOf(web)).toEqual(["btn.html", "home.html", "manifest.json"]);

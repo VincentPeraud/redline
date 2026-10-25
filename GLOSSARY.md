@@ -38,7 +38,7 @@ A project's own tokens (project-level `tokens.css`, next to DESIGN.md), injected
 _Avoid_: Theme, project layer, local design system
 
 **Override**:
-A project-style token that replaces the design system's token of the same name; its CSS comes later, so the project value wins.
+A project-style token or component that replaces the design system's one of the same name; its CSS comes later, so the project value wins.
 _Avoid_: Customisation, exception
 
 **Component**:

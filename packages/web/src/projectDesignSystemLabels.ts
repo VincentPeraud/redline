@@ -11,12 +11,6 @@ export function pickerHex(value: string): string | null {
 
 const isWhite = (value: string) => pickerHex(value) === "#ffffff";
 
-/** "1 variable surchargée", "3 variables surchargées". */
-export const overrideCountLabel = (count: number) => `${count} variable${count > 1 ? "s" : ""} surchargée${count > 1 ? "s" : ""}`;
-
-/** "0 composant du projet", "2 composants du projet". */
-export const componentCountLabel = (count: number) => `${count} composant${count > 1 ? "s" : ""} du projet`;
-
 export interface PreviewSwatch {
   value: string;
   overridden: boolean;

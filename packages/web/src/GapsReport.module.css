@@ -141,3 +141,14 @@
   padding: 0 12px;
   border-radius: var(--radius-md);
 }
+
+.showExceptions {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}

@@ -6,6 +6,7 @@ import {
   MAX_ASSET_BYTES,
   PROJECT_STYLE_PATH,
   WORKING_COPY_DESIGN_SYSTEM_DIR,
+  WORKING_COPY_PROJECT_COMPONENTS_DIR,
   isProjectContextPath,
   isSafePath,
   isUuid,
@@ -37,12 +38,13 @@ export function writeWorkingCopy(folder: string, pageId: string, checkout: Agent
   };
   for (const [path, content] of Object.entries(checkout.files)) write(path, content);
   // Project context for the session to read; never published back (see `readWorkingCopy`).
-  const { designMd, assets, designSystem, projectStyle } = checkout.project;
+  const { designMd, assets, designSystem, projectStyle, projectComponents } = checkout.project;
   write(DESIGN_MD_PATH, designMd);
   if (projectStyle !== undefined) write(PROJECT_STYLE_PATH, projectStyle);
   for (const [name, base64] of Object.entries(assets)) write(`${ASSETS_DIR}/${name}`, Buffer.from(base64, "base64"));
   // The design system's current diffusion is for reading: read-only files (a publish touching them is refused anyway).
   for (const [path, content] of Object.entries(designSystem?.files ?? {})) write(`${WORKING_COPY_DESIGN_SYSTEM_DIR}/${path}`, content, 0o444);
+  for (const [path, content] of Object.entries(projectComponents ?? {})) write(`${WORKING_COPY_PROJECT_COMPONENTS_DIR}/${path}`, content, 0o444);
   mkdirSync(dir, { recursive: true });
   ensureGitignored(folder);
   return dir;
@@ -70,11 +72,18 @@ export function readWorkingCopy(dir: string, hasProjectStyle = false): Record<st
 }
 
 /**
- * Files of `.design-system/` that the session added or changed (path as in the working copy). They are never part of a
- * page, so the caller publishes them with the page files only to have the server refuse them.
+ * Files of the read-only folders (`.design-system/`, `.project-components/`) that the session added or changed (path as in
+ * the working copy). They are never part of a page, so the caller publishes them with the page files only to have the server refuse them.
  */
-export function readDesignSystemEdits(dir: string, base: Record<string, string> = {}): Record<string, string> {
-  const root = join(dir, WORKING_COPY_DESIGN_SYSTEM_DIR);
+export function readDesignSystemEdits(dir: string, designSystemBase: Record<string, string> = {}, projectComponentsBase: Record<string, string> = {}): Record<string, string> {
+  return {
+    ...readEditsIn(dir, WORKING_COPY_DESIGN_SYSTEM_DIR, designSystemBase),
+    ...readEditsIn(dir, WORKING_COPY_PROJECT_COMPONENTS_DIR, projectComponentsBase),
+  };
+}
+
+function readEditsIn(dir: string, folder: string, base: Record<string, string>): Record<string, string> {
+  const root = join(dir, folder);
   const edits: Record<string, string> = {};
   const walk = (current: string) => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
@@ -83,7 +92,7 @@ export function readDesignSystemEdits(dir: string, base: Record<string, string> 
       else if (entry.isFile()) {
         const path = relative(root, full).split("\\").join("/");
         const content = readFileSync(full, "utf8");
-        if (base[path] !== content) edits[`${WORKING_COPY_DESIGN_SYSTEM_DIR}/${path}`] = content;
+        if (base[path] !== content) edits[`${folder}/${path}`] = content;
       }
     }
   };

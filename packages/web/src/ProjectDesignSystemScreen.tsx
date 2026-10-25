@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DesignMdVersion, DesignSystemSummary, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
 import { dayLabel, designMdAuthor, originLabel } from "./historyLabels.js";
+import { agree } from "./plural.js";
 import { pickerHex } from "./projectDesignSystemLabels.js";
 import { relativeTime } from "./relativeTime.js";
 import { routeHref } from "./router.js";
@@ -344,7 +345,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
               <h2 className={styles.variablesTitle}>Variables</h2>
               <span className={styles.variablesHint}>
                 {shared
-                  ? `${overridden} surchargée${overridden > 1 ? "s" : ""} · les autres suivent ${shared.title}`
+                  ? `${overridden} ${agree(overridden, "surchargée", "surchargées")} · les autres suivent ${shared.title}`
                   : "Le design system du projet : modifiables ici ou en le demandant à Claude"}
               </span>
             </div>

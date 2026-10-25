@@ -111,5 +111,7 @@ it("opens the diffusion dialog from the banner and the header, and the DESIGN.md
   await tab.keyboard.press("Escape");
   await tab.getByRole("link", { name: "Modifier" }).click();
   await tab.waitForURL(`**/#/projects/${ds.id}/design-md`);
+  const back = `#/design-systems/${ds.id}`;
+  await expect.poll(() => tab.getByRole("link", { name: "Fermer" }).getAttribute("href")).toBe(back);  expect(await tab.getByRole("navigation", { name: "Fil d'Ariane" }).getByRole("link", { name: "Lumora" }).getAttribute("href")).toBe(back);
   await tab.close();
-});
+}, 60_000);
