@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { componentPreviewUrlPath, isColorValue, type DesignSystemDetail, type DiffusionInfo } from "@redline/shared";
+import { componentPreviewUrlPath, isColorValue, type DesignSystemDetail, type DiffusionInfo, type Page } from "@redline/shared";
+import { routeHref } from "./router.js";
 import { diffusionToastMessage } from "./diffusionLabels.js";
 import { Select, cx } from "./ui/index.js";
 import styles from "./DiffusionDialog.module.css";
@@ -45,6 +46,13 @@ export function useDesignSystemDetail(id: string | undefined, refreshKey?: strin
   return detail;
 }
 
+/** Opens, in a new tab, the first page of `projectId` shown with the draft of the design system (read-only, for this viewer only). */
+async function openPreview(designSystemId: string, projectId: string) {
+  const pages = (await (await fetch(`/api/projects/${projectId}/pages`)).json()) as Page[];
+  const first = pages[0];
+  if (first) window.open(`${window.location.pathname}${routeHref({ name: "page", pageId: first.id, previewOf: designSystemId })}`, "_blank");
+}
+
 export function DiffusionProvider({ children }: { children: ReactNode }) {
   const [openFor, setOpenFor] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; designSystemId: string } | null>(null);
@@ -65,6 +73,7 @@ export function DiffusionProvider({ children }: { children: ReactNode }) {
         <DiffusionDialog
           designSystemId={openFor}
           onClose={() => setOpenFor(null)}
+          onOpenPreview={(projectId) => void openPreview(openFor, projectId)}
           onDiffused={(diffusion, projects) => {
             setOpenFor(null);
             setToast({ message: diffusionToastMessage(diffusion.number, projects), designSystemId: openFor });
@@ -137,7 +146,7 @@ interface DialogProps {
   designSystemId: string;
   onClose: () => void;
   onDiffused: (diffusion: DiffusionInfo, projects: number) => void;
-  /** Wired by ticket 12: opens the preview of the pending changes in the chosen project. Without it the control is shown disabled. */
+  /** Opens the preview of the pending changes in the chosen project. Without it the control is shown disabled. */
   onOpenPreview?: (projectId: string) => void;
 }
 

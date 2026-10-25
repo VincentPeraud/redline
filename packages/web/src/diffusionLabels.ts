@@ -87,3 +87,16 @@ export function pendingNames(diff: DiffusionDiff): { names: string[]; more: bool
   ];
   return { names: all.slice(0, MAX_PENDING_NAMES), more: all.length > MAX_PENDING_NAMES };
 }
+
+/** "1 token, 2 composants": what the draft changes, for the preview banner (empty when nothing is pending). */
+export function pendingScopeLabel(pending: DiffusionDiff): string {
+  const tokens = countOf(pending.tokens);
+  const components = countOf(pending.components);
+  return [
+    tokens > 0 ? `${tokens} token${tokens > 1 ? "s" : ""}` : "",
+    components > 0 ? `${components} composant${components > 1 ? "s" : ""}` : "",
+    pending.designMdChanged ? "DESIGN.md" : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
