@@ -140,3 +140,24 @@ export function tweakGridLayout(grid: TweakGrid, cell: { width: number; height: 
   layout.height = y + paddingY + border;
   return layout;
 }
+
+/** Identity of a cell within its artboard: its values, whatever the key order. */
+export const cellKey = (cell: TweakValues): string =>
+  Object.keys(cell)
+    .sort()
+    .map((id) => `${id}=${JSON.stringify(cell[id])}`)
+    .join("|");
+
+/**
+ * "Hover · Outlined · Icône : non": the values of a cell in the order they were recorded. With the page's tweaks a toggle
+ * reads like the grid's labels; without them (the server) it names the tweak id: "icon off".
+ */
+export function cellText(cell: TweakValues, tweaks: readonly ManifestTweak[] = []): string {
+  return Object.entries(cell)
+    .map(([id, value]) => {
+      if (typeof value !== "boolean") return String(value);
+      const label = tweaks.find((t) => t.id === id)?.label;
+      return label === undefined ? `${id} ${value ? "on" : "off"}` : `${label} : ${value ? "oui" : "non"}`;
+    })
+    .join(" · ");
+}

@@ -220,6 +220,7 @@ export type ThreadTarget =
       xPct: number;
       yPct: number;
       rendering?: ThreadRendering;
+      cell?: TweakValues;
     }
   | { kind: "artboard"; artboard: string }
   | { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind; /** What the element shows now (`canvasElementSummary`); what it showed when the user commented it once the element is removed. */ elementSummary?: string };
@@ -264,6 +265,8 @@ export interface Thread {
   elementName: string | null;
   /** Rendering of a responsive artboard the thread was pinned in; absent on other artboards. */
   rendering?: ThreadRendering;
+  /** Tweak grid cell the thread was pinned in: the values of the grid's tweaks (tweak id to value); absent on other artboards. */
+  cell?: TweakValues;
   /** First line of the comment, kept visible when the thread is resolved. */
   title: string;
   body: string;
@@ -296,6 +299,8 @@ export interface CreateElementThreadRequest extends CreateThreadCommon {
   elementName?: string;
   /** Rendering of a responsive artboard the comment was pinned in. */
   rendering?: ThreadRendering;
+  /** Tweak grid cell the comment was pinned in (tweak id to value). */
+  cell?: TweakValues;
 }
 
 /** A comment on a whole artboard: no element, no pin, no rendering. The artboard must be on the page. */

@@ -25,6 +25,7 @@ import {
   type Thread,
   type ThreadRendering,
   type ThreadTarget,
+  type TweakValues,
 } from "@redline/shared";
 import { ComponentMarker } from "./ComponentMarker.js";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
@@ -49,6 +50,7 @@ import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometr
 import { ResponsiveFrame } from "./ResponsiveFrame.js";
 import { TweakGridFrame } from "./TweakGridFrame.js";
 import { RenderingChips, RenderingsMenu } from "./RenderingControls.js";
+import { PageTweaksContext } from "./RenderingChip.js";
 import { hiddenRenderingKeys, hiddenThreadCounts, setFormatShown, toggleRendering } from "./viewSettings.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
 import { ConversationsPanel } from "./ConversationsPanel.js";
@@ -102,7 +104,7 @@ function BubbleIcon({ size }: { size: number }) {
 
 /** A comment being written: pinned on an element of an artboard, or on a whole artboard. */
 type PageDraft =
-  | (Pick & { artboard: string; rendering?: ThreadRendering })
+  | (Pick & { artboard: string; rendering?: ThreadRendering; cell?: TweakValues })
   | { target: { kind: "artboard"; artboard: string } }
   | { target: { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind } };
 
@@ -406,8 +408,8 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
     if (next) setPicking(false);
   }
 
-  const pickElement = (pick: Pick, artboard: string, rendering?: ThreadRendering) =>
-    setChips((current) => addChip(current, { kind: "element", artboard, selector: pick.selector, elementName: pick.elementName ?? null, xPct: pick.xPct, yPct: pick.yPct, ...(rendering && { rendering }) }));
+  const pickElement = (pick: Pick, artboard: string, rendering?: ThreadRendering, cell?: TweakValues) =>
+    setChips((current) => addChip(current, { kind: "element", artboard, selector: pick.selector, elementName: pick.elementName ?? null, xPct: pick.xPct, yPct: pick.yPct, ...(rendering && { rendering }), ...(cell && { cell }) }));
 
   async function renamePage(title: string) {
     const res = await fetch(`/api/pages/${pageId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) });
@@ -711,11 +713,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       threads={preview?.file === artboard.file ? [] : pinnedOn(artboard.file)}
                       picking={picking && preview?.file !== artboard.file}
                       selecting={selecting && preview?.file !== artboard.file}
-                      marks={marksFor(chips, artboard.file)}
+                      marksOf={(cell) => marksFor(chips, artboard.file, undefined, cell)}
                       tweaks={tweaks.values}
-                      onPick={(pick) => {
-                        if (selecting) return pickElement(pick, artboard.file);
-                        setDraft({ ...pick, artboard: artboard.file });
+                      onPick={(pick, cell) => {
+                        if (selecting) return pickElement(pick, artboard.file, undefined, cell);
+                        setDraft({ ...pick, artboard: artboard.file, cell });
                         setTab("comments");
                       }}
                       onEscape={() => setSelecting(false)}
@@ -863,24 +865,26 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
               <TocList items={tocItems} currentFile={currentTocFile} placeholder={`Filtrer les ${tocItems.length} artboards…`} onSelect={centerOnArtboard} />
             </div>
           ) : (
-            <CommentsPanel
-              pageId={pageId}
-              threads={threads}
-              queue={queue}
-              runs={runs}
-              sessions={sessions}
-              defaults={agentDefaults}
-              choice={choice}
-              onChoice={setChoice}
-              draft={draftInfo}
-              text={text}
-              onText={setText}
-              onSend={(held) => void send(held)}
-              onCancel={() => {
-                setDraft(null);
-                setText("");
-              }}
-            />
+            <PageTweaksContext.Provider value={manifest?.tweaks ?? []}>
+              <CommentsPanel
+                pageId={pageId}
+                threads={threads}
+                queue={queue}
+                runs={runs}
+                sessions={sessions}
+                defaults={agentDefaults}
+                choice={choice}
+                onChoice={setChoice}
+                draft={draftInfo}
+                text={text}
+                onText={setText}
+                onSend={(held) => void send(held)}
+                onCancel={() => {
+                  setDraft(null);
+                  setText("");
+                }}
+              />
+            </PageTweaksContext.Provider>
           )}
         </aside>
       </div>

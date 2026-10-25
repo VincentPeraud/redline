@@ -1,10 +1,10 @@
-import { CANVAS_ELEMENT_KIND_LABELS, renderingKey, type ThreadTarget } from "@redline/shared";
+import { CANVAS_ELEMENT_KIND_LABELS, cellKey, renderingKey, type ThreadTarget, type TweakValues } from "@redline/shared";
 
 /** Identity of a target: selecting it twice gives one chip. */
 function targetKey(target: ThreadTarget): string {
   switch (target.kind) {
     case "element":
-      return `element|${target.artboard}|${target.rendering ? renderingKey(target.rendering) : ""}|${target.selector}`;
+      return `element|${target.artboard}|${target.rendering ? renderingKey(target.rendering) : ""}|${target.cell ? cellKey(target.cell) : ""}|${target.selector}`;
     case "artboard":
       return `artboard|${target.artboard}`;
     case "canvas-element":
@@ -38,10 +38,13 @@ export function chipParts(target: ThreadTarget): { kind: string; name?: string }
   }
 }
 
-/** Numbered marks (position in the chips + 1) an artboard, or one rendering of it, draws for its element chips. */
-export function marksFor(chips: ThreadTarget[], artboard: string, rendering?: string): { number: number; selector: string }[] {
+/** Numbered marks (position in the chips + 1) an artboard, one rendering of it, or one cell of its tweak grid draws for its element chips. */
+export function marksFor(chips: ThreadTarget[], artboard: string, rendering?: string, cell?: TweakValues): { number: number; selector: string }[] {
   return chips.flatMap((chip, index) =>
-    chip.kind === "element" && chip.artboard === artboard && (chip.rendering ? renderingKey(chip.rendering) : undefined) === rendering
+    chip.kind === "element" &&
+    chip.artboard === artboard &&
+    (chip.rendering ? renderingKey(chip.rendering) : undefined) === rendering &&
+    (chip.cell ? cellKey(chip.cell) : undefined) === (cell && cellKey(cell))
       ? [{ number: index + 1, selector: chip.selector }]
       : [],
   );

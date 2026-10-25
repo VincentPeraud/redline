@@ -85,3 +85,54 @@ it("draws a tweak grid as one frame: labelled blocks, columns and rows, one cell
   }
   expect(await combination(5)).toEqual(["Disabled", "Outlined", "false"]);
 }, 60_000);
+
+it("pins a comment in one cell: its pin stays in that cell after a reload, the comments panel names the cell's values, and play mode shows the artboard once with its Tweaks panel", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Grid pins" })).json()) as { id: string };
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Buttons",
+      files: {
+        "btn.html": BUTTON,
+        "manifest.json": JSON.stringify({
+          artboards: [{ file: "btn.html", x: 0, y: 0, width: 160, height: 50, matrix: { rows: "state", columns: "variant", blocks: "icon" } }],
+          tweaks: [
+            { id: "state", type: "choice", label: "État", options: ["Default", "Hover", "Disabled"] },
+            { id: "variant", type: "choice", label: "Variante", options: ["Contained", "Outlined"] },
+            { id: "icon", type: "toggle", label: "Icône" },
+          ],
+        }),
+      },
+    })
+  ).json()) as Page;
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  const cell = (key: string) => tab.locator(`[data-grid-cell="${key}"]`);
+  await cell("0-1-1").locator("iframe").waitFor();
+  await expect.poll(() => cell("0-1-1").locator("iframe").contentFrame().locator("button").count()).toBe(1);
+
+  await tab.keyboard.press("c");
+  await cell("0-1-1").locator("iframe").contentFrame().locator("button").click();
+  await tab.locator("#new-comment").fill("Outline too thin");
+  await tab.locator("#new-comment").press("Enter");
+
+  const pinsIn = (key: string) => cell(key).locator("[data-pin]").count();
+  await expect.poll(() => pinsIn("0-1-1")).toBe(1);
+  expect(await pinsIn("0-0-0")).toBe(0);
+  await tab.getByRole("tab", { name: /Commentaires/ }).click();
+  expect(await tab.getByTestId("thread-cell").allTextContents()).toEqual(["vu en Hover · Outlined · Icône : non"]);
+
+  await tab.reload();
+  await expect.poll(() => pinsIn("0-1-1")).toBe(1);
+  expect(await tab.locator("[data-pin]").count()).toBe(1);
+  const [thread] = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as { cell: unknown }[];
+  expect(thread.cell).toEqual({ state: "Hover", variant: "Outlined", icon: false });
+
+  // play mode ignores the grid: the artboard once, with its Tweaks panel
+  await tab.goto(`${server.url}/#/pages/${page.id}/play/btn.html`);
+  const play = tab.getByTestId("play");
+  await play.locator("iframe").waitFor();
+  expect(await play.locator("iframe").count()).toBe(1);
+  expect(await tab.locator("[data-tweak-grid]").count()).toBe(0);
+  expect(await play.getByRole("complementary", { name: "Tweaks" }).count()).toBe(1);
+}, 60_000);

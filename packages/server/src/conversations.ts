@@ -14,7 +14,7 @@ import {
 } from "@redline/shared";
 import { renderingLabel } from "@redline/shared";
 import { canvasElementText } from "./canvas-element-text.js";
-import { elementText, renderingText } from "./thread-subject.js";
+import { cellSeenText, elementText, renderingText } from "./thread-subject.js";
 import { contextOf, usageContext } from "./context.js";
 import { definedChoice, isMessageContext, modelChoiceError, modelChoiceOf, requiredString } from "./validation.js";
 import type { PageLock } from "./page-lock.js";
@@ -40,7 +40,7 @@ export function conversationMessage(pageTitle: string, pageId: string, bodies: s
 function chipLine(target: ThreadTarget, number: number): string {
   switch (target.kind) {
     case "element":
-      return `${number}: ${elementText(target)} on artboard ${target.artboard}${renderingText(target.rendering)}`;
+      return `${number}: ${elementText(target)} on artboard ${target.artboard}${renderingText(target.rendering)}${cellSeenText(target.cell)}`;
     case "artboard":
       return `${number}: the whole artboard ${target.artboard}`;
     case "canvas-element":

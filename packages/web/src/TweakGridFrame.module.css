@@ -11,6 +11,11 @@
   position: absolute;
 }
 
+/* A pin sits on the edge of its element and may overflow into the next cell: draw that cell above its neighbours. */
+.cellWithPins {
+  z-index: 1;
+}
+
 .blockTitle,
 .columnHeader,
 .rowLabel {

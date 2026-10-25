@@ -71,6 +71,15 @@ describe("running a thread with the fake engine", () => {
     expect(engine.runs[0].message).toContain("vu en Mobile · 390 px");
   });
 
+  it("tells the session which tweak grid cell the comment was pinned in", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "Too tight", { cell: { state: "Hover", variant: "Outlined", icon: false } });
+    await engine.finished(1);
+    expect(engine.runs[0].message).toContain("vu en Hover · Outlined · icon off");
+  });
+
   it("does not mention a rendering for a comment on a plain artboard", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
     seam = await startSeam2(engine);
