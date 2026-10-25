@@ -57,7 +57,7 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
       const { pageId } = checkedOut();
       const fresh = await api.checkout(pageId);
       const dir = writeWorkingCopy(folder, pageId, fresh);
-      current = { pageId, dir, files: fresh.files, designMd: fresh.project.designMd, assets: fresh.project.assets, versionId: fresh.versionId };
+      current = { pageId, dir, files: fresh.files, designMd: fresh.project.designMd, projectStyle: fresh.project.projectStyle, assets: fresh.project.assets, versionId: fresh.versionId };
     },
   });
   const tool = <T,>(run: (args: T) => Promise<string>) => async (args: T) => {
