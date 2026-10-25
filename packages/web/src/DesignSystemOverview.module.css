@@ -409,3 +409,55 @@
   gap: 10px;
   border-radius: var(--radius-xl);
 }
+
+.diffusionUndone .diffusionNumber,
+.diffusionUndone .diffusionSummary {
+  color: var(--color-text-muted);
+}
+
+.undonePill {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  background: var(--color-border-subtle);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+}
+
+.rollBack {
+  width: 196px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.diffusionNote {
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.rollbackText {
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.rollbackWarning {
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--color-warning-note-bg);
+  color: var(--color-warning-ink);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.rollbackList {
+  margin: var(--space-1) 0;
+  padding-left: var(--space-4);
+}

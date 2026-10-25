@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CORE_TOKENS, NEUTRAL_DESIGN_SYSTEM_ID, type DesignSystem, type DesignSystemDetail, type DiffusionInfo, type Page } from "@redline/shared";
+import { CORE_TOKENS, DRAFT_PREVIEW_QUERY, NEUTRAL_DESIGN_SYSTEM_ID, type DesignSystem, type DesignSystemDetail, type DiffusionInfo, type Page } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 import { Store } from "../src/store.js";
 
@@ -88,6 +88,21 @@ describe("diffusions: projects follow the diffused version of a design system", 
     expect(detail.current.number).toBe(1);
     expect(detail.pending.tokens.changed).toEqual([{ name: "--color-primary", from: "#111111", to: "#222222" }]);
     expect(detail.pending.components.changed).toEqual(["button"]);
+  });
+
+  it("serves the draft to a preview request only, the current diffusion to everyone else", async () => {
+    const { ds, page } = await createDesignSystem();
+    const projectPage = await projectPageUsing(ds);
+    await publish(page, { "tokens.css": tokensCss("#222222"), "manifest.json": manifestOf(["components/button.html"]), "components/button.html": component(".btn{color:blue}") });
+
+    const preview = await (await artboardGet(`${projectPage}?${DRAFT_PREVIEW_QUERY}`)).text();
+    expect(hrefOf(preview, "tokens.css")).toBe(`/design-systems/${ds.id}/tokens.css`);
+    expect(await (await artboardGet(hrefOf(preview, "tokens.css"))).text()).toContain("--color-primary: #222222");
+    expect(hrefOf(preview, "components.css")).toBe(`/design-systems/${ds.id}/components.css`);
+
+    const normal = await (await artboardGet(projectPage)).text();
+    expect(hrefOf(normal, "tokens.css")).toBe(`/design-systems/${ds.id}/diffusions/1/tokens.css`);
+    expect((await detailOf(ds.id)).current.number).toBe(1);
   });
 
   it("creates a diffusion from the draft: it returns its number and projects then get it, older ones stay unchanged", async () => {

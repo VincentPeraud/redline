@@ -44,7 +44,7 @@ import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRou
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
-import { removalsError } from "./removals.js";
+import { removalsError, rollbackImpact } from "./removals.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
 import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
@@ -264,6 +264,37 @@ export async function buildMainApp(
     if (pending.count === 0) return reply.code(409).send({ error: "nothing to diffuse" });
     const created = store.createDiffusion(designSystem.id, "user");
     announceDiffusion(store, designSystem.id);
+    return reply.code(201).send(created);
+  });
+
+  // Undo and rollback add pointers, they delete nothing: the design system's pages (the draft) stay as they are.
+  app.post<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/diffusions/undo", async (req, reply) => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
+    const back = store.undoDiffusion(req.params.designSystemId);
+    if (!back) return reply.code(409).send({ error: "nothing to undo" });
+    announceDiffusion(store, req.params.designSystemId);
+    return back;
+  });
+
+  /** The diffusion number to roll back to, or the status and message to answer. */
+  function rollbackTarget(designSystemId: string, number: string): { target: number } | { status: number; error: string } {
+    const target = Number(number);
+    if (!store.getDesignSystem(designSystemId) || !store.listDiffusions(designSystemId).some((d) => d.number === target)) return { status: 404, error: "diffusion not found" };
+    if (store.currentDiffusion(designSystemId)!.number === target) return { status: 409, error: "already the current diffusion" };
+    return { target };
+  }
+
+  app.get<{ Params: { designSystemId: string; number: string } }>("/api/design-systems/:designSystemId/diffusions/:number/rollback-impact", async (req, reply) => {
+    const found = rollbackTarget(req.params.designSystemId, req.params.number);
+    if ("error" in found) return reply.code(found.status).send({ error: found.error });
+    return rollbackImpact(store, req.params.designSystemId, found.target);
+  });
+
+  app.post<{ Params: { designSystemId: string; number: string } }>("/api/design-systems/:designSystemId/diffusions/:number/rollback", async (req, reply) => {
+    const found = rollbackTarget(req.params.designSystemId, req.params.number);
+    if ("error" in found) return reply.code(found.status).send({ error: found.error });
+    const created = store.rollbackDiffusion(req.params.designSystemId, found.target);
+    announceDiffusion(store, req.params.designSystemId);
     return reply.code(201).send(created);
   });
 
@@ -547,8 +578,9 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"]), req.params.versionId),
   );
 
-  app.get<{ Params: { pageId: string; "*": string } }>("/pages/:pageId/*", async (req, reply) =>
-    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readPageFile(req.params.pageId, req.params["*"])),
+  // `?preview=draft`: the viewer's preview of a project with the design system draft; it is the same call without a diffusion number.
+  app.get<{ Params: { pageId: string; "*": string }; Querystring: { preview?: string } }>("/pages/:pageId/*", async (req, reply) =>
+    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readPageFile(req.params.pageId, req.params["*"]), undefined, req.query.preview === "draft"),
   );
 
   /** The page's project when it has a project style (every project but a design system's own). */
@@ -569,7 +601,7 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     return store.currentDiffusion(renderedDesignSystemOf(pageId))?.number;
   }
 
-  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, versionId?: string) {
+  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, versionId?: string, draftPreview = false) {
     const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, pageId, path.slice("assets/".length)) : undefined);
     if (!asset) return reply.code(404).send("not found");
     // Artboards are opaque-origin, so fonts of the project assets need CORS to load.
@@ -579,7 +611,7 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[extname(path)] ?? "application/octet-stream")
-      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), renderedDesignSystemOf(pageId, versionId), projectStyleProjectOf(pageId), diffusionOf(pageId, versionId))) : content);
+      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), renderedDesignSystemOf(pageId, versionId), projectStyleProjectOf(pageId), draftPreview ? undefined : diffusionOf(pageId, versionId))) : content);
   }
 
   return app;

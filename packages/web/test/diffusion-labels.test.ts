@@ -8,6 +8,7 @@ import {
   pendingChangesLabel,
   pendingCountLabel,
   pendingNames,
+  pendingScopeLabel,
   projectCountLabel,
   usedByHeading,
   userSummary,
@@ -95,4 +96,10 @@ it("summarises what a project using the design system holds of its own", () => {
   expect(userSummary({ id: "a", title: "A", overrideCount: 0, componentCount: 0 })).toBe("Aucune surcharge");
   expect(userSummary({ id: "a", title: "A", overrideCount: 0, componentCount: 4 })).toBe("Aucune surcharge · 4 composants du projet");
   expect(userSummary({ id: "a", title: "A", overrideCount: 0, componentCount: 1 })).toBe("Aucune surcharge · 1 composant du projet");
+});
+
+it("sums up the pending changes for the preview banner", () => {
+  expect(pendingScopeLabel(diff({ tokens: 1, components: 2 }))).toBe("1 token, 2 composants");
+  expect(pendingScopeLabel(diff({ components: 1, designMd: true }))).toBe("1 composant, DESIGN.md");
+  expect(pendingScopeLabel(diff({}))).toBe("");
 });
