@@ -7,6 +7,7 @@ export type Route =
   | { name: "agents" }
   | { name: "sessions" }
   | { name: "designSystems" }
+  | { name: "designSystem"; designSystemId: string }
   | { name: "project"; projectId: string }
   | { name: "designMd"; projectId: string }
   | { name: "projectDesignSystem"; projectId: string }
@@ -28,6 +29,7 @@ export function parseRoute(hash: string): Route {
   if (section === "agents") return { name: "agents" };
   if (section === "sessions") return { name: "sessions" };
   if (section === "projects" && !id) return { name: "projects" };
+  if (section === "design-systems" && id) return { name: "designSystem", designSystemId: id };
   if (section === "design-systems") return { name: "designSystems" };
   if (section === "projects" && id && sub === "design-md") return { name: "designMd", projectId: id };
   if (section === "projects" && id && sub === "design-system") return { name: "projectDesignSystem", projectId: id };
@@ -53,6 +55,8 @@ export function routeHref(route: Route): string {
       return "#/sessions";
     case "designSystems":
       return "#/design-systems";
+    case "designSystem":
+      return `#/design-systems/${encodeURIComponent(route.designSystemId)}`;
     case "project":
       return `#/projects/${encodeURIComponent(route.projectId)}`;
     case "designMd":

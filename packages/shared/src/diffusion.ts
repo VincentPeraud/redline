@@ -71,13 +71,43 @@ export interface DiffusionInfo {
   summary: string;
 }
 
+/** A diffusion as listed by `GET /api/design-systems/:id/diffusions`: with what it changed since the previous one (the first: everything). */
+export interface DiffusionListItem extends DiffusionInfo {
+  changes: DiffusionDiff;
+}
+
+/** A page of a design system on its overview. */
+export interface DesignSystemPageInfo {
+  id: string;
+  title: string;
+  componentCount: number;
+  /** Names of the page's components, sorted. */
+  componentNames: string[];
+  /** Components of the page added or changed in the draft and not diffused yet. */
+  pendingCount: number;
+}
+
+/** A project following a design system, with what it holds of its own. */
+export interface DesignSystemUser {
+  id: string;
+  title: string;
+  /** Project-style tokens that redefine a token of the current diffusion. */
+  overrideCount: number;
+  componentCount: number;
+}
+
 /** `GET /api/design-systems/:id`: the design system with its pages, current diffusion and what is pending. */
 export interface DesignSystemDetail {
   id: string;
   title: string;
   pageId: string;
-  pages: { id: string; title: string }[];
-  usedBy: { id: string; title: string }[];
+  pages: DesignSystemPageInfo[];
+  usedBy: DesignSystemUser[];
+  /** Components and tokens of the draft. */
+  componentCount: number;
+  tokenCount: number;
+  /** Up to three colours of the draft (primary, text, background first), for page thumbnails. */
+  palette: string[];
   current: DiffusionInfo;
   /** Projects of `usedBy` whose own style redefines tokens that the pending changes alter: the change has no effect there. */
   overrides: { id: string; title: string; tokens: string[] }[];
