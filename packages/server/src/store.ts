@@ -813,11 +813,11 @@ export class Store {
 
   getViewSettings(pageId: string): PageViewSettings {
     const row = this.db.prepare("SELECT settings FROM page_view_settings WHERE page_id = ?").get(pageId) as { settings: string } | undefined;
-    return row ? (JSON.parse(row.settings) as PageViewSettings) : EMPTY_VIEW_SETTINGS;
+    return row ? { ...EMPTY_VIEW_SETTINGS, ...(JSON.parse(row.settings) as Partial<PageViewSettings>) } : EMPTY_VIEW_SETTINGS;
   }
 
   setViewSettings(pageId: string, settings: PageViewSettings): PageViewSettings {
-    const stored: PageViewSettings = { hiddenFormats: settings.hiddenFormats, renderingOverrides: settings.renderingOverrides };
+    const stored: PageViewSettings = { hiddenFormats: settings.hiddenFormats, renderingOverrides: settings.renderingOverrides, gapExceptions: settings.gapExceptions };
     this.db
       .prepare("INSERT INTO page_view_settings (page_id, settings) VALUES (?, ?) ON CONFLICT(page_id) DO UPDATE SET settings = excluded.settings")
       .run(pageId, JSON.stringify(stored));

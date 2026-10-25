@@ -388,12 +388,14 @@ export const renderingLabel = (rendering: ThreadRendering) => `${RESPONSIVE_FORM
  * How a viewer sees a page, kept on the server per page: not part of a version, never sent to a session.
  * `hiddenFormats`: formats hidden in every responsive frame. `renderingOverrides[artboard file][renderingKey]`:
  * a frame's own choice (true = shown) for one rendering, which wins over the format's.
+ * `gapExceptions`: keys of the design system gaps marked "Exception voulue" (hidden from the list and the counts).
  */
 export interface PageViewSettings {
   hiddenFormats: ResponsiveFormat[];
   renderingOverrides: Record<string, Record<string, boolean>>;
+  gapExceptions: string[];
 }
-export const EMPTY_VIEW_SETTINGS: PageViewSettings = { hiddenFormats: [], renderingOverrides: {} };
+export const EMPTY_VIEW_SETTINGS: PageViewSettings = { hiddenFormats: [], renderingOverrides: {}, gapExceptions: [] };
 
 /** Padding of a responsive frame, and gap between its renderings (canvas pixels). */
 export const RESPONSIVE_SPACING = 96;

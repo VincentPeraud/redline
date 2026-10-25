@@ -20,7 +20,7 @@ describe("hiddenRenderingKeys", () => {
   });
 
   it("always keeps the first rendering when everything would be hidden", () => {
-    const settings: PageViewSettings = { hiddenFormats: ["desktop", "tablet", "mobile"], renderingOverrides: {} };
+    const settings: PageViewSettings = { hiddenFormats: ["desktop", "tablet", "mobile"], renderingOverrides: {}, gapExceptions: [] };
     expect([...hiddenRenderingKeys(renderings, settings, "a.html")]).toEqual(["tablet-768", "mobile-390"]);
   });
 });
@@ -33,7 +33,7 @@ describe("toggleRendering", () => {
   });
 
   it("refuses to hide the last visible rendering", () => {
-    const settings: PageViewSettings = { hiddenFormats: ["tablet", "mobile"], renderingOverrides: {} };
+    const settings: PageViewSettings = { hiddenFormats: ["tablet", "mobile"], renderingOverrides: {}, gapExceptions: [] };
     expect(toggleRendering(settings, "a.html", renderings, "desktop-1440")).toBe(settings);
   });
 });

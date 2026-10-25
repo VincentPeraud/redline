@@ -35,5 +35,5 @@ export function setFormatShown(settings: PageViewSettings, format: ResponsiveFor
     const kept = Object.fromEntries(Object.entries(byKey).filter(([key]) => key.slice(0, key.lastIndexOf("-")) !== format));
     if (Object.keys(kept).length > 0) renderingOverrides[file] = kept;
   }
-  return { hiddenFormats, renderingOverrides };
+  return { ...settings, hiddenFormats, renderingOverrides };
 }
