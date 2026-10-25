@@ -109,6 +109,31 @@
   padding: 16px 18px;
 }
 
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+
+.pendingPill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  font-size: var(--font-size-xs);
+}
+
+.pendingDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-override-ring);
+}
+
 .name {
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-semibold);

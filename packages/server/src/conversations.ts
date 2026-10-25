@@ -110,8 +110,25 @@ export function registerConversationRoutes(
   });
   app.addHook("onClose", async () => unsubscribe());
 
+  /**
+   * Flags Claude's answers whose run published a version of a design system page. The answer is stored before the run
+   * publishes, so a run is matched to the span from its user message to the next one, not to the answer's own time.
+   */
+  function withDesignSystemChanges(conversation: Conversation, messages: ConversationMessage[]): ConversationMessage[] {
+    const designSystem = store.designSystemOfPage(conversation.pageId);
+    if (!designSystem) return messages;
+    const versions = store.listVersions(conversation.pageId).filter((v) => v.origin === "conversation" && v.originId === conversation.id);
+    return messages.map((message, index) => {
+      if (message.author !== "claude") return message;
+      const start = messages.slice(0, index).reverse().find((m) => m.author === "user")?.createdAt ?? "";
+      const end = messages.slice(index + 1).find((m) => m.author === "user")?.createdAt;
+      const published = versions.some((v) => v.createdAt >= start && (end === undefined || v.createdAt < end));
+      return published ? { ...message, designSystemId: designSystem.id } : message;
+    });
+  }
+
   function detail(conversation: Conversation): ConversationDetail {
-    const messages = store.conversationMessages(conversation.id);
+    const messages = withDesignSystemChanges(conversation, store.conversationMessages(conversation.id));
     const lastUser = [...messages].reverse().find((m) => m.author === "user");
     return {
       ...conversation,

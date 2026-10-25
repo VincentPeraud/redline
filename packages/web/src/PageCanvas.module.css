@@ -136,6 +136,24 @@
   color: var(--color-text-secondary);
 }
 
+.changePill {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-2xs);
+  line-height: normal;
+}
+
+.modifiedPill {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+}
+
+.newPill {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
 .componentMarker {
   flex-shrink: 0;
   color: var(--color-text-secondary);
