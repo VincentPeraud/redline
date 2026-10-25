@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { DeletedArtboard, Page, Project, Thread } from "@redline/shared";
+import type { DeletedArtboard, Gap, Page, PageGaps, Project, Thread } from "@redline/shared";
 import { DiffuseButton } from "./DiffusionDialog.js";
 import { DeletedArtboardsList } from "./DeletedArtboardsList.js";
+import { GapsButton } from "./GapsReport.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
 import { TocMenu } from "./TocMenu.js";
 import type { TocItem } from "./tocItems.js";
@@ -196,10 +197,13 @@ interface Props {
   onPutBack: (item: DeletedArtboard) => Promise<void>;
   onRenamePage: (title: string) => Promise<void>;
   toc: { items: TocItem[]; currentFile?: string; onSelect: (file: string) => void };
+  /** Design system gaps of the page; the button shows only when there are some. */
+  gaps: PageGaps | null;
+  onSeeGap: (gap: Gap) => void;
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc }: Props) {
+export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, onSeeGap }: Props) {
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -224,6 +228,7 @@ export function CanvasHeader({ project, designSystemId, versionId, pageId, pageT
           onRenamePage={onRenamePage}
         />
       </nav>
+      <GapsButton report={gaps} onSee={onSeeGap} />
       <TocMenu {...toc} />
       <div className={styles.spacer} />
       <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />

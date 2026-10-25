@@ -14,6 +14,7 @@ import {
   versionPreviewPath,
   type AgentInfo,
   type CreateThreadRequest,
+  type Gap,
   canvasElementSummary,
   threadTargetLabel,
   type Manifest,
@@ -32,6 +33,9 @@ import { useDesignSystemDetail } from "./DiffusionDialog.js";
 import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { ArtboardHistory } from "./ArtboardHistory.js";
 import { restoreArtboard, useDeletedArtboards } from "./restoreArtboard.js";
+import { SeenGapContext, type SeenGap } from "./GapsReport.js";
+import { gapCountLabel } from "./gapLabels.js";
+import { useGaps } from "./useGaps.js";
 import { UndoToast } from "./UndoToast.js";
 import { CanvasHeader } from "./CanvasHeader.js";
 import { useStoredToggle } from "./useStoredToggle.js";
@@ -176,6 +180,11 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
   const [preview, setPreview] = useState<{ file: string; versionId: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; undo: () => Promise<void> } | null>(null);
   const deleted = useDeletedArtboards(pageId, versionId);
+  const gapReport = useGaps(pageId, `${versionId}:${tokensVersion}`);
+  const gapsOf = (file: string) => (gapReport?.gaps ?? []).filter((gap) => gap.file === file).length;
+  /** The gap "Voir" points at: its artboard outlines the element. */
+  const [seenGap, setSeenGap] = useState<SeenGap | null>(null);
+  const seenFile = useRef<string | null>(null);
   const pendingComponents = useDesignSystemDetail(projectId, versionId)?.pending.components;
   const componentChange = (file: string): "modifié" | "nouveau" | null => {
     const name = componentNameOf(file);
@@ -473,6 +482,19 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
     view,
     viewportSize,
   );
+  function seeGap(gap: Gap) {
+    const artboard = manifest?.artboards.find((a) => a.file === gap.file);
+    if (!artboard || gap.selector === null) return;
+    setSeenGap({ src: `${artboardOrigin}/pages/${pageId}/${gap.file}`, selector: gap.selector, nonce: Date.now() });
+    // A plain artboard is centred on the element once the bridge reports its box; a frame of renderings or cells on the artboard.
+    seenFile.current = layoutOf(artboard) || gridOf(artboard) ? null : gap.file;
+    if (seenFile.current === null) centerOnArtboard(gap.file);
+  }
+  function centerOnSeenGap(rect: { x: number; y: number; width: number; height: number }) {
+    const box = seenFile.current === null ? undefined : artboardBoxesRef.current.get(seenFile.current);
+    seenFile.current = null;
+    if (box) setView(centerOn({ x: box.x + rect.x, y: box.y + rect.y, width: rect.width, height: rect.height }, viewportSize));
+  }
   function centerOnArtboard(file: string) {
     const box = artboardBoxes.get(file);
     if (!box) return;
@@ -484,6 +506,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
   const canvasMarks = chips.flatMap((chip, index) => (chip.kind === "canvas-element" ? [{ number: index + 1, elementId: chip.elementId }] : []));
 
   return (
+    <SeenGapContext.Provider value={{ seen: seenGap, onRect: centerOnSeenGap }}>
     <div className={styles.page}>
       <CanvasHeader
         project={project}
@@ -502,6 +525,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
         onPutBack={(item) => restore(item.file, item.lastVersionId)}
         onRenamePage={renamePage}
         toc={{ items: tocItems, currentFile: currentTocFile, onSelect: centerOnArtboard }}
+        gaps={gapReport}
+        onSeeGap={seeGap}
       />
       <div className={styles.body}>
         <main className={styles.stage}>
@@ -513,6 +538,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
             className={styles.viewport}
             style={{ backgroundPosition: `${view.x}px ${view.y}px` }}
             onPointerDown={(e) => {
+              if (seenGap) setSeenGap(null);
               pressedAt.current = { x: e.clientX, y: e.clientY };
               if ((e.target as HTMLElement).closest("button, a, [data-no-pan]")) return;
               drag.current = { x: e.clientX, y: e.clientY };
@@ -591,6 +617,11 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
                     {componentChange(artboard.file) && (
                       <span data-testid="component-change" className={cx(styles.changePill, componentChange(artboard.file) === "nouveau" ? styles.newPill : styles.modifiedPill)}>
                         {componentChange(artboard.file)}
+                      </span>
+                    )}
+                    {gapsOf(artboard.file) > 0 && (
+                      <span data-testid="artboard-gaps" className={cx(styles.changePill, styles.modifiedPill)}>
+                        {gapCountLabel(gapsOf(artboard.file))}
                       </span>
                     )}
                     {layout && artboard.responsive && (
@@ -905,5 +936,6 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, files, artbo
         </aside>
       </div>
     </div>
+    </SeenGapContext.Provider>
   );
 }

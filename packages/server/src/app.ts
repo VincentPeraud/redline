@@ -53,6 +53,7 @@ import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
+import { registerGapRoutes } from "./gaps.js";
 import { registerRequestHardening } from "./request-hardening.js";
 import { announceDiffusion, registerDesignSystemReload } from "./design-system-reload.js";
 import { registerSessionRoutes } from "./sessions.js";
@@ -123,6 +124,7 @@ export async function buildMainApp(
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
   registerSessionRoutes(app, store, pageLock, runs, lastConversationWork);
   registerArtboardHistoryRoutes(app, store);
+  registerGapRoutes(app, store);
   pageLock.restore();
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import type { ArtboardGuides as Guides, Thread, TweakValues } from "@redline/shared";
 import { ArtboardGuides } from "./ArtboardGuides.js";
+import { SeenGapContext } from "./GapsReport.js";
 import { threadWhere } from "./threadLabel.js";
 import { cx } from "./ui/index.js";
 import styles from "./ArtboardFrame.module.css";
@@ -73,6 +74,10 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
   onDocHeightRef.current = onDocHeight;
 
   const pinned = threads;
+  const { seen, onRect } = useContext(SeenGapContext);
+  const onRectRef = useRef(onRect);
+  onRectRef.current = onRect;
+  const seenHere = seen !== null && seen.src === src ? seen : null;
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -83,6 +88,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
       else if (data.type === "redline:escape") onEscapeRef.current?.();
       else if (data.type === "redline:pin-positions") setPositions(data.positions ?? []);
       else if (data.type === "redline:doc-height") onDocHeightRef.current?.((data as unknown as { height: number }).height);
+      else if (data.type === "redline:gap-rect") onRectRef.current(data as unknown as { x: number; y: number; width: number; height: number });
       else if (data.type === "redline:wheel") replayWheel(data as unknown as ForwardedWheel);
     }
     // The iframe swallows wheel and pinch: the bridge hands them back, and we replay them on the iframe
@@ -126,6 +132,12 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
     if (bridgeEpoch === 0) return;
     frame.current?.contentWindow?.postMessage({ type: "redline:set-tweaks", values: tweaks }, "*");
   }, [tweaks, bridgeEpoch]);
+
+  useEffect(() => {
+    if (bridgeEpoch === 0) return;
+    frame.current?.contentWindow?.postMessage({ type: "redline:set-gap", selector: seenHere?.selector ?? null }, "*");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seenHere?.selector, seenHere?.nonce, bridgeEpoch]);
 
   const pinsKey = JSON.stringify(pinned.map((t) => [t.id, t.selector, t.xPct, t.yPct]));
   useEffect(() => {
