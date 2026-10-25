@@ -487,7 +487,7 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
 
   // A page as it was in one version (history preview): same sandbox and injections as the live artboards, read-only.
   app.get<{ Params: { pageId: string; versionId: string; "*": string } }>("/page-versions/:pageId/:versionId/*", async (req, reply) =>
-    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"])),
+    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"]), req.params.versionId),
   );
 
   app.get<{ Params: { pageId: string; "*": string } }>("/pages/:pageId/*", async (req, reply) =>
@@ -501,16 +501,18 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
   }
 
   /** The design system a page is rendered with: its own project's when it is a design system page, else the one its manifest names. */
-  function renderedDesignSystemOf(pageId: string): string {
-    return store.designSystemOfPage(pageId)?.id ?? designSystemIdOf(store, pageId);
+  function renderedDesignSystemOf(pageId: string, versionId?: string): string {
+    return store.designSystemOfPage(pageId)?.id ?? designSystemIdOf(store, pageId, versionId);
   }
 
-  /** Diffusion a page is rendered with: the current one for a project's pages, none (the draft) for a design system's own pages. */
-  function diffusionOf(pageId: string): number | undefined {
-    return store.isDesignSystemPage(pageId) ? undefined : store.currentDiffusion(renderedDesignSystemOf(pageId))?.number;
+  /** Diffusion a page is rendered with: the current one for a project's pages, the one recorded with the version for a version preview, none (the draft) for a design system's own pages. */
+  function diffusionOf(pageId: string, versionId?: string): number | undefined {
+    if (store.isDesignSystemPage(pageId)) return undefined;
+    if (versionId !== undefined) return store.versionDiffusion(pageId, versionId);
+    return store.currentDiffusion(renderedDesignSystemOf(pageId))?.number;
   }
 
-  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined) {
+  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, versionId?: string) {
     const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, pageId, path.slice("assets/".length)) : undefined);
     if (!asset) return reply.code(404).send("not found");
     // Artboards are opaque-origin, so fonts of the project assets need CORS to load.
@@ -520,7 +522,7 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[extname(path)] ?? "application/octet-stream")
-      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), renderedDesignSystemOf(pageId), projectStyleProjectOf(pageId), diffusionOf(pageId))) : content);
+      .send(isHtml ? injectBridge(injectDesignSystem(content.toString("utf8"), renderedDesignSystemOf(pageId, versionId), projectStyleProjectOf(pageId), diffusionOf(pageId, versionId))) : content);
   }
 
   return app;

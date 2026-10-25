@@ -5,9 +5,7 @@ import {
   PROJECT_STYLE_PATH,
   MAX_ASSET_BYTES,
   MANIFEST_PATH,
-  NEUTRAL_DESIGN_SYSTEM_ID,
   isSafePath,
-  parseManifest,
   classesUsedIn,
   componentClassesOf,
   type ComponentInfo,
@@ -23,18 +21,10 @@ import {
 } from "@redline/shared";
 import type { Store } from "./store.js";
 
-/** Design system a page uses: the one its manifest names if it exists, else the neutral one. */
-export function designSystemIdOf(store: Store, pageId: string): string {
-  const text = store.readPageFile(pageId, MANIFEST_PATH)?.toString("utf8");
-  if (text !== undefined) {
-    try {
-      const id = parseManifest(text).designSystem;
-      if (id !== undefined && store.getDesignSystem(id)) return id;
-    } catch {
-      // An invalid stored manifest must not break serving the artboard.
-    }
-  }
-  return NEUTRAL_DESIGN_SYSTEM_ID;
+/** Design system a page uses (as of one of its versions when given): the one its manifest names if it exists, else the neutral one. */
+export function designSystemIdOf(store: Store, pageId: string, versionId?: string): string {
+  const manifest = versionId === undefined ? store.readPageFile(pageId, MANIFEST_PATH) : store.readVersionFile(pageId, versionId, MANIFEST_PATH);
+  return store.designSystemIdOfManifest(manifest?.toString("utf8"));
 }
 
 const slugOf = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "page";
