@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { artboardVersionsPath, type ArtboardVersion } from "@redline/shared";
 import { historyDate, originLabel } from "./historyLabels.js";
-import { cx } from "./ui/index.js";
+import { Tooltip, cx } from "./ui/index.js";
 import styles from "./ArtboardHistory.module.css";
 
 function ClockIcon() {
@@ -99,25 +99,28 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
 
   return (
     <div ref={root} className={cx(styles.root, className)}>
-      <button
-        type="button"
-        aria-label={`Historique de ${file}`}
-        title="Historique"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        className={cx(styles.button, open && styles.buttonOpen)}
-        onClick={() => (open ? close() : onOpenChange(true))}
-      >
-        <ClockIcon />
-      </button>
+      <Tooltip label="Historique">
+        <button
+          type="button"
+          aria-label={`Historique de ${file}`}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className={cx(styles.button, open && styles.buttonOpen)}
+          onClick={() => (open ? close() : onOpenChange(true))}
+        >
+          <ClockIcon />
+        </button>
+      </Tooltip>
       {open && (
         <div role="dialog" aria-label={`Historique de ${file}`} className={cx(styles.popover, onLeft && styles.popoverLeft)}>
           <div className={styles.head}>
             <span className={styles.title}>Historique · {name}</span>
             <span className={styles.spacer} />
-            <button type="button" aria-label="Fermer l'historique" className={styles.close} onClick={close}>
-              ×
-            </button>
+            <Tooltip label="Fermer l'historique">
+              <button type="button" aria-label="Fermer l'historique" className={styles.close} onClick={close}>
+                ×
+              </button>
+            </Tooltip>
           </div>
           {(versions ?? []).map((version) => {
             const previewing = version.versionId === previewVersionId;

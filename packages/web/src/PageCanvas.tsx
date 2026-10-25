@@ -52,7 +52,7 @@ import { addChip, marksFor, removeChip } from "./elementChips.js";
 import { messageContext } from "./messageContext.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { subscribeServerEvents } from "./serverEvents.js";
-import { cx } from "./ui/index.js";
+import { Tooltip, cx } from "./ui/index.js";
 import { usePageSessions } from "./usePageSessions.js";
 import { useRuns } from "./useRuns.js";
 import { useTweaks } from "./useTweaks.js";
@@ -594,18 +594,19 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       </button>
                     )}
                     <span className={styles.spacer} />
-                    <button
-                      type="button"
-                      aria-label={`Commenter tout ${artboard.file}`}
-                      title="Commenter l'artboard entier"
-                      className={styles.iconButton}
-                      onClick={() => {
-                        setDraft({ target: { kind: "artboard", artboard: artboard.file } });
-                        setTab("comments");
-                      }}
-                    >
-                      <BubbleIcon size={13} />
-                    </button>
+                    <Tooltip label="Commenter l'artboard entier">
+                      <button
+                        type="button"
+                        aria-label={`Commenter tout ${artboard.file}`}
+                        className={styles.iconButton}
+                        onClick={() => {
+                          setDraft({ target: { kind: "artboard", artboard: artboard.file } });
+                          setTab("comments");
+                        }}
+                      >
+                        <BubbleIcon size={13} />
+                      </button>
+                    </Tooltip>
                     <ArtboardHistory
                       pageId={pageId}
                       file={artboard.file}
@@ -621,33 +622,36 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                         Tweaks
                       </button>
                     )}
-                    <button
-                      type="button"
-                      aria-label={`Copier le lien de ${artboard.file}`}
-                      title={`Copier le lien de ${artboard.file}`}
-                      className={styles.iconButton}
-                      onClick={() => copyLink({ name: "page", pageId, artboard: artboard.file }, artboard.file)}
-                    >
-                      <CopyLinkIcon />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Copier le lien plein écran de ${artboard.file}`}
-                      title={`Copier le lien plein écran de ${artboard.file}`}
-                      className={styles.iconButton}
-                      onClick={() => copyLink(playRoute(pageId, artboard.file), artboard.file)}
-                    >
-                      <CopyPlayLinkIcon />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Lancer ${artboard.file} en plein écran`}
-                      title="Plein écran"
-                      className={styles.iconButton}
-                      onClick={() => navigateTo(playRoute(pageId, artboard.file))}
-                    >
-                      <FullscreenIcon />
-                    </button>
+                    <Tooltip label={`Copier le lien de ${artboard.file}`}>
+                      <button
+                        type="button"
+                        aria-label={`Copier le lien de ${artboard.file}`}
+                        className={styles.iconButton}
+                        onClick={() => copyLink({ name: "page", pageId, artboard: artboard.file }, artboard.file)}
+                      >
+                        <CopyLinkIcon />
+                      </button>
+                    </Tooltip>
+                    <Tooltip label={`Copier le lien plein écran de ${artboard.file}`}>
+                      <button
+                        type="button"
+                        aria-label={`Copier le lien plein écran de ${artboard.file}`}
+                        className={styles.iconButton}
+                        onClick={() => copyLink(playRoute(pageId, artboard.file), artboard.file)}
+                      >
+                        <CopyPlayLinkIcon />
+                      </button>
+                    </Tooltip>
+                    <Tooltip label="Plein écran">
+                      <button
+                        type="button"
+                        aria-label={`Lancer ${artboard.file} en plein écran`}
+                        className={styles.iconButton}
+                        onClick={() => navigateTo(playRoute(pageId, artboard.file))}
+                      >
+                        <FullscreenIcon />
+                      </button>
+                    </Tooltip>
                   </div>
                   {outlined === artboard.file && (
                     <span
@@ -714,9 +718,11 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
                       <div className={styles.popoverHead}>
                         <span className={styles.popoverTitle}>Tweaks · {artboard.file.replace(/\.html$/, "")}</span>
                         <span className={styles.spacer} />
-                        <button type="button" aria-label="Fermer les tweaks" className={styles.popoverClose} onClick={() => setTweaksOpenFor(null)}>
-                          ×
-                        </button>
+                        <Tooltip label="Fermer les tweaks">
+                          <button type="button" aria-label="Fermer les tweaks" className={styles.popoverClose} onClick={() => setTweaksOpenFor(null)}>
+                            ×
+                          </button>
+                        </Tooltip>
                       </div>
                       <TweaksPanel tweaks={artboardTweaks(artboard.file)} values={tweaks.values} onChange={tweaks.setValue} previews={{ pageId, artboardOrigin, artboard }} />
                       <div className={styles.popoverHint}>
@@ -769,13 +775,17 @@ export function PageCanvas({ pageId, pageTitle, project, files, artboardOrigin, 
             />
           )}
           <div className={styles.zoom}>
-            <button type="button" aria-label="Dézoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(1 / ZOOM_STEP)}>
-              −
-            </button>
+            <Tooltip label="Dézoomer">
+              <button type="button" aria-label="Dézoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(1 / ZOOM_STEP)}>
+                −
+              </button>
+            </Tooltip>
             <span className={styles.zoomValue}>{Math.round(view.zoom * 100)} %</span>
-            <button type="button" aria-label="Zoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(ZOOM_STEP)}>
-              +
-            </button>
+            <Tooltip label="Zoomer">
+              <button type="button" aria-label="Zoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(ZOOM_STEP)}>
+                +
+              </button>
+            </Tooltip>
             <span aria-hidden="true" className={styles.zoomSeparator} />
             <GuidesButton pressed={guidesVisible} onToggle={toggleGuides} className={cx(styles.guidesButton, guidesVisible && styles.guidesButtonOn)} />
             {responsiveArtboards.length > 0 && (

@@ -1,6 +1,6 @@
 import type { ThreadTarget } from "@redline/shared";
 import { chipParts } from "./elementChips.js";
-import { cx } from "./ui/index.js";
+import { Tooltip, cx } from "./ui/index.js";
 import styles from "./ElementChip.module.css";
 
 interface Props {
@@ -19,9 +19,11 @@ export function ElementChip({ number, target, onRemove }: Props) {
       <span className={styles.kind}>{name ? `${kind} ·` : kind}</span>
       {name && <span className={styles.name}>{name}</span>}
       {onRemove && (
-        <button type="button" aria-label={`Retirer ${name ?? kind}`} className={styles.remove} onClick={onRemove}>
-          ×
-        </button>
+        <Tooltip label={`Retirer ${name ?? kind}`}>
+          <button type="button" aria-label={`Retirer ${name ?? kind}`} className={styles.remove} onClick={onRemove}>
+            ×
+          </button>
+        </Tooltip>
       )}
     </span>
   );
