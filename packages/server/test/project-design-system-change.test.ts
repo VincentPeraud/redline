@@ -25,8 +25,11 @@ describe("changing a project's design system and promoting its style", () => {
   const createPage = async (project: Project, files: Record<string, string> = { "a.html": html }) =>
     (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Stories", files })).json()) as Page;
   const detail = async (project: Project) => (await (await server.get(`/api/projects/${project.id}/design-system`)).json()) as ProjectDesignSystem;
-  const change = (projectId: string, designSystem: string | null) =>
-    fetch(`${server.url}/api/projects/${projectId}/design-system`, { method: "PUT", headers: json, body: JSON.stringify({ designSystem }) });
+  const change = (projectId: string, designSystem: string | null, startFrom?: string) =>
+    fetch(`${server.url}/api/projects/${projectId}/design-system`, { method: "PUT", headers: json, body: JSON.stringify({ designSystem, startFrom }) });
+  const setToken = (projectId: string, name: string, value: string) =>
+    fetch(`${server.url}/api/projects/${projectId}/project-style/tokens/${name}`, { method: "PUT", headers: json, body: JSON.stringify({ value }) });
+  const fileOf = (page: Page, path: string) => server.get(`/api/pages/${page.id}/files/${path}`);
   const promote = (projectId: string, body: object) => server.post(`/api/projects/${projectId}/design-system/promote`, body);
   const artboard = async (page: Page) => (await fetch(`${server.artboardOrigin}/pages/${page.id}/a.html`)).text();
   const styleCss = async (project: Project) => (await fetch(`${server.artboardOrigin}/project-styles/${project.id}/tokens.css`)).text();
@@ -45,16 +48,48 @@ describe("changing a project's design system and promoting its style", () => {
     expect(markup).not.toContain(`/design-systems/${first.id}/`);
   });
 
+  it("leaving a shared design system for none requires a starting point", async () => {
+    const ds = await createDesignSystem();
+    const project = await createProject(ds.id);
+    expect((await change(project.id, null)).status).toBe(400);
+    expect((await change(project.id, null, "bogus")).status).toBe(400);
+    expect((await detail(project)).designSystem?.id).toBe(ds.id);
+    const own = await createProject();
+    expect((await change(own.id, null)).status).toBe(200);
+  });
+
+  it("starting from the design system's values copies its current diffusion into the project style, overrides kept, nothing changes on screen", async () => {
+    const ds = await createDesignSystem();
+    const project = await createProject(ds.id);
+    await setToken(project.id, "--color-primary", "#7c3aed");
+    const before = (await detail(project)).tokens.map((t) => [t.name, t.value]);
+    const after = (await (await change(project.id, null, "design-system")).json()) as ProjectDesignSystem;
+    expect(after.designSystem).toBeNull();
+    expect(after.tokens.map((t) => [t.name, t.value])).toEqual(before);
+    expect(after.tokens.every((t) => t.status === "own")).toBe(true);
+    expect(await styleCss(project)).toContain("--radius: #111111");
+    expect(await styleCss(project)).toContain("--color-primary: #7c3aed");
+  });
+
+  it("starting from the neutral values keeps the overrides and resets every other token", async () => {
+    const ds = await createDesignSystem();
+    const project = await createProject(ds.id);
+    await setToken(project.id, "--color-primary", "#7c3aed");
+    const after = (await (await change(project.id, null, "neutral")).json()) as ProjectDesignSystem;
+    const value = (name: string) => after.tokens.find((t) => t.name === name)?.value;
+    expect(value("--color-primary")).toBe("#7c3aed");
+    expect(value("--color-text")).not.toBe("#111111");
+  });
+
   it("choosing none copies nothing: the project style stops being overrides and becomes the whole style", async () => {
     const ds = await createDesignSystem();
     const project = await createProject(ds.id);
     const page = await createPage(project, { "a.html": html, "manifest.json": followingManifest(ds.id) });
     await fetch(`${server.url}/api/projects/${project.id}/project-style/tokens/--color-primary`, { method: "PUT", headers: json, body: JSON.stringify({ value: "#7c3aed" }) });
-    const after = (await (await change(project.id, null)).json()) as ProjectDesignSystem;
+    const after = (await (await change(project.id, null, "neutral")).json()) as ProjectDesignSystem;
     expect(after.designSystem).toBeNull();
-    expect(after.tokens.map((t) => [t.name, t.status])).toEqual([["--color-primary", "own"]]);
+    expect(after.tokens.map((t) => [t.name, t.status])).toContainEqual(["--color-primary", "own"]);
     expect(await styleCss(project)).toContain("#7c3aed");
-    expect(await styleCss(project)).not.toContain("#111111");
     expect(await artboard(page)).not.toContain(`/design-systems/${ds.id}/`);
   });
 
@@ -126,6 +161,31 @@ describe("changing a project's design system and promoting its style", () => {
     expect(copied.tweaks.map((t) => t.id)).toEqual(["tone"]);
     const assets = (await (await server.get(`/api/projects/${ds.id}/assets`)).json()) as { name: string }[];
     expect(assets.map((a) => a.name).sort()).toEqual(["dot.png", "logo.svg"]);
+  });
+
+  it("removes the project's component files from its pages after promotion: one version per affected page, the design system is the only source", async () => {
+    const project = await createProject();
+    const manifest = {
+      artboards: [{ file: "a.html", x: 0, y: 0, width: 200, height: 100 }, { file: "components/sticker.html", x: 300, y: 0, width: 200, height: 100 }],
+      tweaks: [{ id: "tone", type: "choice", label: "Tone", options: ["a", "b"], artboard: "components/sticker.html" }],
+    };
+    const withComponent = await createPage(project, { "a.html": html, "manifest.json": JSON.stringify(manifest), "components/sticker.html": component(".s{color:red}") });
+    const plain = await createPage(project, { "b.html": html });
+    const versionsOf = async (page: Page) => (await (await server.get(`/api/pages/${page.id}/versions`)).json()) as { origin: string }[];
+    const plainBefore = (await versionsOf(plain)).length;
+    const withBefore = (await versionsOf(withComponent)).length;
+    const ds = (await (await promote(project.id, { title: "DS" })).json()) as DesignSystem;
+
+    expect((await fileOf(withComponent, "components/sticker.html")).status).toBe(404);
+    const after = (await (await fileOf(withComponent, "manifest.json")).json()) as { artboards: { file: string }[]; tweaks: unknown[] };
+    expect(after.artboards.map((a) => a.file)).toEqual(["a.html"]);
+    expect(after.tweaks).toEqual([]);
+    const versions = await versionsOf(withComponent);
+    expect(versions.length).toBe(withBefore + 2);
+    expect(versions[0].origin).toBe("user");
+    expect((await versionsOf(plain)).length).toBe(plainBefore);
+    expect((await detail(project)).components).toEqual([]);
+    expect(await artboard(withComponent)).toContain(`/design-systems/${ds.id}/diffusions/1/components.css`);
   });
 
   it("refuses to promote a project that follows a shared design system, a missing title, or an unknown project", async () => {

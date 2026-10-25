@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DesignMdVersion, DesignSystemSummary, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
+import type { DesignMdVersion, DesignSystemSummary, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, ProjectStyleStart, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
 import { dayLabel, designMdAuthor, originLabel } from "./historyLabels.js";
 import { agree } from "./plural.js";
 import { pickerHex } from "./projectDesignSystemLabels.js";
@@ -187,6 +187,27 @@ function PromoteDialog({ initialTitle, onSubmit, onClose }: { initialTitle: stri
   );
 }
 
+function StyleStartDialog({ designSystemTitle, onChoose, onClose }: { designSystemTitle: string; onChoose: (startFrom: ProjectStyleStart) => void; onClose: () => void }) {
+  return (
+    <Dialog title="Style propre au projet" onClose={onClose} width={680}>
+      <div className={styles.promoteForm}>
+        <p>Le projet ne suivra plus {designSystemTitle}. Ses variables surchargées gardent leur valeur : d'où partent les autres ?</p>
+        <DialogActions>
+          <Button size="lg" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button size="lg" onClick={() => onChoose("neutral")}>
+            Partir des valeurs neutres
+          </Button>
+          <Button variant="accent" size="lg" onClick={() => onChoose("design-system")}>
+            Partir des valeurs de {designSystemTitle}
+          </Button>
+        </DialogActions>
+      </div>
+    </Dialog>
+  );
+}
+
 export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [detail, setDetail] = useState<ProjectDesignSystem | null>(null);
@@ -194,6 +215,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   const [versions, setVersions] = useState<DesignMdVersion[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [promoteOpen, setPromoteOpen] = useState(false);
+  const [startChoiceOpen, setStartChoiceOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadVersions = useCallback(
@@ -247,8 +269,10 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const resetToken = useCallback((name: string) => change(fetch(tokenUrl(name), { method: "DELETE" })), [change, projectId]);
 
-  function changeDesignSystem(id: string) {
-    const body: SetProjectDesignSystemRequest = { designSystem: id === "none" ? null : id };
+  function changeDesignSystem(id: string, startFrom?: ProjectStyleStart) {
+    if (id === "none" && detail?.designSystem && !startFrom) return setStartChoiceOpen(true);
+    setStartChoiceOpen(false);
+    const body: SetProjectDesignSystemRequest = { designSystem: id === "none" ? null : id, ...(startFrom ? { startFrom } : {}) };
     void change(fetch(`/api/projects/${projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
   }
 
@@ -389,6 +413,9 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
         </aside>
       </div>
 
+      {startChoiceOpen && shared && (
+        <StyleStartDialog designSystemTitle={shared.title} onChoose={(startFrom) => changeDesignSystem("none", startFrom)} onClose={() => setStartChoiceOpen(false)} />
+      )}
       {promoteOpen && <PromoteDialog initialTitle={project.title} onSubmit={promote} onClose={() => setPromoteOpen(false)} />}
       {historyOpen && <HistoryDialog versions={versions} onRestore={restore} onClose={() => setHistoryOpen(false)} />}
     </div>

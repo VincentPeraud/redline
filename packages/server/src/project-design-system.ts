@@ -17,7 +17,9 @@ import {
   type ManifestTitleElement,
   type ManifestTweak,
   type ProjectComponentInfo,
+  PROJECT_STYLE_STARTS,
   type ProjectDesignSystem,
+  type ProjectStyleStart,
   type ProjectStyleToken,
   type PromoteProjectStyleRequest,
   type SetProjectTokenRequest,
@@ -121,6 +123,35 @@ function assetsUsedBy(store: Store, projectId: string, components: Record<string
   return assets;
 }
 
+/** Error message when `designSystem` / `startFrom` is not a valid change for the project (shared by `/api` and `/agent-api`), else null. */
+export function designSystemChangeError(store: Store, projectId: string, designSystem: unknown, startFrom: unknown): string | null {
+  if (designSystem !== null && (typeof designSystem !== "string" || !store.getDesignSystem(designSystem))) {
+    return "designSystem must be the id of an existing design system, or null for none";
+  }
+  if (designSystem === null && store.getProject(projectId)!.designSystem !== null && !PROJECT_STYLE_STARTS.includes(startFrom as ProjectStyleStart)) {
+    return 'startFrom is required to leave a shared design system for none: "design-system" or "neutral"';
+  }
+  return null;
+}
+
+/** After a promotion the design system is the only source of the components: remove the project's copies from its pages, one user version per page. */
+function removeComponentCopies(store: Store, projectId: string): void {
+  for (const page of store.listPages(projectId)) {
+    const files = store.readPageFiles(page.id)?.files ?? {};
+    const removed = Object.keys(files).filter((path) => componentNameOf(path) !== null);
+    if (removed.length === 0) continue;
+    const kept = Object.fromEntries(Object.entries(files).filter(([path]) => !removed.includes(path)));
+    if (kept[MANIFEST_PATH] !== undefined) {
+      const manifest = JSON.parse(kept[MANIFEST_PATH]) as { artboards?: { file: string }[]; tweaks?: { artboard?: string }[]; links?: { from: string; to: string }[] };
+      if (manifest.artboards) manifest.artboards = manifest.artboards.filter((a) => !removed.includes(a.file));
+      if (manifest.tweaks) manifest.tweaks = manifest.tweaks.filter((t) => t.artboard === undefined || !removed.includes(t.artboard));
+      if (manifest.links) manifest.links = manifest.links.filter((l) => !removed.includes(l.from) && !removed.includes(l.to));
+      kept[MANIFEST_PATH] = `${JSON.stringify(manifest, null, 2)}\n`;
+    }
+    store.addVersion(page.id, kept, "Components moved to the design system", "user");
+  }
+}
+
 export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: Store): void {
   const hasProjectStyle = (projectId: string) => store.projectExists(projectId) && !store.isDesignSystemProject(projectId);
   const styleOf = (projectId: string) => store.readProjectText(projectId, PROJECT_STYLE_PATH);
@@ -135,10 +166,9 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     const { projectId } = req.params;
     if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
     const designSystem = req.body?.designSystem ?? null;
-    if (designSystem !== null && (typeof designSystem !== "string" || !store.getDesignSystem(designSystem))) {
-      return reply.code(400).send({ error: "designSystem must be the id of an existing design system, or null for none" });
-    }
-    store.setProjectDesignSystem(projectId, designSystem, "user");
+    const invalid = designSystemChangeError(store, projectId, designSystem, req.body?.startFrom);
+    if (invalid) return reply.code(400).send({ error: invalid });
+    store.setProjectDesignSystem(projectId, designSystem, "user", req.body?.startFrom);
     return projectDesignSystem(store, projectId);
   });
 
@@ -160,6 +190,7 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     for (const [name, asset] of Object.entries(assetsUsedBy(store, projectId, components))) store.setProjectFile(designSystem.id, `${ASSETS_DIR}/${name}`, asset);
     save(projectId, "");
     store.setProjectDesignSystem(projectId, designSystem.id, "user");
+    removeComponentCopies(store, projectId);
     return reply.code(201).send(designSystem);
   });
 
