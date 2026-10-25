@@ -64,6 +64,13 @@ import { dispatchBatch, dispatchReply, dispatchThread } from "./work.js";
 
 const PALETTE_TOKENS = ["--color-primary", "--color-text", "--color-background"];
 
+/** Up to three colours that sum up a design system's tokens: the main tokens first, then the others in order. */
+function paletteOf(tokensCss: string): string[] {
+  const colours = parseTokens(tokensCss).filter((token) => token.isColor);
+  const preferred = PALETTE_TOKENS.flatMap((name) => colours.filter((token) => token.name === name));
+  return [...preferred, ...colours.filter((token) => !preferred.includes(token))].slice(0, 3).map((token) => token.value);
+}
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -200,12 +207,19 @@ export async function buildMainApp(
   );
 
   app.get("/api/design-systems", async () =>
-    store.listDesignSystems().map((designSystem) => ({
-      ...designSystem,
-      usedBy: store.projectsUsingDesignSystem(designSystem.id),
-      updatedAt: store.listVersions(designSystem.pageId)[0]?.createdAt,
-      pendingChanges: store.pendingDiffusion(designSystem.id).pending.count,
-    })),
+    store.listDesignSystems().map((designSystem) => {
+      const { draft, pending } = store.pendingDiffusion(designSystem.id);
+      return {
+        ...designSystem,
+        usedBy: store.projectsUsingDesignSystem(designSystem.id),
+        updatedAt: store.listVersions(designSystem.pageId)[0]?.createdAt,
+        pendingChanges: pending.count,
+        pageCount: store.listPages(designSystem.id).length,
+        componentCount: draft.assembly.components.length,
+        diffusion: store.currentDiffusion(designSystem.id)!.number,
+        palette: paletteOf(draft.state.tokensCss),
+      };
+    }),
   );
 
   app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId", async (req, reply): Promise<DesignSystemDetail | undefined> => {
@@ -223,9 +237,6 @@ export async function buildMainApp(
     const components = projectComponents(store, designSystem.id).components;
     const notDiffused = new Set([...pending.components.added, ...pending.components.changed]);
     const draftTokens = parseTokens(draft.state.tokensCss);
-    const colours = draftTokens.filter((token) => token.isColor);
-    const preferred = PALETTE_TOKENS.flatMap((name) => colours.filter((token) => token.name === name));
-    const palette = [...preferred, ...colours.filter((token) => !preferred.includes(token))].slice(0, 3).map((token) => token.value);
     return {
       ...designSystem,
       pages: store.listPages(designSystem.id).map((page) => {
@@ -238,7 +249,7 @@ export async function buildMainApp(
       }),
       componentCount: components.length,
       tokenCount: draftTokens.length,
-      palette,
+      palette: paletteOf(draft.state.tokensCss),
       current,
       overrides,
       pending,

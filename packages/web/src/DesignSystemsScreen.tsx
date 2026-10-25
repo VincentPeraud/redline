@@ -8,7 +8,7 @@ import {
 } from "@redline/shared";
 import { Button, Dialog, DialogActions, Field, PageContent, PageHeader, Select, Textarea, TextInput } from "./ui/index.js";
 import { usedByLabel } from "./designSystemLabel.js";
-import { relativeTime } from "./relativeTime.js";
+import { componentCountLabel, pageCountLabel } from "./diffusionLabels.js";
 import { routeHref } from "./router.js";
 import styles from "./DesignSystemsScreen.module.css";
 
@@ -90,39 +90,15 @@ function NewDesignSystemDialog({ onClose, onCreated }: { onClose: () => void; on
   );
 }
 
-/** Schematic page sketch, alternating between the board's two layouts. */
-function PreviewSheet({ variant }: { variant: number }) {
+/** The design system's colours as the board draws them: two small squares, a large one and a pill. */
+function PreviewSwatches({ palette }: { palette: string[] }) {
+  const [first, second, third] = palette;
   return (
     <div className={styles.preview} aria-hidden="true">
-      {variant % 2 === 0 ? (
-        <div className={styles.sheet}>
-          <div className={styles.row}>
-            <div className={styles.logoMark} />
-            <div className={styles.bar} style={{ height: 5, width: 56 }} />
-            <div className={styles.grow} />
-            <div className={styles.line} style={{ width: 20 }} />
-            <div className={styles.line} style={{ width: 20 }} />
-          </div>
-          <div className={styles.bar} style={{ height: 9, width: "60%", marginTop: 4 }} />
-          <div className={styles.line} style={{ width: "85%" }} />
-          <div className={styles.row} style={{ marginTop: 6 }}>
-            <div className={styles.tile} />
-            <div className={styles.tile} />
-            <div className={styles.tile} />
-          </div>
-        </div>
-      ) : (
-        <div className={styles.sheet}>
-          <div className={styles.barLight} />
-          <div className={styles.row} style={{ marginTop: 4 }}>
-            <div className={styles.block} style={{ flex: "2 1 0" }} />
-            <div className={styles.block} style={{ flex: "1 1 0" }} />
-          </div>
-          <div className={styles.line} style={{ width: "80%" }} />
-          <div className={styles.line} style={{ width: "65%" }} />
-          <div className={styles.ghostButton} />
-        </div>
-      )}
+      {first && <div className={styles.swatch} style={{ background: first }} />}
+      {second && <div className={styles.swatch} style={{ background: second }} />}
+      {third && <div className={styles.swatchLarge} style={{ background: third }} />}
+      {first && <div className={styles.pill} style={{ background: first }} />}
     </div>
   );
 }
@@ -154,9 +130,9 @@ export function DesignSystemsScreen() {
         }
       />
       <div className={styles.grid} data-testid="design-systems">
-        {designSystems?.map((ds, index) => (
+        {designSystems?.map((ds) => (
           <a key={ds.id} className={styles.card} data-testid="design-system" href={routeHref({ name: "designSystem", designSystemId: ds.id })}>
-            <PreviewSheet variant={index} />
+            <PreviewSwatches palette={ds.palette} />
             <div className={styles.body}>
               <div className={styles.nameRow}>
                 <div className={styles.name}>{ds.title}</div>
@@ -168,7 +144,9 @@ export function DesignSystemsScreen() {
                 )}
               </div>
               <div className={styles.usedBy}>{usedByLabel(ds)}</div>
-              {ds.updatedAt && <div className={styles.modified}>Modifié {relativeTime(ds.updatedAt)}</div>}
+              <div data-testid="design-system-stats" className={styles.stats}>
+                {pageCountLabel(ds.pageCount)} · {componentCountLabel(ds.componentCount)} · diffusion {ds.diffusion}
+              </div>
             </div>
           </a>
         ))}

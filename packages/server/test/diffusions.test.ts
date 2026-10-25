@@ -169,6 +169,15 @@ describe("diffusions: projects follow the diffused version of a design system", 
     expect(await pendingOf()).toBe(0);
   });
 
+  it("gives each design system of the list its page and component counts and its current diffusion", async () => {
+    const { ds } = await createDesignSystem();
+    await server.post(`/api/projects/${ds.id}/pages`, { title: "Forms", files: { "manifest.json": manifestOf(["components/field.html"]), "components/field.html": component(".field{color:red}") } });
+    const summary = async () => ((await (await server.get("/api/design-systems")).json()) as { id: string; pageCount: number; componentCount: number; diffusion: number }[]).find((d) => d.id === ds.id)!;
+    expect(await summary()).toMatchObject({ pageCount: 2, componentCount: 2, diffusion: 1 });
+    await server.post(`/api/design-systems/${ds.id}/diffusions`, {});
+    expect((await summary()).diffusion).toBe(2);
+  });
+
   it("refuses a diffusion when nothing is pending", async () => {
     const { ds } = await createDesignSystem();
     expect((await server.post(`/api/design-systems/${ds.id}/diffusions`, {})).status).toBe(409);
