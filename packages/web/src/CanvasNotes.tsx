@@ -1,11 +1,8 @@
 import type { CSSProperties } from "react";
-import type { ManifestStickyElement, ManifestTextElement } from "@redline/shared";
+import { NOTE_FONT_SIZE, type ManifestStickyElement, type ManifestTextElement } from "@redline/shared";
 import { paletteShades } from "./canvasPalette.js";
 import { parseNoteMarkdown, type NoteInline } from "./noteMarkdown.js";
 import styles from "./CanvasNotes.module.css";
-
-/** Font size in canvas pixels for the sizes `s`, `m`, `l`. */
-const NOTE_FONT_SIZE = { s: 22, m: 26, l: 30 } as const;
 
 function Inline({ part }: { part: NoteInline }) {
   switch (part.type) {

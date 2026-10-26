@@ -4,6 +4,7 @@ import {
   pageHash,
   playHash,
   type AgentCheckout,
+  type AgentGapsRequest,
   type AgentDesignSystem,
   type AgentReplyRequest,
   type CreateSiblingRequest,
@@ -12,6 +13,7 @@ import {
   type MoveArtboardResponse,
   type DesignSystem,
   type Page,
+  type PageGaps,
   type PageVersionSummary,
   type Project,
   type ProjectAsset,
@@ -45,6 +47,12 @@ export class ServerApi {
   ): Promise<PageVersionSummary> {
     const body: CreateVersionRequest = { files, message, origin, baseVersionId, ...extra };
     return this.request("POST", `/pages/${pageId}/versions`, body);
+  }
+
+  /** The design system gaps of `files` (a working copy of `pageId`), without the user's exceptions. */
+  checkGaps(pageId: string, files: Record<string, string>): Promise<PageGaps> {
+    const body: AgentGapsRequest = { files };
+    return this.request("POST", `/pages/${pageId}/gaps`, body);
   }
 
   /** Stores an asset in the project of `pageId`; every artboard of the project reaches it as `assets/<name>`. */

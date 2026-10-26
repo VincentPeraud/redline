@@ -6,6 +6,7 @@ import {
   PROJECT_STYLE_PATH,
   MAX_ASSET_BYTES,
   type AgentCheckout,
+  type AgentGapsRequest,
   type AgentReplyRequest,
   type CreateSiblingRequest,
   type CreateVersionRequest,
@@ -17,6 +18,7 @@ import {
   type ProjectStyleStart,
 } from "@redline/shared";
 import { mergeOntoCurrent } from "./publish.js";
+import { agentGaps } from "./gaps.js";
 import { moveArtboard } from "./move-artboard.js";
 import { tokensEqual } from "./request-hardening.js";
 import { versionComponentsError } from "./components.js";
@@ -156,7 +158,8 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
           if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());
           if (styleChanged) store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(projectStyle.content, "utf8"), author());
-          return reply.code(201).send(result.merged ? { ...version, merged: true } : version);
+          const { gaps } = agentGaps(store, req.params.pageId, result.files);
+          return reply.code(201).send({ ...version, ...(result.merged ? { merged: true } : {}), gaps });
         };
         if (origin !== "terminal") return record();
         // Terminal mode takes its turn on the page like a thread: wait while a session runs on it.
@@ -166,6 +169,16 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         } finally {
           release();
         }
+      });
+
+      // A session checks its working copy against the design system before its run is published.
+      api.post<{ Params: { pageId: string }; Body: AgentGapsRequest }>("/pages/:pageId/gaps", async (req, reply) => {
+        if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+        const files = req.body?.files;
+        if (typeof files !== "object" || files === null || Object.values(files).some((content) => typeof content !== "string")) {
+          return reply.code(400).send({ error: "files must map paths to text" });
+        }
+        return agentGaps(store, req.params.pageId, files);
       });
 
       // Raw bytes: an asset a session added or changed under `assets/` of its working copy, stored in the page's project.

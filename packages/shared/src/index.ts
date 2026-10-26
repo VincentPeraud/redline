@@ -1,5 +1,6 @@
 import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply, WorkItem } from "./work.js";
 import { tweakGridError, type TweakGridDeclaration } from "./tweakGrid.js";
+import type { Gap } from "./gaps.js";
 
 export * from "./work.js";
 export * from "./sessions.js";
@@ -84,6 +85,13 @@ export interface PageVersionSummary {
   createdAt: string;
   /** Only in the answer to an agent's publish: the page had moved since `baseVersionId` and the changes were merged onto its current version. */
   merged?: boolean;
+  /** Only in the answer to an agent's publish: the design system gaps of the new version, without the user's exceptions. */
+  gaps?: Gap[];
+}
+
+/** Body of an agent's gap check: the page files of its working copy, analysed against the page's design system. */
+export interface AgentGapsRequest {
+  files: Record<string, string>;
 }
 
 export interface CreateVersionRequest {
@@ -445,6 +453,8 @@ export type PaletteColor = (typeof PALETTE_COLORS)[number];
 
 export const NOTE_SIZES = ["s", "m", "l"] as const;
 export type NoteSize = (typeof NOTE_SIZES)[number];
+/** Font size in canvas pixels of text notes and stickies, per size: large on purpose, to stay readable zoomed out. */
+export const NOTE_FONT_SIZE: Record<NoteSize, number> = { s: 22, m: 26, l: 30 };
 
 export const DEFAULT_TEXT_WIDTH = 360;
 export const DEFAULT_STICKY_WIDTH = 240;

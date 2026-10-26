@@ -1,4 +1,4 @@
-import { classesUsedIn, componentClassesOf, componentNameOf, type ProjectContext } from "@redline/shared";
+import { classesUsedIn, componentClassesOf, componentNameOf, type Gap, type GapKind, type ProjectContext } from "@redline/shared";
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -32,4 +32,27 @@ export function designSystemHint(pageFiles: Record<string, string>, designSystem
     .map(([path]) => path);
   if (free.length === 0) return null;
   return `Hint: ${free.join(", ")} use${free.length === 1 ? "s" : ""} no component class of the design system, which has components (see .design-system/index.md). Reuse them where they fit, or ignore this if the artboard is deliberately free.`;
+}
+
+const GAP_KIND_LABEL: Record<GapKind, string> = { color: "colour", font: "font", control: "control", deprecated: "deprecated token" };
+
+/**
+ * What a session is told about the design system gaps of its artboards (the "écarts" the user sees), grouped by value;
+ * null when there is none.
+ */
+export function gapsNote(gaps: Gap[]): string | null {
+  if (gaps.length === 0) return null;
+  const groups = new Map<string, Gap[]>();
+  for (const gap of gaps) groups.set(`${gap.kind} ${gap.value}`, [...(groups.get(`${gap.kind} ${gap.value}`) ?? []), gap]);
+  const lines = [...groups.values()].map((group) => {
+    const [{ kind, value, suggestion }] = group;
+    const files = [...new Set(group.map((gap) => gap.file))].join(", ");
+    const advice = [suggestion?.token && `use ${suggestion.token}`, suggestion?.component && `use the component ${suggestion.component}`].filter(Boolean).join(", ");
+    return `- ${GAP_KIND_LABEL[kind]} ${value} ×${group.length} (${files})${advice ? `: ${advice}` : ""}`;
+  });
+  return [
+    `${plural(gaps.length, "design system gap")} (the user sees them as "écarts"): values the design system does not cover, or raw controls.`,
+    ...lines,
+    "Replace each with a token or a component of the design system. When a value is deliberately free (one colour per data series, a third-party brand, an illustration), mark its element with data-ds-libre instead.",
+  ].join("\n");
 }

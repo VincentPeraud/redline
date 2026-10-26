@@ -33,12 +33,11 @@ function gapContext(store: Store, pageId: string, projectId: string): GapContext
   return { tokens: [...tokens.values()], components: [...components].map(([name, classes]) => ({ name, classes })) };
 }
 
-/** The gaps of the latest version of a page; none on a design system's own pages, which are the system. */
-export function pageGaps(store: Store, pageId: string): PageGaps {
+/** The gaps of a page's artboards in `files`; none on a design system's own pages, which are the system. */
+function gapsOfFiles(store: Store, pageId: string, files: Record<string, string>): PageGaps {
   const page = store.getPage(pageId)!;
   const designSystemTitle = store.getDesignSystem(designSystemIdOf(store, pageId))?.title ?? "";
   if (store.isDesignSystemProject(page.projectId)) return { designSystemTitle, gaps: [] };
-  const files = store.readPageFiles(pageId)?.files ?? {};
   const manifestText = files[MANIFEST_PATH];
   const artboards = (manifestText === undefined ? defaultManifest(Object.keys(files)) : parseManifest(manifestText)).artboards;
   const context = gapContext(store, pageId, page.projectId);
@@ -46,6 +45,18 @@ export function pageGaps(store: Store, pageId: string): PageGaps {
     .filter((a) => files[a.file] !== undefined && componentNameOf(a.file) === null)
     .flatMap((a) => analyseGaps(a.file, files[a.file], context));
   return { designSystemTitle, gaps };
+}
+
+/** The gaps of the latest version of a page. */
+export function pageGaps(store: Store, pageId: string): PageGaps {
+  return gapsOfFiles(store, pageId, store.readPageFiles(pageId)?.files ?? {});
+}
+
+/** What a session is told about its artboards: the gaps of `files`, without those the user marked as exceptions. */
+export function agentGaps(store: Store, pageId: string, files: Record<string, string>): PageGaps {
+  const exceptions = new Set(store.getViewSettings(pageId).gapExceptions);
+  const { designSystemTitle, gaps } = gapsOfFiles(store, pageId, files);
+  return { designSystemTitle, gaps: gaps.filter((gap) => !exceptions.has(gap.key)) };
 }
 
 export function registerGapRoutes(app: FastifyInstance, store: Store): void {

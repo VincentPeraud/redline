@@ -6,6 +6,7 @@ import { mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { ARTBOARD_FRAMES, ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, isSafePath, parseManifest, type ArtboardFrame, type ManifestArtboard } from "@redline/shared";
+import { gapsNote } from "./design-system-note.js";
 import { REDLINE_GUIDE } from "./guide.js";
 import { pathInside, readWorkingCopy } from "./working-copy.js";
 import type { ServerApi } from "./server-api.js";
@@ -16,6 +17,7 @@ export const CREATE_PAGE_TOOL = "create_page";
 export const MOVE_ARTBOARD_TOOL = "move_artboard";
 export const CONFIRM_REMOVALS_TOOL = "confirm_removals";
 export const READ_GUIDE_TOOL = "read_guide";
+export const CHECK_GAPS_TOOL = "check_gaps";
 
 export interface RedlineToolsContext {
   api: ServerApi;
@@ -184,6 +186,21 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
     async () => {
       context.onRemovalsConfirmed?.();
       return text("Removals confirmed for the next publish.");
+    },
+  );
+  server.registerTool(
+    CHECK_GAPS_TOOL,
+    {
+      description:
+        "List the design system gaps of the working copy's artboards (hard-coded colours and fonts, raw controls, deprecated tokens: the \"écarts\" the user sees), with the token or component to use. Call it before you finish a page.",
+    },
+    async () => {
+      try {
+        const { gaps } = await api.checkGaps(context.pageId, readWorkingCopy(context.workingCopyDir));
+        return text(gapsNote(gaps) ?? "No design system gaps.");
+      } catch (error) {
+        return text((error as Error).message, true);
+      }
     },
   );
   server.registerTool(

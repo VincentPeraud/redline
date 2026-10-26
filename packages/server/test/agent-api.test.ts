@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { AGENT_API_PREFIX, type AgentCheckout, type AgentTokenResponse, type Page, type Project, type Thread } from "@redline/shared";
+import { AGENT_API_PREFIX, type AgentCheckout, type AgentTokenResponse, type Page, type PageGaps, type PageVersionSummary, type Project, type Thread } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 let server: TestServer;
@@ -45,6 +45,19 @@ it("lets an agent check out a page's files and publish a version", async () => {
   expect(res.status).toBe(201);
   expect((await server.get(`/api/pages/${page.id}/files/home.html`)).status).toBe(200);
   expect(await (await server.get(`/api/pages/${page.id}/files/home.html`)).text()).toBe("<h1>Bye</h1>");
+});
+
+it("tells the agent the gaps of what it publishes, and of a working copy before publishing", async () => {
+  const checkout = (await (await agentCall(`/pages/${page.id}/files`)).json()) as AgentCheckout;
+  const files = { "home.html": '<h1 style="color: #2563eb">Hi</h1><p data-ds-libre style="color: #ea580c">free</p>' };
+
+  const check = await agentCall(`/pages/${page.id}/gaps`, { method: "POST", body: { files } });
+  expect(check.status).toBe(200);
+  expect(((await check.json()) as PageGaps).gaps.map((g) => [g.file, g.kind, g.value])).toEqual([["home.html", "color", "#2563eb"]]);
+
+  const res = await agentCall(`/pages/${page.id}/versions`, { method: "POST", body: { files, message: "Blue", origin: "terminal", baseVersionId: checkout.versionId } });
+  expect(((await res.json()) as PageVersionSummary).gaps?.map((g) => g.value)).toEqual(["#2563eb"]);
+  expect((await agentCall(`/pages/nope/gaps`, { method: "POST", body: { files } })).status).toBe(404);
 });
 
 it("records an agent's reply in the thread", async () => {

@@ -23,10 +23,10 @@ async function runOnce(engine: FakeEngine) {
 }
 
 describe("session MCP tools", () => {
-  it("offers add_artboard, create_page and read_guide", async () => {
+  it("offers add_artboard, create_page, check_gaps and read_guide", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing" }]);
     await runOnce(engine);
-    expect(engine.runs[0].mcpTools).toEqual(expect.arrayContaining(["add_artboard", "create_page", "move_artboard", "read_guide"]));
+    expect(engine.runs[0].mcpTools).toEqual(expect.arrayContaining(["add_artboard", "create_page", "move_artboard", "check_gaps", "read_guide"]));
   });
 
   it("add_artboard writes the HTML and its manifest entry, published with the run", async () => {
@@ -96,6 +96,21 @@ describe("session MCP tools", () => {
     });
     await runOnce(engine);
     expect(answer).toMatch(/relative path/);
+  });
+
+  it("check_gaps lists the gaps of the working copy as it is now, before the run publishes", async () => {
+    const answers: string[] = [];
+    const engine = new FakeEngine(async (run) => {
+      answers.push(await run.callTool("check_gaps", {}));
+      await run.callTool("add_artboard", { file: "pilot.html", html: '<span style="color: #2563eb">Julie</span><b data-ds-libre style="color: #5865f2">Discord</b>' });
+      answers.push(await run.callTool("check_gaps", {}));
+      return [{ type: "result", summary: "Nothing" }];
+    });
+    await runOnce(engine);
+
+    expect(answers[0]).toBe("No design system gaps.");
+    expect(answers[1]).toContain("- colour #2563eb ×1 (pilot.html)");
+    expect(answers[1]).not.toContain("#5865f2");
   });
 
   it("create_page creates an empty page (manifest only) in the same project, marked as created by Claude", async () => {

@@ -97,6 +97,19 @@ describe("terminal mode (redline mcp)", () => {
     expect(answer).toContain(`${seam.server.url}/#/pages/${page.id}`);
   });
 
+  it("lists the design system gaps of the published version after its address", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+    writeFileSync(join(seam.folder, ".redline", page.id, "home.html"), '<h1 style="color: #2563eb">Changed</h1>');
+
+    const answer = await call("publish_page", { message: "Blue" });
+
+    expect(answer).toContain("1 design system gap");
+    expect(answer).toContain("- colour #2563eb ×1 (home.html)");
+  });
+
   it("uploads the assets added or changed in the working copy, with or without a page change", async () => {
     seam = await startSeam2(new FakeEngine([]));
     const page = await seam.createPage(PAGE_FILES);

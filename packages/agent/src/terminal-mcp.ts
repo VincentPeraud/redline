@@ -7,7 +7,7 @@ import { readLinkedProjectId } from "./link.js";
 import { pageAddresses } from "./page-addresses.js";
 import type { ServerApi } from "./server-api.js";
 import { CREATE_PAGE_TOOL, createRedlineMcpServer } from "./session-mcp.js";
-import { designSystemHint, designSystemNote } from "./design-system-note.js";
+import { designSystemHint, designSystemNote, gapsNote } from "./design-system-note.js";
 import { readDesignMd, readDesignSystemEdits, readProjectStyle, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
 
 export const CHECKOUT_PAGE_TOOL = "checkout_page";
@@ -222,7 +222,6 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
         return uploaded.length ? `${uploadedNote}No page file changed; no version published.` : "Nothing changed; no version published.";
       }
       const hint = designSystemHint(pageFiles, designSystemFiles);
-      const hintAfter = hint ? `\n${hint}` : "";
       const confirmRemovals = removalsConfirmed;
       removalsConfirmed = false;
       const version = await api.publish(pageId, files, message, "terminal", versionId, {
@@ -230,6 +229,7 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
         ...(designMd !== baseDesignMd ? { designMd: { content: designMd, base: baseDesignMd } } : {}),
         ...(projectStyle !== baseStyle ? { projectStyle: { content: projectStyle!, base: baseStyle! } } : {}),
       });
+      const hintAfter = [hint, gapsNote(version.gaps ?? [])].map((note) => (note ? `\n${note}` : "")).join("");
       if (!version.merged) {
         current = { pageId, dir, files, designMd, projectStyle, designSystemFiles, projectComponents, assets, versionId: version.id };
         return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}.${hintAfter}`;
