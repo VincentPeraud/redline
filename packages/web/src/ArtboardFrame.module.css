@@ -5,7 +5,6 @@
 .clip {
   position: relative;
   overflow: hidden;
-  border-radius: 28px;
   background: var(--color-surface);
   box-shadow: 0 0 0 1px var(--color-border-strong), var(--shadow-sm);
 }
@@ -17,7 +16,6 @@
 }
 
 .clipBare {
-  border-radius: 0;
   background: transparent;
   box-shadow: none;
 }

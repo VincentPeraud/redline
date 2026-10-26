@@ -160,6 +160,8 @@ it("still shows every html file side by side when a page has no manifest", async
   const two = await box(tab.locator('iframe[title$="two.html"]'));
   expect(two.x).toBeGreaterThan(one.x + one.width);
   expect(two.y).toBe(one.y);
+  // Artboards keep square corners: a rounded clip would cut the corners of the design.
+  expect(await tab.locator('iframe[title$="one.html"]').evaluate((el) => getComputedStyle(el.parentElement!).borderRadius)).toBe("0px");
 }, 60_000);
 
 it("is interactive by default, pins with C or Alt+click, and returns to interactive with P", async () => {
