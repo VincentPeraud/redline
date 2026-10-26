@@ -93,3 +93,12 @@ it("tells Claude to anchor elements under notes instead of guessing their height
   expect(REDLINE_GUIDE).toContain("optional \"gap\" (default 40)");
   expect(REDLINE_GUIDE).toContain("Titles and arrows cannot be anchored.");
 });
+
+it("gives spacing, arrow, content and asking rules, so pages come out clean without the user's corrections", () => {
+  expect(REDLINE_GUIDE).toContain("80 px between the artboards of a row");
+  expect(REDLINE_GUIDE).toContain("never link two boxes with another box between them");
+  expect(REDLINE_GUIDE).toContain("no lorem ipsum");
+  expect(REDLINE_GUIDE).toContain("[PRIX]");
+  expect(REDLINE_GUIDE).toContain("contrast of 4.5:1");
+  expect(REDLINE_GUIDE).toContain("state your assumptions in one line");
+});

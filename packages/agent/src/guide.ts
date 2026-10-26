@@ -1,4 +1,4 @@
-import { ASSETS_DIR, CORE_TOKENS, DEFAULT_ANCHOR_GAP, NOTE_FONT_SIZE, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, DEFAULT_STICKY_WIDTH, DEFAULT_TEXT_WIDTH, PALETTE_COLORS, MANIFEST_PATH, MAX_ASSET_BYTES, MAX_PAGE_BYTES, TWEAKS_PATH } from "@redline/shared";
+import { ARTBOARD_GAP, ASSETS_DIR, CORE_TOKENS, DEFAULT_ANCHOR_GAP, NOTE_FONT_SIZE, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, DEFAULT_STICKY_WIDTH, DEFAULT_TEXT_WIDTH, PALETTE_COLORS, MANIFEST_PATH, MAX_ASSET_BYTES, MAX_PAGE_BYTES, TWEAKS_PATH } from "@redline/shared";
 
 /** What a session needs to know to edit a Redline page; returned by the `read_guide` tool. */
 export const REDLINE_GUIDE = `# Redline guide
@@ -31,6 +31,22 @@ A Redline page is a set of files. You work on a copy of them (the working copy f
 - Choose one responsive artboard when the same screen must adapt (same content and structure, only the layout changes with the width). Choose separate artboards when the screens differ by more than the layout (a different mobile flow, other content, one-off mobile-only screens) or need their own comments, versions and arrows. When unsure, ask the user before building.
 - artboards[].guides = { "columns", "gutter", "margin", "baseline"? } (pixels, columns a whole number) declares a column grid on that artboard; viewers show it with the Guides (G) button. Design the artboard to that grid.
 - links make clicks on a CSS selector in artboard "from" go to artboard "to" in play mode; add "page" (a page id of the same project) to go to an artboard of another page: the play view then continues on that page. "to" must be an artboard of that page's current version, otherwise the publish is rejected naming the entry (links[i]).
+
+## Canvas layout
+- Spacing: ${ARTBOARD_GAP} px between the artboards of a row (what a missing x gives), 120 px between rows, 200 px when the row below has a title. Put a title about 120 px above its row and nothing between a title and its row. Notes and stickies go beside the artboards they explain (rightOf the last artboard of the row, then stacked with "below"), never over an artboard.
+- Arrows link the middles of the nearest edges of two boxes and do not route around anything: place the boxes so that the line between their facing edges crosses nothing. Keep a flow on one row (or one column) with the arrows between neighbours; never link two boxes with another box between them, link the steps one by one. Leave at least 48 px between linked boxes, 96 px when the arrow has a label. Give each arrow its own edge: two arrows leaving the same edge of a box overlap. check_page reports an arrow crossing a box.
+
+## Content of the mock-ups
+- Real content in the user's language: no lorem ipsum, no "Title" or "Button" placeholders. A fact you do not know (a price, a figure, a name the user has not given) becomes a visible placeholder in brackets, such as [PRIX] or [NOM DU CLUB], so the user sees what is missing; say which ones in your answer.
+- Real controls: <button> for actions, <a href> for navigation, <input> or <textarea> with a <label>, so that play mode and comments behave like the real screen. Touch targets of 44 px at least on phone and tablet artboards.
+- Readable: text contrast of 4.5:1 at least against its background (3:1 for text of 24 px or more); never light grey on white for content.
+- The frame draws the device in play mode: do not draw a phone outline, a fake status bar or a browser bar inside an artboard.
+- Avoid the clichés of generated designs unless the design system asks for them: decorative gradients, coloured left borders on cards, emoji as icons, everything centred, every section in a card.
+- A targeted change stays targeted: when asked to change one thing, change that thing and leave the rest of the artboard as it was.
+
+## Before building
+- When a request leaves two or more choices open that would change the result (who the screen is for, which flow, desktop or mobile, what content), ask before writing anything: in terminal mode, one batch of at most 4 questions with concrete options. In a Redline session (a conversation or comments) you cannot wait for an answer during the run: decide, build, and state your assumptions in one line at the start of your answer, so the user can correct them.
+- When the user asks for options or directions, build 2 to 4 genuinely different ones (not shades of the same layout), side by side on one row, each with a short title.
 
 ## Design system tokens
 - The artboard server injects the page's design system stylesheet into every artboard. Never add your own link to it and never hard-code colors, fonts, radii or spacing that a token covers.
