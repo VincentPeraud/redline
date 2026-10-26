@@ -434,6 +434,21 @@ export interface ManifestArtboard {
 
 export const DEFAULT_TITLE_WIDTH = 1200;
 
+export const ANCHOR_SIDES = ["below", "rightOf"] as const;
+export type AnchorSide = (typeof ANCHOR_SIDES)[number];
+export const DEFAULT_ANCHOR_GAP = 40;
+
+/**
+ * Placement against another box (an artboard file or an element id): below it, left edges aligned, or right of it, top edges
+ * aligned, `gap` canvas pixels away. The element's x and y are then computed on the canvas from the target's rendered size
+ * (`placeAnchoredElements`); until then they read 0.
+ */
+export interface ElementAnchor {
+  side: AnchorSide;
+  target: string;
+  gap: number;
+}
+
 /** Big group title above a row of artboards. */
 export interface ManifestTitleElement {
   /** Target for arrows; unique across artboard files and element ids. */
@@ -470,6 +485,7 @@ export interface ManifestTextElement {
   color?: PaletteColor;
   x: number;
   y: number;
+  anchor?: ElementAnchor;
 }
 
 /** Coloured paper for an open question or a reminder; `color` fills the background. Limited markdown. */
@@ -483,6 +499,7 @@ export interface ManifestStickyElement {
   color: PaletteColor;
   x: number;
   y: number;
+  anchor?: ElementAnchor;
 }
 
 export const SHAPE_KINDS = ["rect", "ellipse"] as const;
@@ -503,6 +520,7 @@ export interface ManifestShapeElement {
   height: number;
   x: number;
   y: number;
+  anchor?: ElementAnchor;
 }
 
 export const DEFAULT_IMAGE_WIDTH = 400;
@@ -518,6 +536,7 @@ export interface ManifestImageElement {
   width: number;
   x: number;
   y: number;
+  anchor?: ElementAnchor;
 }
 
 export const LINK_CARD_WIDTH = 640;
@@ -533,6 +552,7 @@ export interface ManifestPageLinkElement {
   file?: string;
   x: number;
   y: number;
+  anchor?: ElementAnchor;
 }
 
 /** Link card (640x112) to an external URL, with the title Claude gives it; opens in a new tab. */
@@ -544,6 +564,7 @@ export interface ManifestUrlLinkElement {
   title: string;
   x: number;
   y: number;
+  anchor?: ElementAnchor;
 }
 
 export type ManifestLinkElement = ManifestPageLinkElement | ManifestUrlLinkElement;
@@ -797,17 +818,35 @@ const ELEMENT_PARSERS: { [K in ManifestElementKind]: (item: Record<string, unkno
   },
 };
 
+/** `below` / `rightOf` and `gap` of an element; an anchored element has no x or y of its own. */
+function parseAnchor(item: Record<string, unknown>, name: string, kind: ManifestElementKind): ElementAnchor | undefined {
+  const sides = ANCHOR_SIDES.filter((side) => item[side] !== undefined);
+  if (sides.length === 0) {
+    if (item.gap !== undefined) fail(`${name}.gap needs below or rightOf`);
+    return undefined;
+  }
+  if (kind === "title" || kind === "arrow") fail(`${name}.${sides[0]} is not available on ${kind === "title" ? "a title" : "an arrow"}`);
+  if (sides.length > 1) fail(`${name}: below and rightOf cannot be used together`);
+  const side = sides[0]!;
+  for (const key of ["x", "y"]) if (item[key] !== undefined) fail(`${name}.${key} cannot be used with ${side}: the position is computed from its target`);
+  const gap = item.gap;
+  if (gap !== undefined && (typeof gap !== "number" || !Number.isFinite(gap) || gap < 0)) fail(`${name}.gap must be a number of 0 or more`);
+  return { side, target: str(item, side, name), gap: (gap as number | undefined) ?? DEFAULT_ANCHOR_GAP };
+}
+
 function parseElement(item: Record<string, unknown>, name: string): ManifestElement {
   const kind = item.kind === undefined ? "title" : item.kind;
   if (typeof kind !== "string" || !Object.hasOwn(ELEMENT_PARSERS, kind)) {
     fail(`${name}.kind must be one of ${Object.keys(ELEMENT_PARSERS).join(", ")}`);
   }
+  const anchor = parseAnchor(item, name, kind as ManifestElementKind);
   const element = ELEMENT_PARSERS[kind as ManifestElementKind](item, name);
+  if (anchor && "x" in element && element.kind !== "title") element.anchor = anchor;
   if (item.id !== undefined) element.id = str(item, "id", name);
   return element;
 }
 
-/** Ids are unique across artboard files and element ids; an arrow can only name one of them. */
+/** Ids are unique across artboard files and element ids; an anchor never names an arrow nor loops. */
 function checkElementIds(artboards: ManifestArtboard[], elements: ManifestElement[], elementsName: string): void {
   const known = new Set(artboards.map((artboard) => artboard.file));
   elements.forEach((element, i) => {
@@ -815,30 +854,83 @@ function checkElementIds(artboards: ManifestArtboard[], elements: ManifestElemen
     if (known.has(element.id)) fail(`${elementsName}[${i}].id "${element.id}" is already used by an artboard file or another element`);
     known.add(element.id);
   });
+  checkAnchors(elements, elementsName);
+}
+
+/**
+ * Error message when an arrow end or an anchor names no artboard file nor element id, else null. Only checked at publish:
+ * a stored manifest keeps reading when an artboard it names was deleted or moved (the arrow is not drawn, the element stays put).
+ */
+function unknownReferencesError({ artboards, elements }: Manifest): string | null {
+  const known = new Set([...artboards.map((artboard) => artboard.file), ...elements.flatMap((element) => (element.id === undefined ? [] : [element.id]))]);
+  const errors = elements.flatMap((element, i) => {
+    const references = element.kind === "arrow" ? (["from", "to"] as const).map((key) => [key, element[key]] as const) : "anchor" in element && element.anchor ? [[element.anchor.side, element.anchor.target] as const] : [];
+    return references.flatMap(([key, name]) => (typeof name === "string" && !known.has(name) ? [`elements[${i}].${key} names "${name}", which is not an artboard file or an element id`] : []));
+  });
+  return errors.length === 0 ? null : errors.join("; ");
+}
+
+/** An anchor never names an arrow, and anchors never loop. */
+function checkAnchors(elements: ManifestElement[], elementsName: string): void {
+  const arrows = new Set(elements.flatMap((element) => (element.kind === "arrow" && element.id !== undefined ? [element.id] : [])));
+  const targetOf = new Map(elements.flatMap((element) => (element.id !== undefined && "anchor" in element && element.anchor ? [[element.id, element.anchor.target] as const] : [])));
   elements.forEach((element, i) => {
-    if (element.kind !== "arrow") return;
-    for (const key of ["from", "to"] as const) {
-      const end = element[key];
-      if (typeof end === "string" && !known.has(end)) fail(`${elementsName}[${i}].${key} names "${end}", which is not an artboard file or an element id`);
+    if (!("anchor" in element) || !element.anchor) return;
+    const { side, target } = element.anchor;
+    const field = `${elementsName}[${i}].${side}`;
+    if (arrows.has(target)) fail(`${field} names the arrow "${target}": anchor to an artboard or another element`);
+    if (element.id === undefined) return;
+    const chain = [element.id];
+    for (let next = target; next !== undefined; next = targetOf.get(next)!) {
+      chain.push(next);
+      if (next === element.id) fail(`${field} forms a loop: ${chain.join(" → ")}`);
+      if (!targetOf.has(next) || chain.length > elements.length + 1) break;
     }
   });
 }
 
-/**
- * Error message when a manifest about to be published has `elements` entries without an `id` (every one is named by index and kind),
- * carries the legacy `notes` list, or does not parse, else null. Reading stays lenient: stored manifests and the legacy `notes` list may lack ids.
- */
-export function publishManifestError(text: string): string | null {
+/** Error message when a manifest about to be saved does not parse or names an unknown artboard or element (arrow end, anchor), else null. */
+export function savedManifestError(text: string): string | null {
+  let parsed: Manifest;
   try {
-    parseManifest(text);
+    parsed = parseManifest(text);
   } catch (error) {
     return (error as Error).message;
   }
+  const unknown = unknownReferencesError(parsed);
+  return unknown ? `Invalid ${MANIFEST_PATH}: ${unknown}` : null;
+}
+
+/**
+ * Error message when a manifest about to be published has `elements` entries without an `id` (every one is named by index and kind),
+ * names an unknown artboard or element (arrow end, anchor), carries the legacy `notes` list, or does not parse, else null. Reading stays
+ * lenient: stored manifests and the legacy `notes` list may lack ids, and may name an artboard deleted or moved since.
+ */
+export function publishManifestError(text: string): string | null {
+  const invalid = savedManifestError(text);
+  if (invalid) return invalid;
   const manifest = JSON.parse(text) as { elements?: Record<string, unknown>[]; notes?: unknown };
   if (manifest.notes !== undefined) return "notes is legacy: move these titles to elements, each with an id";
   const elements = manifest.elements ?? [];
   const missing = elements.flatMap((item, i) => (typeof item.id === "string" && item.id !== "" ? [] : [`elements[${i}] (${item.kind ?? "title"}) has no id`]));
   return missing.length === 0 ? null : missing.join("; ");
+}
+
+/**
+ * A manifest as written (raw JSON) without the artboard `file`, which is being deleted or moved away: elements anchored to it
+ * get the x and y they had (from its declared box), and arrows aiming at it go, so the page stays publishable.
+ */
+export function manifestWithoutArtboard<T extends { artboards?: { file: string }[]; elements?: Record<string, unknown>[] }>(raw: T, file: string): T {
+  const box = parseManifest(JSON.stringify(raw)).artboards.find((artboard) => artboard.file === file);
+  const elements = raw.elements?.flatMap((element): Record<string, unknown>[] => {
+    if (element.kind === "arrow") return element.from === file || element.to === file ? [] : [element];
+    const side = ANCHOR_SIDES.find((key) => element[key] === file);
+    if (!side || !box) return [element];
+    const { below: _below, rightOf: _rightOf, gap: rawGap, ...rest } = element;
+    const gap = typeof rawGap === "number" ? rawGap : DEFAULT_ANCHOR_GAP;
+    return [{ ...rest, ...(side === "below" ? { x: box.x, y: box.y + box.height + gap } : { x: box.x + box.width + gap, y: box.y }) }];
+  });
+  return { ...raw, artboards: (raw.artboards ?? []).filter((artboard) => artboard.file !== file), ...(elements ? { elements } : {}) };
 }
 
 function parseGuides(value: unknown, name: string): ArtboardGuides {
@@ -1137,3 +1229,4 @@ export * from "./components.js";
 export * from "./diffusion.js";
 export * from "./projectDesignSystem.js";
 export * from "./gaps.js";
+export * from "./canvasAnchors.js";

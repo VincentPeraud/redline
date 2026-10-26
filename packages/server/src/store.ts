@@ -14,6 +14,7 @@ import {
   canvasElementSummary,
   defaultManifest,
   parseManifest,
+  manifestWithoutArtboard,
   starterPageFiles,
   NEUTRAL_DESIGN_SYSTEM_ID,
   NEUTRAL_TOKENS_CSS,
@@ -1311,8 +1312,7 @@ export class Store {
       targetManifest.artboards = [...(targetManifest.artboards ?? []), { ...entry, x, y }];
       targetFiles[MANIFEST_PATH] = this.putText(JSON.stringify(targetManifest, null, 2));
       if (source.version.files[MANIFEST_PATH] !== undefined) {
-        sourceManifest.artboards = (sourceManifest.artboards ?? []).filter((a) => a.file !== file);
-        sourceFiles[MANIFEST_PATH] = this.putText(JSON.stringify(sourceManifest, null, 2));
+        sourceFiles[MANIFEST_PATH] = this.putText(JSON.stringify(manifestWithoutArtboard(sourceManifest, file), null, 2));
       }
 
       const threadIds = this.db.prepare("SELECT id FROM threads WHERE page_id = ? AND artboard = ? ORDER BY number").all(sourceId, file) as { id: string }[];
@@ -1540,6 +1540,7 @@ interface VersionRow {
 /** A stored manifest as JSON, so a move keeps every field it does not know. */
 interface RawManifest {
   artboards?: ({ file: string } & Record<string, unknown>)[];
+  elements?: Record<string, unknown>[];
   [key: string]: unknown;
 }
 

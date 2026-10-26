@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   MANIFEST_PATH,
+  manifestWithoutArtboard,
   defaultManifest,
   isSafePath,
   parseManifest,
@@ -145,8 +146,10 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
     else files[file] = targetHash;
     const manifestHash = head.files[MANIFEST_PATH];
     if (manifestHash !== undefined && onPage !== (targetHash !== undefined)) {
-      const manifest = JSON.parse(store.blobText(manifestHash)) as { artboards?: { file: string }[] };
-      const artboards = manifest.artboards ?? [];
+      const stored = JSON.parse(store.blobText(manifestHash)) as { artboards?: { file: string }[]; elements?: Record<string, unknown>[] };
+      // Deleting: what is anchored to the artboard stays where it was, arrows aiming at it go.
+      const manifest = targetHash === undefined ? manifestWithoutArtboard(stored, file) : stored;
+      const artboards = stored.artboards ?? [];
       const targetManifestHash = target.files[MANIFEST_PATH];
       const formerEntry =
         targetManifestHash === undefined

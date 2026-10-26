@@ -4,6 +4,7 @@ import {
   CORE_TOKENS,
   DESIGN_SYSTEM_TOKENS_PATH,
   MANIFEST_PATH,
+  manifestWithoutArtboard,
   NEUTRAL_TOKENS_PAGE_HTML,
   PROJECT_STYLE_PATH,
   componentNameOf,
@@ -142,8 +143,8 @@ function removeComponentCopies(store: Store, projectId: string): void {
     if (removed.length === 0) continue;
     const kept = Object.fromEntries(Object.entries(files).filter(([path]) => !removed.includes(path)));
     if (kept[MANIFEST_PATH] !== undefined) {
-      const manifest = JSON.parse(kept[MANIFEST_PATH]) as { artboards?: { file: string }[]; tweaks?: { artboard?: string }[]; links?: { from: string; to: string }[] };
-      if (manifest.artboards) manifest.artboards = manifest.artboards.filter((a) => !removed.includes(a.file));
+      let manifest = JSON.parse(kept[MANIFEST_PATH]) as { artboards?: { file: string }[]; elements?: Record<string, unknown>[]; tweaks?: { artboard?: string }[]; links?: { from: string; to: string }[] };
+      for (const file of removed) manifest = manifestWithoutArtboard(manifest, file);
       if (manifest.tweaks) manifest.tweaks = manifest.tweaks.filter((t) => t.artboard === undefined || !removed.includes(t.artboard));
       if (manifest.links) manifest.links = manifest.links.filter((l) => !removed.includes(l.from) && !removed.includes(l.to));
       kept[MANIFEST_PATH] = `${JSON.stringify(manifest, null, 2)}\n`;

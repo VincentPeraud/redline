@@ -223,9 +223,11 @@ describe("page manifest", () => {
       ]);
     });
 
-    it("refuses an arrow naming an unknown id, naming it", () => {
-      expect(parse({ artboards: [{ file: "a.html" }], elements: [{ kind: "arrow", from: "a.html", to: "ghost" }] })).toThrow(/elements\[0\]\.to.*ghost/);
-      expect(parse({ elements: [{ kind: "arrow", from: "ghost", to: { x: 0, y: 0 } }] })).toThrow(/elements\[0\]\.from.*ghost/);
+    it("refuses at publish an arrow naming an unknown id, naming it, but still reads it (its artboard may have been deleted since)", () => {
+      const error = (manifest: object) => publishManifestError(JSON.stringify(manifest));
+      expect(error({ artboards: [{ file: "a.html" }], elements: [{ kind: "arrow", id: "f", from: "a.html", to: "ghost" }] })).toMatch(/elements\[0\]\.to.*ghost/);
+      expect(error({ elements: [{ kind: "arrow", id: "f", from: "ghost", to: { x: 0, y: 0 } }] })).toMatch(/elements\[0\]\.from.*ghost/);
+      expect(parse({ elements: [{ kind: "arrow", from: "ghost", to: { x: 0, y: 0 } }] })).not.toThrow();
     });
 
     it("refuses an arrow without ends, with a malformed point, or with a wrong colour or line", () => {
@@ -243,6 +245,48 @@ describe("page manifest", () => {
     it("lets an arrow target an element declared after it", () => {
       const manifest = parseManifest(JSON.stringify({ elements: [{ kind: "arrow", from: "late", to: { x: 0, y: 0 } }, { kind: "text", text: "a", id: "late" }] }));
       expect(manifest.elements).toHaveLength(2);
+    });
+  });
+
+  describe("anchored elements", () => {
+    const parse = (manifest: object) => () => parseManifest(JSON.stringify(manifest));
+    const note = (extra: object) => ({ kind: "text", text: "n", id: "note", x: 0, y: 0, ...extra });
+
+    it("reads below or rightOf with a 40 px default gap, on notes, stickies, images, links and shapes", () => {
+      const manifest = parseManifest(
+        JSON.stringify({
+          artboards: [{ file: "a.html" }],
+          elements: [
+            note({}),
+            { kind: "sticky", text: "s", id: "ask", below: "note" },
+            { kind: "image", src: "assets/a.png", id: "shot", rightOf: "a.html", gap: 80 },
+            { kind: "link", page: "pg_1", below: "ask", gap: 0 },
+            { kind: "shape", shape: "rect", width: 10, height: 10, below: "shot" },
+          ],
+        }),
+      );
+      expect(manifest.elements.slice(1).map((element) => "anchor" in element && element.anchor)).toEqual([
+        { side: "below", target: "note", gap: 40 },
+        { side: "rightOf", target: "a.html", gap: 80 },
+        { side: "below", target: "ask", gap: 0 },
+        { side: "below", target: "shot", gap: 40 },
+      ]);
+    });
+
+    it("refuses x or y on an anchored element, both sides, a gap alone and an anchored title or arrow, naming the field", () => {
+      expect(parse({ elements: [note({}), { kind: "sticky", text: "s", below: "note", y: 300 }] })).toThrow(/elements\[1\]\.y cannot be used with below/);
+      expect(parse({ elements: [note({}), { kind: "sticky", text: "s", below: "note", rightOf: "note" }] })).toThrow(/elements\[1\]: below and rightOf cannot be used together/);
+      expect(parse({ elements: [{ kind: "sticky", text: "s", gap: 20 }] })).toThrow(/elements\[0\]\.gap needs below or rightOf/);
+      expect(parse({ elements: [{ kind: "sticky", text: "s", below: "x", gap: -5 }] })).toThrow(/elements\[0\]\.gap/);
+      expect(parse({ elements: [note({}), { kind: "title", text: "T", below: "note" }] })).toThrow(/elements\[1\]\.below is not available on a title/);
+      expect(parse({ elements: [note({}), { kind: "arrow", from: "note", to: { x: 0, y: 0 }, below: "note" }] })).toThrow(/elements\[1\]\.below is not available on an arrow/);
+    });
+
+    it("refuses an unknown target at publish, an arrow as target and a loop, naming them", () => {
+      expect(publishManifestError(JSON.stringify({ elements: [{ kind: "sticky", id: "s", text: "s", below: "ghost" }] }))).toMatch(/elements\[0\]\.below names "ghost"/);
+      expect(parse({ elements: [{ kind: "sticky", text: "s", below: "ghost" }] })).not.toThrow();
+      expect(parse({ elements: [note({}), { kind: "arrow", id: "f", from: "note", to: { x: 0, y: 0 } }, { kind: "sticky", text: "s", below: "f" }] })).toThrow(/elements\[2\]\.below names the arrow "f"/);
+      expect(parse({ elements: [{ kind: "text", text: "a", id: "a", below: "b" }, { kind: "text", text: "b", id: "b", rightOf: "a" }] })).toThrow(/elements\[0\]\.below forms a loop: a → b → a/);
     });
   });
 

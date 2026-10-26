@@ -109,3 +109,42 @@ it("draws shapes under the artboards and every other element above them, in list
   expect(order).toEqual({ shapeUnderArtboard: true, artboardUnderNote: true, listOrder: true });
   await tab.close();
 }, 60_000);
+
+it("stacks anchored elements under their target's rendered height, and moves them and their arrows when it grows", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Anchors" })).json()) as { id: string };
+  const manifest = (noteText: string) =>
+    JSON.stringify({
+      artboards: [{ file: "a.html", width: 400, height: 300, x: 0, y: 0 }],
+      elements: [
+        { kind: "text", id: "note", text: noteText, width: 420, rightOf: "a.html", gap: 60 },
+        { kind: "sticky", id: "ask", text: "Who can edit?", below: "note" },
+        { kind: "arrow", id: "to-ask", from: "a.html", to: "ask" },
+      ],
+    });
+  const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Anchors", files: { "a.html": "<!doctype html><body>A</body>", "manifest.json": manifest("Short") } })).json()) as Page;
+
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  const box = (selector: string) => tab.locator(selector).evaluate((el) => {
+    const node = el as HTMLElement;
+    return { x: parseFloat(node.style.left), y: parseFloat(node.style.top), h: node.offsetHeight };
+  });
+  await tab.locator("[data-canvas-sticky]").waitFor();
+
+  const note = await box("[data-canvas-text]");
+  expect(note.x).toBe(460);
+  expect(note.y).toBe(0);
+  await expect.poll(async () => (await box("[data-canvas-sticky]")).y).toBe(note.h + 40);
+  expect((await box("[data-canvas-sticky]")).x).toBe(460);
+  const arrowBefore = await tab.locator("[data-canvas-arrow] > path").first().getAttribute("d");
+
+  await server.post(`/api/pages/${page.id}/versions`, {
+    files: { "a.html": "<!doctype html><body>A</body>", "manifest.json": manifest(Array.from({ length: 6 }, () => "- A long line of decisions that wraps on two lines at least").join("\n")) },
+    message: "Longer note",
+    origin: "user",
+  });
+  await expect.poll(async () => (await box("[data-canvas-text]")).h).toBeGreaterThan(note.h * 3);
+  const grown = await box("[data-canvas-text]");
+  await expect.poll(async () => (await box("[data-canvas-sticky]")).y).toBe(grown.h + 40);
+  await expect.poll(() => tab.locator("[data-canvas-arrow] > path").first().getAttribute("d")).not.toBe(arrowBefore);
+}, 60_000);

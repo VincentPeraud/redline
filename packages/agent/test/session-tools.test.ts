@@ -45,6 +45,34 @@ describe("session MCP tools", () => {
     expect(await seam!.versions(page.id)).toHaveLength(2);
   });
 
+  it("add_artboard keeps the elements as written, so anchored ones stay publishable", async () => {
+    const engine = new FakeEngine(async (run) => {
+      await run.callTool("add_artboard", { file: "extra.html", html: "<h1>Extra</h1>" });
+      return [{ type: "result", summary: "Added" }];
+    });
+    seam = await startSeam2(engine);
+    const page = await seam.createPage({
+      ...PAGE_FILES,
+      "manifest.json": JSON.stringify({
+        artboards: [{ file: "home.html", width: 400, height: 300, x: 0, y: 0 }],
+        elements: [
+          { kind: "text", id: "note", text: "n", rightOf: "home.html" },
+          { kind: "sticky", id: "ask", text: "s", below: "note" },
+        ],
+      }),
+    });
+    await seam.pinThread(page.id, "home.html", "Do it");
+    await engine.finished(1);
+    await seam.waitForWorkEnd();
+
+    const manifest = JSON.parse(await (await seam.server.get(`/api/pages/${page.id}/files/manifest.json`)).text()) as { artboards: { file: string }[]; elements: object[] };
+    expect(manifest.artboards.map((a) => a.file)).toEqual(["home.html", "extra.html"]);
+    expect(manifest.elements).toEqual([
+      { kind: "text", id: "note", text: "n", rightOf: "home.html" },
+      { kind: "sticky", id: "ask", text: "s", below: "note" },
+    ]);
+  });
+
   it("add_artboard records the frame and url in the manifest entry", async () => {
     const engine = new FakeEngine([
       { callTool: { name: "add_artboard", arguments: { file: "site.html", html: "<h1>Site</h1>", frame: "browser", url: "lumora.fr" } } },

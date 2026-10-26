@@ -59,9 +59,11 @@ function addArtboardToWorkingCopy(
   artboard: { file: string; html: string; title?: string; width?: number; height?: number; x?: number; y?: number; frame?: ArtboardFrame; url?: string },
 ): void {
   const manifestPath = join(dir, MANIFEST_PATH);
-  const manifest = existsSync(manifestPath)
-    ? parseManifest(readFileSync(manifestPath, "utf8"))
-    : defaultManifest(Object.keys(readWorkingCopy(dir)));
+  // Only the artboards are rewritten: everything else stays as written (a parsed element would carry computed fields, such as an anchored one's x and y).
+  const stored = existsSync(manifestPath) ? (JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>) : undefined;
+  // A legacy `notes` list is rewritten as elements (titles only, nothing computed in them).
+  const written = stored?.notes === undefined ? stored : undefined;
+  const manifest = stored ? parseManifest(JSON.stringify(stored)) : defaultManifest(Object.keys(readWorkingCopy(dir)));
   const { html, ...placement } = artboard;
   const given = Object.fromEntries(Object.entries(placement).filter(([, value]) => value !== undefined));
   const index = manifest.artboards.findIndex((a) => a.file === artboard.file);
@@ -80,7 +82,7 @@ function addArtboardToWorkingCopy(
   const target = pathInside(dir, artboard.file);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, html);
-  writeFileSync(manifestPath, JSON.stringify({ ...manifest, artboards: artboards.map(declaredArtboard) }, null, 2));
+  writeFileSync(manifestPath, JSON.stringify({ ...(written ?? manifest), artboards: artboards.map(declaredArtboard) }, null, 2));
 }
 
 /** Deletes `file` and its manifest entry from the working copy, as the server did on the page when the artboard moved away. */

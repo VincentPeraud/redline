@@ -87,8 +87,9 @@ it("explains how to recreate a Claude Design design system and the terminal tool
   expect(REDLINE_GUIDE).toContain("list_design_systems");
 });
 
-it("gives the rendered size of notes so Claude can keep them from overlapping", () => {
+it("tells Claude to anchor elements under notes instead of guessing their height", () => {
   expect(REDLINE_GUIDE).toContain("their font is 22, 26 or 30 canvas pixels (s, m, l)");
-  expect(REDLINE_GUIDE).toContain("estimate it before placing anything under one");
-  expect(REDLINE_GUIDE).toContain("put stickies beside a long note");
+  expect(REDLINE_GUIDE).toContain('"below": "<id or artboard file>" or "rightOf": "<id or artboard file>"');
+  expect(REDLINE_GUIDE).toContain("optional \"gap\" (default 40)");
+  expect(REDLINE_GUIDE).toContain("Titles and arrows cannot be anchored.");
 });

@@ -10,8 +10,8 @@ import {
   VERSION_ORIGINS,
   isSafePath,
   missingCoreTokens,
-  parseManifest,
   publishManifestError,
+  savedManifestError,
   parseTweaks,
   type CreateVersionRequest,
   type Effort,
@@ -136,7 +136,7 @@ export function filesError(files: unknown): string | null {
 export function manifestError(files: Record<string, string>, requireElementIds = false): string | null {
   try {
     if (files[MANIFEST_PATH] !== undefined) {
-      const invalid = requireElementIds ? publishManifestError(files[MANIFEST_PATH]) : (parseManifest(files[MANIFEST_PATH]), null);
+      const invalid = requireElementIds ? publishManifestError(files[MANIFEST_PATH]) : savedManifestError(files[MANIFEST_PATH]);
       if (invalid) return invalid;
     }
     if (files[TWEAKS_PATH] !== undefined) parseTweaks(files[TWEAKS_PATH]);

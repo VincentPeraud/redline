@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { MANIFEST_PATH, parseManifest, type MoveArtboardResponse, type Page, type PageVersionSummary, type Project, type Thread } from "@redline/shared";
+import { MANIFEST_PATH, parseManifest, publishManifestError, type MoveArtboardResponse, type Page, type PageVersionSummary, type Project, type Thread } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 const manifest = (...artboards: { file: string; x: number; width?: number }[]) =>
@@ -63,6 +63,33 @@ describe("moving an artboard to another page over the server HTTP API", () => {
     expect((await versions(buttons))[0].origin).toBe("user");
     expect(result.sourceVersion.id).toBe((await versions(web))[0].id);
     expect(result.targetVersion.id).toBe((await versions(buttons))[0].id);
+  });
+
+  it("pins the elements anchored to the moved artboard where they were and drops the arrows aiming at it, so the page stays publishable", async () => {
+    const page = await createPage(project, "Notes", {
+      [MANIFEST_PATH]: JSON.stringify({
+        artboards: [{ file: "btn.html", x: 100, y: 20, width: 300, height: 200 }, { file: "home.html", x: 900, y: 20, width: 300, height: 200 }],
+        elements: [
+          { kind: "text", id: "note", text: "n", rightOf: "btn.html", gap: 60 },
+          { kind: "sticky", id: "ask", text: "s", below: "note" },
+          { kind: "sticky", id: "under", text: "u", below: "btn.html" },
+          { kind: "arrow", id: "to-btn", from: "home.html", to: "btn.html" },
+          { kind: "arrow", id: "to-note", from: "home.html", to: "note" },
+        ],
+      }),
+      "btn.html": "<button>Ok</button>",
+      "home.html": "<h1>Home</h1>",
+    });
+    expect((await move(page, { file: "btn.html", targetPageId: buttons.id })).status).toBe(200);
+
+    const raw = JSON.parse(await (await server.get(`/api/pages/${page.id}/files/${MANIFEST_PATH}`)).text()) as { elements: Record<string, unknown>[] };
+    expect(raw.elements).toEqual([
+      { kind: "text", id: "note", text: "n", x: 460, y: 20 },
+      { kind: "sticky", id: "ask", text: "s", below: "note" },
+      { kind: "sticky", id: "under", text: "u", x: 100, y: 260 },
+      { kind: "arrow", id: "to-note", from: "home.html", to: "note" },
+    ]);
+    expect(publishManifestError(JSON.stringify(raw))).toBeNull();
   });
 
   it("moves the threads of the artboard with it and leaves the others", async () => {

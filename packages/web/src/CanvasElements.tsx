@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { CANVAS_ELEMENT_KIND_LABELS, HOVER_FINISH, MARK_FINISH, type ArrowEnd, type ManifestArrowElement, type ManifestElement, type ManifestElementKind, type ManifestImageElement, type ManifestLinkElement, type ManifestTitleElement, type Page, type Project, type Thread } from "@redline/shared";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { CANVAS_ELEMENT_KIND_LABELS, HOVER_FINISH, MARK_FINISH, placeAnchoredElements, type ArrowEnd, type ManifestArrowElement, type ManifestElement, type ManifestElementKind, type ManifestImageElement, type ManifestLinkElement, type ManifestTitleElement, type Page, type Project, type Thread } from "@redline/shared";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
 import { routeHref } from "./router.js";
 import { artboardLabel } from "./elementChips.js";
@@ -263,7 +263,7 @@ const PIN_INSET = 2;
  * (`children`); every other element, arrows included, is drawn above them, in list order.
  */
 export function CanvasElements({
-  elements,
+  elements: declared,
   artboardBoxes,
   assetBase,
   artboardOrigin,
@@ -289,6 +289,11 @@ export function CanvasElements({
   const overRef = useRef<HTMLDivElement>(null);
   const [sizes, setSizes] = useState<Record<string, Size>>({});
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  // Anchored elements sit against the measured box of their target: a note that grows pushes what hangs below it.
+  const elements = useMemo(
+    () => placeAnchoredElements(declared, artboardBoxes, (element) => elementBox(element, element.id === undefined ? undefined : sizes[element.id]) ?? { width: 0, height: 0 }),
+    [declared, artboardBoxes, sizes],
+  );
   const under = elements.filter((element) => element.kind === "shape");
   const over = elements.filter((element) => element.kind !== "shape");
 
@@ -309,7 +314,7 @@ export function CanvasElements({
     for (const { node } of targets) observer.observe(node);
     void document.fonts.ready.then(measure);
     return () => observer.disconnect();
-  }, [elements]);
+  }, [declared]);
 
   // The element under the mouse, anywhere on the page; leaving comment mode or the window clears it.
   useEffect(() => {
