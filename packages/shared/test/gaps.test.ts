@@ -34,6 +34,12 @@ describe("hard-coded colours", () => {
     });
   });
 
+  it("suggests no token when none is close to the colour: a pilot's blue is not the text colour", () => {
+    const found = gaps(page('<span style="color: #2563eb">x</span>'));
+    expect(found).toHaveLength(1);
+    expect(found[0].suggestion).toBeUndefined();
+  });
+
   it("reports rgb() and rgba() colours, whole, in any property", () => {
     const found = gaps(page('<p style="border: 1px solid rgba(0, 0, 0, 0.2); background: rgb(250 250 250)">x</p>'));
     expect(found.map((g) => g.value)).toEqual(["rgba(0, 0, 0, 0.2)", "rgb(250 250 250)"]);

@@ -21,7 +21,7 @@ export interface Gap {
   /** Path of the element in the artboard's DOM, in the format of the bridge's selectors; null without an element. */
   selector: string | null;
   suggestion?: {
-    /** Closest colour token, token to use for the font, or the token a deprecated one was renamed to. */
+    /** Closest colour token (none when no token is close), token to use for the font, or the token a deprecated one was renamed to. */
     token?: string;
     /** Component meant for this case. */
     component?: string;
@@ -310,6 +310,9 @@ function hardCodedColors(value: string): string[] {
   return [...stripped.matchAll(COLOR_PATTERN)].map((m) => m[0]).filter((c) => rgbOf(c) !== null);
 }
 
+/** Farthest a token may be from a colour (RGB distance) to be suggested: beyond it, the token would mean something else. */
+const MAX_SUGGESTION_DISTANCE = 50;
+
 function closestColorToken(color: string, tokens: TokenDeclaration[]): string | undefined {
   const target = rgbOf(color);
   if (!target) return undefined;
@@ -321,7 +324,7 @@ function closestColorToken(color: string, tokens: TokenDeclaration[]): string | 
     const distance = rgb.reduce((sum, channel, i) => sum + (channel - target[i]) ** 2, 0);
     if (!best || distance < best.distance) best = { name: token.name, distance };
   }
-  return best?.name;
+  return best && best.distance <= MAX_SUGGESTION_DISTANCE ** 2 ? best.name : undefined;
 }
 
 // --- Fonts, controls ---
