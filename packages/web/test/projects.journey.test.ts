@@ -78,3 +78,13 @@ it("previews each project with the artboards of its last changed page, on the ho
   const homeCard = tab.getByTestId("home-projects").getByRole("link").filter({ hasText: "Preview" });
   await expect.poll(() => homeCard.locator("iframe").first().getAttribute("src")).toBe(preview);
 }, 60_000);
+
+it("shows the Redline logo as the tab icon", async () => {
+  const tab = await browser.newPage();
+  await tab.goto(`${server.url}/#/projects`);
+  const href = await tab.locator('link[rel="icon"]').getAttribute("href");
+  const icon = await fetch(new URL(href!, server.url));
+  expect(icon.status).toBe(200);
+  expect(icon.headers.get("content-type")).toContain("image/svg+xml");
+  expect(await icon.text()).toContain("#d92d20");
+}, 60_000);

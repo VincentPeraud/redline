@@ -148,3 +148,30 @@ it("stacks anchored elements under their target's rendered height, and moves the
   await expect.poll(async () => (await box("[data-canvas-sticky]")).y).toBe(grown.h + 40);
   await expect.poll(() => tab.locator("[data-canvas-arrow] > path").first().getAttribute("d")).not.toBe(arrowBefore);
 }, 60_000);
+
+it("lifts a group title clear of the artboard's name strip when zoomed out, and leaves it where declared at 100 %", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Titles" })).json()) as { id: string };
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Titles",
+      files: {
+        "a.html": "<!doctype html><body>A</body>",
+        "manifest.json": JSON.stringify({
+          artboards: [{ file: "a.html", width: 1440, height: 900, x: 0, y: 0 }],
+          elements: [{ kind: "title", id: "titre", text: "Page d'une sortie", subtitle: "Rejeu d'une sortie terminée", x: 0, y: -120 }],
+        }),
+      },
+    })
+  ).json()) as Page;
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  const subtitle = tab.locator("[data-canvas-subtitle]");
+  const strip = tab.locator('[data-strip="a.html"]');
+  await subtitle.waitFor();
+  const gap = async () => (await strip.boundingBox())!.y - ((await subtitle.boundingBox())!.y + (await subtitle.boundingBox())!.height);
+
+  for (let i = 0; i < 6; i++) await tab.getByRole("button", { name: "Dézoomer" }).click();
+  await expect.poll(gap).toBeGreaterThanOrEqual(0);
+  for (let i = 0; i < 12; i++) await tab.getByRole("button", { name: "Zoomer", exact: true }).click();
+  await expect.poll(() => tab.locator("[data-canvas-element-id=titre]").evaluate((el) => (el as HTMLElement).style.top)).toBe("-120px");
+}, 60_000);

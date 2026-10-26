@@ -55,6 +55,38 @@ function CanvasTitle({ element }: { element: ManifestTitleElement }) {
   );
 }
 
+/** Height of an artboard's name strip on screen (the tallest, a responsive one's), whatever the zoom: PageCanvas.module.css `.label`. */
+const STRIP_HEIGHT = 32;
+/** Room kept on screen between a title and the strip under it. */
+const STRIP_MARGIN = 8;
+/** A title without a measured size: its line and two subtitle lines. */
+const TITLE_FALLBACK_HEIGHT = 80;
+
+/**
+ * The name strip keeps its screen size, so zoomed out it takes more of the canvas above the artboard: a group title placed
+ * just above (y about -120) would slide under it. Such a title goes up exactly as much as needed to stay clear; at 100 % and
+ * above nothing moves.
+ */
+function liftTitlesOverStrips(
+  elements: ManifestElement[],
+  artboardBoxes: ReadonlyMap<string, Box>,
+  sizeOf: (element: ManifestElement) => Size,
+  zoom: number,
+): ManifestElement[] {
+  return elements.map((element) => {
+    if (element.kind !== "title") return element;
+    const measured = sizeOf(element);
+    const width = measured.width || element.width;
+    const bottom = element.y + (measured.height || TITLE_FALLBACK_HEIGHT);
+    let lift = 0;
+    for (const box of artboardBoxes.values()) {
+      if (element.x >= box.x + box.width || element.x + width <= box.x || box.y < bottom) continue;
+      lift = Math.max(lift, bottom + STRIP_MARGIN / zoom - (box.y - STRIP_HEIGHT / zoom));
+    }
+    return lift > 0 ? { ...element, y: element.y - lift } : element;
+  });
+}
+
 /** The file is served by the artboard origin, like the assets used inside artboards. */
 function CanvasImage({ element, assetBase }: { element: ManifestImageElement; assetBase: string }) {
   const src = `${assetBase}/${element.src.split("/").map(encodeURIComponent).join("/")}`;
@@ -290,10 +322,10 @@ export function CanvasElements({
   const [sizes, setSizes] = useState<Record<string, Size>>({});
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   // Anchored elements sit against the measured box of their target: a note that grows pushes what hangs below it.
-  const elements = useMemo(
-    () => placeAnchoredElements(declared, artboardBoxes, (element) => elementBox(element, element.id === undefined ? undefined : sizes[element.id]) ?? { width: 0, height: 0 }),
-    [declared, artboardBoxes, sizes],
-  );
+  const elements = useMemo(() => {
+    const sizeOf = (element: ManifestElement) => elementBox(element, element.id === undefined ? undefined : sizes[element.id]) ?? { width: 0, height: 0 };
+    return liftTitlesOverStrips(placeAnchoredElements(declared, artboardBoxes, sizeOf), artboardBoxes, sizeOf, zoom);
+  }, [declared, artboardBoxes, sizes, zoom]);
   const under = elements.filter((element) => element.kind === "shape");
   const over = elements.filter((element) => element.kind !== "shape");
 
