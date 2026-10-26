@@ -1,0 +1,1 @@
+Dans Redline, crée une page « Inscription » dans le projet de ce dossier : le parcours d'inscription mobile en trois écrans (adresse email, code reçu par email, profil du pilote), avec des flèches entre les écrans, et un post-it pour la question ouverte : faut-il demander le numéro de licence dès l'inscription ? Publie la page.

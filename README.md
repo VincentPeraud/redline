@@ -53,4 +53,9 @@ npm install
 npm test                # fast suite
 npm run build
 npm run test:docker     # opt-in: builds the image and checks data survives container recreation
+npm run eval:agent      # opt-in, costs real Claude sessions: see below
 ```
+
+### Agent eval
+
+`npm run eval:agent` checks how a real Claude uses Redline. For each scenario of `scripts/eval-scenarios/*.md` (a request written like a user's), it runs a headless `claude -p` with only the Redline MCP (`redline mcp`, from `packages/agent/dist`: run `npm run build` first) in a folder linked to a fresh project of a throwaway server. Then it opens every page the session made and checks, on the real canvas: refused Redline calls, design system gaps, overlapping boxes, elements over artboards, arrows crossing a box, cut titles and empty artboards. The report (`report.html`, screenshots and transcripts) lands in `.scratch/eval-runs/<date>/`. Each scenario costs one real session (about $0.60 with the default model). Flags: `--scenario <name>` (repeatable), `--model <model>`, `--budget <usd>` (per scenario, default 3), `--keep` (leave the server running to look at the pages).

@@ -11,3 +11,4 @@ dist
 .playwright-mcp/
 *.tsbuildinfo
 .env
+.scratch/eval-runs/

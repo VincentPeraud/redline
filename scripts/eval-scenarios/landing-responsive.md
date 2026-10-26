@@ -1,0 +1,1 @@
+Dans Redline, crée une page « Landing » dans le projet de ce dossier : la landing d'une appli de covoiturage entre membres d'aéroclubs, en desktop et en mobile (une seule maquette qui s'adapte). Ajoute un titre de groupe et une note qui explique les choix de mise en page. Publie la page.
