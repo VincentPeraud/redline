@@ -8,7 +8,7 @@ import {
 } from "@redline/shared";
 import { agentLabel } from "./agentLabel.js";
 import { Dialog } from "./Dialog.js";
-import { ProjectThumb } from "./ProjectThumb.js";
+import { ProjectPreview } from "./ProjectPreview.js";
 import { routeHref } from "./router.js";
 import { useHome } from "./useHome.js";
 import { Button, DialogActions, Field, PageContent, StatusBadge, TextInput, Textarea, cx } from "./ui/index.js";
@@ -152,12 +152,10 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
 
 function ProjectCard({
   project,
-  position,
   activity,
   designSystemTitle,
 }: {
   project: Project;
-  position: number;
   activity: HomeProject | undefined;
   designSystemTitle: string | undefined;
 }) {
@@ -165,7 +163,7 @@ function ProjectCard({
   const details = [agent.text, plural(activity?.pageCount ?? 0, "page", "pages"), designSystemTitle ?? "sans DS"].join(" · ");
   return (
     <a href={routeHref({ name: "project", projectId: project.id })} className={styles.card}>
-      <ProjectThumb position={position} />
+      <ProjectPreview pageId={activity?.lastPageId} height={190} />
       <div className={styles.cardBody}>
         <div className={styles.cardTitleRow}>
           <span className={styles.cardTitle}>{project.title}</span>
@@ -227,11 +225,10 @@ export function ProjectsScreen() {
       </div>
       {projects && (
         <div className={styles.grid}>
-          {visible.map((project, position) => (
+          {visible.map((project) => (
             <ProjectCard
               key={project.id}
               project={project}
-              position={position}
               activity={home?.projects.find((p) => p.id === project.id)}
               designSystemTitle={designSystems.find((ds) => ds.id === project.designSystem)?.title}
             />

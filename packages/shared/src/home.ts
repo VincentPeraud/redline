@@ -48,6 +48,8 @@ export interface HomeProject {
   waitingThreads: number;
   /** ISO time of the latest version of any page; absent for a project without pages. */
   updatedAt?: string;
+  /** The page holding that latest version, previewed on the project's card; absent for a project without pages. */
+  lastPageId?: string;
 }
 
 export interface HomeOverview {

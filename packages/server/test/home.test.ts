@@ -53,6 +53,19 @@ describe("home overview", () => {
     expect(projects.find((p) => p.id === empty.id)?.updatedAt).toBeUndefined();
   });
 
+  it("names each project's last changed page, previewed on its card", async () => {
+    const acme = await createProject("Acme");
+    const landing = await createPage(acme.id, "Landing");
+    const pricing = await createPage(acme.id, "Pricing");
+    const empty = await createProject("Empty");
+    expect((await home()).projects.find((p) => p.id === acme.id)?.lastPageId).toBe(pricing.id);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await server.post(`/api/pages/${landing.id}/versions`, { files: starterPageFiles("Landing again", null), message: "edit", origin: "terminal" });
+    const { projects } = await home();
+    expect(projects.find((p) => p.id === acme.id)?.lastPageId).toBe(landing.id);
+    expect(projects.find((p) => p.id === empty.id)?.lastPageId).toBeUndefined();
+  });
+
   it("gives each agent its covered projects: a project agent its own, the global agent those without one", async () => {
     const acme = await createProject("Acme");
     const blog = await createProject("Blog");

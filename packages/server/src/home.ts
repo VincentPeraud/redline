@@ -51,9 +51,9 @@ export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock:
       })),
     ];
 
-    const lastUpdate = new Map<string, string>();
+    const lastUpdate = new Map<string, { updatedAt: string; lastPageId: string }>();
     for (const { page, updatedAt } of store.listRecentPages(Number.MAX_SAFE_INTEGER)) {
-      if (!lastUpdate.has(page.projectId)) lastUpdate.set(page.projectId, updatedAt);
+      if (!lastUpdate.has(page.projectId)) lastUpdate.set(page.projectId, { updatedAt, lastPageId: page.id });
     }
     const homeProjects: HomeProject[] = projects.map((p) => {
       const pages = store.listPages(p.id);
@@ -63,7 +63,7 @@ export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock:
         pageCount: pages.length,
         openThreads: pages.reduce((sum, page) => sum + store.listThreads(page.id).filter((t) => t.status === "open").length, 0),
         waitingThreads: waiting.filter((w) => w.projectId === p.id).reduce((sum, w) => sum + w.threadIds.length, 0),
-        ...(lastUpdate.has(p.id) ? { updatedAt: lastUpdate.get(p.id) } : {}),
+        ...lastUpdate.get(p.id),
       };
     });
 

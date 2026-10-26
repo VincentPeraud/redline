@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { NEUTRAL_DESIGN_SYSTEM_ID, SESSIONS_PATH, type DesignSystemSummary, type HomeProject, type SessionRow } from "@redline/shared";
-import { DesignSystemThumbnail, ProjectThumbnail } from "./HomeThumbnails.js";
+import { DesignSystemThumbnail } from "./HomeThumbnails.js";
+import { ProjectPreview } from "./ProjectPreview.js";
 import { relativeTime } from "./relativeTime.js";
 import { routeHref } from "./router.js";
 import { Card, CardHeader, PageContent, PageHeader, SessionStatusBadge, StatusBadge, cx } from "./ui/index.js";
@@ -113,9 +114,9 @@ export function HomeScreen() {
         <Section title="Projets" testId="home-projects" link={<a href={routeHref({ name: "projects" })} className={styles.link}>Tous les projets</a>}>
           {home.projects.length === 0 && <p className={styles.empty}>Aucun projet pour l'instant.</p>}
           <div className={styles.projectGrid}>
-            {home.projects.map((project, index) => (
+            {home.projects.map((project) => (
               <a key={project.id} href={routeHref({ name: "project", projectId: project.id })} className={styles.projectCard}>
-                <ProjectThumbnail variant={index} />
+                <ProjectPreview pageId={project.lastPageId} height={120} />
                 <span className={styles.cardText}>
                   <span className={styles.cardTitle}>{project.title}</span>
                   <span className={styles.cardMeta}>{projectMeta(project)}</span>

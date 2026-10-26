@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import type { Project } from "@redline/shared";
+import type { Page, Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -59,4 +59,22 @@ it("creates a project, then a page from its overview, and opens it on the canvas
   const card = tab.getByTestId("page-card").filter({ hasText: "Landing" });
   await card.waitFor();
   await card.getByText("0 artboard").waitFor();
+}, 60_000);
+
+it("previews each project with the artboards of its last changed page, on the home and on the Projects screen", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Preview" })).json()) as Project;
+  const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Landing", files: { "index.html": "<!doctype html><h1>Hi</h1>" } })).json()) as Page;
+  await server.post(`/api/projects/${project.id}/pages`, { title: "Pricing", files: { "pricing.html": "<!doctype html><h1>Plans</h1>" } });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await server.post(`/api/pages/${page.id}/versions`, { files: { "index.html": "<!doctype html><h1>Hello</h1>" }, message: "edit", origin: "terminal" });
+  const preview = `${server.artboardOrigin}/pages/${page.id}/index.html`;
+
+  const tab = await browser.newPage();
+  await tab.goto(`${server.url}/#/projects`);
+  const card = tab.getByRole("link").filter({ hasText: "Preview" });
+  await expect.poll(() => card.locator("iframe").first().getAttribute("src")).toBe(preview);
+
+  await tab.goto(`${server.url}/#/`);
+  const homeCard = tab.getByTestId("home-projects").getByRole("link").filter({ hasText: "Preview" });
+  await expect.poll(() => homeCard.locator("iframe").first().getAttribute("src")).toBe(preview);
 }, 60_000);
