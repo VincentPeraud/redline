@@ -1,4 +1,4 @@
-import { classesUsedIn, componentClassesOf, componentNameOf, type Gap, type GapKind, type ProjectContext } from "@redline/shared";
+import { MANIFEST_PATH, classesUsedIn, componentClassesOf, componentNameOf, defaultManifest, pageLayoutIssues, parseManifest, type Gap, type GapKind, type ProjectContext } from "@redline/shared";
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -55,4 +55,16 @@ export function gapsNote(gaps: Gap[]): string | null {
     ...lines,
     "Replace each with a token or a component of the design system. When a value is deliberately free (one colour per data series, a third-party brand, an illustration), mark its element with data-ds-libre instead.",
   ].join("\n");
+}
+
+/** The layout problems of a page's files as a session reads them ("Layout: ..."), from its manifest with estimated note heights. */
+export function layoutNote(files: Record<string, string>): string {
+  let issues: string[];
+  try {
+    issues = pageLayoutIssues(files[MANIFEST_PATH] === undefined ? defaultManifest(Object.keys(files)) : parseManifest(files[MANIFEST_PATH]));
+  } catch (error) {
+    return `Layout: not checked, ${(error as Error).message}`;
+  }
+  if (issues.length === 0) return "Layout: nothing overlaps.";
+  return [`Layout: ${plural(issues.length, "probable problem")} on the canvas:`, ...issues.map((issue) => `- ${issue}`)].join("\n");
 }

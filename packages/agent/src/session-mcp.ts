@@ -6,7 +6,7 @@ import { mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { ARTBOARD_FRAMES, ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, isSafePath, parseManifest, type ArtboardFrame, type ManifestArtboard } from "@redline/shared";
-import { gapsNote } from "./design-system-note.js";
+import { gapsNote, layoutNote } from "./design-system-note.js";
 import { REDLINE_GUIDE } from "./guide.js";
 import { pathInside, readWorkingCopy } from "./working-copy.js";
 import type { ServerApi } from "./server-api.js";
@@ -17,7 +17,7 @@ export const CREATE_PAGE_TOOL = "create_page";
 export const MOVE_ARTBOARD_TOOL = "move_artboard";
 export const CONFIRM_REMOVALS_TOOL = "confirm_removals";
 export const READ_GUIDE_TOOL = "read_guide";
-export const CHECK_GAPS_TOOL = "check_gaps";
+export const CHECK_PAGE_TOOL = "check_page";
 
 export interface RedlineToolsContext {
   api: ServerApi;
@@ -191,15 +191,16 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
     },
   );
   server.registerTool(
-    CHECK_GAPS_TOOL,
+    CHECK_PAGE_TOOL,
     {
       description:
-        "List the design system gaps of the working copy's artboards (hard-coded colours and fonts, raw controls, deprecated tokens: the \"écarts\" the user sees), with the token or component to use. Call it before you finish a page.",
+        "Check the working copy before you finish a page: its design system gaps (hard-coded colours and fonts, raw controls, deprecated tokens: the \"écarts\" the user sees), with the token or component to use, and its probable layout problems on the canvas (overlaps, a note over an artboard, an arrow crossing a box).",
     },
     async () => {
       try {
-        const { gaps } = await api.checkGaps(context.pageId, readWorkingCopy(context.workingCopyDir));
-        return text(gapsNote(gaps) ?? "No design system gaps.");
+        const files = readWorkingCopy(context.workingCopyDir);
+        const { gaps } = await api.checkGaps(context.pageId, files);
+        return text(`${gapsNote(gaps) ?? "No design system gaps."}\n${layoutNote(files)}`);
       } catch (error) {
         return text((error as Error).message, true);
       }

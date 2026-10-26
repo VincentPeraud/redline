@@ -97,7 +97,7 @@ describe("terminal mode (redline mcp)", () => {
     expect(answer).toContain(`${seam.server.url}/#/pages/${page.id}`);
   });
 
-  it("lists the design system gaps of the published version after its address", async () => {
+  it("lists the design system gaps and the layout of the published version after its address", async () => {
     seam = await startSeam2(new FakeEngine([]));
     const page = await seam.createPage(PAGE_FILES);
     const call = await connectTerminal(seam.folder);
@@ -108,6 +108,7 @@ describe("terminal mode (redline mcp)", () => {
 
     expect(answer).toContain("1 design system gap");
     expect(answer).toContain("- colour #2563eb ×1 (home.html)");
+    expect(answer).toContain("Layout: nothing overlaps.");
   });
 
   it("uploads the assets added or changed in the working copy, with or without a page change", async () => {
