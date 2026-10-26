@@ -8,15 +8,14 @@ import { claudeCodeEngine } from "./claude-code-engine.js";
 import { chooseModelEffort } from "./launch-choice.js";
 import { linkFolder, type LinkChoice } from "./link.js";
 import { defaultConfigDir, login, readLogin } from "./login.js";
+import { askSecret } from "./secret-prompt.js";
 import { ServerApi } from "./server-api.js";
 import { serveAgent } from "./serve-agent.js";
 import { serveTerminalMcp } from "./terminal-mcp.js";
 
 async function runLogin(serverUrl: string | undefined): Promise<void> {
   if (!serverUrl) throw new Error("Usage: redline login <server-url>");
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const token = (await rl.question("Agents' token (shown on the Agents screen): ")).trim();
-  rl.close();
+  const token = (await askSecret("Agents' token (shown on the Agents screen): ")).trim();
   if (!token) throw new Error("A token is required.");
   login({ configDir: defaultConfigDir(), serverUrl, token });
   console.log("Saved. Run `redline agent` in a project folder to connect.");
