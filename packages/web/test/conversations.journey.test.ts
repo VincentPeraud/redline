@@ -80,6 +80,31 @@ it("types and sends on a page without conversation: the first message creates it
   await expect.poll(() => panel.getByTestId("conversation-message").count()).toBe(0);
 }, 60_000);
 
+it("creates no conversation on \"+ Nouvelle\": only the first message sent does", async () => {
+  const before = engine.runs.length;
+  const page = await seam.createPage({ "home.html": "<!doctype html><h1>Title</h1>" });
+  const conversationCount = async () => ((await (await seam.server.get(`/api/pages/${page.id}/conversations`)).json()) as unknown[]).length;
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
+  const panel = tab.getByTestId("conversations");
+
+  await panel.getByLabel("Message à Claude").fill("First words");
+  await panel.getByRole("button", { name: "Envoyer" }).click();
+  await engine.finished(before + 1);
+  await expect.poll(() => panel.getByTestId("conversation-message").count()).toBe(2);
+
+  for (let i = 0; i < 3; i++) await panel.getByRole("button", { name: "+ Nouvelle" }).click();
+  await panel.getByText("Écris ton premier message : la conversation est créée à l'envoi.").waitFor();
+  expect(await panel.getByRole("button", { name: "Conversation", exact: true }).textContent()).toContain("Nouvelle conversation");
+  expect(await conversationCount()).toBe(1);
+
+  await panel.getByLabel("Message à Claude").fill("Second topic");
+  await panel.getByRole("button", { name: "Envoyer" }).click();
+  await engine.finished(before + 2);
+  await expect.poll(() => panel.getByTestId("conversation-message").first().textContent()).toBe("Second topic");
+  expect(await conversationCount()).toBe(2);
+}, 60_000);
+
 it("shows what goes with a message, follows pan and tweaks, and sends it with the message", async () => {
   const before = engine.runs.length;
   const page = await seam.createPage(

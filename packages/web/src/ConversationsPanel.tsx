@@ -90,8 +90,11 @@ interface Props {
 export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, focusedConversation, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  /** `activeId` as of now, not as of the last render: a message sent right after "+ Nouvelle" must land in the conversation just created. */
+  /** `activeId` as of now, not as of the last render: a message sent right after another one must land in the conversation just created. */
   const activeRef = useRef<string | null>(null);
+  /** "+ Nouvelle" was clicked: an empty draft is shown, and the conversation only exists once its first message is sent. */
+  const [draft, setDraft] = useState(false);
+  const draftRef = useRef(false);
   const creating = useRef<Promise<string> | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
@@ -126,7 +129,16 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
   const showConversation = (id: string | null) => {
     activeRef.current = id;
     setActiveId(id);
+    draftRef.current = false;
+    setDraft(false);
   };
+
+  function startDraft() {
+    showConversation(null);
+    draftRef.current = true;
+    setDraft(true);
+    setListOpen(false);
+  }
 
   useEffect(() => {
     if (!focusedConversation) return;
@@ -134,9 +146,9 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
     void refreshList();
   }, [focusedConversation, refreshList]);
 
-  // Open the most recent conversation once the list is known.
+  // Open the most recent conversation once the list is known, unless a draft is open.
   useEffect(() => {
-    if (activeRef.current === null && conversations[0]) showConversation(conversations[0].id);
+    if (activeRef.current === null && !draftRef.current && conversations[0]) showConversation(conversations[0].id);
   }, [conversations]);
 
   useEffect(() => {
@@ -144,7 +156,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
     else setDetail(null);
   }, [activeId, versionId, refreshDetail]);
 
-  /** One creation at a time: a message sent while "+ Nouvelle" is still in flight joins it instead of creating a second conversation. */
+  /** One creation at a time: a message sent while the first one is still creating the conversation joins it instead of creating a second one. */
   function createConversation(): Promise<string> {
     creating.current ??= fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })
       .then(async (res) => {
@@ -157,12 +169,6 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
         creating.current = null;
       });
     return creating.current;
-  }
-
-  async function create() {
-    await createConversation();
-    await refreshList();
-    setListOpen(false);
   }
 
   async function archive(id: string) {
@@ -218,13 +224,13 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
           className={styles.picker}
           onClick={() => setListOpen(!listOpen)}
         >
-          <span className={cx(styles.pickerTitle, !active && styles.pickerPlaceholder)}>{active ? active.title : "Aucune conversation"}</span>
+          <span className={cx(styles.pickerTitle, !active && styles.pickerPlaceholder)}>{active ? active.title : draft ? "Nouvelle conversation" : "Aucune conversation"}</span>
           <span className={styles.spacer} />
           <span aria-hidden="true" className={styles.chevron}>
             ▼
           </span>
         </button>
-        <Button variant="accent" className={styles.newButton} onClick={() => void create()}>
+        <Button variant="accent" className={styles.newButton} onClick={startDraft}>
           + Nouvelle
         </Button>
         <Tooltip label="Supprimer cette conversation">
