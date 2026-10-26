@@ -10,6 +10,7 @@ import {
   PROJECT_STYLE_PATH,
   parseTokens,
   MANIFEST_PATH,
+  MAX_FIT_HEIGHT,
   MAX_ASSET_BYTES,
   MAX_PAGE_BYTES,
   TWEAKS_PATH,
@@ -32,11 +33,12 @@ import {
   type UpdateThreadRequest,
   type ServerConfig,
   type Settings,
+  type FitArtboardHeightRequest,
   type MoveArtboardRequest,
   type UpdatePageRequest,
   type UpdateProjectRequest,
 } from "@redline/shared";
-import { BRIDGE_PATH, BRIDGE_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
+import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
@@ -375,6 +377,23 @@ export async function buildMainApp(
     return reply.code(outcome.status).send(outcome.body);
   });
 
+  // "Ajuster la hauteur au contenu": the page height the viewer's browser measured becomes the artboard's height.
+  app.post<{ Params: { pageId: string }; Body: Partial<FitArtboardHeightRequest> }>("/api/pages/:pageId/fit-height", async (req, reply) => {
+    const page = store.getPage(req.params.pageId);
+    if (!page) return reply.code(404).send({ error: "page not found" });
+    const { file, height } = req.body ?? {};
+    if (typeof file !== "string" || !store.hasArtboard(page.id, file)) return reply.code(404).send({ error: `${String(file)} is not an artboard of "${page.title}"` });
+    if (typeof height !== "number" || !Number.isFinite(height) || height <= 0 || height > MAX_FIT_HEIGHT) return reply.code(400).send({ error: `height must be a positive number of at most ${MAX_FIT_HEIGHT}` });
+    const manifestText = store.readPageFile(page.id, MANIFEST_PATH)?.toString("utf8");
+    const artboard = manifestText === undefined ? undefined : parseManifest(manifestText).artboards.find((a) => a.file === file);
+    if (artboard?.fitHeight || artboard?.responsive || artboard?.matrix) {
+      return reply.code(400).send({ error: `${file} already follows the height of its page, or has no single height` });
+    }
+    if (pageLock.isHeldByOther(page.id)) return reply.code(409).send({ error: `A session is working on "${page.title}": try again once it is done.` });
+    const rounded = Math.ceil(height);
+    return reply.code(201).send(store.setArtboardHeight(page.id, file, rounded, `Hauteur de ${file} ajustée au contenu (${rounded} px)`, "user"));
+  });
+
   app.patch<{ Params: { pageId: string }; Body: UpdatePageRequest }>("/api/pages/:pageId", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
     const title = req.body?.title;
@@ -537,6 +556,9 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
 
   app.get(BRIDGE_PATH, async (_req, reply) =>
     reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(BRIDGE_SOURCE),
+  );
+  app.get(ERRORS_PATH, async (_req, reply) =>
+    reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(ERRORS_SOURCE),
   );
 
   const sendStylesheet = (reply: FastifyReply, css: string | Buffer, cacheControl = "no-cache") =>

@@ -1278,6 +1278,14 @@ export class Store {
     return this.insertVersion(pageId, JSON.stringify(hashes), message, origin);
   }
 
+  /** Sets the height of one artboard's manifest entry (writing a manifest when the page had none), as one version. The caller checked the request. */
+  setArtboardHeight(pageId: string, file: string, height: number, message: string, origin: VersionOrigin): PageVersionSummary {
+    const hash = this.getPage(pageId)!.version.files[MANIFEST_PATH];
+    const manifest = hash === undefined ? (defaultManifest(Object.keys(this.getPage(pageId)!.version.files)) as unknown as RawManifest) : (JSON.parse(this.blobText(hash)) as RawManifest);
+    const artboards = (manifest.artboards ?? []).map((artboard) => (artboard.file === file ? { ...artboard, height } : artboard));
+    return this.setPageFile(pageId, MANIFEST_PATH, JSON.stringify({ ...manifest, artboards }, null, 2), message, origin);
+  }
+
   /**
    * Moves an artboard (file, manifest entry, threads) from `sourceId` to another page of the same project, or to a page
    * created here, in one transaction: the artboard is on both pages or on neither at no moment. The caller checked the

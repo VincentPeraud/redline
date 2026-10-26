@@ -4,6 +4,7 @@ import {
   DRAFT_PREVIEW_QUERY,
   EMPTY_VIEW_SETTINGS,
   MANIFEST_PATH,
+  MAX_FIT_HEIGHT,
   RESPONSIVE_FORMATS,
   componentNameOf,
   defaultManifest,
@@ -35,6 +36,7 @@ import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
 import { ArtboardHistory } from "./ArtboardHistory.js";
 import { restoreArtboard, useDeletedArtboards } from "./restoreArtboard.js";
 import { SeenGapContext, type SeenGap } from "./GapsReport.js";
+import { ArtboardErrorsContext, errorCountLabel, fixErrorsMessage, type ArtboardErrorsEntry } from "./ArtboardErrors.js";
 import { fixGapsMessage, gapCountLabel } from "./gapLabels.js";
 import { postInPageConversation } from "./askClaudeToFix.js";
 import { useGaps } from "./useGaps.js";
@@ -101,6 +103,8 @@ function initialView(manifest: Manifest, stage: { width: number; height: number 
 }
 
 const OUTLINE_MS = 2000;
+
+const ignoreErrors = () => undefined;
 
 function BubbleIcon({ size }: { size: number }) {
   return (
@@ -204,6 +208,28 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const [guidesVisible, toggleGuides] = useStoredToggle("redline:guides", false);
   /** Real page height of each rendering of a responsive artboard, by artboard file then rendering key, as reported by the bridge. */
   const [docHeights, setDocHeights] = useState<Record<string, Record<string, number>>>({});
+  /** Real page height of each plain artboard, by file, as reported by the bridge. */
+  const [pageHeights, setPageHeights] = useState<Record<string, number>>({});
+  /** Errors reported by the iframes of each artboard, by file then iframe; what this viewer's browser saw, never stored. */
+  const [frameErrors, setFrameErrors] = useState<Record<string, Record<string, string[]>>>({});
+  /** One stable reporter per artboard file, so the context value does not change on every render. */
+  const errorReporters = useRef(new Map<string, (frameId: string, errors: string[]) => void>());
+  const reportErrors = (file: string) => {
+    let reporter = errorReporters.current.get(file);
+    if (!reporter) {
+      reporter = (frameId, errors) =>
+        setFrameErrors((current) => {
+          const known = current[file]?.[frameId];
+          if ((known ?? []).join("\n") === errors.join("\n") && (known !== undefined || errors.length === 0)) return current;
+          const { [frameId]: _dropped, ...others } = current[file] ?? {};
+          return { ...current, [file]: errors.length === 0 ? others : { ...others, [frameId]: errors } };
+        });
+      errorReporters.current.set(file, reporter);
+    }
+    return reporter;
+  };
+  /** Last growth of each fit artboard: a page that grows by the same step again is growing with its own viewport (min-height: 100vh plus a margin), and is left at its size. */
+  const fitGrowth = useRef(new Map<string, number>());
   const [viewSettings, setViewSettings] = useState<PageViewSettings>(savedViewSettings ?? EMPTY_VIEW_SETTINGS);
   const allGaps = useGaps(pageId, `${versionId}:${tokensVersion}`);
   const gapReport = allGaps && { ...allGaps, gaps: allGaps.gaps.filter((gap) => !viewSettings.gapExceptions.includes(gap.key)) };
@@ -461,12 +487,34 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     artboard.responsive ? responsiveFrameLayout(artboard, renderingSlots(artboard.responsive), { measuredHeights: docHeights[artboard.file], hidden: hiddenOf(artboard) }) : null;
   const gridOf = (artboard: Manifest["artboards"][number]) =>
     artboard.matrix ? tweakGridLayout(tweakGrid(artboard.matrix, manifest?.tweaks ?? []), artboard) : null;
+  /** Height of a plain artboard on the canvas: its page's real height when it declares "fit", else the declared one. */
+  const heightOf = (artboard: Manifest["artboards"][number]) => (artboard.fitHeight ? (pageHeights[artboard.file] ?? artboard.height) : artboard.height);
+  /** Real height of a fixed plain artboard's page when it is taller than the artboard. */
+  const tallerContent = (artboard: Manifest["artboards"][number]) => {
+    const measured = pageHeights[artboard.file];
+    return !artboard.fitHeight && !artboard.responsive && !artboard.matrix && measured !== undefined && measured > artboard.height + 1 ? measured : undefined;
+  };
+  const errorsByFile = new Map(Object.entries(frameErrors).map(([file, frames]) => [file, [...new Set(Object.values(frames).flat())]]));
+  const errorsOf = (file: string) => errorsByFile.get(file) ?? [];
+  const errorEntries: ArtboardErrorsEntry[] = (manifest?.artboards ?? []).flatMap((artboard) => {
+    const errors = errorsOf(artboard.file);
+    return errors.length > 0 ? [{ file: artboard.file, title: artboard.title ?? artboard.file, errors }] : [];
+  });
+  /** Records the page height a live plain artboard reported; a fit artboard caught growing with its own viewport keeps its size. */
+  function measuredPageHeight(artboard: Manifest["artboards"][number], height: number) {
+    if (artboard.fitHeight) {
+      const growth = height - heightOf(artboard);
+      if (growth > 0 && (fitGrowth.current.get(artboard.file) === growth || height > MAX_FIT_HEIGHT)) return;
+      fitGrowth.current.set(artboard.file, growth);
+    }
+    setPageHeights((current) => (current[artboard.file] === height ? current : { ...current, [artboard.file]: height }));
+  }
   const responsiveArtboards = (manifest?.artboards ?? []).filter((artboard) => artboard.responsive);
   const formatsOnPage = (Object.keys(RESPONSIVE_FORMATS) as ResponsiveFormat[])
     .map((format) => ({ format, frames: responsiveArtboards.filter((a) => a.responsive!.some((r) => r.format === format)).length }))
     .filter(({ frames }) => frames > 0);
   const artboardBoxes = new Map<string, Box>(
-    (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, ...(gridOf(artboard) ?? artboard) }]),
+    (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, ...(gridOf(artboard) ?? { width: artboard.width, height: heightOf(artboard) }) }]),
   );
   artboardBoxesRef.current = artboardBoxes;
   const tocItems: TocItem[] = readingOrder(
@@ -509,6 +557,12 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     if (!gapReport) return;
     setTab("conversation");
     const conversationId = await postInPageConversation(pageId, fixGapsMessage(gapReport.designSystemTitle, gapReport.gaps));
+    setFocusedConversation({ id: conversationId, nonce: Date.now() });
+  }
+
+  async function askClaudeToFixErrors() {
+    setTab("conversation");
+    const conversationId = await postInPageConversation(pageId, fixErrorsMessage(errorEntries));
     setFocusedConversation({ id: conversationId, nonce: Date.now() });
   }
 
@@ -555,6 +609,9 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         onGapException={(gap) => changeViewSettings({ ...viewSettings, gapExceptions: [...viewSettings.gapExceptions, gap.key] })}
         onShowGapExceptions={() => changeViewSettings({ ...viewSettings, gapExceptions: [] })}
         onAskFixGaps={() => void askClaudeToFixGaps()}
+        errors={errorEntries}
+        onSeeErrors={centerOnArtboard}
+        onAskFixErrors={() => void askClaudeToFixErrors()}
       />
       <div className={styles.body}>
         <main className={styles.stage}>
@@ -602,6 +659,9 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                 const layout = layoutOf(artboard);
                 const grid = gridOf(artboard);
                 const hidden = hiddenOf(artboard);
+                const taller = tallerContent(artboard);
+                const errorCount = errorsOf(artboard.file).length;
+                const previewed = preview?.file === artboard.file;
                 const frameWidth = artboardBoxes.get(artboard.file)!.width;
                 const src =
                   preview?.file === artboard.file
@@ -650,6 +710,16 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                     {gapsOf(artboard.file) > 0 && (
                       <span data-testid="artboard-gaps" className={cx(styles.changePill, styles.modifiedPill)}>
                         {gapCountLabel(gapsOf(artboard.file))}
+                      </span>
+                    )}
+                    {errorCount > 0 && (
+                      <span data-testid="artboard-errors" className={cx(styles.changePill, styles.errorPill)}>
+                        {errorCountLabel(errorCount)}
+                      </span>
+                    )}
+                    {taller !== undefined && (
+                      <span data-testid="artboard-taller" className={cx(styles.changePill, styles.tallerPill)}>
+                        ↕ {Math.ceil(taller).toLocaleString("fr-FR")} px
                       </span>
                     )}
                     {layout && artboard.responsive && (
@@ -745,6 +815,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       open={moreOpenFor === artboard.file}
                       onOpenChange={(open) => setMoreOpenFor(open ? artboard.file : null)}
                       onCopyPlayLink={() => copyLink(playRoute(pageId, artboard.file), artboard.file)}
+                      contentHeight={taller}
+                      onFitted={onVersionChange}
                     />
                     </>
                     )}
@@ -756,6 +828,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       style={{ width: frameWidth * view.zoom, height: artboardBoxes.get(artboard.file)!.height * view.zoom, transform: `scale(${1 / view.zoom})` }}
                     />
                   )}
+                  {/* An old version shown in place of the artboard reports neither its errors nor its height: they are not the current ones. */}
+                  <ArtboardErrorsContext.Provider value={previewed ? ignoreErrors : reportErrors(artboard.file)}>
                   {layout && artboard.responsive ? (
                     <ResponsiveFrame
                       key={preview?.file === artboard.file ? preview.versionId : "live"}
@@ -807,7 +881,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                     title={`${pageTitle} / ${artboard.file}`}
                     src={src}
                     width={artboard.width}
-                    height={artboard.height}
+                    height={heightOf(artboard)}
                     zoom={view.zoom}
                     guides={guidesVisible ? artboard.guides : undefined}
                     threads={preview?.file === artboard.file ? [] : pinnedOn(artboard.file)}
@@ -821,8 +895,10 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       setTab("comments");
                     }}
                     onEscape={() => setSelecting(false)}
+                    onDocHeight={(height) => !previewed && measuredPageHeight(artboard, height)}
                   />
                   )}
+                  </ArtboardErrorsContext.Provider>
                   {tweaksOpenFor === artboard.file && (
                     <div
                       data-no-pan

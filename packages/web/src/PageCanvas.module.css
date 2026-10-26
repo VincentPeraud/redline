@@ -149,6 +149,18 @@
   color: var(--color-warning-text);
 }
 
+.errorPill {
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+}
+
+.tallerPill {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
 .newPill {
   background: var(--color-success-bg);
   color: var(--color-success-text);

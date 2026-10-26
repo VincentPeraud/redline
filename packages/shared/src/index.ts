@@ -175,7 +175,14 @@ export interface RestoreArtboardResponse {
   previousVersionId: string;
 }
 
+/** `POST /api/pages/:id/fit-height`: saves the measured page height as the artboard's height in the manifest (one version, origin "user"). */
+export interface FitArtboardHeightRequest {
+  file: string;
+  height: number;
+}
+
 /** Body of `POST /api/pages/:pageId/move-artboard` (and of the agent API's twin): move `file` to another page of the project, or to a new page. */
+
 export type MoveArtboardRequest = { file: string; /** Agent API: the run whose own page lock may be passed. */ workId?: string } & ({ targetPageId: string } | { newPageTitle: string });
 
 export interface MoveArtboardResponse {
@@ -419,6 +426,8 @@ export interface ManifestArtboard {
   height: number;
   x: number;
   y: number;
+  /** Declared `"height": "fit"`: the canvas sizes the artboard to the measured height of its page; `height` is the default until then. */
+  fitHeight?: true;
   /** Declared frame in play mode; absent = shown as is. */
   frame?: ArtboardFrame;
   /** Text shown in the address bar of the `browser` frame; never invented. */
@@ -433,6 +442,9 @@ export interface ManifestArtboard {
 }
 
 export const DEFAULT_TITLE_WIDTH = 1200;
+
+/** Tallest page an artboard follows or saves (canvas pixels): beyond it, a page that grows with its own viewport would never stop. */
+export const MAX_FIT_HEIGHT = 30000;
 
 export const ANCHOR_SIDES = ["below", "rightOf"] as const;
 export type AnchorSide = (typeof ANCHOR_SIDES)[number];
@@ -993,13 +1005,19 @@ export function parseManifest(text: string): Manifest {
   const artboards = list(root.artboards, "artboards").map((item, i): ManifestArtboard => {
     const name = `artboards[${i}]`;
     const width = num(item, "width", name, DEFAULT_ARTBOARD_WIDTH, true);
+    const fitHeight = item.height === "fit";
+    if (typeof item.height === "string" && !fitHeight) fail(`${name}.height must be a positive number or "fit"`);
     const artboard: ManifestArtboard = {
       file: str(item, "file", name),
       width,
-      height: num(item, "height", name, DEFAULT_ARTBOARD_HEIGHT, true),
+      height: fitHeight ? DEFAULT_ARTBOARD_HEIGHT : num(item, "height", name, DEFAULT_ARTBOARD_HEIGHT, true),
       x: num(item, "x", name, nextX),
       y: num(item, "y", name, 0),
     };
+    if (fitHeight) {
+      if (item.responsive !== undefined || item.matrix !== undefined) fail(`${name}.height "fit" is only for a plain artboard: responsive renderings already follow their page, and a tweak grid has fixed cells`);
+      artboard.fitHeight = true;
+    }
     if (typeof item.title === "string") artboard.title = item.title;
     if (item.device !== undefined) fail(`${name}.device was renamed to frame (${ARTBOARD_FRAMES.map((f) => `"${f}"`).join(" | ")}; leave it out to show the artboard as is)`);
     if (item.frame !== undefined && !ARTBOARD_FRAMES.includes(item.frame as ArtboardFrame)) fail(`${name}.frame must be one of ${ARTBOARD_FRAMES.join(", ")}`);

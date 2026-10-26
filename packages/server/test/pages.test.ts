@@ -63,7 +63,10 @@ describe("pages over the server HTTP API", () => {
 
     const res = await fetch(`${server.artboardOrigin}/pages/${page.id}/home.html`);
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain(HOME_HTML);
+    const served = await res.text();
+    // Redline's tags go after the doctype, never before it (that would switch the page to quirks mode).
+    expect(served.startsWith("<!doctype html><")).toBe(true);
+    expect(served).toContain("<title>Home</title><script>window.x = 1</script>");
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(res.headers.get("content-security-policy")).toContain("sandbox allow-scripts");
 

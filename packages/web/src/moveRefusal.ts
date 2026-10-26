@@ -9,11 +9,11 @@ const REFUSALS: [RegExp, (match: RegExpExecArray) => string][] = [
   [/^title must be at most (\d+) characters$/, ([, max]) => `Le titre de la page ne peut pas dépasser ${max} caractères.`],
 ];
 
-/** The server's English reason a move was refused, in French for the dialog. */
-export function moveRefusalMessage(error: string): string {
+/** The server's English reason a move (or another change of the page's artboards) was refused, in French for the dialog. */
+export function moveRefusalMessage(error: string, fallback = "Le déplacement a été refusé."): string {
   for (const [pattern, french] of REFUSALS) {
     const match = pattern.exec(error);
     if (match) return french(match);
   }
-  return "Le déplacement a été refusé.";
+  return fallback;
 }

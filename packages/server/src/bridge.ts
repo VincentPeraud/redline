@@ -19,10 +19,68 @@ import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokens
  *                     { type: "redline:link", selector }
  *                     { type: "redline:gap-rect", x, y, width, height }  (box of the element outlined by redline:set-gap, in page pixels)
  *                     { type: "redline:doc-height", height }  (height of the whole page in pixels; sent on load and whenever it changes)
+ *                     { type: "redline:errors", errors: string[] }  (sent by the errors catcher, see ERRORS_SOURCE)
  *
  * Plain ES5 on purpose: it is served as-is to the browser.
  */
 export const BRIDGE_PATH = "/__redline/bridge.js";
+
+/** Served first in the head: catches what goes wrong before and after the bridge loads. */
+export const ERRORS_PATH = "/__redline/errors.js";
+
+/**
+ * Catches the page's script errors, its promises rejected without a handler and its files that fail to load, as French
+ * messages for the viewer (deduplicated, at most 20), and sends the whole list as { type: "redline:errors", errors }
+ * whenever it grows. The bridge sends it once more when it is ready, so an artboard without errors reports an empty list.
+ * Nothing is stored: it is what this viewer's browser saw. Plain ES5, like the bridge.
+ */
+export const ERRORS_SOURCE = `(function () {
+  var MAX_ERRORS = 20;
+  var MAX_LENGTH = 300;
+  var errors = [];
+  var MISSING = { IMG: "Image introuvable", SCRIPT: "Script introuvable", LINK: "Feuille de style introuvable", VIDEO: "M\u00e9dia introuvable", AUDIO: "M\u00e9dia introuvable", SOURCE: "M\u00e9dia introuvable" };
+
+  function report() {
+    window.parent.postMessage({ type: "redline:errors", errors: errors.slice() }, "*");
+  }
+
+  function add(message) {
+    var text = String(message).replace(/\\s+/g, " ").trim();
+    if (text.length > MAX_LENGTH) text = text.slice(0, MAX_LENGTH) + "\u2026";
+    if (text === "" || errors.length >= MAX_ERRORS || errors.indexOf(text) !== -1) return;
+    errors.push(text);
+    report();
+  }
+
+  function describe(reason) {
+    if (reason && typeof reason === "object" && typeof reason.message === "string") return (reason.name || "Error") + ": " + reason.message;
+    return String(reason);
+  }
+
+  window.addEventListener("error", function (event) {
+    var target = event.target;
+    if (target && target !== window && target.nodeType === 1) {
+      var file = target.getAttribute("src") || target.getAttribute("href") || "";
+      add((MISSING[target.tagName] || "Fichier introuvable") + " : " + file);
+      return;
+    }
+    var message = String(event.message || "").replace(/^Uncaught /, "");
+    if (message === "Script error." || message === "") {
+      add("Erreur dans un script charg\u00e9 (le navigateur en masque le d\u00e9tail)");
+      return;
+    }
+    var where = "";
+    if (event.filename && event.filename !== location.href) where = " (" + event.filename.split("/").pop() + ")";
+    add(message + (event.lineno ? " \u00b7 ligne " + event.lineno : "") + where);
+  }, true);
+
+  window.addEventListener("unhandledrejection", function (event) {
+    add("Promesse rejet\u00e9e : " + describe(event.reason));
+  });
+
+  window.__redlineErrors = { report: report };
+})();
+`;
 
 export const BRIDGE_SOURCE = `(function () {
   var picking = false;
@@ -484,15 +542,28 @@ export const BRIDGE_SOURCE = `(function () {
     if (document.body) observer.observe(document.body);
   }
   send({ type: "redline:ready" });
+  if (window.__redlineErrors) window.__redlineErrors.report();
   reportHeight();
 })();
 `;
 
-/** Adds the bridge script tag to an artboard HTML document. */
+/**
+ * Inserts `tag` as early as the document allows: at the start of its head, else right after its <html> tag, else after its
+ * doctype (a script before the doctype would switch the page to quirks mode), else at the very start.
+ */
+function insertAtHeadStart(html: string, tag: string): string {
+  const anchor = /<head(\s[^>]*)?>/i.exec(html) ?? /<html(\s[^>]*)?>/i.exec(html) ?? /<!doctype[^>]*>/i.exec(html);
+  if (!anchor) return tag + html;
+  const at = anchor.index + anchor[0].length;
+  return html.slice(0, at) + tag + html.slice(at);
+}
+
+/** Adds the errors catcher at the start of an artboard HTML document's head, before any of its scripts, and the bridge at the end of its body. */
 export function injectBridge(html: string): string {
+  const withCatcher = insertAtHeadStart(html, `<script src="${ERRORS_PATH}"></script>`);
   const tag = `<script src="${BRIDGE_PATH}"></script>`;
-  const end = html.lastIndexOf("</body>");
-  return end === -1 ? html + tag : html.slice(0, end) + tag + html.slice(end);
+  const end = withCatcher.lastIndexOf("</body>");
+  return end === -1 ? withCatcher + tag : withCatcher.slice(0, end) + tag + withCatcher.slice(end);
 }
 
 /**
@@ -506,7 +577,5 @@ export function injectDesignSystem(html: string, designSystemId: string, project
       ? link(designSystemTokensUrlPath(designSystemId)) + link(designSystemComponentsUrlPath(designSystemId))
       : link(diffusionFileUrlPath(designSystemId, diffusion, "tokens.css")) + link(diffusionFileUrlPath(designSystemId, diffusion, "components.css"))) +
     (projectId === undefined ? "" : link(projectStyleUrlPath(projectId)) + link(projectComponentsUrlPath(projectId)));
-  const head = /<head[^>]*>/i.exec(html);
-  if (head) return html.slice(0, head.index + head[0].length) + tag + html.slice(head.index + head[0].length);
-  return tag + html;
+  return insertAtHeadStart(html, tag);
 }

@@ -1,5 +1,6 @@
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useId, useRef, useState } from "react";
 import type { ArtboardGuides as Guides, Thread, TweakValues } from "@redline/shared";
+import { ArtboardErrorsContext } from "./ArtboardErrors.js";
 import { ArtboardGuides } from "./ArtboardGuides.js";
 import { SeenGapContext } from "./GapsReport.js";
 import { threadWhere } from "./threadLabel.js";
@@ -78,6 +79,10 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
   const onRectRef = useRef(onRect);
   onRectRef.current = onRect;
   const seenHere = seen !== null && seen.src === src ? seen : null;
+  const frameId = useId();
+  const reportErrors = useContext(ArtboardErrorsContext);
+  const reportErrorsRef = useRef(reportErrors);
+  reportErrorsRef.current = reportErrors;
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -88,6 +93,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
       else if (data.type === "redline:escape") onEscapeRef.current?.();
       else if (data.type === "redline:pin-positions") setPositions(data.positions ?? []);
       else if (data.type === "redline:doc-height") onDocHeightRef.current?.((data as unknown as { height: number }).height);
+      else if (data.type === "redline:errors") reportErrorsRef.current(frameId, (data as unknown as { errors: string[] }).errors);
       else if (data.type === "redline:gap-rect") onRectRef.current(data as unknown as { x: number; y: number; width: number; height: number });
       else if (data.type === "redline:wheel") replayWheel(data as unknown as ForwardedWheel);
     }
@@ -113,8 +119,11 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
       );
     }
     window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, []);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      reportErrorsRef.current(frameId, []);
+    };
+  }, [frameId]);
 
   useEffect(() => {
     if (bridgeEpoch === 0) return;

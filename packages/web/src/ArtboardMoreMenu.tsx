@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { DesignSystemSummary, MoveArtboardRequest, Page } from "@redline/shared";
+import type { DesignSystemSummary, FitArtboardHeightRequest, MoveArtboardRequest, Page } from "@redline/shared";
 import { moveRefusalMessage } from "./moveRefusal.js";
 import { Button, Dialog, DialogActions, Field, TextInput, Tooltip, cx } from "./ui/index.js";
 import { useCloseOnOutsidePointer } from "./useCloseOnOutsidePointer.js";
@@ -22,6 +22,16 @@ function MoveIcon() {
       <path d="M11 3l4 4-4 4" />
       <path d="M21 17H9" />
       <path d="M13 13l-4 4 4 4" />
+    </svg>
+  );
+}
+
+function FitHeightIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3v18" />
+      <path d="M8 7l4-4 4 4" />
+      <path d="M8 17l4 4 4-4" />
     </svg>
   );
 }
@@ -66,16 +76,20 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCopyPlayLink: () => void;
+  /** Measured height of the artboard's page when it is taller than the artboard: offers "Ajuster la hauteur au contenu". */
+  contentHeight?: number;
+  /** Called once the fitted height is saved as a new version. */
+  onFitted: () => void;
 }
 
 /** "⋯" button of an artboard's strip and its menu of the less frequent actions. */
-export function ArtboardMoreMenu({ pageId, file, open, onOpenChange, onCopyPlayLink }: Props) {
+export function ArtboardMoreMenu({ pageId, file, open, onOpenChange, onCopyPlayLink, contentHeight, onFitted }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const label = `Autres actions pour ${file}`;
   const [otherPages, setOtherPages] = useState<Page[] | null>(null);
   const [onDesignSystem, setOnDesignSystem] = useState(false);
   const [newPageOpen, setNewPageOpen] = useState(false);
-  const [refusal, setRefusal] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<{ title: string; message: string } | null>(null);
 
   useCloseOnOutsidePointer(root, open, () => onOpenChange(false));
   useEffect(() => {
@@ -102,7 +116,15 @@ export function ArtboardMoreMenu({ pageId, file, open, onOpenChange, onCopyPlayL
   async function move(target: { targetPageId: string } | { newPageTitle: string }): Promise<void> {
     const request: MoveArtboardRequest = { file, ...target };
     const res = await fetch(`/api/pages/${pageId}/move-artboard`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
-    if (!res.ok) setRefusal(moveRefusalMessage(((await res.json()) as { error: string }).error));
+    if (!res.ok) setRefusal({ title: "Déplacement impossible", message: moveRefusalMessage(((await res.json()) as { error: string }).error) });
+  }
+
+  /** Saves the measured page height as the artboard's height (a new version, like a move). */
+  async function fitHeight(height: number): Promise<void> {
+    const request: FitArtboardHeightRequest = { file, height };
+    const res = await fetch(`/api/pages/${pageId}/fit-height`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
+    if (res.ok) onFitted();
+    else setRefusal({ title: "Ajustement impossible", message: moveRefusalMessage(((await res.json()) as { error: string }).error, "L'ajustement de la hauteur a été refusé.") });
   }
 
   return (
@@ -118,6 +140,20 @@ export function ArtboardMoreMenu({ pageId, file, open, onOpenChange, onCopyPlayL
       </Tooltip>
       {open && (
         <div role="menu" aria-label={label} className={styles.menu}>
+          {contentHeight !== undefined && (
+            <button
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => {
+                onOpenChange(false);
+                void fitHeight(contentHeight);
+              }}
+            >
+              <FitHeightIcon />
+              Ajuster la hauteur au contenu
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -179,8 +215,8 @@ export function ArtboardMoreMenu({ pageId, file, open, onOpenChange, onCopyPlayL
       )}
       {refusal && (
         <Portal>
-          <Dialog title="Déplacement impossible" onClose={() => setRefusal(null)} width={520}>
-            <p className={styles.refusal}>{refusal}</p>
+          <Dialog title={refusal.title} onClose={() => setRefusal(null)} width={520}>
+            <p className={styles.refusal}>{refusal.message}</p>
             <DialogActions>
               <Button size="lg" onClick={() => setRefusal(null)}>
                 Fermer

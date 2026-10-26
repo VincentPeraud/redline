@@ -161,6 +161,16 @@ async function checkCanvas(browser: Browser, url: string, manifest: Manifest, sc
     if (!measured) return ["the canvas did not load"];
 
     const problems: string[] = [];
+    // Script errors and missing files the artboards reported, as the user sees them in "Erreurs des artboards".
+    const errorsButton = tab.getByTestId("errors-button");
+    if ((await errorsButton.count()) > 0) {
+      await errorsButton.click();
+      for (const row of await tab.locator("[data-errors-of]").all()) {
+        const messages = await row.locator("[data-error]").allInnerTexts();
+        problems.push(`artboard ${await row.getAttribute("data-errors-of")} reports errors: ${messages.join(" | ")}`);
+      }
+      await errorsButton.click();
+    }
     const overlap = (a: Box, b: Box) => Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 4 && Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 4;
     const inside = (p: { x: number; y: number }, b: Box) => p.x > b.x + 4 && p.x < b.x + b.width - 4 && p.y > b.y + 4 && p.y < b.y + b.height - 4;
     const { artboards, elements, arrows } = measured;

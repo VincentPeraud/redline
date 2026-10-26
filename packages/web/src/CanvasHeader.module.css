@@ -1,3 +1,14 @@
+/* The gaps and errors buttons, side by side; nothing when neither shows. */
+.signals {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.signals:empty {
+  display: none;
+}
+
 .header {
   position: relative;
   z-index: 20;

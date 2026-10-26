@@ -3,6 +3,7 @@ import type { DeletedArtboard, Gap, Page, PageGaps, Project, Thread } from "@red
 import { DiffuseButton } from "./DiffusionDialog.js";
 import { DeletedArtboardsList } from "./DeletedArtboardsList.js";
 import { GapsButton } from "./GapsReport.js";
+import { ErrorsButton, type ArtboardErrorsEntry } from "./ArtboardErrors.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
 import { TocMenu } from "./TocMenu.js";
 import type { TocItem } from "./tocItems.js";
@@ -209,10 +210,14 @@ interface Props {
   onGapException: (gap: Gap) => void;
   onShowGapExceptions: () => void;
   onAskFixGaps: () => void;
+  /** Artboards whose iframes reported errors; the button shows only when there are some. */
+  errors: ArtboardErrorsEntry[];
+  onSeeErrors: (file: string) => void;
+  onAskFixErrors: () => void;
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, previewOf }: Props) {
+export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf }: Props) {
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -244,7 +249,10 @@ export function CanvasHeader({ project, designSystemId, versionId, pageId, pageT
       </nav>
       {previewOf === undefined && (
         <>
-          <GapsButton report={gaps} exceptionCount={gapExceptionCount} onSee={onSeeGap} onException={onGapException} onAsk={onAskFixGaps} onShowExceptions={onShowGapExceptions} />
+          <div className={styles.signals}>
+            <GapsButton report={gaps} exceptionCount={gapExceptionCount} onSee={onSeeGap} onException={onGapException} onAsk={onAskFixGaps} onShowExceptions={onShowGapExceptions} />
+            <ErrorsButton entries={errors} onSee={onSeeErrors} onAsk={onAskFixErrors} />
+          </div>
           <TocMenu {...toc} />
         </>
       )}

@@ -29,7 +29,7 @@ describe("pin bridge inside an artboard", () => {
     const page = (await res.json()) as Page;
     const served = await fetch(`${server.artboardOrigin}/pages/${page.id}/home.html`);
     artboardHtml = await served.text();
-    const src = /<script src="([^"]+)"><\/script>/.exec(artboardHtml)?.[1];
+    const src = /<script src="([^"]+bridge\.js)"><\/script>/.exec(artboardHtml)?.[1];
     expect(src).toBeDefined();
     bridgeSource = await (await fetch(new URL(src!, server.artboardOrigin))).text();
   });
