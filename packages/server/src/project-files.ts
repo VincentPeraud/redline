@@ -18,7 +18,7 @@ import {
   type SaveDesignMdRequest,
 } from "@redline/shared";
 import { componentFilesOf } from "./components.js";
-import { userAuthor } from "./identity.js";
+import { editorAuthor } from "./identity.js";
 import type { Store } from "./store.js";
 
 const slugOf = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "page";
@@ -179,7 +179,7 @@ export async function registerProjectFileRoutes(app: FastifyInstance, store: Sto
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
     const content = req.body?.content;
     if (typeof content !== "string") return reply.code(400).send({ error: "content is required" });
-    store.saveDesignMd(req.params.projectId, DESIGN_MD_PATH, Buffer.from(content, "utf8"), userAuthor(req));
+    store.saveDesignMd(req.params.projectId, DESIGN_MD_PATH, Buffer.from(content, "utf8"), editorAuthor(req));
     return { content };
   });
 
@@ -192,7 +192,7 @@ export async function registerProjectFileRoutes(app: FastifyInstance, store: Sto
     if (!store.projectExists(req.params.projectId) || store.isDesignSystemProject(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
     const content = req.body?.content;
     if (typeof content !== "string") return reply.code(400).send({ error: "content is required" });
-    store.saveDesignMd(req.params.projectId, PROJECT_STYLE_PATH, Buffer.from(content, "utf8"), userAuthor(req));
+    store.saveDesignMd(req.params.projectId, PROJECT_STYLE_PATH, Buffer.from(content, "utf8"), editorAuthor(req));
     return { content };
   });
 

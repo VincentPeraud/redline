@@ -69,11 +69,11 @@ describe("login file", () => {
 });
 
 describe("server URL validation", () => {
-  it.each(["https://redline.example.fr/", "http://localhost:3000", "http://redline.localhost", "http://127.0.0.1:3000"])("accepts %s", (url) => {
+  it.each(["https://redline.example.fr/", "http://localhost:3000", "http://redline.localhost", "http://127.0.0.1:3000", "https://example.fr/redline"])("accepts %s", (url) => {
     expect(validateServerUrl(url)).toBe(url.replace(/\/+$/, ""));
   });
 
-  it.each(["http://redline.example.fr", "http://evil-localhost.com", "ftp://localhost", "redline.example.fr", "http://localhost.evil.com"])("refuses %s", (url) => {
+  it.each(["http://redline.example.fr", "http://evil-localhost.com", "ftp://localhost", "redline.example.fr", "http://localhost.evil.com", "https://x.com/a;touch${IFS}/tmp/p;#", "https://x.com/$(id)", "https://x.com/a?b=1", "https://x.com/#frag", "https://user:pw@x.com", "https://x.com/a b", "https://x$(id).com"])("refuses %s", (url) => {
     expect(() => validateServerUrl(url)).toThrow();
   });
 });

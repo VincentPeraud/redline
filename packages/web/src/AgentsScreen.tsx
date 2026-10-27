@@ -151,13 +151,7 @@ function AgentCard({ agent }: { agent: AgentOverview }) {
 }
 
 function RefusedAgentCard({ agent }: { agent: RefusedAgent }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    await navigator.clipboard.writeText(cliUpdateCommand(window.location.origin));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }
+  const [copied, copy] = useCopy();
 
   return (
     <Card as="article" padding="lg" className={styles.refused} data-testid="refused-agent-card">
@@ -182,7 +176,7 @@ function RefusedAgentCard({ agent }: { agent: RefusedAgent }) {
         <div>
           <StatusBadge tone="danger">Pas à jour · refusé</StatusBadge>
         </div>
-        <Button onClick={copy}>{copied ? "Copié" : "Copier la commande"}</Button>
+        <Button onClick={() => void copy(cliUpdateCommand(window.location.origin))}>{copied ? "Copié" : "Copier la commande"}</Button>
       </div>
     </Card>
   );
@@ -248,8 +242,9 @@ function LaunchPanel() {
       .then((body) => setToken(body.token));
   }, []);
 
-  const setupCommand = (shownToken: string) => `npm i -g ${origin}/cli/redline-cli.tgz && redline setup ${origin} --token ${shownToken}`;
-  const shownCommand = `npm i -g ${origin}/cli/redline-cli.tgz \\\n  && redline setup ${origin} \\\n  --token ${token ? maskToken(token, 7) : ""}`;
+  const install = cliUpdateCommand(origin);
+  const setupCommand = `${install} && redline setup ${origin} --token ${token}`;
+  const shownCommand = `${install} \\\n  && redline setup ${origin} \\\n  --token ${token ? maskToken(token, 7) : ""}`;
 
   return (
     <SidePanel label="Lancer un agent" width={360}>
@@ -261,7 +256,7 @@ function LaunchPanel() {
             text="Installe la commande depuis ce serveur, enregistre son adresse et le jeton, et ajoute Redline à Claude Code (qui doit être installé et connecté). Relance-la pour ajouter un autre serveur."
             command={shownCommand}
           >
-            <Button className={styles.copyCommand} onClick={() => void copy(setupCommand(token))} disabled={!token}>
+            <Button className={styles.copyCommand} onClick={() => void copy(setupCommand)} disabled={!token}>
               {copied ? "Copié" : "Copier la commande"}
             </Button>
           </Step>
@@ -270,7 +265,11 @@ function LaunchPanel() {
             text="Dans le dossier du projet. --model et --effort donnent les valeurs par défaut de ses fils (sinon, ta configuration Claude Code). S'il n'est lié à aucun projet, la commande te propose d'en choisir un ou d'en créer un. Les sessions auront son CLAUDE.md, son code et ses MCP."
             command={"cd ~/projets/mon-projet\nredline agent"}
           />
-          <Step title="Agent global" text="N'importe où. Il prend les projets qui n'ont pas d'agent." command="redline agent --global" />
+          <Step
+            title="Agent global"
+            text="N'importe où. Il prend les projets qui l'autorisent quand aucun agent ne tourne pour eux. Avec plusieurs serveurs configurés, ajoute --server <adresse>."
+            command="redline agent --global"
+          />
           <div className={styles.spacer} />
           <TokenSection token={token} onToken={setToken} />
         </div>

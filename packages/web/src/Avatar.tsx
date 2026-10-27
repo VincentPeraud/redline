@@ -5,7 +5,7 @@ import styles from "./Avatar.module.css";
 export const avatarClassName = styles.avatar;
 
 /** `small` is the 20 px circle of a list row; `muted` is the light one of someone other than the viewer. */
-export function Avatar({ initials, small, muted }: { initials: string; small?: true; muted?: true }) {
+export function Avatar({ initials, small, muted }: { initials: string; small?: true; muted?: boolean }) {
   return (
     <span aria-hidden="true" className={cx(styles.avatar, small && styles.small, muted && styles.muted)}>
       {initials}

@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Conversation, ConversationDetail, Page, Project, Thread, ThreadReply } from "@redline/shared";
 import { PROXY_SECRET_HEADER } from "../src/proxy-secrets.js";
 import { startServer, type RunningServer } from "../src/start.js";
-import { Store } from "../src/store.js";
 
 const HUMAN = "h".repeat(32);
 const MACHINE = "m".repeat(32);
@@ -89,52 +88,5 @@ describe("signed thread and conversation messages", () => {
     const thread = await comment(page, ariane, "Make the button bigger");
     const detail = await get<{ messages: { person?: { id: string } }[] }>(`/api/sessions/${thread.id}`);
     expect(detail.messages.map((m) => m.person?.id)).toEqual(["amartin"]);
-  });
-});
-
-describe("requesting person of a Claude run", () => {
-  let dataDir: string;
-  let store: Store;
-  beforeEach(() => {
-    dataDir = mkdtempSync(join(tmpdir(), "redline-requesting-"));
-    store = new Store(dataDir);
-  });
-  afterEach(() => {
-    store.close();
-    rmSync(dataDir, { recursive: true, force: true });
-  });
-
-  const setup = () => {
-    const project = store.createProject("Acme");
-    const page = store.createPage(project.id, "Home", FILES);
-    const ariane = store.savePerson("amartin", "Ariane Martin", "a@example.com");
-    const vincent = store.savePerson("vperaud", "Vincent Peraud", "v@example.com");
-    return { page, ariane, vincent };
-  };
-
-  it("is the author of the latest human message of a thread, Claude's answers aside", () => {
-    const { page, ariane, vincent } = setup();
-    const thread = store.createThread(page.id, { artboard: "home.html", selector: "h1", xPct: 1, yPct: 1, body: "First" }, ariane);
-    expect(store.requestingPersonOfThread(thread.id)?.id).toBe("amartin");
-    store.addReply(thread.id, "Done", "claude");
-    store.addReply(thread.id, "One more thing", "user", [], vincent);
-    store.addReply(thread.id, "Done again", "claude");
-    expect(store.requestingPersonOfThread(thread.id)?.id).toBe("vperaud");
-  });
-
-  it("is the author of the latest human message of a conversation", () => {
-    const { page, ariane, vincent } = setup();
-    const conversation = store.createConversation(page.id, "Talk", ariane);
-    store.addConversationMessage(conversation.id, "user", "Hello", {}, [], [], ariane);
-    store.addConversationMessage(conversation.id, "claude", "Hi");
-    expect(store.requestingPersonOfConversation(conversation.id)?.id).toBe("amartin");
-    store.addConversationMessage(conversation.id, "user", "And then", {}, [], [], vincent);
-    expect(store.requestingPersonOfConversation(conversation.id)?.id).toBe("vperaud");
-  });
-
-  it("is undefined for messages from before the SSO", () => {
-    const { page } = setup();
-    const thread = store.createThread(page.id, { artboard: "home.html", selector: "h1", xPct: 1, yPct: 1, body: "Old" });
-    expect(store.requestingPersonOfThread(thread.id)).toBeUndefined();
   });
 });

@@ -129,12 +129,14 @@ The SSO middleware must pass the signed-in person to Redline in request headers.
 | Authentik | `X-authentik-username` | `X-authentik-name` | `X-authentik-email` | `https://<authentik host>/outpost.goauthentik.io/sign_out` |
 | oauth2-proxy (Keycloak) | `X-Auth-Request-User` | `X-Auth-Request-Preferred-Username` | `X-Auth-Request-Email` | `https://<UI host>/oauth2/sign_out` |
 
-The middleware must list the same names in `authResponseHeaders`. Redline reads them only on requests that carry the human proxy secret, and the machine router empties them.
+The middleware must list the same names in `authResponseHeaders`. Redline empties the three identity headers before the SSO runs (the `strip-identity` middleware, ahead of `REDLINE_AUTH_MIDDLEWARE` on both human routers), so a signed-in person cannot forge them: the SSO only overwrites the headers it lists. Redline reads them only on requests that carry the human proxy secret, and the machine router empties them too.
+
+Keep the Traefik dashboard and API closed (no `--api.insecure`, not exposed on a public router): the proxy secrets are in the router labels and the dashboard would show them.
 
 ### Upgrade
 
 ```sh
-git pull
+git pull --ff-only
 docker compose up -d --build
 ```
 

@@ -9,6 +9,7 @@ import {
   PROTOCOL_VERSION,
   type AgentTokenResponse,
   type ArtboardVersion,
+  type ConversationDetail,
   type DeletedArtboard,
   type DesignMdInfo,
   type Page,
@@ -131,7 +132,7 @@ describe("signed history, DESIGN.md, pages and deleted artboards", () => {
   });
 
   describe("Claude runs and terminal publishes", () => {
-    async function connectAgent(projectId: string): Promise<{ work: () => Promise<WorkItem>; close: () => void }> {
+    async function connectAgent(projectId: string): Promise<{ work: (index?: number) => Promise<WorkItem>; done: (workId: string) => void; close: () => void }> {
       const { token } = await get<AgentTokenResponse>("/api/agent-token");
       const socket = new WebSocket(server.url.replace(/^http/, "ws") + AGENT_ENDPOINT, { headers: { [PROXY_SECRET_HEADER]: MACHINE } });
       const items: WorkItem[] = [];
@@ -142,11 +143,12 @@ describe("signed history, DESIGN.md, pages and deleted artboards", () => {
       await new Promise<void>((resolve) => socket.on("open", () => resolve()));
       socket.send(JSON.stringify({ type: "hello", token, protocolVersion: PROTOCOL_VERSION, machine: "m", folder: "/f", kind: "project", projectId }));
       return {
-        work: async () => {
-          for (let i = 0; i < 100 && items.length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 20));
-          expect(items).toHaveLength(1);
-          return items[0];
+        work: async (index = 0) => {
+          for (let i = 0; i < 100 && items.length <= index; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+          expect(items).toHaveLength(index + 1);
+          return items[index];
         },
+        done: (workId) => socket.send(JSON.stringify({ type: "work-done", workId })),
         close: () => socket.close(),
       };
     }
@@ -184,6 +186,49 @@ describe("signed history, DESIGN.md, pages and deleted artboards", () => {
 
       const sibling = await agentCall<Page>(`/pages/${page.id}/siblings`, { title: "Pricing", workId: item.id });
       expect(sibling).toMatchObject({ createdBy: "claude", createdByPerson: { id: "amartin" } });
+      agent.close();
+    });
+
+    const publish = (page: Page, item: WorkItem, origin: "thread" | "conversation", baseVersionId = page.version.id) =>
+      agentCall<PageVersionSummary>(`/pages/${page.id}/versions`, {
+        files: { ...FILES, "home.html": `<h1>${item.id}</h1>` },
+        message: "Change",
+        origin,
+        baseVersionId,
+        workId: item.id,
+      });
+
+    it("signs a run with the person whose message started it, even when someone replies while it runs", async () => {
+      const page = await createPage(vincent);
+      const agent = await connectAgent(page.projectId);
+      const thread = await post<Thread>(`/api/pages/${page.id}/threads`, ariane, { artboard: "home.html", selector: "h1", xPct: 10, yPct: 20, body: "Make it bigger" });
+      const first = await agent.work();
+      await post(`/api/threads/${thread.id}/messages`, vincent, { body: "Also bolder" });
+      const firstVersion = await publish(page, first, "thread");
+      expect(firstVersion.person?.id).toBe("amartin");
+
+      agent.done(first.id);
+      const second = await agent.work(1);
+      expect((await publish(page, second, "thread", firstVersion.id)).person?.id).toBe("vperaud");
+      agent.close();
+    });
+
+    it("signs a conversation run with the person whose message started it", async () => {
+      const page = await createPage(vincent);
+      const agent = await connectAgent(page.projectId);
+      const conversation = await post<ConversationDetail>(`/api/pages/${page.id}/conversations`, ariane, { title: "Error pages" });
+      await post(`/api/conversations/${conversation.id}/messages`, ariane, { body: "Create the error pages" });
+      const first = await agent.work();
+      await post(`/api/conversations/${conversation.id}/messages`, vincent, { body: "Add a denied page" });
+      expect((await publish(page, first, "conversation")).person?.id).toBe("amartin");
+      agent.close();
+    });
+
+    it("signs nothing for a comment written before the SSO", async () => {
+      const page = await createPage(vincent);
+      const agent = await connectAgent(page.projectId);
+      await post<Thread>(`/api/pages/${page.id}/threads`, anonymous, { artboard: "home.html", selector: "h1", xPct: 10, yPct: 20, body: "Old comment" });
+      expect((await publish(page, await agent.work(), "thread")).person).toBeUndefined();
       agent.close();
     });
 

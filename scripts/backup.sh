@@ -80,7 +80,9 @@ notify() {
   local file="$config_dir/webhook-$1" url
   [ -s "$file" ] || return 0
   url="$(tr -d '[:space:]' < "$file")"
-  curl -fsS -m 20 -H 'Content-Type: application/json' -d "{\"text\":\"$(json_escape "$2")\"}" "$url" > /dev/null \
+  # The URL is a secret: it goes to curl on stdin (-K -), not as an argument that `ps` would show.
+  printf 'url = "%s"\n' "$(json_escape "$url")" \
+    | curl -fsS -m 20 -H 'Content-Type: application/json' -d "{\"text\":\"$(json_escape "$2")\"}" -K - > /dev/null \
     || echo "The $1 webhook could not be called."
 }
 

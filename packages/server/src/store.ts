@@ -3,6 +3,7 @@ import { mkdirSync, existsSync, readFileSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { componentFilesOf, projectComponents } from "./components.js";
+import { restoredVersionMessage } from "./version-dates.js";
 import {
   EMPTY_VIEW_SETTINGS,
   initialsOf,
@@ -41,6 +42,7 @@ import type {
   ThreadTarget,
   ManifestElement,
   ManifestElementKind,
+  AgentHello,
   AgentInfo,
   RefusedAgent,
   AgentKind,
@@ -62,6 +64,9 @@ import type {
   VersionOrigin,
   WorkItem,
 } from "@redline/shared";
+
+/** Which agent a hello comes from: one per machine and folder. */
+type AgentIdentity = Pick<AgentHello, "machine" | "folder" | "kind" | "projectId">;
 
 export class Store {
   private readonly db: Database.Database;
@@ -605,9 +610,16 @@ export class Store {
     return row && { ...row, initials: initialsOf(row.name, row.id) };
   }
 
+  /** The person a work item works for, read when the item is sent: see `requestingPersonOfThread`. */
+  requestingPersonOfItem(item: WorkItem): Person | undefined {
+    if (item.conversationId) return this.requestingPersonOfConversation(item.conversationId);
+    const first = item.threads[0];
+    return first && this.requestingPersonOfThread(first.threadId);
+  }
+
   /**
    * The person a run of Claude works for: the author of the message that started it, i.e. the latest human message of
-   * the thread (its comment, or its latest user reply). Undefined for comments from before the SSO and without SSO.
+   * the thread (its comment, or its latest user reply) at the time the run starts. Undefined for comments from before the SSO and without SSO.
    */
   requestingPersonOfThread(threadId: string): Person | undefined {
     const reply = this.db
@@ -664,7 +676,7 @@ export class Store {
   }
 
   /** Records an agent as online; one entry per machine and folder. */
-  markAgentOnline(machine: string, folder: string, kind: AgentKind, projectId?: string, model?: string, effort?: Effort, buildHash?: string): string {
+  markAgentOnline({ machine, folder, kind, projectId, model, effort, buildHash }: AgentIdentity & Pick<AgentHello, "model" | "effort" | "buildHash">): string {
     if (projectId) this.db.prepare("UPDATE agents SET project_id = NULL WHERE project_id = ?").run(projectId);
     this.db
       .prepare(
@@ -737,7 +749,7 @@ export class Store {
   }
 
   /** Remembers an agent refused for its protocol until it connects again. */
-  recordRefusedAgent(machine: string, folder: string, kind: AgentKind, projectId?: string): void {
+  recordRefusedAgent({ machine, folder, kind, projectId }: AgentIdentity): void {
     this.db
       .prepare(
         "INSERT INTO refused_agents (machine, folder, kind, project_id, refused_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, project_id = excluded.project_id, refused_at = excluded.refused_at",
@@ -779,7 +791,7 @@ export class Store {
     const previous = this.sharedDesignSystemIdOfProject(projectId) ?? null;
     if (designSystem === null && previous !== null) {
       const style = this.startingStyle(projectId, previous);
-      if (style !== undefined) this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(style, "utf8"), { origin: "user", ...(person ? { person } : {}) });
+      if (style !== undefined) this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(style, "utf8"), { origin: "user", ...(person && { person }) });
     }
     this.db.prepare("UPDATE projects SET design_system = ? WHERE id = ?").run(designSystem, projectId);
     if (designSystem === null && !this.readProjectFile(projectId, PROJECT_STYLE_PATH)) {
@@ -1510,12 +1522,12 @@ export class Store {
   }
 
   /** Repoints the page's paths to the hashes of an old version and records that as a new version. */
-  restoreVersion(pageId: string, versionId: string, ref?: OriginRef): PageVersionSummary | undefined {
+  restoreVersion(pageId: string, versionId: string, ref?: OriginRef, timeZone?: string): PageVersionSummary | undefined {
     const old = this.db
       .prepare("SELECT files, created_at FROM versions WHERE id = ? AND page_id = ?")
       .get(versionId, pageId) as { files: string; created_at: string } | undefined;
     if (!old) return undefined;
-    return this.insertVersion(pageId, old.files, `Restored version of ${old.created_at}`, "restore", ref);
+    return this.insertVersion(pageId, old.files, restoredVersionMessage(old.created_at, timeZone), "restore", ref);
   }
 
   private createVersion(

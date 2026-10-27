@@ -18,7 +18,6 @@ import { canvasElementText } from "./canvas-element-text.js";
 import { cellSeenText, elementText, renderingText } from "./thread-subject.js";
 import { contextOf, usageContext } from "./context.js";
 import { definedChoice, isMessageContext, modelChoiceError, modelChoiceOf, requiredString } from "./validation.js";
-import { viewerOf } from "./identity.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -215,10 +214,10 @@ export function registerConversationRoutes(
       return reply.code(400).send({ error: "title must be a non-empty string" });
     }
     const first = !store.projectHasConversation(page.projectId);
-    const conversation = store.createConversation(page.id, title ?? "Nouvelle conversation", viewerOf(req));
+    const conversation = store.createConversation(page.id, title ?? "Nouvelle conversation", req.person);
     const instructions = store.getProject(page.projectId)?.instructions ?? "";
     // The project's brief opens its first conversation: it is sent now, with a short acknowledgement asked back.
-    if (first && instructions.trim() !== "") sendMessage(conversation, instructions, {}, { brief: true, person: viewerOf(req) });
+    if (first && instructions.trim() !== "") sendMessage(conversation, instructions, {}, { brief: true, person: req.person });
     return reply.code(201).send(detail(conversation));
   });
 
@@ -243,7 +242,7 @@ export function registerConversationRoutes(
       const invalidChoice = modelChoiceError(req.body);
       if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
       if (req.body.context !== undefined && !isMessageContext(req.body.context)) return reply.code(400).send({ error: "context is malformed" });
-      const message = sendMessage(conversation, body, modelChoiceOf(req.body), { context: req.body.context, person: viewerOf(req) });
+      const message = sendMessage(conversation, body, modelChoiceOf(req.body), { context: req.body.context, person: req.person });
       return reply.code(201).send(message);
     },
   );

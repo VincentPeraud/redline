@@ -105,12 +105,12 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         send(socket, {
           type: "error",
           code: "unauthorized",
-          message: "Wrong token. Run `redline login <server-url>` with the token shown on the Agents screen.",
+          message: "Wrong token. Run `redline setup <server-url> --token <token>` with the token shown on the Agents screen.",
         });
         return socket.close(AgentCloseCode.Unauthorized, "unauthorized");
       }
       if (hello.protocolVersion !== PROTOCOL_VERSION) {
-        store.recordRefusedAgent(hello.machine, hello.folder, hello.kind, hello.projectId);
+        store.recordRefusedAgent(hello);
         store.emit({ type: "agents-updated" });
         send(socket, {
           type: "error",
@@ -134,7 +134,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
           return socket.close(AgentCloseCode.ProjectTaken, "project taken");
         }
       }
-      const agentId = store.markAgentOnline(hello.machine, hello.folder, hello.kind, hello.projectId, hello.model, hello.effort, hello.buildHash);
+      const agentId = store.markAgentOnline(hello);
       connected.set(socket, agentId);
       store.emit({ type: "agents-updated" });
       socket.on("close", () => {

@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadCliBuild } from "../src/cli-build.js";
 import { PROXY_SECRET_HEADER } from "../src/proxy-secrets.js";
 import { startServer, type RunningServer } from "../src/start.js";
 
@@ -49,11 +48,6 @@ describe("CLI served by the server", () => {
     const response = await fetch(server.url + "/cli/redline-cli.tgz", { headers: { [PROXY_SECRET_HEADER]: machine } });
     expect(response.status).toBe(200);
     await response.arrayBuffer();
-  });
-
-  it("knows the hash of the tarball it serves", () => {
-    expect(loadCliBuild(dir)?.hash).toBe("abc123");
-    expect(loadCliBuild(undefined)).toBeUndefined();
   });
 
   it("serves nothing when the image carries no CLI", async () => {

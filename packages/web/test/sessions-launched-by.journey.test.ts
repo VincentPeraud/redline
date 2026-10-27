@@ -87,12 +87,12 @@ it("names who started each session with initials, and filters the viewer's own w
   await context.close();
 });
 
-it("shows the column with a dash and no 'Mes sessions' filter without an SSO", async () => {
+it("has no 'Lancé par' column and no 'Mes sessions' filter without an SSO", async () => {
   const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await tab.goto(`${plain.url}/#/sessions`);
   const row = tab.getByTestId("session-row");
   await expect.poll(() => row.count()).toBe(1);
-  expect(await row.textContent()).toContain("—");
+  expect(await tab.getByText("Lancé par", { exact: true }).count()).toBe(0);
   expect(await tab.getByRole("button", { name: /^Mes sessions/ }).count()).toBe(0);
   await tab.close();
 });

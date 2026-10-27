@@ -57,8 +57,9 @@ import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
+import { validTimeZone } from "./version-dates.js";
 import { registerGapRoutes } from "./gaps.js";
-import { registerIdentity, viewerOf, personRef, type IdentityConfig } from "./identity.js";
+import { registerIdentity, personRef, type IdentityConfig } from "./identity.js";
 import { type CliBuild } from "./cli-build.js";
 import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
 import { registerRequestHardening } from "./request-hardening.js";
@@ -218,7 +219,7 @@ export async function buildMainApp(
       const invalidFiles = pageFilesError(files);
       const invalid = invalidFiles ?? newPageComponentsError(store, req.params.projectId, title, files!);
       if (invalid) return reply.code(400).send({ error: invalid });
-      return reply.code(201).send(store.createPage(req.params.projectId, title, files!, "user", viewerOf(req)));
+      return reply.code(201).send(store.createPage(req.params.projectId, title, files!, "user", req.person));
     },
   );
 
@@ -350,13 +351,13 @@ export async function buildMainApp(
     const designSystem = store.createDesignSystem(title, files);
     const brief = instructions?.trim() ?? "";
     if (source || brief !== "") {
-      const conversation = store.createConversation(designSystem.pageId, "Création du design system", viewerOf(req));
+      const conversation = store.createConversation(designSystem.pageId, "Création du design system", req.person);
       const body = brief !== "" ? brief : `Derive this design system from the pages of the project "${source!.title}".`;
       // The source project's agent serves the run: it has the project's code.
       sendMessage(conversation, body, modelChoiceOf({ model, effort }), {
         projectId: source?.id,
         extraContext: source && sourcePagesMessage(store, source),
-        person: viewerOf(req),
+        person: req.person,
       });
     }
     return reply.code(201).send(designSystem);
@@ -431,7 +432,7 @@ export async function buildMainApp(
       if ("target" in request && request.target.kind === "canvas-element" && !store.canvasElement(req.params.pageId, request.target.elementId)) {
         return reply.code(400).send({ error: "element is not on the page's canvas" });
       }
-      const thread = store.createThread(req.params.pageId, request, viewerOf(req));
+      const thread = store.createThread(req.params.pageId, request, req.person);
       if (thread.status === "held") return reply.code(201).send(thread);
       dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(request));
       return reply.code(201).send(thread);
@@ -451,7 +452,7 @@ export async function buildMainApp(
     if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
     const invalidChoice = modelChoiceError(req.body);
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
-    const message = store.addReply(thread.id, body, "user", [], viewerOf(req))!;
+    const message = store.addReply(thread.id, body, "user", [], req.person)!;
     dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body));
     return reply.code(201).send(message);
   });
@@ -526,14 +527,16 @@ export async function buildMainApp(
       .send(store.setPageFile(page.id, TWEAKS_PATH, JSON.stringify(values, null, 2), `Tweak: ${tweak.label} = ${value}`, "tweak", personRef(req)));
   });
 
-  app.post<{ Params: { pageId: string; versionId: string } }>(
+  app.post<{ Params: { pageId: string; versionId: string }; Body: { timeZone?: string } | undefined }>(
     "/api/pages/:pageId/versions/:versionId/restore",
     async (req, reply) => {
+      const timeZone = req.body?.timeZone;
+      if (!validTimeZone(timeZone)) return reply.code(400).send({ error: "invalid timeZone" });
       const files = store.readVersionFiles(req.params.pageId, req.params.versionId);
       // Restoring publishes the old files again: the same checks as a publish apply.
       const invalid = files && (versionComponentsError(store, req.params.pageId, files) ?? removalsError(store, req.params.pageId, files, undefined, false));
       if (invalid) return reply.code(400).send({ error: invalid });
-      const restored = store.restoreVersion(req.params.pageId, req.params.versionId, personRef(req));
+      const restored = store.restoreVersion(req.params.pageId, req.params.versionId, personRef(req), timeZone);
       return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });
     },
   );

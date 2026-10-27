@@ -1,4 +1,4 @@
-FROM node:22-slim AS build
+FROM node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
@@ -9,7 +9,7 @@ RUN npm ci
 COPY packages packages
 RUN npm run build && node packages/agent/build/pack-cli.mjs /app/cli && npm prune --omit=dev
 
-FROM node:22-slim
+FROM node:22-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
 WORKDIR /app
 ENV NODE_ENV=production \
     REDLINE_DATA_DIR=/data \

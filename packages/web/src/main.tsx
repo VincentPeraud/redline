@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles/global.css";
 import { AgentsScreen } from "./AgentsScreen";
-import { AgentUpdateBanner, useOutdatedAgentNames } from "./AgentUpdateBanner";
+import { AgentUpdateBanner, useOutdatedAgentNames } from "./AgentUpdateBanner.js";
 import { App } from "./App";
 import { DesignSystemOverview } from "./DesignSystemOverview";
 import { DesignSystemsScreen } from "./DesignSystemsScreen";
@@ -13,10 +13,10 @@ import { ProjectDesignSystemScreen } from "./ProjectDesignSystemScreen";
 import { ProjectOverview } from "./ProjectOverview";
 import { ProjectsScreen } from "./ProjectsScreen";
 import { Shell } from "./Sidebar";
-import { MeProvider } from "./useMe";
+import { MeProvider } from "./useMe.js";
 import { useRoute } from "./router";
 import { SessionsScreen } from "./SessionsScreen";
-import { HomeProvider } from "./useHome";
+import { HomeProvider } from "./useHome.js";
 
 /** The banner on top of every screen; the screens below shrink by its height (`--banner-height`). */
 function WithBanner({ children }: { children: ReactNode }) {

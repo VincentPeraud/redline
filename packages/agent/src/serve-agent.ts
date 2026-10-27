@@ -60,7 +60,7 @@ export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () =
           log(`This agent is not up to date. Update it with: ${cliUpdateCommand(options.serverUrl)}`);
         }
         const { reason } = await connection.closed;
-        if (reason === "unauthorized") throw new Error("The token was regenerated. Run `redline login <server-url>` again.");
+        if (reason === "unauthorized") throw new Error("The token was regenerated. Run `redline setup <server-url> --token <token>` again with the new token from the Agents screen.");
         if (stopped) return { updated };
         log("Connection lost, retrying...");
       } catch (error) {

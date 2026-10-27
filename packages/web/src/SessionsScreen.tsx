@@ -8,11 +8,11 @@ import {
   type SessionFilter,
   type SessionRow,
 } from "@redline/shared";
-import { Avatar } from "./Avatar";
-import { MessageAuthor } from "./MessageAuthor";
+import { Avatar } from "./Avatar.js";
+import { MessageAuthor } from "./MessageAuthor.js";
 import { routeHref } from "./router";
 import { subscribeServerEvents } from "./serverEvents";
-import { useMe, usePersonLabel } from "./useMe";
+import { useMe, usePersonLabel } from "./useMe.js";
 import { FILTER_LABEL, WAITING_NOTE, activityLabel, agentName, modelLine, shortSessionId } from "./sessionsView";
 import {
   FilterPill,
@@ -44,7 +44,7 @@ function Launcher({ row }: { row: SessionRow }) {
   if (!startedBy || !me) return <span className={styles.unknown}>{name}</span>;
   return (
     <span className={styles.launcher}>
-      <Avatar small muted={startedBy.id === me.id ? undefined : true} initials={startedBy.initials} />
+      <Avatar small muted={startedBy.id !== me.id} initials={startedBy.initials} />
       {name}
     </span>
   );
@@ -86,8 +86,8 @@ const COLUMNS: Record<string, Omit<TableColumn<SessionRow>, "width">> = {
 const WIDE: [string, string][] = [["name", "1.9fr"], ["launcher", "1.5fr"], ["type", "0.7fr"], ["where", "1.4fr"], ["status", "1.5fr"], ["agent", "0.8fr"], ["session", "0.8fr"], ["model", "1.4fr"], ["when", "0.9fr"]];
 const NARROW: [string, string][] = [["name", "1.8fr"], ["launcher", "1.4fr"], ["where", "1.4fr"], ["status", "1.3fr"], ["when", "0.8fr"]];
 
-function columnsFor(layout: [string, string][]): TableColumn<SessionRow>[] {
-  return layout.map(([key, width]) => ({ ...COLUMNS[key]!, width }));
+function columnsFor(layout: [string, string][], showLauncher: boolean): TableColumn<SessionRow>[] {
+  return layout.filter(([key]) => showLauncher || key !== "launcher").map(([key, width]) => ({ ...COLUMNS[key]!, width }));
 }
 
 const MESSAGES_PATH = { thread: "/api/threads", conversation: "/api/conversations" } as const;
@@ -202,7 +202,7 @@ export function SessionsScreen() {
           />
         </div>
         <Table
-          columns={columnsFor(detail ? NARROW : WIDE)}
+          columns={columnsFor(detail ? NARROW : WIDE, me !== null)}
           rows={visible}
           rowKey={(row) => row.id}
           rowTestId="session-row"
