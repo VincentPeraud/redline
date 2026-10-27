@@ -42,6 +42,7 @@ import type {
   ThreadTarget,
   ManifestElement,
   ManifestElementKind,
+  AgentHello,
   AgentInfo,
   RefusedAgent,
   AgentKind,
@@ -63,6 +64,9 @@ import type {
   VersionOrigin,
   WorkItem,
 } from "@redline/shared";
+
+/** Which agent a hello comes from: one per machine and folder. */
+type AgentIdentity = Pick<AgentHello, "machine" | "folder" | "kind" | "projectId">;
 
 export class Store {
   private readonly db: Database.Database;
@@ -672,7 +676,7 @@ export class Store {
   }
 
   /** Records an agent as online; one entry per machine and folder. */
-  markAgentOnline(machine: string, folder: string, kind: AgentKind, projectId?: string, model?: string, effort?: Effort, buildHash?: string): string {
+  markAgentOnline({ machine, folder, kind, projectId, model, effort, buildHash }: AgentIdentity & Pick<AgentHello, "model" | "effort" | "buildHash">): string {
     if (projectId) this.db.prepare("UPDATE agents SET project_id = NULL WHERE project_id = ?").run(projectId);
     this.db
       .prepare(
@@ -745,7 +749,7 @@ export class Store {
   }
 
   /** Remembers an agent refused for its protocol until it connects again. */
-  recordRefusedAgent(machine: string, folder: string, kind: AgentKind, projectId?: string): void {
+  recordRefusedAgent({ machine, folder, kind, projectId }: AgentIdentity): void {
     this.db
       .prepare(
         "INSERT INTO refused_agents (machine, folder, kind, project_id, refused_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, project_id = excluded.project_id, refused_at = excluded.refused_at",
