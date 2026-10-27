@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, type Browser } from "playwright";
 import { build } from "vite";
-import { MANIFEST_PATH, defaultManifest, parseManifest, type AgentTokenResponse, type Manifest, type Page, type PageGaps } from "@redline/shared";
+import { MANIFEST_PATH, defaultManifest, parseManifest, type AgentTokenResponse, type DesignMdResponse, type Manifest, type Page, type PageGaps } from "@redline/shared";
 import { startServer } from "../packages/server/src/start.js";
 import { login } from "../packages/agent/src/login.js";
 import { linkFolder } from "../packages/agent/src/link.js";
@@ -270,13 +270,19 @@ async function main(): Promise<void> {
       reports.push({ title: page.title, url, screenshot, gaps: gaps.length, emptyArtboards, problems });
     }
 
-    const issues = session.toolErrors.length + reports.reduce((n, r) => n + r.problems.length + r.emptyArtboards.length + (r.gaps > 0 ? 1 : 0), 0);
+    // The eval's projects have no design system: Claude is expected to write the project style before the first artboard.
+    const { content: projectStyle } = (await (await fetch(`${server.url}/api/projects/${projectId}/project-style`)).json()) as DesignMdResponse;
+    const styleTokens = projectStyle.match(/--[\w-]+\s*:/g)?.length ?? 0;
+
+    const issues = (styleTokens === 0 ? 1 : 0) + session.toolErrors.length + reports.reduce((n, r) => n + r.problems.length + r.emptyArtboards.length + (r.gaps > 0 ? 1 : 0), 0);
     const cost = session.costUsd === null ? "?" : `$${session.costUsd.toFixed(2)}`;
-    summary.push(`${issues === 0 ? "✓" : "✗"} ${name}: ${pages.length} page(s), ${reports.reduce((n, r) => n + r.gaps, 0)} gap(s), ${reports.reduce((n, r) => n + r.problems.length, 0)} layout problem(s), ${session.toolErrors.length} refused call(s), ${cost}`);
+    summary.push(`${issues === 0 ? "✓" : "✗"} ${name}: ${pages.length} page(s), project style ${styleTokens === 0 ? "vide" : `${styleTokens} token(s)`}, ${reports.reduce((n, r) => n + r.gaps, 0)} gap(s), ${reports.reduce((n, r) => n + r.problems.length, 0)} layout problem(s), ${session.toolErrors.length} refused call(s), ${cost}`);
     console.log(`  ${summary[summary.length - 1]}`);
     sections.push(`<section><h2>${issues === 0 ? "✓" : "✗"} ${escapeHtml(name)}</h2>
 <p class="prompt">${escapeHtml(prompt)}</p>
 <p class="meta">${cost} · ${session.turns ?? "?"} turns · ${session.durationMs === null ? "?" : Math.round(session.durationMs / 1000)} s · tools: ${escapeHtml(Object.entries(session.toolCalls).map(([t, n]) => `${t.replace("mcp__redline__", "")} ×${n}`).join(", "))} · <a href="${name}.jsonl">transcript</a></p>
+<h3>Project style · ${styleTokens === 0 ? "vide" : `${styleTokens} token(s)`}</h3>
+${styleTokens === 0 ? "<p><b>Claude wrote no project style.</b></p>" : `<pre>${escapeHtml(projectStyle.trim())}</pre>`}
 ${session.toolErrors.length ? `<h3>Refused calls</h3><ul>${session.toolErrors.map((e) => `<li><b>${escapeHtml(e.tool)}</b>: ${escapeHtml(e.text)}</li>`).join("")}</ul>` : ""}
 ${reports.map((r) => `<h3>${escapeHtml(r.title)} · ${r.gaps} écart(s)</h3>
 ${r.problems.length || r.emptyArtboards.length ? `<ul>${[...r.problems, ...r.emptyArtboards.map((f) => `empty artboard ${f}`)].map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>` : "<p>No layout problem.</p>"}
