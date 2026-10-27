@@ -787,7 +787,7 @@ export class Store {
     const previous = this.sharedDesignSystemIdOfProject(projectId) ?? null;
     if (designSystem === null && previous !== null) {
       const style = this.startingStyle(projectId, previous);
-      if (style !== undefined) this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(style, "utf8"), { origin: "user", ...(person ? { person } : {}) });
+      if (style !== undefined) this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(style, "utf8"), { origin: "user", ...(person && { person }) });
     }
     this.db.prepare("UPDATE projects SET design_system = ? WHERE id = ?").run(designSystem, projectId);
     if (designSystem === null && !this.readProjectFile(projectId, PROJECT_STYLE_PATH)) {

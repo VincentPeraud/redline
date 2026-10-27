@@ -30,21 +30,14 @@ declare module "fastify" {
   }
 }
 
-/** The person viewing: who made this request. Handlers that sign actions read it from the request they handle. */
-export function viewerOf(req: FastifyRequest): Person | undefined {
-  return req.person;
-}
-
 /** The viewer as the signature of a version they make; undefined without SSO. */
 export function personRef(req: FastifyRequest): OriginRef | undefined {
-  const person = viewerOf(req);
-  return person && { person };
+  return req.person && { person: req.person };
 }
 
 /** A DESIGN.md or tokens save made by the viewer in the editor. */
-export function userAuthor(req: FastifyRequest): DesignMdAuthor {
-  const person = viewerOf(req);
-  return { origin: "user", ...(person ? { person } : {}) };
+export function editorAuthor(req: FastifyRequest): DesignMdAuthor {
+  return { origin: "user", ...personRef(req) };
 }
 
 /** Node decodes header bytes as latin1, SSOs send UTF-8. */
@@ -69,8 +62,7 @@ export function registerIdentity(app: FastifyInstance, store: Store, secrets: Pr
     });
   }
   app.get(ME_PATH, async (req, reply) => {
-    const person = viewerOf(req);
-    const me: MeResponse = person ? { ...person, logoutUrl: config.logoutUrl ?? null } : null;
+    const me: MeResponse = req.person ? { ...req.person, logoutUrl: config.logoutUrl ?? null } : null;
     return reply.type("application/json").send(JSON.stringify(me));
   });
 }

@@ -26,7 +26,7 @@ import {
   type SetProjectDesignSystemRequest,
 } from "@redline/shared";
 import { componentFilesOf, projectComponents } from "./components.js";
-import { personRef, userAuthor, viewerOf } from "./identity.js";
+import { personRef, editorAuthor } from "./identity.js";
 import type { OriginRef, Store } from "./store.js";
 import { titleError } from "./validation.js";
 
@@ -154,7 +154,7 @@ function removeComponentCopies(store: Store, projectId: string, ref?: OriginRef)
 export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: Store): void {
   const hasProjectStyle = (projectId: string) => store.projectExists(projectId) && !store.isDesignSystemProject(projectId);
   const styleOf = (projectId: string) => store.readProjectText(projectId, PROJECT_STYLE_PATH);
-  const save = (req: FastifyRequest, projectId: string, css: string) => store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(css, "utf8"), userAuthor(req));
+  const save = (req: FastifyRequest, projectId: string, css: string) => store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(css, "utf8"), editorAuthor(req));
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/design-system", async (req, reply) => {
     if (!hasProjectStyle(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
@@ -167,7 +167,7 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     const designSystem = req.body?.designSystem ?? null;
     const invalid = designSystemChangeError(store, designSystem);
     if (invalid) return reply.code(400).send({ error: invalid });
-    store.setProjectDesignSystem(projectId, designSystem, "user", viewerOf(req));
+    store.setProjectDesignSystem(projectId, designSystem, "user", req.person);
     return projectDesignSystem(store, projectId);
   });
 
@@ -189,7 +189,7 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     });
     for (const [name, asset] of Object.entries(assetsUsedBy(store, projectId, components))) store.setProjectFile(designSystem.id, `${ASSETS_DIR}/${name}`, asset);
     save(req, projectId, "");
-    store.setProjectDesignSystem(projectId, designSystem.id, "user", viewerOf(req));
+    store.setProjectDesignSystem(projectId, designSystem.id, "user", req.person);
     removeComponentCopies(store, projectId, personRef(req));
     return reply.code(201).send(designSystem);
   });
