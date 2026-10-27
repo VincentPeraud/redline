@@ -1,6 +1,7 @@
 import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply, WorkItem } from "./work.js";
 import { tweakGridError, type TweakGridDeclaration } from "./tweakGrid.js";
 import type { Gap } from "./gaps.js";
+import type { Person } from "./people.js";
 
 export * from "./work.js";
 export * from "./sessions.js";
@@ -295,6 +296,8 @@ export interface Thread {
   /** First line of the comment, kept visible when the thread is resolved. */
   title: string;
   body: string;
+  /** The signed-in person who wrote `body` (the thread's first message, or the held comment); absent for comments from before the SSO and without SSO. */
+  person?: Person;
   status: ThreadStatus;
   /** Derived, never stored: a canvas-element thread whose element is absent from the page's current manifest. */
   removed?: true;

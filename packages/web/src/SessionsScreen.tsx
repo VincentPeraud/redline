@@ -8,6 +8,7 @@ import {
   type SessionFilter,
   type SessionRow,
 } from "@redline/shared";
+import { MessageAuthor } from "./MessageAuthor";
 import { routeHref } from "./router";
 import { subscribeServerEvents } from "./serverEvents";
 import { FILTER_LABEL, WAITING_NOTE, activityLabel, agentName, modelLine, shortSessionId } from "./sessionsView";
@@ -222,7 +223,8 @@ export function SessionsScreen() {
           <SidePanelBody>
             {detail.messages.map((m, i) => (
               <div key={i} data-testid="session-message" className={cx(styles.message, m.author === "user" ? styles.fromUser : styles.fromClaude)}>
-                <b>{m.author === "user" ? "Toi" : "Claude"}</b> — {m.body}
+                {m.author === "user" ? <MessageAuthor person={m.person} /> : <MessageAuthor claude />}
+                {m.body}
               </div>
             ))}
             {detail.status === "running" && (

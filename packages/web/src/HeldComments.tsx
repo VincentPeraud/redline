@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { SendHeldRequest, Thread, UpdateThreadRequest } from "@redline/shared";
 import type { ModelEffortChoice } from "./ModelEffortControls.js";
+import { MessageAuthor } from "./MessageAuthor.js";
 import { RemovedTag } from "./RemovedTag.js";
 import { RenderingChip } from "./RenderingChip.js";
 import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
@@ -103,7 +104,8 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
       ) : (
         <>
           <div className={styles.message}>
-            <span className={styles.author}>Toi</span> — {thread.body}
+            <MessageAuthor person={thread.person} />
+            {thread.body}
           </div>
         </>
       )}

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { ME_PATH, type MeResponse } from "@redline/shared";
+import { ME_PATH, personLabel, type MeResponse, type Person, type PersonPlace } from "@redline/shared";
 
 const MeContext = createContext<MeResponse>(null);
 
@@ -23,4 +23,13 @@ export function MeProvider({ children }: { children: ReactNode }) {
 /** The person viewing, or null without SSO: the account block and pill show only when it is set. */
 export function useMe(): MeResponse {
   return useContext(MeContext);
+}
+
+/**
+ * The one way to name who did something (messages here, histories and lists in the following tickets): "Toi", the
+ * person's name, "Utilisateur inconnu" / nothing / "—" when nobody is known, today's labels without SSO. See `personLabel`.
+ */
+export function usePersonLabel(): (person: Person | undefined, place: PersonPlace) => string | undefined {
+  const me = useMe();
+  return (person, place) => personLabel(person, me, place);
 }

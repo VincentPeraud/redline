@@ -120,10 +120,6 @@
   white-space: pre-wrap;
 }
 
-.author {
-  font-weight: var(--font-weight-semibold);
-}
-
 .claudeReply {
   padding: 10px 12px;
   border-radius: var(--radius-md);

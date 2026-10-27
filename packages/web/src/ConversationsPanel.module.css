@@ -151,6 +151,14 @@
   cursor: pointer;
 }
 
+.starter {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
 .context {
   display: flex;
   flex-direction: column;
@@ -204,10 +212,6 @@
   line-height: 1.7;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-}
-
-.author {
-  font-weight: var(--font-weight-semibold);
 }
 
 .queued {
@@ -282,7 +286,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 6px;
+  gap: 4px;
 }
 
 .sessionLine,

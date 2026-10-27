@@ -65,8 +65,8 @@ it("lists threads and conversations, filters by status and opens a session's mes
 
   await threadRow.click();
   await expect.poll(() => tab.getByTestId("session-message").allTextContents()).toEqual([
-    "Toi — Button too discreet",
-    "Claude — Button is now filled.",
+    "ToiButton too discreet",
+    "ClaudeButton is now filled.",
   ]);
   expect(tab.url()).toContain("#/sessions");
 

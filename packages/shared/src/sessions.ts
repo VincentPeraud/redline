@@ -1,4 +1,5 @@
 import type { AgentKind } from "./index.js";
+import type { Person } from "./people.js";
 import type { ModelChoice, QueueReason, ThreadContext } from "./work.js";
 
 export type SessionKind = "thread" | "conversation";
@@ -54,6 +55,8 @@ export interface SessionRow extends ModelChoice {
 
 export interface SessionMessage {
   author: "user" | "claude";
+  /** The person who wrote a user message; absent when none is known. */
+  person?: Person;
   body: string;
   createdAt: string;
 }
