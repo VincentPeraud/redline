@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import { chromium, type Browser, type Page } from "playwright";
-import { afterAll, beforeAll, expect, it } from "vitest";
-import { DESIGN_MD_PATH, MANIFEST_PATH } from "@redline/shared";
+import WebSocket from "ws";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import { AGENT_API_PREFIX, AGENT_ENDPOINT, MANIFEST_PATH, PROTOCOL_VERSION, type WorkItem } from "@redline/shared";
 import { startServer, type RunningServer } from "../../server/src/start.js";
-import { Store } from "../../server/src/store.js";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -38,6 +38,30 @@ const call = (base: string, headers: Record<string, string>) => async <T>(method
   return res.json() as Promise<T>;
 };
 
+const MACHINE = "m".repeat(32);
+let agent: WebSocket;
+const works = new Map<string, WorkItem>();
+
+/** A project agent connected to the SSO server, collecting the work items it is sent by the first thread each one answers. */
+async function connectAgent(): Promise<void> {
+  const { token } = await call(sso.url, vincent)<{ token: string }>("GET", "/api/agent-token");
+  agent = new WebSocket(sso.url.replace(/^http/, "ws") + AGENT_ENDPOINT, { headers: { "x-redline-proxy-secret": MACHINE } });
+  agent.on("message", (data) => {
+    const message = JSON.parse(String(data)) as { type: string; item?: WorkItem };
+    if (message.type === "work" && message.item) works.set(message.item.threads[0].threadId, message.item);
+  });
+  await new Promise<void>((resolve) => agent.on("open", () => resolve()));
+  agent.send(JSON.stringify({ type: "hello", token, protocolVersion: PROTOCOL_VERSION, machine: "m", folder: "/f", kind: "project", projectId }));
+}
+
+/** Someone comments on a page, Claude (the agent) works on it through `publish`, then the run ends. */
+async function claudeRun(pageId: string, who: Record<string, string>, comment: { artboard: string; body: string }, publish: (workId: string) => Promise<void>): Promise<void> {
+  const thread = await call(sso.url, who)<{ id: string }>("POST", `/api/pages/${pageId}/threads`, { ...comment, selector: "h1", xPct: 10, yPct: 20 });
+  const item = await vi.waitFor(() => works.get(thread.id) ?? Promise.reject(new Error("no work yet")), { timeout: 5000, interval: 20 });
+  await publish(item.id);
+  agent.send(JSON.stringify({ type: "work-done", workId: item.id }));
+}
+
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   dataDir = mkdtempSync(join(tmpdir(), "redline-signed-history-"));
@@ -48,7 +72,7 @@ beforeAll(async () => {
     artboardPort: 0,
     host: "127.0.0.1",
     webDir,
-    proxySecrets: { human: HUMAN, machine: "m".repeat(32) },
+    proxySecrets: { human: HUMAN, machine: MACHINE },
     identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email" },
   });
   plain = await startTestServer({ webDir });
@@ -64,44 +88,66 @@ beforeAll(async () => {
   const page = (title: string, headers: Record<string, string>, files = filesOf(title, "home.html")) =>
     call(sso.url, headers)<{ id: string; version: { id: string } }>("POST", `/api/projects/${projectId}/pages`, { title, files });
 
+  // DESIGN.md: a rule from before the SSO, one from Ariane (Claude's and Vincent's follow below).
+  const designMd = (headers: Record<string, string>, content: string) => call(sso.url, headers)("PUT", `/api/projects/${projectId}/design-md`, { content });
+  const rules = ["- Police Inter, titres en 600.", "- Ton chaleureux, tutoiement interdit.", "- Les boutons principaux sont pleins.", "- La semaine commence le lundi."];
+  await designMd(beforeSso, rules[0]);
+  await designMd(ariane, rules.slice(0, 2).join("\n"));
+
+  await connectAgent();
+  const asAgent = async <T>(method: string, path: string, body: unknown): Promise<T> => {
+    const { token } = await call(sso.url, vincent)<{ token: string }>("GET", "/api/agent-token");
+    const res = await fetch(sso.url + AGENT_API_PREFIX + path, {
+      method,
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "x-redline-proxy-secret": MACHINE },
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBeLessThan(300);
+    return res.json() as Promise<T>;
+  };
+
   // The history of home.html on "Parcours": created before the SSO, then Terminal, Claude for Ariane, Vincent by hand, Ariane's restoration.
   const history = await page("Parcours", beforeSso);
   historyPageId = history.id;
-  const store = new Store(dataDir);
-  const ariaStored = store.getPerson("amartin")!;
-  const first = store.listVersions(history.id)[0];
-  store.addVersion(history.id, { ...filesOf("Terminal", "home.html") }, "Ajuste les marges de l'artboard", "terminal");
-  store.addVersion(history.id, { ...filesOf("Claude", "home.html") }, "Bouton principal plein", "thread", { originId: "t1", originLabel: "Bouton trop discret", person: ariaStored });
-  store.close();
+  const terminal = await asAgent<{ id: string }>("POST", `/pages/${history.id}/versions`, {
+    files: filesOf("Terminal", "home.html"),
+    message: "Ajuste les marges de l'artboard",
+    origin: "terminal",
+    baseVersionId: history.version.id,
+  });
+  await claudeRun(history.id, ariane, { artboard: "home.html", body: "Bouton trop discret" }, async (workId) => {
+    await asAgent("POST", `/pages/${history.id}/versions`, {
+      files: filesOf("Claude", "home.html"),
+      message: "Bouton principal plein",
+      origin: "thread",
+      baseVersionId: terminal.id,
+      workId,
+      designMd: { content: rules.slice(0, 3).join("\n"), base: rules.slice(0, 2).join("\n") },
+    });
+    await asAgent("POST", `/pages/${history.id}/siblings`, { title: "Erreurs", workId });
+  });
   await call(sso.url, vincent)("POST", `/api/pages/${history.id}/versions`, { files: filesOf("Manual", "home.html"), message: "Retouche à la main", origin: "user" });
-  await call(sso.url, ariane)("POST", `/api/pages/${history.id}/versions/${first.id}/restore`, {});
+  await call(sso.url, ariane)("POST", `/api/pages/${history.id}/versions/${history.version.id}/restore`, {});
+  await designMd(vincent, rules.join("\n"));
 
   // Pages for the page menu and the deleted artboards.
+  await asAgent("POST", `/pages/${history.id}/siblings`, { title: "Page de Claude seule" });
   await page("Profil médecin", ariane);
   await page("Hier", beforeSso);
   const deletions = await page("Onboarding", vincent, filesOf("Onboarding", "ecran-1.html", "ecran-4.html", "ecran-5.html", "ecran-6.html"));
   deletionPageId = deletions.id;
-  const writer = new Store(dataDir);
-  writer.createPage(projectId, "Erreurs", filesOf("Erreurs", "home.html"), "claude", writer.getPerson("amartin"));
-  writer.createPage(projectId, "Page de Claude seule", filesOf("Seule", "home.html"), "claude");
-  writer.addVersion(deletions.id, filesOf("Onboarding", "ecran-1.html", "ecran-5.html", "ecran-6.html"), "Trop d'étapes", "thread", { originId: "t2", originLabel: "Trop d'étapes", person: writer.getPerson("vperaud") });
-  writer.close();
+  await claudeRun(deletions.id, vincent, { artboard: "ecran-1.html", body: "Trop d'étapes" }, async (workId) => {
+    await asAgent("POST", `/pages/${deletions.id}/versions`, {
+      files: filesOf("Onboarding", "ecran-1.html", "ecran-5.html", "ecran-6.html"),
+      message: "Trop d'étapes",
+      origin: "thread",
+      baseVersionId: deletions.version.id,
+      workId,
+      confirmRemovals: true,
+    });
+  });
   await call(sso.url, ariane)("POST", `/api/pages/${deletions.id}/versions`, { files: filesOf("Onboarding", "ecran-1.html", "ecran-6.html"), message: "Retire l'écran 5", origin: "user" });
   await call(sso.url, beforeSso)("POST", `/api/pages/${deletions.id}/versions`, { files: filesOf("Onboarding", "ecran-1.html"), message: "Retire l'écran 6", origin: "user" });
-
-  // DESIGN.md: a rule from before the SSO, one from Ariane, one from Claude for Ariane, one by Vincent.
-  const designMd = (headers: Record<string, string>, content: string) => call(sso.url, headers)("PUT", `/api/projects/${projectId}/design-md`, { content });
-  await designMd(beforeSso, "- Police Inter, titres en 600.");
-  await designMd(ariane, "- Police Inter, titres en 600.\n- Ton chaleureux, tutoiement interdit.");
-  const claude = new Store(dataDir);
-  claude.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from("- Police Inter, titres en 600.\n- Ton chaleureux, tutoiement interdit.\n- Les boutons principaux sont pleins.", "utf8"), {
-    origin: "thread",
-    originId: "t1",
-    originLabel: "Bouton trop discret",
-    person: claude.getPerson("amartin"),
-  });
-  claude.close();
-  await designMd(vincent, "- Police Inter, titres en 600.\n- Ton chaleureux, tutoiement interdit.\n- Les boutons principaux sont pleins.\n- La semaine commence le lundi.");
 
   const plainProject = await call(plain.url, {})<{ id: string }>("POST", "/api/projects", { title: "Plain" });
   plainProjectId = plainProject.id;
@@ -110,6 +156,7 @@ beforeAll(async () => {
 }, 90_000);
 
 afterAll(async () => {
+  agent?.close();
   await browser?.close();
   await sso?.close();
   await plain?.stop();
