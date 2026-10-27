@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { centerOn, fitView, panBy, zoomAt, MAX_ZOOM, MIN_ZOOM } from "../src/canvasView.js";
+import { centerOn, fitView, interpolateView, panBy, zoomAt, MAX_ZOOM, MIN_ZOOM } from "../src/canvasView.js";
 
 describe("canvas view", () => {
   it("zooms around the cursor so the canvas point under it does not move", () => {
@@ -15,6 +15,18 @@ describe("canvas view", () => {
   it("keeps the zoom within bounds", () => {
     expect(zoomAt({ x: 0, y: 0, zoom: 1 }, 1000, { x: 0, y: 0 }).zoom).toBe(MAX_ZOOM);
     expect(zoomAt({ x: 0, y: 0, zoom: 1 }, 0.0001, { x: 0, y: 0 }).zoom).toBe(MIN_ZOOM);
+  });
+
+  it("travels between two views, the zoom geometrically and the centred canvas point in a straight line", () => {
+    const viewport = { width: 400, height: 200 };
+    const from = { x: 0, y: 0, zoom: 1 }; // centres canvas (200, 100)
+    const to = { x: -1800, y: -100, zoom: 4 }; // centres canvas (500, 50)
+    expect(interpolateView(from, to, 0, viewport)).toEqual(from);
+    expect(interpolateView(from, to, 1, viewport)).toEqual(to);
+    const half = interpolateView(from, to, 0.5, viewport);
+    expect(half.zoom).toBe(2);
+    expect((200 - half.x) / half.zoom).toBe(350);
+    expect((100 - half.y) / half.zoom).toBe(75);
   });
 
   it("pans by a screen delta", () => {
