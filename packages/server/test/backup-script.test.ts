@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { Store } from "../src/store.js";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFinished } from "vitest";
+import { startTestServer } from "@redline/server/test-harness";
 
 const run = promisify(execFile);
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
@@ -25,11 +25,11 @@ describe("backup-db helper", () => {
   const helper = (...args: string[]) => run("node", [dbHelper, ...args], { cwd: repoRoot });
 
   it("copies a live database consistently and reports its project count", async () => {
-    const source = join(dir, "source");
-    mkdirSync(source);
-    const store = new Store(source);
-    store.createProject("One");
-    store.createProject("Two");
+    const server = await startTestServer();
+    onTestFinished(() => server.stop());
+    const source = server.dataDir;
+    await server.post("/api/projects", { title: "One" });
+    await server.post("/api/projects", { title: "Two" });
 
     const copy = join(dir, "copy.db");
     const { stdout } = await helper("snapshot", join(source, "redline.db"), copy);
