@@ -153,13 +153,78 @@ docker compose up -d --force-recreate
 
 The generator refuses a `.env` value that differs from its file, so the two copies cannot drift. The recreation applies the new value to Traefik and Redline together. The agents' token is separate: regenerate it from the Agents screen.
 
+### Backup
+
+`scripts/backup.sh` backs the server up with [restic](https://restic.net) (run from a digest-pinned image, so the host needs only Docker). It:
+
+1. makes a consistent copy of the SQLite database inside the container (SQLite's backup API on a read-only connection) and checks it (`integrity_check`, the expected tables, the project count): a copy that fails stops the backup before restic runs;
+2. backs that copy and the `blobs` folder up to your restic repository (the data volume is mounted read-only; the repository is created on the first run);
+3. keeps 7 daily, 4 weekly and 6 monthly snapshots (`forget --prune`), and on Sundays runs `check --read-data-subset=5%`.
+
+The settings live in a folder outside git, `~/.config/redline-backup` by default (`REDLINE_BACKUP_CONFIG_DIR` changes it). Keep it private: the script refuses to run when the folder or a file in it is readable by group or others.
+
+```sh
+mkdir -p ~/.config/redline-backup && chmod 700 ~/.config/redline-backup && cd ~/.config/redline-backup
+echo 'sftp:backup@storage.example.com:/redline' > repository   # see below
+openssl rand -base64 32 > password                              # also keep a copy of it elsewhere: without it the backups are unreadable
+chmod 600 *
+```
+
+| File | |
+| --- | --- |
+| `repository` | required: `sftp:user@host:/path`, `s3:s3.amazonaws.com/bucket`, an absolute folder of the host, or `volume:<docker volume>` |
+| `password` | required: the restic repository password |
+| `env` | `KEY=VALUE` lines for the repository (S3: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) |
+| `ssh-key`, `known_hosts` | for an SFTP repository: the private key and the server's host key (`ssh-keyscan storage.example.com > known_hosts`); with a `known_hosts` the host key is checked strictly |
+| `webhook-success`, `webhook-failure` | a URL each (Mattermost, Slack...): the script posts `{"text": "..."}` after a successful or failed backup |
+
+Run it once by hand (`scripts/backup.sh`), then from the host's cron:
+
+```
+30 3 * * * /path/to/redline/scripts/backup.sh
+```
+
+Logs are kept in `<settings folder>/logs/backup-YYYY-MM-DD.log` for 30 days. A second backup cannot start while one runs. A local repository on Docker Desktop for macOS cannot be written (restic cannot sync a bind mount there): use a Linux host, a remote repository or `volume:`.
+
+The same repository is reachable through `scripts/backup.sh restic <args>`, with the current folder mounted as `/restore`:
+
+```sh
+scripts/backup.sh restic snapshots
+scripts/backup.sh restic stats latest
+```
+
+### Restore
+
+Check regularly that a backup can be read, without touching the live server:
+
+```sh
+scripts/restore-test.sh        # restores the latest snapshot into a throwaway folder, opens the database, counts the projects
+scripts/restore-test.sh 12     # same, and fails unless the database holds 12 projects
+```
+
+To restore into the live stack (it replaces the current data):
+
+```sh
+mkdir restore && cd restore
+../scripts/backup.sh restic restore latest --tag redline --target .      # or a snapshot id instead of `latest`
+cd ..
+docker compose stop redline
+docker compose run --rm --no-deps -v "$PWD/restore/data:/restore:ro" --entrypoint sh redline -c \
+  'rm -rf /data/blobs /data/redline.db /data/redline.db-wal /data/redline.db-shm \
+   && cp -a /restore/blobs /data/blobs && cp /restore/backup/redline.db /data/redline.db'
+docker compose up -d
+sudo rm -rf restore            # restored files keep the owner of the volume (uid 1000)
+```
+
+To restore on a new server: do "First install" (it creates the data volume), copy your backup settings folder to the new host, then run the commands above.
+
 ## Development
 
 ```sh
 npm install
 npm test                # fast suite
 npm run build
-npm run test:docker     # opt-in: builds the image and checks data survives container recreation
+npm run test:docker     # opt-in: builds the image: data survives container recreation, production compose, backup and restore
 npm run eval:agent      # opt-in, costs real Claude sessions: see below
 ```
 
