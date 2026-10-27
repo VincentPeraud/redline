@@ -38,11 +38,11 @@ export function workOrigin(store: Store, pageLock: PageLock, workId: unknown, pa
   if (!item || item.pageId !== pageId) return undefined;
   if (item.conversationId) {
     const conversation = store.getConversation(item.conversationId);
-    const person = store.requestingPersonOfConversation(item.conversationId);
+    const person = pageLock.requesterOf(item.id);
     return { kind: "conversation", originId: item.conversationId, ...(conversation ? { originLabel: conversation.title } : {}), ...(person ? { person } : {}) };
   }
   const first = item.threads[0] && store.getThread(item.threads[0].threadId);
-  const person = first && store.requestingPersonOfThread(first.id);
+  const person = pageLock.requesterOf(item.id);
   return first ? { kind: "thread", originId: first.id, originLabel: first.title, ...(person ? { person } : {}) } : undefined;
 }
 

@@ -606,9 +606,16 @@ export class Store {
     return row && { ...row, initials: initialsOf(row.name, row.id) };
   }
 
+  /** The person a work item works for, read when the item is sent: see `requestingPersonOfThread`. */
+  requestingPersonOfItem(item: WorkItem): Person | undefined {
+    if (item.conversationId) return this.requestingPersonOfConversation(item.conversationId);
+    const first = item.threads[0];
+    return first && this.requestingPersonOfThread(first.threadId);
+  }
+
   /**
    * The person a run of Claude works for: the author of the message that started it, i.e. the latest human message of
-   * the thread (its comment, or its latest user reply). Undefined for comments from before the SSO and without SSO.
+   * the thread (its comment, or its latest user reply) at the time the run starts. Undefined for comments from before the SSO and without SSO.
    */
   requestingPersonOfThread(threadId: string): Person | undefined {
     const reply = this.db
