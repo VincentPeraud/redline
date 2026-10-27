@@ -278,3 +278,31 @@ it("moves the column under a responsive artboard down when a rendering makes it 
   await expect.poll(() => top("form.html")).toBe("1200px");
   await tab.close();
 }, 60_000);
+
+it("keeps the strip of an artboard within its width when zoomed out, and shows it whole on hover", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Strip" })).json()) as { id: string };
+  const html = "<!doctype html><html><body style=\"margin:0\"><div style=\"height:900px\">Page</div></body></html>";
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Strip",
+      files: { "a.html": html, "manifest.json": JSON.stringify({ artboards: [{ file: "a.html", title: "Mes vols", x: 0, y: 0, width: 1440, height: 900, responsive: ["desktop", "mobile"] }] }) },
+    })
+  ).json()) as Page;
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  const strip = tab.locator('[data-strip="a.html"]');
+  await tab.locator("[data-rendering=mobile-390] iframe").waitFor();
+  const fullscreen = strip.getByRole("button", { name: "Lancer a.html en plein écran" });
+  const onFirstLine = async () => (await fullscreen.evaluate((el) => (el as HTMLElement).offsetTop)) < 24;
+
+  for (let i = 0; i < 6; i++) await tab.getByRole("button", { name: "Dézoomer" }).click();
+  // the strip never gets wider than the frame on screen: the buttons that do not fit go to the hidden second line
+  await expect.poll(onFirstLine).toBe(false);
+  const [stripWidth, frameWidth] = await Promise.all([strip.evaluate((el) => el.getBoundingClientRect().width), tab.locator("[data-responsive-frame]").evaluate((el) => el.getBoundingClientRect().width)]);
+  expect(stripWidth).toBeLessThanOrEqual(frameWidth + 1);
+
+  await strip.hover({ position: { x: 5, y: 10 } });
+  await expect.poll(onFirstLine).toBe(true);
+  await tab.close();
+}, 60_000);

@@ -115,10 +115,31 @@
   gap: var(--space-1);
   transform-origin: 0 100%;
   z-index: 5;
+  /* Never wider than the artboard on screen: what does not fit wraps to a second line that the clip hides, so the end of the
+     strip goes first (buttons, then renderings and badges) and the name is truncated last. */
+  flex-wrap: wrap;
+  align-content: flex-start;
+  row-gap: 24px;
+  clip-path: inset(-100vh -100vw 0 -100vw);
+}
+
+/* Hovered, focused or with one of its menus open, the strip shows everything, over its neighbours. */
+.label:hover,
+.label:focus-within,
+.artboardRaised .label {
+  flex-wrap: nowrap;
+  min-width: max-content;
+  clip-path: none;
+  background: var(--color-bg);
+  background-clip: content-box;
+}
+
+.artboard:has(> .label:hover),
+.artboard:has(> .label:focus-within) {
+  z-index: 20;
 }
 
 .labelResponsive {
-  min-width: max-content;
   padding-bottom: 8px;
 }
 
