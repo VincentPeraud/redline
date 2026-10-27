@@ -479,7 +479,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const openCount = threads.filter((t) => t.status !== "resolved").length;
   const runningCount = runs.filter((r) => r.status === "running" || r.status === "sent" || r.status === "retrying").length;
   const firstArtboard = manifest?.artboards[0]?.file;
-  const draftInfo: Draft | null = draft && { label: draftLabel(draft) };
+  // Stable per pick: the comments panel focuses its textarea when this changes.
+  const draftInfo: Draft | null = useMemo(() => draft && { label: draftLabel(draft) }, [draft]);
   const pinnedOn = (file: string) => threads.filter((t) => t.target.kind === "element" && t.artboard === file);
   const wholeArtboardThreads = (file: string) => threads.filter((t) => t.target.kind === "artboard" && t.artboard === file && t.status !== "resolved");
   const hiddenOf = (artboard: Manifest["artboards"][number]) => (artboard.responsive ? hiddenRenderingKeys(artboard.responsive, viewSettings, artboard.file) : new Set<string>());
