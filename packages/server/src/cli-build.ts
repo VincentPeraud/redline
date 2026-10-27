@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const CLI_TARBALL_PATH = "/cli/redline-cli.tgz";
 
 /** The CLI tarball the image carries and the hash of the build it was packed from. */
 export interface CliBuild {

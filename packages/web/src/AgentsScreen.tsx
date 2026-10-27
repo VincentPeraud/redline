@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { modelLabel, type AgentOverview, type AgentTokenResponse, type Settings } from "@redline/shared";
+import { cliUpdateCommand, modelLabel, type AgentOverview, type AgentTokenResponse, type RefusedAgent, type Settings } from "@redline/shared";
+import { agentName } from "./agentName.js";
 import { routeHref } from "./router.js";
 import { relativeTime } from "./relativeTime.js";
 import { Button, Card, PageContent, PageHeader, SidePanel, StatusBadge, cx } from "./ui/index.js";
@@ -8,11 +9,6 @@ import styles from "./AgentsScreen.module.css";
 
 function maskToken(token: string): string {
   return token.length <= 8 ? "••••" : `${token.slice(0, 4)}••••••••••${token.slice(-4)}`;
-}
-
-function agentName(agent: AgentOverview): string {
-  if (agent.kind === "global") return "global";
-  return agent.folder.split("/").filter(Boolean).pop() ?? agent.folder;
 }
 
 function activity(agent: AgentOverview): { text: string; warn: boolean } {
@@ -110,10 +106,11 @@ function AgentCard({ agent }: { agent: AgentOverview }) {
           </span>
           {activityText && <span className={cx(styles.secondary, warn && styles.warn)}>{activityText}</span>}
         </div>
-        <div>
+        <div className={styles.statuses}>
           <StatusBadge tone={offline ? "neutral" : busy ? "running" : "success"} data-testid="agent-status">
             {offline ? "Hors ligne" : busy ? "Occupé" : "Libre"}
           </StatusBadge>
+          {agent.outdated && <StatusBadge tone="warning" data-testid="agent-outdated">Pas à jour</StatusBadge>}
         </div>
         {global ? (
           <Button aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -134,6 +131,43 @@ function AgentCard({ agent }: { agent: AgentOverview }) {
           ))}
         </ul>
       )}
+    </Card>
+  );
+}
+
+function RefusedAgentCard({ agent }: { agent: RefusedAgent }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    await navigator.clipboard.writeText(cliUpdateCommand(window.location.origin));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <Card as="article" padding="lg" className={styles.refused} data-testid="refused-agent-card">
+      <div className={styles.row}>
+        <div className={styles.cell}>
+          <div className={styles.nameLine}>
+            <span aria-hidden="true" className={cx(styles.dot, styles.dotRefused)} />
+            <span className={styles.name}>{agentName(agent)}</span>
+          </div>
+          <span className={styles.secondary}>{agent.kind === "global" ? "Agent global" : "Agent de projet"}</span>
+        </div>
+        <div className={styles.cell}>
+          <span className={styles.folder}>{agent.folder}</span>
+          <span className={styles.secondary}>
+            {agent.machine} · refusé {relativeTime(agent.refusedAt)}
+          </span>
+        </div>
+        <div className={styles.cell}>
+          <span className={styles.secondary}>Ne peut plus se connecter</span>
+        </div>
+        <div>
+          <StatusBadge tone="danger">Pas à jour · refusé</StatusBadge>
+        </div>
+        <Button onClick={copy}>{copied ? "Copié" : "Copier la commande"}</Button>
+      </div>
     </Card>
   );
 }
@@ -218,6 +252,7 @@ function LaunchPanel() {
 export function AgentsScreen() {
   const { home, refresh } = useHome();
   const agents = home?.agents ?? [];
+  const refused = home?.refusedAgents ?? [];
 
   return (
     <>
@@ -227,9 +262,12 @@ export function AgentsScreen() {
           subtitle="Un agent tourne sur ta machine, dans un dossier, avec le compte Claude connecté dans le terminal. C'est lui qui lance les sessions."
         />
         <section aria-label="Agents" className={styles.list}>
-          {home && agents.length === 0 && <p className={styles.empty}>Aucun agent ne s'est encore connecté.</p>}
+          {home && agents.length === 0 && refused.length === 0 && <p className={styles.empty}>Aucun agent ne s'est encore connecté.</p>}
           {agents.map((agent) => (
             <AgentCard key={agent.id} agent={agent} />
+          ))}
+          {refused.map((agent) => (
+            <RefusedAgentCard key={`${agent.machine}:${agent.folder}`} agent={agent} />
           ))}
         </section>
         <GlobalTakeoverSetting onChange={refresh} />

@@ -9,7 +9,7 @@ export interface AgentOptions extends Omit<ConnectOptions, "onMessage"> {
 
 /** Connects to the server and runs the work items it pushes, with the given engine. */
 export async function startAgent({ engine, ...connect }: AgentOptions): Promise<AgentConnection> {
-  const api = new ServerApi(connect.serverUrl, connect.token);
+  const api = new ServerApi(connect.serverUrl, connect.token, connect.buildHash);
   const connection = await connectToServer({
     ...connect,
     onMessage(message) {

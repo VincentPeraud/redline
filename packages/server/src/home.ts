@@ -72,6 +72,7 @@ export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock:
       projectCount: projects.length,
       projects: homeProjects,
       agents,
+      refusedAgents: store.listRefusedAgents(),
       recentPages: store.listRecentPages(RECENT_PAGES).map(({ page, updatedAt }) => ({
         page,
         projectTitle: titleOf.get(page.projectId) ?? "",
