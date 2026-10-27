@@ -89,7 +89,7 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
           ...(record.originLabel ? { originLabel: record.originLabel } : {}),
           createdAt: record.createdAt,
           current: record === newest && headHash !== undefined,
-          ...(ownPage ? {} : { diffusion: { designSystemTitle: store.getDesignSystem(designSystemOf(record))!.title, number: record.diffusion } }),
+          ...(ownPage || designSystemOf(record) === undefined ? {} : { diffusion: { designSystemTitle: store.getDesignSystem(designSystemOf(record)!)!.title, number: record.diffusion } }),
         }),
       )
       .reverse();

@@ -479,6 +479,11 @@ export class Store {
       .all() as DesignSystem[];
   }
 
+  /** The design systems a user or session can pick: every one but the hidden Neutral record. */
+  listChoosableDesignSystems(): DesignSystem[] {
+    return this.listDesignSystems().filter((designSystem) => designSystem.id !== NEUTRAL_DESIGN_SYSTEM_ID);
+  }
+
   /** Every thread and conversation with the page and project they belong to (design system pages included). */
   listSessionOrigins(): SessionOrigin[] {
     const select = (table: "threads" | "conversations") =>
@@ -623,10 +628,10 @@ export class Store {
     return { id, title, instructions, designSystem, globalTakeover: this.getGlobalTakeover(), globalTakeoverOverride: null };
   }
 
-  /** A project without a shared design system starts with the neutral values as its project style. */
+  /** A project without a shared design system starts with an empty project style (an empty file: it counts as existing), which Claude fills in. */
   createProject(title: string, id: string = randomUUID(), instructions = "", designSystem: string | null = null): Project {
     const project = this.insertProject(title, id, instructions, designSystem);
-    if (designSystem === null) this.saveDesignMd(id, PROJECT_STYLE_PATH, Buffer.from(NEUTRAL_TOKENS_CSS, "utf8"));
+    if (designSystem === null) this.saveDesignMd(id, PROJECT_STYLE_PATH, Buffer.alloc(0));
     return project;
   }
 
@@ -783,7 +788,7 @@ export class Store {
   announceProjectStyleChange(projectId: string): void {
     const row = this.db.prepare("SELECT design_system AS designSystem FROM projects WHERE id = ?").get(projectId) as { designSystem: string | null } | undefined;
     const pageIds = this.listPages(projectId).map((page) => page.id);
-    if (row && pageIds.length > 0) this.emit({ type: "design-system-updated", designSystemId: row.designSystem ?? NEUTRAL_DESIGN_SYSTEM_ID, pageIds });
+    if (row && pageIds.length > 0) this.emit({ type: "design-system-updated", ...(row.designSystem ? { designSystemId: row.designSystem } : {}), pageIds });
   }
 
   /** Versions of DESIGN.md (or of another versioned project-level file, `path`), newest first. */
@@ -1389,11 +1394,11 @@ export class Store {
     if (this.isDesignSystemPage(pageId)) return undefined;
     const manifestHash = (JSON.parse(filesJson) as Record<string, string>)[MANIFEST_PATH];
     const designSystemId = this.designSystemIdOfManifest(manifestHash === undefined ? undefined : this.blobText(manifestHash));
-    return this.currentDiffusion(designSystemId)?.number;
+    return designSystemId === undefined ? undefined : this.currentDiffusion(designSystemId)?.number;
   }
 
-  /** Design system a manifest names if it exists, else the neutral one. */
-  designSystemIdOfManifest(manifestText: string | undefined): string {
+  /** Design system a manifest names if it exists, else none. */
+  designSystemIdOfManifest(manifestText: string | undefined): string | undefined {
     if (manifestText !== undefined) {
       try {
         const id = parseManifest(manifestText).designSystem;
@@ -1402,7 +1407,7 @@ export class Store {
         // An invalid stored manifest must not break serving the artboard.
       }
     }
-    return NEUTRAL_DESIGN_SYSTEM_ID;
+    return undefined;
   }
 
   /** Diffusion a version is drawn with: the one recorded when it was published, 1 for versions from before diffusions; none for a design system's own pages. */

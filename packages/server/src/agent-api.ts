@@ -70,7 +70,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
 
       // Terminal mode sets up brands: list and create design systems, and point a project at one (or at none).
       api.get("/design-systems", async (): Promise<AgentDesignSystem[]> =>
-        store.listDesignSystems().map((designSystem) => ({
+        store.listChoosableDesignSystems().map((designSystem) => ({
           ...designSystem,
           pages: store.listPages(designSystem.id).map((page) => ({ id: page.id, title: page.title })),
           usedBy: store.projectsUsingDesignSystem(designSystem.id),

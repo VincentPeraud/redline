@@ -1,7 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { NEUTRAL_DESIGN_SYSTEM_ID } from "@redline/shared";
 import { projectComponents } from "./components.js";
-import { designSystemIdOf } from "./project-files.js";
+import { manifestDesignSystemIdOf } from "./project-files.js";
 import type { Store } from "./store.js";
 
 /**
@@ -23,7 +22,7 @@ export function registerDesignSystemReload(app: FastifyInstance, store: Store): 
       if (componentsCss.get(page.projectId) === css) return;
       componentsCss.set(page.projectId, css);
       const project = store.getProject(page.projectId);
-      store.emit({ type: "design-system-updated", designSystemId: project?.designSystem ?? NEUTRAL_DESIGN_SYSTEM_ID, pageIds: store.listPages(page.projectId).map((p) => p.id) });
+      store.emit({ type: "design-system-updated", ...(project?.designSystem ? { designSystemId: project.designSystem } : {}), pageIds: store.listPages(page.projectId).map((p) => p.id) });
       return;
     }
     const pageIds = store.listPages(designSystem.id).map((page) => page.id);
@@ -34,6 +33,6 @@ export function registerDesignSystemReload(app: FastifyInstance, store: Store): 
 
 /** Tells the pages of the projects that follow a design system to reload: a new diffusion was created. */
 export function announceDiffusion(store: Store, designSystemId: string): void {
-  const pageIds = store.listPageIds().filter((pageId) => !store.isDesignSystemPage(pageId) && designSystemIdOf(store, pageId) === designSystemId);
+  const pageIds = store.listPageIds().filter((pageId) => !store.isDesignSystemPage(pageId) && manifestDesignSystemIdOf(store, pageId) === designSystemId);
   store.emit({ type: "design-system-updated", designSystemId, pageIds });
 }

@@ -43,7 +43,7 @@ import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
 import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
-import { designSystemIdOf, projectContext, readPageAsset, registerProjectFileRoutes } from "./project-files.js";
+import { manifestDesignSystemIdOf, projectContext, readPageAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
@@ -209,7 +209,7 @@ export async function buildMainApp(
   );
 
   app.get("/api/design-systems", async () =>
-    store.listDesignSystems().map((designSystem) => {
+    store.listChoosableDesignSystems().map((designSystem) => {
       const { draft, pending } = store.pendingDiffusion(designSystem.id);
       return {
         ...designSystem,
@@ -627,16 +627,17 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     return projectId !== undefined && !store.isDesignSystemProject(projectId) ? projectId : undefined;
   }
 
-  /** The design system a page is rendered with: its own project's when it is a design system page, else the one its manifest names. */
-  function renderedDesignSystemOf(pageId: string, versionId?: string): string {
-    return store.designSystemOfPage(pageId)?.id ?? designSystemIdOf(store, pageId, versionId);
+  /** The design system a page is rendered with: its own project's when it is a design system page, else the one its manifest names, else none. */
+  function renderedDesignSystemOf(pageId: string, versionId?: string): string | undefined {
+    return store.designSystemOfPage(pageId)?.id ?? manifestDesignSystemIdOf(store, pageId, versionId);
   }
 
   /** Diffusion a page is rendered with: the current one for a project's pages, the one recorded with the version for a version preview, none (the draft) for a design system's own pages. */
   function diffusionOf(pageId: string, versionId?: string): number | undefined {
     if (store.isDesignSystemPage(pageId)) return undefined;
     if (versionId !== undefined) return store.versionDiffusion(pageId, versionId) ?? 1;
-    return store.currentDiffusion(renderedDesignSystemOf(pageId))?.number;
+    const designSystemId = renderedDesignSystemOf(pageId);
+    return designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId)?.number;
   }
 
   function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, versionId?: string, draftPreview = false) {
