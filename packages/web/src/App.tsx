@@ -40,7 +40,7 @@ export function App({ route }: { route: PageRoute }) {
   useEffect(
     () =>
       subscribeServerEvents((event) => {
-        if (event.type === "page-updated" && event.pageId === pageId) void loadPage();
+        if ((event.type === "page-updated" || event.type === "page-renamed") && event.pageId === pageId) void loadPage();
         if (event.type === "agents-updated" && page && !page.designSystem) void getJson<Project>(`/api/projects/${page.projectId}`).then(setProject);
       }),
     [pageId, page?.projectId],

@@ -20,6 +20,7 @@ import {
   type ThreadReply,
   type VersionOrigin,
   type ProjectStyleStart,
+  type RenamePageRequest,
 } from "@redline/shared";
 
 /** The agent's token-guarded view of the server (`/agent-api`); shared by sessions' MCP tools and terminal mode. */
@@ -69,6 +70,12 @@ export class ServerApi {
   createPageBeside(pageId: string, title: string, workId?: string): Promise<Page> {
     const body: CreateSiblingRequest = { title, ...(workId ? { workId } : {}) };
     return this.request("POST", `/pages/${pageId}/siblings`, body);
+  }
+
+  /** Renames `pageId`; `workId` keeps a session to the pages of its own project. */
+  renamePage(pageId: string, title: string, workId?: string): Promise<Page> {
+    const body: RenamePageRequest = { title, ...(workId ? { workId } : {}) };
+    return this.request("PUT", `/pages/${pageId}/title`, body);
   }
 
   /** Moves an artboard of `pageId` to another page of its project (`targetPageId`), or to a new page (`newPageTitle`). */

@@ -26,7 +26,7 @@ describe("session MCP tools", () => {
   it("offers add_artboard, create_page, check_page and read_guide", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing" }]);
     await runOnce(engine);
-    expect(engine.runs[0].mcpTools).toEqual(expect.arrayContaining(["add_artboard", "create_page", "move_artboard", "check_page", "read_guide"]));
+    expect(engine.runs[0].mcpTools).toEqual(expect.arrayContaining(["add_artboard", "create_page", "move_artboard", "rename_page", "check_page", "read_guide"]));
   });
 
   it("add_artboard writes the HTML and its manifest entry, published with the run", async () => {
@@ -216,6 +216,34 @@ describe("session MCP tools", () => {
       expect(Object.keys(source.version.files).sort()).toEqual(["extra.html", "home.html", "manifest.json"]);
       expect(parseManifest(await seam!.readFile(page.id, "manifest.json")).artboards.map((a) => a.file).sort()).toEqual(["extra.html", "home.html"]);
     });
+  });
+
+  it("rename_page renames a page of the project, the run's own by default, and refuses another project's", async () => {
+    const answers: string[] = [];
+    let others: { mine: string; foreign: string } | undefined;
+    const engine = new FakeEngine(async (run) => {
+      answers.push(await run.callTool("rename_page", { title: "Archive · Home" }));
+      answers.push(await run.callTool("rename_page", { pageId: others!.mine, title: "Archive · Brouillon" }));
+      answers.push(await run.callTool("rename_page", { pageId: others!.foreign, title: "Hijacked" }));
+      return [{ type: "result", summary: "Renamed" }];
+    });
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    const mine = await seam.createPage(PAGE_FILES, "Brouillon");
+    const otherProject = (await (await seam.server.post("/api/projects", { title: "Other" })).json()) as { id: string };
+    const foreign = (await (await seam.server.post(`/api/projects/${otherProject.id}/pages`, { title: "Theirs", files: PAGE_FILES })).json()) as Page;
+    others = { mine: mine.id, foreign: foreign.id };
+    await seam.pinThread(page.id, "home.html", "Archive this page");
+    await engine.finished(1);
+    await seam.waitForWorkEnd();
+
+    const titleOf = async (pageId: string) => ((await (await seam!.server.get(`/api/pages/${pageId}`)).json()) as Page).title;
+    expect(await titleOf(page.id)).toBe("Archive · Home");
+    expect(await titleOf(mine.id)).toBe("Archive · Brouillon");
+    expect(await titleOf(foreign.id)).toBe("Theirs");
+    expect(answers[2]).toMatch(/cannot rename/);
+    // An open canvas hears of the new title.
+    expect(seam.events()).toEqual(expect.arrayContaining([{ type: "page-renamed", pageId: page.id }]));
   });
 
   it("read_guide returns the manifest, tweaks, assets and design system rules", async () => {

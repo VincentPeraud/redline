@@ -853,6 +853,7 @@ export class Store {
 
   renamePage(id: string, title: string): void {
     this.db.prepare("UPDATE pages SET title = ? WHERE id = ?").run(title, id);
+    this.emit({ type: "page-renamed", pageId: id });
   }
 
   getViewSettings(pageId: string): PageViewSettings {
@@ -1301,7 +1302,7 @@ export class Store {
     const movedThreadIds: string[] = [];
     const result = this.db.transaction(() => {
       const source = this.getPage(sourceId)!;
-      const targetPage = "pageId" in target ? this.getPage(target.pageId)! : this.createPage(source.projectId, target.newPageTitle, starterPageFiles(target.newPageTitle, this.getProject(source.projectId)?.designSystem));
+      const targetPage = "pageId" in target ? this.getPage(target.pageId)! : this.createPage(source.projectId, target.newPageTitle, starterPageFiles(this.getProject(source.projectId)?.designSystem));
       const sourceFiles = { ...source.version.files };
       const targetFiles = { ...targetPage.version.files };
       const rawManifest = (page: Page) => {

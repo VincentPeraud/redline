@@ -208,7 +208,7 @@ it("is interactive by default, pins with C or Alt+click, and returns to interact
 it("shows a new page, which has no artboard, as an empty canvas that says what to do", async () => {
   const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as { id: string };
   const page = (await (
-    await server.post(`/api/projects/${project.id}/pages`, { title: "Stories", files: starterPageFiles("Stories") })
+    await server.post(`/api/projects/${project.id}/pages`, { title: "Stories", files: starterPageFiles() })
   ).json()) as Page;
 
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });

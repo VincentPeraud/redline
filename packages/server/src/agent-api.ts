@@ -11,13 +11,14 @@ import {
   type CreateSiblingRequest,
   type CreateVersionRequest,
   type MoveArtboardRequest,
+  type RenamePageRequest,
   type DesignMdAuthor,
   starterDesignSystemFiles,
   starterPageFiles,
   type AgentDesignSystem,
   type ProjectStyleStart,
 } from "@redline/shared";
-import { mergeOntoCurrent } from "./publish.js";
+import { manifestTitleError, mergeOntoCurrent } from "./publish.js";
 import { agentGaps } from "./gaps.js";
 import { moveArtboard } from "./move-artboard.js";
 import { tokensEqual } from "./request-hardening.js";
@@ -105,7 +106,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const title = req.body?.title;
         if (titleError(title)) return reply.code(400).send({ error: titleError(title) });
         const name = (title as string).trim();
-        return reply.code(201).send(store.createPage(project.id, name, starterPageFiles(name, project.designSystem), "claude"));
+        return reply.code(201).send(store.createPage(project.id, name, starterPageFiles(project.designSystem), "claude"));
       });
 
       api.get<{ Params: { pageId: string } }>("/pages/:pageId/files", async (req, reply): Promise<AgentCheckout> => {
@@ -125,6 +126,8 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           return reply.code(403).send({ error: "This work belongs to a page of another project: it cannot publish here." });
         }
         if (!requiredString(baseVersionId)) return reply.code(400).send({ error: "baseVersionId is required" });
+        const invalidTitle = manifestTitleError(store, req.params.pageId, files, baseVersionId);
+        if (invalidTitle) return reply.code(400).send({ error: invalidTitle });
         if (designMd !== undefined && (typeof designMd?.content !== "string" || typeof designMd.base !== "string")) {
           return reply.code(400).send({ error: "designMd needs content and base" });
         }
@@ -199,9 +202,24 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (titleError(title)) return reply.code(400).send({ error: titleError(title) });
         const name = (title as string).trim();
         const designSystem = store.getProject(page.projectId)?.designSystem;
-        const created = store.createPage(page.projectId, name, starterPageFiles(name, designSystem), "claude");
+        const created = store.createPage(page.projectId, name, starterPageFiles(designSystem), "claude");
         if (workOrigin(store, pageLock, workId, page.id)) store.recordCreatedPage(workId!, created.id);
         return reply.code(201).send(created);
+      });
+
+      api.put<{ Params: { pageId: string }; Body: Partial<RenamePageRequest> }>("/pages/:pageId/title", async (req, reply) => {
+        const page = store.getPage(req.params.pageId);
+        if (!page) return reply.code(404).send({ error: "page not found" });
+        const { title, workId } = req.body ?? {};
+        const invalid = titleError(title);
+        if (invalid) return reply.code(400).send({ error: invalid });
+        // A session renames only the pages of its own project; a work item it no longer runs renames nothing.
+        const workPage = typeof workId === "string" ? pageLock.itemOf(workId)?.pageId : undefined;
+        if (workId !== undefined && store.getPage(workPage ?? "")?.projectId !== page.projectId) {
+          return reply.code(403).send({ error: "This session cannot rename that page: it belongs to another project, or the run is over." });
+        }
+        store.renamePage(page.id, (title as string).trim());
+        return store.getPage(page.id);
       });
 
       api.post<{ Params: { pageId: string }; Body: Partial<MoveArtboardRequest> }>("/pages/:pageId/move-artboard", async (req, reply) => {

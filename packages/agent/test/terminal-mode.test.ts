@@ -336,6 +336,43 @@ describe("terminal mode: projects and pages", () => {
     rmSync(bare, { recursive: true, force: true });
     rmSync(linked, { recursive: true, force: true });
   });
+  it("renames the checked-out page, or the page given by id, and explains when there is none", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const web = await seam.createPage(PAGE_FILES, "Sortie");
+    const other = await seam.createPage(PAGE_FILES, "Brouillon");
+    const call = await connectTerminal(seam.folder);
+    const titleOf = async (pageId: string) => ((await (await seam!.server.get(`/api/pages/${pageId}`)).json()) as Page).title;
+
+    expect(await call("rename_page", { title: "Archive" })).toMatch(/No page checked out/);
+    expect(await call("rename_page", { pageId: other.id, title: "Archive · Brouillon" })).toMatch(/renamed "Archive · Brouillon"/);
+    expect(await titleOf(other.id)).toBe("Archive · Brouillon");
+
+    await call("checkout_page", { pageId: web.id });
+    await call("rename_page", { title: "  Archive · Sortie (v1) " });
+    expect(await titleOf(web.id)).toBe("Archive · Sortie (v1)");
+    expect(await call("rename_page", { title: "  " })).toMatch(/title/);
+  });
+
+  it("refuses a manifest title changed to rename the page, and keeps one left as checked out", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const manifest = (title: string) => JSON.stringify({ title, artboards: [{ file: "home.html", x: 0, y: 0 }] }, null, 2);
+    const page = await seam.createPage({ ...PAGE_FILES, "manifest.json": manifest("Sortie") }, "Sortie");
+    // The user renamed the page since: the title the manifest still carries is left alone.
+    await fetch(`${seam.server.url}/api/pages/${page.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Sortie · rejeu" }) });
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+    const copy = join(seam.folder, ".redline", page.id);
+
+    writeFileSync(join(copy, "home.html"), "<h1>Changed</h1>");
+    expect(await call("publish_page", { message: "Rework home" })).toMatch(/Published/);
+
+    writeFileSync(join(copy, "manifest.json"), manifest("Archive · Sortie"));
+    const refused = await call("publish_page", { message: "Rename page to archive" });
+    expect(refused).toMatch(/does not rename the page/);
+    expect(refused).toMatch(/rename_page/);
+    expect(await origins(page.id)).toHaveLength(2);
+  });
+
   it("moves an artboard of the checked-out page to another page, refreshes the working copy and explains refusals", async () => {
     seam = await startSeam2(new FakeEngine([]));
     const manifest = JSON.stringify({ artboards: [{ file: "home.html", x: 0, y: 0 }, { file: "btn.html", x: 900, y: 0 }] });

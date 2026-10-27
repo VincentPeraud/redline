@@ -21,7 +21,7 @@ describe("home overview", () => {
   }
 
   async function createPage(projectId: string, title: string) {
-    const files = starterPageFiles(title, null);
+    const files = starterPageFiles(null);
     return (await (await server.post(`/api/projects/${projectId}/pages`, { title, files })).json()) as Page;
   }
 
@@ -30,7 +30,7 @@ describe("home overview", () => {
     const first = await createPage(acme.id, "First");
     await createPage(acme.id, "Second");
     await new Promise((resolve) => setTimeout(resolve, 5));
-    await server.post(`/api/pages/${first.id}/versions`, { files: starterPageFiles("First again", null), message: "edit", origin: "terminal" });
+    await server.post(`/api/pages/${first.id}/versions`, { files: { ...starterPageFiles(null), "index.html": "<h1>First again</h1>" }, message: "edit", origin: "terminal" });
     const overview = await home();
     expect(overview.projectCount).toBe(1);
     expect(overview.recentPages.map((r) => [r.page.title, r.projectTitle])).toEqual([
@@ -60,7 +60,7 @@ describe("home overview", () => {
     const empty = await createProject("Empty");
     expect((await home()).projects.find((p) => p.id === acme.id)?.lastPageId).toBe(pricing.id);
     await new Promise((resolve) => setTimeout(resolve, 5));
-    await server.post(`/api/pages/${landing.id}/versions`, { files: starterPageFiles("Landing again", null), message: "edit", origin: "terminal" });
+    await server.post(`/api/pages/${landing.id}/versions`, { files: { ...starterPageFiles(null), "index.html": "<h1>Landing again</h1>" }, message: "edit", origin: "terminal" });
     const { projects } = await home();
     expect(projects.find((p) => p.id === acme.id)?.lastPageId).toBe(landing.id);
     expect(projects.find((p) => p.id === empty.id)?.lastPageId).toBeUndefined();

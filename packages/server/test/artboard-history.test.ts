@@ -76,8 +76,8 @@ describe("per-artboard history, deleted artboards and artboard restore over the 
     const body = await res.text();
     expect(res.status).toBe(200);
     expect(res.headers.get("content-security-policy")).toBe("sandbox allow-scripts");
-    expect(body).toContain("a1");
-    expect(body).not.toContain("a2");
+    expect(body).toContain("<h1>a1</h1>");
+    expect(body).not.toContain("<h1>a2</h1>");
     expect(body).toContain("/__redline/bridge.js");
     expect((await fetch(server.artboardOrigin + versionPreviewPath(page.id, "nope", "a.html"))).status).toBe(404);
   });

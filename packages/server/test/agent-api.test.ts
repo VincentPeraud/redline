@@ -115,7 +115,7 @@ it("lets an agent list projects and their pages, and create both", async () => {
   expect(stories).toMatchObject({ projectId: project.id, title: "Stories", createdBy: "claude" });
   expect(Object.keys(stories.version.files)).toEqual(["manifest.json"]);
   const manifest = await (await server.get(`/api/pages/${stories.id}/files/manifest.json`)).json();
-  expect(manifest).toMatchObject({ title: "Stories", designSystem: spooky.id, artboards: [] });
+  expect(manifest).toMatchObject({ designSystem: spooky.id, artboards: [] });
 
   const pages = (await (await agentCall(`/projects/${project.id}/pages`)).json()) as Page[];
   expect(pages.map((p) => p.title)).toEqual(["Stories"]);

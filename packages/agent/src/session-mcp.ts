@@ -15,6 +15,7 @@ export const REPLY_IN_THREAD_TOOL = "reply_in_thread";
 export const ADD_ARTBOARD_TOOL = "add_artboard";
 export const CREATE_PAGE_TOOL = "create_page";
 export const MOVE_ARTBOARD_TOOL = "move_artboard";
+export const RENAME_PAGE_TOOL = "rename_page";
 export const CONFIRM_REMOVALS_TOOL = "confirm_removals";
 export const READ_GUIDE_TOOL = "read_guide";
 export const CHECK_PAGE_TOOL = "check_page";
@@ -154,6 +155,25 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
       },
     );
   }
+  server.registerTool(
+    RENAME_PAGE_TOOL,
+    {
+      description:
+        "Rename a page of this project: the title shown in Redline's page lists and header (the manifest has no page title). For example, to keep an old page aside before starting a new one, rename it \"Archive · <title>\". Without pageId it renames the page you work on.",
+      inputSchema: {
+        title: z.string(),
+        pageId: z.string().optional().describe("Id of the page to rename (see list_pages); default: the page you work on"),
+      },
+    },
+    async ({ title, pageId }) => {
+      try {
+        const page = await api.renamePage(pageId ?? context.pageId, title, context.workId);
+        return text(`Page renamed "${page.title}" (id ${page.id}).`);
+      } catch (error) {
+        return text((error as Error).message, true);
+      }
+    },
+  );
   server.registerTool(
     MOVE_ARTBOARD_TOOL,
     {

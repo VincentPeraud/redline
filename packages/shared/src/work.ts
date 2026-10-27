@@ -113,6 +113,8 @@ export interface AgentReplyRequest extends CreateReplyRequest {
 /** Server-sent events on `GET /api/events`, so the web UI refreshes without polling. */
 export type ServerEvent =
   | { type: "page-updated"; pageId: string; versionId: string }
+  /** The page got a new title (from the header or a session's rename_page): an open canvas shows it. */
+  | { type: "page-renamed"; pageId: string }
   /** A design system got a new version: the pages that use it (`pageIds`) reload their artboards to pick up the tokens. */
   | { type: "design-system-updated"; designSystemId: string; pageIds: string[] }
   | { type: "thread-updated"; pageId: string; threadId: string }
@@ -235,12 +237,19 @@ export interface CreateConversationMessageRequest extends ModelChoice {
  *   GET  /agent-api/pages/:pageId/files          -> AgentCheckout
  *   POST /agent-api/pages/:pageId/versions       (CreateVersionRequest) -> PageVersionSummary
  *   POST /agent-api/pages/:pageId/siblings       (CreateSiblingRequest) -> Page, a new page in the same project
+ *   PUT  /agent-api/pages/:pageId/title          (RenamePageRequest)    -> Page, renamed
  *   POST /agent-api/threads/:threadId/replies    (AgentReplyRequest)    -> ThreadReply
  */
 export const AGENT_API_PREFIX = "/agent-api";
 
 /** Body of `POST /agent-api/pages/:pageId/siblings`; `workId` ties the created page to the run that made it. */
 export interface CreateSiblingRequest {
+  title: string;
+  workId?: string;
+}
+
+/** `PUT /agent-api/pages/:pageId/title`: a session renames a page of its project (`workId` keeps it to that project). */
+export interface RenamePageRequest {
   title: string;
   workId?: string;
 }

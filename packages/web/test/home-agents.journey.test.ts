@@ -29,7 +29,7 @@ afterAll(async () => {
 
 it("shows recent pages, running work and agents on the home, with live sidebar counts", async () => {
   const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
-  const files = starterPageFiles("Landing", null);
+  const files = starterPageFiles(null);
   const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Landing", files })).json()) as Page;
 
   const tab = await browser.newPage();

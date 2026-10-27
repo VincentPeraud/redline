@@ -1,3 +1,4 @@
+import { MANIFEST_PATH } from "@redline/shared";
 import type { Store } from "./store.js";
 
 export type MergeResult =
@@ -35,6 +36,30 @@ export function mergeOntoCurrent(store: Store, pageId: string, files: Record<str
 
   function conflict(path: string): undefined {
     conflicts.push(path);
+    return undefined;
+  }
+}
+
+/**
+ * Error message when a publish changes the manifest's top-level `title` to something other than the page's title, else null.
+ * That field renames nothing (the page title lives in the database): a session that edits it believes it renamed the page.
+ * A title left as checked out is fine, even when the user renamed the page since.
+ */
+export function manifestTitleError(store: Store, pageId: string, files: Record<string, string>, baseVersionId: string): string | null {
+  const page = store.getPage(pageId);
+  const title = manifestTitle(files[MANIFEST_PATH]);
+  if (!page || title === undefined || title === page.title) return null;
+  const base = store.readVersionFiles(pageId, baseVersionId);
+  if (base && manifestTitle(base[MANIFEST_PATH]) === title) return null;
+  return `${MANIFEST_PATH}: "title": "${title}" does not rename the page (it is "${page.title}"). Call rename_page to rename it, and remove "title" from ${MANIFEST_PATH}.`;
+}
+
+function manifestTitle(manifest: string | undefined): string | undefined {
+  if (manifest === undefined) return undefined;
+  try {
+    const { title } = JSON.parse(manifest) as { title?: unknown };
+    return typeof title === "string" ? title : undefined;
+  } catch {
     return undefined;
   }
 }

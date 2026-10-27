@@ -667,6 +667,7 @@ export interface ManifestTweak {
 }
 
 export interface Manifest {
+  /** Legacy: older guides asked for the page title here. It renames nothing (the page title is in the database), and a publish that changes it is refused. */
   title?: string;
   /** Id of the design system the page uses. */
   designSystem?: string;
@@ -1233,9 +1234,9 @@ export function resolveTweakValues(manifest: Manifest, stored: TweakValues): Twe
   return values;
 }
 
-/** Files of a new page: a manifest naming its title, and no artboard (the session that fills the page adds them). */
-export function starterPageFiles(title: string, designSystem?: string | null): Record<string, string> {
-  const manifest = { title, ...(designSystem ? { designSystem } : {}), artboards: [] };
+/** Files of a new page: a manifest with no artboard (the session that fills the page adds them). The title stays out: it lives with the page. */
+export function starterPageFiles(designSystem?: string | null): Record<string, string> {
+  const manifest = { ...(designSystem ? { designSystem } : {}), artboards: [] };
   return { [MANIFEST_PATH]: JSON.stringify(manifest, null, 2) };
 }
 

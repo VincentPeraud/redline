@@ -59,15 +59,22 @@ function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBa
   useEffect(() => {
     if (!open || !project) return;
     let cancelled = false;
+    // The pages show at once; each open thread count joins when it comes, and one that fails leaves its page without a count.
     void (async () => {
-      const list = (await (await fetch(`/api/projects/${project.id}/pages`)).json()) as Page[];
-      const withCounts = await Promise.all(
-        list.map(async (page) => {
-          const threads = (await (await fetch(`/api/pages/${page.id}/threads`)).json()) as Thread[];
-          return { page, openThreads: threads.filter((t) => t.status === "open").length };
-        }),
-      );
-      if (!cancelled) setPages(withCounts);
+      const response = await fetch(`/api/projects/${project.id}/pages`).catch(() => undefined);
+      const list = response?.ok ? ((await response.json().catch(() => undefined)) as Page[] | undefined) : undefined;
+      if (!list || cancelled) return;
+      setPages(list.map((page) => ({ page, openThreads: 0 })));
+      for (const page of list) {
+        void fetch(`/api/pages/${page.id}/threads`)
+          .then((res) => (res.ok ? (res.json() as Promise<Thread[]>) : undefined))
+          .then((threads) => {
+            if (cancelled || !threads) return;
+            const openThreads = threads.filter((t) => t.status === "open").length;
+            setPages((current) => current.map((item) => (item.page.id === page.id ? { page: item.page, openThreads } : item)));
+          })
+          .catch(() => undefined);
+      }
     })();
     return () => {
       cancelled = true;

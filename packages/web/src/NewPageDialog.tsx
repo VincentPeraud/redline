@@ -35,7 +35,7 @@ export function NewPageDialog({
     event.preventDefault();
     if (!canCreate) return;
     const pageTitle = title.trim();
-    const body: CreatePageRequest = { title: pageTitle, files: starterPageFiles(pageTitle, designSystem) };
+    const body: CreatePageRequest = { title: pageTitle, files: starterPageFiles(designSystem) };
     const page = await postJson<Page>(`/api/projects/${projectId}/pages`, body);
     if (instructions.trim() !== "") {
       const conversation = await postJson<Conversation>(`/api/pages/${page.id}/conversations`, {});
