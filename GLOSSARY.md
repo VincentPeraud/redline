@@ -112,6 +112,6 @@ An agent started in a neutral folder that serves projects without a project agen
 
 ### People
 
-**User**:
-The single owner of a Redline server; v1 has no other people.
-_Avoid_: Account, member
+**Person**:
+Someone signed in through the SSO, identified by the user-id header value, with a display name and an e-mail refreshed whenever the SSO sends other ones. Redline has no login of its own, and without an SSO there are no people. "Toi" in the UI means the person viewing.
+_Avoid_: User, account, member

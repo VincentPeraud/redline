@@ -6,6 +6,9 @@ import { GapsButton } from "./GapsReport.js";
 import { ErrorsButton, type ArtboardErrorsEntry } from "./ArtboardErrors.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
 import { TocMenu } from "./TocMenu.js";
+import { AccountMenu, displayName } from "./AccountMenu.js";
+import { avatarClassName } from "./Avatar.js";
+import { useMe } from "./useMe.js";
 import type { TocItem } from "./tocItems.js";
 import { routeHref } from "./router.js";
 import { Logo, cx } from "./ui/index.js";
@@ -225,6 +228,7 @@ interface Props {
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
 export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf }: Props) {
+  const me = useMe();
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -279,6 +283,17 @@ export function CanvasHeader({ project, designSystemId, versionId, pageId, pageT
             </button>
           </div>
         </>
+      )}
+      {me && (
+        <AccountMenu
+          me={me}
+          placement="down"
+          trigger={(props) => (
+            <button type="button" data-testid="account-pill" aria-label={`Compte : ${displayName(me)}`} className={cx(avatarClassName, styles.accountPill)} {...props}>
+              {me.initials}
+            </button>
+          )}
+        />
       )}
     </header>
   );

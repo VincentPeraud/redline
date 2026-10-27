@@ -57,6 +57,7 @@ import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
 import { registerGapRoutes } from "./gaps.js";
+import { registerIdentity, type IdentityConfig } from "./identity.js";
 import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
 import { registerRequestHardening } from "./request-hardening.js";
 import { announceDiffusion, registerDesignSystemReload } from "./design-system-reload.js";
@@ -115,11 +116,12 @@ export async function buildMainApp(
   store: Store,
   config: ServerConfig,
   webDir?: string,
-  options: { retryDelaysMs?: number[]; proxySecrets?: ProxySecrets } = {},
+  options: { retryDelaysMs?: number[]; proxySecrets?: ProxySecrets; identity?: IdentityConfig } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ bodyLimit: MAX_PAGE_BYTES });
   registerProxySecretCheck(app, options.proxySecrets);
   registerHealthRoute(app);
+  registerIdentity(app, store, options.proxySecrets, options.identity);
   registerRequestHardening(app);
   explainTooLarge(app);
   const agents = await registerAgentRoutes(app, store);

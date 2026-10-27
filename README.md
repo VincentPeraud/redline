@@ -47,6 +47,19 @@ The proxy adds the secret in the `X-Redline-Proxy-Secret` request header (its hu
 
 `GET /healthz` on the main port answers `200` without a secret, but only to a request whose remote address is the container's own loopback (a request through the proxy never is). The image's health check calls it.
 
+### Signed-in person (SSO)
+
+When the proxy secrets are set, Redline reads who is signed in from the identity headers your SSO adds, on `/api` requests carrying the human secret only (never on the machine paths, never when no proxy secrets are set: without them anyone could forge the headers, so there is then no identity, no account block and no menu). A person is created on their first visit, and their name and e-mail follow the SSO. `GET /api/me` answers the person and the logout URL, or `null`.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `REDLINE_IDENTITY_HEADER_USER` | `Remote-User` | Header holding the user id |
+| `REDLINE_IDENTITY_HEADER_NAME` | `Remote-Name` | Header holding the display name |
+| `REDLINE_IDENTITY_HEADER_EMAIL` | `Remote-Email` | Header holding the e-mail |
+| `REDLINE_LOGOUT_URL` | none | Where "Se déconnecter" leads (the SSO's logout page); without it the menu offers no sign-out |
+
+The defaults are Authelia's. oauth2-proxy sends `X-Auth-Request-User`, `X-Auth-Request-Preferred-Username` (or `X-Auth-Request-Email`) and `X-Auth-Request-Email`; Authentik sends `X-authentik-username`, `X-authentik-name` and `X-authentik-email`. Your proxy must forward these headers to Redline.
+
 ### Behind Traefik (local)
 
 With a Traefik already running on an external Docker network named `traefik` (entrypoint `web`), `docker-compose.traefik.yml` serves the UI on `http://redline.localhost` and the artboards on `http://artboards.redline.localhost`:

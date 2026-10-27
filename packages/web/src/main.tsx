@@ -11,6 +11,7 @@ import { ProjectDesignSystemScreen } from "./ProjectDesignSystemScreen";
 import { ProjectOverview } from "./ProjectOverview";
 import { ProjectsScreen } from "./ProjectsScreen";
 import { Shell } from "./Sidebar";
+import { MeProvider } from "./useMe";
 import { useRoute } from "./router";
 import { SessionsScreen } from "./SessionsScreen";
 
@@ -41,7 +42,9 @@ function Root() {
 }
 
 createRoot(document.getElementById("root")!).render(
-  <DiffusionProvider>
-    <Root />
-  </DiffusionProvider>,
+  <MeProvider>
+    <DiffusionProvider>
+      <Root />
+    </DiffusionProvider>
+  </MeProvider>,
 );

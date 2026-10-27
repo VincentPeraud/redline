@@ -219,6 +219,17 @@
   font-weight: var(--font-weight-semibold);
 }
 
+.accountPill {
+  padding: 0;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.accountPill:hover {
+  box-shadow: 0 0 0 3px var(--color-border);
+}
+
 .previewNote {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
