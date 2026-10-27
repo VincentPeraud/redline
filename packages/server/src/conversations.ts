@@ -209,12 +209,13 @@ export function registerConversationRoutes(
   app.post<{ Params: { pageId: string }; Body: CreateConversationRequest }>("/api/pages/:pageId/conversations", async (req, reply) => {
     const page = store.getPage(req.params.pageId);
     if (!page) return reply.code(404).send({ error: "page not found" });
-    const title = req.body?.title;
+    const { title, viaProjectId } = req.body ?? {};
     if (title !== undefined && !requiredString(title)) {
       return reply.code(400).send({ error: "title must be a non-empty string" });
     }
+    if (viaProjectId !== undefined && typeof viaProjectId !== "string") return reply.code(400).send({ error: "viaProjectId must be a string" });
     const first = !store.projectHasConversation(page.projectId);
-    const conversation = store.createConversation(page.id, title ?? "Nouvelle conversation", req.person);
+    const conversation = store.createConversation(page.id, title ?? "Nouvelle conversation", req.person, viaProjectId);
     const instructions = store.getProject(page.projectId)?.instructions ?? "";
     // The project's brief opens its first conversation: it is sent now, with a short acknowledgement asked back.
     if (first && instructions.trim() !== "") sendMessage(conversation, instructions, {}, { brief: true, person: req.person });

@@ -220,6 +220,8 @@ export interface ConversationDetail extends Conversation, ModelChoice {
 /** Body of `POST /api/pages/:pageId/conversations`. */
 export interface CreateConversationRequest {
   title?: string;
+  /** On a design system's page: the project it was opened from, whose agent runs the work (ignored when that project does not use it). */
+  viaProjectId?: string;
 }
 
 /** What the user sees when a conversation message is sent. Sent with the message; only its `targets` (the chips) are stored, on the user's message. */

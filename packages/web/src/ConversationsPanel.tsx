@@ -26,6 +26,7 @@ import { AddressPill, PlainLink } from "./AddressPill.js";
 import { splitMessageLinks } from "./messageLinks.js";
 import { rememberArtboardTitles } from "./otherPageArtboards.js";
 import { Button, Textarea, Tooltip, cx } from "./ui/index.js";
+import { viaProjectField } from "./viaProject.js";
 import styles from "./ConversationsPanel.module.css";
 
 const AGENT_DEFAULT = "défaut de l'agent";
@@ -161,7 +162,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
 
   /** One creation at a time: a message sent while the first one is still creating the conversation joins it instead of creating a second one. */
   function createConversation(): Promise<string> {
-    creating.current ??= fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })
+    creating.current ??= fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(viaProjectField(pageId)) })
       .then(async (res) => {
         if (!res.ok) throw new Error("conversation");
         const { id } = (await res.json()) as ConversationDetail;

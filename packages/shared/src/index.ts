@@ -322,6 +322,8 @@ interface CreateThreadCommon extends ModelChoice {
   title?: string;
   /** "Plus tard": store the comment without sending it. */
   held?: boolean;
+  /** On a design system's page: the project it was opened from, whose agent runs the work (ignored when that project does not use it). */
+  viaProjectId?: string;
 }
 
 /** A comment pinned on an element of an artboard. */

@@ -84,6 +84,7 @@ export function createThreadRequestError(request: unknown): string | null {
   }
   if (pin.title !== undefined && !requiredString(pin.title)) return "title must be a non-empty string";
   if (pin.held !== undefined && typeof pin.held !== "boolean") return "held must be a boolean";
+  if (pin.viaProjectId !== undefined && typeof pin.viaProjectId !== "string") return "viaProjectId must be a string";
   if (pin.elementName !== undefined && (typeof pin.elementName !== "string" || pin.elementName.length > MAX_ELEMENT_NAME_LENGTH)) {
     return `elementName must be a string of at most ${MAX_ELEMENT_NAME_LENGTH} characters`;
   }

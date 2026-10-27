@@ -251,6 +251,9 @@ export class Store {
     addColumn("thread_replies", "person_id", "TEXT");
     addColumn("conversations", "person_id", "TEXT");
     addColumn("conversation_messages", "person_id", "TEXT");
+    // On a design system's page: the project the thread or conversation was started from, whose agent runs its work.
+    addColumn("threads", "via_project_id", "TEXT");
+    addColumn("conversations", "via_project_id", "TEXT");
     // Same for what a person (or Claude, for the requesting person) did: page versions, DESIGN.md / tokens versions and pages.
     addColumn("versions", "person_id", "TEXT");
     addColumn("design_md_versions", "person_id", "TEXT");
@@ -615,6 +618,21 @@ export class Store {
     if (item.conversationId) return this.requestingPersonOfConversation(item.conversationId);
     const first = item.threads[0];
     return first && this.requestingPersonOfThread(first.threadId);
+  }
+
+  /** The project a work item's design system page was opened from (its conversation's, else its first thread's); undefined elsewhere. */
+  viaProjectOfItem(item: WorkItem): string | undefined {
+    const row = item.conversationId
+      ? this.db.prepare("SELECT via_project_id AS via FROM conversations WHERE id = ?").get(item.conversationId)
+      : item.threads[0] && this.db.prepare("SELECT via_project_id AS via FROM threads WHERE id = ?").get(item.threads[0].threadId);
+    return (row as { via: string | null } | undefined)?.via ?? undefined;
+  }
+
+  /** `viaProjectId` when the page belongs to a design system that project uses; null otherwise (it is then ignored). */
+  private viaProjectOf(pageId: string, viaProjectId: string | undefined): string | null {
+    const designSystemId = this.getPage(pageId)?.projectId;
+    if (!viaProjectId || !designSystemId || !this.isDesignSystemProject(designSystemId)) return null;
+    return this.projectsUsingDesignSystem(designSystemId).some((p) => p.id === viaProjectId) ? viaProjectId : null;
   }
 
   /**
@@ -1083,10 +1101,10 @@ export class Store {
           };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, x_pct, y_pct, title, body, status, created_at, person_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now(), person?.id ?? null);
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId));
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -1254,12 +1272,12 @@ export class Store {
     return readFileSync(join(this.blobDir, hash), "utf8");
   }
 
-  createConversation(pageId: string, title: string, person?: Person): Conversation {
+  createConversation(pageId: string, title: string, person?: Person, viaProjectId?: string): Conversation {
     const createdAt = now();
     const conversation: Conversation = { id: randomUUID(), pageId, title, archived: false, createdAt, ...(person ? { startedBy: person } : {}), exchangeCount: 0, lastActivityAt: createdAt };
     this.db
-      .prepare("INSERT INTO conversations (id, page_id, title, created_at, person_id) VALUES (?, ?, ?, ?, ?)")
-      .run(conversation.id, pageId, title, conversation.createdAt, person?.id ?? null);
+      .prepare("INSERT INTO conversations (id, page_id, title, created_at, person_id, via_project_id) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(conversation.id, pageId, title, conversation.createdAt, person?.id ?? null, this.viaProjectOf(pageId, viaProjectId));
     this.emit({ type: "conversation-updated", pageId, conversationId: conversation.id });
     return conversation;
   }

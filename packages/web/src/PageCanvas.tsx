@@ -74,6 +74,7 @@ import { Tooltip, cx } from "./ui/index.js";
 import { usePageSessions } from "./usePageSessions.js";
 import { useRuns } from "./useRuns.js";
 import { useTweaks } from "./useTweaks.js";
+import { viaProjectField } from "./viaProject.js";
 import styles from "./PageCanvas.module.css";
 
 const ZOOM_STEP = 1.25;
@@ -440,7 +441,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
   async function send(held: boolean) {
     if (!draft || text.trim() === "") return;
-    const request: CreateThreadRequest = { ...threadPlace(draft), body: text, ...(held ? { held } : choice) };
+    const request: CreateThreadRequest = { ...threadPlace(draft), body: text, ...(held ? { held } : choice), ...viaProjectField(pageId) };
     await fetch(`/api/pages/${pageId}/threads`, {
       method: "POST",
       headers: { "content-type": "application/json" },

@@ -331,7 +331,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
             {shared && detail.diffusion ? (
               <span className={styles.chooserNote}>
                 Diffusion {detail.diffusion.number} du {new Date(detail.diffusion.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} ·{" "}
-                <a href={routeHref({ name: "designSystems" })}>ouvrir {shared.title}</a>
+                <a href={routeHref({ name: "designSystem", designSystemId: shared.id, viaProjectId: projectId })}>ouvrir {shared.title}</a>
               </span>
             ) : (
               <>

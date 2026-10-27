@@ -28,6 +28,8 @@ async function answeredConversation(script: FakeAction[], onProjectPage = false)
   const { token } = (await (await server.get("/api/agent-token")).json()) as AgentTokenResponse;
   agent = await startAgent({ serverUrl: server.url, token, machine: "test-machine", folder, kind: "global", engine });
   const ds = (await (await server.post("/api/design-systems", { title: "Lumora", files: { "tokens.css": tokens("#111111"), "manifest.json": JSON.stringify({ artboards: [] }) } })).json()) as DesignSystem;
+  // No project uses the design system: its work goes to the global agent only when the default setting allows it.
+  await fetch(`${server.url}/api/settings`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ globalTakeover: true }) });
   let pageId = ds.pageId;
   if (onProjectPage) {
     const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as { id: string };

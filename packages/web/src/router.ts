@@ -7,11 +7,11 @@ export type Route =
   | { name: "agents" }
   | { name: "sessions" }
   | { name: "designSystems" }
-  | { name: "designSystem"; designSystemId: string }
+  | { name: "designSystem"; designSystemId: string; viaProjectId?: string }
   | { name: "project"; projectId: string }
   | { name: "designMd"; projectId: string }
   | { name: "projectDesignSystem"; projectId: string }
-  | { name: "page"; pageId: string; artboard?: string; play?: string; renderingParam?: string; previewOf?: string };
+  | { name: "page"; pageId: string; artboard?: string; play?: string; renderingParam?: string; previewOf?: string; viaProjectId?: string };
 
 export type PageRoute = Extract<Route, { name: "page" }>;
 
@@ -26,25 +26,30 @@ export const playRoute = (pageId: string, file: string, renderingParam?: string)
 /** `?apercu=<design system id>` on a page address: the page is shown read-only with that design system's draft (nothing stored). */
 const PREVIEW_PARAM = "apercu";
 
+/** `?projet=<project id>` on a design system page's address: the project it was opened from, whose agent runs its work. */
+const VIA_PARAM = "projet";
+
 export function parseRoute(hash: string): Route {
   const [path = "", query = ""] = hash.split("?", 2);
   const [, section, id, sub, subId] = path.split("/").map(decodeURIComponent);
+  const via = new URLSearchParams(query).get(VIA_PARAM);
+  const viaProject = via === null ? {} : { viaProjectId: via };
   if (section === "agents") return { name: "agents" };
   if (section === "sessions") return { name: "sessions" };
   if (section === "projects" && !id) return { name: "projects" };
-  if (section === "design-systems" && id) return { name: "designSystem", designSystemId: id };
+  if (section === "design-systems" && id) return { name: "designSystem", designSystemId: id, ...viaProject };
   if (section === "design-systems") return { name: "designSystems" };
   if (section === "projects" && id && sub === "design-md") return { name: "designMd", projectId: id };
   if (section === "projects" && id && sub === "design-system") return { name: "projectDesignSystem", projectId: id };
   if (section === "projects" && id) return { name: "project", projectId: id };
-  if (section === "pages" && id && sub === "artboards" && subId) return { name: "page", pageId: id, artboard: subId };
+  if (section === "pages" && id && sub === "artboards" && subId) return { name: "page", pageId: id, artboard: subId, ...viaProject };
   if (section === "pages" && id && sub === "play" && subId) {
     const renderingParam = new URLSearchParams(query).get("rendu");
     return playRoute(id, subId, renderingParam ?? undefined);
   }
   if (section === "pages" && id) {
     const previewOf = new URLSearchParams(query).get(PREVIEW_PARAM);
-    return { name: "page", pageId: id, ...(previewOf === null ? {} : { previewOf }) };
+    return { name: "page", pageId: id, ...(previewOf === null ? {} : { previewOf }), ...viaProject };
   }
   return { name: "home" };
 }
@@ -62,7 +67,7 @@ export function routeHref(route: Route): string {
     case "designSystems":
       return "#/design-systems";
     case "designSystem":
-      return `#/design-systems/${encodeURIComponent(route.designSystemId)}`;
+      return `#/design-systems/${encodeURIComponent(route.designSystemId)}${route.viaProjectId === undefined ? "" : `?${VIA_PARAM}=${encodeURIComponent(route.viaProjectId)}`}`;
     case "project":
       return `#/projects/${encodeURIComponent(route.projectId)}`;
     case "designMd":
@@ -72,7 +77,8 @@ export function routeHref(route: Route): string {
     case "page": {
       if (route.play !== undefined) return `${playHash(route.pageId, route.play)}${route.renderingParam === undefined ? "" : `?rendu=${encodeURIComponent(route.renderingParam)}`}`;
       if (route.previewOf !== undefined) return `${pageHash(route.pageId)}?${PREVIEW_PARAM}=${encodeURIComponent(route.previewOf)}`;
-      return route.artboard === undefined ? pageHash(route.pageId) : artboardHash(route.pageId, route.artboard);
+      const via = route.viaProjectId === undefined ? "" : `?${VIA_PARAM}=${encodeURIComponent(route.viaProjectId)}`;
+      return (route.artboard === undefined ? pageHash(route.pageId) : artboardHash(route.pageId, route.artboard)) + via;
     }
   }
 }
