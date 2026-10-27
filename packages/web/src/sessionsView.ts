@@ -51,6 +51,6 @@ export function activityLabel(iso: string, now: number = Date.now()): string {
 
 export const WAITING_NOTE: Record<NonNullable<SessionRow["waitingReason"]>, string> = {
   "page-busy": "En file : traité dès que la session en cours sur cette page est terminée, pour ne pas modifier la même page en même temps.",
-  "agent-offline": "L'agent est hors ligne : la session attend son retour.",
+  "agent-offline": "Aucun agent ne tourne pour ce projet : le fil part dès qu'un agent est lancé dans son dossier.",
   retrying: "Échec temporaire : nouvelle tentative programmée.",
 };
