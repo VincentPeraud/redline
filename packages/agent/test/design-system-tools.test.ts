@@ -37,11 +37,14 @@ describe("terminal design system tools", () => {
   it("lists the design systems with their pages", async () => {
     seam = await startSeam2(new FakeEngine([]));
     const call = await connectTerminal(seam.folder);
+    await seam.server.post("/api/design-systems", { title: "Acme DS", files: { "tokens.css": `:root {\n${CORE_TOKENS.map((t) => `  ${t}: #111;`).join("\n")}\n}\n`, "index.html": "<!doctype html><html><head></head><body></body></html>" } });
     const { text } = await call("list_design_systems", {});
-    const neutral = (await designSystems())[0];
-    expect(text).toContain(`id ${neutral.id}`);
-    expect(text).toContain(neutral.title);
-    expect(text).toContain(`page ${neutral.pageId}`);
+    const listed = await designSystems();
+    expect(listed).toHaveLength(1);
+    expect(text).toContain(`id ${listed[0].id}`);
+    expect(text).toContain(listed[0].title);
+    expect(text).toContain(`page ${listed[0].pageId}`);
+    expect(text).not.toContain("neutral");
   });
 
   it("creates a design system, answers with its page id, and the page can be checked out and published", async () => {

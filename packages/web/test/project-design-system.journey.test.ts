@@ -118,6 +118,11 @@ it("shows the counts in the overview box and links to the page", async () => {
 
 it("lists the whole style of a project without a shared design system", async () => {
   const project = (await (await server.post("/api/projects", { title: "Solo" })).json()) as Project;
+  await fetch(`${server.url}/api/projects/${project.id}/project-style/tokens/--color-primary`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ value: "#18181b" }),
+  });
   const tab = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
   await tab.goto(`${server.url}/#/projects/${project.id}/design-system`);
   await tab.getByTestId("token---color-primary").waitFor();

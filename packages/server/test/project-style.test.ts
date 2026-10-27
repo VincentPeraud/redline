@@ -41,14 +41,17 @@ describe("project style", () => {
       body: JSON.stringify({ message: "m", origin: "thread", ...body }),
     });
 
-  it("starts a project without a design system from the neutral values, linked after the design system", async () => {
+  it("starts a project without a design system with an empty project style, linked after the design system", async () => {
     const project = await createProject();
-    const page = await createPage(project);
-    expect(await styleCss(project)).toBe(NEUTRAL_TOKENS_CSS);
+    expect(await styleCss(project)).toBe("");
+    const ds = await createDesignSystem();
+    const other = await createProject(ds.id);
+    const manifest = JSON.stringify({ designSystem: ds.id, artboards: [{ file: "a.html", x: 0, y: 0, width: 200, height: 100 }] });
+    const page = (await (await server.post(`/api/projects/${other.id}/pages`, { title: "Flow", files: { "a.html": html, "manifest.json": manifest } })).json()) as Page;
     const markup = await artboard(page);
     const designSystemLink = markup.indexOf("/design-systems/");
     expect(designSystemLink).toBeGreaterThan(-1);
-    expect(markup.indexOf(styleUrl(project))).toBeGreaterThan(designSystemLink);
+    expect(markup.indexOf(styleUrl(other))).toBeGreaterThan(designSystemLink);
   });
 
   it("gives a project with a shared design system an empty project style, so its values win when added", async () => {
@@ -73,13 +76,13 @@ describe("project style", () => {
     const list = await versions(project);
     expect(list.map((v) => v.origin)).toEqual(["user", "user"]);
     expect(list[0]!.content).toContain("red");
-    expect(list[1]!.content).toBe(NEUTRAL_TOKENS_CSS);
+    expect(list[1]!.content).toBe("");
   });
 
   it("puts the project style in the working copy, and the draft tokens for a design system page", async () => {
     const project = await createProject();
     const page = await createPage(project);
-    expect((await checkout(page)).project.projectStyle).toBe(NEUTRAL_TOKENS_CSS);
+    expect((await checkout(page)).project.projectStyle).toBe("");
     const ds = await createDesignSystem();
     const dsPage = ((await (await server.get(`/api/projects/${ds.id}/pages`)).json()) as Page[])[0]!;
     const dsCheckout = await checkout(dsPage);
@@ -93,12 +96,12 @@ describe("project style", () => {
     const page = await createPage(project);
     const { versionId } = await checkout(page);
     const edited = ":root { --color-primary: #7c3aed; }\n";
-    const res = await publish(page, { files: { "a.html": html }, baseVersionId: versionId, projectStyle: { content: edited, base: NEUTRAL_TOKENS_CSS }, origin: "terminal" });
+    const res = await publish(page, { files: { "a.html": html }, baseVersionId: versionId, projectStyle: { content: edited, base: "" }, origin: "terminal" });
     expect(res.status).toBe(201);
     expect(await styleCss(project)).toBe(edited);
     expect((await versions(project))[0]).toMatchObject({ origin: "terminal" });
 
-    const stale = await publish(page, { files: { "a.html": html }, baseVersionId: (await checkout(page)).versionId, projectStyle: { content: "x{}", base: NEUTRAL_TOKENS_CSS } });
+    const stale = await publish(page, { files: { "a.html": html }, baseVersionId: (await checkout(page)).versionId, projectStyle: { content: "x{}", base: "" } });
     expect(stale.status).toBe(409);
     expect(await styleCss(project)).toBe(edited);
   });

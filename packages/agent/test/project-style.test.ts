@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { NEUTRAL_TOKENS_CSS, type DesignMdVersion } from "@redline/shared";
+import { type DesignMdVersion } from "@redline/shared";
 import { FakeEngine, startSeam2, type Seam2 } from "./support/seam2.js";
 
 const PAGE_FILES = {
@@ -27,7 +27,7 @@ describe("project style in a session's working copy", () => {
     await seam.pinThread(page.id, "home.html", "Look at the style");
     await seam.waitForWorkEnd();
 
-    expect(readFileSync(join(seam.folder, ".redline", page.id, "tokens.css"), "utf8")).toBe(NEUTRAL_TOKENS_CSS);
+    expect(readFileSync(join(seam.folder, ".redline", page.id, "tokens.css"), "utf8")).toBe("");
     expect(engine.runs[0].filesAtStart).toEqual(PAGE_FILES);
     expect(await seam.versions(page.id)).toHaveLength(1);
     expect(await versions()).toHaveLength(1);

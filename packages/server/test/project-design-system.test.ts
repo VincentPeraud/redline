@@ -129,10 +129,10 @@ describe("project Design system page and overview box", () => {
     const d = await detail(project);
     expect(d.designSystem).toBeNull();
     expect(d.diffusion).toBeNull();
-    expect(token(d, "--color-primary")).toMatchObject({ designSystemValue: null, projectValue: "#18181b", status: "own", core: true });
     expect(d.overrideCount).toBe(0);
 
     await send("PUT", project, "--color-primary", { value: "#ff7a00" });
+    expect(token(await detail(project), "--color-primary")).toMatchObject({ designSystemValue: null, projectValue: "#ff7a00", status: "own", core: true });
     expect(token(await detail(project), "--color-primary").value).toBe("#ff7a00");
   });
 
