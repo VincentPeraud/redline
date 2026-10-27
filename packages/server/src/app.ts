@@ -57,6 +57,7 @@ import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
 import { registerGapRoutes } from "./gaps.js";
+import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
 import { registerRequestHardening } from "./request-hardening.js";
 import { announceDiffusion, registerDesignSystemReload } from "./design-system-reload.js";
 import { registerSessionRoutes } from "./sessions.js";
@@ -114,9 +115,11 @@ export async function buildMainApp(
   store: Store,
   config: ServerConfig,
   webDir?: string,
-  options: { retryDelaysMs?: number[] } = {},
+  options: { retryDelaysMs?: number[]; proxySecrets?: ProxySecrets } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ bodyLimit: MAX_PAGE_BYTES });
+  registerProxySecretCheck(app, options.proxySecrets);
+  registerHealthRoute(app);
   registerRequestHardening(app);
   explainTooLarge(app);
   const agents = await registerAgentRoutes(app, store);
@@ -551,8 +554,9 @@ export async function buildMainApp(
  * share an origin with the API. The CSP sandbox (without allow-same-origin) also gives
  * the document an opaque origin, even if someone opens the URL directly.
  */
-export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
+export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets): Promise<FastifyInstance> {
   const app = Fastify();
+  registerProxySecretCheck(app, proxySecrets, { artboards: true });
 
   app.get(BRIDGE_PATH, async (_req, reply) =>
     reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(BRIDGE_SOURCE),
