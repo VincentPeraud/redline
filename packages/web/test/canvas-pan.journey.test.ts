@@ -44,7 +44,8 @@ it("selects no text when the mouse drags over the canvas or an artboard", async 
           artboards: [{ file: "home.html", title: "Accueil", x: 0, y: 0, width: 400, height: 300 }],
           elements: [
             { kind: "title", id: "t", text: "Sortie · rejeu", subtitle: "Deux écrans", x: 0, y: -160 },
-            { kind: "sticky", id: "s", text: "Une note à lire", x: 460, y: 0 },
+            { kind: "sticky", id: "s", text: "Une note à lire", x: 0, y: 340 },
+            { kind: "text", id: "n", text: "## Ce que montre l'écran\n- Traces jouées jusqu'à la tête de lecture\n- Lecteur ×1 / ×10 / ×30", x: 300, y: 340 },
           ],
         }),
       },
@@ -62,6 +63,16 @@ it("selects no text when the mouse drags over the canvas or an artboard", async 
   for (let step = 1; step <= 20; step++) await tab.mouse.move(canvas.x + 20 + step * 40, canvas.y + 20 + step * 30);
   await tab.mouse.up();
   expect(await tab.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+
+  // A drag that starts on a canvas element (note, sticky, group title) selects nothing either.
+  for (const id of ["n", "s", "t"]) {
+    const box = (await tab.locator(`[data-canvas-element-id="${id}"]`).boundingBox())!;
+    await tab.mouse.move(box.x + 12, box.y + 12);
+    await tab.mouse.down();
+    for (let step = 1; step <= 10; step++) await tab.mouse.move(box.x + 12 + step * 15, box.y + 12 + step * 12);
+    await tab.mouse.up();
+    expect(await tab.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+  }
 
   // A drag that starts on the artboard's text selects nothing either, while its text fields keep their selection.
   const frame = tab.frameLocator('[data-artboard="home.html"] iframe');
