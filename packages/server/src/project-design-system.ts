@@ -13,14 +13,13 @@ import {
   parseTokens,
   removeToken,
   setToken,
+  styleDefinesTokens,
   tokenValueError,
   type ManifestArtboard,
   type ManifestTitleElement,
   type ManifestTweak,
   type ProjectComponentInfo,
-  PROJECT_STYLE_STARTS,
   type ProjectDesignSystem,
-  type ProjectStyleStart,
   type ProjectStyleToken,
   type PromoteProjectStyleRequest,
   type SetProjectTokenRequest,
@@ -34,8 +33,8 @@ const TOKEN_NAME = /^--[A-Za-z0-9_-]+$/;
 
 /** The project's Design system page: tokens against the current diffusion, project components, counts. */
 export function projectDesignSystem(store: Store, projectId: string): ProjectDesignSystem {
-  const project = store.getProject(projectId)!;
-  const shared = project.designSystem === null ? undefined : store.getDesignSystem(project.designSystem);
+  const sharedId = store.sharedDesignSystemIdOfProject(projectId);
+  const shared = sharedId === undefined ? undefined : store.getDesignSystem(sharedId);
   const diffusion = shared ? store.currentDiffusion(shared.id) : undefined;
   const designSystemTokens = new Map(
     parseTokens(shared && diffusion ? (store.readDiffusionFile(shared.id, diffusion.number, "tokens.css") ?? "") : "").map((t) => [t.name, t]),
@@ -73,6 +72,7 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
     designSystem: shared ? { id: shared.id, title: shared.title } : null,
     diffusion: diffusion ?? null,
     tokens,
+    styleDefinesTokens: styleDefinesTokens(store.readProjectText(projectId, PROJECT_STYLE_PATH)),
     components,
     overrideCount: tokens.filter((t) => t.status === "overridden").length,
     lastModified: last ? { createdAt: last.createdAt, origin: last.origin, ...(last.originId ? { originId: last.originId } : {}), ...(last.originLabel ? { originLabel: last.originLabel } : {}) } : null,
@@ -124,13 +124,10 @@ function assetsUsedBy(store: Store, projectId: string, components: Record<string
   return assets;
 }
 
-/** Error message when `designSystem` / `startFrom` is not a valid change for the project (shared by `/api` and `/agent-api`), else null. */
-export function designSystemChangeError(store: Store, projectId: string, designSystem: unknown, startFrom: unknown): string | null {
+/** Error message when `designSystem` is not a valid change for the project (shared by `/api` and `/agent-api`), else null. */
+export function designSystemChangeError(store: Store, designSystem: unknown): string | null {
   if (designSystem !== null && (typeof designSystem !== "string" || !store.getDesignSystem(designSystem))) {
     return "designSystem must be the id of an existing design system, or null for none";
-  }
-  if (designSystem === null && store.getProject(projectId)!.designSystem !== null && !PROJECT_STYLE_STARTS.includes(startFrom as ProjectStyleStart)) {
-    return 'startFrom is required to leave a shared design system for none: "design-system" or "neutral"';
   }
   return null;
 }
@@ -167,9 +164,9 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     const { projectId } = req.params;
     if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
     const designSystem = req.body?.designSystem ?? null;
-    const invalid = designSystemChangeError(store, projectId, designSystem, req.body?.startFrom);
+    const invalid = designSystemChangeError(store, designSystem);
     if (invalid) return reply.code(400).send({ error: invalid });
-    store.setProjectDesignSystem(projectId, designSystem, "user", req.body?.startFrom);
+    store.setProjectDesignSystem(projectId, designSystem, "user");
     return projectDesignSystem(store, projectId);
   });
 
@@ -177,9 +174,10 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
   app.post<{ Params: { projectId: string }; Body: PromoteProjectStyleRequest }>("/api/projects/:projectId/design-system/promote", async (req, reply) => {
     const { projectId } = req.params;
     if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
-    if (store.getProject(projectId)!.designSystem !== null) return reply.code(400).send({ error: "the project already follows a shared design system" });
+    if (store.sharedDesignSystemIdOfProject(projectId) !== undefined) return reply.code(400).send({ error: "the project already follows a shared design system" });
     const title = req.body?.title;
     if (titleError(title)) return reply.code(400).send({ error: titleError(title) });
+    if (!styleDefinesTokens(styleOf(projectId))) return reply.code(400).send({ error: "the project style defines no token yet: there is nothing to make a design system of" });
     const components = componentFilesOf(store, projectId);
     const manifest = promotedManifest(store, projectId);
     const designSystem = store.createDesignSystem((title as string).trim(), {

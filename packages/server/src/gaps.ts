@@ -13,12 +13,10 @@ import {
   type PageGaps,
 } from "@redline/shared";
 import { componentFilesOf } from "./components.js";
-import { designSystemIdOf } from "./project-files.js";
 import type { Store } from "./store.js";
 
 /** Tokens and components a page's artboards can use: the design system's current diffusion with the project's own style over it. */
-function gapContext(store: Store, pageId: string, projectId: string): GapContext {
-  const designSystemId = designSystemIdOf(store, pageId);
+function gapContext(store: Store, designSystemId: string, projectId: string): GapContext {
   const diffusion = store.currentDiffusion(designSystemId);
   const read = (file: Parameters<Store["readDiffusionFile"]>[2]) => (diffusion ? store.readDiffusionFile(designSystemId, diffusion.number, file) : undefined);
 
@@ -36,11 +34,12 @@ function gapContext(store: Store, pageId: string, projectId: string): GapContext
 /** The gaps of a page's artboards in `files`; none on a design system's own pages, which are the system. */
 function gapsOfFiles(store: Store, pageId: string, files: Record<string, string>): PageGaps {
   const page = store.getPage(pageId)!;
-  const designSystemTitle = store.getDesignSystem(designSystemIdOf(store, pageId))?.title ?? "";
-  if (store.isDesignSystemProject(page.projectId)) return { designSystemTitle, gaps: [] };
+  const designSystemId = store.sharedDesignSystemIdOfPage(pageId);
+  if (designSystemId === undefined || store.isDesignSystemProject(page.projectId)) return { designSystemTitle: "", gaps: [] };
+  const designSystemTitle = store.getDesignSystem(designSystemId)?.title ?? "";
   const manifestText = files[MANIFEST_PATH];
   const artboards = (manifestText === undefined ? defaultManifest(Object.keys(files)) : parseManifest(manifestText)).artboards;
-  const context = gapContext(store, pageId, page.projectId);
+  const context = gapContext(store, designSystemId, page.projectId);
   const gaps = artboards
     .filter((a) => files[a.file] !== undefined && componentNameOf(a.file) === null)
     .flatMap((a) => analyseGaps(a.file, files[a.file], context));

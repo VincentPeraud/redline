@@ -99,7 +99,8 @@ describe("terminal mode (redline mcp)", () => {
 
   it("lists the design system gaps and the layout of the published version after its address", async () => {
     seam = await startSeam2(new FakeEngine([]));
-    const page = await seam.createPage(PAGE_FILES);
+    const designSystem = await seam.createDesignSystem();
+    const page = await seam.createPage({ ...PAGE_FILES, "manifest.json": JSON.stringify({ designSystem, artboards: [{ file: "home.html", x: 0, y: 0, width: 400, height: 300 }] }) });
     const call = await connectTerminal(seam.folder);
     await call("checkout_page", { pageId: page.id });
     writeFileSync(join(seam.folder, ".redline", page.id, "home.html"), '<h1 style="color: #2563eb">Changed</h1>');
@@ -108,6 +109,58 @@ describe("terminal mode (redline mcp)", () => {
 
     expect(answer).toContain("1 design system gap");
     expect(answer).toContain("- colour #2563eb ×1 (home.html)");
+    expect(answer).toContain("Layout: nothing overlaps.");
+  });
+
+  it("tells a checkout of a project without a design system that its style is the project style, still to be created while empty", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+
+    const empty = await call("checkout_page", { pageId: page.id });
+    expect(empty).toContain("This project has no design system. Its style is still to be created: tokens.css at the root of the working copy is empty.");
+    expect(empty).not.toContain("Neutral");
+    expect(existsSync(join(seam.folder, ".redline", page.id, ".design-system"))).toBe(false);
+
+    for (const content of [":root {\n  /* to be designed */\n}\n", ":root {}\n"]) {
+      await fetch(`${seam.server.url}/api/projects/${seam.project.id}/project-style`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ content }) });
+      expect(await call("checkout_page", { pageId: page.id })).toContain("Its style is still to be created");
+    }
+
+    await fetch(`${seam.server.url}/api/projects/${seam.project.id}/project-style`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: ":root { --color-primary: #7c3aed; }\n" }),
+    });
+    const styled = await call("checkout_page", { pageId: page.id });
+    expect(styled).toContain("This project has no design system. Its style is the project style: tokens.css at the root of the working copy.");
+    expect(existsSync(join(seam.folder, ".redline", page.id, ".design-system"))).toBe(false);
+  });
+
+  it("keeps the design system note and folder in a checkout of a project with a shared design system", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const designSystem = await seam.createDesignSystem();
+    const page = await seam.createPage({ ...PAGE_FILES, "manifest.json": JSON.stringify({ designSystem, artboards: [{ file: "home.html", x: 0, y: 0, width: 400, height: 300 }] }) });
+    const call = await connectTerminal(seam.folder);
+
+    const answer = await call("checkout_page", { pageId: page.id });
+
+    expect(answer).toMatch(/Design system: .* \(diffusion 1\), read-only in \.design-system\//);
+    expect(answer).not.toContain("has no design system");
+    expect(existsSync(join(seam.folder, ".redline", page.id, ".design-system"))).toBe(true);
+  });
+
+  it("reports no gaps after publishing a page of a project without a design system", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+    writeFileSync(join(seam.folder, ".redline", page.id, "home.html"), '<h1 style="color: #2563eb; font-family: Arial">Changed</h1>');
+
+    const answer = await call("publish_page", { message: "Blue" });
+
+    expect(answer).toMatch(/Published/);
+    expect(answer).not.toContain("gap");
     expect(answer).toContain("Layout: nothing overlaps.");
   });
 

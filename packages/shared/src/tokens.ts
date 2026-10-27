@@ -41,6 +41,11 @@ export function parseTokens(css: string): TokenDeclaration[] {
   return [...byName.values()];
 }
 
+/** True when `css` declares at least one token: comments and an empty `:root {}` define none. */
+export function styleDefinesTokens(css: string | undefined): boolean {
+  return css !== undefined && parseTokens(css).length > 0;
+}
+
 const maskComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, (comment) => " ".repeat(comment.length));
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

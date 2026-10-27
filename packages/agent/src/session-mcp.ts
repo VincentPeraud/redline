@@ -214,7 +214,7 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
     CHECK_PAGE_TOOL,
     {
       description:
-        "Check the working copy before you finish a page: its design system gaps (hard-coded colours and fonts, raw controls, deprecated tokens: the \"écarts\" the user sees), with the token or component to use, and its probable layout problems on the canvas (overlaps, a note over an artboard, an arrow crossing a box).",
+        "Check the working copy before you finish a page: its design system gaps, only for a project with a shared design system (hard-coded colours and fonts, raw controls, deprecated tokens: the \"écarts\" the user sees), with the token or component to use, and its probable layout problems on the canvas (overlaps, a note over an artboard, an arrow crossing a box).",
     },
     async () => {
       try {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { AGENT_API_PREFIX, type AgentCheckout, type AgentTokenResponse, type Page, type PageGaps, type PageVersionSummary, type Project, type Thread } from "@redline/shared";
+import { AGENT_API_PREFIX, CORE_TOKENS, type AgentCheckout, type AgentTokenResponse, type Page, type PageGaps, type PageVersionSummary, type Project, type Thread } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 let server: TestServer;
@@ -47,9 +47,22 @@ it("lets an agent check out a page's files and publish a version", async () => {
   expect(await (await server.get(`/api/pages/${page.id}/files/home.html`)).text()).toBe("<h1>Bye</h1>");
 });
 
-it("tells the agent the gaps of what it publishes, and of a working copy before publishing", async () => {
+it("tells the agent no gaps for a project without a design system, when publishing or checking", async () => {
   const checkout = (await (await agentCall(`/pages/${page.id}/files`)).json()) as AgentCheckout;
-  const files = { "home.html": '<h1 style="color: #2563eb">Hi</h1><p data-ds-libre style="color: #ea580c">free</p>' };
+  const files = { "home.html": '<h1 style="color: #2563eb; font-family: Arial">Hi</h1>' };
+  const check = await agentCall(`/pages/${page.id}/gaps`, { method: "POST", body: { files } });
+  expect(((await check.json()) as PageGaps).gaps).toEqual([]);
+  const res = await agentCall(`/pages/${page.id}/versions`, { method: "POST", body: { files, message: "Blue", origin: "terminal", baseVersionId: checkout.versionId } });
+  expect(((await res.json()) as PageVersionSummary).gaps).toEqual([]);
+});
+
+it("tells the agent the gaps of what it publishes, and of a working copy before publishing", async () => {
+  const ds = (await (await server.post("/api/design-systems", { title: "Acme DS", files: { "tokens.css": `:root {\n${CORE_TOKENS.map((t) => `  ${t}: #111111;`).join("\n")}\n}\n` } })).json()) as { id: string };
+  const project = (await (await server.post("/api/projects", { title: "Shared", designSystem: ds.id })).json()) as { id: string };
+  const manifest = JSON.stringify({ designSystem: ds.id, artboards: [{ file: "home.html", x: 0, y: 0, width: 200, height: 100 }] });
+  page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Home", files: { "home.html": "<h1>Hi</h1>", "manifest.json": manifest } })).json()) as Page;
+  const checkout = (await (await agentCall(`/pages/${page.id}/files`)).json()) as AgentCheckout;
+  const files = { "manifest.json": manifest, "home.html": '<h1 style="color: #2563eb">Hi</h1><p data-ds-libre style="color: #ea580c">free</p>' };
 
   const check = await agentCall(`/pages/${page.id}/gaps`, { method: "POST", body: { files } });
   expect(check.status).toBe(200);
@@ -127,6 +140,7 @@ it("lets an agent list projects and their pages, and create both", async () => {
   expect((await agentCall("/projects", { method: "POST", body: { title: "Y", designSystem: 3 } })).status).toBe(400);
   expect((await agentCall("/projects", { method: "POST", body: { title: "Y", designSystem: "material" } })).status).toBe(400);
   expect(((await (await agentCall("/projects", { method: "POST", body: { title: "Z", designSystem: "" } })).json()) as Project).designSystem).toBeNull();
+  expect(((await (await agentCall("/projects", { method: "POST", body: { title: "N", designSystem: "neutral" } })).json()) as Project).designSystem).toBeNull();
 
   // A design system's own project holds only its design system page.
   expect((await agentCall(`/projects/${spooky.id}/pages`)).status).toBe(404);

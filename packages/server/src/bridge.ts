@@ -579,12 +579,14 @@ export function injectBridge(html: string): string {
  * Links, at the start of the document head and before the page's own styles: the design system's tokens and components
  * (the files of `diffusion` when given, else the live draft), then, when the project has a style (`projectId`), its tokens and its components (they win over the design system by CSS order).
  */
-export function injectDesignSystem(html: string, designSystemId: string, projectId?: string, diffusion?: number): string {
+export function injectDesignSystem(html: string, designSystemId: string | undefined, projectId?: string, diffusion?: number): string {
   const link = (href: string) => `<link rel="stylesheet" href="${href}">`;
   const tag =
-    (diffusion === undefined
-      ? link(designSystemTokensUrlPath(designSystemId)) + link(designSystemComponentsUrlPath(designSystemId))
-      : link(diffusionFileUrlPath(designSystemId, diffusion, "tokens.css")) + link(diffusionFileUrlPath(designSystemId, diffusion, "components.css"))) +
+    (designSystemId === undefined
+      ? ""
+      : diffusion === undefined
+        ? link(designSystemTokensUrlPath(designSystemId)) + link(designSystemComponentsUrlPath(designSystemId))
+        : link(diffusionFileUrlPath(designSystemId, diffusion, "tokens.css")) + link(diffusionFileUrlPath(designSystemId, diffusion, "components.css"))) +
     (projectId === undefined ? "" : link(projectStyleUrlPath(projectId)) + link(projectComponentsUrlPath(projectId)));
   return insertAtHeadStart(html, tag);
 }

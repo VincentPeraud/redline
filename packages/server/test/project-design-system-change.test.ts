@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CORE_TOKENS, type DesignSystem, type Page, type Project, type ProjectDesignSystem } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
@@ -30,6 +32,8 @@ describe("changing a project's design system and promoting its style", () => {
   const setToken = (projectId: string, name: string, value: string) =>
     fetch(`${server.url}/api/projects/${projectId}/project-style/tokens/${name}`, { method: "PUT", headers: json, body: JSON.stringify({ value }) });
   const fileOf = (page: Page, path: string) => server.get(`/api/pages/${page.id}/files/${path}`);
+  const putStyle = (projectId: string, content: string) =>
+    fetch(`${server.url}/api/projects/${projectId}/project-style`, { method: "PUT", headers: json, body: JSON.stringify({ content }) });
   const promote = (projectId: string, body: object) => server.post(`/api/projects/${projectId}/design-system/promote`, body);
   const artboard = async (page: Page) => (await fetch(`${server.artboardOrigin}/pages/${page.id}/a.html`)).text();
   const styleCss = async (project: Project) => (await fetch(`${server.artboardOrigin}/project-styles/${project.id}/tokens.css`)).text();
@@ -48,22 +52,14 @@ describe("changing a project's design system and promoting its style", () => {
     expect(markup).not.toContain(`/design-systems/${first.id}/`);
   });
 
-  it("leaving a shared design system for none requires a starting point", async () => {
-    const ds = await createDesignSystem();
-    const project = await createProject(ds.id);
-    expect((await change(project.id, null)).status).toBe(400);
-    expect((await change(project.id, null, "bogus")).status).toBe(400);
-    expect((await detail(project)).designSystem?.id).toBe(ds.id);
-    const own = await createProject();
-    expect((await change(own.id, null)).status).toBe(200);
-  });
-
-  it("starting from the design system's values copies its current diffusion into the project style, overrides kept, nothing changes on screen", async () => {
+  it("leaving a shared design system for none needs no starting point: the diffusion's values are kept with the overrides on top", async () => {
     const ds = await createDesignSystem();
     const project = await createProject(ds.id);
     await setToken(project.id, "--color-primary", "#7c3aed");
     const before = (await detail(project)).tokens.map((t) => [t.name, t.value]);
-    const after = (await (await change(project.id, null, "design-system")).json()) as ProjectDesignSystem;
+    const res = await change(project.id, null);
+    expect(res.status).toBe(200);
+    const after = (await res.json()) as ProjectDesignSystem;
     expect(after.designSystem).toBeNull();
     expect(after.tokens.map((t) => [t.name, t.value])).toEqual(before);
     expect(after.tokens.every((t) => t.status === "own")).toBe(true);
@@ -71,14 +67,17 @@ describe("changing a project's design system and promoting its style", () => {
     expect(await styleCss(project)).toContain("--color-primary: #7c3aed");
   });
 
-  it("starting from the neutral values keeps the overrides and resets every other token", async () => {
+  it("a request that still sends startFrom is accepted and the value ignored", async () => {
     const ds = await createDesignSystem();
-    const project = await createProject(ds.id);
-    await setToken(project.id, "--color-primary", "#7c3aed");
-    const after = (await (await change(project.id, null, "neutral")).json()) as ProjectDesignSystem;
-    const value = (name: string) => after.tokens.find((t) => t.name === name)?.value;
-    expect(value("--color-primary")).toBe("#7c3aed");
-    expect(value("--color-text")).not.toBe("#111111");
+    for (const startFrom of ["neutral", "design-system", "bogus"]) {
+      const project = await createProject(ds.id);
+      await setToken(project.id, "--color-primary", "#7c3aed");
+      const res = await change(project.id, null, startFrom);
+      expect(res.status).toBe(200);
+      const tokens = ((await res.json()) as ProjectDesignSystem).tokens;
+      expect(tokens.find((t) => t.name === "--color-primary")?.value).toBe("#7c3aed");
+      expect(tokens.find((t) => t.name === "--radius")?.value).toBe("#111111");
+    }
   });
 
   it("choosing none copies nothing: the project style stops being overrides and becomes the whole style", async () => {
@@ -86,11 +85,57 @@ describe("changing a project's design system and promoting its style", () => {
     const project = await createProject(ds.id);
     const page = await createPage(project, { "a.html": html, "manifest.json": followingManifest(ds.id) });
     await fetch(`${server.url}/api/projects/${project.id}/project-style/tokens/--color-primary`, { method: "PUT", headers: json, body: JSON.stringify({ value: "#7c3aed" }) });
-    const after = (await (await change(project.id, null, "neutral")).json()) as ProjectDesignSystem;
+    const after = (await (await change(project.id, null)).json()) as ProjectDesignSystem;
     expect(after.designSystem).toBeNull();
     expect(after.tokens.map((t) => [t.name, t.status])).toContainEqual(["--color-primary", "own"]);
     expect(await styleCss(project)).toContain("#7c3aed");
     expect(await artboard(page)).not.toContain(`/design-systems/${ds.id}/`);
+  });
+
+  // The API cannot make a design system without diffused tokens (core tokens are required): an old install is simulated
+  // by editing the database of the running server, like history-diffusion.test.ts does.
+  const withoutDiffusion = () => {
+    const db = new Database(join(server.dataDir, "redline.db"));
+    db.exec("DELETE FROM design_system_diffusions; UPDATE design_systems SET current_diffusion = NULL");
+    db.close();
+  };
+
+  it("leaving a design system that has no diffusion, with no overrides, leaves the project style empty, not neutral", async () => {
+    const ds = await createDesignSystem();
+    const project = await createProject(ds.id);
+    withoutDiffusion();
+    expect((await change(project.id, null)).status).toBe(200);
+    expect(await styleCss(project)).toBe("");
+  });
+
+  it("leaving a design system that has no diffusion keeps the overrides alone", async () => {
+    const ds = await createDesignSystem();
+    const project = await createProject(ds.id);
+    await putStyle(project.id, ":root { --color-primary: #7c3aed; }\n");
+    withoutDiffusion();
+    expect((await change(project.id, null)).status).toBe(200);
+    expect(await styleCss(project)).toBe(":root { --color-primary: #7c3aed; }\n");
+  });
+
+  it("never chooses the Neutral design system: it counts as none", async () => {
+    const created = await createProject("neutral");
+    expect(created.designSystem).toBeNull();
+    const ds = await createDesignSystem();
+    const project = await createProject(ds.id);
+    const res = await change(project.id, "neutral");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as ProjectDesignSystem).designSystem).toBeNull();
+    expect(((await (await server.get(`/api/projects/${project.id}`)).json()) as Project).designSystem).toBeNull();
+  });
+
+  it("refuses to promote a project style that defines no token", async () => {
+    const project = await createProject();
+    const res = await promote(project.id, { title: "Empty DS" });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(/no token/i);
+    const noTokens = ":root {\n  /* nothing yet */\n}\n";
+    await fetch(`${server.url}/api/projects/${project.id}/project-style`, { method: "PUT", headers: json, body: JSON.stringify({ content: noTokens }) });
+    expect((await promote(project.id, { title: "Empty DS" })).status).toBe(400);
   });
 
   it("refuses an unknown design system, an unknown project and a design system's own project", async () => {
@@ -151,6 +196,7 @@ describe("changing a project's design system and promoting its style", () => {
     await createPage(project, { "a.html": html, "components/sticker.html": withAsset, "manifest.json": JSON.stringify(manifest) });
     for (const name of ["dot.png", "logo.svg", "unused.png"]) await fetch(`${server.url}/api/projects/${project.id}/assets/${name}`, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: name });
 
+    await putStyle(project.id, tokensCss("#7c3aed"));
     const ds = (await (await promote(project.id, { title: "Halloween DS" })).json()) as DesignSystem;
 
     const files = async (path: string) => await (await server.get(`/api/pages/${ds.pageId}/files/${path}`)).text();
@@ -174,6 +220,7 @@ describe("changing a project's design system and promoting its style", () => {
     const versionsOf = async (page: Page) => (await (await server.get(`/api/pages/${page.id}/versions`)).json()) as { origin: string }[];
     const plainBefore = (await versionsOf(plain)).length;
     const withBefore = (await versionsOf(withComponent)).length;
+    await putStyle(project.id, tokensCss("#7c3aed"));
     const ds = (await (await promote(project.id, { title: "DS" })).json()) as DesignSystem;
 
     expect((await fileOf(withComponent, "components/sticker.html")).status).toBe(404);

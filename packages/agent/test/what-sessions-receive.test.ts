@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { CORE_TOKENS, type AgentTokenResponse, type DesignSystem, type DesignSystemDetail, type Page } from "@redline/shared";
+import { CORE_TOKENS, NEUTRAL_DESIGN_SYSTEM_ID, type AgentTokenResponse, type DesignSystem, type DesignSystemDetail, type Page } from "@redline/shared";
 import { ServerApi } from "../src/server-api.js";
 import { createTerminalMcpServer } from "../src/terminal-mcp.js";
 import { FakeEngine, startSeam2, type Seam2 } from "./support/seam2.js";
@@ -204,6 +204,51 @@ describe("the session message", () => {
     await seam.waitForWorkEnd();
 
     expect(engine.runs[0].message).toContain("Ce projet utilise : Buttons");
+  });
+});
+
+describe("a session of a project without a design system", () => {
+  const PAGE = { "index.html": "<h1>Home</h1>", "manifest.json": JSON.stringify({ artboards: [{ file: "index.html", x: 0, y: 0, width: 200, height: 100 }] }) };
+  const styleOf = (page: Page) => join(seam!.folder, ".redline", page.id);
+
+  it("gets no .design-system/ folder and a note saying its style is still to be created while tokens.css is empty", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Looked" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE);
+    await seam.pinThread(page.id, "index.html", "Look");
+    await seam.waitForWorkEnd();
+
+    expect(existsSync(join(styleOf(page), ".design-system"))).toBe(false);
+    const message = engine.runs[0].message;
+    expect(message).not.toContain("Neutral");
+    expect(message).not.toContain("Design system:");
+    expect(message).toContain("This project has no design system. Its style is still to be created: tokens.css at the root of the working copy is empty.");
+  });
+
+  it("says its style is the project style tokens.css once that file has values", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Looked" }]);
+    seam = await startSeam2(engine);
+    await send("PUT", `/api/projects/${seam.project.id}/project-style`, { content: ":root { --color-primary: #7c3aed; }\n" });
+    const page = await seam.createPage(PAGE);
+    await seam.pinThread(page.id, "index.html", "Look");
+    await seam.waitForWorkEnd();
+
+    expect(readFileSync(join(styleOf(page), "tokens.css"), "utf8")).toBe(":root { --color-primary: #7c3aed; }\n");
+    expect(existsSync(join(styleOf(page), ".design-system"))).toBe(false);
+    expect(engine.runs[0].message).toContain("This project has no design system. Its style is the project style: tokens.css at the root of the working copy.");
+    expect(engine.runs[0].message).not.toContain("still to be created");
+  });
+
+  it("is treated the same when its manifest names the hidden Neutral design system", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Looked" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage({ ...PAGE, "manifest.json": manifestOf(NEUTRAL_DESIGN_SYSTEM_ID, ["index.html"]) });
+    await seam.pinThread(page.id, "index.html", "Look");
+    await seam.waitForWorkEnd();
+
+    expect(existsSync(join(styleOf(page), ".design-system"))).toBe(false);
+    expect(engine.runs[0].message).toContain("This project has no design system.");
+    expect(engine.runs[0].message).not.toContain("Design system:");
   });
 });
 

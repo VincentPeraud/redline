@@ -1,6 +1,32 @@
 import { expect, it } from "vitest";
 import { REDLINE_GUIDE } from "../src/guide.js";
 
+it("tells Claude to design the project style first when a project without a design system has an empty one", () => {
+  expect(REDLINE_GUIDE).toContain("### Project without a shared design system");
+  expect(REDLINE_GUIDE).toContain("before the first artboard");
+  expect(REDLINE_GUIDE).toContain("one to three typefaces, a ground, one or two accents of similar chroma and lightness");
+  expect(REDLINE_GUIDE).toContain("at least the core tokens");
+  expect(REDLINE_GUIDE).toContain("say in your answer what you chose");
+  expect(REDLINE_GUIDE).toContain("in every artboard");
+});
+
+it("tells Claude to keep an existing project style and change it only on request", () => {
+  expect(REDLINE_GUIDE).toContain("When it already holds values, use them");
+  expect(REDLINE_GUIDE).toContain("only when the user asks for a different look");
+});
+
+it("says a project without a shared design system has no gaps and needs no data-ds-libre", () => {
+  expect(REDLINE_GUIDE).toContain("No gaps are reported");
+  expect(REDLINE_GUIDE).toContain("data-ds-libre is not needed");
+  expect(REDLINE_GUIDE).not.toContain("A page without a design system has the neutral one");
+});
+
+it("scopes 'never override on your own initiative' to projects with a shared design system", () => {
+  expect(REDLINE_GUIDE).toContain("### Project with a shared design system");
+  expect(REDLINE_GUIDE).toContain("With a shared design system, override only when the user asks");
+  expect(REDLINE_GUIDE).toContain("Never override on your own initiative");
+});
+
 it("explains the project style: tokens.css wins over the design system, DESIGN.md of the project wins on conflict", () => {
   expect(REDLINE_GUIDE).toContain("## Project style (tokens.css)");
   expect(REDLINE_GUIDE).toContain("wins over the design system's token of the same name");
@@ -67,7 +93,7 @@ it("explains components: file layout, description, usage, variants as tweaks, da
 });
 
 it("explains overrides, deprecated aliases and the publish hint", () => {
-  expect(REDLINE_GUIDE).toContain("Override only when the user asks");
+  expect(REDLINE_GUIDE).toContain("override only when the user asks");
   expect(REDLINE_GUIDE).toContain("/* deprecated: renamed to --new */");
   expect(REDLINE_GUIDE).toContain("Hint:");
 });

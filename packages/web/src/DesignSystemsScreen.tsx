@@ -3,7 +3,6 @@ import {
   type CreateDesignSystemRequest,
   type DesignSystem,
   type DesignSystemSummary,
-  NEUTRAL_DESIGN_SYSTEM_ID,
   type Project,
 } from "@redline/shared";
 import { Button, Dialog, DialogActions, Field, PageContent, PageHeader, Select, Textarea, TextInput } from "./ui/index.js";
@@ -110,7 +109,7 @@ export function DesignSystemsScreen() {
   useEffect(() => {
     fetch("/api/design-systems")
       .then((res) => res.json() as Promise<DesignSystemSummary[]>)
-      .then((all) => setDesignSystems(all.filter((ds) => ds.id !== NEUTRAL_DESIGN_SYSTEM_ID)));
+      .then(setDesignSystems);
   }, []);
 
   return (

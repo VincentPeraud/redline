@@ -38,6 +38,8 @@ export interface ProjectDesignSystem {
   /** Its current diffusion; null without a shared design system. */
   diffusion: DiffusionInfo | null;
   tokens: ProjectStyleToken[];
+  /** True when the project style itself declares at least one token (`styleDefinesTokens`). */
+  styleDefinesTokens: boolean;
   components: ProjectComponentInfo[];
   /** Project-style tokens whose names exist in the current diffusion. */
   overrideCount: number;
@@ -50,18 +52,9 @@ export interface SetProjectTokenRequest {
   value: string;
 }
 
-/**
- * Where the project style starts when a project leaves its shared design system for none: that design system's current
- * values, or the neutral ones. The project's own overrides keep their value either way.
- */
-export type ProjectStyleStart = "design-system" | "neutral";
-export const PROJECT_STYLE_STARTS: readonly ProjectStyleStart[] = ["design-system", "neutral"];
-
 /** `PUT /api/projects/:id/design-system`: a shared design system id, or null for "Aucun : style propre au projet". */
 export interface SetProjectDesignSystemRequest {
   designSystem: string | null;
-  /** Required when the project follows a shared design system and `designSystem` is null. */
-  startFrom?: ProjectStyleStart;
 }
 
 /** `POST /api/projects/:id/design-system/promote`: makes the project's own style a shared design system (201 `DesignSystem`). */

@@ -34,7 +34,7 @@ A numbered (1, 2, ...), immutable snapshot of a shared design system (its `token
 _Avoid_: Release, publish, version (a version is a saved state of one page)
 
 **Project style**:
-A project's own tokens (project-level `tokens.css`, next to DESIGN.md), injected after the design system's. With a shared design system it holds the project's overrides; without one it is the project's whole style, starting from the neutral values.
+A project's own tokens (project-level `tokens.css`, next to DESIGN.md), injected after the design system's. With a shared design system it holds the project's overrides; without one it is the project's whole style, written by Claude from the subject of the project (or kept from before).
 _Avoid_: Theme, project layer, local design system
 
 **Override**:
@@ -46,7 +46,7 @@ An artboard file `components/<name>.html` of a page of a design system or of a p
 _Avoid_: Widget, block, symbol
 
 **Gap** (UI word "écart"):
-An element of an artboard that bypasses the design system: a hard-coded colour or font, a `<button>`, `<input>`, `<select>` or `<textarea>` without any component class when components of that kind exist, or the use of a deprecated token. Measured against the page's design system (current diffusion) and project style; listed in the page header with the closest token or the component meant for the case. A gap never blocks a publish; an element carrying `data-ds-libre`, and its descendants, is outside the analysis.
+An element of an artboard that bypasses the design system: a hard-coded colour or font, a `<button>`, `<input>`, `<select>` or `<textarea>` without any component class when components of that kind exist, or the use of a deprecated token. Measured only for pages of a project that follows a shared design system, against its design system (current diffusion) and project style (a project without one has no gaps); listed in the page header with the closest token or the component meant for the case. A gap never blocks a publish; an element carrying `data-ds-libre`, and its descendants, is outside the analysis.
 _Avoid_: Violation, lint error, warning
 
 **Core tokens**:

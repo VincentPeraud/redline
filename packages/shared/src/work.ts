@@ -116,7 +116,7 @@ export type ServerEvent =
   /** The page got a new title (from the header or a session's rename_page): an open canvas shows it. */
   | { type: "page-renamed"; pageId: string }
   /** A design system got a new version: the pages that use it (`pageIds`) reload their artboards to pick up the tokens. */
-  | { type: "design-system-updated"; designSystemId: string; pageIds: string[] }
+  | { type: "design-system-updated"; designSystemId?: string; pageIds: string[] }
   | { type: "thread-updated"; pageId: string; threadId: string }
   /** A conversation of the page, or one of its messages, changed. */
   | { type: "conversation-updated"; pageId: string; conversationId: string }

@@ -134,12 +134,29 @@ describe("session MCP tools", () => {
       answers.push(await run.callTool("check_page", {}));
       return [{ type: "result", summary: "Nothing" }];
     });
-    await runOnce(engine);
+    seam = await startSeam2(engine);
+    const designSystem = await seam.createDesignSystem();
+    const page = await seam.createPage({ ...PAGE_FILES, "manifest.json": JSON.stringify({ designSystem, artboards: [{ file: "home.html", width: 400, height: 300, x: 0, y: 0 }] }) });
+    await seam.pinThread(page.id, "home.html", "Do it");
+    await engine.finished(1);
+    await seam.waitForWorkEnd();
 
     expect(answers[0]).toBe("No design system gaps.\nLayout: nothing overlaps.");
     expect(answers[1]).toContain("- colour #2563eb ×1 (pilot.html)");
     expect(answers[1]).not.toContain("#5865f2");
     expect(answers[1]).toContain('Layout: 1 probable problem on the canvas:\n- The artboards "pilot.html" and "home.html" overlap: move one of them.');
+  });
+
+  it("check_page reports no gaps for a project without a design system, whatever colours and fonts the artboards hard-code", async () => {
+    const answers: string[] = [];
+    const engine = new FakeEngine(async (run) => {
+      await run.callTool("add_artboard", { file: "pilot.html", html: '<span style="color: #2563eb; font-family: Arial">Julie</span>', x: 500, y: 0 });
+      answers.push(await run.callTool("check_page", {}));
+      return [{ type: "result", summary: "Nothing" }];
+    });
+    await runOnce(engine);
+
+    expect(answers[0]).toBe("No design system gaps.\nLayout: nothing overlaps.");
   });
 
   it("create_page creates an empty page (manifest only) in the same project, marked as created by Claude", async () => {

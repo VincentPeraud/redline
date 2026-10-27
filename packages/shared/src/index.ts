@@ -29,7 +29,7 @@ export interface Project {
   title: string;
   /** Brief that becomes the first message of the project's first conversation. */
   instructions: string;
-  /** Design system id, or null for the neutral default. */
+  /** Id of the shared design system the project follows, or null for none (its project style is then its whole style). */
   designSystem: string | null;
   /** The project agent serving it, once an agent has linked the project. */
   agent?: { id: string; machine: string; folder: string; status: AgentStatus };

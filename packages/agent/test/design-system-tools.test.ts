@@ -37,11 +37,14 @@ describe("terminal design system tools", () => {
   it("lists the design systems with their pages", async () => {
     seam = await startSeam2(new FakeEngine([]));
     const call = await connectTerminal(seam.folder);
+    await seam.server.post("/api/design-systems", { title: "Acme DS", files: { "tokens.css": `:root {\n${CORE_TOKENS.map((t) => `  ${t}: #111;`).join("\n")}\n}\n`, "index.html": "<!doctype html><html><head></head><body></body></html>" } });
     const { text } = await call("list_design_systems", {});
-    const neutral = (await designSystems())[0];
-    expect(text).toContain(`id ${neutral.id}`);
-    expect(text).toContain(neutral.title);
-    expect(text).toContain(`page ${neutral.pageId}`);
+    const listed = await designSystems();
+    expect(listed).toHaveLength(1);
+    expect(text).toContain(`id ${listed[0].id}`);
+    expect(text).toContain(listed[0].title);
+    expect(text).toContain(`page ${listed[0].pageId}`);
+    expect(text).not.toContain("neutral");
   });
 
   it("creates a design system, answers with its page id, and the page can be checked out and published", async () => {
@@ -86,10 +89,7 @@ describe("terminal design system tools", () => {
     expect((await projectOf(projectId)).designSystem).toBe(ds.id);
     expect((await designSystems()).find((d) => d.id === ds.id)!.usedBy.map((p) => p.id)).toContain(projectId);
 
-    const refused = await call("set_project_design_system", { projectId, designSystem: null });
-    expect(refused.isError).toBe(true);
-    expect((await projectOf(projectId)).designSystem).toBe(ds.id);
-    const none = await call("set_project_design_system", { projectId, designSystem: null, startFrom: "design-system" });
+    const none = await call("set_project_design_system", { projectId, designSystem: null });
     expect(none.isError).toBe(false);
     expect((await projectOf(projectId)).designSystem).toBeNull();
   });
@@ -104,8 +104,28 @@ describe("terminal design system tools", () => {
     await call("set_project_design_system", { projectId: seam.project.id, designSystem: ds.id });
     expect(JSON.parse(await seam.readFile(page.id, "manifest.json")).designSystem).toBe(ds.id);
 
-    await call("set_project_design_system", { projectId: seam.project.id, designSystem: null, startFrom: "neutral" });
+    await call("set_project_design_system", { projectId: seam.project.id, designSystem: null });
     expect(JSON.parse(await seam.readFile(page.id, "manifest.json")).designSystem).toBeUndefined();
+  });
+
+  it("leaving a shared design system for none keeps its values, with or without startFrom, and the tool never mentions startFrom", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const call = await connectTerminal(seam.folder);
+    await call("create_design_system", { title: "Lumora" });
+    const ds = (await designSystems()).find((d) => d.title === "Lumora")!;
+    const radius = async () => {
+      const detail = (await (await seam!.server.get(`/api/projects/${seam!.project.id}/design-system`)).json()) as { tokens: { name: string; value: string }[] };
+      return detail.tokens.find((t) => t.name === "--radius")?.value;
+    };
+    await call("set_project_design_system", { projectId: seam.project.id, designSystem: ds.id });
+    const shared = await radius();
+    await call("set_project_design_system", { projectId: seam.project.id, designSystem: null });
+    expect(await radius()).toBe(shared);
+    await call("set_project_design_system", { projectId: seam.project.id, designSystem: ds.id });
+    expect((await call("set_project_design_system", { projectId: seam.project.id, designSystem: null, startFrom: "neutral" })).isError).toBe(false);
+    expect(await radius()).toBe(shared);
+    const tool = (await client!.listTools()).tools.find((t) => t.name === "set_project_design_system")!;
+    expect(JSON.stringify(tool)).not.toContain("startFrom");
   });
 
   it("refuses an unknown design system or project", async () => {

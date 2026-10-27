@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DesignMdVersion, DesignSystemSummary, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, ProjectStyleStart, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
+import type { DesignMdVersion, DesignSystemSummary, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
 import { dayLabel, designMdAuthor, originLabel } from "./historyLabels.js";
 import { agree } from "./plural.js";
 import { pickerHex } from "./projectDesignSystemLabels.js";
@@ -187,27 +187,6 @@ function PromoteDialog({ initialTitle, onSubmit, onClose }: { initialTitle: stri
   );
 }
 
-function StyleStartDialog({ designSystemTitle, onChoose, onClose }: { designSystemTitle: string; onChoose: (startFrom: ProjectStyleStart) => void; onClose: () => void }) {
-  return (
-    <Dialog title="Style propre au projet" onClose={onClose} width={680}>
-      <div className={styles.promoteForm}>
-        <p>Le projet ne suivra plus {designSystemTitle}. Ses variables surchargées gardent leur valeur : d'où partent les autres ?</p>
-        <DialogActions>
-          <Button size="lg" onClick={onClose}>
-            Annuler
-          </Button>
-          <Button size="lg" onClick={() => onChoose("neutral")}>
-            Partir des valeurs neutres
-          </Button>
-          <Button variant="accent" size="lg" onClick={() => onChoose("design-system")}>
-            Partir des valeurs de {designSystemTitle}
-          </Button>
-        </DialogActions>
-      </div>
-    </Dialog>
-  );
-}
-
 export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [detail, setDetail] = useState<ProjectDesignSystem | null>(null);
@@ -215,7 +194,6 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   const [versions, setVersions] = useState<DesignMdVersion[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [promoteOpen, setPromoteOpen] = useState(false);
-  const [startChoiceOpen, setStartChoiceOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadVersions = useCallback(
@@ -269,10 +247,8 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const resetToken = useCallback((name: string) => change(fetch(tokenUrl(name), { method: "DELETE" })), [change, projectId]);
 
-  function changeDesignSystem(id: string, startFrom?: ProjectStyleStart) {
-    if (id === "none" && detail?.designSystem && !startFrom) return setStartChoiceOpen(true);
-    setStartChoiceOpen(false);
-    const body: SetProjectDesignSystemRequest = { designSystem: id === "none" ? null : id, ...(startFrom ? { startFrom } : {}) };
+  function changeDesignSystem(id: string) {
+    const body: SetProjectDesignSystemRequest = { designSystem: id === "none" ? null : id };
     void change(fetch(`/api/projects/${projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
   }
 
@@ -303,6 +279,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   const thumb = { background: colour("--color-background", "transparent"), shape: colour("--color-primary", "transparent") };
   const selectedId = shared?.id ?? "none";
   const overridden = detail.overrideCount;
+  const fresh = !shared && !detail.styleDefinesTokens;
 
   return (
     <div className={styles.screen}>
@@ -357,9 +334,17 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
               <>
                 <span className={styles.chooserNote}>Ce style n'est pas partagé et n'apparaît pas dans la liste des design systems.</span>
                 <div className={styles.grow} />
-                <button type="button" className={styles.promote} onClick={() => setPromoteOpen(true)}>
-                  En faire un design system…
-                </button>
+                {detail.styleDefinesTokens ? (
+                  <button type="button" className={styles.promote} onClick={() => setPromoteOpen(true)}>
+                    En faire un design system…
+                  </button>
+                ) : (
+                  <Tooltip label="Le style du projet est encore vide">
+                    <button type="button" className={styles.promote} aria-disabled="true">
+                      En faire un design system…
+                    </button>
+                  </Tooltip>
+                )}
               </>
             )}
           </section>
@@ -370,7 +355,9 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
               <span className={styles.variablesHint}>
                 {shared
                   ? `${overridden} ${agree(overridden, "surchargée", "surchargées")} · les autres suivent ${shared.title}`
-                  : "Le design system du projet : modifiables ici ou en le demandant à Claude"}
+                  : fresh
+                    ? "Aucune pour l'instant"
+                    : "Le style du projet : modifiables ici ou en le demandant à Claude"}
               </span>
             </div>
             {error && (
@@ -378,16 +365,25 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
                 {error}
               </div>
             )}
-            <div className={styles.table}>
-              <div className={styles.headRow}>
-                <span className={styles.nameCol}>Variable</span>
-                {title !== null && <span className={styles.designSystemCol}>{title}</span>}
-                <span className={styles.grow}>{shared ? "Ce projet" : "Valeur"}</span>
+            {fresh ? (
+              <div data-testid="fresh-style" className={styles.fresh}>
+                <h3 className={styles.freshTitle}>Pas encore de style</h3>
+                <p className={styles.freshText}>
+                  Claude le crée d'après le sujet du projet à ta première demande : polices, fond, couleurs d'accent. Tu pourras ensuite le modifier ici ou en le lui demandant.
+                </p>
               </div>
-              {detail.tokens.map((token) => (
-                <TokenRow key={token.name} token={token} designSystemTitle={title} onSet={setToken} onReset={resetToken} />
-              ))}
-            </div>
+            ) : (
+              <div className={styles.table}>
+                <div className={styles.headRow}>
+                  <span className={styles.nameCol}>Variable</span>
+                  {title !== null && <span className={styles.designSystemCol}>{title}</span>}
+                  <span className={styles.grow}>{shared ? "Ce projet" : "Valeur"}</span>
+                </div>
+                {detail.tokens.map((token) => (
+                  <TokenRow key={token.name} token={token} designSystemTitle={title} onSet={setToken} onReset={resetToken} />
+                ))}
+              </div>
+            )}
           </section>
         </main>
 
@@ -413,9 +409,6 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
         </aside>
       </div>
 
-      {startChoiceOpen && shared && (
-        <StyleStartDialog designSystemTitle={shared.title} onChoose={(startFrom) => changeDesignSystem("none", startFrom)} onClose={() => setStartChoiceOpen(false)} />
-      )}
       {promoteOpen && <PromoteDialog initialTitle={project.title} onSubmit={promote} onClose={() => setPromoteOpen(false)} />}
       {historyOpen && <HistoryDialog versions={versions} onRestore={restore} onClose={() => setHistoryOpen(false)} />}
     </div>
