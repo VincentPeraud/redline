@@ -8,7 +8,7 @@ import { checkClaude } from "./claude.js";
 import { claudeCodeEngine } from "./claude-code-engine.js";
 import { chooseModelEffort } from "./launch-choice.js";
 import { linkFolder, serverForFolder, type LinkChoice } from "./link.js";
-import { defaultConfigDir, pickServer, requireLogins, saveLogin, validateServerUrl, type Login } from "./login.js";
+import { defaultConfigDir, pickServer, requireLogins, type Login } from "./login.js";
 import { askSecret } from "./secret-prompt.js";
 import { ServerApi } from "./server-api.js";
 import { serveAgent } from "./serve-agent.js";
@@ -24,14 +24,22 @@ async function runSetup(args: string[]): Promise<void> {
   console.log("Server saved and Redline registered in Claude Code. Run `redline agent` in a project folder to connect.");
 }
 
-/** Interactive alias of `redline setup`: asks for the token and only stores the server. */
+async function ask(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return (await rl.question(question)).trim();
+  } finally {
+    rl.close();
+  }
+}
+
+/** Interactive alias of `redline setup`: asks for the URL (unless given) and the token, then does the same. */
 async function runLogin(serverUrl: string | undefined): Promise<void> {
-  if (!serverUrl) throw new Error("Usage: redline login <server-url>");
-  const url = validateServerUrl(serverUrl);
-  const token = (await askSecret("Agents' token (shown on the Agents screen): ")).trim();
-  if (!token) throw new Error("A token is required.");
-  saveLogin({ configDir: defaultConfigDir(), serverUrl: url, token });
-  console.log("Saved. Run `redline agent` in a project folder to connect.");
+  const url = serverUrl ?? (await ask("Server URL: "));
+  if (!url) throw new Error("A server URL is required.");
+  const token = await askSecret("Agents' token (shown on the Agents screen): ");
+  await setupServer({ configDir: defaultConfigDir(), serverUrl: url, token });
+  console.log("Server saved and Redline registered in Claude Code. Run `redline agent` in a project folder to connect.");
 }
 
 async function askServer(servers: Login[]): Promise<Login> {
@@ -145,7 +153,7 @@ try {
   else if (command === "agent") await superviseOrRunAgent(args);
   else if (command === "mcp") await runMcp();
   else if (command === "build-hash") console.log(buildHash());
-  else throw new Error("Usage: redline setup <server-url> --token <token> | redline login <server-url> | redline init | redline mcp | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
+  else throw new Error("Usage: redline setup <server-url> --token <token> | redline login [<server-url>] | redline init | redline mcp | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
 } catch (error) {
   console.error((error as Error).message);
   process.exit(1);

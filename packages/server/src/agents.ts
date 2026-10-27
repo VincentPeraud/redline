@@ -105,7 +105,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         send(socket, {
           type: "error",
           code: "unauthorized",
-          message: "Wrong token. Run `redline login <server-url>` with the token shown on the Agents screen.",
+          message: "Wrong token. Run `redline setup <server-url> --token <token>` with the token shown on the Agents screen.",
         });
         return socket.close(AgentCloseCode.Unauthorized, "unauthorized");
       }
