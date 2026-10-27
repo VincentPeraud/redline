@@ -19,7 +19,6 @@ import {
   type ProjectAsset,
   type ThreadReply,
   type VersionOrigin,
-  type ProjectStyleStart,
   type RenamePageRequest,
 } from "@redline/shared";
 
@@ -99,9 +98,9 @@ export class ServerApi {
     return this.request("POST", "/design-systems", { title });
   }
 
-  /** Points the project at a design system, or at none (null; `startFrom` is required when it leaves a shared one). */
-  setProjectDesignSystem(projectId: string, designSystem: string | null, startFrom?: ProjectStyleStart): Promise<Project> {
-    return this.request("PUT", `/projects/${encodeURIComponent(projectId)}/design-system`, { designSystem, startFrom });
+  /** Points the project at a design system, or at none (null). */
+  setProjectDesignSystem(projectId: string, designSystem: string | null): Promise<Project> {
+    return this.request("PUT", `/projects/${encodeURIComponent(projectId)}/design-system`, { designSystem });
   }
 
   listPages(projectId: string): Promise<Page[]> {

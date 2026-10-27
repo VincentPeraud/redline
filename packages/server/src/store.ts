@@ -20,7 +20,6 @@ import {
   NEUTRAL_TOKENS_CSS,
   parseTokens,
   setToken,
-  type ProjectStyleStart,
   PROJECT_STYLE_PATH,
   NEUTRAL_TOKENS_PAGE_HTML,
   type DesignSystem,
@@ -639,10 +638,11 @@ export class Store {
    * Points a project at a shared design system, or at none (null: its project style becomes its whole style). Pages follow the
    * `designSystem` of their manifest, so each page whose manifest says otherwise gets a version with the new value.
    */
-  setProjectDesignSystem(projectId: string, designSystem: string | null, origin: VersionOrigin, startFrom?: ProjectStyleStart): void {
+  setProjectDesignSystem(projectId: string, designSystem: string | null, origin: VersionOrigin): void {
     const previous = this.getProject(projectId)!.designSystem;
-    if (designSystem === null && previous !== null && startFrom) {
-      this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(this.startingStyle(projectId, previous, startFrom), "utf8"));
+    if (designSystem === null && previous !== null) {
+      const style = this.startingStyle(projectId, previous);
+      if (style !== undefined) this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(style, "utf8"));
     }
     this.db.prepare("UPDATE projects SET design_system = ? WHERE id = ?").run(designSystem, projectId);
     if (designSystem === null && !this.readProjectFile(projectId, PROJECT_STYLE_PATH)) {
@@ -663,10 +663,11 @@ export class Store {
     }
   }
 
-  /** The project style after leaving `fromDesignSystem`: the base values (its current diffusion, or neutral) with the project's overrides on top. */
-  private startingStyle(projectId: string, fromDesignSystem: string, startFrom: ProjectStyleStart): string {
+  /** The project style after leaving `fromDesignSystem`: its current diffusion's tokens with the project's overrides on top; undefined (the overrides stay alone) when it has no diffusion. */
+  private startingStyle(projectId: string, fromDesignSystem: string): string | undefined {
     const diffusion = this.currentDiffusion(fromDesignSystem);
-    const base = startFrom === "design-system" && diffusion ? (this.readDiffusionFile(fromDesignSystem, diffusion.number, "tokens.css") ?? NEUTRAL_TOKENS_CSS) : NEUTRAL_TOKENS_CSS;
+    const base = diffusion && this.readDiffusionFile(fromDesignSystem, diffusion.number, "tokens.css");
+    if (!base) return undefined;
     const overrides = parseTokens(this.readProjectText(projectId, PROJECT_STYLE_PATH));
     return overrides.reduce((css, token) => setToken(css, token.name, token.value), base);
   }
