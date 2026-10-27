@@ -37,6 +37,7 @@ import {
   type MoveArtboardRequest,
   type UpdatePageRequest,
   type UpdateProjectRequest,
+  CLI_TARBALL_PATH,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import type { Store } from "./store.js";
@@ -57,7 +58,7 @@ import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
 import { registerGapRoutes } from "./gaps.js";
-import { CLI_TARBALL_PATH, type CliBuild } from "./cli-build.js";
+import { type CliBuild } from "./cli-build.js";
 import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
 import { registerRequestHardening } from "./request-hardening.js";
 import { announceDiffusion, registerDesignSystemReload } from "./design-system-reload.js";
@@ -122,6 +123,7 @@ export async function buildMainApp(
   registerProxySecretCheck(app, options.proxySecrets);
   registerHealthRoute(app);
   const { cliBuild } = options;
+  store.setServerBuildHash(cliBuild?.hash);
   if (cliBuild) {
     app.get(CLI_TARBALL_PATH, async (_req, reply) =>
       reply.type("application/gzip").header("content-disposition", 'attachment; filename="redline-cli.tgz"').send(createReadStream(cliBuild.tarballPath)),

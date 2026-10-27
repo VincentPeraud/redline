@@ -1,6 +1,8 @@
+import type { CSSProperties, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles/global.css";
 import { AgentsScreen } from "./AgentsScreen";
+import { AgentUpdateBanner, useOutdatedAgentNames } from "./AgentUpdateBanner";
 import { App } from "./App";
 import { DesignSystemOverview } from "./DesignSystemOverview";
 import { DesignSystemsScreen } from "./DesignSystemsScreen";
@@ -13,8 +15,20 @@ import { ProjectsScreen } from "./ProjectsScreen";
 import { Shell } from "./Sidebar";
 import { useRoute } from "./router";
 import { SessionsScreen } from "./SessionsScreen";
+import { HomeProvider } from "./useHome";
 
-function Root() {
+/** The banner on top of every screen; the screens below shrink by its height (`--banner-height`). */
+function WithBanner({ children }: { children: ReactNode }) {
+  const bannerShown = useOutdatedAgentNames().length > 0;
+  return (
+    <div style={{ "--banner-height": bannerShown ? "var(--banner-size)" : "0px" } as CSSProperties}>
+      <AgentUpdateBanner />
+      {children}
+    </div>
+  );
+}
+
+function Screen() {
   const route = useRoute();
   switch (route.name) {
     case "page":
@@ -38,6 +52,16 @@ function Root() {
     case "sessions":
       return <Shell><SessionsScreen /></Shell>;
   }
+}
+
+function Root() {
+  return (
+    <HomeProvider>
+      <WithBanner>
+        <Screen />
+      </WithBanner>
+    </HomeProvider>
+  );
 }
 
 createRoot(document.getElementById("root")!).render(

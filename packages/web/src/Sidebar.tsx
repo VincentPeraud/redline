@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { routeHref, useRoute, type Route } from "./router.js";
-import { HomeProvider, useHome } from "./useHome.js";
+import { useHome } from "./useHome.js";
 import { cx, Logo } from "./ui/index.js";
 import styles from "./Sidebar.module.css";
 
@@ -63,11 +63,9 @@ function Nav() {
  */
 export function Shell({ children }: { children: ReactNode }) {
   return (
-    <HomeProvider>
-      <div className={styles.shell}>
-        <Nav />
-        <div className={styles.content}>{children}</div>
-      </div>
-    </HomeProvider>
+    <div className={styles.shell}>
+      <Nav />
+      <div className={styles.content}>{children}</div>
+    </div>
   );
 }

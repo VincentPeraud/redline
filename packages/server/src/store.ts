@@ -40,6 +40,7 @@ import type {
   ManifestElement,
   ManifestElementKind,
   AgentInfo,
+  RefusedAgent,
   AgentKind,
   Effort,
   AgentStatus,
@@ -64,6 +65,7 @@ export class Store {
   private readonly db: Database.Database;
   private readonly blobDir: string;
   private readonly listeners = new Set<(event: ServerEvent) => void>();
+  private serverBuildHash: string | undefined;
 
   constructor(dataDir: string) {
     this.blobDir = join(dataDir, "blobs");
@@ -204,11 +206,19 @@ export class Store {
         retry_limit INTEGER,
         message TEXT
       );
+      CREATE TABLE IF NOT EXISTS refused_agents (
+        machine TEXT NOT NULL,
+        folder TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        refused_at TEXT NOT NULL,
+        PRIMARY KEY (machine, folder)
+      );
       UPDATE agents SET status = 'offline';
     `);
     const agentColumns = this.db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
     if (!agentColumns.some((c) => c.name === "project_id")) this.db.exec("ALTER TABLE agents ADD COLUMN project_id TEXT");
     if (!agentColumns.some((c) => c.name === "model")) this.db.exec("ALTER TABLE agents ADD COLUMN model TEXT");
+    if (!agentColumns.some((c) => c.name === "build_hash")) this.db.exec("ALTER TABLE agents ADD COLUMN build_hash TEXT");
     if (!agentColumns.some((c) => c.name === "effort")) this.db.exec("ALTER TABLE agents ADD COLUMN effort TEXT");
     const columnsOf = (table: string) => (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
     const addColumn = (table: string, column: string, definition: string) => {
@@ -596,14 +606,15 @@ export class Store {
   }
 
   /** Records an agent as online; one entry per machine and folder. */
-  markAgentOnline(machine: string, folder: string, kind: AgentKind, projectId?: string, model?: string, effort?: Effort): string {
+  markAgentOnline(machine: string, folder: string, kind: AgentKind, projectId?: string, model?: string, effort?: Effort, buildHash?: string): string {
     if (projectId) this.db.prepare("UPDATE agents SET project_id = NULL WHERE project_id = ?").run(projectId);
     this.db
       .prepare(
-        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, project_id, model, effort) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?)
-         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, project_id = excluded.project_id, model = excluded.model, effort = excluded.effort`,
+        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, project_id, model, effort, build_hash) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?)
+         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, project_id = excluded.project_id, model = excluded.model, effort = excluded.effort, build_hash = excluded.build_hash`,
       )
-      .run(randomUUID(), machine, folder, kind, now(), projectId ?? null, model ?? null, effort ?? null);
+      .run(randomUUID(), machine, folder, kind, now(), projectId ?? null, model ?? null, effort ?? null, buildHash ?? null);
+    this.db.prepare("DELETE FROM refused_agents WHERE machine = ? AND folder = ?").run(machine, folder);
     return (this.db.prepare("SELECT id FROM agents WHERE machine = ? AND folder = ?").get(machine, folder) as { id: string }).id;
   }
 
@@ -620,11 +631,42 @@ export class Store {
       .get(projectId, machine, folder) as { machine: string; folder: string } | undefined;
   }
 
+  /** The build hash of the CLI the server serves; connected agents running another build are listed as outdated. Undefined (development): no check. */
+  setServerBuildHash(hash: string | undefined): void {
+    this.serverBuildHash = hash;
+  }
+
+  getServerBuildHash(): string | undefined {
+    return this.serverBuildHash;
+  }
+
+  isOutdated(buildHash: string | null | undefined): boolean {
+    return this.serverBuildHash !== undefined && buildHash !== this.serverBuildHash;
+  }
+
   listAgents(): AgentInfo[] {
     const rows = this.db
-      .prepare("SELECT id, machine, folder, kind, status, last_seen_at AS lastSeenAt, model, effort FROM agents ORDER BY machine, folder")
-      .all() as (Omit<AgentInfo, "model" | "effort"> & { model: string | null; effort: Effort | null })[];
-    return rows.map(({ model, effort, ...agent }) => ({ ...agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}) }));
+      .prepare("SELECT id, machine, folder, kind, status, last_seen_at AS lastSeenAt, model, effort, build_hash AS buildHash FROM agents ORDER BY machine, folder")
+      .all() as (Omit<AgentInfo, "model" | "effort" | "outdated"> & { model: string | null; effort: Effort | null; buildHash: string | null })[];
+    return rows.map(({ model, effort, buildHash, ...agent }) => ({
+      ...agent,
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+      ...(agent.status === "online" && this.isOutdated(buildHash) ? { outdated: true as const } : {}),
+    }));
+  }
+
+  /** Remembers an agent refused for its protocol until it connects again. */
+  recordRefusedAgent(machine: string, folder: string, kind: AgentKind): void {
+    this.db
+      .prepare(
+        "INSERT INTO refused_agents (machine, folder, kind, refused_at) VALUES (?, ?, ?, ?) ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, refused_at = excluded.refused_at",
+      )
+      .run(machine, folder, kind, now());
+  }
+
+  listRefusedAgents(): RefusedAgent[] {
+    return this.db.prepare("SELECT machine, folder, kind, refused_at AS refusedAt FROM refused_agents ORDER BY machine, folder").all() as RefusedAgent[];
   }
 
   private insertProject(title: string, id: string, instructions: string, designSystem: string | null): Project {
