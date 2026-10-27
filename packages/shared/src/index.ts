@@ -5,6 +5,7 @@ import type { Gap } from "./gaps.js";
 export * from "./work.js";
 export * from "./sessions.js";
 export * from "./home.js";
+export * from "./people.js";
 export * from "./readingOrder.js";
 export * from "./responsiveLayout.js";
 export * from "./tweakGrid.js";
