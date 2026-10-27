@@ -28,6 +28,21 @@ afterAll(async () => {
   rmSync(webDir, { recursive: true, force: true });
 });
 
+it("focuses the new comment as soon as an element is picked", async () => {
+  const page = await seam.createPage({ "home.html": "<!doctype html><h1>Title</h1>" });
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
+  const artboard = tab.frameLocator("iframe");
+  await expect.poll(() => artboard.locator("h1").textContent()).toBe("Title");
+
+  await tab.keyboard.press("c");
+  await artboard.locator("h1").click();
+  await expect.poll(() => tab.evaluate(() => document.activeElement?.id)).toBe("new-comment");
+  await tab.keyboard.type("Bolder");
+  expect(await tab.locator("#new-comment").inputValue()).toBe("Bolder");
+  await tab.close();
+}, 60_000);
+
 it("lets the new comment choose the model and effort of the thread's first run", async () => {
   const page = await seam.createPage({ "home.html": "<!doctype html><h1>Title</h1>" });
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
