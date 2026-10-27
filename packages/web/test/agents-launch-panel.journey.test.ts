@@ -33,6 +33,7 @@ it("shows one setup command with the token masked, and copies it whole", async (
   const tab = await context.newPage();
   await tab.goto(`${server.url}/#/agents`);
 
+  await tab.getByRole("button", { name: "Lancer un agent" }).click();
   const panel = tab.getByRole("complementary", { name: "Lancer un agent" });
   await panel.getByText("Une fois par machine").waitFor();
   await panel.getByText("--token abt_", { exact: false }).waitFor();
