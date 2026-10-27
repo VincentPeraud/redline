@@ -34,6 +34,19 @@ Redline has no login, and `GET /api/agent-token` hands out the agents' token to 
 
 Redline has no login of its own. The proxy must protect everything (web UI, API, artboard origin) except the agent endpoints `/agent` (a WebSocket on the main port) and `/agent-api/*`, which are guarded by the agents' token. The proxy must forward the original `Host` header (or `X-Forwarded-Host`): state-changing API calls are refused when their `Origin` header names another host. Serve the artboard port on its own host name (a different origin from the UI) and set `REDLINE_ARTBOARD_ORIGIN` to it. Agents upload project assets of up to 20 MB through `/agent-api/*`: raise the proxy's body size limit for that path (nginx allows 1 MB by default, `client_max_body_size`).
 
+### Proxy secrets
+
+Behind a proxy, Redline can refuse every request the proxy did not forward. Set both variables below (each names a file holding a random hex value of at least 32 characters; the two values must differ), otherwise no check is made:
+
+| Variable | Secret | Accepted on |
+| --- | --- | --- |
+| `REDLINE_PROXY_SECRET_HUMAN_FILE` | human | UI, API and artboard origin (both listeners), except the machine paths |
+| `REDLINE_PROXY_SECRET_MACHINE_FILE` | machine | `/agent`, `/agent-api/*` and `/cli/*` only |
+
+The proxy adds the secret in the `X-Redline-Proxy-Secret` request header (its human router adds the human secret, its machine router the machine secret). Any other request gets a bare `403`. Startup fails when a secret is too short, when both are equal, or when only one file is set.
+
+`GET /healthz` on the main port answers `200` without a secret, but only to a request whose remote address is the container's own loopback (a request through the proxy never is). The image's health check calls it.
+
 ### Behind Traefik (local)
 
 With a Traefik already running on an external Docker network named `traefik` (entrypoint `web`), `docker-compose.traefik.yml` serves the UI on `http://redline.localhost` and the artboards on `http://artboards.redline.localhost`:
