@@ -521,3 +521,27 @@
   flex-direction: column;
   gap: var(--space-4);
 }
+
+.fresh {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 28px var(--space-6);
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-xl);
+}
+
+.freshTitle {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.freshText {
+  margin: 0;
+  max-width: 640px;
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}

@@ -70,7 +70,7 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
   const canCreate = title.trim() !== "";
   const options = [
     ...choosable.map((ds) => ({ id: ds.id, title: ds.title, description: designSystemUse(ds) })),
-    { id: NO_DESIGN_SYSTEM, title: "Aucun pour l'instant", description: "Claude part d'un style neutre" },
+    { id: NO_DESIGN_SYSTEM, title: "Aucun pour l'instant", description: "Claude crée un style d'après le sujet du projet" },
   ];
 
   async function submit(event: FormEvent) {
