@@ -13,6 +13,7 @@ import { askSecret } from "./secret-prompt.js";
 import { ServerApi } from "./server-api.js";
 import { serveAgent } from "./serve-agent.js";
 import { setupServer } from "./setup.js";
+import { RELAUNCHED_ENV, UPDATE_EXIT_CODE, WORKER_ENV, superviseAgent } from "./supervisor.js";
 import { serveTerminalMcp } from "./terminal-mcp.js";
 
 async function runSetup(args: string[]): Promise<void> {
@@ -87,9 +88,9 @@ function parseEffort(value: string | undefined): Effort | undefined {
   return value as Effort;
 }
 
-/** Asks the model and effort in a terminal; outside one, the folder's last choice is used as is. */
+/** Asks the model and effort in a terminal; outside one, or after an update relaunch, the folder's last choice is used as is. */
 async function askModelEffort(folder: string, flags: ModelChoice) {
-  const rl = process.stdin.isTTY ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
+  const rl = process.stdin.isTTY && !process.env[RELAUNCHED_ENV] ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
   try {
     const claudeSettingsFile = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json");
     return await chooseModelEffort({ folder, configDir: defaultConfigDir(), claudeSettingsFile, flags, ask: rl && ((question) => rl.question(question)), warn: console.error });
@@ -120,7 +121,14 @@ async function runAgent(args: string[]): Promise<void> {
     console.log("\nAgent stopped.");
     service.stop();
   });
-  await service.done;
+  const { updated } = await service.done;
+  if (updated) process.exit(UPDATE_EXIT_CODE);
+}
+
+/** `redline agent` supervises a worker process running the agent, so that an update from the browser can restart it. */
+async function superviseOrRunAgent(args: string[]): Promise<void> {
+  if (process.env[WORKER_ENV]) return runAgent(args);
+  process.exitCode = await superviseAgent({ command: process.execPath, args: [process.argv[1], "agent", ...args], log: console.log });
 }
 
 /** Terminal mode: an MCP server on stdio for the user's own Claude Code (registered by `redline setup`). */
@@ -134,7 +142,7 @@ try {
   if (command === "setup") await runSetup(args);
   else if (command === "login") await runLogin(args[0]);
   else if (command === "init") await runInit();
-  else if (command === "agent") await runAgent(args);
+  else if (command === "agent") await superviseOrRunAgent(args);
   else if (command === "mcp") await runMcp();
   else if (command === "build-hash") console.log(buildHash());
   else throw new Error("Usage: redline setup <server-url> --token <token> | redline login <server-url> | redline init | redline mcp | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
