@@ -99,7 +99,8 @@ describe("terminal mode (redline mcp)", () => {
 
   it("lists the design system gaps and the layout of the published version after its address", async () => {
     seam = await startSeam2(new FakeEngine([]));
-    const page = await seam.createPage(PAGE_FILES);
+    const designSystem = await seam.createDesignSystem();
+    const page = await seam.createPage({ ...PAGE_FILES, "manifest.json": JSON.stringify({ designSystem, artboards: [{ file: "home.html", x: 0, y: 0, width: 400, height: 300 }] }) });
     const call = await connectTerminal(seam.folder);
     await call("checkout_page", { pageId: page.id });
     writeFileSync(join(seam.folder, ".redline", page.id, "home.html"), '<h1 style="color: #2563eb">Changed</h1>');
@@ -108,6 +109,20 @@ describe("terminal mode (redline mcp)", () => {
 
     expect(answer).toContain("1 design system gap");
     expect(answer).toContain("- colour #2563eb ×1 (home.html)");
+    expect(answer).toContain("Layout: nothing overlaps.");
+  });
+
+  it("reports no gaps after publishing a page of a project without a design system", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+    writeFileSync(join(seam.folder, ".redline", page.id, "home.html"), '<h1 style="color: #2563eb; font-family: Arial">Changed</h1>');
+
+    const answer = await call("publish_page", { message: "Blue" });
+
+    expect(answer).toMatch(/Published/);
+    expect(answer).not.toContain("gap");
     expect(answer).toContain("Layout: nothing overlaps.");
   });
 

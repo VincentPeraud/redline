@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   MANIFEST_PATH,
+  NEUTRAL_DESIGN_SYSTEM_ID,
   PROJECT_STYLE_PATH,
   analyseGaps,
   componentClassesOf,
@@ -36,8 +37,9 @@ function gapContext(store: Store, pageId: string, projectId: string): GapContext
 /** The gaps of a page's artboards in `files`; none on a design system's own pages, which are the system. */
 function gapsOfFiles(store: Store, pageId: string, files: Record<string, string>): PageGaps {
   const page = store.getPage(pageId)!;
-  const designSystemTitle = store.getDesignSystem(designSystemIdOf(store, pageId))?.title ?? "";
-  if (store.isDesignSystemProject(page.projectId)) return { designSystemTitle, gaps: [] };
+  const designSystemId = designSystemIdOf(store, pageId);
+  const designSystemTitle = store.getDesignSystem(designSystemId)?.title ?? "";
+  if (store.isDesignSystemProject(page.projectId) || designSystemId === NEUTRAL_DESIGN_SYSTEM_ID) return { designSystemTitle, gaps: [] };
   const manifestText = files[MANIFEST_PATH];
   const artboards = (manifestText === undefined ? defaultManifest(Object.keys(files)) : parseManifest(manifestText)).artboards;
   const context = gapContext(store, pageId, page.projectId);

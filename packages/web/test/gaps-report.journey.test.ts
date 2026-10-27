@@ -120,6 +120,20 @@ it("shows no button and no pill on a page without gaps", async () => {
   expect(await tab.getByTestId("artboard-gaps").count()).toBe(0);
 }, 60_000);
 
+it("shows no button and no pill on a page of a project without a design system, even with hard-coded colours and fonts", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Radio" })).json()) as { id: string };
+  const page = (await (await server.post(`/api/projects/${project.id}/pages`, {
+    title: "Rejeu",
+    files: { "story-2.html": drifting, "manifest.json": JSON.stringify({ artboards: [{ file: "story-2.html", title: "story-2.html", x: 0, y: 0, width: 220, height: 390 }] }) },
+  })).json()) as { id: string };
+  const tab = await context.newPage();
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  await tab.locator('[data-strip="story-2.html"]').waitFor();
+  await tab.waitForTimeout(500);
+  expect(await tab.getByTestId("gaps-button").count()).toBe(0);
+  expect(await tab.getByTestId("artboard-gaps").count()).toBe(0);
+}, 60_000);
+
 it("Exception voulue hides a gap for good: counts, footer, pill and a reload all follow", async () => {
   const pageId = await setup({ "story-1.html": clean, "story-2.html": drifting });
   const tab = await context.newPage();
