@@ -69,6 +69,7 @@ function AgentCard({ agent }: { agent: AgentOverview }) {
   const offline = agent.status === "offline";
   const busy = agent.running > 0;
   const { text: activityText, warn } = activity(agent);
+  const updatable = agent.outdated && !offline;
   return (
     <Card as="article" padding="lg" data-testid="agent-card">
       <div className={styles.row}>
@@ -105,6 +106,11 @@ function AgentCard({ agent }: { agent: AgentOverview }) {
             </span>
           </span>
           {activityText && <span className={cx(styles.secondary, warn && styles.warn)}>{activityText}</span>}
+          {agent.updateError && (
+            <span className={cx(styles.secondary, styles.warn)} data-testid="agent-update-error">
+              La mise à jour a échoué : {agent.updateError}
+            </span>
+          )}
         </div>
         <div className={styles.statuses}>
           <StatusBadge tone={offline ? "neutral" : busy ? "running" : "success"} data-testid="agent-status">
@@ -112,10 +118,19 @@ function AgentCard({ agent }: { agent: AgentOverview }) {
           </StatusBadge>
           {agent.outdated && <StatusBadge tone="warning" data-testid="agent-outdated">Pas à jour</StatusBadge>}
         </div>
-        {global ? (
-          <Button aria-expanded={open} onClick={() => setOpen(!open)}>
-            Projets couverts
-          </Button>
+        {updatable || global ? (
+          <div className={styles.actions}>
+            {updatable && (
+              <Button variant="primary" disabled={agent.updating} onClick={() => void fetch(`/api/agents/${agent.id}/update`, { method: "POST" })}>
+                {agent.updating ? "Mise à jour…" : "Mettre à jour"}
+              </Button>
+            )}
+            {global && (
+              <Button aria-expanded={open} onClick={() => setOpen(!open)}>
+                Projets couverts
+              </Button>
+            )}
+          </div>
         ) : (
           <span />
         )}
@@ -161,6 +176,7 @@ function RefusedAgentCard({ agent }: { agent: RefusedAgent }) {
           </span>
         </div>
         <div className={styles.cell}>
+          {agent.project && <span className={styles.projects}>{agent.project}</span>}
           <span className={styles.secondary}>Ne peut plus se connecter</span>
         </div>
         <div>

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  AGENT_UPDATE_COMMAND,
+  cliUpdateCommand,
   AgentCloseCode,
   PROTOCOL_VERSION,
   type AgentInfo,
@@ -43,7 +43,7 @@ describe("agent endpoint", () => {
     const agent = await server.connectAgent({ token: await token(), protocolVersion: PROTOCOL_VERSION + 1 });
     const reply = await agent.hello;
     expect(reply).toMatchObject({ type: "error", code: "incompatible_protocol" });
-    expect(reply.type === "error" && reply.message).toContain(AGENT_UPDATE_COMMAND);
+    expect(reply.type === "error" && reply.message).toContain(cliUpdateCommand(server.url));
     expect((await agent.closed).code).toBe(AgentCloseCode.IncompatibleProtocol);
   });
 

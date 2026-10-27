@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AGENT_UPDATE_COMMAND, PROTOCOL_VERSION, type AgentInfo, type AgentTokenResponse } from "@redline/shared";
+import { cliUpdateCommand, PROTOCOL_VERSION, type AgentInfo, type AgentTokenResponse } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 import { checkClaude } from "../src/claude.js";
 import { connectToServer } from "../src/connection.js";
@@ -127,7 +127,7 @@ describe("agent connection", () => {
   it("fails with the update command when the protocol is incompatible", async () => {
     await expect(
       connectToServer({ serverUrl: server.url, token: await token(), ...identity, protocolVersion: PROTOCOL_VERSION + 1 }),
-    ).rejects.toThrow(AGENT_UPDATE_COMMAND);
+    ).rejects.toThrow(cliUpdateCommand(server.url));
   });
 
   it("reports closing when the token is regenerated", async () => {
