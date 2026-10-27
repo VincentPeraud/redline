@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { DesignMdInfo, DesignMdResponse, DesignMdVersion, Project, SaveDesignMdRequest } from "@redline/shared";
 import { rulesToShow } from "./designMdRules.js";
-import { dayLabel, designMdAuthor, originLabel, ruleOrigin } from "./historyLabels.js";
+import { dayLabel, designMdStatus, metaLine, originLabel, ruleOrigin } from "./historyLabels.js";
+import { useWho } from "./useMe.js";
 import { relativeTime } from "./relativeTime.js";
 import { routeHref, type Route } from "./router.js";
 import { Button, Dialog, Logo, cx } from "./ui/index.js";
@@ -10,6 +11,7 @@ import styles from "./DesignMdScreen.module.css";
 const plural = (count: number) => `${count} ${count <= 1 ? "version" : "versions"}`;
 
 function HistoryDialog({ versions, onRestore, onClose }: { versions: DesignMdVersion[]; onRestore: (version: DesignMdVersion) => void; onClose: () => void }) {
+  const who = useWho();
   return (
     <Dialog title="Historique de DESIGN.md" onClose={onClose} width={520}>
       <ol className={styles.versions}>
@@ -18,7 +20,7 @@ function HistoryDialog({ versions, onRestore, onClose }: { versions: DesignMdVer
             <span className={styles.versionText}>
               <span>{relativeTime(version.createdAt)}</span>
               <span className={styles.versionMeta}>
-                {originLabel(version.origin, version.originLabel)} · {version.content.split("\n").length} lignes
+                {metaLine(originLabel(version.origin, version.originLabel, who(version.person)), `${version.content.split("\n").length} lignes`)}
               </span>
             </span>
             {index === 0 ? (
@@ -36,6 +38,7 @@ function HistoryDialog({ versions, onRestore, onClose }: { versions: DesignMdVer
 }
 
 export function DesignMdScreen({ projectId }: { projectId: string }) {
+  const who = useWho();
   /** Whose DESIGN.md it is: a project, or a design system (same id space, reached from its overview). */
   const [owner, setOwner] = useState<{ title: string; designSystem: boolean } | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -79,7 +82,7 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
     : justSaved
       ? "Enregistré"
       : latest
-        ? `Dernière modification par ${designMdAuthor(latest.origin, latest.originLabel)} · ${dayLabel(latest.createdAt)}`
+        ? designMdStatus(latest.origin, latest.originLabel, dayLabel(latest.createdAt), who(latest.person))
         : "";
 
   async function save() {
@@ -171,8 +174,8 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
                     {rule.versionId === undefined || rule.origin === undefined || rule.createdAt === undefined
                       ? "pas encore enregistrée"
                       : rule.origin === "user" && rule.versionId === firstVersionId
-                        ? ruleOrigin(rule.origin, rule.originLabel, true)
-                        : `${ruleOrigin(rule.origin, rule.originLabel, false)} · ${dayLabel(rule.createdAt)}`}
+                        ? ruleOrigin(rule.origin, rule.originLabel, true, who(rule.person))
+                        : metaLine(ruleOrigin(rule.origin, rule.originLabel, false, who(rule.person)), dayLabel(rule.createdAt))}
                   </div>
                 </li>
               ))}

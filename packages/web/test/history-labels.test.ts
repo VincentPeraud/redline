@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayLabel, designMdAuthor, historyDate, originLabel, ruleOrigin } from "../src/historyLabels.js";
+import { dayLabel, designMdAuthor, designMdStatus, historyDate, metaLine, originLabel, ruleOrigin } from "../src/historyLabels.js";
 
 describe("originLabel", () => {
   it("names the thread or conversation that produced a version", () => {
@@ -35,6 +35,38 @@ describe("DESIGN.md authors", () => {
     expect(ruleOrigin("terminal", undefined, false)).toBe("Terminal");
     expect(ruleOrigin("user", undefined, true)).toBe("Toi · création du projet");
     expect(ruleOrigin("user", undefined, false)).toBe("Toi");
+  });
+});
+
+describe("signed labels (an SSO is configured)", () => {
+  const ariane = { sso: true, name: "Ariane Martin" };
+  const nobody = { sso: true };
+
+  it("names the person in a history meta, the requesting person after Claude's thread", () => {
+    expect(originLabel("tweak", undefined, ariane)).toBe("Tweak · Ariane Martin");
+    expect(originLabel("restore", undefined, { sso: true, name: "Toi" })).toBe("Restauration · Toi");
+    expect(originLabel("thread", "Bouton trop discret", ariane)).toBe("Claude · fil « Bouton trop discret », demandé par Ariane Martin");
+    expect(originLabel("conversation", "Parcours", ariane, "rule")).toBe("Claude · conversation « Parcours » · demandé par Ariane Martin");
+    expect(originLabel("user", undefined, ariane)).toBe("Ariane Martin");
+  });
+
+  it("leaves Terminal and records from before the SSO without a name", () => {
+    expect(originLabel("terminal", undefined, nobody)).toBe("Terminal");
+    expect(originLabel("creation", undefined, nobody)).toBe("Création");
+    expect(originLabel("user", undefined, nobody)).toBe("");
+    expect(originLabel("thread", "Calendrier", nobody)).toBe("Claude · fil « Calendrier »");
+    expect(metaLine(originLabel("user", undefined, nobody), "hier")).toBe("hier");
+  });
+
+  it("words the DESIGN.md header and rule origins with the person", () => {
+    expect(designMdStatus("user", undefined, "il y a 2 h", ariane)).toBe("Modifié par Ariane Martin · il y a 2 h");
+    expect(designMdStatus("thread", "Bouton", "hier", ariane)).toBe("Modifié par Claude · fil « Bouton » · demandé par Ariane Martin · hier");
+    expect(designMdStatus("user", undefined, "hier", nobody)).toBe("Modifié · hier");
+    expect(designMdStatus("user", undefined, "hier")).toBe("Dernière modification par toi · hier");
+    expect(ruleOrigin("user", undefined, true, ariane)).toBe("Ariane Martin · création du projet");
+    expect(ruleOrigin("user", undefined, true, nobody)).toBe("Création du projet");
+    expect(ruleOrigin("user", undefined, false, nobody)).toBe("");
+    expect(ruleOrigin("thread", "Bouton", false, { sso: true, name: "Toi" })).toBe("Claude · fil « Bouton » · demandé par Toi");
   });
 });
 

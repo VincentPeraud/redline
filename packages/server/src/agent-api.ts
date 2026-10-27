@@ -38,10 +38,12 @@ export function workOrigin(store: Store, pageLock: PageLock, workId: unknown, pa
   if (!item || item.pageId !== pageId) return undefined;
   if (item.conversationId) {
     const conversation = store.getConversation(item.conversationId);
-    return { kind: "conversation", originId: item.conversationId, ...(conversation ? { originLabel: conversation.title } : {}) };
+    const person = store.requestingPersonOfConversation(item.conversationId);
+    return { kind: "conversation", originId: item.conversationId, ...(conversation ? { originLabel: conversation.title } : {}), ...(person ? { person } : {}) };
   }
   const first = item.threads[0] && store.getThread(item.threads[0].threadId);
-  return first ? { kind: "thread", originId: first.id, originLabel: first.title } : undefined;
+  const person = first && store.requestingPersonOfThread(first.id);
+  return first ? { kind: "thread", originId: first.id, originLabel: first.title, ...(person ? { person } : {}) } : undefined;
 }
 
 /** HTTP API for agents and their sessions' MCP tools, guarded by the agent token (see `AGENT_API_PREFIX`). */
@@ -159,7 +161,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const invalidRemoval = removalsError(store, req.params.pageId, result.files, styleChanged && store.isDesignSystemProject(projectId) ? projectStyle.content : result.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true);
           if (invalidRemoval) return reply.code(400).send({ error: invalidRemoval });
           const from = workOrigin(store, pageLock, workId, req.params.pageId);
-          const ref: OriginRef | undefined = from && { originId: from.originId, originLabel: from.originLabel };
+          const ref: OriginRef | undefined = from && { originId: from.originId, originLabel: from.originLabel, person: from.person };
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
           if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());
@@ -205,8 +207,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (titleError(title)) return reply.code(400).send({ error: titleError(title) });
         const name = (title as string).trim();
         const designSystem = store.getProject(page.projectId)?.designSystem;
-        const created = store.createPage(page.projectId, name, starterPageFiles(designSystem), "claude");
-        if (workOrigin(store, pageLock, workId, page.id)) store.recordCreatedPage(workId!, created.id);
+        const from = workOrigin(store, pageLock, workId, page.id);
+        const created = store.createPage(page.projectId, name, starterPageFiles(designSystem), "claude", from?.person);
+        if (from) store.recordCreatedPage(workId!, created.id);
         return reply.code(201).send(created);
       });
 
@@ -230,7 +233,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const from = workOrigin(store, pageLock, workId, req.params.pageId);
         const outcome = moveArtboard(store, pageLock, req.params.pageId, req.body, {
           origin: from?.kind ?? "terminal",
-          ref: from && { originId: from.originId, originLabel: from.originLabel },
+          ref: from && { originId: from.originId, originLabel: from.originLabel, person: from.person },
           exceptWorkId: from ? workId : undefined,
         });
         return reply.code(outcome.status).send(outcome.body);

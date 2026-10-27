@@ -246,6 +246,10 @@ export class Store {
     addColumn("thread_replies", "person_id", "TEXT");
     addColumn("conversations", "person_id", "TEXT");
     addColumn("conversation_messages", "person_id", "TEXT");
+    // Same for what a person (or Claude, for the requesting person) did: page versions, DESIGN.md / tokens versions and pages.
+    addColumn("versions", "person_id", "TEXT");
+    addColumn("design_md_versions", "person_id", "TEXT");
+    addColumn("pages", "person_id", "TEXT");
     // The old per-project boolean (default 0) becomes a nullable override of the global setting: only an explicit "allow" is kept.
     if (!columnsOf("projects").includes("takeover_override")) {
       this.db.exec("ALTER TABLE projects ADD COLUMN takeover_override INTEGER");
@@ -770,12 +774,12 @@ export class Store {
    * Points a project at a shared design system, or at none (null: its project style becomes its whole style). Pages follow the
    * `designSystem` of their manifest, so each page whose manifest says otherwise gets a version with the new value.
    */
-  setProjectDesignSystem(projectId: string, chosenDesignSystem: string | null, origin: VersionOrigin): void {
+  setProjectDesignSystem(projectId: string, chosenDesignSystem: string | null, origin: VersionOrigin, person?: Person): void {
     const designSystem = chosenDesignSystem === NEUTRAL_DESIGN_SYSTEM_ID ? null : chosenDesignSystem;
     const previous = this.sharedDesignSystemIdOfProject(projectId) ?? null;
     if (designSystem === null && previous !== null) {
       const style = this.startingStyle(projectId, previous);
-      if (style !== undefined) this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(style, "utf8"));
+      if (style !== undefined) this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(style, "utf8"), { origin: "user", ...(person ? { person } : {}) });
     }
     this.db.prepare("UPDATE projects SET design_system = ? WHERE id = ?").run(designSystem, projectId);
     if (designSystem === null && !this.readProjectFile(projectId, PROJECT_STYLE_PATH)) {
@@ -792,7 +796,7 @@ export class Store {
       if ((manifest.designSystem ?? null) === designSystem) continue;
       if (designSystem === null) delete manifest.designSystem;
       else manifest.designSystem = designSystem;
-      this.addVersion(page.id, { ...files, [MANIFEST_PATH]: `${JSON.stringify(manifest, null, 2)}\n` }, designSystem === null ? "No shared design system" : "Design system changed", origin);
+      this.addVersion(page.id, { ...files, [MANIFEST_PATH]: `${JSON.stringify(manifest, null, 2)}\n` }, designSystem === null ? "No shared design system" : "Design system changed", origin, person && { person });
     }
   }
 
@@ -906,8 +910,8 @@ export class Store {
     const hash = this.setProjectFile(projectId, path, content);
     if (unchanged) return;
     this.db
-      .prepare("INSERT INTO design_md_versions (id, project_id, path, hash, created_at, origin, origin_id, origin_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(randomUUID(), projectId, path, hash, now(), author.origin, author.originId ?? null, author.originLabel ?? null);
+      .prepare("INSERT INTO design_md_versions (id, project_id, path, hash, created_at, origin, origin_id, origin_label, person_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(randomUUID(), projectId, path, hash, now(), author.origin, author.originId ?? null, author.originLabel ?? null, author.person?.id ?? null);
     if (path === PROJECT_STYLE_PATH && !this.isDesignSystemProject(projectId)) this.announceProjectStyleChange(projectId);
   }
 
@@ -922,17 +926,21 @@ export class Store {
   listDesignMdVersions(projectId: string, path: string = DESIGN_MD_PATH): DesignMdVersion[] {
     const rows = this.db
       .prepare(
-        "SELECT id, hash, created_at, origin, origin_id, origin_label FROM design_md_versions WHERE project_id = ? AND path = ? ORDER BY created_at DESC, rowid DESC",
+        "SELECT id, hash, created_at, origin, origin_id, origin_label, person_id FROM design_md_versions WHERE project_id = ? AND path = ? ORDER BY created_at DESC, rowid DESC",
       )
-      .all(projectId, path) as { id: string; hash: string; created_at: string; origin: DesignMdVersion["origin"]; origin_id: string | null; origin_label: string | null }[];
-    return rows.map((r) => ({
-      id: r.id,
-      content: readFileSync(join(this.blobDir, r.hash), "utf8"),
-      createdAt: r.created_at,
-      origin: r.origin,
-      ...(r.origin_id ? { originId: r.origin_id } : {}),
-      ...(r.origin_label ? { originLabel: r.origin_label } : {}),
-    }));
+      .all(projectId, path) as { id: string; hash: string; created_at: string; origin: DesignMdVersion["origin"]; origin_id: string | null; origin_label: string | null; person_id: string | null }[];
+    return rows.map((r) => {
+      const person = this.getPerson(r.person_id);
+      return {
+        id: r.id,
+        content: readFileSync(join(this.blobDir, r.hash), "utf8"),
+        createdAt: r.created_at,
+        origin: r.origin,
+        ...(r.origin_id ? { originId: r.origin_id } : {}),
+        ...(r.origin_label ? { originLabel: r.origin_label } : {}),
+        ...(person ? { person } : {}),
+      };
+    });
   }
 
   /** A project-level file as UTF-8 text, empty when there is none. */
@@ -955,12 +963,12 @@ export class Store {
     return rows.map((r) => ({ name: r.path.slice(prefix.length), hash: r.hash, size: statSync(join(this.blobDir, r.hash)).size }));
   }
 
-  createPage(projectId: string, title: string, files: Record<string, string>, createdBy: PageCreator = "user"): Page {
+  createPage(projectId: string, title: string, files: Record<string, string>, createdBy: PageCreator = "user", person?: Person): Page {
     const id = randomUUID();
     this.db
-      .prepare("INSERT INTO pages (id, project_id, title, created_by, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(id, projectId, title, createdBy, now());
-    this.createVersion(id, files, "Page created", "creation");
+      .prepare("INSERT INTO pages (id, project_id, title, created_by, created_at, person_id) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(id, projectId, title, createdBy, now(), person?.id ?? null);
+    this.createVersion(id, files, "Page created", "creation", person && { person });
     return this.getPage(id)!;
   }
 
@@ -1003,17 +1011,19 @@ export class Store {
 
   getPage(id: string): Page | undefined {
     const row = this.db
-      .prepare("SELECT id, project_id, title, created_by FROM pages WHERE id = ?")
-      .get(id) as { id: string; project_id: string; title: string; created_by: PageCreator } | undefined;
+      .prepare("SELECT id, project_id, title, created_by, person_id FROM pages WHERE id = ?")
+      .get(id) as { id: string; project_id: string; title: string; created_by: PageCreator; person_id: string | null } | undefined;
     if (!row) return undefined;
     const version = this.db
       .prepare("SELECT id, files FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
       .get(id) as { id: string; files: string };
+    const createdByPerson = this.getPerson(row.person_id);
     return {
       id: row.id,
       projectId: row.project_id,
       title: row.title,
       createdBy: row.created_by,
+      ...(createdByPerson ? { createdByPerson } : {}),
       version: { id: version.id, files: JSON.parse(version.files) },
     };
   }
@@ -1389,14 +1399,15 @@ export class Store {
       origin: origin === "thread" || origin === "conversation" || origin === "terminal" ? origin : "user",
       ...(ref?.originId ? { originId: ref.originId } : {}),
       ...(ref?.originLabel ? { originLabel: ref.originLabel } : {}),
+      ...(ref?.person ? { person: ref.person } : {}),
     };
     this.saveDesignMd(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH, Buffer.from(tokens, "utf8"), author);
     return this.createVersion(pageId, pageFiles, message, origin, ref);
   }
 
   /** Records a version whose files are given as path -> blob hash (hashes of this store). */
-  addVersionFromHashes(pageId: string, hashes: Record<string, string>, message: string, origin: VersionOrigin): PageVersionSummary {
-    return this.insertVersion(pageId, JSON.stringify(hashes), message, origin);
+  addVersionFromHashes(pageId: string, hashes: Record<string, string>, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
+    return this.insertVersion(pageId, JSON.stringify(hashes), message, origin, ref);
   }
 
   /** Stores UTF-8 text as a blob and returns its hash. */
@@ -1407,9 +1418,9 @@ export class Store {
   /** Every version of a page with its file hashes, OLDEST first. */
   listVersionRecords(pageId: string): VersionRecord[] {
     const rows = this.db
-      .prepare("SELECT id, files, message, origin, origin_id, origin_label, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
+      .prepare("SELECT id, files, message, origin, origin_id, origin_label, person_id, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
       .all(pageId) as (VersionRow & { files: string; diffusion: number | null })[];
-    return rows.map((row) => ({ ...toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1 }));
+    return rows.map((row) => ({ ...this.toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1 }));
   }
 
   /** One file of one version of a page, or undefined if either is unknown. */
@@ -1420,17 +1431,17 @@ export class Store {
   }
 
   /** Records a new version identical to the current one except for one file. */
-  setPageFile(pageId: string, path: string, content: string, message: string, origin: VersionOrigin): PageVersionSummary {
+  setPageFile(pageId: string, path: string, content: string, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
     const hashes = { ...this.getPage(pageId)!.version.files, [path]: this.putBlob(Buffer.from(content, "utf8")) };
-    return this.insertVersion(pageId, JSON.stringify(hashes), message, origin);
+    return this.insertVersion(pageId, JSON.stringify(hashes), message, origin, ref);
   }
 
   /** Sets the height of one artboard's manifest entry (writing a manifest when the page had none), as one version. The caller checked the request. */
-  setArtboardHeight(pageId: string, file: string, height: number, message: string, origin: VersionOrigin): PageVersionSummary {
+  setArtboardHeight(pageId: string, file: string, height: number, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
     const hash = this.getPage(pageId)!.version.files[MANIFEST_PATH];
     const manifest = hash === undefined ? (defaultManifest(Object.keys(this.getPage(pageId)!.version.files)) as unknown as RawManifest) : (JSON.parse(this.blobText(hash)) as RawManifest);
     const artboards = (manifest.artboards ?? []).map((artboard) => (artboard.file === file ? { ...artboard, height } : artboard));
-    return this.setPageFile(pageId, MANIFEST_PATH, JSON.stringify({ ...manifest, artboards }, null, 2), message, origin);
+    return this.setPageFile(pageId, MANIFEST_PATH, JSON.stringify({ ...manifest, artboards }, null, 2), message, origin, ref);
   }
 
   /**
@@ -1492,19 +1503,19 @@ export class Store {
   listVersions(pageId: string): PageVersionSummary[] {
     const rows = this.db
       .prepare(
-        "SELECT id, message, origin, origin_id, origin_label, created_at FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC",
+        "SELECT id, message, origin, origin_id, origin_label, person_id, created_at FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC",
       )
       .all(pageId) as VersionRow[];
-    return rows.map(toSummary);
+    return rows.map((row) => this.toSummary(row));
   }
 
   /** Repoints the page's paths to the hashes of an old version and records that as a new version. */
-  restoreVersion(pageId: string, versionId: string): PageVersionSummary | undefined {
+  restoreVersion(pageId: string, versionId: string, ref?: OriginRef): PageVersionSummary | undefined {
     const old = this.db
       .prepare("SELECT files, created_at FROM versions WHERE id = ? AND page_id = ?")
       .get(versionId, pageId) as { files: string; created_at: string } | undefined;
     if (!old) return undefined;
-    return this.insertVersion(pageId, old.files, `Restored version of ${old.created_at}`, "restore");
+    return this.insertVersion(pageId, old.files, `Restored version of ${old.created_at}`, "restore", ref);
   }
 
   private createVersion(
@@ -1522,12 +1533,25 @@ export class Store {
   }
 
   private insertVersion(pageId: string, filesJson: string, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
-    const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, created_at: now() };
+    const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, person_id: ref?.person?.id ?? null, created_at: now() };
     this.db
-      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, this.diffusionForNewVersion(pageId, filesJson) ?? null);
+      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, person_id, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, row.person_id, this.diffusionForNewVersion(pageId, filesJson) ?? null);
     this.emit({ type: "page-updated", pageId, versionId: row.id });
-    return toSummary(row);
+    return this.toSummary(row);
+  }
+
+  private toSummary(row: VersionRow): PageVersionSummary {
+    const person = this.getPerson(row.person_id);
+    return {
+      id: row.id,
+      message: row.message,
+      origin: row.origin,
+      ...(row.origin_id ? { originId: row.origin_id } : {}),
+      ...(row.origin_label ? { originLabel: row.origin_label } : {}),
+      ...(person ? { person } : {}),
+      createdAt: row.created_at,
+    };
   }
 
   /** The diffusion a version recorded now is drawn with: the current one of the design system its manifest names; none for a design system's own pages (they read the draft). */
@@ -1706,6 +1730,7 @@ interface VersionRow {
   origin: VersionOrigin;
   origin_id?: string | null;
   origin_label?: string | null;
+  person_id?: string | null;
   created_at: string;
 }
 
@@ -1720,6 +1745,8 @@ interface RawManifest {
 export interface OriginRef {
   originId?: string;
   originLabel?: string;
+  /** Who the version is signed with: the person acting, or the requesting person of a Claude run; none for terminal publishes. */
+  person?: Person;
 }
 
 export interface VersionRecord extends PageVersionSummary {
@@ -1727,17 +1754,6 @@ export interface VersionRecord extends PageVersionSummary {
   files: Record<string, string>;
   /** Diffusion recorded with the version (1 for versions from before diffusions); meaningless on a design system's own pages. */
   diffusion: number;
-}
-
-function toSummary(row: VersionRow): PageVersionSummary {
-  return {
-    id: row.id,
-    message: row.message,
-    origin: row.origin,
-    ...(row.origin_id ? { originId: row.origin_id } : {}),
-    ...(row.origin_label ? { originLabel: row.origin_label } : {}),
-    createdAt: row.created_at,
-  };
 }
 
 function now(): string {

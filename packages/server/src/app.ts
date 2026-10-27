@@ -58,7 +58,7 @@ import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
 import { registerGapRoutes } from "./gaps.js";
-import { registerIdentity, viewerOf, type IdentityConfig } from "./identity.js";
+import { registerIdentity, viewerOf, personRef, type IdentityConfig } from "./identity.js";
 import { type CliBuild } from "./cli-build.js";
 import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
 import { registerRequestHardening } from "./request-hardening.js";
@@ -218,7 +218,7 @@ export async function buildMainApp(
       const invalidFiles = pageFilesError(files);
       const invalid = invalidFiles ?? newPageComponentsError(store, req.params.projectId, title, files!);
       if (invalid) return reply.code(400).send({ error: invalid });
-      return reply.code(201).send(store.createPage(req.params.projectId, title, files!));
+      return reply.code(201).send(store.createPage(req.params.projectId, title, files!, "user", viewerOf(req)));
     },
   );
 
@@ -388,7 +388,7 @@ export async function buildMainApp(
   });
 
   app.post<{ Params: { pageId: string }; Body: Partial<MoveArtboardRequest> }>("/api/pages/:pageId/move-artboard", async (req, reply) => {
-    const outcome = moveArtboard(store, pageLock, req.params.pageId, req.body, { origin: "user" });
+    const outcome = moveArtboard(store, pageLock, req.params.pageId, req.body, { origin: "user", ref: personRef(req) });
     return reply.code(outcome.status).send(outcome.body);
   });
 
@@ -406,7 +406,7 @@ export async function buildMainApp(
     }
     if (pageLock.isHeldByOther(page.id)) return reply.code(409).send({ error: `A session is working on "${page.title}": try again once it is done.` });
     const rounded = Math.ceil(height);
-    return reply.code(201).send(store.setArtboardHeight(page.id, file, rounded, `Hauteur de ${file} ajustée au contenu (${rounded} px)`, "user"));
+    return reply.code(201).send(store.setArtboardHeight(page.id, file, rounded, `Hauteur de ${file} ajustée au contenu (${rounded} px)`, "user", personRef(req)));
   });
 
   app.patch<{ Params: { pageId: string }; Body: UpdatePageRequest }>("/api/pages/:pageId", async (req, reply) => {
@@ -506,7 +506,7 @@ export async function buildMainApp(
       const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files) ?? removalsError(store, req.params.pageId, req.body.files, req.body.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true);
       if (invalid) return reply.code(400).send({ error: invalid });
       const { files, message, origin } = req.body;
-      return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
+      return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin, personRef(req)));
     },
   );
 
@@ -523,7 +523,7 @@ export async function buildMainApp(
     const values = { ...(stored === undefined ? {} : parseTweaks(stored)), [tweak.id]: value };
     return reply
       .code(201)
-      .send(store.setPageFile(page.id, TWEAKS_PATH, JSON.stringify(values, null, 2), `Tweak: ${tweak.label} = ${value}`, "tweak"));
+      .send(store.setPageFile(page.id, TWEAKS_PATH, JSON.stringify(values, null, 2), `Tweak: ${tweak.label} = ${value}`, "tweak", personRef(req)));
   });
 
   app.post<{ Params: { pageId: string; versionId: string } }>(
@@ -533,7 +533,7 @@ export async function buildMainApp(
       // Restoring publishes the old files again: the same checks as a publish apply.
       const invalid = files && (versionComponentsError(store, req.params.pageId, files) ?? removalsError(store, req.params.pageId, files, undefined, false));
       if (invalid) return reply.code(400).send({ error: invalid });
-      const restored = store.restoreVersion(req.params.pageId, req.params.versionId);
+      const restored = store.restoreVersion(req.params.pageId, req.params.versionId, personRef(req));
       return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });
     },
   );
