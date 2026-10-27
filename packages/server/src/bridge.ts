@@ -508,6 +508,15 @@ export const BRIDGE_SOURCE = `(function () {
     return false;
   }
 
+  // On the canvas (the canvas asked for the wheel), a drag over the artboard's text selects nothing: text fields keep
+  // their own selection, and play mode and previews leave the artboard as it is.
+  document.addEventListener("selectstart", function (event) {
+    if (!forwardWheel) return;
+    var target = event.target && event.target.nodeType === 1 ? event.target : event.target && event.target.parentElement;
+    if (target && target.closest && target.closest("input, textarea, [contenteditable]:not([contenteditable='false'])")) return;
+    event.preventDefault();
+  });
+
   // The canvas pans and zooms on the wheel, but the iframe swallows it: hand it over (pinch comes as ctrl+wheel),
   // except while a scroll area of the artboard can take it. Deltas go in pixels, whatever unit the wheel used.
   window.addEventListener("wheel", function (event) {
