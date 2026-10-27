@@ -39,6 +39,8 @@ export interface RedlineToolsContext {
   onRemovalsConfirmed?: () => void;
   /** Applied to the result of every tool registered on the server (terminal mode adds its update notice there). */
   decorateResult?: (result: ToolResult) => ToolResult;
+  /** Checked before every tool runs: a result returned here is the answer and the tool does not run (terminal mode pauses a stale MCP). */
+  refuseCall?: () => ToolResult | undefined;
 }
 
 export type ToolResult = { isError?: boolean; content: { type: "text"; text: string }[] };
@@ -104,11 +106,11 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
   const { api, allowedThreadIds } = context;
   const postReply = context.postReply ?? ((threadId: string, text: string) => api.replyInThread(threadId, text, context.workId));
   const server = new McpServer({ name: "redline", version: "0.0.0" });
-  const { decorateResult } = context;
-  if (decorateResult) {
+  const { decorateResult = (result: ToolResult) => result, refuseCall } = context;
+  if (context.decorateResult || refuseCall) {
     const register = server.registerTool.bind(server) as (name: string, config: unknown, handler: (...args: unknown[]) => Promise<ToolResult>) => unknown;
     server.registerTool = ((name: string, config: unknown, handler: (...args: unknown[]) => Promise<ToolResult>) =>
-      register(name, config, async (...args) => decorateResult(await handler(...args)))) as typeof server.registerTool;
+      register(name, config, async (...args) => refuseCall?.() ?? decorateResult(await handler(...args)))) as typeof server.registerTool;
   }
   server.registerTool(
     REPLY_IN_THREAD_TOOL,

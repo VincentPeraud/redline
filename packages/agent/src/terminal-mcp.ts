@@ -4,6 +4,7 @@ import { z } from "zod";
 import { uploadChangedAssets } from "./assets.js";
 import { readLinkedProjectId } from "./link.js";
 import { pageAddresses } from "./page-addresses.js";
+import { buildHash } from "./build-hash.js";
 import type { ServerApi } from "./server-api.js";
 import { CREATE_PAGE_TOOL, createRedlineMcpServer } from "./session-mcp.js";
 import { designSystemHint, designSystemNote, gapsNote, layoutNote } from "./design-system-note.js";
@@ -44,7 +45,8 @@ interface Checkout {
  * changes as one version with origin "terminal" (the server makes it wait for the page lock).
  * No thread or conversation is involved.
  */
-export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folder: string }): McpServer {
+/** `runningBuild` is the build this process loaded; `installedBuild` reads the one installed now (an update replaces it on disk). */
+export function createTerminalMcpServer({ api, folder, runningBuild = buildHash(), installedBuild = buildHash }: { api: ServerApi; folder: string; runningBuild?: string; installedBuild?: () => string }): McpServer {
   let current: Checkout | undefined;
   let removalsConfirmed = false;
   const checkedOut = (): Checkout => {
@@ -59,8 +61,18 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
       if (noticeSent || !api.outdated) return result;
       noticeSent = true;
       const [first, ...rest] = result.content;
-      const notice = `Redline: this CLI is not up to date. Update it with: ${api.updateCommand()}`;
+      const notice = `Redline: this CLI is not up to date. Tell the user to update it with \`${api.updateCommand()}\`, then to type /mcp in Claude Code and reconnect redline.`;
       return { ...result, content: [{ type: "text", text: first ? `${notice}\n${first.text}` : notice }, ...rest] };
+    },
+    // The CLI was reinstalled under this running MCP (the Agents screen's update, or npm by hand): its code is the previous one
+    // until Claude Code reconnects it, so no tool runs. "dev" (sources, or a file being replaced) never pauses.
+    refuseCall: () => {
+      const installed = installedBuild();
+      if (runningBuild === "dev" || installed === "dev" || installed === runningBuild) return undefined;
+      return {
+        isError: true,
+        content: [{ type: "text", text: "Redline: the Redline CLI was updated on this machine, but this MCP still runs the previous version, so its tools are paused. Tell the user to type /mcp in Claude Code and reconnect redline, then call the tool again." }],
+      };
     },
     allowedThreadIds: [],
     get pageId() {

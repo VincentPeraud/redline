@@ -97,11 +97,11 @@ describe("the agent's build hash", () => {
 });
 
 describe("the terminal MCP of an outdated CLI", () => {
-  async function connectTerminal(s: TestServer, buildHash: string) {
+  async function connectTerminal(s: TestServer, buildHash: string, installedBuild: () => string = () => buildHash) {
     const folder = mkdtempSync(join(tmpdir(), "redline-mcp-folder-"));
     dirs.push(folder);
     mkdirSync(folder, { recursive: true });
-    const mcp = createTerminalMcpServer({ api: new ServerApi(s.url, await tokenOf(s), buildHash), folder });
+    const mcp = createTerminalMcpServer({ api: new ServerApi(s.url, await tokenOf(s), buildHash), folder, runningBuild: buildHash, installedBuild });
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
     await mcp.connect(serverSide);
     client = new Client({ name: "terminal-claude", version: "0.0.0" });
@@ -116,8 +116,25 @@ describe("the terminal MCP of an outdated CLI", () => {
     const s = await startServerWithCli();
     const call = await connectTerminal(s, "old-build");
     const first = await call("list_projects");
-    expect(first.split("\n")[0]).toBe(`Redline: this CLI is not up to date. Update it with: ${cliUpdateCommand(s.url)}`);
+    expect(first.split("\n")[0]).toBe(`Redline: this CLI is not up to date. Tell the user to update it with \`${cliUpdateCommand(s.url)}\`, then to type /mcp in Claude Code and reconnect redline.`);
     expect(first).toContain("No project yet");
+    expect(await call("list_projects")).toBe("No project yet. Create one with create_project.");
+  });
+
+  it("pauses every tool once a newer CLI is installed under it, until Claude Code reconnects it", async () => {
+    const s = await startServerWithCli();
+    let installed = SERVER_BUILD;
+    const call = await connectTerminal(s, SERVER_BUILD, () => installed);
+    expect(await call("list_projects")).toBe("No project yet. Create one with create_project.");
+
+    installed = "newer-build";
+    const refused = await call("create_project", { title: "Never created" });
+    expect(refused).toContain("this MCP still runs the previous version");
+    expect(refused).toContain("type /mcp in Claude Code and reconnect redline");
+    expect(((await (await s.get("/api/projects")).json()) as Project[]).length).toBe(0);
+
+    // a file being replaced reads as "dev": no pause
+    installed = "dev";
     expect(await call("list_projects")).toBe("No project yet. Create one with create_project.");
   });
 
