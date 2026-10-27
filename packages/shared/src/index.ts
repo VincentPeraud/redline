@@ -481,7 +481,7 @@ export type PaletteColor = (typeof PALETTE_COLORS)[number];
 export const NOTE_SIZES = ["s", "m", "l"] as const;
 export type NoteSize = (typeof NOTE_SIZES)[number];
 /** Font size in canvas pixels of text notes and stickies, per size: large on purpose, to stay readable zoomed out. */
-export const NOTE_FONT_SIZE: Record<NoteSize, number> = { s: 22, m: 26, l: 30 };
+export const NOTE_FONT_SIZE: Record<NoteSize, number> = { s: 16, m: 18, l: 22 };
 
 export const DEFAULT_TEXT_WIDTH = 360;
 export const DEFAULT_STICKY_WIDTH = 240;

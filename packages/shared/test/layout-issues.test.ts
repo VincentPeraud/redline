@@ -11,14 +11,14 @@ it("estimates a note's height from its width, size and text", () => {
   expect(short.width).toBe(420);
   expect(short.height).toBeGreaterThan(50);
   expect(short.height).toBeLessThan(90);
-  expect(long.height).toBeGreaterThan(450);
+  expect(long.height).toBeGreaterThan(300);
 });
 
 it("reports a sticky placed by x and y over a long note, and suggests anchoring it", () => {
   expect(
     issues([
       { kind: "text", id: "note-decisions", text: LONG, width: 420, x: 1500, y: 0 },
-      { kind: "sticky", id: "q-droits", text: "Who can edit?", x: 1500, y: 380 },
+      { kind: "sticky", id: "q-droits", text: "Who can edit?", x: 1500, y: 250 },
     ]),
   ).toEqual(['"q-droits" probably overlaps "note-decisions": anchor it with "below": "note-decisions" instead of x and y.']);
 });
@@ -36,7 +36,8 @@ it("reports a note covering an artboard, and an arrow crossing a box on its way"
   expect(issues([{ kind: "sticky", id: "ask", text: "?", x: 200, y: 200 }])).toEqual(['"ask" probably covers the artboard "sortie.html": move it beside the artboard, e.g. "rightOf": "sortie.html".']);
   expect(
     issues([
-      { kind: "text", id: "note", text: LONG, width: 420, rightOf: "sortie.html", gap: 60 },
+      // Long enough for q2 to sit below the artboard, so the arrow goes up across the note and q1.
+      { kind: "text", id: "note", text: [LONG, LONG, LONG].join("\n"), width: 420, rightOf: "sortie.html", gap: 60 },
       { kind: "sticky", id: "q1", text: "First question", below: "note" },
       { kind: "sticky", id: "q2", text: "Second question", below: "q1" },
       { kind: "arrow", id: "to-q2", from: "sortie.html", to: "q2" },

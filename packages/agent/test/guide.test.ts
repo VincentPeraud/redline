@@ -88,7 +88,7 @@ it("explains how to recreate a Claude Design design system and the terminal tool
 });
 
 it("tells Claude to anchor elements under notes instead of guessing their height", () => {
-  expect(REDLINE_GUIDE).toContain("their font is 22, 26 or 30 canvas pixels (s, m, l)");
+  expect(REDLINE_GUIDE).toContain("their font is 16, 18 or 22 canvas pixels (s, m, l)");
   expect(REDLINE_GUIDE).toContain('"below": "<id or artboard file>" or "rightOf": "<id or artboard file>"');
   expect(REDLINE_GUIDE).toContain("optional \"gap\" (default 40)");
   expect(REDLINE_GUIDE).toContain("Titles and arrows cannot be anchored.");
