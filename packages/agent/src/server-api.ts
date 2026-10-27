@@ -150,6 +150,7 @@ export class ServerApi {
     const raw = Buffer.isBuffer(body);
     const res = await fetch(this.serverUrl + AGENT_API_PREFIX + path, {
       method,
+      redirect: "error",
       headers: {
         authorization: `Bearer ${this.token}`,
         [BUILD_HASH_HEADER]: this.buildHash,
