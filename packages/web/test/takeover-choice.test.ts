@@ -16,7 +16,7 @@ describe("per-project takeover choice", () => {
   });
 
   it("words the general setting in the first choice's label", () => {
-    expect(takeoverSentence(false)).toBe("le fil attend son retour");
-    expect(takeoverSentence(true)).toBe("l'agent global prend le relais");
+    expect(takeoverSentence(false)).toBe("le fil attend");
+    expect(takeoverSentence(true)).toBe("l'agent global le prend");
   });
 });

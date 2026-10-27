@@ -13,5 +13,5 @@ export function overrideOfChoice(choice: TakeoverChoice): boolean | null {
 
 /** What the general setting does, in the words of the Agents screen (lower case, to sit in a sentence). */
 export function takeoverSentence(globalTakeover: boolean): string {
-  return globalTakeover ? "l'agent global prend le relais" : "le fil attend son retour";
+  return globalTakeover ? "l'agent global le prend" : "le fil attend";
 }

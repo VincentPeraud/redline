@@ -15,8 +15,8 @@ function pillText(project: Project): { online: boolean; text: string } {
 
 const CHOICE_LABELS: Record<TakeoverChoice, (general: boolean | null) => string> = {
   general: (general) => (general === null ? "Comme le réglage général" : `Comme le réglage général (${takeoverSentence(general)})`),
-  wait: () => "Toujours attendre",
-  relay: () => "Toujours prendre le relais",
+  wait: () => "Le fil attend",
+  relay: () => "L'agent global le prend",
 };
 
 interface Props {
@@ -24,7 +24,7 @@ interface Props {
   onProjectChange: (project: Project) => void;
 }
 
-/** The agent pill of the Overview top bar; opens the agent's details and the per-project takeover exception. */
+/** The agent pill of the Overview top bar; opens the agent's details and the per-project routing exception. */
 export function AgentPill({ project, onProjectChange }: Props) {
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -104,8 +104,8 @@ export function AgentPill({ project, onProjectChange }: Props) {
             )}
           </div>
           <div className={styles.divider} />
-          <div role="radiogroup" aria-label="Quand l'agent de ce projet est hors ligne" className={styles.setting}>
-            <div className={styles.settingTitle}>Quand l'agent de ce projet est hors ligne</div>
+          <div role="radiogroup" aria-label="Quand aucun agent ne tourne pour ce projet" className={styles.setting}>
+            <div className={styles.settingTitle}>Quand aucun agent ne tourne pour ce projet</div>
             {TAKEOVER_CHOICES.map((option) => (
               <label key={option} className={cx(styles.option, option === choice && styles.optionOn)}>
                 <input type="radio" className={styles.radio} name="project-takeover" checked={option === choice} onChange={() => void choose(option)} />

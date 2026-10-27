@@ -197,6 +197,7 @@ describe("a waiting pinned item and the rest of its page", () => {
     agent.close();
     await agent.closed;
     const global = await connect({ kind: "global", folder: "/home/neutral" });
+    await fetch(`${server.url}/api/projects/${acme.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ globalTakeoverOverride: true }) });
 
     const [conversation] = (await (await server.get(`/api/pages/${designSystem.pageId}/conversations`)).json()) as Conversation[];
     await server.post(`/api/conversations/${conversation.id}/messages`, { body: "Make the primary colour warmer" });

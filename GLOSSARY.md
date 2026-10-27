@@ -105,10 +105,10 @@ A process running on one of the user's machines, in one folder, that picks up th
 _Avoid_: Worker, runner, bot
 
 **Project agent**:
-An agent started in a project's code folder; a project has at most one.
+An agent started in a project's code folder; a project has at most one. It runs the project's new work whenever it is online, with the project's code and context. Stopped, it stays listed as offline and changes nothing to routing.
 
 **Global agent**:
-An agent started in a neutral folder that serves projects without a project agent, and those whose project agent is offline when the user allows it.
+An agent started in a neutral folder. When no project agent is online for a project, it runs the project's new work in a fresh session if the project's setting allows it (its override, else the default); otherwise the thread waits for an agent. Whether the project ever had a project agent does not matter.
 
 ### People
 
