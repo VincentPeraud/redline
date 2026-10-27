@@ -9,6 +9,7 @@ const server = await startServer({
   artboardPort: Number(process.env.REDLINE_ARTBOARD_PORT ?? 3001),
   artboardOrigin: process.env.REDLINE_ARTBOARD_ORIGIN,
   proxySecrets: proxySecretsFromEnv(process.env),
+  cliDir: process.env.REDLINE_CLI_DIR,
   webDir: process.env.REDLINE_WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 

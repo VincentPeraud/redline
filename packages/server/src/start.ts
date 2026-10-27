@@ -1,5 +1,6 @@
 import type { AddressInfo } from "node:net";
 import { buildArtboardApp, buildMainApp } from "./app.js";
+import { loadCliBuild } from "./cli-build.js";
 import { assertValidProxySecrets, type ProxySecrets } from "./proxy-secrets.js";
 import { Store } from "./store.js";
 
@@ -11,6 +12,8 @@ export interface StartOptions {
   /** Public origin of the artboard listener, when behind a proxy; defaults to the listener's address. */
   artboardOrigin?: string;
   webDir?: string;
+  /** Folder holding `redline-cli.tgz` and `build-hash.txt`; when both exist the tarball is served at `/cli/redline-cli.tgz`. */
+  cliDir?: string;
   /** When set, both listeners refuse requests that do not carry the proxy secret of their route. */
   proxySecrets?: ProxySecrets;
   /** Waits before each retry of a failed work item; default 1, 5 and 15 minutes. */
@@ -30,7 +33,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   await artboardApp.listen({ port: options.artboardPort, host: options.host });
   const artboardOrigin = options.artboardOrigin ?? `http://${options.host}:${portOf(artboardApp.server.address())}`;
 
-  const mainApp = await buildMainApp(store, { artboardOrigin }, options.webDir, { retryDelaysMs: options.retryDelaysMs, proxySecrets: options.proxySecrets });
+  const mainApp = await buildMainApp(store, { artboardOrigin }, options.webDir, { retryDelaysMs: options.retryDelaysMs, proxySecrets: options.proxySecrets, cliBuild: loadCliBuild(options.cliDir) });
   await mainApp.listen({ port: options.port, host: options.host });
 
   return {
