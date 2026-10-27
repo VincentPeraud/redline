@@ -279,6 +279,12 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
         )}
       </div>
 
+      {active && personLabel(active.startedBy, "history") && (
+        <div data-testid="conversation-starter" className={styles.starter}>
+          {personLabel(active.startedBy, "history")} · {activityLabel(active.lastActivityAt)}
+        </div>
+      )}
+
       <div className={styles.context}>
         <span className={styles.contextLabel}>Contexte transmis</span>
         <div className={styles.chips}>

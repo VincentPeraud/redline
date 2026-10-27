@@ -111,6 +111,7 @@ it("signs conversation bubbles and names who started each conversation in the li
   const panel = tab.getByTestId("conversations");
   await expect.poll(() => panel.getByTestId("conversation-message").count()).toBe(2);
   expect(await panel.getByTestId("message-author").allTextContents()).toEqual(["Ariane Martin", "Toi"]);
+  expect(await panel.getByTestId("conversation-starter").innerText()).toMatch(/^Ariane Martin · /);
   await panel.getByRole("button", { name: "Conversation", exact: true }).click();
   expect(await panel.getByRole("option", { name: /Error pages/ }).innerText()).toContain("Ariane Martin · 2 échanges");
 }, 60_000);
