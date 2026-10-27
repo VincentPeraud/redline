@@ -23,6 +23,10 @@ COPY --from=build /app/packages/server/package.json packages/server/
 COPY --from=build /app/packages/server/dist packages/server/dist
 COPY --from=build /app/packages/web/dist packages/web/dist
 COPY --from=build /app/cli cli
+# A fresh named volume copies this ownership, so the production compose can run as uid 1000 (`node`).
+RUN mkdir -p /data && chown node:node /data
 VOLUME /data
 EXPOSE 3000 3001
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
 CMD ["node", "packages/server/dist/main.js"]
