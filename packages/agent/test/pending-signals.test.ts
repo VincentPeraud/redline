@@ -31,6 +31,7 @@ async function answeredConversation(script: FakeAction[], onProjectPage = false)
   let pageId = ds.pageId;
   if (onProjectPage) {
     const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as { id: string };
+    await fetch(`${server.url}/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ globalTakeoverOverride: true }) });
     const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Home", files: { "home.html": "<h1>Home</h1>", "manifest.json": JSON.stringify({ artboards: [{ file: "home.html" }] }) } })).json()) as { id: string };
     pageId = page.id;
   }

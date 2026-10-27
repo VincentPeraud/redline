@@ -227,6 +227,13 @@ export class Store {
         this.db.exec("UPDATE projects SET takeover_override = 1 WHERE allow_global_takeover = 1");
       }
     }
+    // One routing rule: a project that never had a project agent and has no override keeps being served by the global agent.
+    if (!this.db.prepare("SELECT 1 FROM settings WHERE key = 'routing_rule_migrated'").get()) {
+      this.db.exec(
+        "UPDATE projects SET takeover_override = 1 WHERE takeover_override IS NULL AND id NOT IN (SELECT project_id FROM agents WHERE project_id IS NOT NULL)",
+      );
+      this.db.exec("INSERT INTO settings (key, value) VALUES ('routing_rule_migrated', '1')");
+    }
     addColumn("versions", "origin_id", "TEXT");
     addColumn("versions", "origin_label", "TEXT");
     addColumn("versions", "diffusion", "INTEGER");
@@ -744,11 +751,6 @@ export class Store {
     this.db
       .prepare("INSERT INTO settings (key, value) VALUES ('global_takeover', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .run(allow ? "1" : "0");
-  }
-
-  /** True once a project agent has been linked to the project, online or not. */
-  hasProjectAgent(projectId: string): boolean {
-    return this.db.prepare("SELECT 1 FROM agents WHERE project_id = ?").get(projectId) !== undefined;
   }
 
   /** Id of an online global agent, the most recently seen first. */
