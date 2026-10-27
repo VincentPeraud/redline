@@ -3,13 +3,16 @@ import { MANIFEST_PATH, classesUsedIn, componentClassesOf, componentNameOf, defa
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** What the session message says about the design system: where it is, its pages, and the pages this project uses. */
-export function designSystemNote({ designSystem, editsDesignSystem, projectComponents }: ProjectContext): string {
+export function designSystemNote({ designSystem, editsDesignSystem, projectComponents, projectStyle }: ProjectContext): string {
   if (editsDesignSystem) {
     return `This page belongs to the design system "${editsDesignSystem.title}": you edit its draft (tokens.css and DESIGN.md at the root of the working copy, and its pages). Projects only see the draft once the user diffuses it.`;
   }
   const own = Object.keys(projectComponents ?? {}).flatMap((path) => componentNameOf(path) ?? []);
   const projectNote = own.length === 0 ? "" : `\nComponents of this project (every page), read-only in .project-components/: ${own.join(", ")}. Reuse them; edit one in the page that defines it.`;
-  if (!designSystem) return projectNote.trim();
+  if (!designSystem) {
+    const style = projectStyle?.trim() === "" ? "Its style is still to be created: tokens.css at the root of the working copy is empty." : "Its style is the project style: tokens.css at the root of the working copy.";
+    return `This project has no design system. ${style}${projectNote}`;
+  }
   const used = designSystem.pages.filter((page) => page.used).map((page) => page.title);
   return [
     `Design system: ${designSystem.title} (diffusion ${designSystem.diffusion}), read-only in .design-system/ (start with index.md; never edit it, propose changes to the user).`,

@@ -112,6 +112,39 @@ describe("terminal mode (redline mcp)", () => {
     expect(answer).toContain("Layout: nothing overlaps.");
   });
 
+  it("tells a checkout of a project without a design system that its style is the project style, still to be created while empty", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+
+    const empty = await call("checkout_page", { pageId: page.id });
+    expect(empty).toContain("This project has no design system. Its style is still to be created: tokens.css at the root of the working copy is empty.");
+    expect(empty).not.toContain("Neutral");
+    expect(existsSync(join(seam.folder, ".redline", page.id, ".design-system"))).toBe(false);
+
+    await fetch(`${seam.server.url}/api/projects/${seam.project.id}/project-style`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: ":root { --color-primary: #7c3aed; }\n" }),
+    });
+    const styled = await call("checkout_page", { pageId: page.id });
+    expect(styled).toContain("This project has no design system. Its style is the project style: tokens.css at the root of the working copy.");
+    expect(existsSync(join(seam.folder, ".redline", page.id, ".design-system"))).toBe(false);
+  });
+
+  it("keeps the design system note and folder in a checkout of a project with a shared design system", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const designSystem = await seam.createDesignSystem();
+    const page = await seam.createPage({ ...PAGE_FILES, "manifest.json": JSON.stringify({ designSystem, artboards: [{ file: "home.html", x: 0, y: 0, width: 400, height: 300 }] }) });
+    const call = await connectTerminal(seam.folder);
+
+    const answer = await call("checkout_page", { pageId: page.id });
+
+    expect(answer).toMatch(/Design system: .* \(diffusion 1\), read-only in \.design-system\//);
+    expect(answer).not.toContain("has no design system");
+    expect(existsSync(join(seam.folder, ".redline", page.id, ".design-system"))).toBe(true);
+  });
+
   it("reports no gaps after publishing a page of a project without a design system", async () => {
     seam = await startSeam2(new FakeEngine([]));
     const page = await seam.createPage(PAGE_FILES);

@@ -85,11 +85,10 @@ describe("DESIGN.md and project assets over the server HTTP API", () => {
     expect((await workingCopy(await createPage(project))).designMd).toBe("# v2");
   });
 
-  it("carries the design system files in the working copy", async () => {
+  it("carries no design system in the working copy of a project without one", async () => {
     const page = await createPage(await createProject());
     const copy = await workingCopy(page);
-    expect(copy.designSystem.id).toBe("neutral");
-    expect(Object.keys(copy.designSystem.files)).toContain("tokens.css");
+    expect(copy.designSystem).toBeUndefined();
   });
 
   it("stores an asset byte for byte under its content hash and lists it", async () => {

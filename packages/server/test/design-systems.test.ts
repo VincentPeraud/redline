@@ -128,14 +128,13 @@ describe("design systems over the server HTTP API", () => {
     expect(event.pageIds).not.toContain(other.id);
   });
 
-  it("includes the design system files in the working copy", async () => {
+  it("carries no design system in the working copy of a page without one", async () => {
     const page = await createPage();
     const copy = (await (await server.get(`/api/pages/${page.id}/working-copy`)).json()) as {
       files: Record<string, string>;
-      designSystem: { id: string; files: Record<string, string> };
+      designSystem?: unknown;
     };
     expect(copy.files["a.html"]).toBe(html);
-    expect(copy.designSystem.id).toBe(NEUTRAL_DESIGN_SYSTEM_ID);
-    expect(copy.designSystem.files["tokens.css"]).toContain("--color-primary");
+    expect(copy.designSystem).toBeUndefined();
   });
 });

@@ -28,9 +28,10 @@ export function manifestDesignSystemIdOf(store: Store, pageId: string, versionId
   return store.designSystemIdOfManifest(manifest?.toString("utf8"));
 }
 
-/** Design system a page's gaps and session context are measured against: the manifest's, else the neutral one (until those stop using it). */
-export function designSystemIdOf(store: Store, pageId: string, versionId?: string): string {
-  return manifestDesignSystemIdOf(store, pageId, versionId) ?? NEUTRAL_DESIGN_SYSTEM_ID;
+/** Shared design system a page's gaps and session context are measured against; none when its manifest names none, or the hidden Neutral one. */
+export function sharedDesignSystemIdOf(store: Store, pageId: string, versionId?: string): string | undefined {
+  const id = manifestDesignSystemIdOf(store, pageId, versionId);
+  return id === NEUTRAL_DESIGN_SYSTEM_ID ? undefined : id;
 }
 
 const slugOf = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "page";
@@ -106,13 +107,14 @@ export function projectContext(store: Store, pageId: string): ProjectContext {
     assets[name] = store.readProjectFile(page.projectId, `${ASSETS_DIR}/${name}`)!.toString("base64");
   }
   const own = store.getDesignSystem(page.projectId);
+  const sharedDesignSystemId = sharedDesignSystemIdOf(store, pageId);
   return {
     designMd: store.readProjectText(page.projectId, DESIGN_MD_PATH),
     assets,
     // A project's style, or the draft tokens of a design system's own project: the same root file either way.
     projectStyle: store.readProjectText(page.projectId, PROJECT_STYLE_PATH),
     ...(own ? {} : { projectComponents: componentFilesOf(store, page.projectId) }),
-    ...(own ? { editsDesignSystem: { id: own.id, title: own.title } } : { designSystem: designSystemContext(store, page.projectId, designSystemIdOf(store, pageId)) }),
+    ...(own ? { editsDesignSystem: { id: own.id, title: own.title } } : { ...(sharedDesignSystemId === undefined ? {} : { designSystem: designSystemContext(store, page.projectId, sharedDesignSystemId) }) }),
   };
 }
 

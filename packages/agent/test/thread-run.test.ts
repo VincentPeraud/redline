@@ -157,7 +157,7 @@ describe("running a thread with the fake engine", () => {
 });
 
 describe("project context in the working copy", () => {
-  it("writes DESIGN.md, assets and design system folder for the session, and never publishes them", async () => {
+  it("writes DESIGN.md and assets for the session, and no design system folder when the project has none, and never publishes them", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
     seam = await startSeam2(engine);
     const bytes = Buffer.from([0, 255, 128, 7]);
@@ -172,7 +172,7 @@ describe("project context in the working copy", () => {
     const dir = join(seam.folder, ".redline", page.id);
     expect(readFileSync(join(dir, "DESIGN.md"), "utf8")).toBe("# Rules");
     expect(readFileSync(join(dir, "assets", "logo.png")).equals(bytes)).toBe(true);
-    expect(readFileSync(join(dir, ".design-system", "tokens.css"), "utf8")).toContain("--color-primary");
+    expect(existsSync(join(dir, ".design-system"))).toBe(false);
     expect(engine.runs[0].filesAtStart).toEqual(PAGE_FILES);
     expect(await seam.versions(page.id)).toHaveLength(1);
   });
