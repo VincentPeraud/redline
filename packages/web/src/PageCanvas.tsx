@@ -47,7 +47,7 @@ import { PreviewBanner } from "./PreviewBanner.js";
 import { useStoredToggle } from "./useStoredToggle.js";
 import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
-import { centerOn, panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { centerOn, interpolateView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
 import { copyAddress } from "./copyLink.js";
 import { ArtboardMoreMenu } from "./ArtboardMoreMenu.js";
 import { CopyLinkIcon } from "./CopyLinkIcon.js";
@@ -75,6 +75,7 @@ import { Tooltip, cx } from "./ui/index.js";
 import { usePageSessions } from "./usePageSessions.js";
 import { useRuns } from "./useRuns.js";
 import { useTweaks } from "./useTweaks.js";
+import { viaProjectField } from "./viaProject.js";
 import styles from "./PageCanvas.module.css";
 
 const ZOOM_STEP = 1.25;
@@ -104,6 +105,8 @@ function initialView(manifest: Manifest, stage: { width: number; height: number 
 }
 
 const OUTLINE_MS = 2000;
+/** Length of the glide from one artboard to another when the table of contents picks it. */
+const GLIDE_MS = 450;
 
 const ignoreErrors = () => undefined;
 
@@ -238,6 +241,13 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const gapsOf = (file: string) => (gapReport?.gaps ?? []).filter((gap) => gap.file === file).length;
   const [renderingsMenuOpen, setRenderingsMenuOpen] = useState(false);
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
+  /** Frame request of the running glide, stopped as soon as the user pans or zooms. */
+  const glide = useRef<number | null>(null);
+  const stopGlide = useCallback(() => {
+    if (glide.current !== null) cancelAnimationFrame(glide.current);
+    glide.current = null;
+  }, []);
+  useEffect(() => stopGlide, [stopGlide]);
   const viewport = useRef<HTMLDivElement>(null);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const placed = useRef(false);
@@ -298,6 +308,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     if (!element) return;
     function onWheel(event: WheelEvent) {
       event.preventDefault();
+      stopGlide();
       const rect = element!.getBoundingClientRect();
       if (event.ctrlKey || event.metaKey) {
         const cursor = { x: event.clientX - rect.left, y: event.clientY - rect.top };
@@ -308,7 +319,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     }
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [playing]);
+  }, [playing, stopGlide]);
 
   useEffect(() => {
     const element = viewport.current;
@@ -357,6 +368,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   function zoomFromCenter(factor: number) {
     const rect = viewport.current?.getBoundingClientRect();
     if (!rect) return;
+    stopGlide();
     setView((v) => zoomAt(v, factor, { x: rect.width / 2, y: rect.height / 2 }));
   }
 
@@ -430,7 +442,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
   async function send(held: boolean) {
     if (!draft || text.trim() === "") return;
-    const request: CreateThreadRequest = { ...threadPlace(draft), body: text, ...(held ? { held } : choice) };
+    const request: CreateThreadRequest = { ...threadPlace(draft), body: text, ...(held ? { held } : choice), ...viaProjectField(pageId) };
     await fetch(`/api/pages/${pageId}/threads`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -480,7 +492,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const openCount = threads.filter((t) => t.status !== "resolved").length;
   const runningCount = runs.filter((r) => r.status === "running" || r.status === "sent" || r.status === "retrying").length;
   const firstArtboard = manifest?.artboards[0]?.file;
-  const draftInfo: Draft | null = draft && { label: draftLabel(draft) };
+  // Stable per pick: the comments panel focuses its textarea when this changes.
+  const draftInfo: Draft | null = useMemo(() => draft && { label: draftLabel(draft) }, [draft]);
   const pinnedOn = (file: string) => threads.filter((t) => t.target.kind === "element" && t.artboard === file);
   const wholeArtboardThreads = (file: string) => threads.filter((t) => t.target.kind === "artboard" && t.artboard === file && t.status !== "resolved");
   const hiddenOf = (artboard: Manifest["artboards"][number]) => (artboard.responsive ? hiddenRenderingKeys(artboard.responsive, viewSettings, artboard.file) : new Set<string>());
@@ -613,7 +626,24 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   function centerOnArtboard(file: string) {
     const box = artboardBoxes.get(file);
     if (!box) return;
-    setView(centerOn(box, viewportSize));
+    glideTo(centerOn(box, viewportSize));
+  }
+  function glideTo(target: CanvasView) {
+    stopGlide();
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setView(target);
+      return;
+    }
+    const from = view;
+    const size = viewportSize;
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / GLIDE_MS);
+      const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      setView(interpolateView(from, target, eased, size));
+      glide.current = t < 1 ? requestAnimationFrame(step) : null;
+    };
+    glide.current = requestAnimationFrame(step);
   }
   const conversationContext = messageContext({ view, viewport: viewportSize, boxes: artboardBoxes, manifest, tweakValues: tweaks.values });
   const artboardTweaks = (file: string) => (manifest?.tweaks ?? []).filter((tweak) => (tweak.artboard ? tweak.artboard === file : file === firstArtboard));
@@ -664,6 +694,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
             onPointerDown={(e) => {
               if (seenGap) setSeenGap(null);
               pressedAt.current = { x: e.clientX, y: e.clientY };
+              stopGlide();
               if ((e.target as HTMLElement).closest("button, a, [data-no-pan]")) return;
               drag.current = { x: e.clientX, y: e.clientY };
               e.currentTarget.setPointerCapture(e.pointerId);

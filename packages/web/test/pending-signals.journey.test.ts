@@ -56,6 +56,8 @@ it("signals what Claude left undiffused: the card under its answer, the pill on 
   })).json()) as DesignSystem;
   await seam.server.post("/api/projects", { title: "Semaine Halloween", designSystem: ds.id });
   await seam.server.post("/api/projects", { title: "Style propre" });
+  // No project using the design system has an agent running: its work goes to the global agent when the default allows it.
+  await fetch(`${seam.server.url}/api/settings`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ globalTakeover: true }) });
 
   const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await tab.goto(`${seam.server.url}/#/design-systems`);

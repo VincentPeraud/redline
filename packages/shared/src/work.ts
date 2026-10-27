@@ -1,6 +1,7 @@
 // Engine events and work items: the contract between server, agent and engine adapters (ticket 07).
 
 import type { CreatedPage, ThreadRendering, ThreadTarget } from "./index.js";
+import type { Person } from "./people.js";
 import type { ProjectContext } from "./projectFiles.js";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -95,6 +96,8 @@ export const newSessionPath = (threadId: string) => `/api/threads/${threadId}/ne
 export interface ThreadReply {
   id: string;
   author: "claude" | "user";
+  /** The signed-in person who wrote a user message; absent for Claude's answers, messages from before the SSO and without SSO. */
+  person?: Person;
   body: string;
   createdAt: string;
   /** Pages the run that gave this answer created with `create_page` (on the first answer of that run only). */
@@ -182,6 +185,8 @@ export interface Conversation {
   title: string;
   archived: boolean;
   createdAt: string;
+  /** The person who started the conversation; absent for conversations from before the SSO and without SSO. */
+  startedBy?: Person;
   /** Number of exchanges: one user message and Claude's answer count for one (an unanswered user message counts too). */
   exchangeCount: number;
   /** ISO time of the latest message, else of the creation. */
@@ -193,6 +198,8 @@ export interface ConversationMessage extends ModelChoice {
   /** Claude's answer only: the design system whose page the answering run published a version of (what is left pending is in `GET /api/design-systems/:id`). */
   designSystemId?: string;
   author: "user" | "claude";
+  /** The signed-in person who wrote a user message; absent for Claude's answers, messages from before the SSO and without SSO. */
+  person?: Person;
   body: string;
   createdAt: string;
   /** Pages the run created with `create_page`, on Claude's answer. */
@@ -213,6 +220,8 @@ export interface ConversationDetail extends Conversation, ModelChoice {
 /** Body of `POST /api/pages/:pageId/conversations`. */
 export interface CreateConversationRequest {
   title?: string;
+  /** On a design system's page: the project it was opened from, whose agent runs the work (ignored when that project does not use it). */
+  viaProjectId?: string;
 }
 
 /** What the user sees when a conversation message is sent. Sent with the message; only its `targets` (the chips) are stored, on the user's message. */

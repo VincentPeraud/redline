@@ -8,8 +8,11 @@ import {
   type SessionFilter,
   type SessionRow,
 } from "@redline/shared";
+import { Avatar } from "./Avatar.js";
+import { MessageAuthor } from "./MessageAuthor.js";
 import { routeHref } from "./router";
 import { subscribeServerEvents } from "./serverEvents";
+import { useMe, usePersonLabel } from "./useMe.js";
 import { FILTER_LABEL, WAITING_NOTE, activityLabel, agentName, modelLine, shortSessionId } from "./sessionsView";
 import {
   FilterPill,
@@ -33,8 +36,23 @@ import styles from "./SessionsScreen.module.css";
 const kindLabel = (row: SessionRow) => (row.kind === "thread" ? "Fil" : "Conversation");
 const isHot = (row: SessionRow) => (row.context?.percent ?? 0) >= CONTEXT_WARNING_PERCENT;
 
+function Launcher({ row }: { row: SessionRow }) {
+  const me = useMe();
+  const label = usePersonLabel();
+  const { startedBy } = row;
+  const name = label(startedBy, "launcher");
+  if (!startedBy || !me) return <span className={styles.unknown}>{name}</span>;
+  return (
+    <span className={styles.launcher}>
+      <Avatar small muted={startedBy.id !== me.id} initials={startedBy.initials} />
+      {name}
+    </span>
+  );
+}
+
 const COLUMNS: Record<string, Omit<TableColumn<SessionRow>, "width">> = {
   name: { key: "name", header: "Fil ou conversation", render: (row) => <span className={styles.name}>{row.name}</span> },
+  launcher: { key: "launcher", header: "Lancé par", render: (row) => <Launcher row={row} /> },
   type: { key: "type", header: "Type", render: (row) => <span className={styles.secondary}>{kindLabel(row)}</span> },
   where: {
     key: "where",
@@ -65,11 +83,11 @@ const COLUMNS: Record<string, Omit<TableColumn<SessionRow>, "width">> = {
 };
 
 /** The board shows every column when no session is open, and only four next to the side panel. */
-const WIDE: [string, string][] = [["name", "1.7fr"], ["type", "1fr"], ["where", "1.5fr"], ["status", "1.2fr"], ["agent", "0.9fr"], ["session", "0.9fr"], ["model", "1.6fr"], ["when", "0.9fr"]];
-const NARROW: [string, string][] = [["name", "1.8fr"], ["where", "1.4fr"], ["status", "1fr"], ["when", "0.8fr"]];
+const WIDE: [string, string][] = [["name", "1.9fr"], ["launcher", "1.5fr"], ["type", "0.7fr"], ["where", "1.4fr"], ["status", "1.5fr"], ["agent", "0.8fr"], ["session", "0.8fr"], ["model", "1.4fr"], ["when", "0.9fr"]];
+const NARROW: [string, string][] = [["name", "1.8fr"], ["launcher", "1.4fr"], ["where", "1.4fr"], ["status", "1.3fr"], ["when", "0.8fr"]];
 
-function columnsFor(layout: [string, string][]): TableColumn<SessionRow>[] {
-  return layout.map(([key, width]) => ({ ...COLUMNS[key]!, width }));
+function columnsFor(layout: [string, string][], showLauncher: boolean): TableColumn<SessionRow>[] {
+  return layout.filter(([key]) => showLauncher || key !== "launcher").map(([key, width]) => ({ ...COLUMNS[key]!, width }));
 }
 
 const MESSAGES_PATH = { thread: "/api/threads", conversation: "/api/conversations" } as const;
@@ -115,6 +133,8 @@ function Composer({ session, onSent }: { session: SessionDetail; onSent: () => v
 export function SessionsScreen() {
   const [rows, setRows] = useState<SessionRow[]>([]);
   const [filter, setFilter] = useState<SessionFilter>("all");
+  const [mineOnly, setMineOnly] = useState(false);
+  const me = useMe();
   const [search, setSearch] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SessionDetail | null>(null);
@@ -146,6 +166,7 @@ export function SessionsScreen() {
   const visible = rows.filter(
     (row) =>
       sessionMatchesFilter(row.status, filter) &&
+      (!mineOnly || row.startedBy?.id === me?.id) &&
       (needle === "" || `${row.name} ${row.projectTitle} ${row.pageTitle}`.toLowerCase().includes(needle)),
   );
 
@@ -163,6 +184,11 @@ export function SessionsScreen() {
                 {FILTER_LABEL[f]}
               </FilterPill>
             ))}
+            {me && (
+              <FilterPill active={mineOnly} count={rows.filter((row) => row.startedBy?.id === me.id).length} onClick={() => setMineOnly(!mineOnly)}>
+                Mes sessions
+              </FilterPill>
+            )}
           </div>
           <div className={styles.spacer} />
           <TextInput
@@ -176,7 +202,7 @@ export function SessionsScreen() {
           />
         </div>
         <Table
-          columns={columnsFor(detail ? NARROW : WIDE)}
+          columns={columnsFor(detail ? NARROW : WIDE, me !== null)}
           rows={visible}
           rowKey={(row) => row.id}
           rowTestId="session-row"
@@ -222,7 +248,8 @@ export function SessionsScreen() {
           <SidePanelBody>
             {detail.messages.map((m, i) => (
               <div key={i} data-testid="session-message" className={cx(styles.message, m.author === "user" ? styles.fromUser : styles.fromClaude)}>
-                <b>{m.author === "user" ? "Toi" : "Claude"}</b> — {m.body}
+                {m.author === "user" ? <MessageAuthor person={m.person} /> : <MessageAuthor claude />}
+                {m.body}
               </div>
             ))}
             {detail.status === "running" && (

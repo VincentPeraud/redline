@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { extname } from "node:path";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import fastifyStatic from "@fastify/static";
@@ -37,6 +37,7 @@ import {
   type MoveArtboardRequest,
   type UpdatePageRequest,
   type UpdateProjectRequest,
+  CLI_TARBALL_PATH,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import type { Store } from "./store.js";
@@ -56,7 +57,11 @@ import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
+import { validTimeZone } from "./version-dates.js";
 import { registerGapRoutes } from "./gaps.js";
+import { registerIdentity, personRef, type IdentityConfig } from "./identity.js";
+import { type CliBuild } from "./cli-build.js";
+import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
 import { registerRequestHardening } from "./request-hardening.js";
 import { announceDiffusion, registerDesignSystemReload } from "./design-system-reload.js";
 import { registerSessionRoutes } from "./sessions.js";
@@ -114,9 +119,19 @@ export async function buildMainApp(
   store: Store,
   config: ServerConfig,
   webDir?: string,
-  options: { retryDelaysMs?: number[] } = {},
+  options: { retryDelaysMs?: number[]; proxySecrets?: ProxySecrets; identity?: IdentityConfig; cliBuild?: CliBuild } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ bodyLimit: MAX_PAGE_BYTES });
+  registerProxySecretCheck(app, options.proxySecrets);
+  registerHealthRoute(app);
+  registerIdentity(app, store, options.proxySecrets, options.identity);
+  const { cliBuild } = options;
+  store.setServerBuildHash(cliBuild?.hash);
+  if (cliBuild) {
+    app.get(CLI_TARBALL_PATH, async (_req, reply) =>
+      reply.type("application/gzip").header("content-disposition", 'attachment; filename="redline-cli.tgz"').send(createReadStream(cliBuild.tarballPath)),
+    );
+  }
   registerRequestHardening(app);
   explainTooLarge(app);
   const agents = await registerAgentRoutes(app, store);
@@ -204,7 +219,7 @@ export async function buildMainApp(
       const invalidFiles = pageFilesError(files);
       const invalid = invalidFiles ?? newPageComponentsError(store, req.params.projectId, title, files!);
       if (invalid) return reply.code(400).send({ error: invalid });
-      return reply.code(201).send(store.createPage(req.params.projectId, title, files!));
+      return reply.code(201).send(store.createPage(req.params.projectId, title, files!, "user", req.person));
     },
   );
 
@@ -336,12 +351,13 @@ export async function buildMainApp(
     const designSystem = store.createDesignSystem(title, files);
     const brief = instructions?.trim() ?? "";
     if (source || brief !== "") {
-      const conversation = store.createConversation(designSystem.pageId, "Création du design system");
+      const conversation = store.createConversation(designSystem.pageId, "Création du design system", req.person);
       const body = brief !== "" ? brief : `Derive this design system from the pages of the project "${source!.title}".`;
       // The source project's agent serves the run: it has the project's code.
       sendMessage(conversation, body, modelChoiceOf({ model, effort }), {
         projectId: source?.id,
         extraContext: source && sourcePagesMessage(store, source),
+        person: req.person,
       });
     }
     return reply.code(201).send(designSystem);
@@ -373,7 +389,7 @@ export async function buildMainApp(
   });
 
   app.post<{ Params: { pageId: string }; Body: Partial<MoveArtboardRequest> }>("/api/pages/:pageId/move-artboard", async (req, reply) => {
-    const outcome = moveArtboard(store, pageLock, req.params.pageId, req.body, { origin: "user" });
+    const outcome = moveArtboard(store, pageLock, req.params.pageId, req.body, { origin: "user", ref: personRef(req) });
     return reply.code(outcome.status).send(outcome.body);
   });
 
@@ -391,7 +407,7 @@ export async function buildMainApp(
     }
     if (pageLock.isHeldByOther(page.id)) return reply.code(409).send({ error: `A session is working on "${page.title}": try again once it is done.` });
     const rounded = Math.ceil(height);
-    return reply.code(201).send(store.setArtboardHeight(page.id, file, rounded, `Hauteur de ${file} ajustée au contenu (${rounded} px)`, "user"));
+    return reply.code(201).send(store.setArtboardHeight(page.id, file, rounded, `Hauteur de ${file} ajustée au contenu (${rounded} px)`, "user", personRef(req)));
   });
 
   app.patch<{ Params: { pageId: string }; Body: UpdatePageRequest }>("/api/pages/:pageId", async (req, reply) => {
@@ -416,7 +432,7 @@ export async function buildMainApp(
       if ("target" in request && request.target.kind === "canvas-element" && !store.canvasElement(req.params.pageId, request.target.elementId)) {
         return reply.code(400).send({ error: "element is not on the page's canvas" });
       }
-      const thread = store.createThread(req.params.pageId, request);
+      const thread = store.createThread(req.params.pageId, request, req.person);
       if (thread.status === "held") return reply.code(201).send(thread);
       dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(request));
       return reply.code(201).send(thread);
@@ -436,7 +452,7 @@ export async function buildMainApp(
     if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
     const invalidChoice = modelChoiceError(req.body);
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
-    const message = store.addReply(thread.id, body, "user")!;
+    const message = store.addReply(thread.id, body, "user", [], req.person)!;
     dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body));
     return reply.code(201).send(message);
   });
@@ -491,7 +507,7 @@ export async function buildMainApp(
       const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files) ?? removalsError(store, req.params.pageId, req.body.files, req.body.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true);
       if (invalid) return reply.code(400).send({ error: invalid });
       const { files, message, origin } = req.body;
-      return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin));
+      return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin, personRef(req)));
     },
   );
 
@@ -508,17 +524,19 @@ export async function buildMainApp(
     const values = { ...(stored === undefined ? {} : parseTweaks(stored)), [tweak.id]: value };
     return reply
       .code(201)
-      .send(store.setPageFile(page.id, TWEAKS_PATH, JSON.stringify(values, null, 2), `Tweak: ${tweak.label} = ${value}`, "tweak"));
+      .send(store.setPageFile(page.id, TWEAKS_PATH, JSON.stringify(values, null, 2), `Tweak: ${tweak.label} = ${value}`, "tweak", personRef(req)));
   });
 
-  app.post<{ Params: { pageId: string; versionId: string } }>(
+  app.post<{ Params: { pageId: string; versionId: string }; Body: { timeZone?: string } | undefined }>(
     "/api/pages/:pageId/versions/:versionId/restore",
     async (req, reply) => {
+      const timeZone = req.body?.timeZone;
+      if (!validTimeZone(timeZone)) return reply.code(400).send({ error: "invalid timeZone" });
       const files = store.readVersionFiles(req.params.pageId, req.params.versionId);
       // Restoring publishes the old files again: the same checks as a publish apply.
       const invalid = files && (versionComponentsError(store, req.params.pageId, files) ?? removalsError(store, req.params.pageId, files, undefined, false));
       if (invalid) return reply.code(400).send({ error: invalid });
-      const restored = store.restoreVersion(req.params.pageId, req.params.versionId);
+      const restored = store.restoreVersion(req.params.pageId, req.params.versionId, personRef(req), timeZone);
       return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });
     },
   );
@@ -551,8 +569,9 @@ export async function buildMainApp(
  * share an origin with the API. The CSP sandbox (without allow-same-origin) also gives
  * the document an opaque origin, even if someone opens the URL directly.
  */
-export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
+export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets): Promise<FastifyInstance> {
   const app = Fastify();
+  registerProxySecretCheck(app, proxySecrets, { artboards: true });
 
   app.get(BRIDGE_PATH, async (_req, reply) =>
     reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(BRIDGE_SOURCE),

@@ -28,11 +28,11 @@ function Names({ names, more }: { names: string[]; more: boolean }) {
   );
 }
 
-function PageCard({ page, palette }: { page: DesignSystemDetail["pages"][number]; palette: string[] }) {
+function PageCard({ page, palette, viaProjectId }: { page: DesignSystemDetail["pages"][number]; palette: string[]; viaProjectId?: string }) {
   const pending = page.pendingCount > 0;
   const listed = page.componentNames.slice(0, 3).join(", ");
   return (
-    <a href={routeHref({ name: "page", pageId: page.id })} data-testid="ds-page" className={cx(styles.pageCard, pending && styles.pageCardPending)}>
+    <a href={routeHref({ name: "page", pageId: page.id, viaProjectId })} data-testid="ds-page" className={cx(styles.pageCard, pending && styles.pageCardPending)}>
       <div aria-hidden="true" className={styles.pageThumb}>
         {palette.map((colour, index) => (
           <div key={index} className={styles.swatch} style={{ background: colour }} />
@@ -144,7 +144,8 @@ function DiffusionRow({ diffusion, isCurrent, isFirst, canRollBack, onRollBack }
   );
 }
 
-export function DesignSystemOverview({ designSystemId }: { designSystemId: string }) {
+/** `viaProjectId`: the project the design system was opened from; its pages open with it, so that project's agent runs their work. */
+export function DesignSystemOverview({ designSystemId, viaProjectId }: { designSystemId: string; viaProjectId?: string }) {
   const [reloads, setReloads] = useState(0);
   const detail = useDesignSystemDetail(designSystemId, String(reloads));
   const openDiffusion = useOpenDiffusionDialog();
@@ -219,7 +220,7 @@ export function DesignSystemOverview({ designSystemId }: { designSystemId: strin
             <h2 className={styles.sectionTitle}>Pages</h2>
             <div className={styles.pages}>
               {detail.pages.map((page) => (
-                <PageCard key={page.id} page={page} palette={detail.palette} />
+                <PageCard key={page.id} page={page} palette={detail.palette} viaProjectId={viaProjectId} />
               ))}
             </div>
           </section>
@@ -292,7 +293,7 @@ export function DesignSystemOverview({ designSystemId }: { designSystemId: strin
           designSystem={null}
           onClose={() => setCreatingPage(false)}
           onCreated={(page) => {
-            window.location.hash = routeHref({ name: "page", pageId: page.id });
+            window.location.hash = routeHref({ name: "page", pageId: page.id, viaProjectId });
           }}
         />
       )}

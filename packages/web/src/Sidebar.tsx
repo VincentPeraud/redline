@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 import { routeHref, useRoute, type Route } from "./router.js";
-import { HomeProvider, useHome } from "./useHome.js";
+import { useHome } from "./useHome.js";
+import { useMe } from "./useMe.js";
+import { AccountMenu, displayName } from "./AccountMenu.js";
+import { Avatar } from "./Avatar.js";
 import { cx, Logo } from "./ui/index.js";
 import styles from "./Sidebar.module.css";
 
@@ -34,6 +37,35 @@ function AgentStatusBox() {
   );
 }
 
+/** The signed-in person at the bottom of the sidebar; nothing without SSO. */
+function AccountBlock() {
+  const me = useMe();
+  if (!me) return null;
+  return (
+    <>
+      <div className={styles.accountDivider} />
+      <div className={styles.account}>
+        <AccountMenu
+          me={me}
+          placement="up"
+          trigger={(props, open) => (
+            <button type="button" data-testid="account-block" className={styles.accountButton} {...props}>
+              <Avatar initials={me.initials} />
+              <span className={styles.accountText}>
+                <span className={styles.accountName}>{displayName(me)}</span>
+                <span className={styles.accountEmail}>{me.email}</span>
+              </span>
+              <span aria-hidden="true" className={cx(styles.accountChevron, open && styles.accountChevronOpen)}>
+                ▲
+              </span>
+            </button>
+          )}
+        />
+      </div>
+    </>
+  );
+}
+
 function Nav() {
   const route = useRoute();
   return (
@@ -52,6 +84,7 @@ function Nav() {
         })}
         <div className={styles.spacer} />
         <AgentStatusBox />
+        <AccountBlock />
       </div>
     </nav>
   );
@@ -63,11 +96,9 @@ function Nav() {
  */
 export function Shell({ children }: { children: ReactNode }) {
   return (
-    <HomeProvider>
-      <div className={styles.shell}>
-        <Nav />
-        <div className={styles.content}>{children}</div>
-      </div>
-    </HomeProvider>
+    <div className={styles.shell}>
+      <Nav />
+      <div className={styles.content}>{children}</div>
+    </div>
   );
 }

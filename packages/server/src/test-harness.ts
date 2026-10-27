@@ -48,10 +48,10 @@ async function sturdyFetch(send: () => Promise<Response>): Promise<Response> {
 }
 
 /** Starts a real server on a temporary data folder with random free ports. */
-export async function startTestServer(options: { webDir?: string; retryDelaysMs?: number[] } = {}): Promise<TestServer> {
+export async function startTestServer(options: { webDir?: string; cliDir?: string; retryDelaysMs?: number[] } = {}): Promise<TestServer> {
   const dataDir = mkdtempSync(join(tmpdir(), "redline-test-"));
   const start = (ports: { port: number; artboardPort: number }) =>
-    startServer({ dataDir, ...ports, host: "127.0.0.1", webDir: options.webDir, retryDelaysMs: options.retryDelaysMs });
+    startServer({ dataDir, ...ports, host: "127.0.0.1", webDir: options.webDir, cliDir: options.cliDir, retryDelaysMs: options.retryDelaysMs });
   let server: RunningServer = await start({ port: 0, artboardPort: 0 });
   const ports = { port: Number(new URL(server.url).port), artboardPort: Number(new URL(server.artboardOrigin).port) };
   const sockets: WebSocket[] = [];
@@ -99,6 +99,7 @@ export async function startTestServer(options: { webDir?: string; retryDelaysMs?
         projectId: options.projectId,
         model: options.model,
         effort: options.effort,
+        buildHash: options.buildHash,
       };
       socket.send(JSON.stringify(message));
       return { hello, messages, send: (m) => socket.send(JSON.stringify(m)), closed, close: () => socket.close() };

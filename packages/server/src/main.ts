@@ -1,4 +1,6 @@
 import { fileURLToPath } from "node:url";
+import { identityFromEnv } from "./identity.js";
+import { proxySecretsFromEnv } from "./proxy-secrets.js";
 import { startServer } from "./start.js";
 
 const server = await startServer({
@@ -7,6 +9,9 @@ const server = await startServer({
   port: Number(process.env.REDLINE_PORT ?? 3000),
   artboardPort: Number(process.env.REDLINE_ARTBOARD_PORT ?? 3001),
   artboardOrigin: process.env.REDLINE_ARTBOARD_ORIGIN,
+  proxySecrets: proxySecretsFromEnv(process.env),
+  identity: identityFromEnv(process.env),
+  cliDir: process.env.REDLINE_CLI_DIR,
   webDir: process.env.REDLINE_WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 

@@ -96,10 +96,6 @@
   line-height: 1.5;
 }
 
-.message b {
-  font-weight: var(--font-weight-semibold);
-}
-
 .fromUser {
   align-self: flex-end;
   background: var(--color-surface-muted);
@@ -157,4 +153,15 @@
 
 .composerInput.composerInput {
   line-height: normal;
+}
+
+.launcher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+}
+
+.unknown {
+  color: var(--color-text-muted);
 }

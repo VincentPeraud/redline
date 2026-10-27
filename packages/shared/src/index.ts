@@ -1,10 +1,12 @@
 import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply, WorkItem } from "./work.js";
 import { tweakGridError, type TweakGridDeclaration } from "./tweakGrid.js";
 import type { Gap } from "./gaps.js";
+import type { Person } from "./people.js";
 
 export * from "./work.js";
 export * from "./sessions.js";
 export * from "./home.js";
+export * from "./people.js";
 export * from "./readingOrder.js";
 export * from "./responsiveLayout.js";
 export * from "./tweakGrid.js";
@@ -82,6 +84,8 @@ export interface PageVersionSummary {
   originId?: string;
   /** Title of that thread or conversation, as it was when the version was recorded. */
   originLabel?: string;
+  /** The person who made the version, or whom Claude made it for (the requesting person of its run); absent for terminal publishes, versions from before the SSO and without SSO. */
+  person?: Person;
   createdAt: string;
   /** Only in the answer to an agent's publish: the page had moved since `baseVersionId` and the changes were merged onto its current version. */
   merged?: boolean;
@@ -131,6 +135,7 @@ export interface ArtboardVersion {
   origin: VersionOrigin;
   originId?: string;
   originLabel?: string;
+  person?: Person;
   createdAt: string;
   /** The content the page shows now. At most one entry per artboard is current. */
   current: boolean;
@@ -153,6 +158,8 @@ export interface DeletedArtboard {
   origin: VersionOrigin;
   originId?: string;
   originLabel?: string;
+  /** Who removed it, or whom Claude removed it for. */
+  person?: Person;
   deletedAt: string;
   /** Last page version that still had it: preview it with `versionPreviewPath` for the thumbnail, and pass it to restore to put it back. */
   lastVersionId: string;
@@ -205,6 +212,8 @@ export interface Page {
   title: string;
   /** Who made the page: a session through `create_page`, or the user. Pages from before this field are "user". */
   createdBy: PageCreator;
+  /** The person who created the page, or whom Claude created it for; absent for pages from before the SSO and without SSO. */
+  createdByPerson?: Person;
   version: PageVersion;
   /** Only on `GET /api/pages/:pageId`. */
   viewSettings?: PageViewSettings;
@@ -294,6 +303,8 @@ export interface Thread {
   /** First line of the comment, kept visible when the thread is resolved. */
   title: string;
   body: string;
+  /** The signed-in person who wrote `body` (the thread's first message, or the held comment); absent for comments from before the SSO and without SSO. */
+  person?: Person;
   status: ThreadStatus;
   /** Derived, never stored: a canvas-element thread whose element is absent from the page's current manifest. */
   removed?: true;
@@ -311,6 +322,8 @@ interface CreateThreadCommon extends ModelChoice {
   title?: string;
   /** "Plus tard": store the comment without sending it. */
   held?: boolean;
+  /** On a design system's page: the project it was opened from, whose agent runs the work (ignored when that project does not use it). */
+  viaProjectId?: string;
 }
 
 /** A comment pinned on an element of an artboard. */
@@ -1095,8 +1108,17 @@ export function defaultManifest(paths: string[]): Manifest {
 /** WebSocket path of the agent endpoint (outside the reverse proxy's protection; guarded by the token). */
 export const AGENT_ENDPOINT = "/agent";
 
-/** Command printed to users whose agent is too old for the server. */
-export const AGENT_UPDATE_COMMAND = "npm i -g redline-cli@latest";
+/** Where the server serves the CLI tarball. */
+export const CLI_TARBALL_PATH = "/cli/redline-cli.tgz";
+
+/** Header carrying the CLI's build hash on the agents' API; the server answers with `OUTDATED_HEADER` when it differs from its own. */
+export const BUILD_HASH_HEADER = "x-redline-build";
+export const OUTDATED_HEADER = "x-redline-outdated";
+
+/** Command that installs the CLI served by the server at `origin`. */
+export function cliUpdateCommand(origin: string): string {
+  return `npm i -g ${origin}${CLI_TARBALL_PATH}`;
+}
 
 /** WebSocket close codes sent by the server on the agent endpoint. */
 export const AgentCloseCode = {
@@ -1124,14 +1146,24 @@ export interface AgentHello extends ModelChoice {
   kind: AgentKind;
   /** The project a project agent serves (the link recorded in its folder). */
   projectId?: string;
+  /** Hash of the CLI build the agent runs ("dev" from sources). */
+  buildHash?: string;
 }
 
-export type AgentToServerMessage = AgentHello | AgentWorkMessage;
+/** The agent could not install the update; it keeps running its previous build. */
+export interface AgentUpdateFailedMessage {
+  type: "update-failed";
+  message: string;
+}
+
+export type AgentToServerMessage = AgentHello | AgentWorkMessage | AgentUpdateFailedMessage;
 
 /** Messages the server sends on the agent endpoint. */
 export type ServerToAgentMessage =
-  | { type: "welcome"; agentId: string }
+  | { type: "welcome"; agentId: string; /** The agent's build differs from the server's. */ outdated?: boolean }
   | { type: "work"; item: WorkItem }
+  /** Stop taking work, let the running sessions finish, reinstall the CLI from the server and restart. */
+  | { type: "update" }
   | { type: "error"; code: "unauthorized" | "incompatible_protocol" | "bad_hello" | "unknown_project" | "project_taken"; message: string };
 
 export type AgentStatus = "online" | "offline";
@@ -1144,6 +1176,23 @@ export interface AgentInfo extends ModelChoice {
   status: AgentStatus;
   /** ISO timestamp of the last connection or disconnection. */
   lastSeenAt: string;
+  /** Present when this connected agent runs another CLI build than the server's. */
+  outdated?: true;
+  /** The agent was asked to update and has not come back (or failed) yet: the server sends it no new work. */
+  updating?: true;
+  /** Why the last update failed; the agent kept running its previous build. */
+  updateError?: string;
+}
+
+/** An agent the server refused for its protocol; listed until it connects again. */
+export interface RefusedAgent {
+  machine: string;
+  folder: string;
+  kind: AgentKind;
+  /** Title of the project a project agent was serving. */
+  project?: string;
+  /** ISO time of the refusal. */
+  refusedAt: string;
 }
 
 export interface AgentTokenResponse {

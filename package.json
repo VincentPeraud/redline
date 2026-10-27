@@ -12,7 +12,7 @@
     "build": "npm run build --workspaces",
     "test": "vitest run",
     "demo": "tsx --tsconfig scripts/tsconfig.json scripts/demo.ts",
-    "test:docker": "REDLINE_DOCKER_TEST=1 vitest run packages/server/test/docker.test.ts",
+    "test:docker": "REDLINE_DOCKER_TEST=1 vitest run packages/server/test/docker.test.ts packages/server/test/production-compose.test.ts packages/server/test/backup-restore.test.ts",
     "eval:agent": "tsx --tsconfig scripts/tsconfig.json scripts/eval-agent.ts"
   },
   "devDependencies": {

@@ -110,6 +110,7 @@
   --radius-pill: 999px;
 
   /* Spacing scale (4px base) */
+  --banner-size: 44px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;

@@ -34,6 +34,36 @@ Redline has no login, and `GET /api/agent-token` hands out the agents' token to 
 
 Redline has no login of its own. The proxy must protect everything (web UI, API, artboard origin) except the agent endpoints `/agent` (a WebSocket on the main port) and `/agent-api/*`, which are guarded by the agents' token. The proxy must forward the original `Host` header (or `X-Forwarded-Host`): state-changing API calls are refused when their `Origin` header names another host. Serve the artboard port on its own host name (a different origin from the UI) and set `REDLINE_ARTBOARD_ORIGIN` to it. Agents upload project assets of up to 20 MB through `/agent-api/*`: raise the proxy's body size limit for that path (nginx allows 1 MB by default, `client_max_body_size`).
 
+### Proxy secrets
+
+Behind a proxy, Redline can refuse every request the proxy did not forward. Set both variables below (each names a file holding a random hex value of at least 32 characters; the two values must differ), otherwise no check is made:
+
+| Variable | Secret | Accepted on |
+| --- | --- | --- |
+| `REDLINE_PROXY_SECRET_HUMAN_FILE` | human | UI, API and artboard origin (both listeners), except the machine paths |
+| `REDLINE_PROXY_SECRET_MACHINE_FILE` | machine | `/agent`, `/agent-api/*` and `/cli/*` only |
+
+The proxy adds the secret in the `X-Redline-Proxy-Secret` request header (its human router adds the human secret, its machine router the machine secret). Any other request gets a bare `403`. Startup fails when a secret is too short, when both are equal, or when only one file is set.
+
+`GET /healthz` on the main port answers `200` without a secret, but only to a request whose remote address is the container's own loopback (a request through the proxy never is). The image's health check calls it.
+
+### Signed-in person (SSO)
+
+When the proxy secrets are set, Redline reads who is signed in from the identity headers your SSO adds, on `/api` requests carrying the human secret only (never on the machine paths, never when no proxy secrets are set: without them anyone could forge the headers, so there is then no identity, no account block and no menu). A person is created on their first visit, and their name and e-mail follow the SSO. `GET /api/me` answers the person and the logout URL, or `null`.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `REDLINE_IDENTITY_HEADER_USER` | `Remote-User` | Header holding the user id |
+| `REDLINE_IDENTITY_HEADER_NAME` | `Remote-Name` | Header holding the display name |
+| `REDLINE_IDENTITY_HEADER_EMAIL` | `Remote-Email` | Header holding the e-mail |
+| `REDLINE_LOGOUT_URL` | none | Where "Se déconnecter" leads (the SSO's logout page); without it the menu offers no sign-out |
+
+The defaults are Authelia's. oauth2-proxy sends `X-Auth-Request-User`, `X-Auth-Request-Preferred-Username` (or `X-Auth-Request-Email`) and `X-Auth-Request-Email`; Authentik sends `X-authentik-username`, `X-authentik-name` and `X-authentik-email`. Your proxy must forward these headers to Redline.
+
+### CLI download
+
+The image carries the CLI as a tarball in `REDLINE_CLI_DIR` (`/app/cli`: `redline-cli.tgz` and `build-hash.txt`). The server serves it at `/cli/redline-cli.tgz` without a token (npm cannot send one; behind a proxy this is the machine route), so `npm i -g <origin>/cli/redline-cli.tgz` installs the `redline` command. Then `redline setup <origin> --token <token>` (the Agents screen shows the full command) checks the token, stores the server and registers the Redline MCP in Claude Code at user scope. Run it again with another URL to set up several servers; a folder remembers its server, and `redline agent --global` needs `--server <url>` when there are several. `http://` is accepted only for `localhost`, `*.localhost` and `127.0.0.1`. `redline build-hash` prints the hash of the installed build, which equals the image's `build-hash.txt`.
+
 ### Behind Traefik (local)
 
 With a Traefik already running on an external Docker network named `traefik` (entrypoint `web`), `docker-compose.traefik.yml` serves the UI on `http://redline.localhost` and the artboards on `http://artboards.redline.localhost`:
@@ -41,10 +71,154 @@ With a Traefik already running on an external Docker network named `traefik` (en
 ```sh
 echo "COMPOSE_FILE=docker-compose.yml:docker-compose.traefik.yml" > .env
 docker compose up -d --build
-redline login http://redline.localhost
+redline setup http://redline.localhost --token <token>
 ```
 
 `REDLINE_HOST_NAME` and `REDLINE_ARTBOARD_HOST` change the two host names. The loopback ports stay published, so `http://localhost:3000` keeps working.
+
+## Install on a server
+
+Redline runs on a host that already has Traefik and an SSO (Authelia, Authentik, Keycloak through oauth2-proxy...). Redline has no login: Traefik asks your SSO first, then adds a secret header that Redline requires. Only the agents' paths (`/agent`, `/agent-api/*`) and the CLI download (`/cli/*`) skip the SSO; they are guarded by the agents' token and carry a second secret.
+
+### Preflight
+
+- Docker with Compose v2.20 or later (`docker compose version`).
+- Traefik runs with the Docker provider, on a Docker network Redline can join (default name `traefik`). Check its names: entrypoints (`web`, `websecure`), certificate resolver, and the SSO middleware (the Traefik dashboard lists middlewares as `<name>@<provider>`).
+- Traefik forwards the original `Host` header (the default). If Traefik is itself behind another proxy, trust its forwarded headers.
+- Two DNS names point to the server: one for the UI and API, one for the artboards (a different origin on purpose). The certificate resolver must be able to issue both.
+- The Traefik names Redline creates are unique: they all start with `REDLINE_TRAEFIK_PREFIX` (default `redline`). Change it if another project uses it.
+
+### First install
+
+```sh
+git clone <repository> redline && cd redline
+cp .env.dist .env
+$EDITOR .env                  # fill the REQUIRED lines, check the Traefik and identity header names
+scripts/generate-secrets.sh   # creates ./secrets/* and the two REDLINE_PROXY_SECRET_* lines of .env
+docker compose up -d --build
+```
+
+`docker compose` refuses to start while `REDLINE_UI_HOST`, `REDLINE_ARTBOARD_HOST`, `REDLINE_AUTH_MIDDLEWARE` or a proxy secret is missing. The generator creates the missing secret files and `.env` lines, and never overwrites one that exists. The container publishes no port, runs as uid 1000 with a read-only root, no capability and `no-new-privileges`, and is limited to 1 GB of memory and 256 processes. Open `https://<UI host>`: the SSO asks you to sign in, then the machine setup command is shown on the Agents screen.
+
+Agent sessions connect through `https://<UI host>` (`npm i -g https://<UI host>/cli/redline-cli.tgz && redline setup https://<UI host> --token <token>`); the machine route is rate limited and asset uploads of 20 MB pass its body limit.
+
+### Plug your SSO
+
+The SSO middleware named in `REDLINE_AUTH_MIDDLEWARE` must protect both host names, and must not apply to the machine paths (Redline's machine router never uses it).
+
+- **Authelia**: a `forwardAuth` middleware (`authelia@docker`, or the name you gave it). Add an access rule for both hosts and a group:
+
+  ```yaml
+  access_control:
+    rules:
+      - domain: ["redline.example.com", "artboards.redline.example.com"]
+        policy: one_factor
+        subject: ["group:redline"]
+  ```
+
+- **Authentik**: create a proxy provider in forward-auth (domain level) mode for both hosts, attach it to the embedded outpost, and use the `forwardAuth` middleware pointing at the outpost (`/outpost.goauthentik.io/auth/traefik`) with `authResponseHeaders` listing the headers below.
+- **Keycloak**: Keycloak does not do forward auth by itself: run oauth2-proxy (`--reverse-proxy --set-xauthrequest --upstream=static://202`) with your Keycloak client, expose it as a `forwardAuth` middleware on `/oauth2/auth`, and list the headers below in `authResponseHeaders`.
+
+### Identity headers
+
+The SSO middleware must pass the signed-in person to Redline in request headers. Set their names in `.env`:
+
+| SSO | `REDLINE_IDENTITY_HEADER_USER` | `REDLINE_IDENTITY_HEADER_NAME` | `REDLINE_IDENTITY_HEADER_EMAIL` | `REDLINE_LOGOUT_URL` |
+| --- | --- | --- | --- | --- |
+| Authelia (default) | `Remote-User` | `Remote-Name` | `Remote-Email` | `https://<auth host>/logout` |
+| Authentik | `X-authentik-username` | `X-authentik-name` | `X-authentik-email` | `https://<authentik host>/outpost.goauthentik.io/sign_out` |
+| oauth2-proxy (Keycloak) | `X-Auth-Request-User` | `X-Auth-Request-Preferred-Username` | `X-Auth-Request-Email` | `https://<UI host>/oauth2/sign_out` |
+
+The middleware must list the same names in `authResponseHeaders`. Redline empties the three identity headers before the SSO runs (the `strip-identity` middleware, ahead of `REDLINE_AUTH_MIDDLEWARE` on both human routers), so a signed-in person cannot forge them: the SSO only overwrites the headers it lists. Redline reads them only on requests that carry the human proxy secret, and the machine router empties them too.
+
+Keep the Traefik dashboard and API closed (no `--api.insecure`, not exposed on a public router): the proxy secrets are in the router labels and the dashboard would show them.
+
+### Upgrade
+
+```sh
+git pull --ff-only
+docker compose up -d --build
+```
+
+The data volume `redline_redline-data` is kept. Never run `docker compose down -v`: it deletes the volume.
+
+### Secret rotation
+
+The two proxy secrets live twice: in `./secrets/` (read by Redline) and in `.env` (read by Traefik labels). To rotate one:
+
+```sh
+rm secrets/proxy-secret-human                    # or proxy-secret-machine
+sed -i '/^REDLINE_PROXY_SECRET_HUMAN=/d' .env    # the matching line
+scripts/generate-secrets.sh
+docker compose up -d --force-recreate
+```
+
+The generator refuses a `.env` value that differs from its file, so the two copies cannot drift. The recreation applies the new value to Traefik and Redline together. The agents' token is separate: regenerate it from the Agents screen.
+
+### Backup
+
+`scripts/backup.sh` backs the server up with [restic](https://restic.net) (run from a digest-pinned image, so the host needs only Docker). It:
+
+1. makes a consistent copy of the SQLite database inside the container (SQLite's backup API on a read-only connection) and checks it (`integrity_check`, the expected tables, the project count): a copy that fails stops the backup before restic runs;
+2. backs that copy and the `blobs` folder up to your restic repository (the data volume is mounted read-only; the repository is created on the first run);
+3. keeps 7 daily, 4 weekly and 6 monthly snapshots (`forget --prune`), and on Sundays runs `check --read-data-subset=5%`.
+
+The settings live in a folder outside git, `~/.config/redline-backup` by default (`REDLINE_BACKUP_CONFIG_DIR` changes it). Keep it private: the script refuses to run when the folder or a file in it is readable by group or others.
+
+```sh
+mkdir -p ~/.config/redline-backup && chmod 700 ~/.config/redline-backup && cd ~/.config/redline-backup
+echo 'sftp:backup@storage.example.com:/redline' > repository   # see below
+openssl rand -base64 32 > password                              # also keep a copy of it elsewhere: without it the backups are unreadable
+chmod 600 *
+```
+
+| File | |
+| --- | --- |
+| `repository` | required: `sftp:user@host:/path`, `s3:s3.amazonaws.com/bucket`, an absolute folder of the host, or `volume:<docker volume>` |
+| `password` | required: the restic repository password |
+| `env` | `KEY=VALUE` lines for the repository (S3: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) |
+| `ssh-key`, `known_hosts` | for an SFTP repository: the private key and the server's host key (`ssh-keyscan storage.example.com > known_hosts`); with a `known_hosts` the host key is checked strictly |
+| `webhook-success`, `webhook-failure` | a URL each (Mattermost, Slack...): the script posts `{"text": "..."}` after a successful or failed backup |
+
+Run it once by hand (`scripts/backup.sh`), then from the host's cron:
+
+```
+30 3 * * * /path/to/redline/scripts/backup.sh
+```
+
+Logs are kept in `<settings folder>/logs/backup-YYYY-MM-DD.log` for 30 days. A second backup cannot start while one runs. A local repository on Docker Desktop for macOS cannot be written (restic cannot sync a bind mount there): use a Linux host, a remote repository or `volume:`.
+
+The same repository is reachable through `scripts/backup.sh restic <args>`, with the current folder mounted as `/restore`:
+
+```sh
+scripts/backup.sh restic snapshots
+scripts/backup.sh restic stats latest
+```
+
+### Restore
+
+Check regularly that a backup can be read, without touching the live server:
+
+```sh
+scripts/restore-test.sh        # restores the latest snapshot into a throwaway folder, opens the database, counts the projects
+scripts/restore-test.sh 12     # same, and fails unless the database holds 12 projects
+```
+
+To restore into the live stack (it replaces the current data):
+
+```sh
+mkdir restore && cd restore
+../scripts/backup.sh restic restore latest --tag redline --target .      # or a snapshot id instead of `latest`
+cd ..
+docker compose stop redline
+docker compose run --rm --no-deps -v "$PWD/restore/data:/restore:ro" --entrypoint sh redline -c \
+  'rm -rf /data/blobs /data/redline.db /data/redline.db-wal /data/redline.db-shm \
+   && cp -a /restore/blobs /data/blobs && cp /restore/backup/redline.db /data/redline.db'
+docker compose up -d
+sudo rm -rf restore            # restored files keep the owner of the volume (uid 1000)
+```
+
+To restore on a new server: do "First install" (it creates the data volume), copy your backup settings folder to the new host, then run the commands above.
 
 ## Development
 
@@ -52,7 +226,7 @@ redline login http://redline.localhost
 npm install
 npm test                # fast suite
 npm run build
-npm run test:docker     # opt-in: builds the image and checks data survives container recreation
+npm run test:docker     # opt-in: builds the image: data survives container recreation, production compose, backup and restore
 npm run eval:agent      # opt-in, costs real Claude sessions: see below
 ```
 

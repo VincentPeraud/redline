@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { HOME_PATH, type AgentOverview, type CoveredProject, type HomeOverview, type HomeProject, type WorkOverview } from "@redline/shared";
+import { chooseAgent } from "./agent-selection.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -13,8 +14,8 @@ export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock:
 
     const covered = (agentId: string, kind: string): CoveredProject[] =>
       projects
-        .filter((p) => (kind === "global" ? !p.agent : p.agent?.id === agentId))
-        .map((p) => ({ id: p.id, title: p.title, globalTakeover: p.globalTakeover }));
+        .filter((p) => (kind === "global" ? p.globalTakeover : p.agent?.id === agentId))
+        .map((p) => ({ id: p.id, title: p.title, servedNow: chooseAgent(store, p.id)?.agentId === agentId }));
 
     const agents: AgentOverview[] = store.listAgents().map((agent) => {
       const coveredProjects = covered(agent.id, agent.kind);
@@ -71,6 +72,7 @@ export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock:
       projectCount: projects.length,
       projects: homeProjects,
       agents,
+      refusedAgents: store.listRefusedAgents(),
       recentPages: store.listRecentPages(RECENT_PAGES).map(({ page, updatedAt }) => ({
         page,
         projectTitle: titleOf.get(page.projectId) ?? "",

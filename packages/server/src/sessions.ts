@@ -37,8 +37,8 @@ export function registerSessionRoutes(
       if (!thread) return undefined;
       const session = store.getThreadSession(thread.id);
       const messages: SessionMessage[] = [
-        { author: "user", body: thread.body, createdAt: origin.createdAt },
-        ...thread.replies.map((r): SessionMessage => ({ author: r.author, body: r.body, createdAt: r.createdAt })),
+        { author: "user", ...(thread.person ? { person: thread.person } : {}), body: thread.body, createdAt: origin.createdAt },
+        ...thread.replies.map((r): SessionMessage => ({ author: r.author, ...(r.person ? { person: r.person } : {}), body: r.body, createdAt: r.createdAt })),
       ];
       const idleStatus: SessionStatus =
         thread.status === "resolved"
@@ -67,7 +67,7 @@ export function registerSessionRoutes(
     const context = store.getConversationContext(conversation.id);
     const stored = store.conversationMessages(conversation.id);
     const lastUser = [...stored].reverse().find((m) => m.author === "user");
-    const messages = stored.map((m): SessionMessage => ({ author: m.author, body: m.body, createdAt: m.createdAt }));
+    const messages = stored.map((m): SessionMessage => ({ author: m.author, ...(m.person ? { person: m.person } : {}), body: m.body, createdAt: m.createdAt }));
     const idleStatus: SessionStatus = conversation.archived
       ? "archived"
       : stored.some((m) => m.author === "claude")
@@ -100,7 +100,8 @@ export function registerSessionRoutes(
     if (status !== "resolved" && status !== "archived") {
       if (queued) {
         status = queued.reason === "agent-offline" ? "waiting-agent" : "queued";
-        waitingReason = queued.reason;
+        // A design system has no folder of its own: its work waits for the agent of a project using it.
+        waitingReason = queued.reason === "agent-offline" && store.isDesignSystemProject(origin.projectId) ? "design-system-agent-offline" : queued.reason;
       } else if (run?.status === "sent" || run?.status === "running") {
         status = "running";
       } else if (run?.status === "retrying") {
@@ -125,6 +126,7 @@ export function registerSessionRoutes(
       pageTitle: origin.pageTitle,
       status,
       activityAt: d.activityAt,
+      ...(d.messages[0]?.person ? { startedBy: d.messages[0].person } : {}),
       ...(agent ? { agent: { id: agent.id, machine: agent.machine, folder: agent.folder, kind: agent.kind } } : {}),
       ...(d.sessionId ? { sessionId: d.sessionId } : {}),
       ...(d.model ? { model: d.model } : {}),

@@ -43,6 +43,21 @@ export function centerOn(box: Bounds, viewport: { width: number; height: number 
   };
 }
 
+/**
+ * The view a share `t` (0 to 1) of the way from `from` to `to`: the zoom changes geometrically, so zooming in and out feel
+ * the same speed, and the canvas point at the centre of the viewport moves in a straight line.
+ */
+export function interpolateView(from: CanvasView, to: CanvasView, t: number, viewport: { width: number; height: number }): CanvasView {
+  if (t <= 0) return from;
+  if (t >= 1) return to;
+  const centreOf = (view: CanvasView) => ({ x: (viewport.width / 2 - view.x) / view.zoom, y: (viewport.height / 2 - view.y) / view.zoom });
+  const a = centreOf(from);
+  const b = centreOf(to);
+  const zoom = from.zoom * Math.pow(to.zoom / from.zoom, t);
+  const centre = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  return { zoom, x: viewport.width / 2 - centre.x * zoom, y: viewport.height / 2 - centre.y * zoom };
+}
+
 export function fitView(bounds: Bounds, viewport: { width: number; height: number }, margin = 48): CanvasView {
   const zoom = clampZoom(
     Math.min((viewport.width - 2 * margin) / bounds.width, (viewport.height - 2 * margin) / bounds.height),

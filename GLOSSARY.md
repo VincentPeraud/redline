@@ -105,13 +105,13 @@ A process running on one of the user's machines, in one folder, that picks up th
 _Avoid_: Worker, runner, bot
 
 **Project agent**:
-An agent started in a project's code folder; a project has at most one.
+An agent started in a project's code folder; a project has at most one. It runs the project's new work whenever it is online, with the project's code and context. Stopped, it stays listed as offline and changes nothing to routing. It also runs the work of the **design system** its project uses: first when the design system was opened from its project, otherwise when its project is the oldest one using the design system with an agent online. A design system has no project agent of its own.
 
 **Global agent**:
-An agent started in a neutral folder that serves projects without a project agent, and those whose project agent is offline when the user allows it.
+An agent started in a neutral folder. When no project agent is online for a project, it runs the project's new work in a fresh session if the project's setting allows it (its override, else the default); otherwise the thread waits for an agent. Whether the project ever had a project agent does not matter. A design system's work comes to it only when no project using that design system has an agent online and the default setting allows it, or when no project uses the design system yet.
 
 ### People
 
-**User**:
-The single owner of a Redline server; v1 has no other people.
-_Avoid_: Account, member
+**Person**:
+Someone signed in through the SSO, identified by the user-id header value, with a display name and an e-mail refreshed whenever the SSO sends other ones. Redline has no login of its own, and without an SSO there are no people. "Toi" in the UI means the person viewing.
+_Avoid_: User, account, member

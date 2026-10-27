@@ -52,15 +52,51 @@ describe("global agent and takeover", () => {
     expect(condition()).toBe(true);
   }
 
-  it("runs a thread of a project without a project agent on the global agent", async () => {
+  it("runs a thread of a project that never had a project agent on the global agent when it allows it", async () => {
     const acme = await createProject();
+    await allowTakeover(acme);
     const page = await createPage(acme);
     const global = await connectGlobalAgent();
     const thread = await pin(page, "Make it blue");
     await until(() => received(global).length === 1);
 
     expect(received(global)[0]).toMatchObject({ resume: false, threads: [{ threadId: thread.id }] });
-    expect((await project(acme.id)).servedBy).toMatchObject({ kind: "global", takeover: false, folder: "/home/neutral" });
+    expect((await project(acme.id)).servedBy).toMatchObject({ kind: "global", takeover: true, folder: "/home/neutral" });
+  });
+
+  it("keeps the thread of a project that never had a project agent waiting when it does not allow the global agent", async () => {
+    const acme = await createProject();
+    const page = await createPage(acme);
+    const global = await connectGlobalAgent();
+    await pin(page, "Make it blue");
+    await settle();
+    expect(received(global)).toHaveLength(0);
+    expect(await queue(page)).toMatchObject([{ reason: "agent-offline" }]);
+    expect((await project(acme.id)).servedBy).toBeUndefined();
+  });
+
+  it("routes the same whether or not the project ever had an agent: a never-linked project and one with a stopped agent behave alike", async () => {
+    const never = await createProject();
+    const stoppedProject = (await (await server.post("/api/projects", { title: "Stopped" })).json()) as Project;
+    const stopped = await connectProjectAgent(stoppedProject);
+    stopped.close();
+    await stopped.closed;
+    await connectGlobalAgent();
+    for (const allow of [false, true, false]) {
+      for (const p of [never, stoppedProject]) await allowTakeover(p, allow);
+      const served = await Promise.all([never, stoppedProject].map(async (p) => (await project(p.id)).servedBy?.kind));
+      expect(served).toEqual(allow ? ["global", "global"] : [undefined, undefined]);
+    }
+  });
+
+  it("keeps a stopped project agent listed as offline without changing routing", async () => {
+    const acme = await createProject();
+    const projectAgent = await connectProjectAgent(acme);
+    projectAgent.close();
+    await projectAgent.closed;
+    const homeAgents = async () => ((await (await server.get("/api/home")).json()) as { agents: { status: string; kind: string }[] }).agents.map((a) => [a.kind, a.status]);
+    for (let i = 0; i < 50 && (await homeAgents())[0]?.[1] !== "offline"; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await homeAgents()).toEqual([["project", "offline"]]);
   });
 
   it("keeps a project's thread waiting for its offline project agent by default", async () => {

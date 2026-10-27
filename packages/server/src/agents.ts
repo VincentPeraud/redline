@@ -3,11 +3,12 @@ import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
 import {
   AGENT_ENDPOINT,
-  AGENT_UPDATE_COMMAND,
   AgentCloseCode,
+  cliUpdateCommand,
   EFFORTS,
   PROTOCOL_VERSION,
   type AgentHello,
+  type AgentUpdateFailedMessage,
   type AgentWorkMessage,
   type AgentTokenResponse,
   type ServerToAgentMessage,
@@ -30,6 +31,7 @@ function parseHello(raw: string): AgentHello | undefined {
       typeof m.folder === "string" &&
       (m.kind === "project" || m.kind === "global") &&
       (m.projectId === undefined || typeof m.projectId === "string") &&
+      (m.buildHash === undefined || typeof m.buildHash === "string") &&
       (m.model === undefined || typeof m.model === "string") &&
       (m.effort === undefined || (EFFORTS as readonly unknown[]).includes(m.effort));
     return valid ? (m as AgentHello) : undefined;
@@ -43,6 +45,15 @@ function parseWorkMessage(raw: string): AgentWorkMessage | undefined {
     const m = JSON.parse(raw) as Partial<AgentWorkMessage>;
     const known = m.type === "work-event" || m.type === "work-done" || m.type === "work-failed";
     return known && typeof m.workId === "string" ? (m as AgentWorkMessage) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseUpdateFailure(raw: string): AgentUpdateFailedMessage | undefined {
+  try {
+    const m = JSON.parse(raw) as Partial<AgentUpdateFailedMessage>;
+    return m.type === "update-failed" && typeof m.message === "string" ? (m as AgentUpdateFailedMessage) : undefined;
   } catch {
     return undefined;
   }
@@ -67,12 +78,23 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
   const offlineListeners: ((agentId: string) => void)[] = [];
   let ownsWork: (agentId: string, workId: string) => boolean = () => true;
 
+  function sendToAgent(agentId: string, message: ServerToAgentMessage): boolean {
+    for (const [socket, id] of connected) {
+      if (id === agentId) {
+        send(socket, message);
+        return true;
+      }
+    }
+    return false;
+  }
+
   app.addHook("onClose", async () => {
     for (const agentId of connected.values()) store.markAgentOffline(agentId);
     connected.clear();
   });
 
-  app.get(AGENT_ENDPOINT, { websocket: true }, (socket) => {
+  app.get(AGENT_ENDPOINT, { websocket: true }, (socket, request) => {
+    const origin = `${request.headers["x-forwarded-proto"] ?? "http"}://${request.headers.host}`;
     socket.once("message", (data) => {
       const hello = parseHello(data.toString());
       if (!hello) {
@@ -83,15 +105,17 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         send(socket, {
           type: "error",
           code: "unauthorized",
-          message: "Wrong token. Run `redline login <server-url>` with the token shown on the Agents screen.",
+          message: "Wrong token. Run `redline setup <server-url> --token <token>` with the token shown on the Agents screen.",
         });
         return socket.close(AgentCloseCode.Unauthorized, "unauthorized");
       }
       if (hello.protocolVersion !== PROTOCOL_VERSION) {
+        store.recordRefusedAgent(hello);
+        store.emit({ type: "agents-updated" });
         send(socket, {
           type: "error",
           code: "incompatible_protocol",
-          message: `Agent protocol ${hello.protocolVersion} is not supported (server uses ${PROTOCOL_VERSION}). Update the agent with: ${AGENT_UPDATE_COMMAND}`,
+          message: `Agent protocol ${hello.protocolVersion} is not supported (server uses ${PROTOCOL_VERSION}). Update the agent with: ${cliUpdateCommand(origin)}`,
         });
         return socket.close(AgentCloseCode.IncompatibleProtocol, "incompatible protocol");
       }
@@ -110,7 +134,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
           return socket.close(AgentCloseCode.ProjectTaken, "project taken");
         }
       }
-      const agentId = store.markAgentOnline(hello.machine, hello.folder, hello.kind, hello.projectId, hello.model, hello.effort);
+      const agentId = store.markAgentOnline(hello);
       connected.set(socket, agentId);
       store.emit({ type: "agents-updated" });
       socket.on("close", () => {
@@ -120,10 +144,17 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         for (const listener of offlineListeners) listener(agentId);
       });
       socket.on("message", (data) => {
+        const failure = parseUpdateFailure(data.toString());
+        if (failure) {
+          store.recordUpdateFailure(agentId, failure.message);
+          store.emit({ type: "agents-updated" });
+          for (const listener of onlineListeners) listener(agentId);
+          return;
+        }
         const message = parseWorkMessage(data.toString());
         if (message && ownsWork(agentId, message.workId)) store.emit({ type: "work", message });
       });
-      send(socket, { type: "welcome", agentId });
+      send(socket, { type: "welcome", agentId, ...(store.isOutdated(hello.buildHash) ? { outdated: true } : {}) });
       for (const listener of onlineListeners) listener(agentId);
     });
   });
@@ -144,18 +175,18 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
 
   app.get("/api/agents", async () => store.listAgents());
 
+  app.post<{ Params: { agentId: string } }>("/api/agents/:agentId/update", async (req, reply) => {
+    const { agentId } = req.params;
+    if (!sendToAgent(agentId, { type: "update" })) return reply.code(404).send({ error: "This agent is not connected." });
+    store.markAgentUpdating(agentId);
+    store.emit({ type: "agents-updated" });
+    return reply.code(202).send();
+  });
+
   return {
     onAgentOnline: (listener) => void onlineListeners.push(listener),
     onAgentOffline: (listener) => void offlineListeners.push(listener),
     acceptWorkMessagesFrom: (owns) => void (ownsWork = owns),
-    send(agentId, message) {
-      for (const [socket, id] of connected) {
-        if (id === agentId) {
-          send(socket, message);
-          return true;
-        }
-      }
-      return false;
-    },
+    send: sendToAgent,
   };
 }

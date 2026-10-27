@@ -1,9 +1,10 @@
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import type { QueueEntry, SessionRow, Thread, ThreadRun } from "@redline/shared";
 import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
 import { RemovedTag } from "./RemovedTag.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
+import { MessageAuthor } from "./MessageAuthor.js";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
 import { RenderingChip } from "./RenderingChip.js";
 import { queueLabel } from "./queueLabel.js";
@@ -75,12 +76,14 @@ function ThreadCard({
   const messages = (
     <>
       <div className={styles.message}>
-        <span className={styles.author}>Toi</span> — {thread.body}
+        <MessageAuthor person={thread.person} />
+        {thread.body}
       </div>
       {thread.replies.map((reply) => (
         <Fragment key={reply.id}>
           <div data-testid="reply" className={cx(styles.message, reply.author === "claude" && styles.claudeReply)}>
-            <span className={styles.author}>{reply.author === "user" ? "Toi" : "Claude"}</span> — {reply.body}
+            {reply.author === "user" ? <MessageAuthor person={reply.person} /> : <MessageAuthor claude />}
+            {reply.body}
           </div>
           <CreatedPageCards pages={reply.createdPages} />
         </Fragment>
@@ -149,6 +152,11 @@ function ThreadCard({
 export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel }: Props) {
   const ordered = [...threads].sort((a, b) => GROUP_ORDER[a.status] - GROUP_ORDER[b.status] || a.number - b.number);
   const heldCount = threads.filter((t) => t.status === "held").length;
+
+  // Picking an element (or the whole artboard) starts a draft: type right away.
+  useEffect(() => {
+    if (draft) document.getElementById("new-comment")?.focus();
+  }, [draft]);
 
   return (
     <>

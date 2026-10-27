@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DesignMdVersion, DesignSystemSummary, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
-import { dayLabel, designMdAuthor, originLabel } from "./historyLabels.js";
+import { dayLabel, designMdStatus, metaLine, originLabel } from "./historyLabels.js";
+import { useWho } from "./useMe.js";
 import { agree } from "./plural.js";
 import { pickerHex } from "./projectDesignSystemLabels.js";
 import { relativeTime } from "./relativeTime.js";
@@ -133,6 +134,7 @@ function ComponentCard({ component, swatch }: { component: ProjectComponentInfo;
 }
 
 function HistoryDialog({ versions, onRestore, onClose }: { versions: DesignMdVersion[]; onRestore: (version: DesignMdVersion) => void; onClose: () => void }) {
+  const who = useWho();
   return (
     <Dialog title="Historique du style du projet" onClose={onClose} width={520}>
       <ol className={styles.versions}>
@@ -140,7 +142,7 @@ function HistoryDialog({ versions, onRestore, onClose }: { versions: DesignMdVer
           <li key={version.id} className={styles.version}>
             <span className={styles.versionText}>
               <span>{relativeTime(version.createdAt)}</span>
-              <span className={styles.versionMeta}>{originLabel(version.origin, version.originLabel)}</span>
+              <span className={styles.versionMeta}>{originLabel(version.origin, version.originLabel, who(version.person))}</span>
             </span>
             {index === 0 ? (
               <span className={styles.versionMeta}>Actuelle</span>
@@ -188,6 +190,7 @@ function PromoteDialog({ initialTitle, onSubmit, onClose }: { initialTitle: stri
 }
 
 export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) {
+  const who = useWho();
   const [project, setProject] = useState<Project | null>(null);
   const [detail, setDetail] = useState<ProjectDesignSystem | null>(null);
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
@@ -297,7 +300,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
         <div className={styles.grow} />
         {latest && (
           <div data-testid="project-style-status" className={styles.status}>
-            Dernière modification par {designMdAuthor(latest.origin, latest.originLabel)} · {dayLabel(latest.createdAt)}
+            {designMdStatus(latest.origin, latest.originLabel, dayLabel(latest.createdAt), who(latest.person))}
           </div>
         )}
         <button type="button" className={styles.historyLink} onClick={() => setHistoryOpen(true)}>
@@ -328,7 +331,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
             {shared && detail.diffusion ? (
               <span className={styles.chooserNote}>
                 Diffusion {detail.diffusion.number} du {new Date(detail.diffusion.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} ·{" "}
-                <a href={routeHref({ name: "designSystems" })}>ouvrir {shared.title}</a>
+                <a href={routeHref({ name: "designSystem", designSystemId: shared.id, viaProjectId: projectId })}>ouvrir {shared.title}</a>
               </span>
             ) : (
               <>

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   ASSETS_DIR,
   CORE_TOKENS,
@@ -26,7 +26,8 @@ import {
   type SetProjectDesignSystemRequest,
 } from "@redline/shared";
 import { componentFilesOf, projectComponents } from "./components.js";
-import type { Store } from "./store.js";
+import { personRef, editorAuthor } from "./identity.js";
+import type { OriginRef, Store } from "./store.js";
 import { titleError } from "./validation.js";
 
 const TOKEN_NAME = /^--[A-Za-z0-9_-]+$/;
@@ -75,7 +76,7 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
     styleDefinesTokens: styleDefinesTokens(store.readProjectText(projectId, PROJECT_STYLE_PATH)),
     components,
     overrideCount: tokens.filter((t) => t.status === "overridden").length,
-    lastModified: last ? { createdAt: last.createdAt, origin: last.origin, ...(last.originId ? { originId: last.originId } : {}), ...(last.originLabel ? { originLabel: last.originLabel } : {}) } : null,
+    lastModified: last ? { createdAt: last.createdAt, origin: last.origin, ...(last.originId ? { originId: last.originId } : {}), ...(last.originLabel ? { originLabel: last.originLabel } : {}), ...(last.person ? { person: last.person } : {}) } : null,
   };
 }
 
@@ -133,7 +134,7 @@ export function designSystemChangeError(store: Store, designSystem: unknown): st
 }
 
 /** After a promotion the design system is the only source of the components: remove the project's copies from its pages, one user version per page. */
-function removeComponentCopies(store: Store, projectId: string): void {
+function removeComponentCopies(store: Store, projectId: string, ref?: OriginRef): void {
   for (const page of store.listPages(projectId)) {
     const files = store.readPageFiles(page.id)?.files ?? {};
     const removed = Object.keys(files).filter((path) => componentNameOf(path) !== null);
@@ -146,14 +147,14 @@ function removeComponentCopies(store: Store, projectId: string): void {
       if (manifest.links) manifest.links = manifest.links.filter((l) => !removed.includes(l.from) && !removed.includes(l.to));
       kept[MANIFEST_PATH] = `${JSON.stringify(manifest, null, 2)}\n`;
     }
-    store.addVersion(page.id, kept, "Components moved to the design system", "user");
+    store.addVersion(page.id, kept, "Components moved to the design system", "user", ref);
   }
 }
 
 export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: Store): void {
   const hasProjectStyle = (projectId: string) => store.projectExists(projectId) && !store.isDesignSystemProject(projectId);
   const styleOf = (projectId: string) => store.readProjectText(projectId, PROJECT_STYLE_PATH);
-  const save = (projectId: string, css: string) => store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(css, "utf8"));
+  const save = (req: FastifyRequest, projectId: string, css: string) => store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(css, "utf8"), editorAuthor(req));
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/design-system", async (req, reply) => {
     if (!hasProjectStyle(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
@@ -166,7 +167,7 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     const designSystem = req.body?.designSystem ?? null;
     const invalid = designSystemChangeError(store, designSystem);
     if (invalid) return reply.code(400).send({ error: invalid });
-    store.setProjectDesignSystem(projectId, designSystem, "user");
+    store.setProjectDesignSystem(projectId, designSystem, "user", req.person);
     return projectDesignSystem(store, projectId);
   });
 
@@ -187,9 +188,9 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
       [MANIFEST_PATH]: `${JSON.stringify(manifest, null, 2)}\n`,
     });
     for (const [name, asset] of Object.entries(assetsUsedBy(store, projectId, components))) store.setProjectFile(designSystem.id, `${ASSETS_DIR}/${name}`, asset);
-    save(projectId, "");
-    store.setProjectDesignSystem(projectId, designSystem.id, "user");
-    removeComponentCopies(store, projectId);
+    save(req, projectId, "");
+    store.setProjectDesignSystem(projectId, designSystem.id, "user", req.person);
+    removeComponentCopies(store, projectId, personRef(req));
     return reply.code(201).send(designSystem);
   });
 
@@ -201,7 +202,7 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     if (typeof value !== "string") return reply.code(400).send({ error: "value is required" });
     const invalid = tokenValueError(value);
     if (invalid) return reply.code(400).send({ error: invalid });
-    save(projectId, setToken(styleOf(projectId), name, value.trim()));
+    save(req, projectId, setToken(styleOf(projectId), name, value.trim()));
     return projectDesignSystem(store, projectId);
   });
 
@@ -210,7 +211,7 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     const { projectId, name } = req.params;
     if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
     if (!parseTokens(styleOf(projectId)).some((t) => t.name === name)) return reply.code(404).send({ error: "token is not set by the project" });
-    save(projectId, removeToken(styleOf(projectId), name));
+    save(req, projectId, removeToken(styleOf(projectId), name));
     return projectDesignSystem(store, projectId);
   });
 }

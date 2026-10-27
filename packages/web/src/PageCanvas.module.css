@@ -1,5 +1,5 @@
 .page {
-  height: 100vh;
+  height: calc(100vh - var(--banner-height, 0px));
   display: flex;
   flex-direction: column;
   overflow: hidden;

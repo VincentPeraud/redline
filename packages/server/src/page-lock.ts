@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { QueueEntry, QueueReason, WorkItem } from "@redline/shared";
+import type { Person, QueueEntry, QueueReason, WorkItem } from "@redline/shared";
 import { chooseAgent } from "./agent-selection.js";
 import type { AgentHub } from "./agents.js";
 import { RETRY_DELAYS_MS, UNKNOWN_RESET_WAIT_MS, isSubscriptionLimit, limitResetAt } from "./retry-policy.js";
@@ -25,6 +25,8 @@ interface Queued extends SubmitOptions {
 interface Active {
   queued: Queued;
   agentId: string;
+  /** Who the run works for, fixed when the item is sent: the author of the message that starts it, not of a later reply. */
+  requester?: Person;
 }
 
 interface Retrying {
@@ -119,6 +121,11 @@ export class PageLock {
       this.retrying.get(workId)?.queued.item ??
       this.failed.get(workId)?.queued.item
     );
+  }
+
+  /** The person a running item works for (none without SSO, for comments from before the SSO, or for terminal mode). */
+  requesterOf(workId: string): Person | undefined {
+    return this.active.get(workId)?.requester;
   }
 
   /**
@@ -269,7 +276,7 @@ export class PageLock {
         continue;
       }
       const { agentId, item } = target;
-      this.active.set(queued.item.id, { queued, agentId });
+      this.active.set(queued.item.id, { queued, agentId, requester: this.store.requestingPersonOfItem(item) });
       if (this.hub.send(agentId, { type: "work", item })) {
         this.recordSession(agentId, item);
         this.store.emit({ type: "work-dispatched", pageId, workId: item.id, threadIds: item.threads.map((t) => t.threadId) });
@@ -306,16 +313,20 @@ export class PageLock {
    */
   private pickTarget(queued: Queued): { agentId: string; item: WorkItem } | undefined {
     const { agentId: pinned, takeoverItem, projectId } = queued;
+    const designSystem = this.store.isDesignSystemProject(projectId);
+    // Only a design system's work depends on the project it was opened from.
+    const choose = () => chooseAgent(this.store, projectId, designSystem ? this.store.viaProjectOfItem(queued.item) : undefined);
     if (!pinned) {
-      const choice = chooseAgent(this.store, projectId);
+      const choice = choose();
       return choice && { agentId: choice.agentId, item: queued.item };
     }
     if (this.store.getAgent(pinned)?.status === "online") return { agentId: pinned, item: queued.item };
     if (!takeoverItem) return undefined;
     // Whatever is sent keeps the queued item's id: the lock and the agent's reports are keyed by it.
     const taken = { ...takeoverItem, id: queued.item.id };
-    if (!this.store.isProjectAgent(pinned)) {
-      const choice = chooseAgent(this.store, projectId);
+    // A design system's work is never pinned to an agent of its own: the next agent its rule picks starts a new session.
+    if (!this.store.isProjectAgent(pinned) || designSystem) {
+      const choice = choose();
       return choice && { agentId: choice.agentId, item: taken };
     }
     const globalId = this.store.getProject(projectId)?.globalTakeover ? this.store.findOnlineGlobalAgentId() : undefined;

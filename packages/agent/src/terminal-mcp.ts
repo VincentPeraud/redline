@@ -51,8 +51,17 @@ export function createTerminalMcpServer({ api, folder }: { api: ServerApi; folde
     if (!current) throw new Error("No page checked out. Call checkout_page first.");
     return current;
   };
+  let noticeSent = false;
   const server = createRedlineMcpServer({
     api,
+    // One line, in the first answer only, once the server has said this CLI is out of date.
+    decorateResult: (result) => {
+      if (noticeSent || !api.outdated) return result;
+      noticeSent = true;
+      const [first, ...rest] = result.content;
+      const notice = `Redline: this CLI is not up to date. Update it with: ${api.updateCommand()}`;
+      return { ...result, content: [{ type: "text", text: first ? `${notice}\n${first.text}` : notice }, ...rest] };
+    },
     allowedThreadIds: [],
     get pageId() {
       return checkedOut().pageId;

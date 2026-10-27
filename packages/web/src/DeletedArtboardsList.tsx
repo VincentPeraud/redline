@@ -1,9 +1,8 @@
 import { useEffect, useRef } from "react";
 import { versionPreviewPath, type DeletedArtboard } from "@redline/shared";
-import { historyDate, originLabel } from "./historyLabels.js";
+import { designMdAuthor, historyDate, metaLine, originLabel, type Who } from "./historyLabels.js";
+import { useWho } from "./useMe.js";
 import styles from "./DeletedArtboardsList.module.css";
-
-const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 
 const BOX_WIDTH = 34;
 const BOX_HEIGHT = 48;
@@ -24,6 +23,15 @@ function Thumbnail({ pageId, artboardOrigin, item }: { pageId: string; artboardO
   );
 }
 
+/** "Claude · fil « … », demandé par Toi", "Claude · terminal", "Ariane Martin", "toi" without SSO; empty when nobody is known. */
+function deletedBy(item: DeletedArtboard, who: Who): string {
+  if (item.deletedBy === "claude") {
+    if (item.origin === "thread" || item.origin === "conversation") return who.sso ? originLabel(item.origin, item.originLabel, who) : designMdAuthor(item.origin, item.originLabel);
+    return "Claude · terminal";
+  }
+  return who.sso ? (who.name ?? "") : "toi";
+}
+
 interface Props {
   pageId: string;
   pageTitle: string;
@@ -36,6 +44,7 @@ interface Props {
 /** Popover "Artboards supprimés · <page>": what was removed from the page, with "Remettre". */
 export function DeletedArtboardsList({ pageId, pageTitle, artboardOrigin, items, onPutBack, onClose }: Props) {
   const root = useRef<HTMLDivElement>(null);
+  const who = useWho();
 
   useEffect(() => {
     const onPointer = (event: PointerEvent) => {
@@ -56,16 +65,14 @@ export function DeletedArtboardsList({ pageId, pageTitle, artboardOrigin, items,
     <div ref={root} role="dialog" aria-label="Artboards supprimés" className={styles.popover}>
       <div className={styles.title}>Artboards supprimés · {pageTitle}</div>
       {items.map((item) => {
-        const by = item.deletedBy === "claude" ? "Claude" : "toi";
-        const source = item.origin === "restore" || item.origin === "user" ? null : lowerFirst(originLabel(item.origin, item.originLabel));
+        const by = deletedBy(item, who(item.person));
         return (
           <div key={item.file} data-testid="deleted-artboard" className={styles.row}>
             <Thumbnail pageId={pageId} artboardOrigin={artboardOrigin} item={item} />
             <div className={styles.text}>
               <div className={styles.file}>{item.file}</div>
               <div className={styles.meta}>
-                Supprimé par {by}
-                {source ? ` · ${source}` : ""} · {historyDate(item.deletedAt)}
+                {metaLine(by && `Supprimé par ${by}`, historyDate(item.deletedAt))}
               </div>
             </div>
             <button type="button" className={styles.putBack} onClick={() => void onPutBack(item)}>

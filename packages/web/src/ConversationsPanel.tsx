@@ -14,6 +14,8 @@ import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from 
 import { contextChips } from "./messageContext.js";
 import { workQueueLabel } from "./queueLabel.js";
 import { CreatedPageCards } from "./CreatedPageCards.js";
+import { MessageAuthor } from "./MessageAuthor.js";
+import { usePersonLabel } from "./useMe.js";
 import { PendingDiffusionCard } from "./PendingDiffusionCard.js";
 import { activityLabel } from "./sessionsView.js";
 import { RunProgress } from "./RunProgress.js";
@@ -24,6 +26,7 @@ import { AddressPill, PlainLink } from "./AddressPill.js";
 import { splitMessageLinks } from "./messageLinks.js";
 import { rememberArtboardTitles } from "./otherPageArtboards.js";
 import { Button, Textarea, Tooltip, cx } from "./ui/index.js";
+import { viaProjectField } from "./viaProject.js";
 import styles from "./ConversationsPanel.module.css";
 
 const AGENT_DEFAULT = "défaut de l'agent";
@@ -88,6 +91,7 @@ interface Props {
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
 export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, focusedConversation, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
+  const personLabel = usePersonLabel();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   /** `activeId` as of now, not as of the last render: a message sent right after another one must land in the conversation just created. */
@@ -158,7 +162,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
 
   /** One creation at a time: a message sent while the first one is still creating the conversation joins it instead of creating a second one. */
   function createConversation(): Promise<string> {
-    creating.current ??= fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })
+    creating.current ??= fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(viaProjectField(pageId)) })
       .then(async (res) => {
         if (!res.ok) throw new Error("conversation");
         const { id } = (await res.json()) as ConversationDetail;
@@ -261,7 +265,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
                 >
                   <span className={styles.optionTitle}>{c.title}</span>
                   <span className={styles.optionMeta}>
-                    {c.exchangeCount} {c.exchangeCount === 1 ? "échange" : "échanges"} · {activityLabel(c.lastActivityAt)}
+                    {[personLabel(c.startedBy, "history"), `${c.exchangeCount} ${c.exchangeCount === 1 ? "échange" : "échanges"}`, activityLabel(c.lastActivityAt)].filter(Boolean).join(" · ")}
                   </span>
                 </button>
                 <Tooltip label={`Supprimer la conversation ${c.title}`}>
@@ -275,6 +279,12 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
           </div>
         )}
       </div>
+
+      {active && personLabel(active.startedBy, "history") && (
+        <div data-testid="conversation-starter" className={styles.starter}>
+          {personLabel(active.startedBy, "history")} · {activityLabel(active.lastActivityAt)}
+        </div>
+      )}
 
       <div className={styles.context}>
         <span className={styles.contextLabel}>Contexte transmis</span>
@@ -299,6 +309,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
                     ))}
                   </div>
                 )}
+                <MessageAuthor person={m.person} bubble />
                 <div data-testid="conversation-message" className={styles.userBubble}>
                   {m.body}
                 </div>
@@ -306,7 +317,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
             ) : (
               <Fragment key={m.id}>
                 <div data-testid="conversation-message" className={styles.claudeMessage}>
-                  <span className={styles.author}>Claude</span> —{" "}
+                  <MessageAuthor claude />
                   {splitMessageLinks(m.body, window.location.origin).map((segment, i) =>
                     segment.kind === "text" ? (
                       <Fragment key={i}>{segment.text}</Fragment>

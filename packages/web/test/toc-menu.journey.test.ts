@@ -92,10 +92,15 @@ it("lists the artboards in reading order under their groups, filters, and centre
   await menu.getByRole("menuitem", { name: /Paiement/ }).click();
   await menu.waitFor({ state: "detached" });
   const canvas = await box(tab.getByTestId("canvas"));
-  const payment = await box(tab.locator('iframe[title$="payment.html"]'));
-  // Zoomed to frame the artboard (here 100 %, the cap), not left at the page's fit zoom.
-  expect(payment.width).toBeCloseTo(300, 0);
-  expect(payment.x + payment.width / 2).toBeCloseTo(canvas.x + canvas.width / 2, 0);
-  expect(payment.y + payment.height / 2).toBeCloseTo(canvas.y + canvas.height / 2, 0);
+  // The canvas glides to the artboard: wait until it is centred (within a pixel and a half of rounding) and zoomed to frame it.
+  const payment = tab.locator('iframe[title$="payment.html"]');
+  const offsetFromCentre = async () => {
+    const [artboard, frame] = [await box(payment), canvas];
+    return Math.max(
+      Math.abs(artboard.x + artboard.width / 2 - (frame.x + frame.width / 2)),
+      Math.abs(artboard.y + artboard.height / 2 - (frame.y + frame.height / 2)),
+    );
+  };
+  await expect.poll(async () => Math.round((await box(payment)).width) === 300 && (await offsetFromCentre()) <= 1.5).toBe(true);
   expect(tab.url()).toBe(urlBefore);
 }, 60_000);

@@ -1,17 +1,18 @@
-import type { AgentInfo, Page } from "./index.js";
+import type { AgentInfo, Page, RefusedAgent } from "./index.js";
 
 /** `GET /api/home`: everything the home screen, the Agents screen and the sidebar show. */
 export const HOME_PATH = "/api/home";
 
-/** A project an agent serves: its own project (project agent) or the projects without a project agent (global agent). */
+/** A project an agent covers: its own project (project agent) or the projects that allow the global agent (global agent). */
 export interface CoveredProject {
   id: string;
   title: string;
-  globalTakeover: boolean;
+  /** This agent runs the project's new work right now. */
+  servedNow: boolean;
 }
 
 export interface AgentOverview extends AgentInfo {
-  /** Projects this agent covers: a project agent's linked project, or for the global agent the projects with no project agent. */
+  /** Projects this agent covers: a project agent's linked project, or for the global agent the projects whose effective setting lets it take over. */
   projects: CoveredProject[];
   /** Work items running on this agent now. */
   running: number;
@@ -56,6 +57,7 @@ export interface HomeOverview {
   projectCount: number;
   projects: HomeProject[];
   agents: AgentOverview[];
+  refusedAgents: RefusedAgent[];
   recentPages: RecentPage[];
   work: WorkOverview[];
   /** Threads in waiting work items, all projects. */

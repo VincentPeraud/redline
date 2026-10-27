@@ -11,14 +11,36 @@ const FIXED_LABELS: Record<Exclude<AuthorOrigin, "thread" | "conversation">, str
   user: "Toi",
 };
 
-/** "Fil « titre »", "Conversation « titre »", "Terminal", "Tweak", "Restauration", "Création". */
-export function originLabel(origin: AuthorOrigin, title?: string): string {
-  if (origin === "thread" || origin === "conversation") {
-    const kind = origin === "thread" ? "Fil" : "Conversation";
-    return title ? `${kind} « ${title} »` : kind;
-  }
-  return FIXED_LABELS[origin];
+/** Who is named next to an action. `sso`: the server has an SSO, so names mean something; `name`: the person's label ("Toi", their name), absent when nobody is known. */
+export interface Who {
+  sso: boolean;
+  name?: string;
 }
+
+const NOBODY: Who = { sso: false };
+
+/**
+ * "Claude · fil « titre », demandé par Ariane Martin" (history) or "… · demandé par …" (rule), "Tweak · Ariane Martin",
+ * "Terminal", "Création"; the person only when an SSO names one. Without SSO the labels stay as they were:
+ * "Fil « titre »", "Tweak", "Toi".
+ */
+export function originLabel(origin: AuthorOrigin, title?: string, who: Who = NOBODY, style: "history" | "rule" = "history"): string {
+  if (origin === "thread" || origin === "conversation") {
+    const kind = origin === "thread" ? "fil" : "conversation";
+    if (!who.sso) {
+      const plain = origin === "thread" ? "Fil" : "Conversation";
+      return title ? `${plain} « ${title} »` : plain;
+    }
+    const claude = title ? `Claude · ${kind} « ${title} »` : `Claude · ${kind}`;
+    return who.name ? `${claude}${style === "rule" ? " · demandé par " : ", demandé par "}${who.name}` : claude;
+  }
+  if (!who.sso) return FIXED_LABELS[origin];
+  if (origin === "user") return who.name ?? "";
+  return who.name ? `${FIXED_LABELS[origin]} · ${who.name}` : FIXED_LABELS[origin];
+}
+
+/** A meta line: its non-empty parts separated by " · ". */
+export const metaLine = (...parts: (string | undefined)[]): string => parts.filter(Boolean).join(" · ");
 
 /** "Claude · fil « … »", "Claude · conversation « … »", "Terminal", "toi": who last changed DESIGN.md, to sit after "par". */
 export function designMdAuthor(origin: AuthorOrigin, title?: string): string {
@@ -29,10 +51,21 @@ export function designMdAuthor(origin: AuthorOrigin, title?: string): string {
   return origin === "user" ? "toi" : originLabel(origin);
 }
 
-/** Origin line of a DESIGN.md rule; the user's rules from the project's first version read "création du projet". */
-export function ruleOrigin(origin: AuthorOrigin, title: string | undefined, fromFirstVersion: boolean): string {
-  if (origin === "user") return fromFirstVersion ? "Toi · création du projet" : "Toi";
-  return originLabel(origin, title);
+/** "Dernière modification par toi · aujourd'hui" without SSO; "Modifié par Ariane Martin · il y a 2 h" with one ("Modifié · …" when nobody is known). */
+export function designMdStatus(origin: AuthorOrigin, title: string | undefined, when: string, who: Who = NOBODY): string {
+  if (!who.sso) return `Dernière modification par ${designMdAuthor(origin, title)} · ${when}`;
+  const author = origin === "user" ? who.name : originLabel(origin, title, who, "rule");
+  return author ? `Modifié par ${author} · ${when}` : `Modifié · ${when}`;
+}
+
+/** Origin line of a DESIGN.md rule; the user's rules from the project's first version read "création du projet". Empty when nobody is known. */
+export function ruleOrigin(origin: AuthorOrigin, title: string | undefined, fromFirstVersion: boolean, who: Who = NOBODY): string {
+  if (!who.sso) {
+    if (origin === "user") return fromFirstVersion ? "Toi · création du projet" : "Toi";
+    return originLabel(origin, title);
+  }
+  if (origin === "user" && fromFirstVersion) return who.name ? `${who.name} · création du projet` : "Création du projet";
+  return originLabel(origin, title, who, "rule");
 }
 
 const dayNumber = (date: Date) => Math.floor(new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() / 86_400_000);

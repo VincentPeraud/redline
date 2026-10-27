@@ -93,7 +93,7 @@
   position: absolute;
   top: 42px;
   left: 0;
-  width: 300px;
+  width: 360px;
   display: flex;
   flex-direction: column;
   padding: 6px;
@@ -138,6 +138,13 @@
   color: var(--color-text-secondary);
 }
 
+.menuPageTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .menuWarn {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-regular);
@@ -145,6 +152,8 @@
 }
 
 .menuMuted {
+  flex-shrink: 0;
+  white-space: nowrap;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-regular);
   color: var(--color-text-muted);
@@ -217,6 +226,17 @@
   background: var(--color-warning-strong);
   color: var(--color-text-inverse);
   font-weight: var(--font-weight-semibold);
+}
+
+.accountPill {
+  padding: 0;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.accountPill:hover {
+  box-shadow: 0 0 0 3px var(--color-border);
 }
 
 .previewNote {

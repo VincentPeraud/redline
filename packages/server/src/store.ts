@@ -3,8 +3,10 @@ import { mkdirSync, existsSync, readFileSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { componentFilesOf, projectComponents } from "./components.js";
+import { restoredVersionMessage } from "./version-dates.js";
 import {
   EMPTY_VIEW_SETTINGS,
+  initialsOf,
   diffDiffusionStates,
   diffusionSummary,
   DESIGN_MD_PATH,
@@ -28,6 +30,7 @@ import {
   type ProjectAsset,
 } from "@redline/shared";
 import type {
+  Person,
   ComponentInfo,
   DiffusionInfo,
   DiffusionState,
@@ -39,7 +42,9 @@ import type {
   ThreadTarget,
   ManifestElement,
   ManifestElementKind,
+  AgentHello,
   AgentInfo,
+  RefusedAgent,
   AgentKind,
   Effort,
   AgentStatus,
@@ -60,10 +65,14 @@ import type {
   WorkItem,
 } from "@redline/shared";
 
+/** Which agent a hello comes from: one per machine and folder. */
+type AgentIdentity = Pick<AgentHello, "machine" | "folder" | "kind" | "projectId">;
+
 export class Store {
   private readonly db: Database.Database;
   private readonly blobDir: string;
   private readonly listeners = new Set<(event: ServerEvent) => void>();
+  private serverBuildHash: string | undefined;
 
   constructor(dataDir: string) {
     this.blobDir = join(dataDir, "blobs");
@@ -71,6 +80,12 @@ export class Store {
     this.db = new Database(join(dataDir, "redline.db"));
     this.db.pragma("journal_mode = WAL");
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS people (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -204,12 +219,23 @@ export class Store {
         retry_limit INTEGER,
         message TEXT
       );
+      CREATE TABLE IF NOT EXISTS refused_agents (
+        machine TEXT NOT NULL,
+        folder TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        project_id TEXT,
+        refused_at TEXT NOT NULL,
+        PRIMARY KEY (machine, folder)
+      );
       UPDATE agents SET status = 'offline';
     `);
     const agentColumns = this.db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
     if (!agentColumns.some((c) => c.name === "project_id")) this.db.exec("ALTER TABLE agents ADD COLUMN project_id TEXT");
     if (!agentColumns.some((c) => c.name === "model")) this.db.exec("ALTER TABLE agents ADD COLUMN model TEXT");
+    if (!agentColumns.some((c) => c.name === "build_hash")) this.db.exec("ALTER TABLE agents ADD COLUMN build_hash TEXT");
     if (!agentColumns.some((c) => c.name === "effort")) this.db.exec("ALTER TABLE agents ADD COLUMN effort TEXT");
+    const refusedColumns = this.db.prepare("PRAGMA table_info(refused_agents)").all() as { name: string }[];
+    if (!refusedColumns.some((c) => c.name === "project_id")) this.db.exec("ALTER TABLE refused_agents ADD COLUMN project_id TEXT");
     const columnsOf = (table: string) => (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
     const addColumn = (table: string, column: string, definition: string) => {
       if (!columnsOf(table).includes(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
@@ -220,12 +246,31 @@ export class Store {
     addColumn("design_system_diffusions", "component_files_hash", "TEXT");
     addColumn("design_system_diffusions", "rolled_back_to", "INTEGER");
     addColumn("pages", "created_by", "TEXT NOT NULL DEFAULT 'user'");
+    // The signed-in person who wrote a human message or started a conversation; NULL before the SSO and without it.
+    addColumn("threads", "person_id", "TEXT");
+    addColumn("thread_replies", "person_id", "TEXT");
+    addColumn("conversations", "person_id", "TEXT");
+    addColumn("conversation_messages", "person_id", "TEXT");
+    // On a design system's page: the project the thread or conversation was started from, whose agent runs its work.
+    addColumn("threads", "via_project_id", "TEXT");
+    addColumn("conversations", "via_project_id", "TEXT");
+    // Same for what a person (or Claude, for the requesting person) did: page versions, DESIGN.md / tokens versions and pages.
+    addColumn("versions", "person_id", "TEXT");
+    addColumn("design_md_versions", "person_id", "TEXT");
+    addColumn("pages", "person_id", "TEXT");
     // The old per-project boolean (default 0) becomes a nullable override of the global setting: only an explicit "allow" is kept.
     if (!columnsOf("projects").includes("takeover_override")) {
       this.db.exec("ALTER TABLE projects ADD COLUMN takeover_override INTEGER");
       if (columnsOf("projects").includes("allow_global_takeover")) {
         this.db.exec("UPDATE projects SET takeover_override = 1 WHERE allow_global_takeover = 1");
       }
+    }
+    // One routing rule: a project that never had a project agent and has no override keeps being served by the global agent.
+    if (!this.db.prepare("SELECT 1 FROM settings WHERE key = 'routing_rule_migrated'").get()) {
+      this.db.exec(
+        "UPDATE projects SET takeover_override = 1 WHERE takeover_override IS NULL AND id NOT IN (SELECT project_id FROM agents WHERE project_id IS NOT NULL)",
+      );
+      this.db.exec("INSERT INTO settings (key, value) VALUES ('routing_rule_migrated', '1')");
     }
     addColumn("versions", "origin_id", "TEXT");
     addColumn("versions", "origin_label", "TEXT");
@@ -554,6 +599,63 @@ export class Store {
     this.db.close();
   }
 
+  /** Creates the person on their first visit; their name and e-mail are refreshed when the SSO gives other ones. */
+  savePerson(id: string, name: string, email: string): Person {
+    const known = this.db.prepare("SELECT name, email FROM people WHERE id = ?").get(id) as { name: string; email: string } | undefined;
+    if (!known) this.db.prepare("INSERT INTO people (id, name, email, created_at) VALUES (?, ?, ?, ?)").run(id, name, email, new Date().toISOString());
+    else if (known.name !== name || known.email !== email) this.db.prepare("UPDATE people SET name = ?, email = ? WHERE id = ?").run(name, email, id);
+    return { id, name, email, initials: initialsOf(name, id) };
+  }
+
+  getPerson(id: string | null | undefined): Person | undefined {
+    if (!id) return undefined;
+    const row = this.db.prepare("SELECT id, name, email FROM people WHERE id = ?").get(id) as { id: string; name: string; email: string } | undefined;
+    return row && { ...row, initials: initialsOf(row.name, row.id) };
+  }
+
+  /** The person a work item works for, read when the item is sent: see `requestingPersonOfThread`. */
+  requestingPersonOfItem(item: WorkItem): Person | undefined {
+    if (item.conversationId) return this.requestingPersonOfConversation(item.conversationId);
+    const first = item.threads[0];
+    return first && this.requestingPersonOfThread(first.threadId);
+  }
+
+  /** The project a work item's design system page was opened from (its conversation's, else its first thread's); undefined elsewhere. */
+  viaProjectOfItem(item: WorkItem): string | undefined {
+    const row = item.conversationId
+      ? this.db.prepare("SELECT via_project_id AS via FROM conversations WHERE id = ?").get(item.conversationId)
+      : item.threads[0] && this.db.prepare("SELECT via_project_id AS via FROM threads WHERE id = ?").get(item.threads[0].threadId);
+    return (row as { via: string | null } | undefined)?.via ?? undefined;
+  }
+
+  /** `viaProjectId` when the page belongs to a design system that project uses; null otherwise (it is then ignored). */
+  private viaProjectOf(pageId: string, viaProjectId: string | undefined): string | null {
+    const designSystemId = this.getPage(pageId)?.projectId;
+    if (!viaProjectId || !designSystemId || !this.isDesignSystemProject(designSystemId)) return null;
+    return this.projectsUsingDesignSystem(designSystemId).some((p) => p.id === viaProjectId) ? viaProjectId : null;
+  }
+
+  /**
+   * The person a run of Claude works for: the author of the message that started it, i.e. the latest human message of
+   * the thread (its comment, or its latest user reply) at the time the run starts. Undefined for comments from before the SSO and without SSO.
+   */
+  requestingPersonOfThread(threadId: string): Person | undefined {
+    const reply = this.db
+      .prepare("SELECT person_id FROM thread_replies WHERE thread_id = ? AND author = 'user' ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(threadId) as { person_id: string | null } | undefined;
+    if (reply) return this.getPerson(reply.person_id);
+    const thread = this.db.prepare("SELECT person_id FROM threads WHERE id = ?").get(threadId) as { person_id: string | null } | undefined;
+    return this.getPerson(thread?.person_id);
+  }
+
+  /** Same for a conversation: the author of its latest human message. */
+  requestingPersonOfConversation(conversationId: string): Person | undefined {
+    const message = this.db
+      .prepare("SELECT person_id FROM conversation_messages WHERE conversation_id = ? AND author = 'user' ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(conversationId) as { person_id: string | null } | undefined;
+    return this.getPerson(message?.person_id);
+  }
+
   /** Calls `listener` after every change the web UI shows (new thread or reply, new version). Returns the unsubscribe function. */
   onChange(listener: (event: ServerEvent) => void): () => void {
     this.listeners.add(listener);
@@ -563,6 +665,9 @@ export class Store {
   emit(event: ServerEvent): void {
     for (const listener of this.listeners) listener(event);
   }
+
+  private readonly updatingAgents = new Set<string>();
+  private readonly updateErrors = new Map<string, string>();
 
   /** Id of the online project agent serving the project. */
   findOnlineProjectAgentId(projectId: string): string | undefined {
@@ -589,19 +694,40 @@ export class Store {
   }
 
   /** Records an agent as online; one entry per machine and folder. */
-  markAgentOnline(machine: string, folder: string, kind: AgentKind, projectId?: string, model?: string, effort?: Effort): string {
+  markAgentOnline({ machine, folder, kind, projectId, model, effort, buildHash }: AgentIdentity & Pick<AgentHello, "model" | "effort" | "buildHash">): string {
     if (projectId) this.db.prepare("UPDATE agents SET project_id = NULL WHERE project_id = ?").run(projectId);
     this.db
       .prepare(
-        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, project_id, model, effort) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?)
-         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, project_id = excluded.project_id, model = excluded.model, effort = excluded.effort`,
+        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, project_id, model, effort, build_hash) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?)
+         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, project_id = excluded.project_id, model = excluded.model, effort = excluded.effort, build_hash = excluded.build_hash`,
       )
-      .run(randomUUID(), machine, folder, kind, now(), projectId ?? null, model ?? null, effort ?? null);
-    return (this.db.prepare("SELECT id FROM agents WHERE machine = ? AND folder = ?").get(machine, folder) as { id: string }).id;
+      .run(randomUUID(), machine, folder, kind, now(), projectId ?? null, model ?? null, effort ?? null, buildHash ?? null);
+    this.db.prepare("DELETE FROM refused_agents WHERE machine = ? AND folder = ?").run(machine, folder);
+    const id = (this.db.prepare("SELECT id FROM agents WHERE machine = ? AND folder = ?").get(machine, folder) as { id: string }).id;
+    this.updatingAgents.delete(id);
+    this.updateErrors.delete(id);
+    return id;
   }
 
   markAgentOffline(id: string): void {
     this.db.prepare("UPDATE agents SET status = 'offline', last_seen_at = ? WHERE id = ?").run(now(), id);
+    this.updatingAgents.delete(id);
+  }
+
+  /** Marks a connected agent as updating: it gets no new work until it reconnects or reports a failure. */
+  markAgentUpdating(id: string): void {
+    this.updatingAgents.add(id);
+    this.updateErrors.delete(id);
+  }
+
+  isAgentUpdating(id: string): boolean {
+    return this.updatingAgents.has(id);
+  }
+
+  /** The agent could not install the update and keeps its previous build: it takes work again, and the row shows why. */
+  recordUpdateFailure(id: string, message: string): void {
+    this.updatingAgents.delete(id);
+    this.updateErrors.set(id, message);
   }
 
   /** The online project agent serving a project, other than the given machine and folder. */
@@ -613,11 +739,50 @@ export class Store {
       .get(projectId, machine, folder) as { machine: string; folder: string } | undefined;
   }
 
+  /** The build hash of the CLI the server serves; connected agents running another build are listed as outdated. Undefined (development): no check. */
+  setServerBuildHash(hash: string | undefined): void {
+    this.serverBuildHash = hash;
+  }
+
+  getServerBuildHash(): string | undefined {
+    return this.serverBuildHash;
+  }
+
+  isOutdated(buildHash: string | null | undefined): boolean {
+    return this.serverBuildHash !== undefined && buildHash !== this.serverBuildHash;
+  }
+
   listAgents(): AgentInfo[] {
     const rows = this.db
-      .prepare("SELECT id, machine, folder, kind, status, last_seen_at AS lastSeenAt, model, effort FROM agents ORDER BY machine, folder")
-      .all() as (Omit<AgentInfo, "model" | "effort"> & { model: string | null; effort: Effort | null })[];
-    return rows.map(({ model, effort, ...agent }) => ({ ...agent, ...(model ? { model } : {}), ...(effort ? { effort } : {}) }));
+      .prepare("SELECT id, machine, folder, kind, status, last_seen_at AS lastSeenAt, model, effort, build_hash AS buildHash FROM agents ORDER BY machine, folder")
+      .all() as (Omit<AgentInfo, "model" | "effort" | "outdated" | "updating" | "updateError"> & { model: string | null; effort: Effort | null; buildHash: string | null })[];
+    return rows.map(({ model, effort, buildHash, ...agent }) => ({
+      ...agent,
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+      ...(agent.status === "online" && this.isOutdated(buildHash) ? { outdated: true as const } : {}),
+      ...(this.updatingAgents.has(agent.id) ? { updating: true as const } : {}),
+      ...(this.updateErrors.has(agent.id) ? { updateError: this.updateErrors.get(agent.id) } : {}),
+    }));
+  }
+
+  /** Remembers an agent refused for its protocol until it connects again. */
+  recordRefusedAgent({ machine, folder, kind, projectId }: AgentIdentity): void {
+    this.db
+      .prepare(
+        "INSERT INTO refused_agents (machine, folder, kind, project_id, refused_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, project_id = excluded.project_id, refused_at = excluded.refused_at",
+      )
+      .run(machine, folder, kind, projectId ?? null, now());
+  }
+
+  listRefusedAgents(): RefusedAgent[] {
+    const rows = this.db
+      .prepare(
+        `SELECT r.machine, r.folder, r.kind, p.title AS project, r.refused_at AS refusedAt
+         FROM refused_agents r LEFT JOIN projects p ON p.id = r.project_id ORDER BY r.machine, r.folder`,
+      )
+      .all() as (Omit<RefusedAgent, "project"> & { project: string | null })[];
+    return rows.map(({ project, ...agent }) => ({ ...agent, ...(project ? { project } : {}) }));
   }
 
   private insertProject(title: string, id: string, instructions: string, designSystem: string | null): Project {
@@ -639,12 +804,12 @@ export class Store {
    * Points a project at a shared design system, or at none (null: its project style becomes its whole style). Pages follow the
    * `designSystem` of their manifest, so each page whose manifest says otherwise gets a version with the new value.
    */
-  setProjectDesignSystem(projectId: string, chosenDesignSystem: string | null, origin: VersionOrigin): void {
+  setProjectDesignSystem(projectId: string, chosenDesignSystem: string | null, origin: VersionOrigin, person?: Person): void {
     const designSystem = chosenDesignSystem === NEUTRAL_DESIGN_SYSTEM_ID ? null : chosenDesignSystem;
     const previous = this.sharedDesignSystemIdOfProject(projectId) ?? null;
     if (designSystem === null && previous !== null) {
       const style = this.startingStyle(projectId, previous);
-      if (style !== undefined) this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(style, "utf8"));
+      if (style !== undefined) this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(style, "utf8"), { origin: "user", ...(person && { person }) });
     }
     this.db.prepare("UPDATE projects SET design_system = ? WHERE id = ?").run(designSystem, projectId);
     if (designSystem === null && !this.readProjectFile(projectId, PROJECT_STYLE_PATH)) {
@@ -661,7 +826,7 @@ export class Store {
       if ((manifest.designSystem ?? null) === designSystem) continue;
       if (designSystem === null) delete manifest.designSystem;
       else manifest.designSystem = designSystem;
-      this.addVersion(page.id, { ...files, [MANIFEST_PATH]: `${JSON.stringify(manifest, null, 2)}\n` }, designSystem === null ? "No shared design system" : "Design system changed", origin);
+      this.addVersion(page.id, { ...files, [MANIFEST_PATH]: `${JSON.stringify(manifest, null, 2)}\n` }, designSystem === null ? "No shared design system" : "Design system changed", origin, person && { person });
     }
   }
 
@@ -746,17 +911,10 @@ export class Store {
       .run(allow ? "1" : "0");
   }
 
-  /** True once a project agent has been linked to the project, online or not. */
-  hasProjectAgent(projectId: string): boolean {
-    return this.db.prepare("SELECT 1 FROM agents WHERE project_id = ?").get(projectId) !== undefined;
-  }
-
-  /** Id of an online global agent, the most recently seen first. */
+  /** Id of an online global agent that is not updating, the most recently seen first. */
   findOnlineGlobalAgentId(): string | undefined {
-    const row = this.db.prepare("SELECT id FROM agents WHERE kind = 'global' AND status = 'online' ORDER BY last_seen_at DESC, rowid LIMIT 1").get() as
-      | { id: string }
-      | undefined;
-    return row?.id;
+    const rows = this.db.prepare("SELECT id FROM agents WHERE kind = 'global' AND status = 'online' ORDER BY last_seen_at DESC, rowid").all() as { id: string }[];
+    return rows.find((row) => !this.updatingAgents.has(row.id))?.id;
   }
 
   getAgent(id: string): AgentInfo | undefined {
@@ -782,8 +940,8 @@ export class Store {
     const hash = this.setProjectFile(projectId, path, content);
     if (unchanged) return;
     this.db
-      .prepare("INSERT INTO design_md_versions (id, project_id, path, hash, created_at, origin, origin_id, origin_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(randomUUID(), projectId, path, hash, now(), author.origin, author.originId ?? null, author.originLabel ?? null);
+      .prepare("INSERT INTO design_md_versions (id, project_id, path, hash, created_at, origin, origin_id, origin_label, person_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(randomUUID(), projectId, path, hash, now(), author.origin, author.originId ?? null, author.originLabel ?? null, author.person?.id ?? null);
     if (path === PROJECT_STYLE_PATH && !this.isDesignSystemProject(projectId)) this.announceProjectStyleChange(projectId);
   }
 
@@ -798,17 +956,21 @@ export class Store {
   listDesignMdVersions(projectId: string, path: string = DESIGN_MD_PATH): DesignMdVersion[] {
     const rows = this.db
       .prepare(
-        "SELECT id, hash, created_at, origin, origin_id, origin_label FROM design_md_versions WHERE project_id = ? AND path = ? ORDER BY created_at DESC, rowid DESC",
+        "SELECT id, hash, created_at, origin, origin_id, origin_label, person_id FROM design_md_versions WHERE project_id = ? AND path = ? ORDER BY created_at DESC, rowid DESC",
       )
-      .all(projectId, path) as { id: string; hash: string; created_at: string; origin: DesignMdVersion["origin"]; origin_id: string | null; origin_label: string | null }[];
-    return rows.map((r) => ({
-      id: r.id,
-      content: readFileSync(join(this.blobDir, r.hash), "utf8"),
-      createdAt: r.created_at,
-      origin: r.origin,
-      ...(r.origin_id ? { originId: r.origin_id } : {}),
-      ...(r.origin_label ? { originLabel: r.origin_label } : {}),
-    }));
+      .all(projectId, path) as { id: string; hash: string; created_at: string; origin: DesignMdVersion["origin"]; origin_id: string | null; origin_label: string | null; person_id: string | null }[];
+    return rows.map((r) => {
+      const person = this.getPerson(r.person_id);
+      return {
+        id: r.id,
+        content: readFileSync(join(this.blobDir, r.hash), "utf8"),
+        createdAt: r.created_at,
+        origin: r.origin,
+        ...(r.origin_id ? { originId: r.origin_id } : {}),
+        ...(r.origin_label ? { originLabel: r.origin_label } : {}),
+        ...(person ? { person } : {}),
+      };
+    });
   }
 
   /** A project-level file as UTF-8 text, empty when there is none. */
@@ -831,12 +993,12 @@ export class Store {
     return rows.map((r) => ({ name: r.path.slice(prefix.length), hash: r.hash, size: statSync(join(this.blobDir, r.hash)).size }));
   }
 
-  createPage(projectId: string, title: string, files: Record<string, string>, createdBy: PageCreator = "user"): Page {
+  createPage(projectId: string, title: string, files: Record<string, string>, createdBy: PageCreator = "user", person?: Person): Page {
     const id = randomUUID();
     this.db
-      .prepare("INSERT INTO pages (id, project_id, title, created_by, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(id, projectId, title, createdBy, now());
-    this.createVersion(id, files, "Page created", "creation");
+      .prepare("INSERT INTO pages (id, project_id, title, created_by, created_at, person_id) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(id, projectId, title, createdBy, now(), person?.id ?? null);
+    this.createVersion(id, files, "Page created", "creation", person && { person });
     return this.getPage(id)!;
   }
 
@@ -879,17 +1041,19 @@ export class Store {
 
   getPage(id: string): Page | undefined {
     const row = this.db
-      .prepare("SELECT id, project_id, title, created_by FROM pages WHERE id = ?")
-      .get(id) as { id: string; project_id: string; title: string; created_by: PageCreator } | undefined;
+      .prepare("SELECT id, project_id, title, created_by, person_id FROM pages WHERE id = ?")
+      .get(id) as { id: string; project_id: string; title: string; created_by: PageCreator; person_id: string | null } | undefined;
     if (!row) return undefined;
     const version = this.db
       .prepare("SELECT id, files FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
       .get(id) as { id: string; files: string };
+    const createdByPerson = this.getPerson(row.person_id);
     return {
       id: row.id,
       projectId: row.project_id,
       title: row.title,
       createdBy: row.created_by,
+      ...(createdByPerson ? { createdByPerson } : {}),
       version: { id: version.id, files: JSON.parse(version.files) },
     };
   }
@@ -910,7 +1074,7 @@ export class Store {
     return parsed.artboards.some((a) => a.file === file);
   }
 
-  createThread(pageId: string, request: CreateThreadRequest): Thread {
+  createThread(pageId: string, request: CreateThreadRequest, person?: Person): Thread {
     const id = randomUUID();
     const { next } = this.db
       .prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?")
@@ -937,10 +1101,10 @@ export class Store {
           };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, x_pct, y_pct, title, body, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now());
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId));
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -967,12 +1131,17 @@ export class Store {
       .prepare(`${THREAD_SELECT} WHERE page_id = ? ORDER BY number`)
       .all(pageId) as ThreadRow[];
     const elements = this.canvasElementsById(pageId);
-    return rows.map((row) => withCurrentElement(toThread(row, this.repliesOf(row.id)), elements));
+    return rows.map((row) => this.withPerson(withCurrentElement(toThread(row, this.repliesOf(row.id)), elements), row.person_id));
   }
 
   getThread(id: string): Thread | undefined {
     const row = this.db.prepare(`${THREAD_SELECT} WHERE id = ?`).get(id) as ThreadRow | undefined;
-    return row && withCurrentElement(toThread(row, this.repliesOf(id)), this.canvasElementsById(row.page_id));
+    return row && this.withPerson(withCurrentElement(toThread(row, this.repliesOf(id)), this.canvasElementsById(row.page_id)), row.person_id);
+  }
+
+  private withPerson(thread: Thread, personId: string | null): Thread {
+    const person = this.getPerson(personId);
+    return person ? { ...thread, person } : thread;
   }
 
   private canvasElementsById(pageId: string): Map<string, ManifestElement> {
@@ -985,12 +1154,12 @@ export class Store {
   listHeldThreads(pageId: string): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id
          FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId) as ThreadRow[];
     const elements = this.canvasElementsById(pageId);
-    return rows.map((row) => withCurrentElement(toThread(row, []), elements));
+    return rows.map((row) => this.withPerson(withCurrentElement(toThread(row, []), elements), row.person_id));
   }
 
   /** Edits the text of a held comment; undefined when the thread does not exist or is not held. */
@@ -1060,13 +1229,13 @@ export class Store {
   }
 
   /** Records an answer of Claude or a message of the user in a thread; undefined if the thread does not exist. */
-  addReply(threadId: string, body: string, author: ThreadReply["author"] = "claude", createdPageIds: string[] = []): ThreadReply | undefined {
+  addReply(threadId: string, body: string, author: ThreadReply["author"] = "claude", createdPageIds: string[] = [], person?: Person): ThreadReply | undefined {
     const thread = this.getThread(threadId);
     if (!thread) return undefined;
     const reply: ThreadReply = { id: randomUUID(), author, body, createdAt: now() };
     this.db
-      .prepare("INSERT INTO thread_replies (id, thread_id, author, body, created_at, created_page_ids) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(reply.id, threadId, reply.author, body, reply.createdAt, createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null);
+      .prepare("INSERT INTO thread_replies (id, thread_id, author, body, created_at, created_page_ids, person_id) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(reply.id, threadId, reply.author, body, reply.createdAt, createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null, person?.id ?? null);
     this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
     return this.repliesOf(threadId).find((r) => r.id === reply.id);
   }
@@ -1103,25 +1272,30 @@ export class Store {
     return readFileSync(join(this.blobDir, hash), "utf8");
   }
 
-  createConversation(pageId: string, title: string): Conversation {
+  createConversation(pageId: string, title: string, person?: Person, viaProjectId?: string): Conversation {
     const createdAt = now();
-    const conversation: Conversation = { id: randomUUID(), pageId, title, archived: false, createdAt, exchangeCount: 0, lastActivityAt: createdAt };
+    const conversation: Conversation = { id: randomUUID(), pageId, title, archived: false, createdAt, ...(person ? { startedBy: person } : {}), exchangeCount: 0, lastActivityAt: createdAt };
     this.db
-      .prepare("INSERT INTO conversations (id, page_id, title, created_at) VALUES (?, ?, ?, ?)")
-      .run(conversation.id, pageId, title, conversation.createdAt);
+      .prepare("INSERT INTO conversations (id, page_id, title, created_at, person_id, via_project_id) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(conversation.id, pageId, title, conversation.createdAt, person?.id ?? null, this.viaProjectOf(pageId, viaProjectId));
     this.emit({ type: "conversation-updated", pageId, conversationId: conversation.id });
     return conversation;
   }
 
   getConversation(id: string): Conversation | undefined {
     const row = this.db.prepare(`${CONVERSATION_SELECT} WHERE id = ?`).get(id) as ConversationRow | undefined;
-    return row && toConversation(row);
+    return row && this.toConversation(row);
   }
 
   /** Conversations of a page, oldest first (archived ones included). */
   listConversations(pageId: string): Conversation[] {
     const rows = this.db.prepare(`${CONVERSATION_SELECT} WHERE page_id = ? ORDER BY created_at, rowid`).all(pageId) as ConversationRow[];
-    return rows.map(toConversation);
+    return rows.map((row) => this.toConversation(row));
+  }
+
+  private toConversation({ personId, ...row }: ConversationRow): Conversation {
+    const startedBy = this.getPerson(personId);
+    return { ...row, archived: row.archived === 1, ...(startedBy ? { startedBy } : {}) };
   }
 
   /** True once any page of the project has a conversation. */
@@ -1170,12 +1344,13 @@ export class Store {
     choice: ModelChoice = {},
     createdPageIds: string[] = [],
     targets: ThreadTarget[] = [],
+    person?: Person,
   ): ConversationMessage | undefined {
     const conversation = this.getConversation(conversationId);
     if (!conversation) return undefined;
     const message: ConversationMessage = { id: randomUUID(), author, body, ...choice, createdAt: now() };
     this.db
-      .prepare("INSERT INTO conversation_messages (id, conversation_id, author, body, model, effort, created_at, created_page_ids, targets) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .prepare("INSERT INTO conversation_messages (id, conversation_id, author, body, model, effort, created_at, created_page_ids, targets, person_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .run(
         message.id,
         conversationId,
@@ -1186,6 +1361,7 @@ export class Store {
         message.createdAt,
         createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null,
         targets.length > 0 ? JSON.stringify(targets) : null,
+        person?.id ?? null,
       );
     this.emit({ type: "conversation-updated", pageId: conversation.pageId, conversationId });
     return this.conversationMessages(conversationId).find((m) => m.id === message.id);
@@ -1194,22 +1370,24 @@ export class Store {
   conversationMessages(conversationId: string): ConversationMessage[] {
     const rows = this.db
       .prepare(
-        "SELECT id, author, body, model, effort, created_at AS createdAt, created_page_ids AS createdPageIds, targets FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at, rowid",
+        "SELECT id, author, body, model, effort, created_at AS createdAt, created_page_ids AS createdPageIds, targets, person_id AS personId FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at, rowid",
       )
-      .all(conversationId) as (ConversationMessage & { model: string | null; effort: Effort | null; createdPageIds: string | null; targets: string | null })[];
-    return rows.map(({ model, effort, createdPageIds, targets, ...rest }) => {
+      .all(conversationId) as (ConversationMessage & { model: string | null; effort: Effort | null; createdPageIds: string | null; targets: string | null; personId: string | null })[];
+    return rows.map(({ model, effort, createdPageIds, targets, personId, ...rest }) => {
       const createdPages = this.createdPagesOf(createdPageIds);
-      return { ...rest, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(createdPages ? { createdPages } : {}), ...(targets ? { targets: JSON.parse(targets) as ThreadTarget[] } : {}) };
+      const person = this.getPerson(personId);
+      return { ...rest, ...(person ? { person } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(createdPages ? { createdPages } : {}), ...(targets ? { targets: JSON.parse(targets) as ThreadTarget[] } : {}) };
     });
   }
 
   private repliesOf(threadId: string): ThreadReply[] {
     const rows = this.db
-      .prepare("SELECT id, author, body, created_at AS createdAt, created_page_ids AS createdPageIds FROM thread_replies WHERE thread_id = ? ORDER BY created_at, rowid")
-      .all(threadId) as (ThreadReply & { createdPageIds: string | null })[];
-    return rows.map(({ createdPageIds, ...reply }) => {
+      .prepare("SELECT id, author, body, created_at AS createdAt, created_page_ids AS createdPageIds, person_id AS personId FROM thread_replies WHERE thread_id = ? ORDER BY created_at, rowid")
+      .all(threadId) as (ThreadReply & { createdPageIds: string | null; personId: string | null })[];
+    return rows.map(({ createdPageIds, personId, ...reply }) => {
       const createdPages = this.createdPagesOf(createdPageIds);
-      return createdPages ? { ...reply, createdPages } : reply;
+      const person = this.getPerson(personId);
+      return { ...reply, ...(person ? { person } : {}), ...(createdPages ? { createdPages } : {}) };
     });
   }
 
@@ -1251,14 +1429,15 @@ export class Store {
       origin: origin === "thread" || origin === "conversation" || origin === "terminal" ? origin : "user",
       ...(ref?.originId ? { originId: ref.originId } : {}),
       ...(ref?.originLabel ? { originLabel: ref.originLabel } : {}),
+      ...(ref?.person ? { person: ref.person } : {}),
     };
     this.saveDesignMd(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH, Buffer.from(tokens, "utf8"), author);
     return this.createVersion(pageId, pageFiles, message, origin, ref);
   }
 
   /** Records a version whose files are given as path -> blob hash (hashes of this store). */
-  addVersionFromHashes(pageId: string, hashes: Record<string, string>, message: string, origin: VersionOrigin): PageVersionSummary {
-    return this.insertVersion(pageId, JSON.stringify(hashes), message, origin);
+  addVersionFromHashes(pageId: string, hashes: Record<string, string>, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
+    return this.insertVersion(pageId, JSON.stringify(hashes), message, origin, ref);
   }
 
   /** Stores UTF-8 text as a blob and returns its hash. */
@@ -1269,9 +1448,9 @@ export class Store {
   /** Every version of a page with its file hashes, OLDEST first. */
   listVersionRecords(pageId: string): VersionRecord[] {
     const rows = this.db
-      .prepare("SELECT id, files, message, origin, origin_id, origin_label, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
+      .prepare("SELECT id, files, message, origin, origin_id, origin_label, person_id, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
       .all(pageId) as (VersionRow & { files: string; diffusion: number | null })[];
-    return rows.map((row) => ({ ...toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1 }));
+    return rows.map((row) => ({ ...this.toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1 }));
   }
 
   /** One file of one version of a page, or undefined if either is unknown. */
@@ -1282,17 +1461,17 @@ export class Store {
   }
 
   /** Records a new version identical to the current one except for one file. */
-  setPageFile(pageId: string, path: string, content: string, message: string, origin: VersionOrigin): PageVersionSummary {
+  setPageFile(pageId: string, path: string, content: string, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
     const hashes = { ...this.getPage(pageId)!.version.files, [path]: this.putBlob(Buffer.from(content, "utf8")) };
-    return this.insertVersion(pageId, JSON.stringify(hashes), message, origin);
+    return this.insertVersion(pageId, JSON.stringify(hashes), message, origin, ref);
   }
 
   /** Sets the height of one artboard's manifest entry (writing a manifest when the page had none), as one version. The caller checked the request. */
-  setArtboardHeight(pageId: string, file: string, height: number, message: string, origin: VersionOrigin): PageVersionSummary {
+  setArtboardHeight(pageId: string, file: string, height: number, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
     const hash = this.getPage(pageId)!.version.files[MANIFEST_PATH];
     const manifest = hash === undefined ? (defaultManifest(Object.keys(this.getPage(pageId)!.version.files)) as unknown as RawManifest) : (JSON.parse(this.blobText(hash)) as RawManifest);
     const artboards = (manifest.artboards ?? []).map((artboard) => (artboard.file === file ? { ...artboard, height } : artboard));
-    return this.setPageFile(pageId, MANIFEST_PATH, JSON.stringify({ ...manifest, artboards }, null, 2), message, origin);
+    return this.setPageFile(pageId, MANIFEST_PATH, JSON.stringify({ ...manifest, artboards }, null, 2), message, origin, ref);
   }
 
   /**
@@ -1354,19 +1533,19 @@ export class Store {
   listVersions(pageId: string): PageVersionSummary[] {
     const rows = this.db
       .prepare(
-        "SELECT id, message, origin, origin_id, origin_label, created_at FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC",
+        "SELECT id, message, origin, origin_id, origin_label, person_id, created_at FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC",
       )
       .all(pageId) as VersionRow[];
-    return rows.map(toSummary);
+    return rows.map((row) => this.toSummary(row));
   }
 
   /** Repoints the page's paths to the hashes of an old version and records that as a new version. */
-  restoreVersion(pageId: string, versionId: string): PageVersionSummary | undefined {
+  restoreVersion(pageId: string, versionId: string, ref?: OriginRef, timeZone?: string): PageVersionSummary | undefined {
     const old = this.db
       .prepare("SELECT files, created_at FROM versions WHERE id = ? AND page_id = ?")
       .get(versionId, pageId) as { files: string; created_at: string } | undefined;
     if (!old) return undefined;
-    return this.insertVersion(pageId, old.files, `Restored version of ${old.created_at}`, "restore");
+    return this.insertVersion(pageId, old.files, restoredVersionMessage(old.created_at, timeZone), "restore", ref);
   }
 
   private createVersion(
@@ -1384,12 +1563,25 @@ export class Store {
   }
 
   private insertVersion(pageId: string, filesJson: string, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
-    const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, created_at: now() };
+    const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, person_id: ref?.person?.id ?? null, created_at: now() };
     this.db
-      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, this.diffusionForNewVersion(pageId, filesJson) ?? null);
+      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, person_id, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, row.person_id, this.diffusionForNewVersion(pageId, filesJson) ?? null);
     this.emit({ type: "page-updated", pageId, versionId: row.id });
-    return toSummary(row);
+    return this.toSummary(row);
+  }
+
+  private toSummary(row: VersionRow): PageVersionSummary {
+    const person = this.getPerson(row.person_id);
+    return {
+      id: row.id,
+      message: row.message,
+      origin: row.origin,
+      ...(row.origin_id ? { originId: row.origin_id } : {}),
+      ...(row.origin_label ? { originLabel: row.origin_label } : {}),
+      ...(person ? { person } : {}),
+      createdAt: row.created_at,
+    };
   }
 
   /** The diffusion a version recorded now is drawn with: the current one of the design system its manifest names; none for a design system's own pages (they read the draft). */
@@ -1475,7 +1667,7 @@ export interface SessionOrigin {
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -1497,6 +1689,7 @@ interface ThreadRow {
   status: ThreadStatus;
   context: string | null;
   new_session: "summarizing" | "ready" | null;
+  person_id: string | null;
 }
 
 function targetOf(row: ThreadRow): ThreadTarget {
@@ -1551,17 +1744,14 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
   };
 }
 
-const CONVERSATION_SELECT = `SELECT id, page_id AS pageId, title, archived, created_at AS createdAt,
+const CONVERSATION_SELECT = `SELECT id, page_id AS pageId, title, archived, created_at AS createdAt, person_id AS personId,
   (SELECT COUNT(*) FROM conversation_messages m WHERE m.conversation_id = conversations.id AND m.author = 'user') AS exchangeCount,
   COALESCE((SELECT MAX(m.created_at) FROM conversation_messages m WHERE m.conversation_id = conversations.id), created_at) AS lastActivityAt
   FROM conversations`;
 
-interface ConversationRow extends Omit<Conversation, "archived"> {
+interface ConversationRow extends Omit<Conversation, "archived" | "startedBy"> {
   archived: number;
-}
-
-function toConversation(row: ConversationRow): Conversation {
-  return { ...row, archived: row.archived === 1 };
+  personId: string | null;
 }
 
 interface VersionRow {
@@ -1570,6 +1760,7 @@ interface VersionRow {
   origin: VersionOrigin;
   origin_id?: string | null;
   origin_label?: string | null;
+  person_id?: string | null;
   created_at: string;
 }
 
@@ -1584,6 +1775,8 @@ interface RawManifest {
 export interface OriginRef {
   originId?: string;
   originLabel?: string;
+  /** Who the version is signed with: the person acting, or the requesting person of a Claude run; none for terminal publishes. */
+  person?: Person;
 }
 
 export interface VersionRecord extends PageVersionSummary {
@@ -1591,17 +1784,6 @@ export interface VersionRecord extends PageVersionSummary {
   files: Record<string, string>;
   /** Diffusion recorded with the version (1 for versions from before diffusions); meaningless on a design system's own pages. */
   diffusion: number;
-}
-
-function toSummary(row: VersionRow): PageVersionSummary {
-  return {
-    id: row.id,
-    message: row.message,
-    origin: row.origin,
-    ...(row.origin_id ? { originId: row.origin_id } : {}),
-    ...(row.origin_label ? { originLabel: row.origin_label } : {}),
-    createdAt: row.created_at,
-  };
 }
 
 function now(): string {

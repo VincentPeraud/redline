@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { artboardVersionsPath, type ArtboardVersion } from "@redline/shared";
-import { historyDate, originLabel } from "./historyLabels.js";
+import { historyDate, metaLine, originLabel } from "./historyLabels.js";
+import { useWho } from "./useMe.js";
 import { Tooltip, cx } from "./ui/index.js";
 import styles from "./ArtboardHistory.module.css";
 
@@ -35,6 +36,7 @@ const POPOVER_GAP = 12;
 /** Clock button of an artboard's label row and its popover "Historique · <artboard>": versions, preview in place, restore. */
 export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChange, previewVersionId, onPreview, onRestore, className }: Props) {
 
+  const who = useWho();
   const [versions, setVersions] = useState<ArtboardVersion[] | null>(null);
   const [restoring, setRestoring] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -125,7 +127,7 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
           </div>
           {(versions ?? []).map((version) => {
             const previewing = version.versionId === previewVersionId;
-            const meta = `${originLabel(version.origin, version.originLabel)} · ${historyDate(version.createdAt, { withTime: true })}`;
+            const meta = metaLine(originLabel(version.origin, version.originLabel, who(version.person)), historyDate(version.createdAt, { withTime: true }));
             const diffusion = version.diffusion && `affichée avec ${version.diffusion.designSystemTitle} · diffusion ${version.diffusion.number}`;
             if (previewing) {
               return (

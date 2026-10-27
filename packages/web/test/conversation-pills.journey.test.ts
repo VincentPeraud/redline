@@ -81,8 +81,8 @@ it("shows addresses of this server as pills that centre, navigate or open play m
   const hashBefore = await tab.evaluate(() => window.location.hash);
   await pills.nth(0).click();
   const viewport = await box(tab.getByTestId("canvas"));
-  const frame = box(tab.locator('[data-artboard="far.html"] iframe'));
-  await expect.poll(async () => Math.abs((await frame).x + (await frame).width / 2 - (viewport.x + viewport.width / 2)) < 3).toBe(true);
+  const frame = () => box(tab.locator('[data-artboard="far.html"] iframe'));
+  await expect.poll(async () => Math.abs((await frame()).x + (await frame()).width / 2 - (viewport.x + viewport.width / 2)) < 3).toBe(true);
   expect(await tab.evaluate(() => window.location.hash)).toBe(hashBefore);
 
   await pills.nth(4).click();
