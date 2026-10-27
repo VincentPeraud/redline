@@ -1108,9 +1108,6 @@ export function cliUpdateCommand(origin: string): string {
   return `npm i -g ${origin}${CLI_TARBALL_PATH}`;
 }
 
-/** Command printed to users whose agent is too old for the server. */
-export const AGENT_UPDATE_COMMAND = "npm i -g redline-cli@latest";
-
 /** WebSocket close codes sent by the server on the agent endpoint. */
 export const AgentCloseCode = {
   /** Wrong token, or token regenerated while connected. */
@@ -1141,12 +1138,20 @@ export interface AgentHello extends ModelChoice {
   buildHash?: string;
 }
 
-export type AgentToServerMessage = AgentHello | AgentWorkMessage;
+/** The agent could not install the update; it keeps running its previous build. */
+export interface AgentUpdateFailedMessage {
+  type: "update-failed";
+  message: string;
+}
+
+export type AgentToServerMessage = AgentHello | AgentWorkMessage | AgentUpdateFailedMessage;
 
 /** Messages the server sends on the agent endpoint. */
 export type ServerToAgentMessage =
   | { type: "welcome"; agentId: string; /** The agent's build differs from the server's. */ outdated?: boolean }
   | { type: "work"; item: WorkItem }
+  /** Stop taking work, let the running sessions finish, reinstall the CLI from the server and restart. */
+  | { type: "update" }
   | { type: "error"; code: "unauthorized" | "incompatible_protocol" | "bad_hello" | "unknown_project" | "project_taken"; message: string };
 
 export type AgentStatus = "online" | "offline";
@@ -1161,6 +1166,10 @@ export interface AgentInfo extends ModelChoice {
   lastSeenAt: string;
   /** Present when this connected agent runs another CLI build than the server's. */
   outdated?: true;
+  /** The agent was asked to update and has not come back (or failed) yet: the server sends it no new work. */
+  updating?: true;
+  /** Why the last update failed; the agent kept running its previous build. */
+  updateError?: string;
 }
 
 /** An agent the server refused for its protocol; listed until it connects again. */
@@ -1168,6 +1177,8 @@ export interface RefusedAgent {
   machine: string;
   folder: string;
   kind: AgentKind;
+  /** Title of the project a project agent was serving. */
+  project?: string;
   /** ISO time of the refusal. */
   refusedAt: string;
 }

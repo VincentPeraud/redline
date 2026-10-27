@@ -13,6 +13,8 @@ export interface AgentChoice {
  */
 export function chooseAgent(store: Store, projectId: string): AgentChoice | undefined {
   const projectAgentId = store.findOnlineProjectAgentId(projectId);
+  // An updating project agent takes no new work, and the global agent does not step in for a restart of a few minutes.
+  if (projectAgentId && store.isAgentUpdating(projectAgentId)) return undefined;
   if (projectAgentId) return { agentId: projectAgentId, takeover: false };
   // A design system has no project record to set a preference on: the global agent serves it.
   const project = store.getProject(projectId);
