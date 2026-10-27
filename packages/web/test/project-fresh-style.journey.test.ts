@@ -44,6 +44,22 @@ it("shows 'Pas encore de style' on the design system page of a new project witho
   await tab.close();
 });
 
+it("disables 'En faire un design system…' while the project style defines no token, and explains why on hover", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Fresh promote" })).json()) as Project;
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/projects/${project.id}/design-system`);
+
+  const promote = tab.getByRole("button", { name: "En faire un design system…" });
+  await promote.waitFor();
+  expect(await promote.isDisabled()).toBe(true);
+  await tab.screenshot({ path: join(shots, "nns-fix-fresh.png") });
+  await promote.hover();
+  await tab.getByRole("tooltip", { name: "Le style du projet est encore vide" }).waitFor();
+  await tab.waitForTimeout(300);
+  await tab.screenshot({ path: join(shots, "nns-fix-fresh-tooltip.png") });
+  await tab.close();
+});
+
 it("shows the variables table with the style hint once the project style holds tokens", async () => {
   const project = (await (await server.post("/api/projects", { title: "Styled" })).json()) as Project;
   await fetch(`${server.url}/api/projects/${project.id}/project-style`, {
@@ -56,6 +72,7 @@ it("shows the variables table with the style hint once the project style holds t
 
   await tab.getByTestId("token---color-primary").waitFor();
   await tab.getByText("Le style du projet : modifiables ici ou en le demandant à Claude").waitFor();
+  expect(await tab.getByRole("button", { name: "En faire un design system…" }).isEnabled()).toBe(true);
   expect(await tab.getByText("Pas encore de style").count()).toBe(0);
   await tab.screenshot({ path: join(shots, "nns-04-with-style.png") });
   await tab.close();

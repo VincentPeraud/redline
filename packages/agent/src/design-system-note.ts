@@ -1,4 +1,4 @@
-import { MANIFEST_PATH, classesUsedIn, componentClassesOf, componentNameOf, defaultManifest, pageLayoutIssues, parseManifest, type Gap, type GapKind, type ProjectContext } from "@redline/shared";
+import { MANIFEST_PATH, styleDefinesTokens, classesUsedIn, componentClassesOf, componentNameOf, defaultManifest, pageLayoutIssues, parseManifest, type Gap, type GapKind, type ProjectContext } from "@redline/shared";
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -10,7 +10,7 @@ export function designSystemNote({ designSystem, editsDesignSystem, projectCompo
   const own = Object.keys(projectComponents ?? {}).flatMap((path) => componentNameOf(path) ?? []);
   const projectNote = own.length === 0 ? "" : `\nComponents of this project (every page), read-only in .project-components/: ${own.join(", ")}. Reuse them; edit one in the page that defines it.`;
   if (!designSystem) {
-    const style = projectStyle?.trim() === "" ? "Its style is still to be created: tokens.css at the root of the working copy is empty." : "Its style is the project style: tokens.css at the root of the working copy.";
+    const style = !styleDefinesTokens(projectStyle) ? "Its style is still to be created: tokens.css at the root of the working copy is empty." : "Its style is the project style: tokens.css at the root of the working copy.";
     return `This project has no design system. ${style}${projectNote}`;
   }
   const used = designSystem.pages.filter((page) => page.used).map((page) => page.title);

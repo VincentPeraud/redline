@@ -279,7 +279,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   const thumb = { background: colour("--color-background", "transparent"), shape: colour("--color-primary", "transparent") };
   const selectedId = shared?.id ?? "none";
   const overridden = detail.overrideCount;
-  const fresh = !shared && detail.tokens.length === 0;
+  const fresh = !shared && !detail.styleDefinesTokens;
 
   return (
     <div className={styles.screen}>
@@ -334,9 +334,17 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
               <>
                 <span className={styles.chooserNote}>Ce style n'est pas partagé et n'apparaît pas dans la liste des design systems.</span>
                 <div className={styles.grow} />
-                <button type="button" className={styles.promote} onClick={() => setPromoteOpen(true)}>
-                  En faire un design system…
-                </button>
+                {detail.styleDefinesTokens ? (
+                  <button type="button" className={styles.promote} onClick={() => setPromoteOpen(true)}>
+                    En faire un design system…
+                  </button>
+                ) : (
+                  <Tooltip label="Le style du projet est encore vide">
+                    <button type="button" className={styles.promote} aria-disabled="true">
+                      En faire un design system…
+                    </button>
+                  </Tooltip>
+                )}
               </>
             )}
           </section>

@@ -38,6 +38,8 @@ export interface ProjectDesignSystem {
   /** Its current diffusion; null without a shared design system. */
   diffusion: DiffusionInfo | null;
   tokens: ProjectStyleToken[];
+  /** True when the project style itself declares at least one token (`styleDefinesTokens`). */
+  styleDefinesTokens: boolean;
   components: ProjectComponentInfo[];
   /** Project-style tokens whose names exist in the current diffusion. */
   overrideCount: number;

@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
-  NEUTRAL_DESIGN_SYSTEM_ID,
   type HomeProject,
   type CreateProjectRequest,
   type DesignSystemSummary,
@@ -65,11 +64,10 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
       .then(setDesignSystems);
   }, []);
 
-  const choosable = designSystems.filter((ds) => ds.id !== NEUTRAL_DESIGN_SYSTEM_ID);
-  const selected = choice ?? choosable[0]?.id ?? NO_DESIGN_SYSTEM;
+  const selected = choice ?? designSystems[0]?.id ?? NO_DESIGN_SYSTEM;
   const canCreate = title.trim() !== "";
   const options = [
-    ...choosable.map((ds) => ({ id: ds.id, title: ds.title, description: designSystemUse(ds) })),
+    ...designSystems.map((ds) => ({ id: ds.id, title: ds.title, description: designSystemUse(ds) })),
     { id: NO_DESIGN_SYSTEM, title: "Aucun pour l'instant", description: "Claude crée un style d'après le sujet du projet" },
   ];
 

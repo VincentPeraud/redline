@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { NEUTRAL_DESIGN_SYSTEM_ID, SESSIONS_PATH, type DesignSystemSummary, type HomeProject, type SessionRow } from "@redline/shared";
+import { SESSIONS_PATH, type DesignSystemSummary, type HomeProject, type SessionRow } from "@redline/shared";
 import { DesignSystemThumbnail } from "./HomeThumbnails.js";
 import { ProjectPreview } from "./ProjectPreview.js";
 import { relativeTime } from "./relativeTime.js";
@@ -41,7 +41,7 @@ export function HomeScreen() {
   useEffect(() => {
     fetch("/api/design-systems")
       .then((res) => res.json() as Promise<DesignSystemSummary[]>)
-      .then((all) => setDesignSystems(all.filter((ds) => ds.id !== NEUTRAL_DESIGN_SYSTEM_ID)));
+      .then(setDesignSystems);
   }, []);
 
   // `home` is replaced on every server event: reload the sessions with it so statuses stay live.

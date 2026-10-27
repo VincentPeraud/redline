@@ -172,6 +172,11 @@
   cursor: default;
 }
 
+.promote[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .variables {
   display: flex;
   flex-direction: column;

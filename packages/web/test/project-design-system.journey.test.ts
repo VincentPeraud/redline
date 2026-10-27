@@ -165,6 +165,7 @@ it("leaving the design system for 'Aucun' applies at once, with no dialog, and t
 
 it("promotes the project's own style with 'En faire un design system…'", async () => {
   const project = (await (await server.post("/api/projects", { title: "Solo promo" })).json()) as Project;
+  await fetch(`${server.url}/api/projects/${project.id}/project-style`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: ":root {\n  --color-primary: #7c3aed;\n}\n" }) });
   const tab = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
   await tab.goto(`${server.url}/#/projects/${project.id}/design-system`);
   await tab.getByRole("button", { name: "En faire un design system…" }).click();

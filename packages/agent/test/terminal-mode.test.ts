@@ -122,6 +122,11 @@ describe("terminal mode (redline mcp)", () => {
     expect(empty).not.toContain("Neutral");
     expect(existsSync(join(seam.folder, ".redline", page.id, ".design-system"))).toBe(false);
 
+    for (const content of [":root {\n  /* to be designed */\n}\n", ":root {}\n"]) {
+      await fetch(`${seam.server.url}/api/projects/${seam.project.id}/project-style`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ content }) });
+      expect(await call("checkout_page", { pageId: page.id })).toContain("Its style is still to be created");
+    }
+
     await fetch(`${seam.server.url}/api/projects/${seam.project.id}/project-style`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
