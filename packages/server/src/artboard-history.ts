@@ -75,13 +75,17 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
     const changes = contentChanges(records, file);
     const newest = changes[changes.length - 1];
     const ownPage = store.isDesignSystemPage(req.params.pageId);
-    const designSystemOf = (record: VersionRecord) => {
+    const diffusionOf = (record: VersionRecord): ArtboardVersion["diffusion"] => {
+      if (ownPage) return undefined;
       const hash = record.files[MANIFEST_PATH];
-      return store.designSystemIdOfManifest(hash === undefined ? undefined : store.blobText(hash));
+      const designSystemId = store.sharedDesignSystemIdForManifest(req.params.pageId, hash === undefined ? undefined : store.blobText(hash));
+      const designSystem = designSystemId === undefined ? undefined : store.getDesignSystem(designSystemId);
+      return designSystem && { designSystemTitle: designSystem.title, number: record.diffusion };
     };
     return changes
-      .map(
-        (record): ArtboardVersion => ({
+      .map((record): ArtboardVersion => {
+        const diffusion = diffusionOf(record);
+        return {
           versionId: record.id,
           title: record.origin === "creation" ? CREATED_TITLE : record.message,
           origin: record.origin,
@@ -89,9 +93,9 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
           ...(record.originLabel ? { originLabel: record.originLabel } : {}),
           createdAt: record.createdAt,
           current: record === newest && headHash !== undefined,
-          ...(ownPage || designSystemOf(record) === undefined ? {} : { diffusion: { designSystemTitle: store.getDesignSystem(designSystemOf(record)!)!.title, number: record.diffusion } }),
-        }),
-      )
+          ...(diffusion && { diffusion }),
+        };
+      })
       .reverse();
   });
 

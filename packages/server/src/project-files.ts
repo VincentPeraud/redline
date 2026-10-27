@@ -1,11 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import {
   ASSETS_DIR,
-  NEUTRAL_DESIGN_SYSTEM_ID,
   DESIGN_MD_PATH,
   PROJECT_STYLE_PATH,
   MAX_ASSET_BYTES,
-  MANIFEST_PATH,
   isSafePath,
   classesUsedIn,
   componentClassesOf,
@@ -21,18 +19,6 @@ import {
 } from "@redline/shared";
 import { componentFilesOf } from "./components.js";
 import type { Store } from "./store.js";
-
-/** Design system a page's manifest names (as of one of its versions when given), if it exists; none otherwise. */
-export function manifestDesignSystemIdOf(store: Store, pageId: string, versionId?: string): string | undefined {
-  const manifest = versionId === undefined ? store.readPageFile(pageId, MANIFEST_PATH) : store.readVersionFile(pageId, versionId, MANIFEST_PATH);
-  return store.designSystemIdOfManifest(manifest?.toString("utf8"));
-}
-
-/** Shared design system a page's gaps and session context are measured against; none when its manifest names none, or the hidden Neutral one. */
-export function sharedDesignSystemIdOf(store: Store, pageId: string, versionId?: string): string | undefined {
-  const id = manifestDesignSystemIdOf(store, pageId, versionId);
-  return id === NEUTRAL_DESIGN_SYSTEM_ID ? undefined : id;
-}
 
 const slugOf = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "page";
 
@@ -107,14 +93,18 @@ export function projectContext(store: Store, pageId: string): ProjectContext {
     assets[name] = store.readProjectFile(page.projectId, `${ASSETS_DIR}/${name}`)!.toString("base64");
   }
   const own = store.getDesignSystem(page.projectId);
-  const sharedDesignSystemId = sharedDesignSystemIdOf(store, pageId);
+  const sharedDesignSystemId = own ? undefined : store.sharedDesignSystemIdOfPage(pageId);
   return {
     designMd: store.readProjectText(page.projectId, DESIGN_MD_PATH),
     assets,
     // A project's style, or the draft tokens of a design system's own project: the same root file either way.
     projectStyle: store.readProjectText(page.projectId, PROJECT_STYLE_PATH),
-    ...(own ? {} : { projectComponents: componentFilesOf(store, page.projectId) }),
-    ...(own ? { editsDesignSystem: { id: own.id, title: own.title } } : { ...(sharedDesignSystemId === undefined ? {} : { designSystem: designSystemContext(store, page.projectId, sharedDesignSystemId) }) }),
+    ...(own
+      ? { editsDesignSystem: { id: own.id, title: own.title } }
+      : {
+          projectComponents: componentFilesOf(store, page.projectId),
+          ...(sharedDesignSystemId === undefined ? {} : { designSystem: designSystemContext(store, page.projectId, sharedDesignSystemId) }),
+        }),
   };
 }
 

@@ -80,7 +80,7 @@ describe("design system gaps of a page over the server HTTP API", () => {
     const [first] = await gapsOf(shared);
     const settings = { hiddenFormats: [], renderingOverrides: {}, gapExceptions: [first.key] };
     await server.post(`/api/pages/${shared.id}/view-settings`, settings);
-    await server.post(`/api/pages/${shared.id}/versions`, { files: { "story-2.html": story, "manifest.json": manifestOf(["story-2.html"]) }, message: "Leave the design system", origin: "user" });
+    await fetch(`${server.url}/api/projects/${shared.projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ designSystem: null }) });
     expect(await gapsOf(shared)).toEqual([]);
     expect(((await (await server.get(`/api/pages/${shared.id}`)).json()) as Page).viewSettings).toEqual(settings);
   });

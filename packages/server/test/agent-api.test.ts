@@ -140,6 +140,7 @@ it("lets an agent list projects and their pages, and create both", async () => {
   expect((await agentCall("/projects", { method: "POST", body: { title: "Y", designSystem: 3 } })).status).toBe(400);
   expect((await agentCall("/projects", { method: "POST", body: { title: "Y", designSystem: "material" } })).status).toBe(400);
   expect(((await (await agentCall("/projects", { method: "POST", body: { title: "Z", designSystem: "" } })).json()) as Project).designSystem).toBeNull();
+  expect(((await (await agentCall("/projects", { method: "POST", body: { title: "N", designSystem: "neutral" } })).json()) as Project).designSystem).toBeNull();
 
   // A design system's own project holds only its design system page.
   expect((await agentCall(`/projects/${spooky.id}/pages`)).status).toBe(404);

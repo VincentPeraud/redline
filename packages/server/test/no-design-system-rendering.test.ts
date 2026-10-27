@@ -1,24 +1,20 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   AGENT_API_PREFIX,
   CORE_TOKENS,
   NEUTRAL_DESIGN_SYSTEM_ID,
-  NEUTRAL_TOKENS_CSS,
   versionPreviewPath,
+  type AgentCheckout,
   type AgentDesignSystem,
   type AgentTokenResponse,
   type ArtboardVersion,
   type DesignSystem,
   type Page,
+  type PageGaps,
   type Project,
   type ServerEvent,
 } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
-import { Store } from "../src/store.js";
 
 const html = "<!doctype html><html><head></head><body><h1>Hi</h1></body></html>";
 const dsTokens = `:root {\n${CORE_TOKENS.map((t) => `  ${t}: #111;`).join("\n")}\n}\n`;
@@ -122,34 +118,45 @@ describe("a project without a design system renders with its project style only"
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("");
   });
-});
 
-describe("start-up migration of project styles", () => {
-  let dataDir: string;
-  beforeEach(() => {
-    dataDir = mkdtempSync(join(tmpdir(), "redline-no-ds-migration-"));
-  });
-  afterEach(() => rmSync(dataDir, { recursive: true, force: true }));
-
-  it("keeps the Neutral design system record", () => {
-    const store = new Store(dataDir);
-    expect(store.getDesignSystem(NEUTRAL_DESIGN_SYSTEM_ID)).toBeDefined();
-    store.close();
+  it("keeps an empty project style empty after a restart", async () => {
+    const project = await createProject();
+    await server.restart();
+    expect(await (await fetch(`${server.artboardOrigin}/project-styles/${project.id}/tokens.css`)).text()).toBe("");
   });
 
-  it("gives a project without a project style file the neutral values, and leaves a new project's empty style empty after a restart", () => {
-    const seed = new Store(dataDir);
-    const old = seed.createProject("Old");
-    const fresh = seed.createProject("Fresh");
-    seed.close();
-    const db = new Database(join(dataDir, "redline.db"));
-    db.prepare("DELETE FROM project_files WHERE project_id = ? AND path = 'tokens.css'").run(old.id);
-    db.prepare("DELETE FROM design_md_versions WHERE project_id = ? AND path = 'tokens.css'").run(old.id);
-    db.close();
+  const manifestNaming = (designSystem?: string) => JSON.stringify({ ...(designSystem ? { designSystem } : {}), artboards: [{ file: "a.html", x: 0, y: 0, width: 200, height: 100 }] });
+  const rawColour = `<!doctype html><html><head></head><body><p style="color: #ff6b00">x</p></body></html>`;
+  const pageWith = async (project: Project, manifest: string) =>
+    (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Flow", files: { "a.html": rawColour, "manifest.json": manifest } })).json()) as Page;
+  const checkoutOf = async (page: Page) => {
+    const { token } = (await (await server.get("/api/agent-token")).json()) as AgentTokenResponse;
+    return (await (await fetch(`${server.url}${AGENT_API_PREFIX}/pages/${page.id}/files`, { headers: { authorization: `Bearer ${token}` } })).json()) as AgentCheckout;
+  };
 
-    const store = new Store(dataDir);
-    expect(store.readProjectFile(old.id, "tokens.css")?.toString("utf8")).toBe(NEUTRAL_TOKENS_CSS);
-    expect(store.readProjectFile(fresh.id, "tokens.css")?.toString("utf8")).toBe("");
-    store.close();
+  it("treats a manifest that names the Neutral design system as naming none", async () => {
+    const project = await createProject();
+    const page = await pageWith(project, manifestNaming(NEUTRAL_DESIGN_SYSTEM_ID));
+    expect(await artboard(page)).not.toContain("/design-systems/");
+    const gaps = (await (await server.get(`/api/pages/${page.id}/gaps`)).json()) as PageGaps;
+    expect(gaps).toEqual({ designSystemTitle: "", gaps: [] });
+    expect((await checkoutOf(page)).project.designSystem).toBeUndefined();
+    const history = (await (await server.get(`/api/pages/${page.id}/artboard-versions?file=a.html`)).json()) as ArtboardVersion[];
+    expect(history.every((v) => v.diffusion === undefined)).toBe(true);
+  });
+
+  it("follows the project's design system when the manifest names Neutral or none", async () => {
+    const ds = await createDesignSystem();
+    const project = await createProject(ds.id);
+    for (const manifest of [manifestNaming(), manifestNaming(NEUTRAL_DESIGN_SYSTEM_ID)]) {
+      const page = await pageWith(project, manifest);
+      expect(await artboard(page)).toContain(`/design-systems/${ds.id}/diffusions/1/tokens.css`);
+      const gaps = (await (await server.get(`/api/pages/${page.id}/gaps`)).json()) as PageGaps;
+      expect(gaps.designSystemTitle).toBe("Acme DS");
+      expect(gaps.gaps.length).toBeGreaterThan(0);
+      expect((await checkoutOf(page)).project.designSystem?.title).toBe("Acme DS");
+      const history = (await (await server.get(`/api/pages/${page.id}/artboard-versions?file=a.html`)).json()) as ArtboardVersion[];
+      expect(history[0]!.diffusion).toMatchObject({ designSystemTitle: "Acme DS", number: 1 });
+    }
   });
 });

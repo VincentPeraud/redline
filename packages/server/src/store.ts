@@ -628,7 +628,8 @@ export class Store {
   }
 
   /** A project without a shared design system starts with an empty project style (an empty file: it counts as existing), which Claude fills in. */
-  createProject(title: string, id: string = randomUUID(), instructions = "", designSystem: string | null = null): Project {
+  createProject(title: string, id: string = randomUUID(), instructions = "", chosenDesignSystem: string | null = null): Project {
+    const designSystem = chosenDesignSystem === NEUTRAL_DESIGN_SYSTEM_ID ? null : chosenDesignSystem;
     const project = this.insertProject(title, id, instructions, designSystem);
     if (designSystem === null) this.saveDesignMd(id, PROJECT_STYLE_PATH, Buffer.alloc(0));
     return project;
@@ -638,15 +639,16 @@ export class Store {
    * Points a project at a shared design system, or at none (null: its project style becomes its whole style). Pages follow the
    * `designSystem` of their manifest, so each page whose manifest says otherwise gets a version with the new value.
    */
-  setProjectDesignSystem(projectId: string, designSystem: string | null, origin: VersionOrigin): void {
-    const previous = this.getProject(projectId)!.designSystem;
+  setProjectDesignSystem(projectId: string, chosenDesignSystem: string | null, origin: VersionOrigin): void {
+    const designSystem = chosenDesignSystem === NEUTRAL_DESIGN_SYSTEM_ID ? null : chosenDesignSystem;
+    const previous = this.sharedDesignSystemIdOfProject(projectId) ?? null;
     if (designSystem === null && previous !== null) {
       const style = this.startingStyle(projectId, previous);
       if (style !== undefined) this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(style, "utf8"));
     }
     this.db.prepare("UPDATE projects SET design_system = ? WHERE id = ?").run(designSystem, projectId);
     if (designSystem === null && !this.readProjectFile(projectId, PROJECT_STYLE_PATH)) {
-      this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(NEUTRAL_TOKENS_CSS, "utf8"));
+      this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.alloc(0));
     }
     for (const page of this.listPages(projectId)) {
       const { files } = this.readPageFiles(page.id)!;
@@ -787,9 +789,9 @@ export class Store {
 
   /** Open pages link the project style through a stylesheet: tell them to reload (`design-system-updated`). */
   announceProjectStyleChange(projectId: string): void {
-    const row = this.db.prepare("SELECT design_system AS designSystem FROM projects WHERE id = ?").get(projectId) as { designSystem: string | null } | undefined;
+    const designSystemId = this.sharedDesignSystemIdOfProject(projectId);
     const pageIds = this.listPages(projectId).map((page) => page.id);
-    if (row && pageIds.length > 0) this.emit({ type: "design-system-updated", ...(row.designSystem ? { designSystemId: row.designSystem } : {}), pageIds });
+    if (pageIds.length > 0) this.emit({ type: "design-system-updated", ...(designSystemId ? { designSystemId } : {}), pageIds });
   }
 
   /** Versions of DESIGN.md (or of another versioned project-level file, `path`), newest first. */
@@ -1394,21 +1396,41 @@ export class Store {
   private diffusionForNewVersion(pageId: string, filesJson: string): number | undefined {
     if (this.isDesignSystemPage(pageId)) return undefined;
     const manifestHash = (JSON.parse(filesJson) as Record<string, string>)[MANIFEST_PATH];
-    const designSystemId = this.designSystemIdOfManifest(manifestHash === undefined ? undefined : this.blobText(manifestHash));
+    const designSystemId = this.sharedDesignSystemIdForManifest(pageId, manifestHash === undefined ? undefined : this.blobText(manifestHash));
     return designSystemId === undefined ? undefined : this.currentDiffusion(designSystemId)?.number;
   }
 
-  /** Design system a manifest names if it exists, else none. */
-  designSystemIdOfManifest(manifestText: string | undefined): string | undefined {
+  /**
+   * THE rule for the shared design system of a page: a design system's own page is its own system; else the one its
+   * manifest names if it exists (Neutral never counts); else the project's, if set (Neutral never counts); else none.
+   * `manifestText` is the manifest of the page version at hand.
+   */
+  sharedDesignSystemIdForManifest(pageId: string, manifestText: string | undefined): string | undefined {
+    const own = this.designSystemOfPage(pageId);
+    if (own) return own.id;
     if (manifestText !== undefined) {
       try {
         const id = parseManifest(manifestText).designSystem;
-        if (id !== undefined && this.getDesignSystem(id)) return id;
+        if (id !== undefined && id !== NEUTRAL_DESIGN_SYSTEM_ID && this.getDesignSystem(id)) return id;
       } catch {
         // An invalid stored manifest must not break serving the artboard.
       }
     }
-    return undefined;
+    // Not getPage: a page's first version is recorded before it has one to read.
+    const row = this.db.prepare("SELECT project_id AS projectId FROM pages WHERE id = ?").get(pageId) as { projectId: string } | undefined;
+    return row && this.sharedDesignSystemIdOfProject(row.projectId);
+  }
+
+  /** The shared design system of a page as of its current version, or of `versionId` when given. */
+  sharedDesignSystemIdOfPage(pageId: string, versionId?: string): string | undefined {
+    const manifest = versionId === undefined ? this.readPageFile(pageId, MANIFEST_PATH) : this.readVersionFile(pageId, versionId, MANIFEST_PATH);
+    return this.sharedDesignSystemIdForManifest(pageId, manifest?.toString("utf8"));
+  }
+
+  /** The shared design system a project follows: none when it has none or the hidden Neutral one. */
+  sharedDesignSystemIdOfProject(projectId: string): string | undefined {
+    const id = this.getProject(projectId)?.designSystem;
+    return id && id !== NEUTRAL_DESIGN_SYSTEM_ID ? id : undefined;
   }
 
   /** Diffusion a version is drawn with: the one recorded when it was published, 1 for versions from before diffusions; none for a design system's own pages. */

@@ -43,7 +43,7 @@ import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
 import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
-import { manifestDesignSystemIdOf, projectContext, readPageAsset, registerProjectFileRoutes } from "./project-files.js";
+import { projectContext, readPageAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
@@ -627,16 +627,11 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     return projectId !== undefined && !store.isDesignSystemProject(projectId) ? projectId : undefined;
   }
 
-  /** The design system a page is rendered with: its own project's when it is a design system page, else the one its manifest names, else none. */
-  function renderedDesignSystemOf(pageId: string, versionId?: string): string | undefined {
-    return store.designSystemOfPage(pageId)?.id ?? manifestDesignSystemIdOf(store, pageId, versionId);
-  }
-
   /** Diffusion a page is rendered with: the current one for a project's pages, the one recorded with the version for a version preview, none (the draft) for a design system's own pages. */
   function diffusionOf(pageId: string, versionId?: string): number | undefined {
     if (store.isDesignSystemPage(pageId)) return undefined;
     if (versionId !== undefined) return store.versionDiffusion(pageId, versionId) ?? 1;
-    const designSystemId = renderedDesignSystemOf(pageId);
+    const designSystemId = store.sharedDesignSystemIdOfPage(pageId);
     return designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId)?.number;
   }
 
@@ -649,7 +644,7 @@ export async function buildArtboardApp(store: Store): Promise<FastifyInstance> {
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[extname(path)] ?? "application/octet-stream")
-      .send(isHtml ? injectBridge(injectDesignSystem(asset.toString("utf8"), renderedDesignSystemOf(pageId, versionId), projectStyleProjectOf(pageId), draftPreview ? undefined : diffusionOf(pageId, versionId))) : asset);
+      .send(isHtml ? injectBridge(injectDesignSystem(asset.toString("utf8"), store.sharedDesignSystemIdOfPage(pageId, versionId), projectStyleProjectOf(pageId), draftPreview ? undefined : diffusionOf(pageId, versionId))) : asset);
   }
 
   return app;
