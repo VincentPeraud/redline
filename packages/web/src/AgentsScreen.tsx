@@ -17,7 +17,7 @@ function agentName(agent: AgentOverview): string {
 
 function activity(agent: AgentOverview): { text: string; warn: boolean } {
   if (agent.status === "offline") {
-    const text = agent.waitingThreads > 0 ? `${agent.waitingThreads} ${agent.waitingThreads === 1 ? "fil attend" : "fils attendent"} son retour` : "";
+    const text = agent.waitingThreads > 0 ? `${agent.waitingThreads} ${agent.waitingThreads === 1 ? "fil attend" : "fils attendent"} un agent` : "";
     return { text, warn: true };
   }
   const running = agent.running === 0 ? "Aucune session en cours" : `${agent.running} ${agent.running === 1 ? "session en cours" : "sessions en cours"}`;
@@ -25,8 +25,8 @@ function activity(agent: AgentOverview): { text: string; warn: boolean } {
 }
 
 const TAKEOVER_OPTIONS = [
-  { allow: false, title: "Le fil attend son retour", description: "La session est reprise sur la bonne machine, avec tout son contexte." },
-  { allow: true, title: "L'agent global prend le relais", description: "Le fil repart dans une nouvelle session, sans le contexte du projet." },
+  { allow: false, title: "Le fil attend", description: "Il part dès qu'un agent est lancé dans le dossier du projet, avec tout son contexte." },
+  { allow: true, title: "L'agent global le prend", description: "Le fil part tout de suite dans une session de l'agent global, sans le contexte du projet." },
 ];
 
 function GlobalTakeoverSetting({ onChange }: { onChange: () => void }) {
@@ -46,9 +46,10 @@ function GlobalTakeoverSetting({ onChange }: { onChange: () => void }) {
   }
 
   return (
-    <Card as="section" padding="md" aria-label="Relais hors ligne">
-      <h2 className={styles.fallbackTitle}>Quand l'agent d'un projet est hors ligne</h2>
-      <div role="radiogroup" aria-label="Quand l'agent d'un projet est hors ligne" className={styles.options}>
+    <Card as="section" padding="md" aria-labelledby="no-agent-setting">
+      <h2 id="no-agent-setting" className={styles.fallbackTitle}>Quand aucun agent ne tourne pour le projet</h2>
+      <p className={styles.settingHint}>Réglage par défaut. Chaque projet peut le changer depuis la pastille d'agent de son canvas.</p>
+      <div role="radiogroup" aria-labelledby="no-agent-setting" className={styles.options}>
         {TAKEOVER_OPTIONS.map((option) => {
           const on = takeover === option.allow;
           return (
@@ -106,7 +107,6 @@ function AgentCard({ agent }: { agent: AgentOverview }) {
                     </span>
                   ))}
             </span>
-            {global && ", projets sans agent"}
           </span>
           {activityText && <span className={cx(styles.secondary, warn && styles.warn)}>{activityText}</span>}
         </div>
@@ -115,17 +115,21 @@ function AgentCard({ agent }: { agent: AgentOverview }) {
             {offline ? "Hors ligne" : busy ? "Occupé" : "Libre"}
           </StatusBadge>
         </div>
-        <Button aria-expanded={open} onClick={() => setOpen(!open)}>
-          Projets couverts
-        </Button>
+        {global ? (
+          <Button aria-expanded={open} onClick={() => setOpen(!open)}>
+            Projets couverts
+          </Button>
+        ) : (
+          <span />
+        )}
       </div>
-      {open && (
+      {global && open && (
         <ul className={styles.covered} aria-label="Projets couverts">
-          {agent.projects.length === 0 && <li>{global ? "Aucun projet sans agent" : "Aucun projet lié"}</li>}
+          {agent.projects.length === 0 && <li>Aucun projet ne laisse la main à l'agent global</li>}
           {agent.projects.map((project) => (
             <li key={project.id} className={styles.coveredItem}>
               <a href={routeHref({ name: "project", projectId: project.id })}>{project.title}</a>
-              {!global && <span className={styles.secondary}>{project.globalTakeover ? "L'agent global prend le relais" : "Le fil attend son retour"}</span>}
+              {project.servedNow && <span className={styles.servedNow}>Sert maintenant</span>}
             </li>
           ))}
         </ul>

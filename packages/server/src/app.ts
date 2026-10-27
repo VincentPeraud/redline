@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { extname } from "node:path";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import fastifyStatic from "@fastify/static";
@@ -58,6 +58,7 @@ import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
 import { registerGapRoutes } from "./gaps.js";
 import { registerIdentity, type IdentityConfig } from "./identity.js";
+import { CLI_TARBALL_PATH, type CliBuild } from "./cli-build.js";
 import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
 import { registerRequestHardening } from "./request-hardening.js";
 import { announceDiffusion, registerDesignSystemReload } from "./design-system-reload.js";
@@ -116,12 +117,18 @@ export async function buildMainApp(
   store: Store,
   config: ServerConfig,
   webDir?: string,
-  options: { retryDelaysMs?: number[]; proxySecrets?: ProxySecrets; identity?: IdentityConfig } = {},
+  options: { retryDelaysMs?: number[]; proxySecrets?: ProxySecrets; identity?: IdentityConfig; cliBuild?: CliBuild } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ bodyLimit: MAX_PAGE_BYTES });
   registerProxySecretCheck(app, options.proxySecrets);
   registerHealthRoute(app);
   registerIdentity(app, store, options.proxySecrets, options.identity);
+  const { cliBuild } = options;
+  if (cliBuild) {
+    app.get(CLI_TARBALL_PATH, async (_req, reply) =>
+      reply.type("application/gzip").header("content-disposition", 'attachment; filename="redline-cli.tgz"').send(createReadStream(cliBuild.tarballPath)),
+    );
+  }
   registerRequestHardening(app);
   explainTooLarge(app);
   const agents = await registerAgentRoutes(app, store);

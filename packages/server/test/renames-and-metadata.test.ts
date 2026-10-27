@@ -137,7 +137,7 @@ describe("opening a database from before page types were removed", () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it("keeps projects and pages, drops the page type, and turns an allowed takeover into an override", async () => {
+  it("keeps projects and pages, drops the page type, and turns an allowed takeover into an override, and a project that never had an agent into a global-agent one", async () => {
     const old = new Database(join(dir, "redline.db"));
     old.exec(`
       CREATE TABLE projects (id TEXT PRIMARY KEY, title TEXT NOT NULL, instructions TEXT NOT NULL DEFAULT '', design_system TEXT, created_at TEXT NOT NULL, allow_global_takeover INTEGER NOT NULL DEFAULT 0);
@@ -154,7 +154,7 @@ describe("opening a database from before page types were removed", () => {
       const projects = (await (await fetch(`${running.url}/api/projects`)).json()) as Project[];
       expect(projects.map((p) => [p.id, p.globalTakeoverOverride, p.globalTakeover])).toEqual([
         ["p-allow", true, true],
-        ["p-default", null, false],
+        ["p-default", true, true],
       ]);
       const page = (await (await fetch(`${running.url}/api/pages/11111111-1111-4111-8111-111111111111`)).json()) as Page;
       expect(page).toMatchObject({ title: "Old page", createdBy: "user" });
@@ -167,6 +167,32 @@ describe("opening a database from before page types were removed", () => {
       expect(created.status).toBe(201);
     } finally {
       await running.close();
+    }
+  });
+
+  it("migrates once: a project that never had an agent goes to the global agent, one with an agent and projects created later keep following the default", async () => {
+    const old = new Database(join(dir, "redline.db"));
+    old.exec(`
+      CREATE TABLE projects (id TEXT PRIMARY KEY, title TEXT NOT NULL, instructions TEXT NOT NULL DEFAULT '', design_system TEXT, created_at TEXT NOT NULL, takeover_override INTEGER);
+      CREATE TABLE agents (id TEXT PRIMARY KEY, machine TEXT NOT NULL, folder TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, last_seen_at TEXT NOT NULL, project_id TEXT, UNIQUE (machine, folder));
+      INSERT INTO projects (id, title, created_at, takeover_override) VALUES ('never', 'Never', '2026-01-01', NULL), ('linked', 'Linked', '2026-01-02', NULL), ('refused', 'Refused', '2026-01-03', 0);
+      INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, project_id) VALUES ('a1', 'Mac', '/work/linked', 'project', 'offline', '2026-01-02', 'linked');
+    `);
+    old.close();
+    const overrides = async (url: string) => ((await (await fetch(`${url}/api/projects`)).json()) as Project[]).map((p) => [p.id, p.globalTakeoverOverride]);
+
+    const first = await startServer({ dataDir: dir, port: 0, artboardPort: 0, host: "127.0.0.1" });
+    try {
+      expect(await overrides(first.url)).toEqual([["never", true], ["linked", null], ["refused", false]]);
+      await fetch(`${first.url}/api/projects`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Later" }) });
+    } finally {
+      await first.close();
+    }
+    const second = await startServer({ dataDir: dir, port: 0, artboardPort: 0, host: "127.0.0.1" });
+    try {
+      expect((await overrides(second.url)).map(([, override]) => override)).toEqual([true, null, false, null]);
+    } finally {
+      await second.close();
     }
   });
 });

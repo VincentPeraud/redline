@@ -11,6 +11,7 @@ const server = await startServer({
   artboardOrigin: process.env.REDLINE_ARTBOARD_ORIGIN,
   proxySecrets: proxySecretsFromEnv(process.env),
   identity: identityFromEnv(process.env),
+  cliDir: process.env.REDLINE_CLI_DIR,
   webDir: process.env.REDLINE_WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 

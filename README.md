@@ -60,6 +60,10 @@ When the proxy secrets are set, Redline reads who is signed in from the identity
 
 The defaults are Authelia's. oauth2-proxy sends `X-Auth-Request-User`, `X-Auth-Request-Preferred-Username` (or `X-Auth-Request-Email`) and `X-Auth-Request-Email`; Authentik sends `X-authentik-username`, `X-authentik-name` and `X-authentik-email`. Your proxy must forward these headers to Redline.
 
+### CLI download
+
+The image carries the CLI as a tarball in `REDLINE_CLI_DIR` (`/app/cli`: `redline-cli.tgz` and `build-hash.txt`). The server serves it at `/cli/redline-cli.tgz` without a token (npm cannot send one; behind a proxy this is the machine route), so `npm i -g <origin>/cli/redline-cli.tgz` installs the `redline` command. `redline build-hash` prints the hash of the installed build, which equals the image's `build-hash.txt`.
+
 ### Behind Traefik (local)
 
 With a Traefik already running on an external Docker network named `traefik` (entrypoint `web`), `docker-compose.traefik.yml` serves the UI on `http://redline.localhost` and the artboards on `http://artboards.redline.localhost`:
