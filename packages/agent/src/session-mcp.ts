@@ -37,7 +37,11 @@ export interface RedlineToolsContext {
   afterArtboardMoved?: (file: string) => Promise<void>;
   /** Called when Claude confirms, after the user agreed, that a design system publish may remove tokens or components pages still use. */
   onRemovalsConfirmed?: () => void;
+  /** Applied to the result of every tool registered on the server (terminal mode adds its update notice there). */
+  decorateResult?: (result: ToolResult) => ToolResult;
 }
+
+export type ToolResult = { isError?: boolean; content: { type: "text"; text: string }[] };
 
 const text = (message: string, isError = false) => ({ ...(isError ? { isError } : {}), content: [{ type: "text" as const, text: message }] });
 
@@ -100,6 +104,12 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
   const { api, allowedThreadIds } = context;
   const postReply = context.postReply ?? ((threadId: string, text: string) => api.replyInThread(threadId, text, context.workId));
   const server = new McpServer({ name: "redline", version: "0.0.0" });
+  const { decorateResult } = context;
+  if (decorateResult) {
+    const register = server.registerTool.bind(server) as (name: string, config: unknown, handler: (...args: unknown[]) => Promise<ToolResult>) => unknown;
+    server.registerTool = ((name: string, config: unknown, handler: (...args: unknown[]) => Promise<ToolResult>) =>
+      register(name, config, async (...args) => decorateResult(await handler(...args)))) as typeof server.registerTool;
+  }
   server.registerTool(
     REPLY_IN_THREAD_TOOL,
     {

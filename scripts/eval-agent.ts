@@ -249,7 +249,7 @@ async function main(): Promise<void> {
     const configDir = join(work, "config");
     mkdirSync(folder);
     login({ configDir, serverUrl: server.url, token });
-    const projectId = await linkFolder({ folder, serverUrl: server.url, token, choose: async () => ({ create: `Eval · ${name}` }) });
+    const { projectId } = await linkFolder({ folder, servers: [{ serverUrl: server.url, token }], chooseServer: async () => { throw new Error("one server"); }, choose: async () => ({ create: `Eval · ${name}` }) });
 
     const session = await runClaude(prompt, folder, configDir, join(runDir, `${name}.jsonl`));
     const pages = (await (await fetch(`${server.url}/api/projects/${projectId}/pages`)).json()) as Page[];

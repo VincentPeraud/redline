@@ -1,4 +1,4 @@
-import type { AgentInfo, Page } from "./index.js";
+import type { AgentInfo, Page, RefusedAgent } from "./index.js";
 
 /** `GET /api/home`: everything the home screen, the Agents screen and the sidebar show. */
 export const HOME_PATH = "/api/home";
@@ -57,6 +57,7 @@ export interface HomeOverview {
   projectCount: number;
   projects: HomeProject[];
   agents: AgentOverview[];
+  refusedAgents: RefusedAgent[];
   recentPages: RecentPage[];
   work: WorkOverview[];
   /** Threads in waiting work items, all projects. */

@@ -1099,6 +1099,18 @@ export function defaultManifest(paths: string[]): Manifest {
 /** WebSocket path of the agent endpoint (outside the reverse proxy's protection; guarded by the token). */
 export const AGENT_ENDPOINT = "/agent";
 
+/** Where the server serves the CLI tarball. */
+export const CLI_TARBALL_PATH = "/cli/redline-cli.tgz";
+
+/** Header carrying the CLI's build hash on the agents' API; the server answers with `OUTDATED_HEADER` when it differs from its own. */
+export const BUILD_HASH_HEADER = "x-redline-build";
+export const OUTDATED_HEADER = "x-redline-outdated";
+
+/** Command that installs the CLI served by the server at `origin`. */
+export function cliUpdateCommand(origin: string): string {
+  return `npm i -g ${origin}${CLI_TARBALL_PATH}`;
+}
+
 /** Command printed to users whose agent is too old for the server. */
 export const AGENT_UPDATE_COMMAND = "npm i -g redline-cli@latest";
 
@@ -1128,13 +1140,15 @@ export interface AgentHello extends ModelChoice {
   kind: AgentKind;
   /** The project a project agent serves (the link recorded in its folder). */
   projectId?: string;
+  /** Hash of the CLI build the agent runs ("dev" from sources). */
+  buildHash?: string;
 }
 
 export type AgentToServerMessage = AgentHello | AgentWorkMessage;
 
 /** Messages the server sends on the agent endpoint. */
 export type ServerToAgentMessage =
-  | { type: "welcome"; agentId: string }
+  | { type: "welcome"; agentId: string; /** The agent's build differs from the server's. */ outdated?: boolean }
   | { type: "work"; item: WorkItem }
   | { type: "error"; code: "unauthorized" | "incompatible_protocol" | "bad_hello" | "unknown_project" | "project_taken"; message: string };
 
@@ -1148,6 +1162,17 @@ export interface AgentInfo extends ModelChoice {
   status: AgentStatus;
   /** ISO timestamp of the last connection or disconnection. */
   lastSeenAt: string;
+  /** Present when this connected agent runs another CLI build than the server's. */
+  outdated?: true;
+}
+
+/** An agent the server refused for its protocol; listed until it connects again. */
+export interface RefusedAgent {
+  machine: string;
+  folder: string;
+  kind: AgentKind;
+  /** ISO time of the refusal. */
+  refusedAt: string;
 }
 
 export interface AgentTokenResponse {

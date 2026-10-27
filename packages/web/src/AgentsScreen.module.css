@@ -16,6 +16,17 @@
   align-items: center;
 }
 
+.statuses {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.refused {
+  border-color: var(--color-accent-soft-border);
+}
+
 .cell {
   display: flex;
   flex-direction: column;
@@ -39,6 +50,10 @@
 
 .dotOnline {
   background: var(--color-online);
+}
+
+.dotRefused {
+  background: var(--color-accent);
 }
 
 .name {
@@ -237,4 +252,10 @@
 .servedNow {
   font-size: var(--font-size-xs);
   color: var(--color-success-text);
+}
+
+.step > .copyCommand {
+  align-self: flex-start;
+  height: 32px;
+  padding: 0 12px;
 }

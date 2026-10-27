@@ -1,18 +1,14 @@
-import { useEffect, useState } from "react";
-import { modelLabel, type AgentOverview, type AgentTokenResponse, type Settings } from "@redline/shared";
+import { useEffect, useState, type ReactNode } from "react";
+import { cliUpdateCommand, modelLabel, type AgentOverview, type AgentTokenResponse, type RefusedAgent, type Settings } from "@redline/shared";
+import { agentName } from "./agentName.js";
 import { routeHref } from "./router.js";
 import { relativeTime } from "./relativeTime.js";
 import { Button, Card, PageContent, PageHeader, SidePanel, StatusBadge, cx } from "./ui/index.js";
 import { useHome } from "./useHome.js";
 import styles from "./AgentsScreen.module.css";
 
-function maskToken(token: string): string {
-  return token.length <= 8 ? "••••" : `${token.slice(0, 4)}••••••••••${token.slice(-4)}`;
-}
-
-function agentName(agent: AgentOverview): string {
-  if (agent.kind === "global") return "global";
-  return agent.folder.split("/").filter(Boolean).pop() ?? agent.folder;
+function maskToken(token: string, dots: number): string {
+  return token.length <= 8 ? "••••" : `${token.slice(0, 4)}${"•".repeat(dots)}${token.slice(-4)}`;
 }
 
 function activity(agent: AgentOverview): { text: string; warn: boolean } {
@@ -110,10 +106,11 @@ function AgentCard({ agent }: { agent: AgentOverview }) {
           </span>
           {activityText && <span className={cx(styles.secondary, warn && styles.warn)}>{activityText}</span>}
         </div>
-        <div>
+        <div className={styles.statuses}>
           <StatusBadge tone={offline ? "neutral" : busy ? "running" : "success"} data-testid="agent-status">
             {offline ? "Hors ligne" : busy ? "Occupé" : "Libre"}
           </StatusBadge>
+          {agent.outdated && <StatusBadge tone="warning" data-testid="agent-outdated">Pas à jour</StatusBadge>}
         </div>
         {global ? (
           <Button aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -138,47 +135,82 @@ function AgentCard({ agent }: { agent: AgentOverview }) {
   );
 }
 
-function Step({ title, text, command }: { title: string; text: string; command: string }) {
+function RefusedAgentCard({ agent }: { agent: RefusedAgent }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    await navigator.clipboard.writeText(cliUpdateCommand(window.location.origin));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <Card as="article" padding="lg" className={styles.refused} data-testid="refused-agent-card">
+      <div className={styles.row}>
+        <div className={styles.cell}>
+          <div className={styles.nameLine}>
+            <span aria-hidden="true" className={cx(styles.dot, styles.dotRefused)} />
+            <span className={styles.name}>{agentName(agent)}</span>
+          </div>
+          <span className={styles.secondary}>{agent.kind === "global" ? "Agent global" : "Agent de projet"}</span>
+        </div>
+        <div className={styles.cell}>
+          <span className={styles.folder}>{agent.folder}</span>
+          <span className={styles.secondary}>
+            {agent.machine} · refusé {relativeTime(agent.refusedAt)}
+          </span>
+        </div>
+        <div className={styles.cell}>
+          <span className={styles.secondary}>Ne peut plus se connecter</span>
+        </div>
+        <div>
+          <StatusBadge tone="danger">Pas à jour · refusé</StatusBadge>
+        </div>
+        <Button onClick={copy}>{copied ? "Copié" : "Copier la commande"}</Button>
+      </div>
+    </Card>
+  );
+}
+
+function Step({ title, text, command, children }: { title: string; text: string; command: string; children?: ReactNode }) {
   return (
     <div className={styles.step}>
       <div className={styles.stepTitle}>{title}</div>
       <div className={styles.stepText}>{text}</div>
       <pre className={styles.code}>{command}</pre>
+      {children}
     </div>
   );
 }
 
-function TokenSection() {
-  const [token, setToken] = useState("");
+function useCopy(): [boolean, (text: string) => Promise<void>] {
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/agent-token")
-      .then((res) => res.json() as Promise<AgentTokenResponse>)
-      .then((body) => setToken(body.token));
-  }, []);
-
-  async function copy() {
-    await navigator.clipboard.writeText(token);
+  async function copy(text: string) {
+    await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
+  return [copied, copy];
+}
+
+function TokenSection({ token, onToken }: { token: string; onToken: (token: string) => void }) {
+  const [copied, copy] = useCopy();
 
   async function regenerate() {
     if (!window.confirm("Régénérer le jeton déconnecte tous les agents. Continuer ?")) return;
     const res = await fetch("/api/agent-token/regenerate", { method: "POST" });
-    setToken(((await res.json()) as AgentTokenResponse).token);
+    onToken(((await res.json()) as AgentTokenResponse).token);
   }
 
   return (
     <section aria-label="Jeton des agents" className={styles.token}>
       <div className={styles.stepTitle}>Jeton des agents</div>
-      <div className={styles.tokenHint}>Demandé par redline login. Le régénérer déconnecte tous les agents.</div>
+      <div className={styles.tokenHint}>Déjà inclus dans la commande ci-dessus. Le régénérer déconnecte tous les agents.</div>
       <div className={styles.tokenValue}>
-        <code data-testid="token">{token ? maskToken(token) : ""}</code>
+        <code data-testid="token">{token ? maskToken(token, 11) : ""}</code>
       </div>
       <div className={styles.tokenActions}>
-        <Button onClick={copy} disabled={!token}>
+        <Button onClick={() => void copy(token)} disabled={!token}>
           {copied ? "Copié" : "Copier"}
         </Button>
         <Button variant="danger" onClick={regenerate}>
@@ -190,6 +222,19 @@ function TokenSection() {
 }
 
 function LaunchPanel() {
+  const [token, setToken] = useState("");
+  const [copied, copy] = useCopy();
+  const origin = window.location.origin;
+
+  useEffect(() => {
+    fetch("/api/agent-token")
+      .then((res) => res.json() as Promise<AgentTokenResponse>)
+      .then((body) => setToken(body.token));
+  }, []);
+
+  const setupCommand = (shownToken: string) => `npm i -g ${origin}/cli/redline-cli.tgz && redline setup ${origin} --token ${shownToken}`;
+  const shownCommand = `npm i -g ${origin}/cli/redline-cli.tgz \\\n  && redline setup ${origin} \\\n  --token ${token ? maskToken(token, 7) : ""}`;
+
   return (
     <SidePanel label="Lancer un agent" width={360}>
       <div className={styles.panelWrap}>
@@ -197,18 +242,21 @@ function LaunchPanel() {
           <h2 className={styles.setupTitle}>Lancer un agent</h2>
           <Step
             title="Une fois par machine"
-            text="Installe la commande (Claude Code doit être installé et connecté), puis indique l'adresse du serveur et colle le jeton : ils sont enregistrés pour tous les agents de la machine."
-            command={`npm i -g redline-cli\nredline login ${window.location.origin}`}
-          />
+            text="Installe la commande depuis ce serveur, enregistre son adresse et le jeton, et ajoute Redline à Claude Code (qui doit être installé et connecté). Relance-la pour ajouter un autre serveur."
+            command={shownCommand}
+          >
+            <Button className={styles.copyCommand} onClick={() => void copy(setupCommand(token))} disabled={!token}>
+              {copied ? "Copié" : "Copier la commande"}
+            </Button>
+          </Step>
           <Step
             title="Agent de projet"
             text="Dans le dossier du projet. --model et --effort donnent les valeurs par défaut de ses fils (sinon, ta configuration Claude Code). S'il n'est lié à aucun projet, la commande te propose d'en choisir un ou d'en créer un. Les sessions auront son CLAUDE.md, son code et ses MCP."
             command={"cd ~/projets/mon-projet\nredline agent"}
           />
           <Step title="Agent global" text="N'importe où. Il prend les projets qui n'ont pas d'agent." command="redline agent --global" />
-          <Step title="Depuis ta session Claude Code" text="Une fois : Claude pilote alors Redline depuis n'importe quel dossier." command="claude mcp add redline -- redline mcp" />
           <div className={styles.spacer} />
-          <TokenSection />
+          <TokenSection token={token} onToken={setToken} />
         </div>
       </div>
     </SidePanel>
@@ -218,6 +266,7 @@ function LaunchPanel() {
 export function AgentsScreen() {
   const { home, refresh } = useHome();
   const agents = home?.agents ?? [];
+  const refused = home?.refusedAgents ?? [];
 
   return (
     <>
@@ -227,9 +276,12 @@ export function AgentsScreen() {
           subtitle="Un agent tourne sur ta machine, dans un dossier, avec le compte Claude connecté dans le terminal. C'est lui qui lance les sessions."
         />
         <section aria-label="Agents" className={styles.list}>
-          {home && agents.length === 0 && <p className={styles.empty}>Aucun agent ne s'est encore connecté.</p>}
+          {home && agents.length === 0 && refused.length === 0 && <p className={styles.empty}>Aucun agent ne s'est encore connecté.</p>}
           {agents.map((agent) => (
             <AgentCard key={agent.id} agent={agent} />
+          ))}
+          {refused.map((agent) => (
+            <RefusedAgentCard key={`${agent.machine}:${agent.folder}`} agent={agent} />
           ))}
         </section>
         <GlobalTakeoverSetting onChange={refresh} />
