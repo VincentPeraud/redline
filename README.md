@@ -62,7 +62,7 @@ The defaults are Authelia's. oauth2-proxy sends `X-Auth-Request-User`, `X-Auth-R
 
 ### CLI download
 
-The image carries the CLI as a tarball in `REDLINE_CLI_DIR` (`/app/cli`: `redline-cli.tgz` and `build-hash.txt`). The server serves it at `/cli/redline-cli.tgz` without a token (npm cannot send one; behind a proxy this is the machine route), so `npm i -g <origin>/cli/redline-cli.tgz` installs the `redline` command. `redline build-hash` prints the hash of the installed build, which equals the image's `build-hash.txt`.
+The image carries the CLI as a tarball in `REDLINE_CLI_DIR` (`/app/cli`: `redline-cli.tgz` and `build-hash.txt`). The server serves it at `/cli/redline-cli.tgz` without a token (npm cannot send one; behind a proxy this is the machine route), so `npm i -g <origin>/cli/redline-cli.tgz` installs the `redline` command. Then `redline setup <origin> --token <token>` (the Agents screen shows the full command) checks the token, stores the server and registers the Redline MCP in Claude Code at user scope. Run it again with another URL to set up several servers; a folder remembers its server, and `redline agent --global` needs `--server <url>` when there are several. `http://` is accepted only for `localhost`, `*.localhost` and `127.0.0.1`. `redline build-hash` prints the hash of the installed build, which equals the image's `build-hash.txt`.
 
 ### Behind Traefik (local)
 
@@ -71,7 +71,7 @@ With a Traefik already running on an external Docker network named `traefik` (en
 ```sh
 echo "COMPOSE_FILE=docker-compose.yml:docker-compose.traefik.yml" > .env
 docker compose up -d --build
-redline login http://redline.localhost
+redline setup http://redline.localhost --token <token>
 ```
 
 `REDLINE_HOST_NAME` and `REDLINE_ARTBOARD_HOST` change the two host names. The loopback ports stay published, so `http://localhost:3000` keeps working.

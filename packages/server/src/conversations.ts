@@ -8,6 +8,7 @@ import {
   type CreateConversationRequest,
   type MessageContext,
   type ModelChoice,
+  type Person,
   type ThreadTarget,
   type ServerEvent,
   type WorkItem,
@@ -17,6 +18,7 @@ import { canvasElementText } from "./canvas-element-text.js";
 import { cellSeenText, elementText, renderingText } from "./thread-subject.js";
 import { contextOf, usageContext } from "./context.js";
 import { definedChoice, isMessageContext, modelChoiceError, modelChoiceOf, requiredString } from "./validation.js";
+import { viewerOf } from "./identity.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -24,7 +26,7 @@ export type SendConversationMessage = (
   conversation: Conversation,
   body: string,
   choice: ModelChoice,
-  options?: { context?: MessageContext; extraContext?: string; projectId?: string; brief?: boolean },
+  options?: { context?: MessageContext; extraContext?: string; projectId?: string; brief?: boolean; person?: Person },
 ) => ConversationMessage;
 
 /** The message Claude receives for a conversation message; every message says which page is shown. */
@@ -187,7 +189,7 @@ export function registerConversationRoutes(
   /** Stores a user message and dispatches it; `extraContext` goes to Claude with it without being stored, and `projectId` overrides the project whose agent serves it. */
   const sendMessage: SendConversationMessage = (conversation, body, choice, options = {}) => {
     const previous = store.conversationMessages(conversation.id);
-    const message = store.addConversationMessage(conversation.id, "user", body, choice, [], options.context?.targets)!;
+    const message = store.addConversationMessage(conversation.id, "user", body, choice, [], options.context?.targets, options.person)!;
     const page = store.getPage(conversation.pageId)!;
     dispatch(
       conversation,
@@ -213,10 +215,10 @@ export function registerConversationRoutes(
       return reply.code(400).send({ error: "title must be a non-empty string" });
     }
     const first = !store.projectHasConversation(page.projectId);
-    const conversation = store.createConversation(page.id, title ?? "Nouvelle conversation");
+    const conversation = store.createConversation(page.id, title ?? "Nouvelle conversation", viewerOf(req));
     const instructions = store.getProject(page.projectId)?.instructions ?? "";
     // The project's brief opens its first conversation: it is sent now, with a short acknowledgement asked back.
-    if (first && instructions.trim() !== "") sendMessage(conversation, instructions, {}, { brief: true });
+    if (first && instructions.trim() !== "") sendMessage(conversation, instructions, {}, { brief: true, person: viewerOf(req) });
     return reply.code(201).send(detail(conversation));
   });
 
@@ -241,7 +243,7 @@ export function registerConversationRoutes(
       const invalidChoice = modelChoiceError(req.body);
       if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
       if (req.body.context !== undefined && !isMessageContext(req.body.context)) return reply.code(400).send({ error: "context is malformed" });
-      const message = sendMessage(conversation, body, modelChoiceOf(req.body), { context: req.body.context });
+      const message = sendMessage(conversation, body, modelChoiceOf(req.body), { context: req.body.context, person: viewerOf(req) });
       return reply.code(201).send(message);
     },
   );

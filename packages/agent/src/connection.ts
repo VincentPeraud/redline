@@ -1,3 +1,4 @@
+import { buildHash as ownBuildHash } from "./build-hash.js";
 import {
   AGENT_ENDPOINT,
   AgentCloseCode,
@@ -22,12 +23,16 @@ export interface ConnectOptions {
   effort?: Effort;
   /** Overridable for tests; defaults to this build's protocol version. */
   protocolVersion?: number;
+  /** Overridable for tests; defaults to the hash of this CLI build. */
+  buildHash?: string;
   /** Called for every message after the welcome (work items). */
   onMessage?(message: ServerToAgentMessage): void;
 }
 
 export interface AgentConnection {
   agentId: string;
+  /** The server runs another CLI build than this one. */
+  outdated: boolean;
   /** Resolves when the connection ends; `unauthorized` means the token is no longer valid. */
   closed: Promise<{ reason: "unauthorized" | "closed" }>;
   send(message: AgentToServerMessage): void;
@@ -59,6 +64,7 @@ export function connectToServer(options: ConnectOptions): Promise<AgentConnectio
         projectId: options.projectId,
         model: options.model,
         effort: options.effort,
+        buildHash: options.buildHash ?? ownBuildHash(),
       };
       socket.send(JSON.stringify(hello));
     });
@@ -66,7 +72,7 @@ export function connectToServer(options: ConnectOptions): Promise<AgentConnectio
       const message = JSON.parse(String(event.data)) as ServerToAgentMessage;
       if (message.type === "error") return reject(new Error(message.message));
       if (message.type === "welcome") {
-        resolve({ agentId: message.agentId, closed, send: (m) => socket.send(JSON.stringify(m)), close: () => socket.close() });
+        resolve({ agentId: message.agentId, outdated: message.outdated === true, closed, send: (m) => socket.send(JSON.stringify(m)), close: () => socket.close() });
       } else options.onMessage?.(message);
     });
   });

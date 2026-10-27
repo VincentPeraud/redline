@@ -92,6 +92,8 @@ it("lists the artboards in reading order under their groups, filters, and centre
   await menu.getByRole("menuitem", { name: /Paiement/ }).click();
   await menu.waitFor({ state: "detached" });
   const canvas = await box(tab.getByTestId("canvas"));
+  // The canvas glides to the artboard: measure once it has landed.
+  await expect.poll(async () => Math.round((await box(tab.locator('iframe[title$="payment.html"]'))).width)).toBe(300);
   const payment = await box(tab.locator('iframe[title$="payment.html"]'));
   // Zoomed to frame the artboard (here 100 %, the cap), not left at the page's fit zoom.
   expect(payment.width).toBeCloseTo(300, 0);

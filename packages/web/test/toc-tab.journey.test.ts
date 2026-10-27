@@ -83,8 +83,14 @@ it("shows the table of contents in a side tab that highlights the centred artboa
 
   await lines.nth(1).click();
   await expect.poll(async () => current.allTextContents()).toEqual(["2Spécialitéspecialite.html1 fil"]);
-  const specialite = await box(tab.locator('iframe[title$="specialite.html"]'));
   const after = await box(tab.getByTestId("canvas"));
+  // The canvas glides to the artboard: measure once it has landed.
+  const centreOffset = async () => {
+    const frame = await box(tab.locator('iframe[title$="specialite.html"]'));
+    return Math.abs(frame.x + frame.width / 2 - (after.x + after.width / 2)) + Math.abs(frame.y + frame.height / 2 - (after.y + after.height / 2));
+  };
+  await expect.poll(centreOffset).toBeLessThan(1);
+  const specialite = await box(tab.locator('iframe[title$="specialite.html"]'));
   expect(specialite.x + specialite.width / 2).toBeCloseTo(after.x + after.width / 2, 0);
   expect(specialite.y + specialite.height / 2).toBeCloseTo(after.y + after.height / 2, 0);
   expect(tab.url()).toBe(urlBefore);

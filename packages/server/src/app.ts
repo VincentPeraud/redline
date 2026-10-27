@@ -37,6 +37,7 @@ import {
   type MoveArtboardRequest,
   type UpdatePageRequest,
   type UpdateProjectRequest,
+  CLI_TARBALL_PATH,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import type { Store } from "./store.js";
@@ -57,8 +58,8 @@ import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
 import { registerGapRoutes } from "./gaps.js";
-import { registerIdentity, type IdentityConfig } from "./identity.js";
-import { CLI_TARBALL_PATH, type CliBuild } from "./cli-build.js";
+import { registerIdentity, viewerOf, type IdentityConfig } from "./identity.js";
+import { type CliBuild } from "./cli-build.js";
 import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
 import { registerRequestHardening } from "./request-hardening.js";
 import { announceDiffusion, registerDesignSystemReload } from "./design-system-reload.js";
@@ -124,6 +125,7 @@ export async function buildMainApp(
   registerHealthRoute(app);
   registerIdentity(app, store, options.proxySecrets, options.identity);
   const { cliBuild } = options;
+  store.setServerBuildHash(cliBuild?.hash);
   if (cliBuild) {
     app.get(CLI_TARBALL_PATH, async (_req, reply) =>
       reply.type("application/gzip").header("content-disposition", 'attachment; filename="redline-cli.tgz"').send(createReadStream(cliBuild.tarballPath)),
@@ -348,12 +350,13 @@ export async function buildMainApp(
     const designSystem = store.createDesignSystem(title, files);
     const brief = instructions?.trim() ?? "";
     if (source || brief !== "") {
-      const conversation = store.createConversation(designSystem.pageId, "Création du design system");
+      const conversation = store.createConversation(designSystem.pageId, "Création du design system", viewerOf(req));
       const body = brief !== "" ? brief : `Derive this design system from the pages of the project "${source!.title}".`;
       // The source project's agent serves the run: it has the project's code.
       sendMessage(conversation, body, modelChoiceOf({ model, effort }), {
         projectId: source?.id,
         extraContext: source && sourcePagesMessage(store, source),
+        person: viewerOf(req),
       });
     }
     return reply.code(201).send(designSystem);
@@ -428,7 +431,7 @@ export async function buildMainApp(
       if ("target" in request && request.target.kind === "canvas-element" && !store.canvasElement(req.params.pageId, request.target.elementId)) {
         return reply.code(400).send({ error: "element is not on the page's canvas" });
       }
-      const thread = store.createThread(req.params.pageId, request);
+      const thread = store.createThread(req.params.pageId, request, viewerOf(req));
       if (thread.status === "held") return reply.code(201).send(thread);
       dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(request));
       return reply.code(201).send(thread);
@@ -448,7 +451,7 @@ export async function buildMainApp(
     if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
     const invalidChoice = modelChoiceError(req.body);
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
-    const message = store.addReply(thread.id, body, "user")!;
+    const message = store.addReply(thread.id, body, "user", [], viewerOf(req))!;
     dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body));
     return reply.code(201).send(message);
   });

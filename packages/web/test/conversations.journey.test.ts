@@ -45,7 +45,7 @@ it("creates a conversation, talks to Claude with model and effort, shows the ses
   await engine.finished(1);
   await expect.poll(() => panel.getByTestId("conversation-message").allTextContents()).toEqual([
     "Add an error screen",
-    "Claude — Added the error screen",
+    "ClaudeAdded the error screen",
   ]);
   expect(engine.runs[0].message).toContain(page.id);
   await expect.poll(() => panel.getByTestId("conversation-session").textContent()).toBe("opus · high · 80 %");

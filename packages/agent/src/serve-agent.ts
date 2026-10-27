@@ -1,9 +1,10 @@
+import { cliUpdateCommand } from "@redline/shared";
 import { startAgent, type AgentOptions } from "./agent.js";
 import { ServerUnreachableError } from "./connection.js";
 
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10_000, 30_000];
 
-export interface ServeAgentOptions extends AgentOptions {
+export interface ServeAgentOptions extends Omit<AgentOptions, "onUpdated"> {
   /** Waits between attempts while the server is unreachable or the connection was lost; the last one repeats. */
   reconnectDelaysMs?: number[];
   /** Progress messages ("Connected...", "Connection lost, retrying..."). */
@@ -13,8 +14,11 @@ export interface ServeAgentOptions extends AgentOptions {
 export interface AgentService {
   /** Closes the connection and stops retrying. */
   stop(): void;
-  /** Resolves after `stop()`; rejects when the server refuses the agent (wrong token, incompatible protocol, unknown project...). */
-  done: Promise<void>;
+  /**
+   * Resolves after `stop()`, or once an update was installed (`updated`: the caller exits so that its supervisor relaunches it);
+   * rejects when the server refuses the agent (wrong token, incompatible protocol, unknown project...).
+   */
+  done: Promise<{ updated: boolean }>;
 }
 
 /**
@@ -23,6 +27,7 @@ export interface AgentService {
  */
 export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () => undefined, ...options }: ServeAgentOptions): AgentService {
   let stopped = false;
+  let updated = false;
   let wake: () => void = () => undefined;
   let current: { close(): void } | undefined;
 
@@ -35,29 +40,41 @@ export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () =
       };
     });
 
-  async function run(): Promise<void> {
+  async function run(): Promise<{ updated: boolean }> {
     let failures = 0;
+    let warnedOutdated = false;
     while (!stopped) {
       try {
-        const connection = await startAgent(options);
+        const connection = await startAgent({
+          ...options,
+          onUpdated() {
+            updated = true;
+            service.stop();
+          },
+        });
         current = connection;
         failures = 0;
         log(`Connected to ${options.serverUrl} as ${options.kind} agent in ${options.folder}. Ctrl-C to stop.`);
+        if (connection.outdated && !warnedOutdated) {
+          warnedOutdated = true;
+          log(`This agent is not up to date. Update it with: ${cliUpdateCommand(options.serverUrl)}`);
+        }
         const { reason } = await connection.closed;
         if (reason === "unauthorized") throw new Error("The token was regenerated. Run `redline login <server-url>` again.");
-        if (stopped) return;
+        if (stopped) return { updated };
         log("Connection lost, retrying...");
       } catch (error) {
         if (!(error instanceof ServerUnreachableError)) throw error;
         log(`${error.message} Retrying...`);
       }
-      if (stopped) return;
+      if (stopped) return { updated };
       await pause(reconnectDelaysMs[Math.min(failures, reconnectDelaysMs.length - 1)]);
       failures += 1;
     }
+    return { updated };
   }
 
-  return {
+  const service: AgentService = {
     stop() {
       stopped = true;
       current?.close();
@@ -65,4 +82,5 @@ export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () =
     },
     done: run(),
   };
+  return service;
 }

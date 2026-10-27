@@ -37,8 +37,8 @@ export function registerSessionRoutes(
       if (!thread) return undefined;
       const session = store.getThreadSession(thread.id);
       const messages: SessionMessage[] = [
-        { author: "user", body: thread.body, createdAt: origin.createdAt },
-        ...thread.replies.map((r): SessionMessage => ({ author: r.author, body: r.body, createdAt: r.createdAt })),
+        { author: "user", ...(thread.person ? { person: thread.person } : {}), body: thread.body, createdAt: origin.createdAt },
+        ...thread.replies.map((r): SessionMessage => ({ author: r.author, ...(r.person ? { person: r.person } : {}), body: r.body, createdAt: r.createdAt })),
       ];
       const idleStatus: SessionStatus =
         thread.status === "resolved"
@@ -67,7 +67,7 @@ export function registerSessionRoutes(
     const context = store.getConversationContext(conversation.id);
     const stored = store.conversationMessages(conversation.id);
     const lastUser = [...stored].reverse().find((m) => m.author === "user");
-    const messages = stored.map((m): SessionMessage => ({ author: m.author, body: m.body, createdAt: m.createdAt }));
+    const messages = stored.map((m): SessionMessage => ({ author: m.author, ...(m.person ? { person: m.person } : {}), body: m.body, createdAt: m.createdAt }));
     const idleStatus: SessionStatus = conversation.archived
       ? "archived"
       : stored.some((m) => m.author === "claude")

@@ -99,6 +99,7 @@ export async function startTestServer(options: { webDir?: string; cliDir?: strin
         projectId: options.projectId,
         model: options.model,
         effort: options.effort,
+        buildHash: options.buildHash,
       };
       socket.send(JSON.stringify(message));
       return { hello, messages, send: (m) => socket.send(JSON.stringify(m)), closed, close: () => socket.close() };
