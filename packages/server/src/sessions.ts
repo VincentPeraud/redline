@@ -125,6 +125,7 @@ export function registerSessionRoutes(
       pageTitle: origin.pageTitle,
       status,
       activityAt: d.activityAt,
+      ...(d.messages[0]?.person ? { startedBy: d.messages[0].person } : {}),
       ...(agent ? { agent: { id: agent.id, machine: agent.machine, folder: agent.folder, kind: agent.kind } } : {}),
       ...(d.sessionId ? { sessionId: d.sessionId } : {}),
       ...(d.model ? { model: d.model } : {}),
