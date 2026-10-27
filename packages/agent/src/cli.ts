@@ -7,20 +7,45 @@ import { buildHash } from "./build-hash.js";
 import { checkClaude } from "./claude.js";
 import { claudeCodeEngine } from "./claude-code-engine.js";
 import { chooseModelEffort } from "./launch-choice.js";
-import { linkFolder, type LinkChoice } from "./link.js";
-import { defaultConfigDir, login, readLogin } from "./login.js";
+import { linkFolder, serverForFolder, type LinkChoice } from "./link.js";
+import { defaultConfigDir, pickServer, requireLogins, saveLogin, validateServerUrl, type Login } from "./login.js";
 import { askSecret } from "./secret-prompt.js";
 import { ServerApi } from "./server-api.js";
 import { serveAgent } from "./serve-agent.js";
+import { setupServer } from "./setup.js";
 import { RELAUNCHED_ENV, UPDATE_EXIT_CODE, WORKER_ENV, superviseAgent } from "./supervisor.js";
 import { serveTerminalMcp } from "./terminal-mcp.js";
 
+async function runSetup(args: string[]): Promise<void> {
+  const serverUrl = args[0]?.startsWith("--") ? undefined : args[0];
+  if (!serverUrl) throw new Error("Usage: redline setup <server-url> --token <token>");
+  const token = flagValue(args, "--token") ?? (await askSecret("Agents' token (shown on the Agents screen): "));
+  await setupServer({ configDir: defaultConfigDir(), serverUrl, token });
+  console.log("Server saved and Redline registered in Claude Code. Run `redline agent` in a project folder to connect.");
+}
+
+/** Interactive alias of `redline setup`: asks for the token and only stores the server. */
 async function runLogin(serverUrl: string | undefined): Promise<void> {
   if (!serverUrl) throw new Error("Usage: redline login <server-url>");
+  const url = validateServerUrl(serverUrl);
   const token = (await askSecret("Agents' token (shown on the Agents screen): ")).trim();
   if (!token) throw new Error("A token is required.");
-  login({ configDir: defaultConfigDir(), serverUrl, token });
+  saveLogin({ configDir: defaultConfigDir(), serverUrl: url, token });
   console.log("Saved. Run `redline agent` in a project folder to connect.");
+}
+
+async function askServer(servers: Login[]): Promise<Login> {
+  console.log("Several servers are set up.");
+  servers.forEach((server, index) => console.log(`  ${index + 1}. ${server.serverUrl}`));
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    for (;;) {
+      const picked = servers[Number((await rl.question("Pick a server: ")).trim()) - 1];
+      if (picked) return picked;
+    }
+  } finally {
+    rl.close();
+  }
 }
 
 async function askLinkChoice(projects: Project[]): Promise<LinkChoice> {
@@ -44,8 +69,8 @@ async function askLinkChoice(projects: Project[]): Promise<LinkChoice> {
 }
 
 async function runInit(): Promise<void> {
-  const { serverUrl, token } = readLogin(defaultConfigDir());
-  await linkFolder({ folder: process.cwd(), serverUrl, token, choose: askLinkChoice });
+  const servers = requireLogins(defaultConfigDir());
+  await linkFolder({ folder: process.cwd(), servers, chooseServer: askServer, choose: askLinkChoice });
   console.log("Folder linked. Run `redline agent` to start serving it.");
 }
 
@@ -77,10 +102,16 @@ async function askModelEffort(folder: string, flags: ModelChoice) {
 async function runAgent(args: string[]): Promise<void> {
   const flags = { model: flagValue(args, "--model"), effort: parseEffort(flagValue(args, "--effort")) };
   await checkClaude();
-  const { serverUrl, token } = readLogin(defaultConfigDir());
+  const servers = requireLogins(defaultConfigDir());
   const kind = args.includes("--global") ? "global" : "project";
   const folder = process.cwd();
-  const projectId = kind === "project" ? await linkFolder({ folder, serverUrl, token, choose: askLinkChoice }) : undefined;
+  let server: Login;
+  let projectId: string | undefined;
+  if (kind === "global") server = pickServer(servers, flagValue(args, "--server"));
+  else {
+      ({ projectId, server } = await linkFolder({ folder, servers, chooseServer: askServer, choose: askLinkChoice }));
+  }
+  const { serverUrl, token } = server;
   const { model, effort } = await askModelEffort(folder, flags);
   console.log(`Runs use ${modelLabel(model)} · ${effort ?? "Claude's default effort"}.`);
   const identity = { serverUrl, token, machine: hostname(), folder, kind, projectId } as const;
@@ -100,20 +131,21 @@ async function superviseOrRunAgent(args: string[]): Promise<void> {
   process.exitCode = await superviseAgent({ command: process.execPath, args: [process.argv[1], "agent", ...args], log: console.log });
 }
 
-/** Terminal mode: an MCP server on stdio for the user's own Claude Code (`claude mcp add redline -- redline mcp`). */
+/** Terminal mode: an MCP server on stdio for the user's own Claude Code (registered by `redline setup`). */
 async function runMcp(): Promise<void> {
-  const { serverUrl, token } = readLogin(defaultConfigDir());
+  const { serverUrl, token } = serverForFolder(process.cwd(), requireLogins(defaultConfigDir()));
   await serveTerminalMcp({ api: new ServerApi(serverUrl, token), folder: process.cwd() });
 }
 
 const [command, ...args] = process.argv.slice(2);
 try {
-  if (command === "login") await runLogin(args[0]);
+  if (command === "setup") await runSetup(args);
+  else if (command === "login") await runLogin(args[0]);
   else if (command === "init") await runInit();
   else if (command === "agent") await superviseOrRunAgent(args);
   else if (command === "mcp") await runMcp();
   else if (command === "build-hash") console.log(buildHash());
-  else throw new Error("Usage: redline login <server-url> | redline init | redline mcp | redline agent [--global] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
+  else throw new Error("Usage: redline setup <server-url> --token <token> | redline login <server-url> | redline init | redline mcp | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
 } catch (error) {
   console.error((error as Error).message);
   process.exit(1);

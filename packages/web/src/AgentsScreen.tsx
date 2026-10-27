@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { cliUpdateCommand, modelLabel, type AgentOverview, type AgentTokenResponse, type RefusedAgent, type Settings } from "@redline/shared";
 import { agentName } from "./agentName.js";
 import { routeHref } from "./router.js";
@@ -7,8 +7,8 @@ import { Button, Card, PageContent, PageHeader, SidePanel, StatusBadge, cx } fro
 import { useHome } from "./useHome.js";
 import styles from "./AgentsScreen.module.css";
 
-function maskToken(token: string): string {
-  return token.length <= 8 ? "••••" : `${token.slice(0, 4)}••••••••••${token.slice(-4)}`;
+function maskToken(token: string, dots: number): string {
+  return token.length <= 8 ? "••••" : `${token.slice(0, 4)}${"•".repeat(dots)}${token.slice(-4)}`;
 }
 
 function activity(agent: AgentOverview): { text: string; warn: boolean } {
@@ -188,47 +188,45 @@ function RefusedAgentCard({ agent }: { agent: RefusedAgent }) {
   );
 }
 
-function Step({ title, text, command }: { title: string; text: string; command: string }) {
+function Step({ title, text, command, children }: { title: string; text: string; command: string; children?: ReactNode }) {
   return (
     <div className={styles.step}>
       <div className={styles.stepTitle}>{title}</div>
       <div className={styles.stepText}>{text}</div>
       <pre className={styles.code}>{command}</pre>
+      {children}
     </div>
   );
 }
 
-function TokenSection() {
-  const [token, setToken] = useState("");
+function useCopy(): [boolean, (text: string) => Promise<void>] {
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/agent-token")
-      .then((res) => res.json() as Promise<AgentTokenResponse>)
-      .then((body) => setToken(body.token));
-  }, []);
-
-  async function copy() {
-    await navigator.clipboard.writeText(token);
+  async function copy(text: string) {
+    await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
+  return [copied, copy];
+}
+
+function TokenSection({ token, onToken }: { token: string; onToken: (token: string) => void }) {
+  const [copied, copy] = useCopy();
 
   async function regenerate() {
     if (!window.confirm("Régénérer le jeton déconnecte tous les agents. Continuer ?")) return;
     const res = await fetch("/api/agent-token/regenerate", { method: "POST" });
-    setToken(((await res.json()) as AgentTokenResponse).token);
+    onToken(((await res.json()) as AgentTokenResponse).token);
   }
 
   return (
     <section aria-label="Jeton des agents" className={styles.token}>
       <div className={styles.stepTitle}>Jeton des agents</div>
-      <div className={styles.tokenHint}>Demandé par redline login. Le régénérer déconnecte tous les agents.</div>
+      <div className={styles.tokenHint}>Déjà inclus dans la commande ci-dessus. Le régénérer déconnecte tous les agents.</div>
       <div className={styles.tokenValue}>
-        <code data-testid="token">{token ? maskToken(token) : ""}</code>
+        <code data-testid="token">{token ? maskToken(token, 11) : ""}</code>
       </div>
       <div className={styles.tokenActions}>
-        <Button onClick={copy} disabled={!token}>
+        <Button onClick={() => void copy(token)} disabled={!token}>
           {copied ? "Copié" : "Copier"}
         </Button>
         <Button variant="danger" onClick={regenerate}>
@@ -240,6 +238,19 @@ function TokenSection() {
 }
 
 function LaunchPanel() {
+  const [token, setToken] = useState("");
+  const [copied, copy] = useCopy();
+  const origin = window.location.origin;
+
+  useEffect(() => {
+    fetch("/api/agent-token")
+      .then((res) => res.json() as Promise<AgentTokenResponse>)
+      .then((body) => setToken(body.token));
+  }, []);
+
+  const setupCommand = (shownToken: string) => `npm i -g ${origin}/cli/redline-cli.tgz && redline setup ${origin} --token ${shownToken}`;
+  const shownCommand = `npm i -g ${origin}/cli/redline-cli.tgz \\\n  && redline setup ${origin} \\\n  --token ${token ? maskToken(token, 7) : ""}`;
+
   return (
     <SidePanel label="Lancer un agent" width={360}>
       <div className={styles.panelWrap}>
@@ -247,18 +258,21 @@ function LaunchPanel() {
           <h2 className={styles.setupTitle}>Lancer un agent</h2>
           <Step
             title="Une fois par machine"
-            text="Installe la commande (Claude Code doit être installé et connecté), puis indique l'adresse du serveur et colle le jeton : ils sont enregistrés pour tous les agents de la machine."
-            command={`${cliUpdateCommand(window.location.origin)}\nredline login ${window.location.origin}`}
-          />
+            text="Installe la commande depuis ce serveur, enregistre son adresse et le jeton, et ajoute Redline à Claude Code (qui doit être installé et connecté). Relance-la pour ajouter un autre serveur."
+            command={shownCommand}
+          >
+            <Button className={styles.copyCommand} onClick={() => void copy(setupCommand(token))} disabled={!token}>
+              {copied ? "Copié" : "Copier la commande"}
+            </Button>
+          </Step>
           <Step
             title="Agent de projet"
             text="Dans le dossier du projet. --model et --effort donnent les valeurs par défaut de ses fils (sinon, ta configuration Claude Code). S'il n'est lié à aucun projet, la commande te propose d'en choisir un ou d'en créer un. Les sessions auront son CLAUDE.md, son code et ses MCP."
             command={"cd ~/projets/mon-projet\nredline agent"}
           />
           <Step title="Agent global" text="N'importe où. Il prend les projets qui n'ont pas d'agent." command="redline agent --global" />
-          <Step title="Depuis ta session Claude Code" text="Une fois : Claude pilote alors Redline depuis n'importe quel dossier." command="claude mcp add redline -- redline mcp" />
           <div className={styles.spacer} />
-          <TokenSection />
+          <TokenSection token={token} onToken={setToken} />
         </div>
       </div>
     </SidePanel>
