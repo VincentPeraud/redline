@@ -14,6 +14,8 @@ import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from 
 import { contextChips } from "./messageContext.js";
 import { workQueueLabel } from "./queueLabel.js";
 import { CreatedPageCards } from "./CreatedPageCards.js";
+import { MessageAuthor } from "./MessageAuthor.js";
+import { usePersonLabel } from "./useMe.js";
 import { PendingDiffusionCard } from "./PendingDiffusionCard.js";
 import { activityLabel } from "./sessionsView.js";
 import { RunProgress } from "./RunProgress.js";
@@ -88,6 +90,7 @@ interface Props {
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
 export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, focusedConversation, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
+  const personLabel = usePersonLabel();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   /** `activeId` as of now, not as of the last render: a message sent right after another one must land in the conversation just created. */
@@ -261,7 +264,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
                 >
                   <span className={styles.optionTitle}>{c.title}</span>
                   <span className={styles.optionMeta}>
-                    {c.exchangeCount} {c.exchangeCount === 1 ? "échange" : "échanges"} · {activityLabel(c.lastActivityAt)}
+                    {[personLabel(c.startedBy, "history"), `${c.exchangeCount} ${c.exchangeCount === 1 ? "échange" : "échanges"}`, activityLabel(c.lastActivityAt)].filter(Boolean).join(" · ")}
                   </span>
                 </button>
                 <Tooltip label={`Supprimer la conversation ${c.title}`}>
@@ -299,6 +302,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
                     ))}
                   </div>
                 )}
+                <MessageAuthor person={m.person} bubble />
                 <div data-testid="conversation-message" className={styles.userBubble}>
                   {m.body}
                 </div>
@@ -306,7 +310,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
             ) : (
               <Fragment key={m.id}>
                 <div data-testid="conversation-message" className={styles.claudeMessage}>
-                  <span className={styles.author}>Claude</span> —{" "}
+                  <MessageAuthor claude />
                   {splitMessageLinks(m.body, window.location.origin).map((segment, i) =>
                     segment.kind === "text" ? (
                       <Fragment key={i}>{segment.text}</Fragment>

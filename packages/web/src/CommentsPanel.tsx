@@ -4,6 +4,7 @@ import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
 import { RemovedTag } from "./RemovedTag.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
+import { MessageAuthor } from "./MessageAuthor.js";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
 import { RenderingChip } from "./RenderingChip.js";
 import { queueLabel } from "./queueLabel.js";
@@ -75,12 +76,14 @@ function ThreadCard({
   const messages = (
     <>
       <div className={styles.message}>
-        <span className={styles.author}>Toi</span> — {thread.body}
+        <MessageAuthor person={thread.person} />
+        {thread.body}
       </div>
       {thread.replies.map((reply) => (
         <Fragment key={reply.id}>
           <div data-testid="reply" className={cx(styles.message, reply.author === "claude" && styles.claudeReply)}>
-            <span className={styles.author}>{reply.author === "user" ? "Toi" : "Claude"}</span> — {reply.body}
+            {reply.author === "user" ? <MessageAuthor person={reply.person} /> : <MessageAuthor claude />}
+            {reply.body}
           </div>
           <CreatedPageCards pages={reply.createdPages} />
         </Fragment>

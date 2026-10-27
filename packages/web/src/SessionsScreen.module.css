@@ -96,10 +96,6 @@
   line-height: 1.5;
 }
 
-.message b {
-  font-weight: var(--font-weight-semibold);
-}
-
 .fromUser {
   align-self: flex-end;
   background: var(--color-surface-muted);
