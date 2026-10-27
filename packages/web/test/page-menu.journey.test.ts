@@ -58,3 +58,18 @@ it("lists the project's pages even when their open thread counts are slow or fai
   releaseSlow();
   await expect.poll(() => menu.getByRole("menuitem", { name: /^Sortie/ }).innerText()).toContain("1 fil");
 }, 60_000);
+
+it("opens a single server events stream per tab, so the browser's six connections per host stay free for the page's requests", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Flux" })).json()) as { id: string };
+  const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Accueil", files })).json()) as { id: string };
+
+  const tab = await context.newPage();
+  const streams: string[] = [];
+  tab.on("request", (request) => request.url().endsWith("/api/events") && streams.push(request.url()));
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  await tab.getByRole("button", { name: "Accueil" }).first().click();
+  await expect.poll(() => tab.getByRole("menu", { name: "Pages du projet Flux" }).getByRole("menuitem").count()).toBeGreaterThan(0);
+  await tab.waitForTimeout(500);
+
+  expect(streams).toHaveLength(1);
+}, 60_000);
