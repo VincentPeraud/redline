@@ -18,9 +18,7 @@ import {
   type ManifestTitleElement,
   type ManifestTweak,
   type ProjectComponentInfo,
-  PROJECT_STYLE_STARTS,
   type ProjectDesignSystem,
-  type ProjectStyleStart,
   type ProjectStyleToken,
   type PromoteProjectStyleRequest,
   type SetProjectTokenRequest,
@@ -124,13 +122,10 @@ function assetsUsedBy(store: Store, projectId: string, components: Record<string
   return assets;
 }
 
-/** Error message when `designSystem` / `startFrom` is not a valid change for the project (shared by `/api` and `/agent-api`), else null. */
-export function designSystemChangeError(store: Store, projectId: string, designSystem: unknown, startFrom: unknown): string | null {
+/** Error message when `designSystem` is not a valid change for the project (shared by `/api` and `/agent-api`), else null. */
+export function designSystemChangeError(store: Store, designSystem: unknown): string | null {
   if (designSystem !== null && (typeof designSystem !== "string" || !store.getDesignSystem(designSystem))) {
     return "designSystem must be the id of an existing design system, or null for none";
-  }
-  if (designSystem === null && store.getProject(projectId)!.designSystem !== null && !PROJECT_STYLE_STARTS.includes(startFrom as ProjectStyleStart)) {
-    return 'startFrom is required to leave a shared design system for none: "design-system" or "neutral"';
   }
   return null;
 }
@@ -167,9 +162,9 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     const { projectId } = req.params;
     if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
     const designSystem = req.body?.designSystem ?? null;
-    const invalid = designSystemChangeError(store, projectId, designSystem, req.body?.startFrom);
+    const invalid = designSystemChangeError(store, designSystem);
     if (invalid) return reply.code(400).send({ error: invalid });
-    store.setProjectDesignSystem(projectId, designSystem, "user", req.body?.startFrom);
+    store.setProjectDesignSystem(projectId, designSystem, "user");
     return projectDesignSystem(store, projectId);
   });
 

@@ -130,7 +130,7 @@ it("lists the whole style of a project without a shared design system", async ()
   await tab.close();
 });
 
-it("leaving the design system for 'Aucun' asks where the style starts: Annuler changes nothing, the design system's values keep what is on screen", async () => {
+it("leaving the design system for 'Aucun' applies at once, with no dialog, and the page shows the kept values", async () => {
   const { project } = await seed();
   await fetch(`${server.url}/api/projects/${project.id}/project-style/tokens/--radius`, {
     method: "PUT",
@@ -138,48 +138,23 @@ it("leaving the design system for 'Aucun' asks where the style starts: Annuler c
     body: JSON.stringify({ value: "20px" }),
   });
   const before = (await detail(project)).tokens.map((t) => [t.name, t.value]);
-  const tab = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await tab.goto(`${server.url}/#/projects/${project.id}/design-system`);
   await tab.getByTestId("token---radius").waitFor();
   const select = tab.getByLabel("Design system", { exact: true });
 
   await select.selectOption("none");
-  const dialog = tab.getByRole("dialog", { name: "Style propre au projet" });
-  await dialog.waitFor();
-  await dialog.getByRole("button", { name: "Annuler" }).click();
-  await dialog.waitFor({ state: "detached" });
-  expect((await detail(project)).designSystem?.title).toBe("Lumora");
-  expect(await select.inputValue()).not.toBe("none");
-
-  await select.selectOption("none");
-  await dialog.getByRole("button", { name: "Partir des valeurs de Lumora" }).click();
   await tab.getByText("Ce style n'est pas partagé").waitFor();
+  expect(await tab.getByRole("dialog").count()).toBe(0);
   const after = await detail(project);
   expect(after.designSystem).toBeNull();
   expect(after.tokens.map((t) => [t.name, t.value])).toEqual(before);
+  expect(await tab.getByTestId("token---radius").getByLabel("Valeur de --radius").inputValue()).toBe("20px");
+  await tab.screenshot({ path: process.env.NNS_SCREENSHOT ?? join(tmpdir(), "nns-03-project-style.png") });
 
   await select.selectOption({ label: "Lumora" });
   await tab.getByText("Diffusion 1 du").waitFor();
   expect((await detail(project)).designSystem?.title).toBe("Lumora");
-  await tab.close();
-});
-
-it("starts the own style from the neutral values, keeping the overrides", async () => {
-  const { project } = await seed();
-  await fetch(`${server.url}/api/projects/${project.id}/project-style/tokens/--radius`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ value: "20px" }),
-  });
-  const tab = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
-  await tab.goto(`${server.url}/#/projects/${project.id}/design-system`);
-  await tab.getByTestId("token---radius").waitFor();
-  await tab.getByLabel("Design system", { exact: true }).selectOption("none");
-  await tab.getByRole("dialog", { name: "Style propre au projet" }).getByRole("button", { name: "Partir des valeurs neutres" }).click();
-  await tab.getByText("Ce style n'est pas partagé").waitFor();
-  const tokens = (await detail(project)).tokens;
-  expect(tokens.find((t) => t.name === "--radius")?.value).toBe("20px");
-  expect(tokens.find((t) => t.name === "--color-primary")?.value).not.toBe("#f25c2a");
   await tab.close();
 });
 

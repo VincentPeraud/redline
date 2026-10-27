@@ -16,7 +16,6 @@ import {
   starterDesignSystemFiles,
   starterPageFiles,
   type AgentDesignSystem,
-  type ProjectStyleStart,
 } from "@redline/shared";
 import { manifestTitleError, mergeOntoCurrent } from "./publish.js";
 import { agentGaps } from "./gaps.js";
@@ -83,12 +82,12 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         return reply.code(201).send(store.createDesignSystem((title as string).trim(), starterDesignSystemFiles()));
       });
 
-      api.put<{ Params: { projectId: string }; Body: { designSystem?: unknown; startFrom?: unknown } }>("/projects/:projectId/design-system", async (req, reply) => {
+      api.put<{ Params: { projectId: string }; Body: { designSystem?: unknown } }>("/projects/:projectId/design-system", async (req, reply) => {
         const designSystem = req.body?.designSystem ?? null;
         if (store.getDesignSystem(req.params.projectId) || !store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-        const invalid = designSystemChangeError(store, req.params.projectId, designSystem, req.body?.startFrom);
+        const invalid = designSystemChangeError(store, designSystem);
         if (invalid) return reply.code(400).send({ error: invalid });
-        store.setProjectDesignSystem(req.params.projectId, designSystem as string | null, "terminal", req.body?.startFrom as ProjectStyleStart | undefined);
+        store.setProjectDesignSystem(req.params.projectId, designSystem as string | null, "terminal");
         return store.getProject(req.params.projectId);
       });
 
