@@ -58,7 +58,28 @@ it("warns on every screen when agents are not up to date, and shows them on the 
   await refused.hello;
   await tab.getByRole("status").getByText("2 agents ne sont pas à jour : global et reels.").waitFor();
 
-  await tab.getByRole("link", { name: "Voir les agents" }).click();
+  // Play mode covers the whole window, below the banner: the banner stays visible above it.
+  const played = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Flow",
+      files: {
+        "start.html": `<!doctype html><body style="margin:0">Start</body>`,
+        "manifest.json": JSON.stringify({ artboards: [{ file: "start.html", title: "Start", width: 400, height: 300, x: 0, y: 0 }] }),
+      },
+    })
+  ).json()) as Page;
+  await tab.goto(`${server.url}/#/pages/${played.id}/play/start.html`);
+  const play = tab.getByTestId("play");
+  await play.waitFor();
+  const banner = tab.getByRole("status").filter({ hasText: "2 agents ne sont pas à jour" });
+  await banner.waitFor();
+  const bannerBox = (await banner.boundingBox())!;
+  const playBox = (await play.boundingBox())!;
+  expect(bannerBox.y).toBe(0);
+  expect(playBox.y).toBeGreaterThanOrEqual(bannerBox.y + bannerBox.height);
+  expect(await tab.evaluate(() => document.elementFromPoint(20, 20)?.closest('[role="status"]') !== null)).toBe(true);
+
+  await banner.getByRole("link", { name: "Voir les agents" }).click();
   await tab.getByRole("heading", { name: "Agents", exact: true }).waitFor();
 
   const globalCard = tab.getByTestId("agent-card").filter({ hasText: "/global" });
