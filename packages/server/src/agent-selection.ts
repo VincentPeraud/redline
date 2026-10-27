@@ -24,16 +24,18 @@ export function chooseAgent(store: Store, projectId: string, viaProjectId?: stri
 
 /**
  * A design system's work runs on the online agent of a project that uses it: the project it was opened from
- * (`viaProjectId`), else the oldest one. With none running, the default setting decides: the work waits, or the global agent takes it.
+ * (`viaProjectId`), else the oldest one; the first one found updating makes the work wait for its restart, as for a project.
+ * With none running, the default setting decides: the work waits, or the global agent takes it. A design system no project
+ * uses yet can only be served by the global agent: it takes it whatever the setting.
  */
 function chooseDesignSystemAgent(store: Store, designSystemId: string, viaProjectId?: string): AgentChoice | undefined {
   const users = store.projectsUsingDesignSystem(designSystemId).map((p) => p.id);
   const ordered = viaProjectId && users.includes(viaProjectId) ? [viaProjectId, ...users.filter((id) => id !== viaProjectId)] : users;
   for (const id of ordered) {
     const agentId = store.findOnlineProjectAgentId(id);
-    if (agentId && !store.isAgentUpdating(agentId)) return { agentId, takeover: false };
+    if (agentId) return store.isAgentUpdating(agentId) ? undefined : { agentId, takeover: false };
   }
-  return store.getGlobalTakeover() ? globalAgent(store) : undefined;
+  return users.length === 0 || store.getGlobalTakeover() ? globalAgent(store) : undefined;
 }
 
 function globalAgent(store: Store): AgentChoice | undefined {

@@ -49,8 +49,8 @@ export interface SessionRow extends ModelChoice {
   /** Engine session id; absent until the first run was sent. */
   sessionId?: string;
   context?: ThreadContext;
-  /** Why the session waits, when `status` is "queued" or "waiting-agent". */
-  waitingReason?: QueueReason | "retrying";
+  /** Why the session waits, when `status` is "queued" or "waiting-agent"; "design-system-agent-offline" = "agent-offline" on a design system's page. */
+  waitingReason?: QueueReason | "retrying" | "design-system-agent-offline";
   /** ISO time of the latest message. */
   activityAt: string;
 }

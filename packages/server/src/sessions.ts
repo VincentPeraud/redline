@@ -100,7 +100,8 @@ export function registerSessionRoutes(
     if (status !== "resolved" && status !== "archived") {
       if (queued) {
         status = queued.reason === "agent-offline" ? "waiting-agent" : "queued";
-        waitingReason = queued.reason;
+        // A design system has no folder of its own: its work waits for the agent of a project using it.
+        waitingReason = queued.reason === "agent-offline" && store.isDesignSystemProject(origin.projectId) ? "design-system-agent-offline" : queued.reason;
       } else if (run?.status === "sent" || run?.status === "running") {
         status = "running";
       } else if (run?.status === "retrying") {

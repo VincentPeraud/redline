@@ -106,6 +106,43 @@ describe("design system routing", () => {
     await until(() => received(global).length === 1);
   });
 
+  it("runs the work of a design system no project uses yet on the global agent, whatever the default", async () => {
+    const global = await connectGlobalAgent();
+    const ds = (await (await server.post("/api/design-systems", { title: "Fresh", instructions: "A warm palette" })).json()) as DesignSystem;
+    await until(() => received(global).length === 1);
+    expect(received(global)[0]).toMatchObject({ resume: false });
+    expect(ds.id).toBeTruthy();
+  });
+
+  it("lets the work wait while the agent of the project it was opened from updates, and runs other work of the page meanwhile", async () => {
+    const ds = await createDesignSystem();
+    const front = await createProject("front", ds.id);
+    const blog = await createProject("blog", ds.id);
+    const frontAgent = await connectProjectAgent(front);
+    const blogAgent = await connectProjectAgent(blog);
+    const blogId = ((await blogAgent.hello) as { agentId: string }).agentId;
+    await server.post(`/api/agents/${blogId}/update`, {});
+
+    await pin(ds, "From blog", blog.id);
+    await settle();
+    expect(received(blogAgent).filter((m) => m.threads.length > 0)).toHaveLength(0);
+    expect(received(frontAgent)).toHaveLength(0);
+    expect(await queue(ds)).toMatchObject([{ reason: "agent-offline" }]);
+
+    await pin(ds, "From front", front.id);
+    await until(() => received(frontAgent).length === 1);
+    expect(received(frontAgent)[0].message).toContain("From front");
+  });
+
+  it("tells the Sessions screen that a design system's work waits for an agent of a project using it", async () => {
+    const ds = await createDesignSystem();
+    await createProject("front", ds.id);
+    await pin(ds, "Waits");
+    await settle();
+    const sessions = (await (await server.get("/api/sessions")).json()) as { name: string; waitingReason?: string }[];
+    expect(sessions.find((s) => s.name === "Waits")).toMatchObject({ waitingReason: "design-system-agent-offline" });
+  });
+
   it("runs a design system conversation on the agent of the project it was opened from", async () => {
     const ds = await createDesignSystem();
     const front = await createProject("front", ds.id);

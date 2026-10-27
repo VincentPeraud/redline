@@ -313,9 +313,11 @@ export class PageLock {
    */
   private pickTarget(queued: Queued): { agentId: string; item: WorkItem } | undefined {
     const { agentId: pinned, takeoverItem, projectId } = queued;
-    const via = this.store.viaProjectOfItem(queued.item);
+    const designSystem = this.store.isDesignSystemProject(projectId);
+    // Only a design system's work depends on the project it was opened from.
+    const choose = () => chooseAgent(this.store, projectId, designSystem ? this.store.viaProjectOfItem(queued.item) : undefined);
     if (!pinned) {
-      const choice = chooseAgent(this.store, projectId, via);
+      const choice = choose();
       return choice && { agentId: choice.agentId, item: queued.item };
     }
     if (this.store.getAgent(pinned)?.status === "online") return { agentId: pinned, item: queued.item };
@@ -323,8 +325,8 @@ export class PageLock {
     // Whatever is sent keeps the queued item's id: the lock and the agent's reports are keyed by it.
     const taken = { ...takeoverItem, id: queued.item.id };
     // A design system's work is never pinned to an agent of its own: the next agent its rule picks starts a new session.
-    if (!this.store.isProjectAgent(pinned) || this.store.isDesignSystemProject(projectId)) {
-      const choice = chooseAgent(this.store, projectId, via);
+    if (!this.store.isProjectAgent(pinned) || designSystem) {
+      const choice = choose();
       return choice && { agentId: choice.agentId, item: taken };
     }
     const globalId = this.store.getProject(projectId)?.globalTakeover ? this.store.findOnlineGlobalAgentId() : undefined;

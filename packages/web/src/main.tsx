@@ -17,7 +17,7 @@ import { MeProvider } from "./useMe.js";
 import { useRoute } from "./router";
 import { SessionsScreen } from "./SessionsScreen";
 import { HomeProvider } from "./useHome.js";
-import { rememberViaProject } from "./viaProject.js";
+import { notePageRoute } from "./viaProject.js";
 
 /** The banner on top of every screen; the screens below shrink by its height (`--banner-height`). */
 function WithBanner({ children }: { children: ReactNode }) {
@@ -32,9 +32,9 @@ function WithBanner({ children }: { children: ReactNode }) {
 
 function Screen() {
   const route = useRoute();
+  notePageRoute(route.name === "page" ? route.pageId : undefined, route.name === "page" ? route.viaProjectId : undefined);
   switch (route.name) {
     case "page":
-      rememberViaProject(route.pageId, route.viaProjectId);
       return <App key={route.pageId} route={route} />;
     case "home":
       return <Shell><HomeScreen /></Shell>;

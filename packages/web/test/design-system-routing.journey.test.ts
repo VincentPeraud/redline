@@ -54,5 +54,16 @@ it("runs a design system conversation on the agent of the project it was opened 
 
   await expect.poll(() => received(blogAgent).length).toBe(1);
   expect(received(frontAgent)).toHaveLength(0);
+
+  blogAgent.send({ type: "work-done", workId: received(blogAgent)[0].id });
+
+  // Opened again from the Design systems list, in the same tab: no project of origin, the oldest project's agent runs it.
+  await tab.goto(`${server.url}/#/design-systems/${ds.id}`);
+  await tab.getByTestId("ds-page").first().click();
+  await panel.getByRole("button", { name: "+ Nouvelle" }).click();
+  await panel.getByLabel("Message à Claude").fill("Add a success colour");
+  await panel.getByLabel("Message à Claude").press("Enter");
+  await expect.poll(() => received(frontAgent).length).toBe(1);
+  expect(received(blogAgent)).toHaveLength(1);
   await tab.close();
 }, 60_000);
