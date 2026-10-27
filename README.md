@@ -47,6 +47,10 @@ The proxy adds the secret in the `X-Redline-Proxy-Secret` request header (its hu
 
 `GET /healthz` on the main port answers `200` without a secret, but only to a request whose remote address is the container's own loopback (a request through the proxy never is). The image's health check calls it.
 
+### CLI download
+
+The image carries the CLI as a tarball in `REDLINE_CLI_DIR` (`/app/cli`: `redline-cli.tgz` and `build-hash.txt`). The server serves it at `/cli/redline-cli.tgz` without a token (npm cannot send one; behind a proxy this is the machine route), so `npm i -g <origin>/cli/redline-cli.tgz` installs the `redline` command. `redline build-hash` prints the hash of the installed build, which equals the image's `build-hash.txt`.
+
 ### Behind Traefik (local)
 
 With a Traefik already running on an external Docker network named `traefik` (entrypoint `web`), `docker-compose.traefik.yml` serves the UI on `http://redline.localhost` and the artboards on `http://artboards.redline.localhost`:
