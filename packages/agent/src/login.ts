@@ -17,7 +17,14 @@ export function normalizeServerUrl(url: string): string {
 
 const LOOPBACK_HOST = /^(localhost|127\.0\.0\.1|.+\.localhost)$/;
 
-/** The token travels in every call: only https, or a loopback host, may receive it. */
+const SAFE_HOST = /^([a-z0-9-]+\.)*[a-z0-9-]+$|^\[[0-9a-f:]+\]$/i;
+const SAFE_PATH = /^[A-Za-z0-9._~/-]*$/;
+
+/**
+ * The token travels in every call: only https, or a loopback host, may receive it. The URL also ends up in the
+ * install command run on this machine, so it is reduced to origin + plain path: no credentials, query, fragment or
+ * shell metacharacter.
+ */
 export function validateServerUrl(url: string): string {
   const normalized = normalizeServerUrl(url);
   let parsed: URL;
@@ -30,7 +37,12 @@ export function validateServerUrl(url: string): string {
   if (!secure) {
     throw new Error("The server URL must start with https:// (http:// is only accepted for localhost, *.localhost and 127.0.0.1).");
   }
-  return normalized;
+  const clean =
+    !parsed.username && !parsed.password && !/[?#]/.test(normalized) && SAFE_HOST.test(parsed.hostname) && SAFE_PATH.test(parsed.pathname);
+  if (!clean) {
+    throw new Error(`"${url}" is not a plain server URL (no credentials, query, fragment or special characters).`);
+  }
+  return normalizeServerUrl(parsed.origin + parsed.pathname);
 }
 
 /** Every server set up on this machine. The old single-server file (one object) reads as a one-item list. */
