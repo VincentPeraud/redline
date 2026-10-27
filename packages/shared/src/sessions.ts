@@ -42,6 +42,8 @@ export interface SessionRow extends ModelChoice {
   pageId: string;
   pageTitle: string;
   status: SessionStatus;
+  /** The person of the first message; absent when none is known. */
+  startedBy?: Person;
   /** The agent running the session, else the project's agent; absent when none. */
   agent?: { id: string; machine: string; folder: string; kind: AgentKind };
   /** Engine session id; absent until the first run was sent. */
