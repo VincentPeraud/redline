@@ -3,6 +3,7 @@ import { EFFORTS, modelLabel, type Effort, type ModelChoice, type Project } from
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { buildHash } from "./build-hash.js";
 import { checkClaude } from "./claude.js";
 import { claudeCodeEngine } from "./claude-code-engine.js";
 import { chooseModelEffort } from "./launch-choice.js";
@@ -103,6 +104,7 @@ try {
   else if (command === "init") await runInit();
   else if (command === "agent") await runAgent(args);
   else if (command === "mcp") await runMcp();
+  else if (command === "build-hash") console.log(buildHash());
   else throw new Error("Usage: redline login <server-url> | redline init | redline mcp | redline agent [--global] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
 } catch (error) {
   console.error((error as Error).message);
