@@ -27,7 +27,7 @@ export interface TableProps<Row> {
 
 /** Card-style table drawn with a CSS grid: uppercase header row, one row per item. */
 export function Table<Row>({ columns, rows, rowKey, onRowClick, selectedKey, empty, ariaLabel, rowTestId }: TableProps<Row>) {
-  const template = columns.map((column) => column.width).join(" ");
+  const template = columns.map((column) => column.width.replace(/^(\d*\.?\d+)fr$/, "minmax(0, $1fr)")).join(" ");
   return (
     <div className={styles.table} aria-label={ariaLabel}>
       <div className={styles.header} style={{ gridTemplateColumns: template }}>

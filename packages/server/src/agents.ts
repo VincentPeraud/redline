@@ -3,11 +3,12 @@ import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
 import {
   AGENT_ENDPOINT,
-  AGENT_UPDATE_COMMAND,
   AgentCloseCode,
+  cliUpdateCommand,
   EFFORTS,
   PROTOCOL_VERSION,
   type AgentHello,
+  type AgentUpdateFailedMessage,
   type AgentWorkMessage,
   type AgentTokenResponse,
   type ServerToAgentMessage,
@@ -49,6 +50,15 @@ function parseWorkMessage(raw: string): AgentWorkMessage | undefined {
   }
 }
 
+function parseUpdateFailure(raw: string): AgentUpdateFailedMessage | undefined {
+  try {
+    const m = JSON.parse(raw) as Partial<AgentUpdateFailedMessage>;
+    return m.type === "update-failed" && typeof m.message === "string" ? (m as AgentUpdateFailedMessage) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface AgentHub {
   /** Sends a message to a connected agent; false when that agent is not connected. */
   send(agentId: string, message: ServerToAgentMessage): boolean;
@@ -68,12 +78,23 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
   const offlineListeners: ((agentId: string) => void)[] = [];
   let ownsWork: (agentId: string, workId: string) => boolean = () => true;
 
+  function sendToAgent(agentId: string, message: ServerToAgentMessage): boolean {
+    for (const [socket, id] of connected) {
+      if (id === agentId) {
+        send(socket, message);
+        return true;
+      }
+    }
+    return false;
+  }
+
   app.addHook("onClose", async () => {
     for (const agentId of connected.values()) store.markAgentOffline(agentId);
     connected.clear();
   });
 
-  app.get(AGENT_ENDPOINT, { websocket: true }, (socket) => {
+  app.get(AGENT_ENDPOINT, { websocket: true }, (socket, request) => {
+    const origin = `${request.headers["x-forwarded-proto"] ?? "http"}://${request.headers.host}`;
     socket.once("message", (data) => {
       const hello = parseHello(data.toString());
       if (!hello) {
@@ -89,12 +110,12 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         return socket.close(AgentCloseCode.Unauthorized, "unauthorized");
       }
       if (hello.protocolVersion !== PROTOCOL_VERSION) {
-        store.recordRefusedAgent(hello.machine, hello.folder, hello.kind);
+        store.recordRefusedAgent(hello.machine, hello.folder, hello.kind, hello.projectId);
         store.emit({ type: "agents-updated" });
         send(socket, {
           type: "error",
           code: "incompatible_protocol",
-          message: `Agent protocol ${hello.protocolVersion} is not supported (server uses ${PROTOCOL_VERSION}). Update the agent with: ${AGENT_UPDATE_COMMAND}`,
+          message: `Agent protocol ${hello.protocolVersion} is not supported (server uses ${PROTOCOL_VERSION}). Update the agent with: ${cliUpdateCommand(origin)}`,
         });
         return socket.close(AgentCloseCode.IncompatibleProtocol, "incompatible protocol");
       }
@@ -123,6 +144,13 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         for (const listener of offlineListeners) listener(agentId);
       });
       socket.on("message", (data) => {
+        const failure = parseUpdateFailure(data.toString());
+        if (failure) {
+          store.recordUpdateFailure(agentId, failure.message);
+          store.emit({ type: "agents-updated" });
+          for (const listener of onlineListeners) listener(agentId);
+          return;
+        }
         const message = parseWorkMessage(data.toString());
         if (message && ownsWork(agentId, message.workId)) store.emit({ type: "work", message });
       });
@@ -147,18 +175,18 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
 
   app.get("/api/agents", async () => store.listAgents());
 
+  app.post<{ Params: { agentId: string } }>("/api/agents/:agentId/update", async (req, reply) => {
+    const { agentId } = req.params;
+    if (!sendToAgent(agentId, { type: "update" })) return reply.code(404).send({ error: "This agent is not connected." });
+    store.markAgentUpdating(agentId);
+    store.emit({ type: "agents-updated" });
+    return reply.code(202).send();
+  });
+
   return {
     onAgentOnline: (listener) => void onlineListeners.push(listener),
     onAgentOffline: (listener) => void offlineListeners.push(listener),
     acceptWorkMessagesFrom: (owns) => void (ownsWork = owns),
-    send(agentId, message) {
-      for (const [socket, id] of connected) {
-        if (id === agentId) {
-          send(socket, message);
-          return true;
-        }
-      }
-      return false;
-    },
+    send: sendToAgent,
   };
 }

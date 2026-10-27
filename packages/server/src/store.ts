@@ -218,6 +218,7 @@ export class Store {
         machine TEXT NOT NULL,
         folder TEXT NOT NULL,
         kind TEXT NOT NULL,
+        project_id TEXT,
         refused_at TEXT NOT NULL,
         PRIMARY KEY (machine, folder)
       );
@@ -228,6 +229,8 @@ export class Store {
     if (!agentColumns.some((c) => c.name === "model")) this.db.exec("ALTER TABLE agents ADD COLUMN model TEXT");
     if (!agentColumns.some((c) => c.name === "build_hash")) this.db.exec("ALTER TABLE agents ADD COLUMN build_hash TEXT");
     if (!agentColumns.some((c) => c.name === "effort")) this.db.exec("ALTER TABLE agents ADD COLUMN effort TEXT");
+    const refusedColumns = this.db.prepare("PRAGMA table_info(refused_agents)").all() as { name: string }[];
+    if (!refusedColumns.some((c) => c.name === "project_id")) this.db.exec("ALTER TABLE refused_agents ADD COLUMN project_id TEXT");
     const columnsOf = (table: string) => (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
     const addColumn = (table: string, column: string, definition: string) => {
       if (!columnsOf(table).includes(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
@@ -633,6 +636,9 @@ export class Store {
     for (const listener of this.listeners) listener(event);
   }
 
+  private readonly updatingAgents = new Set<string>();
+  private readonly updateErrors = new Map<string, string>();
+
   /** Id of the online project agent serving the project. */
   findOnlineProjectAgentId(projectId: string): string | undefined {
     const row = this.db.prepare("SELECT id FROM agents WHERE project_id = ? AND status = 'online'").get(projectId) as
@@ -667,11 +673,31 @@ export class Store {
       )
       .run(randomUUID(), machine, folder, kind, now(), projectId ?? null, model ?? null, effort ?? null, buildHash ?? null);
     this.db.prepare("DELETE FROM refused_agents WHERE machine = ? AND folder = ?").run(machine, folder);
-    return (this.db.prepare("SELECT id FROM agents WHERE machine = ? AND folder = ?").get(machine, folder) as { id: string }).id;
+    const id = (this.db.prepare("SELECT id FROM agents WHERE machine = ? AND folder = ?").get(machine, folder) as { id: string }).id;
+    this.updatingAgents.delete(id);
+    this.updateErrors.delete(id);
+    return id;
   }
 
   markAgentOffline(id: string): void {
     this.db.prepare("UPDATE agents SET status = 'offline', last_seen_at = ? WHERE id = ?").run(now(), id);
+    this.updatingAgents.delete(id);
+  }
+
+  /** Marks a connected agent as updating: it gets no new work until it reconnects or reports a failure. */
+  markAgentUpdating(id: string): void {
+    this.updatingAgents.add(id);
+    this.updateErrors.delete(id);
+  }
+
+  isAgentUpdating(id: string): boolean {
+    return this.updatingAgents.has(id);
+  }
+
+  /** The agent could not install the update and keeps its previous build: it takes work again, and the row shows why. */
+  recordUpdateFailure(id: string, message: string): void {
+    this.updatingAgents.delete(id);
+    this.updateErrors.set(id, message);
   }
 
   /** The online project agent serving a project, other than the given machine and folder. */
@@ -699,26 +725,34 @@ export class Store {
   listAgents(): AgentInfo[] {
     const rows = this.db
       .prepare("SELECT id, machine, folder, kind, status, last_seen_at AS lastSeenAt, model, effort, build_hash AS buildHash FROM agents ORDER BY machine, folder")
-      .all() as (Omit<AgentInfo, "model" | "effort" | "outdated"> & { model: string | null; effort: Effort | null; buildHash: string | null })[];
+      .all() as (Omit<AgentInfo, "model" | "effort" | "outdated" | "updating" | "updateError"> & { model: string | null; effort: Effort | null; buildHash: string | null })[];
     return rows.map(({ model, effort, buildHash, ...agent }) => ({
       ...agent,
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(agent.status === "online" && this.isOutdated(buildHash) ? { outdated: true as const } : {}),
+      ...(this.updatingAgents.has(agent.id) ? { updating: true as const } : {}),
+      ...(this.updateErrors.has(agent.id) ? { updateError: this.updateErrors.get(agent.id) } : {}),
     }));
   }
 
   /** Remembers an agent refused for its protocol until it connects again. */
-  recordRefusedAgent(machine: string, folder: string, kind: AgentKind): void {
+  recordRefusedAgent(machine: string, folder: string, kind: AgentKind, projectId?: string): void {
     this.db
       .prepare(
-        "INSERT INTO refused_agents (machine, folder, kind, refused_at) VALUES (?, ?, ?, ?) ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, refused_at = excluded.refused_at",
+        "INSERT INTO refused_agents (machine, folder, kind, project_id, refused_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, project_id = excluded.project_id, refused_at = excluded.refused_at",
       )
-      .run(machine, folder, kind, now());
+      .run(machine, folder, kind, projectId ?? null, now());
   }
 
   listRefusedAgents(): RefusedAgent[] {
-    return this.db.prepare("SELECT machine, folder, kind, refused_at AS refusedAt FROM refused_agents ORDER BY machine, folder").all() as RefusedAgent[];
+    const rows = this.db
+      .prepare(
+        `SELECT r.machine, r.folder, r.kind, p.title AS project, r.refused_at AS refusedAt
+         FROM refused_agents r LEFT JOIN projects p ON p.id = r.project_id ORDER BY r.machine, r.folder`,
+      )
+      .all() as (Omit<RefusedAgent, "project"> & { project: string | null })[];
+    return rows.map(({ project, ...agent }) => ({ ...agent, ...(project ? { project } : {}) }));
   }
 
   private insertProject(title: string, id: string, instructions: string, designSystem: string | null): Project {
@@ -847,12 +881,10 @@ export class Store {
       .run(allow ? "1" : "0");
   }
 
-  /** Id of an online global agent, the most recently seen first. */
+  /** Id of an online global agent that is not updating, the most recently seen first. */
   findOnlineGlobalAgentId(): string | undefined {
-    const row = this.db.prepare("SELECT id FROM agents WHERE kind = 'global' AND status = 'online' ORDER BY last_seen_at DESC, rowid LIMIT 1").get() as
-      | { id: string }
-      | undefined;
-    return row?.id;
+    const rows = this.db.prepare("SELECT id FROM agents WHERE kind = 'global' AND status = 'online' ORDER BY last_seen_at DESC, rowid").all() as { id: string }[];
+    return rows.find((row) => !this.updatingAgents.has(row.id))?.id;
   }
 
   getAgent(id: string): AgentInfo | undefined {

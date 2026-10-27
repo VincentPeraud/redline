@@ -154,3 +154,14 @@
 .composerInput.composerInput {
   line-height: normal;
 }
+
+.launcher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+}
+
+.unknown {
+  color: var(--color-text-muted);
+}
