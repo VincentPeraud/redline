@@ -76,6 +76,83 @@ redline login http://redline.localhost
 
 `REDLINE_HOST_NAME` and `REDLINE_ARTBOARD_HOST` change the two host names. The loopback ports stay published, so `http://localhost:3000` keeps working.
 
+## Install on a server
+
+Redline runs on a host that already has Traefik and an SSO (Authelia, Authentik, Keycloak through oauth2-proxy...). Redline has no login: Traefik asks your SSO first, then adds a secret header that Redline requires. Only the agents' paths (`/agent`, `/agent-api/*`) and the CLI download (`/cli/*`) skip the SSO; they are guarded by the agents' token and carry a second secret.
+
+### Preflight
+
+- Docker with Compose v2.20 or later (`docker compose version`).
+- Traefik runs with the Docker provider, on a Docker network Redline can join (default name `traefik`). Check its names: entrypoints (`web`, `websecure`), certificate resolver, and the SSO middleware (the Traefik dashboard lists middlewares as `<name>@<provider>`).
+- Traefik forwards the original `Host` header (the default). If Traefik is itself behind another proxy, trust its forwarded headers.
+- Two DNS names point to the server: one for the UI and API, one for the artboards (a different origin on purpose). The certificate resolver must be able to issue both.
+- The Traefik names Redline creates are unique: they all start with `REDLINE_TRAEFIK_PREFIX` (default `redline`). Change it if another project uses it.
+
+### First install
+
+```sh
+git clone <repository> redline && cd redline
+cp .env.dist .env
+$EDITOR .env                  # fill the REQUIRED lines, check the Traefik and identity header names
+scripts/generate-secrets.sh   # creates ./secrets/* and the two REDLINE_PROXY_SECRET_* lines of .env
+docker compose up -d --build
+```
+
+`docker compose` refuses to start while `REDLINE_UI_HOST`, `REDLINE_ARTBOARD_HOST`, `REDLINE_AUTH_MIDDLEWARE` or a proxy secret is missing. The generator creates the missing secret files and `.env` lines, and never overwrites one that exists. The container publishes no port, runs as uid 1000 with a read-only root, no capability and `no-new-privileges`, and is limited to 1 GB of memory and 256 processes. Open `https://<UI host>`: the SSO asks you to sign in, then the machine setup command is shown on the Agents screen.
+
+Agent sessions connect through `https://<UI host>` (`npm i -g https://<UI host>/cli/redline-cli.tgz && redline setup https://<UI host> --token <token>`); the machine route is rate limited and asset uploads of 20 MB pass its body limit.
+
+### Plug your SSO
+
+The SSO middleware named in `REDLINE_AUTH_MIDDLEWARE` must protect both host names, and must not apply to the machine paths (Redline's machine router never uses it).
+
+- **Authelia**: a `forwardAuth` middleware (`authelia@docker`, or the name you gave it). Add an access rule for both hosts and a group:
+
+  ```yaml
+  access_control:
+    rules:
+      - domain: ["redline.example.com", "artboards.redline.example.com"]
+        policy: one_factor
+        subject: ["group:redline"]
+  ```
+
+- **Authentik**: create a proxy provider in forward-auth (domain level) mode for both hosts, attach it to the embedded outpost, and use the `forwardAuth` middleware pointing at the outpost (`/outpost.goauthentik.io/auth/traefik`) with `authResponseHeaders` listing the headers below.
+- **Keycloak**: Keycloak does not do forward auth by itself: run oauth2-proxy (`--reverse-proxy --set-xauthrequest --upstream=static://202`) with your Keycloak client, expose it as a `forwardAuth` middleware on `/oauth2/auth`, and list the headers below in `authResponseHeaders`.
+
+### Identity headers
+
+The SSO middleware must pass the signed-in person to Redline in request headers. Set their names in `.env`:
+
+| SSO | `REDLINE_IDENTITY_HEADER_USER` | `REDLINE_IDENTITY_HEADER_NAME` | `REDLINE_IDENTITY_HEADER_EMAIL` | `REDLINE_LOGOUT_URL` |
+| --- | --- | --- | --- | --- |
+| Authelia (default) | `Remote-User` | `Remote-Name` | `Remote-Email` | `https://<auth host>/logout` |
+| Authentik | `X-authentik-username` | `X-authentik-name` | `X-authentik-email` | `https://<authentik host>/outpost.goauthentik.io/sign_out` |
+| oauth2-proxy (Keycloak) | `X-Auth-Request-User` | `X-Auth-Request-Preferred-Username` | `X-Auth-Request-Email` | `https://<UI host>/oauth2/sign_out` |
+
+The middleware must list the same names in `authResponseHeaders`. Redline reads them only on requests that carry the human proxy secret, and the machine router empties them.
+
+### Upgrade
+
+```sh
+git pull
+docker compose up -d --build
+```
+
+The data volume `redline_redline-data` is kept. Never run `docker compose down -v`: it deletes the volume.
+
+### Secret rotation
+
+The two proxy secrets live twice: in `./secrets/` (read by Redline) and in `.env` (read by Traefik labels). To rotate one:
+
+```sh
+rm secrets/proxy-secret-human                    # or proxy-secret-machine
+sed -i '/^REDLINE_PROXY_SECRET_HUMAN=/d' .env    # the matching line
+scripts/generate-secrets.sh
+docker compose up -d --force-recreate
+```
+
+The generator refuses a `.env` value that differs from its file, so the two copies cannot drift. The recreation applies the new value to Traefik and Redline together. The agents' token is separate: regenerate it from the Agents screen.
+
 ## Development
 
 ```sh
