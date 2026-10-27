@@ -10,7 +10,8 @@ import {
   type Thread,
 } from "@redline/shared";
 import { AgentPill } from "./AgentPill.js";
-import { dayLabel, designMdAuthor } from "./historyLabels.js";
+import { dayLabel, designMdStatus } from "./historyLabels.js";
+import { useWho } from "./useMe.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
@@ -183,6 +184,7 @@ function groupAssets(assets: ProjectAsset[]): AssetEntry[] {
 }
 
 export function ProjectOverview({ projectId }: { projectId: string }) {
+  const who = useWho();
   const [project, setProject] = useState<Project | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
   const [pageStats, setPageStats] = useState<Record<string, PageStats>>({});
@@ -376,7 +378,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
             )}
             {designMdInfo?.lastModified && (
               <div data-testid="design-md-last-modified" className={styles.designMdMeta}>
-                Dernière modification par {designMdAuthor(designMdInfo.lastModified.origin, designMdInfo.lastModified.originLabel)} · {dayLabel(designMdInfo.lastModified.createdAt)}
+                {designMdStatus(designMdInfo.lastModified.origin, designMdInfo.lastModified.originLabel, dayLabel(designMdInfo.lastModified.createdAt), who(designMdInfo.lastModified.person))}
               </div>
             )}
           </section>

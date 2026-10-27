@@ -84,6 +84,8 @@ export interface PageVersionSummary {
   originId?: string;
   /** Title of that thread or conversation, as it was when the version was recorded. */
   originLabel?: string;
+  /** The person who made the version, or whom Claude made it for (the requesting person of its run); absent for terminal publishes, versions from before the SSO and without SSO. */
+  person?: Person;
   createdAt: string;
   /** Only in the answer to an agent's publish: the page had moved since `baseVersionId` and the changes were merged onto its current version. */
   merged?: boolean;
@@ -133,6 +135,7 @@ export interface ArtboardVersion {
   origin: VersionOrigin;
   originId?: string;
   originLabel?: string;
+  person?: Person;
   createdAt: string;
   /** The content the page shows now. At most one entry per artboard is current. */
   current: boolean;
@@ -155,6 +158,8 @@ export interface DeletedArtboard {
   origin: VersionOrigin;
   originId?: string;
   originLabel?: string;
+  /** Who removed it, or whom Claude removed it for. */
+  person?: Person;
   deletedAt: string;
   /** Last page version that still had it: preview it with `versionPreviewPath` for the thumbnail, and pass it to restore to put it back. */
   lastVersionId: string;
@@ -207,6 +212,8 @@ export interface Page {
   title: string;
   /** Who made the page: a session through `create_page`, or the user. Pages from before this field are "user". */
   createdBy: PageCreator;
+  /** The person who created the page, or whom Claude created it for; absent for pages from before the SSO and without SSO. */
+  createdByPerson?: Person;
   version: PageVersion;
   /** Only on `GET /api/pages/:pageId`. */
   viewSettings?: PageViewSettings;

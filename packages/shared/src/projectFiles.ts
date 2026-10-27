@@ -1,3 +1,5 @@
+import type { Person } from "./people.js";
+
 /** Project-level files read by every session of the project, written into each working copy. */
 export const DESIGN_MD_PATH = "DESIGN.md";
 /** The project style's tokens: a project-level file next to DESIGN.md, at the root of the working copy. */
@@ -32,6 +34,8 @@ export interface DesignMdAuthor {
   originId?: string;
   /** Its title when the version was saved. */
   originLabel?: string;
+  /** The person who saved it, or whom Claude saved it for; absent for terminal publishes, versions from before the SSO and without SSO. */
+  person?: Person;
 }
 
 /** One saved state of DESIGN.md. */

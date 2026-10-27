@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ME_PATH, personLabel, type MeResponse, type Person, type PersonPlace } from "@redline/shared";
+import type { Who } from "./historyLabels.js";
 
 const MeContext = createContext<MeResponse>(null);
 
@@ -32,4 +33,13 @@ export function useMe(): MeResponse {
 export function usePersonLabel(): (person: Person | undefined, place: PersonPlace) => string | undefined {
   const me = useMe();
   return (person, place) => personLabel(person, me, place);
+}
+
+/** Names the person behind an action in a history, a list or DESIGN.md (see `historyLabels`). */
+export function useWho(): (person: Person | undefined) => Who {
+  const me = useMe();
+  return (person) => {
+    const name = personLabel(person, me, "history");
+    return name === undefined ? { sso: me !== null } : { sso: me !== null, name };
+  };
 }

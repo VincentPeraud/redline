@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { ME_PATH, type MeResponse, type Person } from "@redline/shared";
+import { ME_PATH, type DesignMdAuthor, type MeResponse, type Person } from "@redline/shared";
 import { hasHumanSecret, type ProxySecrets } from "./proxy-secrets.js";
-import type { Store } from "./store.js";
+import type { OriginRef, Store } from "./store.js";
 
 export interface IdentityConfig {
   /** Names of the request headers the SSO puts the signed-in person in (Authelia's by default). */
@@ -33,6 +33,18 @@ declare module "fastify" {
 /** The person viewing: who made this request. Handlers that sign actions read it from the request they handle. */
 export function viewerOf(req: FastifyRequest): Person | undefined {
   return req.person;
+}
+
+/** The viewer as the signature of a version they make; undefined without SSO. */
+export function personRef(req: FastifyRequest): OriginRef | undefined {
+  const person = viewerOf(req);
+  return person && { person };
+}
+
+/** A DESIGN.md or tokens save made by the viewer in the editor. */
+export function userAuthor(req: FastifyRequest): DesignMdAuthor {
+  const person = viewerOf(req);
+  return { origin: "user", ...(person ? { person } : {}) };
 }
 
 /** Node decodes header bytes as latin1, SSOs send UTF-8. */

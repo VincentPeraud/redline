@@ -13,6 +13,7 @@ import {
   type RestoreArtboardResponse,
 } from "@redline/shared";
 import { requiredString } from "./validation.js";
+import { personRef } from "./identity.js";
 import type { Store, VersionRecord } from "./store.js";
 
 const CREATED_TITLE = "Artboard créé";
@@ -91,6 +92,7 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
           origin: record.origin,
           ...(record.originId ? { originId: record.originId } : {}),
           ...(record.originLabel ? { originLabel: record.originLabel } : {}),
+          ...(record.person ? { person: record.person } : {}),
           createdAt: record.createdAt,
           current: record === newest && headHash !== undefined,
           ...(diffusion && { diffusion }),
@@ -118,6 +120,7 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
         origin: deletedIn.origin,
         ...(deletedIn.originId ? { originId: deletedIn.originId } : {}),
         ...(deletedIn.originLabel ? { originLabel: deletedIn.originLabel } : {}),
+        ...(deletedIn.person ? { person: deletedIn.person } : {}),
         deletedAt: deletedIn.createdAt,
         lastVersionId: lastIn.id,
         width: artboard.width,
@@ -167,7 +170,7 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
     const previousVersionId = head.files[file] === undefined ? head.id : changes[changes.length - 1].id;
     const message =
       targetHash === undefined ? PUT_BACK_UNDONE_MESSAGE : !onPage ? PUT_BACK_MESSAGE : `Version du ${formatDate(target.createdAt, timeZone)} restaurée`;
-    const version = store.addVersionFromHashes(req.params.pageId, files, message, "restore");
+    const version = store.addVersionFromHashes(req.params.pageId, files, message, "restore", personRef(req));
     const response: RestoreArtboardResponse = { version, previousVersionId };
     return reply.code(201).send(response);
   });
