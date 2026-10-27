@@ -134,6 +134,7 @@ export class ServerApi {
     const raw = Buffer.isBuffer(body);
     const res = await fetch(this.serverUrl + AGENT_API_PREFIX + path, {
       method,
+      redirect: "error",
       headers: {
         authorization: `Bearer ${this.token}`,
         ...(body === undefined ? {} : { "content-type": raw ? "application/octet-stream" : "application/json" }),

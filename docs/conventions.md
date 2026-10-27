@@ -8,7 +8,7 @@
 ## Packages (`packages/`)
 - `shared` (`@redline/shared`): protocol/API types and `PROTOCOL_VERSION`. Add new request/response types here.
 - `server` (`@redline/server`): `src/store.ts` (SQLite + blobs in `<dataDir>/redline.db` and `<dataDir>/blobs/<sha256>`), `src/app.ts` (`buildMainApp` = API + web UI; `buildArtboardApp` = artboards only), `src/start.ts` (`startServer`), `src/main.ts` (env: `REDLINE_DATA_DIR`, `REDLINE_HOST`, `REDLINE_PORT` 3000, `REDLINE_ARTBOARD_PORT` 3001, `REDLINE_ARTBOARD_ORIGIN`, `REDLINE_WEB_DIR`).
-- `agent` (`redline-cli`, bin `redline`): `src/cli.ts` (`login`, `init`, `agent`, `mcp`).
+- `agent` (`redline-cli`, bin `redline`): `src/cli.ts` (`setup`, `login`, `init`, `agent`, `mcp`).
 - `web`: `src/App.tsx`, built to `packages/web/dist`, served by the server at `/` (SPA fallback). `npm run dev -w @redline/web` proxies `/api` to localhost:3000.
 
 ## Seam-1 test harness
@@ -26,7 +26,7 @@ Extend `TestServer` in `packages/server/src/test-harness.ts` (e.g. `put`, `delet
 - Token: `abt_...`, kept in the `settings` table; `GET /api/agent-token`, `POST /api/agent-token/regenerate` (closes every agent socket with 4401); `GET /api/agents` lists agents (one row per machine+folder, status online/offline).
 - Server side lives in `packages/server/src/agents.ts` (`registerAgentRoutes`; keeps a `connected` socket map, the place to add routing of work items to agents). Store: `markAgentOnline/Offline`, `listAgents`.
 - Harness: `server.connectAgent({ token?, protocolVersion?, machine?, folder?, kind? })` returns `{ hello, messages, send(msg), closed, close() }`; token defaults to the server's current one. Use `send` + `messages` to test new agent protocol messages.
-- Agent package: `login.ts` (`login`, `readLogin`, config in `$REDLINE_CONFIG_DIR` or `~/.config/redline/login.json`), `claude.ts` (`checkClaude`), `connection.ts` (`connectToServer` -> `{ agentId, closed, close }`, uses Node's global WebSocket), `cli.ts` (`redline login`, `redline agent [--global]`). Agent tests import the server harness and call these modules directly.
+- Agent package: `login.ts` (`saveLogin`, `readLogins`, `pickServer`, `validateServerUrl`; `login.json` is a list of `{ serverUrl, token }`, in `$REDLINE_CONFIG_DIR` or `~/.config/redline/`), `setup.ts` (`setupServer`: URL and token check, login file, `claude mcp add --scope user`), `claude.ts` (`checkClaude`), `connection.ts` (`connectToServer` -> `{ agentId, closed, close }`, uses Node's global WebSocket), `cli.ts` (`redline setup`, `redline login`, `redline agent [--global [--server <url>]]`). Agent tests import the server harness and call these modules directly.
 - Web: `AgentsScreen.tsx`, reached through `#/agents` (hash switch in `main.tsx`; no router yet).
 
 ## Patterns
@@ -175,7 +175,7 @@ Extend `TestServer` in `packages/server/src/test-harness.ts` (e.g. `put`, `delet
 - `/api` hardening (`request-hardening.ts`): non-GET `/api/*` requests are refused (403) when they carry an `Origin` whose host differs from `X-Forwarded-Host`/`Host`, and (415) when they have a body that is not `application/json` (the raw asset PUT is only origin-checked). `X-Frame-Options: SAMEORIGIN` + CSP `frame-ancestors 'self'` on every response of the main app; `GET /api/pages/:id/files/*` is `nosniff` + `Content-Disposition: attachment`. Asset uploads accept 20 MB (`MAX_ASSET_BYTES`), everything else Fastify's 1 MB. Compare secrets with `tokensEqual`. The proxy must forward `Host` or `X-Forwarded-Host`.
 - Docker publishes the ports on `127.0.0.1` (`REDLINE_BIND` to change).
 - Design system live reload: `design-system-updated {designSystemId, pageIds}` (`design-system-reload.ts`) when a design system's page gets a version; `PageCanvas` remounts its artboards when its page is listed.
-- Agent: `serveAgent` (`serve-agent.ts`) = connect + reconnect with backoff (1, 2, 5, 10, 30 s) while the server is unreachable or the connection is lost; a refusal by the server (wrong token, incompatible protocol, unknown project, project taken) or a regenerated token ends it (`done` rejects). `redline init`/`agent` list and create projects through `/agent-api/projects` (`linkFolder({..., token})`). `login.json` is forced to 0600. Session permissions: reads limited to the agent's folder (see `docs/claude-code-engine.md`).
+- Agent: `serveAgent` (`serve-agent.ts`) = connect + reconnect with backoff (1, 2, 5, 10, 30 s) while the server is unreachable or the connection is lost; a refusal by the server (wrong token, incompatible protocol, unknown project, project taken) or a regenerated token ends it (`done` rejects). `redline init`/`agent` list and create projects through `/agent-api/projects` (`linkFolder({ folder, servers, chooseServer, choose })`; the folder link `.redline/project.json` is `{ serverUrl, projectId }`; authenticated calls use `redirect: "error"`). `login.json` is forced to 0600. Session permissions: reads limited to the agent's folder (see `docs/claude-code-engine.md`).
 
 ## UI foundation
 Screens must reproduce their mock-up board (`<notes>/mockup-shots/<Board>.png`, sources `mockups/project/<Board>.dc.html`): layout, colours, type, spacing, radii, borders, icons, French copy, states. A visible gap is a bug.
