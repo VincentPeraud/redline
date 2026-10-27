@@ -3,6 +3,7 @@ import { mkdirSync, existsSync, readFileSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { componentFilesOf, projectComponents } from "./components.js";
+import { restoredVersionMessage } from "./version-dates.js";
 import {
   EMPTY_VIEW_SETTINGS,
   initialsOf,
@@ -1510,12 +1511,12 @@ export class Store {
   }
 
   /** Repoints the page's paths to the hashes of an old version and records that as a new version. */
-  restoreVersion(pageId: string, versionId: string, ref?: OriginRef): PageVersionSummary | undefined {
+  restoreVersion(pageId: string, versionId: string, ref?: OriginRef, timeZone?: string): PageVersionSummary | undefined {
     const old = this.db
       .prepare("SELECT files, created_at FROM versions WHERE id = ? AND page_id = ?")
       .get(versionId, pageId) as { files: string; created_at: string } | undefined;
     if (!old) return undefined;
-    return this.insertVersion(pageId, old.files, `Restored version of ${old.created_at}`, "restore", ref);
+    return this.insertVersion(pageId, old.files, restoredVersionMessage(old.created_at, timeZone), "restore", ref);
   }
 
   private createVersion(

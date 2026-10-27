@@ -57,6 +57,7 @@ import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
+import { validTimeZone } from "./version-dates.js";
 import { registerGapRoutes } from "./gaps.js";
 import { registerIdentity, viewerOf, personRef, type IdentityConfig } from "./identity.js";
 import { type CliBuild } from "./cli-build.js";
@@ -526,14 +527,16 @@ export async function buildMainApp(
       .send(store.setPageFile(page.id, TWEAKS_PATH, JSON.stringify(values, null, 2), `Tweak: ${tweak.label} = ${value}`, "tweak", personRef(req)));
   });
 
-  app.post<{ Params: { pageId: string; versionId: string } }>(
+  app.post<{ Params: { pageId: string; versionId: string }; Body: { timeZone?: string } | undefined }>(
     "/api/pages/:pageId/versions/:versionId/restore",
     async (req, reply) => {
+      const timeZone = req.body?.timeZone;
+      if (!validTimeZone(timeZone)) return reply.code(400).send({ error: "invalid timeZone" });
       const files = store.readVersionFiles(req.params.pageId, req.params.versionId);
       // Restoring publishes the old files again: the same checks as a publish apply.
       const invalid = files && (versionComponentsError(store, req.params.pageId, files) ?? removalsError(store, req.params.pageId, files, undefined, false));
       if (invalid) return reply.code(400).send({ error: invalid });
-      const restored = store.restoreVersion(req.params.pageId, req.params.versionId, personRef(req));
+      const restored = store.restoreVersion(req.params.pageId, req.params.versionId, personRef(req), timeZone);
       return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });
     },
   );

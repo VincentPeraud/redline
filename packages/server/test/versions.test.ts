@@ -44,6 +44,16 @@ describe("version history and restore over the server HTTP API", () => {
     ]);
   });
 
+  it("words the restore message in the caller's time zone, and refuses an unknown one", async () => {
+    const page = await createPage();
+    await publish(page.id, "<h1>two</h1>", "Bigger title", "thread");
+    const first = (await versions(page.id))[1]!;
+    const bad = await server.post(`/api/pages/${page.id}/versions/${first.id}/restore`, { timeZone: "Mars/Olympus" });
+    expect(bad.status).toBe(400);
+    const res = await server.post(`/api/pages/${page.id}/versions/${first.id}/restore`, { timeZone: "Pacific/Auckland" });
+    expect(((await res.json()) as PageVersionSummary).message).toMatch(/^Version du .+ restaurée$/);
+  });
+
   it("restoring creates a new restore version with the restored files and keeps history", async () => {
     const page = await createPage();
     await publish(page.id, "<h1>two</h1>", "Bigger title", "thread");
@@ -53,6 +63,7 @@ describe("version history and restore over the server HTTP API", () => {
     expect(res.status).toBe(201);
     const restored = (await res.json()) as PageVersionSummary;
     expect(restored.origin).toBe("restore");
+    expect(restored.message).toMatch(/^Version du \d{1,2} \S+ à \d{2}:\d{2} restaurée$/);
     expect(restored.id).not.toBe(first.id);
 
     const current = (await (await server.get(`/api/pages/${page.id}`)).json()) as Page;

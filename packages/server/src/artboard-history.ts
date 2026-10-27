@@ -14,6 +14,7 @@ import {
 } from "@redline/shared";
 import { requiredString } from "./validation.js";
 import { personRef } from "./identity.js";
+import { restoredVersionMessage, validTimeZone } from "./version-dates.js";
 import type { Store, VersionRecord } from "./store.js";
 
 const CREATED_TITLE = "Artboard créé";
@@ -49,20 +50,6 @@ function contentChanges(records: VersionRecord[], file: string): VersionRecord[]
     previous = hash;
   }
   return changes;
-}
-
-function formatDate(iso: string, timeZone: string | undefined): string {
-  return new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone }).format(new Date(iso));
-}
-
-function validTimeZone(timeZone: unknown): boolean {
-  if (timeZone === undefined) return true;
-  try {
-    new Intl.DateTimeFormat("fr-FR", { timeZone: timeZone as string });
-    return typeof timeZone === "string";
-  } catch {
-    return false;
-  }
 }
 
 /** Per-artboard history, deleted artboards and artboard restore: views and edits derived from the page versions. */
@@ -169,7 +156,7 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
     const changes = contentChanges(records, file);
     const previousVersionId = head.files[file] === undefined ? head.id : changes[changes.length - 1].id;
     const message =
-      targetHash === undefined ? PUT_BACK_UNDONE_MESSAGE : !onPage ? PUT_BACK_MESSAGE : `Version du ${formatDate(target.createdAt, timeZone)} restaurée`;
+      targetHash === undefined ? PUT_BACK_UNDONE_MESSAGE : !onPage ? PUT_BACK_MESSAGE : restoredVersionMessage(target.createdAt, timeZone);
     const version = store.addVersionFromHashes(req.params.pageId, files, message, "restore", personRef(req));
     const response: RestoreArtboardResponse = { version, previousVersionId };
     return reply.code(201).send(response);
