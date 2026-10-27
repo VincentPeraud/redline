@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { AGENT_API_PREFIX, AGENT_ENDPOINT } from "@redline/shared";
 import { tokensEqual } from "./request-hardening.js";
 
@@ -52,6 +52,12 @@ export function registerHealthRoute(app: FastifyInstance): void {
     if (!isLoopback(req.socket.remoteAddress)) return reply.code(403).send();
     return reply.send("ok");
   });
+}
+
+/** Whether the request reached the proxy's human router: only then are the SSO identity headers the proxy's. */
+export function hasHumanSecret(req: FastifyRequest, secrets: ProxySecrets): boolean {
+  const given = req.headers[PROXY_SECRET_HEADER];
+  return typeof given === "string" && !isMachinePath(req.url) && tokensEqual(given, secrets.human);
 }
 
 /** Refuses (403, no detail) every request that does not carry the secret of the route it reached. No secrets, no check. */

@@ -5,6 +5,7 @@ import Database from "better-sqlite3";
 import { componentFilesOf, projectComponents } from "./components.js";
 import {
   EMPTY_VIEW_SETTINGS,
+  initialsOf,
   diffDiffusionStates,
   diffusionSummary,
   DESIGN_MD_PATH,
@@ -28,6 +29,7 @@ import {
   type ProjectAsset,
 } from "@redline/shared";
 import type {
+  Person,
   ComponentInfo,
   DiffusionInfo,
   DiffusionState,
@@ -71,6 +73,12 @@ export class Store {
     this.db = new Database(join(dataDir, "redline.db"));
     this.db.pragma("journal_mode = WAL");
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS people (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -559,6 +567,14 @@ export class Store {
 
   close(): void {
     this.db.close();
+  }
+
+  /** Creates the person on their first visit; their name and e-mail are refreshed when the SSO gives other ones. */
+  savePerson(id: string, name: string, email: string): Person {
+    const known = this.db.prepare("SELECT name, email FROM people WHERE id = ?").get(id) as { name: string; email: string } | undefined;
+    if (!known) this.db.prepare("INSERT INTO people (id, name, email, created_at) VALUES (?, ?, ?, ?)").run(id, name, email, new Date().toISOString());
+    else if (known.name !== name || known.email !== email) this.db.prepare("UPDATE people SET name = ?, email = ? WHERE id = ?").run(name, email, id);
+    return { id, name, email, initials: initialsOf(name, id) };
   }
 
   /** Calls `listener` after every change the web UI shows (new thread or reply, new version). Returns the unsubscribe function. */
