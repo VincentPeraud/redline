@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,6 +38,12 @@ describe("secret generator", () => {
     run(envFile());
     expect(readFileSync(envFile(), "utf8")).toBe(before);
     expect(secretFile("proxy-secret-human")).toBe(human);
+  });
+
+  it("keeps the .env file private to its owner", () => {
+    chmodSync(envFile(), 0o644);
+    run(envFile());
+    expect(statSync(envFile()).mode & 0o777).toBe(0o600);
   });
 
   it("rebuilds a missing .env line from the existing file, and a missing file from the .env line", () => {
@@ -128,8 +134,8 @@ describe.skipIf(!process.env.REDLINE_DOCKER_TEST)("production compose", () => {
     expect([...names("middlewares")].sort()).toEqual(
       ["acme-body", "acme-headers", "acme-https", "acme-ratelimit", "acme-secret-human", "acme-secret-machine", "acme-strip-identity"],
     );
-    expect(labels["traefik.http.routers.acme-ui.middlewares"]).toBe("acme-headers,sso@docker,acme-body,acme-secret-human");
-    expect(labels["traefik.http.routers.acme-artboards.middlewares"]).toBe("acme-headers,sso@docker,acme-body,acme-secret-human");
+    expect(labels["traefik.http.routers.acme-ui.middlewares"]).toBe("acme-headers,acme-strip-identity,sso@docker,acme-body,acme-secret-human");
+    expect(labels["traefik.http.routers.acme-artboards.middlewares"]).toBe("acme-headers,acme-strip-identity,sso@docker,acme-body,acme-secret-human");
     expect(labels["traefik.http.routers.acme-machine.middlewares"]).not.toContain("sso@docker");
     expect(labels["traefik.http.routers.acme-machine.middlewares"]).toContain("acme-secret-machine");
     expect(Number(labels["traefik.http.routers.acme-machine.priority"])).toBeGreaterThan(Number(labels["traefik.http.routers.acme-ui.priority"]));

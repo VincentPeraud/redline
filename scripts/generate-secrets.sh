@@ -11,6 +11,8 @@ secrets_dir="${REDLINE_SECRETS_DIR:-$root/secrets}"
 mkdir -p "$secrets_dir"
 chmod 700 "$secrets_dir"
 touch "$env_file"
+# .env holds both proxy secrets: readable by its owner only.
+chmod 600 "$env_file"
 
 env_value() {
   grep -E "^$1=" "$env_file" | tail -n 1 | cut -d= -f2- || true
