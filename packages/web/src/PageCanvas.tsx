@@ -11,6 +11,7 @@ import {
   groupTitlesOf,
   parseManifest,
   readingOrder,
+  columnShifts,
   tweakGrid,
   tweakGridLayout,
   versionPreviewPath,
@@ -56,7 +57,7 @@ import { navigateTo, playRoute, type PageRoute } from "./router.js";
 import { TocList } from "./TocList.js";
 import { artboardAtCentre, type TocItem } from "./tocItems.js";
 import { CanvasElements } from "./CanvasElements.js";
-import { responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
+import { elementBox, responsiveFrameLayout, renderingSlots, type Box } from "./canvasGeometry.js";
 import { ResponsiveFrame } from "./ResponsiveFrame.js";
 import { TweakGridFrame } from "./TweakGridFrame.js";
 import { RenderingChips, RenderingsMenu } from "./RenderingControls.js";
@@ -513,12 +514,50 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const formatsOnPage = (Object.keys(RESPONSIVE_FORMATS) as ResponsiveFormat[])
     .map((format) => ({ format, frames: responsiveArtboards.filter((a) => a.responsive!.some((r) => r.format === format)).length }))
     .filter(({ frames }) => frames > 0);
+  // Under an artboard that is taller or shorter than declared (renderings at their real height, a fit height), its column moves with it.
+  // Only recomputed when a height or the shown renderings change, not on every pan or zoom.
+  const { placedArtboards, placedElements } = useMemo(() => {
+    const artboards = manifest?.artboards ?? [];
+    const elements = manifest?.elements ?? [];
+    const elementId = (index: number, end = "") => `\u0000element ${index}${end}`;
+    const point = (id: string, at: { x: number; y: number }) => ({ id, box: { x: at.x, y: at.y, width: 0, height: 0 }, shownHeight: 0 });
+    const shifts = columnShifts([
+      ...artboards.map((artboard) => ({
+        id: artboard.file,
+        box: artboard.responsive ? responsiveFrameLayout(artboard, renderingSlots(artboard.responsive)).frame : { x: artboard.x, y: artboard.y, ...(gridOf(artboard) ?? { width: artboard.width, height: artboard.height }) },
+        shownHeight: layoutOf(artboard)?.frame.height ?? gridOf(artboard)?.height ?? heightOf(artboard),
+      })),
+      ...elements.flatMap((element, index) => {
+        if (element.kind === "arrow") return [element.from, element.to].flatMap((end, i) => (typeof end === "string" ? [] : [point(elementId(index, i === 0 ? " from" : " to"), end)]));
+        if ("anchor" in element && element.anchor) return [];
+        const box = elementBox(element, undefined);
+        return box ? [{ id: elementId(index), box, shownHeight: box.height }] : [];
+      }),
+    ]);
+    const moved = <T extends { x: number; y: number }>(at: T, id: string): T => {
+      const shift = shifts.get(id) ?? 0;
+      return shift === 0 ? at : { ...at, y: at.y + shift };
+    };
+    return {
+      placedArtboards: artboards.map((artboard) => moved(artboard, artboard.file)),
+      placedElements: elements.map((element, index) => {
+        if (element.kind === "arrow") {
+          const end = (at: typeof element.from, name: string) => (typeof at === "string" ? at : moved(at, elementId(index, name)));
+          const from = end(element.from, " from");
+          const to = end(element.to, " to");
+          return from === element.from && to === element.to ? element : { ...element, from, to };
+        }
+        return "anchor" in element && element.anchor ? element : moved(element, elementId(index));
+      }),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- layoutOf, gridOf and heightOf read only these
+  }, [manifest, docHeights, pageHeights, viewSettings]);
   const artboardBoxes = new Map<string, Box>(
-    (manifest?.artboards ?? []).map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, ...(gridOf(artboard) ?? { width: artboard.width, height: heightOf(artboard) }) }]),
+    placedArtboards.map((artboard) => [artboard.file, layoutOf(artboard)?.frame ?? { x: artboard.x, y: artboard.y, ...(gridOf(artboard) ?? { width: artboard.width, height: heightOf(artboard) }) }]),
   );
   artboardBoxesRef.current = artboardBoxes;
   const tocItems: TocItem[] = readingOrder(
-    (manifest?.artboards ?? []).map((artboard) => ({ file: artboard.file, title: artboard.title, ...artboardBoxes.get(artboard.file)! })),
+    placedArtboards.map((artboard) => ({ file: artboard.file, title: artboard.title, ...artboardBoxes.get(artboard.file)! })),
     manifest ? groupTitlesOf(manifest) : [],
   ).map((entry) => ({ ...entry, openThreads: threads.filter((t) => t.artboard === entry.file && t.status !== "resolved").length }));
   if (playing && manifest && playFile !== undefined) {
@@ -654,8 +693,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
           >
             <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
               {manifest && (
-              <CanvasElements elements={manifest.elements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking || selecting || alt} zoom={view.zoom} threads={threads} marks={canvasMarks}>
-              {manifest.artboards.map((artboard) => {
+              <CanvasElements elements={placedElements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking || selecting || alt} zoom={view.zoom} threads={threads} marks={canvasMarks}>
+              {placedArtboards.map((artboard) => {
                 const layout = layoutOf(artboard);
                 const grid = gridOf(artboard);
                 const hidden = hiddenOf(artboard);

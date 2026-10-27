@@ -1249,5 +1249,6 @@ export * from "./diffusion.js";
 export * from "./projectDesignSystem.js";
 export * from "./gaps.js";
 export * from "./canvasAnchors.js";
+export * from "./columnShift.js";
 export * from "./arrowGeometry.js";
 export * from "./layoutIssues.js";

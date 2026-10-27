@@ -243,3 +243,38 @@ it("shows the artboard's guides in every rendering when guides are toggled", asy
   expect(await columns.count()).toBe(24);
   await tab.close();
 }, 60_000);
+
+it("moves the column under a responsive artboard down when a rendering makes it taller, and back up when it is hidden", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Column" })).json()) as { id: string };
+  const plain = "<!doctype html><html><body style=\"margin:0\"><div style=\"height:600px\">Plain</div></body></html>";
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Column",
+      files: {
+        "list.html": `<!doctype html><html><head><style>body { margin: 0 } .page { height: 900px } @media (max-width: 500px) { .page { height: 2000px } }</style></head><body><div class="page">List</div></body></html>`,
+        "form.html": plain,
+        "aside.html": plain,
+        "manifest.json": JSON.stringify({
+          artboards: [
+            { file: "list.html", x: 0, y: 0, width: 1440, height: 900, responsive: ["desktop", "mobile"] },
+            { file: "form.html", x: 0, y: 1200, width: 1440, height: 600 },
+            { file: "aside.html", x: 4000, y: 1200, width: 1440, height: 600 },
+          ],
+        }),
+      },
+    })
+  ).json()) as Page;
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  const top = (file: string) => tab.locator(`[data-artboard="${file}"]`).evaluate((el) => (el as HTMLElement).style.top);
+  await tab.locator("[data-rendering=mobile-390] iframe").waitFor();
+
+  // the mobile rendering is 1 100 px taller than the frame's declared height: the artboard under it follows, the other column stays
+  await expect.poll(() => top("form.html")).toBe("2300px");
+  expect(await top("aside.html")).toBe("1200px");
+
+  await tab.getByRole("group", { name: "Rendus affichés sur le canvas" }).getByRole("button", { name: "Mobile" }).click();
+  await expect.poll(() => top("form.html")).toBe("1200px");
+  await tab.close();
+}, 60_000);
