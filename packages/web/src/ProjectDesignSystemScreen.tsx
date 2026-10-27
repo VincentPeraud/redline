@@ -279,6 +279,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   const thumb = { background: colour("--color-background", "transparent"), shape: colour("--color-primary", "transparent") };
   const selectedId = shared?.id ?? "none";
   const overridden = detail.overrideCount;
+  const fresh = !shared && detail.tokens.length === 0;
 
   return (
     <div className={styles.screen}>
@@ -346,7 +347,9 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
               <span className={styles.variablesHint}>
                 {shared
                   ? `${overridden} ${agree(overridden, "surchargée", "surchargées")} · les autres suivent ${shared.title}`
-                  : "Le design system du projet : modifiables ici ou en le demandant à Claude"}
+                  : fresh
+                    ? "Aucune pour l'instant"
+                    : "Le style du projet : modifiables ici ou en le demandant à Claude"}
               </span>
             </div>
             {error && (
@@ -354,16 +357,25 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
                 {error}
               </div>
             )}
-            <div className={styles.table}>
-              <div className={styles.headRow}>
-                <span className={styles.nameCol}>Variable</span>
-                {title !== null && <span className={styles.designSystemCol}>{title}</span>}
-                <span className={styles.grow}>{shared ? "Ce projet" : "Valeur"}</span>
+            {fresh ? (
+              <div data-testid="fresh-style" className={styles.fresh}>
+                <h3 className={styles.freshTitle}>Pas encore de style</h3>
+                <p className={styles.freshText}>
+                  Claude le crée d'après le sujet du projet à ta première demande : polices, fond, couleurs d'accent. Tu pourras ensuite le modifier ici ou en le lui demandant.
+                </p>
               </div>
-              {detail.tokens.map((token) => (
-                <TokenRow key={token.name} token={token} designSystemTitle={title} onSet={setToken} onReset={resetToken} />
-              ))}
-            </div>
+            ) : (
+              <div className={styles.table}>
+                <div className={styles.headRow}>
+                  <span className={styles.nameCol}>Variable</span>
+                  {title !== null && <span className={styles.designSystemCol}>{title}</span>}
+                  <span className={styles.grow}>{shared ? "Ce projet" : "Valeur"}</span>
+                </div>
+                {detail.tokens.map((token) => (
+                  <TokenRow key={token.name} token={token} designSystemTitle={title} onSet={setToken} onReset={resetToken} />
+                ))}
+              </div>
+            )}
           </section>
         </main>
 
