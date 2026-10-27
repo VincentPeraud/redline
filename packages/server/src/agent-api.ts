@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import {
   AGENT_API_PREFIX,
+  BUILD_HASH_HEADER,
+  OUTDATED_HEADER,
   DESIGN_MD_PATH,
   DESIGN_SYSTEM_TOKENS_PATH,
   PROJECT_STYLE_PATH,
@@ -52,6 +54,8 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (!tokensEqual(given, store.getAgentToken())) {
           return reply.code(401).send({ error: "Wrong or missing agent token." });
         }
+        const build = req.headers[BUILD_HASH_HEADER];
+        if (typeof build === "string" && store.isOutdated(build)) reply.header(OUTDATED_HEADER, "1");
       });
 
       // `redline init` / `redline agent` pick or create the project a folder serves, before they have anything else to call.

@@ -1,5 +1,7 @@
 import {
   AGENT_API_PREFIX,
+  BUILD_HASH_HEADER,
+  OUTDATED_HEADER,
   artboardHash,
   pageHash,
   playHash,
@@ -20,14 +22,28 @@ import {
   type ThreadReply,
   type VersionOrigin,
   type RenamePageRequest,
+  cliUpdateCommand,
 } from "@redline/shared";
+import { buildHash as ownBuildHash } from "./build-hash.js";
 
 /** The agent's token-guarded view of the server (`/agent-api`); shared by sessions' MCP tools and terminal mode. */
 export class ServerApi {
+  private serverSaidOutdated = false;
+
   constructor(
     private readonly serverUrl: string,
     private readonly token: string,
+    private readonly buildHash: string = ownBuildHash(),
   ) {}
+
+  /** The server answered, on some call, that this CLI's build differs from its own. */
+  get outdated(): boolean {
+    return this.serverSaidOutdated;
+  }
+
+  updateCommand(): string {
+    return cliUpdateCommand(this.serverUrl);
+  }
 
   checkout(pageId: string): Promise<AgentCheckout> {
     return this.request("GET", `/pages/${pageId}/files`);
@@ -137,10 +153,12 @@ export class ServerApi {
       redirect: "error",
       headers: {
         authorization: `Bearer ${this.token}`,
+        [BUILD_HASH_HEADER]: this.buildHash,
         ...(body === undefined ? {} : { "content-type": raw ? "application/octet-stream" : "application/json" }),
       },
       body: body === undefined ? undefined : raw ? new Uint8Array(body) : JSON.stringify(body),
     });
+    if (res.headers.has(OUTDATED_HEADER)) this.serverSaidOutdated = true;
     if (!res.ok) {
       // A proxy in front of the server may answer with HTML (a 413 from nginx, a 502).
       const error = await res.json().then((body: { error?: string }) => body.error, () => undefined);

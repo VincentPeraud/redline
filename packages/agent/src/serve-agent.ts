@@ -1,3 +1,4 @@
+import { cliUpdateCommand } from "@redline/shared";
 import { startAgent, type AgentOptions } from "./agent.js";
 import { ServerUnreachableError } from "./connection.js";
 
@@ -37,12 +38,17 @@ export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () =
 
   async function run(): Promise<void> {
     let failures = 0;
+    let warnedOutdated = false;
     while (!stopped) {
       try {
         const connection = await startAgent(options);
         current = connection;
         failures = 0;
         log(`Connected to ${options.serverUrl} as ${options.kind} agent in ${options.folder}. Ctrl-C to stop.`);
+        if (connection.outdated && !warnedOutdated) {
+          warnedOutdated = true;
+          log(`This agent is not up to date. Update it with: ${cliUpdateCommand(options.serverUrl)}`);
+        }
         const { reason } = await connection.closed;
         if (reason === "unauthorized") throw new Error("The token was regenerated. Run `redline login <server-url>` again.");
         if (stopped) return;

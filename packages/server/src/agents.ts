@@ -30,6 +30,7 @@ function parseHello(raw: string): AgentHello | undefined {
       typeof m.folder === "string" &&
       (m.kind === "project" || m.kind === "global") &&
       (m.projectId === undefined || typeof m.projectId === "string") &&
+      (m.buildHash === undefined || typeof m.buildHash === "string") &&
       (m.model === undefined || typeof m.model === "string") &&
       (m.effort === undefined || (EFFORTS as readonly unknown[]).includes(m.effort));
     return valid ? (m as AgentHello) : undefined;
@@ -88,6 +89,8 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         return socket.close(AgentCloseCode.Unauthorized, "unauthorized");
       }
       if (hello.protocolVersion !== PROTOCOL_VERSION) {
+        store.recordRefusedAgent(hello.machine, hello.folder, hello.kind);
+        store.emit({ type: "agents-updated" });
         send(socket, {
           type: "error",
           code: "incompatible_protocol",
@@ -110,7 +113,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
           return socket.close(AgentCloseCode.ProjectTaken, "project taken");
         }
       }
-      const agentId = store.markAgentOnline(hello.machine, hello.folder, hello.kind, hello.projectId, hello.model, hello.effort);
+      const agentId = store.markAgentOnline(hello.machine, hello.folder, hello.kind, hello.projectId, hello.model, hello.effort, hello.buildHash);
       connected.set(socket, agentId);
       store.emit({ type: "agents-updated" });
       socket.on("close", () => {
@@ -123,7 +126,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         const message = parseWorkMessage(data.toString());
         if (message && ownsWork(agentId, message.workId)) store.emit({ type: "work", message });
       });
-      send(socket, { type: "welcome", agentId });
+      send(socket, { type: "welcome", agentId, ...(store.isOutdated(hello.buildHash) ? { outdated: true } : {}) });
       for (const listener of onlineListeners) listener(agentId);
     });
   });

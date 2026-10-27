@@ -1,6 +1,6 @@
 .shell {
   display: flex;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--banner-height, 0px));
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
@@ -15,11 +15,11 @@
 
 .navInner {
   position: sticky;
-  top: 0;
+  top: var(--banner-height, 0px);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  height: 100vh;
+  height: calc(100vh - var(--banner-height, 0px));
   padding: var(--space-5) var(--space-4);
 }
 
