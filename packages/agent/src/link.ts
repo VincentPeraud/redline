@@ -74,8 +74,8 @@ export function ensureGitignored(folder: string): void {
   writeFileSync(file, `${content}${separator}${IGNORE_ENTRY}\n`);
 }
 
-async function callProjects<T>(server: Login, init: { method: "GET" | "POST"; body?: unknown }): Promise<T> {
-  const res = await fetch(`${server.serverUrl}${AGENT_API_PREFIX}/projects`, {
+async function callProjects<T>(server: Login, init: { method: "GET" | "POST"; body?: unknown }, query = ""): Promise<T> {
+  const res = await fetch(`${server.serverUrl}${AGENT_API_PREFIX}/projects${query}`, {
     method: init.method,
     redirect: "error",
     headers: { authorization: `Bearer ${server.token}`, ...(init.body === undefined ? {} : { "content-type": "application/json" }) },
@@ -92,8 +92,16 @@ async function callProjects<T>(server: Login, init: { method: "GET" | "POST"; bo
  */
 export async function linkFolder({ folder, servers, chooseServer, choose, chooseMore }: LinkOptions): Promise<{ projectIds: string[]; projects: Project[]; server: Login }> {
   let server = linkedServer(folder, servers);
-  let projects = server ? await callProjects<Project[]>(server, { method: "GET" }) : [];
-  let linked = readLinkedProjectIds(folder).flatMap((id) => projects.filter((p) => p.id === id));
+  const all = server ? await callProjects<Project[]>(server, { method: "GET" }, "?all=1") : [];
+  let projects = all.filter((p) => !p.archivedAt);
+  const linkedAll = readLinkedProjectIds(folder).flatMap((id) => all.filter((p) => p.id === id));
+  // Archived projects stay in the link (unarchiving one brings the folder back to it) but are not served.
+  const archived = linkedAll.filter((p) => p.archivedAt);
+  let linked = linkedAll.filter((p) => !p.archivedAt);
+  if (server && linked.length === 0 && archived.length > 0) {
+    const titles = archived.map((p) => `"${p.title}"`).join(", ");
+    throw new Error(`This folder's ${archived.length > 1 ? `projects ${titles} are` : `project ${titles} is`} archived. Unarchive it in Redline, or remove .redline/link.json to link the folder to another project.`);
+  }
   const pick = async (choice: LinkChoice): Promise<Project> =>
     "existing" in choice ? projects.find((p) => p.id === choice.existing)! : callProjects<Project>(server!, { method: "POST", body: { title: choice.create } });
   if (!server || linked.length === 0) {
@@ -111,7 +119,7 @@ export async function linkFolder({ folder, servers, chooseServer, choose, choose
     }
   }
   const projectIds = linked.map((p) => p.id);
-  writeLink(folder, { serverUrl: server.serverUrl, projectIds });
+  writeLink(folder, { serverUrl: server.serverUrl, projectIds: [...projectIds, ...archived.map((p) => p.id)] });
   ensureGitignored(folder);
   return { projectIds, projects: linked, server };
 }

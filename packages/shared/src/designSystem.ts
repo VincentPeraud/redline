@@ -23,17 +23,36 @@ export const CORE_TOKENS = [
   "--space-unit",
 ] as const;
 
+/** Why `POST /api/projects/:id/archive` was refused (409): a run is in progress, or projects still follow the design system. */
+export type ArchiveRefusal = { error: string; reason: "busy" } | { error: string; reason: "followed"; projects: ProjectUsingDesignSystem[] };
+
+/** `GET /api/projects/:id/archive`: why archiving the project or design system is refused now; no `refusal` = it can be archived. */
+export interface ArchiveStatus {
+  /** Set when it is archived already. */
+  archivedAt?: string;
+  refusal?: ArchiveRefusal;
+}
+
+/** A project following a design system; `archived` when it is an archived one. */
+export interface ProjectUsingDesignSystem {
+  id: string;
+  title: string;
+  archived?: true;
+}
+
 export interface DesignSystem {
   /** Same as the id of the underlying project, and the value of a manifest's `designSystem`. */
   id: string;
   title: string;
   /** Its first page (the design system may have many); a `tokens.css` published through any of its pages becomes the design system's tokens. */
   pageId: string;
+  /** When the design system was archived (ISO time): it is then read-only and no project can choose it. */
+  archivedAt?: string;
 }
 
 /** A design system as listed: with the projects whose `designSystem` it is. */
 export interface DesignSystemSummary extends DesignSystem {
-  usedBy: { id: string; title: string }[];
+  usedBy: ProjectUsingDesignSystem[];
   /** Time of the last version of the design system's page. */
   updatedAt?: string;
   /** Changes of the draft not yet diffused (`DiffusionDiff.count`); 0 = nothing pending. */

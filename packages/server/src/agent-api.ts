@@ -61,7 +61,8 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       });
 
       // `redline agent` picks or creates the projects a folder serves, before they have anything else to call.
-      api.get("/projects", async () => store.listProjects());
+      // `?all=1` (folder links) includes archived projects, so that a folder linked to one is not linked elsewhere.
+      api.get<{ Querystring: { all?: string } }>("/projects", async (req) => store.listProjects(req.query.all ? "all" : "active"));
 
       api.post<{ Body: { title?: unknown; designSystem?: unknown } }>("/projects", async (req, reply) => {
         const { title } = req.body ?? {};
@@ -70,6 +71,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (designSystem !== null && (typeof designSystem !== "string" || !store.getDesignSystem(designSystem))) {
           return reply.code(400).send({ error: "designSystem must be the id of an existing design system" });
         }
+        if (designSystem !== null && store.isArchived(designSystem)) return reply.code(400).send({ error: "This design system is archived: choose another one." });
         return reply.code(201).send(store.createProject((title as string).trim(), undefined, undefined, designSystem));
       });
 
@@ -97,8 +99,8 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         return store.getProject(req.params.projectId);
       });
 
-      // Terminal mode finds and creates pages without having one checked out. A design system's own project is not one of them.
-      const projectFor = (projectId: string) => (store.getDesignSystem(projectId) ? undefined : store.getProject(projectId));
+      // Terminal mode finds and creates pages without having one checked out. A design system's own project, and an archived project, are not among them.
+      const projectFor = (projectId: string) => (store.getDesignSystem(projectId) || store.isArchived(projectId) ? undefined : store.getProject(projectId));
 
       api.get<{ Params: { projectId: string } }>("/projects/:projectId/pages", async (req, reply) => {
         if (!projectFor(req.params.projectId)) return reply.code(404).send({ error: "project not found" });

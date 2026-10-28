@@ -121,6 +121,22 @@ describe("linking a folder to a project", () => {
     expect((await linkFolder({ folder: dir, ...on(server.url, token), choose: never })).projectIds).toEqual([kept.id]);
   });
 
+  it("keeps an archived project in the link without serving it, and refuses a folder whose projects are all archived", async () => {
+    const dir = folder();
+    const live = (await (await server.post("/api/projects", { title: "Live" })).json()) as Project;
+    const old = (await (await server.post("/api/projects", { title: "Old" })).json()) as Project;
+    await server.post(`/api/projects/${old.id}/archive`, {});
+    mkdirSync(join(dir, ".redline"));
+    writeFileSync(join(dir, ".redline", "project.json"), JSON.stringify({ serverUrl: server.url, projectIds: [live.id, old.id] }));
+    expect((await linkFolder({ folder: dir, ...on(server.url, token), choose: never })).projectIds).toEqual([live.id]);
+    expect(JSON.parse(readFileSync(join(dir, ".redline", "project.json"), "utf8")).projectIds).toEqual([live.id, old.id]);
+
+    const archivedOnly = folder();
+    mkdirSync(join(archivedOnly, ".redline"));
+    writeFileSync(join(archivedOnly, ".redline", "project.json"), JSON.stringify({ serverUrl: server.url, projectIds: [old.id] }));
+    await expect(linkFolder({ folder: archivedOnly, ...on(server.url, token), choose: never })).rejects.toThrow(/"Old" is archived/);
+  });
+
   it("asks again when the linked project no longer exists on this server", async () => {
     const dir = folder();
     await linkFolder({ folder: dir, ...on(server.url, token), choose: async () => ({ create: "Acme" }) });

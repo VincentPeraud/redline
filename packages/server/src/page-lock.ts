@@ -237,6 +237,20 @@ export class PageLock {
     return { running, waiting };
   }
 
+  /** Whether a work item runs or will be retried on one of `pageIds` (archiving a project waits for none). Waiting and failed items do not count. */
+  hasWorkOn(pageIds: Set<string>): boolean {
+    const items = [...[...this.active.values()].map((held) => held.queued), ...[...this.retrying.values()].map((r) => r.queued)];
+    return items.some((queued) => pageIds.has(queued.item.pageId));
+  }
+
+  /** Forgets the waiting and failed items of deleted pages, so they are neither sent, persisted nor offered to "Relancer". */
+  forgetPages(pageIds: Set<string>): void {
+    // A terminal publish waiting for the page (`onGranted`) stays: once granted, its write is refused by the archive guard and answered.
+    this.queue = this.queue.filter((queued) => queued.onGranted !== undefined || !pageIds.has(queued.item.pageId));
+    for (const [workId, failed] of this.failed) if (pageIds.has(failed.queued.item.pageId)) this.failed.delete(workId);
+    this.save();
+  }
+
   /** Whether a work item other than `exceptWorkId` is running on the page (a session, or terminal mode publishing). */
   isHeldByOther(pageId: string, exceptWorkId?: string): boolean {
     for (const [workId, held] of this.active) if (held.queued.item.pageId === pageId && workId !== exceptWorkId) return true;
@@ -250,7 +264,15 @@ export class PageLock {
 
   /** Why each queued item waits: the page is busy with another item, or no agent can run it. */
   private reasons(): { queued: Queued; reason: QueueReason }[] {
-    return this.queue.map((queued) => ({ queued, reason: this.isPageLocked(queued.item.pageId) ? "page-busy" : "agent-offline" }));
+    return this.queue.map((queued) => ({
+      queued,
+      reason: this.isArchivedPage(queued.item.pageId) ? "project-archived" : this.isPageLocked(queued.item.pageId) ? "page-busy" : "agent-offline",
+    }));
+  }
+
+  private isArchivedPage(pageId: string): boolean {
+    const projectId = this.store.projectIdOfPage(pageId);
+    return projectId !== undefined && this.store.isArchived(projectId);
   }
 
   private pump(): void {
@@ -260,7 +282,8 @@ export class PageLock {
     const stillWaiting: Queued[] = [];
     for (const queued of this.queue) {
       const { pageId, sessionId } = queued.item;
-      if (this.isPageLocked(pageId) || (sessionId !== "" && waitingSessions.has(sessionId))) {
+      // An archived project's waiting items stay queued until it is unarchived (`reconsider`).
+      if (this.isPageLocked(pageId) || (sessionId !== "" && waitingSessions.has(sessionId)) || this.isArchivedPage(pageId)) {
         stillWaiting.push(queued);
         continue;
       }

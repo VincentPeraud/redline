@@ -5,6 +5,7 @@ import {
   type DesignSystemSummary,
   type Project,
 } from "@redline/shared";
+import { ArchiveIcon, archivedOnLabel } from "./ArchiveControls.js";
 import { Button, Dialog, DialogActions, Field, PageContent, PageHeader, Select, Textarea, TextInput } from "./ui/index.js";
 import { usedByLabel } from "./designSystemLabel.js";
 import { componentCountLabel, pageCountLabel } from "./diffusionLabels.js";
@@ -105,11 +106,15 @@ function PreviewSwatches({ palette }: { palette: string[] }) {
 export function DesignSystemsScreen() {
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[] | null>(null);
   const [creating, setCreating] = useState(false);
+  const [archivedCount, setArchivedCount] = useState(0);
 
   useEffect(() => {
     fetch("/api/design-systems")
       .then((res) => res.json() as Promise<DesignSystemSummary[]>)
       .then(setDesignSystems);
+    fetch("/api/design-systems?archived=1")
+      .then((res) => res.json() as Promise<DesignSystemSummary[]>)
+      .then((archived) => setArchivedCount(archived.length));
   }, []);
 
   return (
@@ -157,6 +162,15 @@ export function DesignSystemsScreen() {
           <span className={styles.addHint}>De zéro, ou à partir des pages d'un projet</span>
         </button>
       </div>
+      {archivedCount > 0 && (
+        <a href={routeHref({ name: "archivedDesignSystems" })} className={styles.archivedLink}>
+          <ArchiveIcon size={16} />
+          Design systems archivés · {archivedCount}
+          <span aria-hidden="true" className={styles.archivedChevron}>
+            ›
+          </span>
+        </a>
+      )}
       {creating && (
         <NewDesignSystemDialog
           onClose={() => setCreating(false)}
@@ -165,6 +179,50 @@ export function DesignSystemsScreen() {
           }}
         />
       )}
+    </PageContent>
+  );
+}
+
+/** "Design systems archivés": read-only design systems, each opened to be unarchived or deleted for good. */
+export function ArchivedDesignSystemsScreen() {
+  const [designSystems, setDesignSystems] = useState<DesignSystemSummary[] | null>(null);
+
+  useEffect(() => {
+    fetch("/api/design-systems?archived=1")
+      .then((res) => res.json() as Promise<DesignSystemSummary[]>)
+      .then(setDesignSystems);
+  }, []);
+
+  return (
+    <PageContent>
+      <div className={styles.archivedHeading}>
+        <nav aria-label="Fil d'Ariane" className={styles.archivedBreadcrumb}>
+          <a href={routeHref({ name: "designSystems" })}>Design systems</a>
+          <span aria-hidden="true">/</span>
+          <span className={styles.archivedCurrent}>Archivés</span>
+        </nav>
+        <h1 className={styles.archivedTitle}>Design systems archivés</h1>
+        <p className={styles.archivedIntro}>En lecture seule. Ouvre un design system pour le désarchiver ou le supprimer définitivement.</p>
+      </div>
+      <div className={styles.grid}>
+        {designSystems?.map((ds) => (
+          <a key={ds.id} className={styles.card} href={routeHref({ name: "designSystem", designSystemId: ds.id })}>
+            <div className={styles.archivedPreview}>
+              <PreviewSwatches palette={ds.palette} />
+            </div>
+            <div className={styles.body}>
+              <div className={styles.nameRow}>
+                <div className={styles.name}>{ds.title}</div>
+                <span className={styles.archivedPill}>Archivé</span>
+              </div>
+              <div className={styles.usedBy}>
+                {pageCountLabel(ds.pageCount)} · {componentCountLabel(ds.componentCount)}
+              </div>
+              {ds.archivedAt && <div className={styles.stats}>{archivedOnLabel(ds.archivedAt)}</div>}
+            </div>
+          </a>
+        ))}
+      </div>
     </PageContent>
   );
 }

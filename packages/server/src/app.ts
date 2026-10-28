@@ -66,6 +66,7 @@ import { registerRequestHardening } from "./request-hardening.js";
 import { announceDiffusion, registerDesignSystemReload } from "./design-system-reload.js";
 import { registerSessionRoutes } from "./sessions.js";
 import { registerHomeRoutes } from "./home.js";
+import { archivedError, registerArchiveRoutes, registerArchivedGuard } from "./archive.js";
 import { moveArtboard } from "./move-artboard.js";
 import { dispatchBatch, dispatchReply, dispatchThread } from "./work.js";
 
@@ -134,6 +135,7 @@ export async function buildMainApp(
   }
   registerRequestHardening(app);
   explainTooLarge(app);
+  registerArchivedGuard(app, store);
   const agents = await registerAgentRoutes(app, store);
   const pageLock = new PageLock(store, agents, options.retryDelaysMs);
   app.addHook("onClose", async () => pageLock.dispose());
@@ -144,6 +146,7 @@ export async function buildMainApp(
   registerDesignSystemReload(app, store);
   const runs = registerRunRoutes(app, store);
   registerHomeRoutes(app, store, pageLock);
+  registerArchiveRoutes(app, store, pageLock);
   const knownWindows = new Map<string, number>();
   registerContextTracking(app, store, pageLock, knownWindows);
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
@@ -158,7 +161,10 @@ export async function buildMainApp(
   });
 
   app.post<{ Params: { pageId: string; workId: string } }>("/api/pages/:pageId/runs/:workId/retry", async (req, reply) => {
-    if (!pageLock.retry(req.params.workId)) return reply.code(404).send({ error: "no failed run to retry" });
+    // The item must be one of this page's: the archive guard judged the request by its page.
+    if (pageLock.itemOf(req.params.workId)?.pageId !== req.params.pageId || !pageLock.retry(req.params.workId)) {
+      return reply.code(404).send({ error: "no failed run to retry" });
+    }
     return reply.code(204).send();
   });
 
@@ -173,10 +179,13 @@ export async function buildMainApp(
     if (designSystem != null && typeof designSystem !== "string") {
       return reply.code(400).send({ error: "designSystem must be a string" });
     }
+    if (designSystem && store.isArchived(designSystem)) return reply.code(400).send({ error: "This design system is archived: choose another one." });
     return reply.code(201).send(store.createProject(title, undefined, instructions, designSystem ?? null));
   });
 
-  app.get("/api/projects", async () => store.listProjects().map((project) => withServedBy(store, project)));
+  app.get<{ Querystring: { archived?: string } }>("/api/projects", async (req) =>
+    store.listProjects(req.query.archived ? "archived" : "active").map((project) => withServedBy(store, project)),
+  );
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId", async (req, reply) => {
     const project = store.getProject(req.params.projectId);
@@ -223,8 +232,8 @@ export async function buildMainApp(
     },
   );
 
-  app.get("/api/design-systems", async () =>
-    store.listChoosableDesignSystems().map((designSystem) => {
+  app.get<{ Querystring: { archived?: string } }>("/api/design-systems", async (req) =>
+    (req.query.archived ? store.listArchivedDesignSystems() : store.listChoosableDesignSystems()).map((designSystem) => {
       const { draft, pending } = store.pendingDiffusion(designSystem.id);
       return {
         ...designSystem,
@@ -346,6 +355,7 @@ export async function buildMainApp(
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
     const source = fromProjectId === undefined ? undefined : store.getProject(fromProjectId);
     if (fromProjectId !== undefined && !source) return reply.code(404).send({ error: "project not found" });
+    if (source?.archivedAt) return reply.code(409).send({ error: archivedError(store, source.id) });
     const invalid = designSystemError(files);
     if (invalid) return reply.code(400).send({ error: invalid });
     const designSystem = store.createDesignSystem(title, files);

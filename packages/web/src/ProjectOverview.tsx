@@ -10,6 +10,7 @@ import {
   type Thread,
 } from "@redline/shared";
 import { AgentPill } from "./AgentPill.js";
+import { ArchiveFooter, ArchivedBanner, DeleteSection } from "./ArchiveControls.js";
 import { dayLabel, designMdStatus } from "./historyLabels.js";
 import { useWho } from "./useMe.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
@@ -20,12 +21,14 @@ import { counted } from "./plural.js";
 import { previewSwatches } from "./projectDesignSystemLabels.js";
 import { relativeTime } from "./relativeTime.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
-import { routeHref } from "./router.js";
+import { navigateTo, routeHref } from "./router.js";
 import { Button, Logo, PageContent, SidePanel, SidePanelBody, StatusBadge, cx } from "./ui/index.js";
 import styles from "./ProjectOverview.module.css";
 
 interface PageStats {
   openThreads: number;
+  threads: number;
+  versions: number;
   updatedAt: string | null;
 }
 
@@ -39,18 +42,21 @@ function PageCard({
   stats,
   artboardOrigin,
   current,
+  readOnly,
   onRename,
 }: {
   page: Page;
   stats: PageStats | undefined;
   artboardOrigin: string;
   current: boolean;
+  readOnly: boolean;
   onRename: (title: string) => Promise<void>;
 }) {
   const artboards = usePageArtboards(page.id, page.version.files);
   const [renaming, setRenaming] = useState(false);
   const count = counted(artboards?.length ?? 0, "artboard", "artboards");
-  const modified = stats?.updatedAt ? ` · modifié ${relativeTime(stats.updatedAt)}` : "";
+  // An archived project's cards say what the page holds (and would be deleted with it), not when it last changed.
+  const modified = readOnly ? ` · ${counted(stats?.threads ?? 0, "fil", "fils")}` : stats?.updatedAt ? ` · modifié ${relativeTime(stats.updatedAt)}` : "";
 
   return (
     <div data-testid="page-card" className={cx(styles.pageCard, renameHost, current && styles.pageCardCurrent)}>
@@ -73,9 +79,9 @@ function PageCard({
             <a href={routeHref({ name: "page", pageId: page.id })} className={cx(styles.pageTitle, styles.pageTitleLink)}>
               {page.title}
             </a>
-            <RenamePencil label="Renommer la page" size="page" onClick={() => setRenaming(true)} />
+            {!readOnly && <RenamePencil label="Renommer la page" size="page" onClick={() => setRenaming(true)} />}
             <span className={styles.spacer} />
-            {stats && stats.openThreads > 0 && (
+            {!readOnly && stats && stats.openThreads > 0 && (
               <StatusBadge tone="warning" className={styles.chip}>
                 {counted(stats.openThreads, "fil", "fils")}
               </StatusBadge>
@@ -91,7 +97,7 @@ function PageCard({
   );
 }
 
-function DesignSystemBox({ projectId, detail }: { projectId: string; detail: ProjectDesignSystem }) {
+function DesignSystemBox({ projectId, detail, readOnly }: { projectId: string; detail: ProjectDesignSystem; readOnly: boolean }) {
   const swatches = previewSwatches(detail);
   const components = projectComponentCountLabel(detail.components.length);
   return (
@@ -99,7 +105,7 @@ function DesignSystemBox({ projectId, detail }: { projectId: string; detail: Pro
       <div className={styles.panelHeading}>
         <h2 className={styles.panelTitle}>Design system</h2>
         <span className={styles.spacer} />
-        <a href={routeHref({ name: "projectDesignSystem", projectId })}>Modifier</a>
+        {!readOnly && <a href={routeHref({ name: "projectDesignSystem", projectId })}>Modifier</a>}
       </div>
       <a href={routeHref({ name: "projectDesignSystem", projectId })} className={styles.dsCard}>
         <div aria-hidden="true" className={styles.dsPreview}>
@@ -196,6 +202,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
   const [creating, setCreating] = useState(false);
   const [renamingProject, setRenamingProject] = useState(false);
   const uploadInput = useRef<HTMLInputElement>(null);
+  const [reload, setReload] = useState(0);
 
   const loadAssets = () =>
     fetch(`/api/projects/${projectId}/assets`)
@@ -222,7 +229,12 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
             ]);
             return [
               page.id,
-              { openThreads: threads.filter((thread) => thread.status === "open").length, updatedAt: versions[0]?.createdAt ?? null },
+              {
+                openThreads: threads.filter((thread) => thread.status === "open").length,
+                threads: threads.length,
+                versions: versions.length,
+                updatedAt: versions[0]?.createdAt ?? null,
+              },
             ];
           }),
         );
@@ -235,7 +247,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
       .then((res) => res.json() as Promise<DesignMdInfo>)
       .then(setDesignMdInfo);
     void loadAssets();
-  }, [projectId]);
+  }, [projectId, reload]);
 
   if (!project) return <PageContent>Chargement…</PageContent>;
 
@@ -264,8 +276,15 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
     setPages((current) => current.map((page) => (page.id === pageId ? { ...page, title } : page)));
   }
 
-  const openThreads = Object.values(pageStats).reduce((sum, stats) => sum + stats.openThreads, 0);
-  const summary = `${counted(pages.length, "page", "pages")} · ${counted(openThreads, "fil ouvert", "fils ouverts")}`;
+  const archivedAt = project.archivedAt;
+  const readOnly = archivedAt !== undefined;
+  const allStats = Object.values(pageStats);
+  const openThreads = allStats.reduce((sum, stats) => sum + stats.openThreads, 0);
+  const threadCount = allStats.reduce((sum, stats) => sum + stats.threads, 0);
+  const versionCount = allStats.reduce((sum, stats) => sum + stats.versions, 0);
+  const summary = readOnly
+    ? `${counted(pages.length, "page", "pages")} · ${counted(threadCount, "fil", "fils")} · ${counted(versionCount, "version", "versions")}`
+    : `${counted(pages.length, "page", "pages")} · ${counted(openThreads, "fil ouvert", "fils ouverts")}`;
   const assetPreviewPage = pages[0];
   const assetEntries = groupAssets(assets);
 
@@ -278,14 +297,25 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
         <nav aria-label="Fil d'Ariane" className={styles.breadcrumb}>
           <a href={routeHref({ name: "projects" })}>Projets</a>
           <span aria-hidden="true">/</span>
+          {readOnly && (
+            <>
+              <a href={routeHref({ name: "archivedProjects" })}>Archivés</a>
+              <span aria-hidden="true">/</span>
+            </>
+          )}
           <span className={styles.current}>{project.title}</span>
         </nav>
         <div className={styles.spacer} />
-        <AgentPill project={project} onProjectChange={setProject} />
-        <Button variant="accent" onClick={() => setCreating(true)}>
-          Nouvelle page
-        </Button>
+        {!readOnly && (
+          <>
+            <AgentPill project={project} onProjectChange={setProject} />
+            <Button variant="accent" onClick={() => setCreating(true)}>
+              Nouvelle page
+            </Button>
+          </>
+        )}
       </header>
+      {archivedAt && <ArchivedBanner kind="project" id={projectId} archivedAt={archivedAt} onUnarchived={() => setReload((count) => count + 1)} />}
 
       <div className={styles.body}>
       <PageContent className={styles.main}>
@@ -305,11 +335,11 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
           ) : (
             <div className={cx(styles.titleRow, renameHost)}>
               <h1 className={styles.title}>{project.title}</h1>
-              <RenamePencil label="Renommer le projet" size="project" onClick={() => setRenamingProject(true)} />
+              {!readOnly && <RenamePencil label="Renommer le projet" size="project" onClick={() => setRenamingProject(true)} />}
             </div>
           )}
           <div className={styles.summary}>
-            {project.agent ? `Agent ${folderName(project.agent.folder)} · ${project.agent.folder} · ${summary}` : summary}
+            {project.agent && !readOnly ? `Agent ${folderName(project.agent.folder)} · ${project.agent.folder} · ${summary}` : summary}
           </div>
         </div>
 
@@ -317,15 +347,25 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
           <h2 className={styles.sectionTitle}>Pages</h2>
           <div className={styles.pageGrid}>
             {pages.map((page, index) => (
-              <PageCard key={page.id} page={page} stats={pageStats[page.id]} artboardOrigin={artboardOrigin} current={index === 0} onRename={(title) => renamePage(page.id, title)} />
+              <PageCard
+                key={page.id}
+                page={page}
+                stats={pageStats[page.id]}
+                artboardOrigin={artboardOrigin}
+                current={index === 0 && !readOnly}
+                readOnly={readOnly}
+                onRename={(title) => renamePage(page.id, title)}
+              />
             ))}
-            <button type="button" className={styles.newPageTile} onClick={() => setCreating(true)}>
-              <span aria-hidden="true" className={styles.plus}>
-                +
-              </span>
-              <span className={styles.newPageTitle}>Nouvelle page</span>
-              <span className={styles.newPageHint}>vide, ou décrite à Claude</span>
-            </button>
+            {!readOnly && (
+              <button type="button" className={styles.newPageTile} onClick={() => setCreating(true)}>
+                <span aria-hidden="true" className={styles.plus}>
+                  +
+                </span>
+                <span className={styles.newPageTitle}>Nouvelle page</span>
+                <span className={styles.newPageHint}>vide, ou décrite à Claude</span>
+              </button>
+            )}
           </div>
         </section>
 
@@ -334,10 +374,14 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
             <h2 className={styles.sectionTitle}>Assets du projet</h2>
             <span className={styles.assetsPath}>assets/ · partagés par tous les artefacts</span>
             <span className={styles.spacer} />
-            <Button size="sm" onClick={() => uploadInput.current?.click()}>
-              Ajouter
-            </Button>
-            <input ref={uploadInput} type="file" multiple hidden onChange={upload} aria-label="Ajouter des assets" />
+            {!readOnly && (
+              <>
+                <Button size="sm" onClick={() => uploadInput.current?.click()}>
+                  Ajouter
+                </Button>
+                <input ref={uploadInput} type="file" multiple hidden onChange={upload} aria-label="Ajouter des assets" />
+              </>
+            )}
           </div>
           {assetEntries.length === 0 ? (
             <p className={styles.empty}>Aucun asset pour l'instant.</p>
@@ -357,19 +401,34 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
             </div>
           )}
         </section>
+
+        {readOnly ? (
+          <DeleteSection
+            kind="project"
+            id={projectId}
+            title={project.title}
+            summary="Ses pages, fils, versions, conversations et assets sont effacés. Impossible de revenir en arrière."
+            contents={`Ses ${counted(pages.length, "page", "pages")}, ${counted(threadCount, "fil", "fils")}, ${counted(versionCount, "version", "versions")}, ses conversations et ses assets`}
+            onDeleted={() => navigateTo({ name: "archivedProjects" }, "replace")}
+          />
+        ) : (
+          <ArchiveFooter kind="project" id={projectId} title={project.title} onArchived={() => setReload((count) => count + 1)} />
+        )}
       </PageContent>
 
       <SidePanel label="Contexte du projet" width={380} className={styles.aside}>
         <SidePanelBody className={styles.panelBody}>
-          {designSystem && <DesignSystemBox projectId={projectId} detail={designSystem} />}
+          {designSystem && <DesignSystemBox projectId={projectId} detail={designSystem} readOnly={readOnly} />}
 
           <section className={cx(styles.panelSection, styles.grow)}>
             <div className={styles.panelHeading}>
               <h2 className={styles.designMdTitle}>DESIGN.md</h2>
               <span className={styles.spacer} />
-              <a href={routeHref({ name: "designMd", projectId })} aria-label="Modifier DESIGN.md">
-                Modifier
-              </a>
+              {!readOnly && (
+                <a href={routeHref({ name: "designMd", projectId })} aria-label="Modifier DESIGN.md">
+                  Modifier
+                </a>
+              )}
             </div>
             {designMd !== null && designMd.trim() !== "" ? (
               <MarkdownPreview source={designMd} />

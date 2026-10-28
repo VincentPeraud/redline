@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { PageViewSettings, Project } from "@redline/shared";
+import type { ArchiveStatus, PageViewSettings, Project } from "@redline/shared";
 import { PageCanvas } from "./PageCanvas.js";
 import type { PageRoute } from "./router.js";
 import { subscribeServerEvents } from "./serverEvents.js";
@@ -10,6 +10,8 @@ interface Page {
   title: string;
   version: { id: string; files: Record<string, string> };
   viewSettings: PageViewSettings;
+  /** The page belongs to a design system's own project. */
+  designSystem?: boolean;
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -21,6 +23,9 @@ export function App({ route }: { route: PageRoute }) {
   const { pageId } = route;
   const [page, setPage] = useState<Page | null>(null);
   const [project, setProject] = useState<Project | null>(null);
+  /** When the page's design system is archived (a design system's own page): read-only like an archived project's. */
+  const [designSystemArchivedAt, setDesignSystemArchivedAt] = useState<string | undefined>(undefined);
+  const [reloads, setReloads] = useState(0);
   const [artboardOrigin, setArtboardOrigin] = useState("");
 
   async function loadPage() {
@@ -35,7 +40,8 @@ export function App({ route }: { route: PageRoute }) {
   useEffect(() => {
     // A design system's own project is not a project of the API.
     if (page && !page.designSystem) getJson<Project>(`/api/projects/${page.projectId}`).then(setProject);
-  }, [page?.projectId, page?.designSystem]);
+    if (page?.designSystem) getJson<ArchiveStatus>(`/api/projects/${page.projectId}/archive`).then((status) => setDesignSystemArchivedAt(status.archivedAt));
+  }, [page?.projectId, page?.designSystem, reloads]);
 
   useEffect(
     () =>
@@ -47,6 +53,11 @@ export function App({ route }: { route: PageRoute }) {
   );
 
   if (!page) return <main style={{ padding: 24 }}>Chargement…</main>;
+
+  const archivedAt = page.designSystem ? designSystemArchivedAt : project?.archivedAt;
+  const archived = archivedAt
+    ? { kind: page.designSystem ? ("designSystem" as const) : ("project" as const), archivedAt, onUnarchived: () => setReloads((count) => count + 1) }
+    : undefined;
 
   return (
     <>
@@ -62,6 +73,7 @@ export function App({ route }: { route: PageRoute }) {
         onVersionChange={loadPage}
         viewSettings={page.viewSettings}
         route={route}
+        archived={archived}
       />
     </>
   );

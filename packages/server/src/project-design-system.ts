@@ -130,6 +130,7 @@ export function designSystemChangeError(store: Store, designSystem: unknown): st
   if (designSystem !== null && (typeof designSystem !== "string" || !store.getDesignSystem(designSystem))) {
     return "designSystem must be the id of an existing design system, or null for none";
   }
+  if (designSystem !== null && store.isArchived(designSystem)) return "This design system is archived: choose another one.";
   return null;
 }
 

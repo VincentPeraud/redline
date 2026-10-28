@@ -9,7 +9,8 @@ const RECENT_PAGES = 5;
 export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock: PageLock): void {
   app.get(HOME_PATH, async (): Promise<HomeOverview> => {
     const projects = store.listProjects();
-    const titleOf = new Map(projects.map((p) => [p.id, p.title]));
+    // Archived projects too: their waiting items stay listed until they are unarchived.
+    const titleOf = new Map(store.listProjects("all").map((p) => [p.id, p.title]));
     const { running, waiting } = pageLock.overview();
 
     const covered = (agentId: string, kind: string): CoveredProject[] =>

@@ -537,3 +537,7 @@
 .missing {
   pointer-events: auto;
 }
+
+.archivedBanner.archivedBanner {
+  padding: 12px var(--space-5);
+}

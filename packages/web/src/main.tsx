@@ -5,13 +5,13 @@ import { AgentsScreen } from "./AgentsScreen";
 import { AgentUpdateBanner, useOutdatedAgentNames } from "./AgentUpdateBanner.js";
 import { App } from "./App";
 import { DesignSystemOverview } from "./DesignSystemOverview";
-import { DesignSystemsScreen } from "./DesignSystemsScreen";
+import { ArchivedDesignSystemsScreen, DesignSystemsScreen } from "./DesignSystemsScreen";
 import { DesignMdScreen } from "./DesignMdScreen";
 import { DiffusionProvider } from "./DiffusionDialog";
 import { HomeScreen } from "./HomeScreen";
 import { ProjectDesignSystemScreen } from "./ProjectDesignSystemScreen";
 import { ProjectOverview } from "./ProjectOverview";
-import { ProjectsScreen } from "./ProjectsScreen";
+import { ArchivedProjectsScreen, ProjectsScreen } from "./ProjectsScreen";
 import { Shell } from "./Sidebar";
 import { MeProvider } from "./useMe.js";
 import { useRoute } from "./router";
@@ -52,6 +52,10 @@ function Screen() {
       return <DesignSystemOverview key={route.designSystemId} designSystemId={route.designSystemId} viaProjectId={route.viaProjectId} />;
     case "projects":
       return <Shell><ProjectsScreen /></Shell>;
+    case "archivedProjects":
+      return <Shell><ArchivedProjectsScreen /></Shell>;
+    case "archivedDesignSystems":
+      return <Shell><ArchivedDesignSystemsScreen /></Shell>;
     case "sessions":
       return <Shell><SessionsScreen /></Shell>;
   }

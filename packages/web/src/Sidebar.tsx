@@ -9,8 +9,8 @@ import styles from "./Sidebar.module.css";
 
 const NAV: { label: string; route: Route; active: Route["name"][] }[] = [
   { label: "Accueil", route: { name: "home" }, active: ["home"] },
-  { label: "Projets", route: { name: "projects" }, active: ["projects", "project", "designMd"] },
-  { label: "Design systems", route: { name: "designSystems" }, active: ["designSystems"] },
+  { label: "Projets", route: { name: "projects" }, active: ["projects", "archivedProjects", "project", "designMd"] },
+  { label: "Design systems", route: { name: "designSystems" }, active: ["designSystems", "archivedDesignSystems"] },
   { label: "Sessions", route: { name: "sessions" }, active: ["sessions"] },
   { label: "Agents", route: { name: "agents" }, active: ["agents"] },
 ];

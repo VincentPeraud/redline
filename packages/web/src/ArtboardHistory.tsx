@@ -27,6 +27,8 @@ interface Props {
   previewVersionId: string | null;
   onPreview: (versionId: string | null) => void;
   onRestore: (versionId: string) => Promise<void>;
+  /** An archived project's page: versions are shown, none is restored. */
+  readOnly?: boolean;
   className?: string;
 }
 
@@ -34,7 +36,7 @@ const POPOVER_WIDTH = 310;
 const POPOVER_GAP = 12;
 
 /** Clock button of an artboard's label row and its popover "Historique · <artboard>": versions, preview in place, restore. */
-export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChange, previewVersionId, onPreview, onRestore, className }: Props) {
+export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChange, previewVersionId, onPreview, onRestore, className, readOnly = false }: Props) {
 
   const who = useWho();
   const [versions, setVersions] = useState<ArtboardVersion[] | null>(null);
@@ -140,11 +142,13 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
                     </div>
                     <span className={styles.previewTag}>en aperçu</span>
                   </div>
-                  <div className={styles.previewNote}>L'artboard affiche cette version. Rien ne change tant que tu ne restaures pas.</div>
+                  <div className={styles.previewNote}>{readOnly ? "L'artboard affiche cette version." : "L'artboard affiche cette version. Rien ne change tant que tu ne restaures pas."}</div>
                   <div className={styles.previewActions}>
-                    <button type="button" className={styles.restore} disabled={restoring} onClick={() => void restore(version.versionId)}>
-                      Restaurer cette version
-                    </button>
+                    {!readOnly && (
+                      <button type="button" className={styles.restore} disabled={restoring} onClick={() => void restore(version.versionId)}>
+                        Restaurer cette version
+                      </button>
+                    )}
                     <button type="button" className={styles.cancel} onClick={() => onPreview(null)}>
                       Annuler
                     </button>

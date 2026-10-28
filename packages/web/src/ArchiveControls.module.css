@@ -1,0 +1,170 @@
+.footer {
+  margin-top: auto;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.archiveLink {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  margin-left: -8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.archiveLink:hover:not([aria-disabled="true"]) {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.archiveLink[aria-disabled="true"] {
+  color: var(--color-text-placeholder);
+  cursor: not-allowed;
+}
+
+.refusal {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.dialogText {
+  margin: 0;
+  font-size: var(--font-size-md);
+  line-height: 1.6;
+  color: var(--color-text-body);
+}
+
+.dialogText strong {
+  color: var(--color-text);
+}
+
+.dialogText strong.irreversible {
+  color: var(--color-danger-text);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger-text);
+}
+
+.banner {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 12px 40px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--color-surface-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.bannerIcon {
+  display: flex;
+  color: var(--color-text-secondary);
+}
+
+.bannerText {
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+}
+
+.bannerText strong {
+  color: var(--color-text);
+}
+
+.grow {
+  flex-grow: 1;
+}
+
+.deleteSection {
+  margin-top: auto;
+  padding-top: 28px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.deleteHeading {
+  margin: 0;
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-semibold);
+}
+
+.deleteBox {
+  box-sizing: border-box;
+  padding: 18px 20px;
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.deleteInfo {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.deleteTitle {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.deleteText {
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--color-text-body);
+}
+
+.deleteButton {
+  flex-shrink: 0;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-bg);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-danger-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.confirmDelete {
+  height: 40px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-border);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-body);
+  cursor: not-allowed;
+  white-space: nowrap;
+}
+
+.confirmDeleteReady {
+  background: var(--color-danger-text);
+  color: var(--color-text-inverse);
+  cursor: pointer;
+}
