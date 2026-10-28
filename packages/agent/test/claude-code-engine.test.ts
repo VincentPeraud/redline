@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -215,5 +215,39 @@ describe("Claude Code process", () => {
   it("reports a missing Claude Code", async () => {
     const events = await collect(claudeCodeEngine({ command: "/nonexistent/claude" }).start(realFolderRequest()));
     expect(events).toEqual([{ type: "error", message: "Claude Code is not installed." }]);
+  });
+});
+
+describe("cancelling a Claude Code session", () => {
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it("kills the claude process and what it started, when the signal is aborted", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "fake-claude-"));
+    const pids = join(dir, "pids");
+    const command = join(dir, "claude");
+    // Like the real thing: a process that starts another one and then waits.
+    writeFileSync(command, `#!/bin/sh\nsleep 60 &\necho "$$ $!" > "${pids}"\nwait\n`);
+    chmodSync(command, 0o755);
+    const controller = new AbortController();
+    const events = claudeCodeEngine({ command }).start({ ...request, cwd: dir, workingCopyDir: join(dir, ".redline", "page-1"), signal: controller.signal });
+    const reading = (async () => {
+      for await (const _event of events) void _event;
+    })();
+    for (let i = 0; i < 100 && !existsSync(pids); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    const [parent, child] = readFileSync(pids, "utf8").trim().split(" ").map(Number);
+    expect(alive(parent) && alive(child)).toBe(true);
+
+    controller.abort();
+    await reading;
+    for (let i = 0; i < 100 && (alive(parent) || alive(child)); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect([alive(parent), alive(child)]).toEqual([false, false]);
   });
 });

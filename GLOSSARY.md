@@ -110,6 +110,14 @@ An agent started in a project's code folder; a project has at most one. A folder
 **Global agent**:
 An agent started in a neutral folder. When no project agent is online for a project, it runs the project's new work in a fresh session if the project's setting allows it (its override, else the default); otherwise the thread waits for an agent. Whether the project ever had a project agent does not matter. A design system's work comes to it only when no project using that design system has an agent online and the default setting allows it, or when no project uses the design system yet.
 
+**Agent host**:
+The background process of a machine that runs its agents: it outlives the terminal that launched them, keeps their run logs, and is controlled through a local socket. It starts on demand and exits once no agent runs and no screen is attached.
+_Avoid_: Daemon, supervisor
+
+**Agents screen**:
+The full-screen terminal view (`redline agents`, or opened by `redline agent`) of the agents of a machine: the selected agent's detail and run log, the list of agents, and the keys to act on them. Closing it does not stop any agent.
+_Avoid_: Dashboard, TUI
+
 ### People
 
 **Person**:

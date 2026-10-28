@@ -58,6 +58,15 @@ export function readLogins(configDir: string): Login[] {
   );
 }
 
+/** The login for a server URL (compared normalized), if the machine has one. */
+export const loginFor = (configDir: string, serverUrl: string): Login | undefined => findLogin(readLogins(configDir), serverUrl);
+
+/** The login for a server URL among `logins` (compared normalized). */
+export function findLogin(logins: Login[], serverUrl: string): Login | undefined {
+  const wanted = normalizeServerUrl(serverUrl);
+  return logins.find((login) => normalizeServerUrl(login.serverUrl) === wanted);
+}
+
 export function requireLogins(configDir: string): Login[] {
   const servers = readLogins(configDir);
   if (servers.length === 0) throw new Error("No server set up. Run `redline setup <server-url> --token <token>` first.");
@@ -79,7 +88,7 @@ export function saveLogin({ configDir, serverUrl, token }: Login & { configDir: 
 export function pickServer(servers: Login[], wanted?: string): Login {
   if (wanted) {
     const url = normalizeServerUrl(wanted);
-    const found = servers.find((server) => normalizeServerUrl(server.serverUrl) === url);
+    const found = findLogin(servers, url);
     if (!found) throw new Error(`${url} is not set up. Run \`redline setup ${url} --token <token>\` first.`);
     return found;
   }

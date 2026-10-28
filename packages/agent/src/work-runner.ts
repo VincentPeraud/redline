@@ -1,4 +1,5 @@
 import type { AgentWorkMessage, EngineEvent, WorkItem } from "@redline/shared";
+import type { ReportActivity } from "./activity.js";
 import { uploadChangedAssets } from "./assets.js";
 import type { Engine } from "./engine.js";
 import { pageAddresses } from "./page-addresses.js";
@@ -12,6 +13,26 @@ export interface RunContext {
   api: ServerApi;
   engine: Engine;
   send(message: AgentWorkMessage): void;
+  /** Activity of the run (started, progress, published, failed); absent = not reported. */
+  report?: ReportActivity;
+  /** 1 for a first run, more when the server sends again an item that failed. */
+  attempt?: number;
+  /** Aborted when the agent stops: the run is cancelled and ends without a report (the server sees the connection close). */
+  signal?: AbortSignal;
+}
+
+const EXCERPT_LENGTH = 120;
+const PROGRESS_STEPS = 3;
+
+function excerptOf(item: WorkItem): string | undefined {
+  const body = item.threads[0]?.body.trim().replace(/\s+/g, " ");
+  return body && (body.length > EXCERPT_LENGTH ? `${body.slice(0, EXCERPT_LENGTH - 1)}…` : body);
+}
+
+const activityKind = (item: WorkItem) => (item.kind === "thread" ? "comment" : item.kind);
+
+function changedPaths(before: Record<string, string>, after: Record<string, string>): string[] {
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((path) => before[path] !== after[path]).sort();
 }
 
 function versionMessage(item: WorkItem, summary: string): string {
@@ -25,7 +46,23 @@ function versionMessage(item: WorkItem, summary: string): string {
  * One run: download the page into `.redline/<page>/`, let the engine work on it, then publish the
  * changed files as a single version. A failed run publishes nothing.
  */
-export async function runWorkItem(item: WorkItem, { folder, api, engine, send }: RunContext): Promise<void> {
+export async function runWorkItem(item: WorkItem, { folder, api, engine, send, report = () => undefined, attempt = 1, signal }: RunContext): Promise<void> {
+  const startedAt = Date.now();
+  const pageTitle = item.labels?.page ?? item.pageId;
+  const author = item.labels?.author;
+  const excerpt = excerptOf(item);
+  report({
+    type: "run-started",
+    workId: item.id,
+    project: item.labels?.project ?? "",
+    pageId: item.pageId,
+    page: pageTitle,
+    kind: activityKind(item),
+    ...(author ? { author } : {}),
+    ...(excerpt ? { excerpt } : {}),
+    attempt,
+  });
+  const steps: string[] = [];
   try {
     let checkout = await api.checkout(item.pageId);
     const dir = writeWorkingCopy(folder, item.pageId, checkout);
@@ -53,10 +90,15 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
         mcpUrl: mcp.url,
         model: item.model,
         effort: item.effort,
+        signal,
       };
       for await (const event of item.resume ? engine.resume(request) : engine.start(request)) {
         send({ type: "work-event", workId: item.id, event: event.type === "usage" && item.effort ? { ...event, effort: item.effort } : event });
         if (event.type === "result" || event.type === "error") result = event;
+        if (event.type === "step") {
+          steps.push(`${event.tool} ${event.summary}`.trim());
+          report({ type: "run-progress", workId: item.id, steps: steps.slice(-PROGRESS_STEPS), elapsedMs: Date.now() - startedAt });
+        }
       }
     } finally {
       await mcp.close();
@@ -78,7 +120,8 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
     const projectStyleChanged = projectStyle !== undefined && projectStyle !== baseStyle;
     if (sameFiles(files, checkout.files) && !designMdChanged && !projectStyleChanged) {
       await postReplies();
-      return send({ type: "work-done", workId: item.id });
+      send({ type: "work-done", workId: item.id });
+      return report({ type: "run-published", workId: item.id, page: pageTitle, changed: [], durationMs: Date.now() - startedAt });
     }
     const version = await api.publish(item.pageId, files, versionMessage(item, result.summary), item.kind === "conversation" ? "conversation" : "thread", checkout.versionId, {
       workId: item.id,
@@ -88,7 +131,11 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send }:
     });
     await postReplies();
     send({ type: "work-done", workId: item.id, versionId: version.id });
+    report({ type: "run-published", workId: item.id, page: pageTitle, changed: changedPaths(checkout.files, files), durationMs: Date.now() - startedAt });
   } catch (error) {
-    send({ type: "work-failed", workId: item.id, message: (error as Error).message });
+    if (signal?.aborted) return;
+    const reason = (error as Error).message;
+    send({ type: "work-failed", workId: item.id, message: reason });
+    report({ type: "run-failed", workId: item.id, page: pageTitle, reason, attempt });
   }
 }

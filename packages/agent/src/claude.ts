@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 type RunResult = { stdout: string; missing: boolean; ok: boolean };
 
@@ -32,3 +34,9 @@ export async function checkClaude(env: NodeJS.ProcessEnv = process.env): Promise
   }
   return accountOf(auth.stdout);
 }
+
+/** Claude Code's settings file of the environment, where its default effort level lives. */
+export const claudeSettingsFileOf = (env: NodeJS.ProcessEnv = process.env): string => join(claudeConfigDirOf(env), "settings.json");
+
+/** The Claude config directory of the environment: the one the agent's worker must run with to keep the account checked above. */
+export const claudeConfigDirOf = (env: NodeJS.ProcessEnv = process.env): string => env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");

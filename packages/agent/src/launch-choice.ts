@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EFFORTS, MODEL_CHOICES, type Effort, type ModelChoice } from "@redline/shared";
 
@@ -47,14 +47,20 @@ async function askUntilValid<T>(ask: (question: string) => Promise<string>, ques
   }
 }
 
-/** Asks the model, then the effort, each offering the folder's last choice (kept on Enter), and remembers the answer. */
-export async function chooseModelEffort({ folder, configDir, claudeSettingsFile, flags, ask, warn = () => {} }: LaunchChoiceOptions): Promise<LaunchChoice> {
-  const file = join(configDir, CHOICES_FILE);
-  const stored = readJson(file);
+/** What the folder's agent proposes: its last choice, else Opus and the effort level of the machine's Claude Code settings. */
+export function lastLaunchChoice({ folder, configDir, claudeSettingsFile }: Pick<LaunchChoiceOptions, "folder" | "configDir" | "claudeSettingsFile">): { model: string; effort?: Effort } {
+  const stored = readJson(join(configDir, CHOICES_FILE));
   const choices = stored !== null && typeof stored === "object" ? (stored as Record<string, unknown>) : {};
   const last = (choices[folder] ?? {}) as Record<string, unknown>;
-  const modelDefault = isModel(last.model) ? last.model : FIRST_MODEL;
-  const effortDefault = asEffort(last.effort) ?? asEffort((readJson(claudeSettingsFile) as { effortLevel?: unknown } | undefined)?.effortLevel);
+  return {
+    model: isModel(last.model) ? last.model : FIRST_MODEL,
+    effort: asEffort(last.effort) ?? asEffort((readJson(claudeSettingsFile) as { effortLevel?: unknown } | undefined)?.effortLevel),
+  };
+}
+
+/** Asks the model, then the effort, each offering the folder's last choice (kept on Enter), and remembers the answer. */
+export async function chooseModelEffort({ folder, configDir, claudeSettingsFile, flags, ask, warn = () => {} }: LaunchChoiceOptions): Promise<LaunchChoice> {
+  const { model: modelDefault, effort: effortDefault } = lastLaunchChoice({ folder, configDir, claudeSettingsFile });
 
   const modelNames = MODEL_CHOICES.map((m) => m.id).join(", ");
   const model =
@@ -69,10 +75,19 @@ export async function chooseModelEffort({ folder, configDir, claudeSettingsFile,
       : effortDefault);
 
   try {
-    mkdirSync(configDir, { recursive: true });
-    writeFileSync(file, JSON.stringify({ ...choices, [folder]: { model, effort } }, null, 2));
+    rememberChoice({ folder, configDir, choice: { model, effort } });
   } catch (error) {
     warn(`Could not remember this choice (${(error as Error).message}).`);
   }
   return { model, effort };
+}
+
+/** Saves the folder's last choice: what the next `redline agent` in that folder proposes. */
+export function rememberChoice({ folder, configDir, choice }: { folder: string; configDir: string; choice: LaunchChoice }): void {
+  const stored = readJson(join(configDir, CHOICES_FILE));
+  const choices = stored !== null && typeof stored === "object" ? (stored as Record<string, unknown>) : {};
+  mkdirSync(configDir, { recursive: true });
+  const file = join(configDir, CHOICES_FILE);
+  writeFileSync(file, JSON.stringify({ ...choices, [folder]: choice }, null, 2), { mode: 0o600 });
+  chmodSync(file, 0o600);
 }

@@ -85,6 +85,9 @@ async function callProjects<T>(server: Login, init: { method: "GET" | "POST"; bo
   return (await res.json()) as T;
 }
 
+/** The projects of a server: those open to a new link, or with `all` also the archived ones. */
+export const listProjects = (server: Login, all = false): Promise<Project[]> => callProjects<Project[]>(server, { method: "GET" }, all ? "?all=1" : "");
+
 /**
  * Links the folder to a project (picked or created) unless it already is, and keeps `.redline/` out of git.
  * A folder already linked keeps its projects (those gone from the server are dropped) and may be given more.
@@ -92,7 +95,7 @@ async function callProjects<T>(server: Login, init: { method: "GET" | "POST"; bo
  */
 export async function linkFolder({ folder, servers, chooseServer, choose, chooseMore }: LinkOptions): Promise<{ projectIds: string[]; projects: Project[]; server: Login }> {
   let server = linkedServer(folder, servers);
-  const all = server ? await callProjects<Project[]>(server, { method: "GET" }, "?all=1") : [];
+  const all = server ? await listProjects(server, true) : [];
   let projects = all.filter((p) => !p.archivedAt);
   const linkedAll = readLinkedProjectIds(folder).flatMap((id) => all.filter((p) => p.id === id));
   // Archived projects stay in the link (unarchiving one brings the folder back to it) but are not served.
@@ -106,7 +109,7 @@ export async function linkFolder({ folder, servers, chooseServer, choose, choose
     "existing" in choice ? projects.find((p) => p.id === choice.existing)! : callProjects<Project>(server!, { method: "POST", body: { title: choice.create } });
   if (!server || linked.length === 0) {
     server = servers.length === 1 ? servers[0] : await chooseServer(servers);
-    projects = await callProjects<Project[]>(server, { method: "GET" });
+    projects = await listProjects(server);
     linked = [await pick(await choose(projects))];
   } else if (chooseMore) {
     const servedElsewhere = (p: Project) => p.agent?.status === "online" && !(p.agent.machine === hostname() && p.agent.folder === folder);
