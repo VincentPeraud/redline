@@ -1,4 +1,5 @@
 import { cliUpdateCommand } from "@redline/shared";
+import type { ReportActivity } from "./activity.js";
 import { connectToServer, type AgentConnection, type ConnectOptions } from "./connection.js";
 import type { Engine } from "./engine.js";
 import { buildHash } from "./build-hash.js";
@@ -14,12 +15,15 @@ export interface AgentOptions extends Omit<ConnectOptions, "onMessage"> {
   installedBuildHash?(): string;
   /** Called once the update is installed: the agent should exit so that its supervisor relaunches it. */
   onUpdated?(): void;
+  /** Receives the activity of the work runs. */
+  onActivity?: ReportActivity;
 }
 
 /** Connects to the server and runs the work items it pushes, with the given engine. */
-export async function startAgent({ engine, install = installCli, installedBuildHash = buildHash, onUpdated, ...connect }: AgentOptions): Promise<AgentConnection> {
+export async function startAgent({ engine, install = installCli, installedBuildHash = buildHash, onUpdated, onActivity, ...connect }: AgentOptions): Promise<AgentConnection> {
   const api = new ServerApi(connect.serverUrl, connect.token, connect.buildHash);
   const running = new Set<Promise<void>>();
+  const attempts = new Map<string, number>();
 
   /**
    * Lets the running sessions finish, installs the update, and tells the server when it failed (the agent then keeps its build).
@@ -47,7 +51,13 @@ export async function startAgent({ engine, install = installCli, installedBuildH
     onMessage(message) {
       if (message.type === "work") {
         const item = { ...message.item, model: message.item.model ?? connect.model, effort: message.item.effort ?? connect.effort };
-        const run = runWorkItem(item, { folder: connect.folder, api, engine, send: (m) => connection.send(m) });
+        const attempt = (attempts.get(item.id) ?? 0) + 1;
+        attempts.set(item.id, attempt);
+        const report: ReportActivity = (event) => {
+          if (event.type === "run-published") attempts.delete(item.id);
+          onActivity?.(event);
+        };
+        const run = runWorkItem(item, { folder: connect.folder, api, engine, send: (m) => connection.send(m), report, attempt });
         running.add(run);
         void run.finally(() => running.delete(run));
       } else if (message.type === "update") void update();
