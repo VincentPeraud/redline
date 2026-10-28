@@ -24,7 +24,7 @@ export interface ScreenState {
   home: string;
   /** The folder the screen was opened from: `n` starts or selects its agent. */
   folder: string;
-  /** When the host started fresh after the previous one died with agents running; the banner shows while every agent is still stopped. */
+  /** When the host started fresh after the previous one died with agents running; the banner shows while some agent is still stopped (the host says when the last one is back). */
   freshStartAt?: string;
   /** The dialog open over the screen, if any: it takes every key until it closes. */
   dialog?: Dialog;
@@ -103,8 +103,7 @@ export function logLoaded(state: ScreenState, agentId: string, entries: HostLogE
 
 export function applyEvent(state: ScreenState, event: HostEvent): ScreenState {
   const next = reduce(state, event);
-  const started = (event.event === "agent-added" || event.event === "agent-changed") && event.agent.state !== "stopped";
-  return { ...next, freshStartAt: started ? undefined : next.freshStartAt, dialog: next.dialog && dialogStillValid(next, next.dialog) ? next.dialog : undefined };
+  return { ...next, dialog: next.dialog && dialogStillValid(next, next.dialog) ? next.dialog : undefined };
 }
 
 function reduce(state: ScreenState, event: HostEvent): ScreenState {
@@ -122,6 +121,8 @@ function reduce(state: ScreenState, event: HostEvent): ScreenState {
       const { [event.agentId]: _loaded, ...loaded } = state.loaded;
       return { ...state, agents, selectedId, logs, loaded };
     }
+    case "fresh-start":
+      return { ...state, freshStartAt: event.freshStartAt };
     case "log-line":
       return { ...state, logs: { ...state.logs, [event.agentId]: [...(state.logs[event.agentId] ?? []), event.entry] } };
   }
@@ -545,9 +546,9 @@ function detailRows(state: ScreenState, agent: HostAgent, log: HostLogEntry[], c
   ];
 }
 
-/** After a fresh start of the host, while every agent is still stopped: says why, and which keys bring them back. */
+/** After a fresh start of the host, while some agent is still stopped: says why, and which keys bring them back. */
 function bannerRows(state: ScreenState, cells: number): Row[] {
-  if (!state.freshStartAt || state.agents.length === 0 || state.agents.some((agent) => agent.state !== "stopped")) return [];
+  if (!state.freshStartAt || !state.agents.some((agent) => agent.state === "stopped")) return [];
   const inner = cells - 2 * MARGIN - 2;
   const edge = (text: string) => span(text, C.rule, false, C.bar);
   const line = (...content: Span[]): Row => ({ spans: [span(spaces(MARGIN)), edge("│"), ...fit([span(" ", C.text, false, C.bar), ...content.map((s) => ({ ...s, bg: C.bar }))], inner, C.bar), edge("│")] });

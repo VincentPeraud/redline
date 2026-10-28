@@ -244,14 +244,15 @@ describe("stopping, removing and restarting from the view", () => {
     expect(frame).toContain("3 agents · all stopped");
     expect(frame).toContain("18:42:10  ○ Stopped  the Mac restarted or the session closed");
     state = applyEvent(state, { event: "agent-changed", agent: { ...stoppedAgent(lumora), state: "reconnecting" } });
-    expect(text(state)).not.toContain("The agents stopped");
-    state = applyEvent(state, { event: "agent-changed", agent: stoppedAgent(lumora) });
+    expect(text(state)).toContain("The agents stopped");
+    state = applyEvent(state, { event: "fresh-start" });
     expect(text(state)).not.toContain("The agents stopped");
   });
 
-  it("shows no banner without a fresh start, or while an agent is not stopped", () => {
+  it("shows no banner without a fresh start, or once no agent is stopped; an agent launched since does not hide it", () => {
     expect(text(allStopped())).not.toContain("The agents stopped");
-    expect(text(open([lumora, portfolio], "a4", {}, new Date().toISOString()))).not.toContain("The agents stopped");
+    expect(text(open([lumora, portfolio], "a4", {}, new Date().toISOString()))).toContain("The agents stopped");
+    expect(text(open([lumora, radio], "a1", {}, new Date().toISOString()))).not.toContain("The agents stopped");
   });
 });
 
@@ -439,10 +440,13 @@ describe("the agents screen over a host client", () => {
     terminal.keyListener("r");
     await settle();
     expect(host.calls).toEqual(["restart a1"]);
-    expect(terminal.frame).not.toContain("The agents stopped");
+    expect(terminal.frame).toContain("The agents stopped");
     terminal.keyListener("R");
     await settle();
     expect(host.calls).toEqual(["restart a1", "restart-all"]);
+    host.listener!({ event: "fresh-start" });
+    await settle();
+    expect(terminal.frame).not.toContain("The agents stopped");
     terminal.keyListener("q");
     await done;
   });

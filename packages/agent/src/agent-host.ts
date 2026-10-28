@@ -96,8 +96,8 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
   const loaded = registry.load(startedAt);
   const entries = new Map<string, Entry>(loaded.agents.map((agent) => [agent.id, { agent, log: logOf(agent.id) }]));
   for (const id of loaded.interrupted) entries.get(id)!.log.append({ at: startedAt, event: { type: "stopped", reason: "host-restarted" } });
-  /** Set when the previous host died with agents running; cleared as soon as an agent is started. */
-  let freshStartAt: string | undefined = loaded.interrupted.size > 0 ? startedAt : undefined;
+  /** The agents the previous host died with, while they are still stopped: the fresh start lasts as long as one is. */
+  const lost = loaded.interrupted;
   const clients = new Set<Socket>();
   const attached = new Set<Socket>();
   const subscribers = new Set<Socket>();
@@ -106,6 +106,10 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
   let resolveClosed: () => void = () => undefined;
   const closed = new Promise<void>((resolve) => (resolveClosed = resolve));
 
+  const freshStartAt = () => (lost.size > 0 ? startedAt : undefined);
+  const found = (agentId: string) => {
+    if (lost.delete(agentId) && lost.size === 0) publish({ event: "fresh-start" });
+  };
   const persist = () => registry.save([...entries.values()].map((entry) => entry.agent));
   const publish = (event: HostEvent) => {
     for (const client of subscribers) client.write(encodeLine(event));
@@ -157,7 +161,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       stoppedAs(entry, error);
       return;
     }
-    freshStartAt = undefined;
+    found(agent.id);
     const child = spawn(worker.command, worker.args, {
       stdio: ["ignore", "ignore", "ignore", "ipc"],
       env: { ...process.env, ...worker.env, CLAUDE_CONFIG_DIR: agent.claudeConfigDir },
@@ -263,7 +267,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
   async function handle(client: Socket, request: HostRequestEnvelope): Promise<HostReply> {
     switch (request.type) {
       case "list":
-        return { id: request.id, ok: true, agents: [...entries.values()].map((entry) => entry.agent), freshStartAt };
+        return { id: request.id, ok: true, agents: [...entries.values()].map((entry) => entry.agent), freshStartAt: freshStartAt() };
       case "launch":
       {
         const invalid = modelChoiceError(request);
@@ -296,6 +300,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
         const entry = entryOf(request.agentId);
         await stopWorker(entry);
         entries.delete(request.agentId);
+        found(request.agentId);
         entry.log.delete();
         persist();
         publish({ event: "agent-removed", agentId: request.agentId });

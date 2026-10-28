@@ -100,7 +100,9 @@ export type HostEvent =
   | { event: "agent-added"; agent: HostAgent }
   | { event: "agent-changed"; agent: HostAgent }
   | { event: "agent-removed"; agentId: string }
-  | { event: "log-line"; agentId: string; entry: HostLogEntry };
+  | { event: "log-line"; agentId: string; entry: HostLogEntry }
+  /** The last agent the previous host lost is running again (or gone): the fresh start is over. */
+  | { event: "fresh-start"; freshStartAt?: string };
 
 /** Host to worker, over the parent channel. */
 export type HostToWorker =

@@ -797,3 +797,41 @@ describe("the agent host's input checks", { timeout: 20_000 }, () => {
     }
   });
 });
+
+describe("agents the previous host lost", { timeout: 20_000 }, () => {
+  const ids = ["11111111-2222-4333-8444-555555555551", "11111111-2222-4333-8444-555555555552"];
+  const stoppedOn = "2026-01-02T03:04:05.000Z";
+
+  it("keeps the time an agent stopped, and dates the ones the host lost at the fresh start", async () => {
+    const { configDir, launchSettings, startHost, client } = await setup();
+    const entry = (id: string, state: string) => ({ ...launchSettings(), id, name: id, state, since: stoppedOn });
+    writeFileSync(join(configDir, "agents.json"), JSON.stringify([entry(ids[0], "stopped"), entry(ids[1], "idle")]));
+    await startHost();
+    const api = await client();
+
+    const { agents, freshStartAt } = await api.snapshot();
+    expect(agents.find((a) => a.id === ids[0])!.since).toBe(stoppedOn);
+    expect(agents.find((a) => a.id === ids[1])!.since).toBe(freshStartAt);
+  });
+
+  it("keeps telling the fresh start while some of them are still stopped, whatever else is launched, and says when the last one is back", async () => {
+    const { configDir, launchSettings, startHost, client } = await setup();
+    const entry = (id: string) => ({ ...launchSettings(), id, name: id, state: "idle", since: stoppedOn });
+    writeFileSync(join(configDir, "agents.json"), JSON.stringify(ids.map(entry)));
+    await startHost();
+    const api = await client();
+    const events: HostEvent[] = [];
+    await api.subscribe((event) => events.push(event));
+    const fresh = (await api.snapshot()).freshStartAt;
+    expect(fresh).toBeDefined();
+
+    await api.launch(launchSettings());
+    expect((await api.snapshot()).freshStartAt).toBe(fresh);
+    await api.restart(ids[0]);
+    expect((await api.snapshot()).freshStartAt).toBe(fresh);
+    expect(events.some((e) => e.event === "fresh-start")).toBe(false);
+    await api.restart(ids[1]);
+    expect((await api.snapshot()).freshStartAt).toBeUndefined();
+    await until(() => events.some((e) => e.event === "fresh-start"));
+  });
+});
