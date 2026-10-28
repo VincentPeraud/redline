@@ -64,8 +64,8 @@ export function ensureGitignored(folder: string): void {
   writeFileSync(file, `${content}${separator}${IGNORE_ENTRY}\n`);
 }
 
-async function callProjects<T>(server: Login, init: { method: "GET" | "POST"; body?: unknown }): Promise<T> {
-  const res = await fetch(`${server.serverUrl}${AGENT_API_PREFIX}/projects`, {
+async function callProjects<T>(server: Login, init: { method: "GET" | "POST"; body?: unknown }, query = ""): Promise<T> {
+  const res = await fetch(`${server.serverUrl}${AGENT_API_PREFIX}/projects${query}`, {
     method: init.method,
     redirect: "error",
     headers: { authorization: `Bearer ${server.token}`, ...(init.body === undefined ? {} : { "content-type": "application/json" }) },
@@ -82,8 +82,11 @@ async function callProjects<T>(server: Login, init: { method: "GET" | "POST"; bo
 export async function linkFolder({ folder, servers, chooseServer, choose }: LinkOptions): Promise<{ projectId: string; server: Login }> {
   let server = linkedServer(folder, servers);
   let projectId = readLinkedProjectId(folder);
-  const projects = server ? await callProjects<Project[]>(server, { method: "GET" }) : undefined;
-  if (!server || !projectId || !projects?.some((p) => p.id === projectId)) {
+  const projects = server ? await callProjects<Project[]>(server, { method: "GET" }, "?all=1") : undefined;
+  const linked = projects?.find((p) => p.id === projectId);
+  // Kept as is: unarchiving the project brings the folder back to it.
+  if (linked?.archivedAt) throw new Error(`This folder's project "${linked.title}" is archived. Unarchive it in Redline, or remove .redline/link.json to link the folder to another project.`);
+  if (!server || !projectId || !linked) {
     server = servers.length === 1 ? servers[0] : await chooseServer(servers);
     const choice = await choose(await callProjects<Project[]>(server, { method: "GET" }));
     projectId = "existing" in choice ? choice.existing : (await callProjects<Project>(server, { method: "POST", body: { title: choice.create } })).id;

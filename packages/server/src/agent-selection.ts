@@ -29,13 +29,15 @@ export function chooseAgent(store: Store, projectId: string, viaProjectId?: stri
  * uses yet can only be served by the global agent: it takes it whatever the setting.
  */
 function chooseDesignSystemAgent(store: Store, designSystemId: string, viaProjectId?: string): AgentChoice | undefined {
-  const users = store.projectsUsingDesignSystem(designSystemId).map((p) => p.id);
+  // An archived follower's agent no longer takes work, but the design system still counts as used (no global fallback for that alone).
+  const followers = store.projectsUsingDesignSystem(designSystemId);
+  const users = followers.filter((p) => !p.archived).map((p) => p.id);
   const ordered = viaProjectId && users.includes(viaProjectId) ? [viaProjectId, ...users.filter((id) => id !== viaProjectId)] : users;
   for (const id of ordered) {
     const agentId = store.findOnlineProjectAgentId(id);
     if (agentId) return store.isAgentUpdating(agentId) ? undefined : { agentId, takeover: false };
   }
-  return users.length === 0 || store.getGlobalTakeover() ? globalAgent(store) : undefined;
+  return followers.length === 0 || store.getGlobalTakeover() ? globalAgent(store) : undefined;
 }
 
 function globalAgent(store: Store): AgentChoice | undefined {

@@ -61,7 +61,8 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       });
 
       // `redline init` / `redline agent` pick or create the project a folder serves, before they have anything else to call.
-      api.get("/projects", async () => store.listProjects());
+      // `?all=1` (folder links) includes archived projects, so that a folder linked to one is not linked elsewhere.
+      api.get<{ Querystring: { all?: string } }>("/projects", async (req) => store.listProjects(req.query.all ? "all" : "active"));
 
       api.post<{ Body: { title?: unknown; designSystem?: unknown } }>("/projects", async (req, reply) => {
         const { title } = req.body ?? {};

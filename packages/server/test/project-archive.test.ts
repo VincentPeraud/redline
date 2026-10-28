@@ -112,7 +112,7 @@ describe("archiving and deleting projects and design systems", () => {
     expect(followed.status).toBe(409);
     expect(await followed.json()).toMatchObject({ reason: "followed" });
 
-    await send("DELETE", `/api/projects/${follower.id}`);
+    await send("DELETE", `/api/projects/${follower.id}`, { title: "Halloween" });
     expect(await json(server.get(`/api/projects/${ds.id}/archive`))).toEqual({});
     expect((await server.post(`/api/projects/${ds.id}/archive`, {})).status).toBe(200);
     expect((await json<DesignSystemSummary[]>(server.get("/api/design-systems"))).map((d) => d.title)).not.toContain("Lumora DS");
@@ -147,20 +147,22 @@ describe("archiving and deleting projects and design systems", () => {
     const page = await createPage(acme.id);
     await pin(page.id);
 
-    expect((await send("DELETE", `/api/projects/${acme.id}`)).status).toBe(409);
+    expect((await send("DELETE", `/api/projects/${acme.id}`, { title: "Acme" })).status).toBe(409);
     await server.post(`/api/projects/${acme.id}/archive`, {});
-    expect((await send("DELETE", `/api/projects/${acme.id}`)).status).toBe(204);
+    expect((await send("DELETE", `/api/projects/${acme.id}`)).status).toBe(400);
+    expect((await send("DELETE", `/api/projects/${acme.id}`, { title: "acme" })).status).toBe(400);
+    expect((await send("DELETE", `/api/projects/${acme.id}`, { title: "Acme" })).status).toBe(204);
 
     expect((await server.get(`/api/projects/${acme.id}`)).status).toBe(404);
     expect((await server.get(`/api/pages/${page.id}`)).status).toBe(404);
     expect(await json<Project[]>(server.get("/api/projects?archived=1"))).toEqual([]);
-    expect((await send("DELETE", `/api/projects/${acme.id}`)).status).toBe(404);
+    expect((await send("DELETE", `/api/projects/${acme.id}`, { title: "Acme" })).status).toBe(404);
   });
 
   it("deletes an archived design system", async () => {
     const ds = await json<DesignSystem>(server.post("/api/design-systems", { title: "Old DS" }));
     await server.post(`/api/projects/${ds.id}/archive`, {});
-    expect((await send("DELETE", `/api/projects/${ds.id}`)).status).toBe(204);
+    expect((await send("DELETE", `/api/projects/${ds.id}`, { title: "Old DS" })).status).toBe(204);
     expect((await server.get(`/api/design-systems/${ds.id}`)).status).toBe(404);
     expect(await json<DesignSystemSummary[]>(server.get("/api/design-systems?archived=1"))).toEqual([]);
   });
@@ -179,6 +181,30 @@ describe("archiving and deleting projects and design systems", () => {
     await server.post(`/api/projects/${acme.id}/unarchive`, {});
     for (let i = 0; i < 100 && !agent.messages.some((m) => m.type === "work"); i++) await new Promise((r) => setTimeout(r, 20));
     expect(agent.messages.some((m) => m.type === "work")).toBe(true);
+  });
+
+  it("labels a comment waiting on an archived project as such, and keeps an archived follower's agent away from the design system's work", async () => {
+    const acme = await createProject("Acme");
+    const page = await createPage(acme.id);
+    await pin(page.id);
+    await server.post(`/api/projects/${acme.id}/archive`, {});
+    expect(await json(server.get(`/api/pages/${page.id}/queue`))).toMatchObject([{ reason: "project-archived" }]);
+
+    const ds = await json<DesignSystem>(server.post("/api/design-systems", { title: "DS" }));
+    const old = await createProject("Old", ds.id);
+    await server.post(`/api/projects/${old.id}/archive`, {});
+    const agent = await server.connectAgent({ projectId: old.id });
+    await agent.hello;
+    const [dsPage] = await json<Page[]>(server.get(`/api/projects/${ds.id}/pages`));
+    await server.post(`/api/pages/${dsPage!.id}/threads`, { artboard: "index.html", selector: "h1", xPct: 10, yPct: 10, body: "Darker" });
+    await new Promise((r) => setTimeout(r, 150));
+    expect(agent.messages.some((m) => m.type === "work")).toBe(false);
+  });
+
+  it("refuses to create a design system from an archived project's pages", async () => {
+    const acme = await createProject("Acme");
+    await server.post(`/api/projects/${acme.id}/archive`, {});
+    expect((await server.post("/api/design-systems", { title: "From Acme", fromProjectId: acme.id })).status).toBe(409);
   });
 
   it("survives a restart archived", async () => {

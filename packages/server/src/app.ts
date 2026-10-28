@@ -66,7 +66,7 @@ import { registerRequestHardening } from "./request-hardening.js";
 import { announceDiffusion, registerDesignSystemReload } from "./design-system-reload.js";
 import { registerSessionRoutes } from "./sessions.js";
 import { registerHomeRoutes } from "./home.js";
-import { registerArchiveRoutes, registerArchivedGuard } from "./archive.js";
+import { archivedError, registerArchiveRoutes, registerArchivedGuard } from "./archive.js";
 import { moveArtboard } from "./move-artboard.js";
 import { dispatchBatch, dispatchReply, dispatchThread } from "./work.js";
 
@@ -161,7 +161,10 @@ export async function buildMainApp(
   });
 
   app.post<{ Params: { pageId: string; workId: string } }>("/api/pages/:pageId/runs/:workId/retry", async (req, reply) => {
-    if (!pageLock.retry(req.params.workId)) return reply.code(404).send({ error: "no failed run to retry" });
+    // The item must be one of this page's: the archive guard judged the request by its page.
+    if (pageLock.itemOf(req.params.workId)?.pageId !== req.params.pageId || !pageLock.retry(req.params.workId)) {
+      return reply.code(404).send({ error: "no failed run to retry" });
+    }
     return reply.code(204).send();
   });
 
@@ -352,6 +355,7 @@ export async function buildMainApp(
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
     const source = fromProjectId === undefined ? undefined : store.getProject(fromProjectId);
     if (fromProjectId !== undefined && !source) return reply.code(404).send({ error: "project not found" });
+    if (source?.archivedAt) return reply.code(409).send({ error: archivedError(store, source.id) });
     const invalid = designSystemError(files);
     if (invalid) return reply.code(400).send({ error: invalid });
     const designSystem = store.createDesignSystem(title, files);

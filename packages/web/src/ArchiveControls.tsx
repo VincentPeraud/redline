@@ -111,9 +111,11 @@ export function ArchiveFooter({ kind, id, title, onArchived }: { kind: ArchiveKi
 
 /** The banner under the header of an archived project or design system: it is read-only, "Désarchiver" brings it back. */
 export function ArchivedBanner({ kind, id, archivedAt, onUnarchived }: { kind: ArchiveKind; id: string; archivedAt: string; onUnarchived: () => void }) {
+  const [error, setError] = useState<string | null>(null);
   async function unarchive() {
-    const res = await fetch(`/api/projects/${id}/unarchive`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-    if (res.ok) onUnarchived();
+    const res = await fetch(`/api/projects/${id}/unarchive`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => null);
+    if (res?.ok) onUnarchived();
+    else setError("Le désarchivage a échoué, réessaie.");
   }
   const readOnly =
     kind === "project"
@@ -131,6 +133,11 @@ export function ArchivedBanner({ kind, id, archivedAt, onUnarchived }: { kind: A
         · {readOnly}
       </span>
       <span className={styles.grow} />
+      {error && (
+        <span role="alert" className={styles.error}>
+          {error}
+        </span>
+      )}
       <Button onClick={() => void unarchive()}>Désarchiver</Button>
     </div>
   );
@@ -148,7 +155,7 @@ export function DeleteSection({ kind, id, title, summary, contents, onDeleted }:
 
   async function remove() {
     if (!confirmed) return;
-    const res = await fetch(`/api/projects/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/projects/${id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) });
     if (!res.ok) {
       setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `Suppression refusée (${res.status})`);
       return;

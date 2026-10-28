@@ -80,7 +80,7 @@ it("keeps a design system followed by an archived project from being archived, a
 
   await server.post(`/api/projects/${follower.id}/unarchive`, {});
   await server.post(`/api/projects/${follower.id}/archive`, {}); // still followed: archived or not
-  await fetch(`${server.url}/api/projects/${follower.id}`, { method: "DELETE" });
+  await fetch(`${server.url}/api/projects/${follower.id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Lumora v2" }) });
   await tab.reload();
   await tab.getByRole("button", { name: "Archiver ce design system" }).click();
   await tab.getByRole("dialog", { name: "Archiver « DS Lumora Marketing » ?" }).getByRole("button", { name: "Archiver", exact: true }).click();

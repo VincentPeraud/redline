@@ -645,7 +645,7 @@ export class Store {
   private viaProjectOf(pageId: string, viaProjectId: string | undefined): string | null {
     const designSystemId = this.getPage(pageId)?.projectId;
     if (!viaProjectId || !designSystemId || !this.isDesignSystemProject(designSystemId)) return null;
-    return this.projectsUsingDesignSystem(designSystemId).some((p) => p.id === viaProjectId) ? viaProjectId : null;
+    return this.projectsUsingDesignSystem(designSystemId).some((p) => p.id === viaProjectId && !p.archived) ? viaProjectId : null;
   }
 
   /**
@@ -907,6 +907,11 @@ export class Store {
   /** A project, archived or not (design systems excluded). */
   getProject(id: string): Project | undefined {
     return this.listProjects("all").find((p) => p.id === id);
+  }
+
+  /** The project (or design system) a page belongs to, without loading its files. */
+  projectIdOfPage(pageId: string): string | undefined {
+    return (this.db.prepare("SELECT project_id AS projectId FROM pages WHERE id = ?").get(pageId) as { projectId: string } | undefined)?.projectId;
   }
 
   /** True when the project or design system `id` is archived. */

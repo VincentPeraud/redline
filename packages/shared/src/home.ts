@@ -1,4 +1,4 @@
-import type { AgentInfo, Page, RefusedAgent } from "./index.js";
+import type { AgentInfo, Page, QueueReason, RefusedAgent } from "./index.js";
 
 /** `GET /api/home`: everything the home screen, the Agents screen and the sidebar show. */
 export const HOME_PATH = "/api/home";
@@ -33,7 +33,7 @@ export interface WorkOverview {
   projectTitle: string;
   /** "running": an agent works on it; "waiting": queued. */
   state: "running" | "waiting";
-  reason?: "page-busy" | "agent-offline";
+  reason?: QueueReason;
   threadCount: number;
   agentMachine?: string;
 }

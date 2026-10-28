@@ -166,7 +166,8 @@ export const retryRunPath = (pageId: string, workId: string) => `/api/pages/${pa
 export const pageRunsPath = (pageId: string) => `/api/pages/${pageId}/runs`;
 
 /** Why a work item is not running yet. */
-export type QueueReason = "page-busy" | "agent-offline";
+/** "project-archived": the project was archived while the item waited; it is sent once the project is unarchived. */
+export type QueueReason = "page-busy" | "agent-offline" | "project-archived";
 
 /** A work item waiting for its turn on a page. */
 export interface QueueEntry {

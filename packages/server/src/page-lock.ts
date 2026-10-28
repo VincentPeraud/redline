@@ -245,7 +245,8 @@ export class PageLock {
 
   /** Forgets the waiting and failed items of deleted pages, so they are neither sent, persisted nor offered to "Relancer". */
   forgetPages(pageIds: Set<string>): void {
-    this.queue = this.queue.filter((queued) => !pageIds.has(queued.item.pageId));
+    // A terminal publish waiting for the page (`onGranted`) stays: once granted, its write is refused by the archive guard and answered.
+    this.queue = this.queue.filter((queued) => queued.onGranted !== undefined || !pageIds.has(queued.item.pageId));
     for (const [workId, failed] of this.failed) if (pageIds.has(failed.queued.item.pageId)) this.failed.delete(workId);
     this.save();
   }
@@ -262,13 +263,16 @@ export class PageLock {
   }
 
   /** Why each queued item waits: the page is busy with another item, or no agent can run it. */
-  private isArchivedPage(pageId: string): boolean {
-    const projectId = this.store.getPage(pageId)?.projectId;
-    return projectId !== undefined && this.store.isArchived(projectId);
+  private reasons(): { queued: Queued; reason: QueueReason }[] {
+    return this.queue.map((queued) => ({
+      queued,
+      reason: this.isArchivedPage(queued.item.pageId) ? "project-archived" : this.isPageLocked(queued.item.pageId) ? "page-busy" : "agent-offline",
+    }));
   }
 
-  private reasons(): { queued: Queued; reason: QueueReason }[] {
-    return this.queue.map((queued) => ({ queued, reason: this.isPageLocked(queued.item.pageId) ? "page-busy" : "agent-offline" }));
+  private isArchivedPage(pageId: string): boolean {
+    const projectId = this.store.projectIdOfPage(pageId);
+    return projectId !== undefined && this.store.isArchived(projectId);
   }
 
   private pump(): void {

@@ -11,7 +11,7 @@ function targetOf(store: Store, params: Record<string, string>): string | undefi
   if (params.projectId) return params.projectId;
   if (params.designSystemId) return params.designSystemId;
   const pageId = params.pageId ?? (params.threadId && store.getThread(params.threadId)?.pageId) ?? (params.conversationId && store.getConversation(params.conversationId)?.pageId);
-  return pageId ? store.getPage(pageId)?.projectId : undefined;
+  return pageId ? store.projectIdOfPage(pageId) : undefined;
 }
 
 export const archivedError = (store: Store, id: string) =>
@@ -73,11 +73,17 @@ export function registerArchiveRoutes(app: FastifyInstance, store: Store, pageLo
     return current(id);
   });
 
-  app.delete<{ Params: { projectId: string } }>("/api/projects/:projectId", async (req, reply) => {
+  // The body repeats the exact title (what the dialog asks to type): a request sent blindly, by a script or a session, deletes nothing.
+  app.delete<{ Params: { projectId: string }; Body: { title?: unknown } }>("/api/projects/:projectId", async (req, reply) => {
     const id = req.params.projectId;
     if (!exists(id)) return reply.code(404).send({ error: "project not found" });
+    const title = (store.getDesignSystem(id) ?? store.getProject(id))!.title;
+    if (req.body?.title !== title) return reply.code(400).send({ error: "Send the exact title of the project or design system to delete it." });
     if (!store.isArchived(id)) return reply.code(409).send({ error: "Only an archived project or design system can be deleted: archive it first." });
     if (busy(id)) return reply.code(409).send({ error: "An agent is working on it: wait until it has finished to delete it." });
+    if (store.getDesignSystem(id) && store.projectsUsingDesignSystem(id).length > 0) {
+      return reply.code(409).send({ error: "Projects still follow this design system: change their design system first." });
+    }
     const pageIds = new Set(store.listPages(id).map((page) => page.id));
     store.deleteProject(id);
     pageLock.forgetPages(pageIds);
