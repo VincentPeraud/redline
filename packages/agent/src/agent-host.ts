@@ -4,18 +4,22 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:
 import { createServer, type Server, type Socket } from "node:net";
 import { hostname } from "node:os";
 import { basename } from "node:path";
+import { AgentLog, DEFAULT_LOG_CAP } from "./agent-log.js";
 import { AgentRegistry } from "./agent-registry.js";
 import {
+  agentLogPath,
   hostLockPath,
   hostSocketPath,
   type HostAgent,
   type HostEvent,
+  type HostLogEvent,
   type HostReply,
   type HostRequestEnvelope,
   type HostToWorker,
   type LaunchSettings,
   type WorkerToHost,
 } from "./host-protocol.js";
+import type { AgentActivity } from "./activity.js";
 import { normalizeServerUrl, readLogins } from "./login.js";
 import { UPDATE_EXIT_CODE } from "./supervisor.js";
 
@@ -33,6 +37,8 @@ export interface AgentHostOptions {
   idleExitMs?: number;
   /** How long a worker gets to stop gracefully before it is killed. Default 10 s. */
   stopTimeoutMs?: number;
+  /** How many entries an agent's run log keeps. Default 1000. */
+  logCap?: number;
 }
 
 export interface AgentHost {
@@ -47,6 +53,7 @@ interface Entry {
   child?: ChildProcess;
   stopRequested?: boolean;
   failure?: string;
+  log: AgentLog;
   exited?: Promise<void>;
 }
 
@@ -76,12 +83,13 @@ function acquireLock(configDir: string): () => void {
 }
 
 /** Starts the agent host: the registry, the workers, and the control API on a Unix socket only the user can use. */
-export async function startAgentHost({ configDir, worker, idleExitMs = 5000, stopTimeoutMs = 10_000 }: AgentHostOptions): Promise<AgentHost> {
+export async function startAgentHost({ configDir, worker, idleExitMs = 5000, stopTimeoutMs = 10_000, logCap = DEFAULT_LOG_CAP }: AgentHostOptions): Promise<AgentHost> {
   mkdirSync(configDir, { recursive: true, mode: 0o700 });
   const releaseLock = acquireLock(configDir);
   const socketPath = hostSocketPath(configDir);
   const registry = new AgentRegistry(configDir);
-  const entries = new Map<string, Entry>(registry.load(new Date().toISOString()).map((agent) => [agent.id, { agent }]));
+  const logOf = (agentId: string) => new AgentLog(agentLogPath(configDir, agentId), logCap);
+  const entries = new Map<string, Entry>(registry.load(new Date().toISOString()).map((agent) => [agent.id, { agent, log: logOf(agent.id) }]));
   const clients = new Set<Socket>();
   const attached = new Set<Socket>();
   const subscribers = new Set<Socket>();
@@ -100,6 +108,30 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     publish({ event: "agent-changed", agent: entry.agent });
   };
 
+  const record = (entry: Entry, event: HostLogEvent) => {
+    const logged = { at: new Date().toISOString(), event };
+    entry.log.append(logged);
+    publish({ event: "log-line", agentId: entry.agent.id, entry: logged });
+  };
+  const stoppedAs = (entry: Entry, reason?: string) => setAgent(entry, { state: "stopped", since: new Date().toISOString(), reason, page: undefined });
+  const follow = (entry: Entry, event: AgentActivity) => {
+    const now = new Date().toISOString();
+    switch (event.type) {
+      case "connected":
+      case "reconnected":
+      case "run-published":
+      case "run-failed":
+        setAgent(entry, { state: "idle", since: now, page: undefined });
+        break;
+      case "connection-lost":
+        setAgent(entry, { state: "reconnecting", since: now, page: undefined });
+        break;
+      case "run-started":
+        setAgent(entry, { state: "running", since: now, page: event.page });
+        break;
+    }
+  };
+
   function checkIdle(): void {
     const busy = attached.size > 0 || [...entries.values()].some((entry) => entry.child);
     if (busy || shuttingDown) {
@@ -112,7 +144,9 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     const { agent } = entry;
     const login = readLogins(configDir).find((candidate) => normalizeServerUrl(candidate.serverUrl) === normalizeServerUrl(agent.serverUrl));
     if (!login) {
-      setAgent(entry, { state: "stopped", since: new Date().toISOString(), reason: `No token for ${agent.serverUrl}. Run \`redline setup\` first.` });
+      const error = `No token for ${agent.serverUrl}. Run \`redline setup\` first.`;
+      record(entry, { type: "stopped", reason: "failed", error });
+      stoppedAs(entry, error);
       return;
     }
     const child = spawn(worker.command, worker.args, {
@@ -123,23 +157,44 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     entry.failure = undefined;
     entry.exited = new Promise((resolve) => {
       let done = false;
-      const finish = (code: number | null, error?: Error) => {
+      let exit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+      let disconnected = false;
+      const finish = (code: number | null, signal: NodeJS.Signals | null, error?: Error) => {
         if (done) return;
         done = true;
         entry.child = undefined;
         if (entry.stopRequested) {
           entry.stopRequested = false;
-          setAgent(entry, { state: "stopped", since: new Date().toISOString(), reason: undefined });
+          stoppedAs(entry);
         } else if (code === UPDATE_EXIT_CODE && !shuttingDown) startWorker(entry);
-        else setAgent(entry, { state: "stopped", since: new Date().toISOString(), reason: entry.failure ?? error?.message ?? `The agent process exited (code ${code}).` });
+        else {
+          const reason = entry.failure ?? error?.message ?? (signal ? `The agent process was killed (${signal}).` : `The agent process exited (code ${code}).`);
+          record(entry, { type: "stopped", reason: "failed", error: reason });
+          stoppedAs(entry, reason);
+        }
         resolve();
         checkIdle();
       };
-      child.on("exit", (code) => finish(code));
-      child.on("error", (error) => finish(null, error));
+      // The channel closes after every message the worker sent has been read: finish only then, so the log is complete.
+      const settle = () => {
+        if (exit && disconnected) finish(exit.code, exit.signal);
+      };
+      child.on("exit", (code, signal) => {
+        exit = { code, signal };
+        settle();
+      });
+      child.on("disconnect", () => {
+        disconnected = true;
+        settle();
+      });
+      child.on("error", (error) => finish(null, null, error));
     });
     child.on("message", (message: WorkerToHost) => {
       if (message.type === "failed") entry.failure = message.reason;
+      else {
+        record(entry, message.event);
+        follow(entry, message.event);
+      }
     });
     const { serverUrl, token } = login;
     const start: HostToWorker = {
@@ -147,7 +202,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       config: { serverUrl, token, machine: hostname(), folder: agent.folder, kind: agent.kind, projectIds: agent.projectIds, model: agent.model, effort: agent.effort },
     };
     child.send(start);
-    if (agent.state !== "running") setAgent(entry, { state: "running", since: new Date().toISOString(), reason: undefined });
+    setAgent(entry, { state: "reconnecting", since: new Date().toISOString(), reason: undefined, page: undefined });
     checkIdle();
   }
 
@@ -164,7 +219,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
   function launch(settings: LaunchSettings): { agent: HostAgent; started: boolean } {
     const serverUrl = normalizeServerUrl(settings.serverUrl);
     const existing = [...entries.values()].find((entry) => entry.agent.folder === settings.folder && normalizeServerUrl(entry.agent.serverUrl) === serverUrl);
-    if (existing?.agent.state === "running") return { agent: existing.agent, started: false };
+    if (existing && existing.agent.state !== "stopped") return { agent: existing.agent, started: false };
     if (!readLogins(configDir).some((login) => normalizeServerUrl(login.serverUrl) === serverUrl)) {
       throw new Error(`${serverUrl} is not set up. Run \`redline setup ${serverUrl} --token <token>\` first.`);
     }
@@ -181,7 +236,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       state: "stopped",
       since: new Date().toISOString(),
     };
-    const entry: Entry = { agent };
+    const entry: Entry = { agent, log: logOf(agent.id) };
     entries.set(agent.id, entry);
     persist();
     publish({ event: "agent-added", agent });
@@ -208,6 +263,8 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
         attached.add(client);
         checkIdle();
         return { id: request.id, ok: true, agent: entryOf(request.agentId).agent };
+      case "log":
+        return { id: request.id, ok: true, entries: entryOf(request.agentId).log.read(request.lines) };
       case "stop": {
         const entry = entryOf(request.agentId);
         await stopWorker(entry);

@@ -21,7 +21,7 @@ export class AgentRegistry {
     if (!Array.isArray(stored)) return [];
     return stored
       .filter((entry): entry is HostAgent => typeof entry?.id === "string" && typeof entry?.folder === "string" && typeof entry?.serverUrl === "string")
-      .map((agent) => ({ ...agent, state: "stopped" as const, since: now, reason: undefined }));
+      .map((agent) => ({ ...agent, state: "stopped" as const, since: now, reason: undefined, page: undefined }));
   }
 
   save(agents: HostAgent[]): void {
