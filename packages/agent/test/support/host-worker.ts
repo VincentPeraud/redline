@@ -11,6 +11,7 @@ const report = process.env.REDLINE_TEST_REPORT;
 const updateOnce = process.env.REDLINE_TEST_UPDATE_ONCE;
 const crash = process.env.REDLINE_TEST_CRASH;
 const holdRun = process.env.REDLINE_TEST_HOLD_RUN;
+const runsReport = process.env.REDLINE_TEST_RUNS;
 
 process.on("message", (message: HostToWorker) => {
   if (message.type !== "start") return;
@@ -23,8 +24,9 @@ process.on("message", (message: HostToWorker) => {
   }
 });
 
-/** REDLINE_TEST_HOLD_RUN: a file; a run waits, until the file is gone. */
-const script: FakeScript = async () => {
+/** REDLINE_TEST_HOLD_RUN: a file; a run waits, until the file is gone. REDLINE_TEST_RUNS: a file to which each run appends the model and effort it started with. */
+const script: FakeScript = async (run) => {
+  if (runsReport) appendFileSync(runsReport, `${JSON.stringify({ model: run.model, effort: run.effort })}\n`);
   while (holdRun && existsSync(holdRun)) await new Promise((resolve) => setTimeout(resolve, 20));
   return [
     { type: "step", tool: "Edit", summary: "home.html" },

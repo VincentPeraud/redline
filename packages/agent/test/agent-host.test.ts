@@ -9,6 +9,7 @@ import { runAgentsScreen, type ScreenTerminal } from "../src/agents-screen.js";
 import { plainText } from "../src/agents-view.js";
 import { ensureHost, HostClient } from "../src/host-client.js";
 import { agentLogPath, hostLockPath, hostSocketPath, type HostEvent, type HostLogEntry, type LaunchSettings } from "../src/host-protocol.js";
+import { chooseModelEffort } from "../src/launch-choice.js";
 import { saveLogin } from "../src/login.js";
 import { hostWorkerCommand, tsxCommand } from "./support/host-launch.js";
 
@@ -94,6 +95,110 @@ describe("the agent host's control API", { timeout: 20_000 }, () => {
     await api.stop(agent.id);
     await until(async () => (await onServer())[0]?.status === "offline");
     expect((await api.list())[0]).toMatchObject({ id: agent.id, state: "stopped" });
+  });
+
+  describe("changing the model and effort", () => {
+    const runsOf = (file: string) => (existsSync(file) ? readFileSync(file, "utf8").trim().split("\n").map((line) => JSON.parse(line)) : []);
+
+    it("makes the next run use the new model and effort, without restarting the worker or taking the agent offline", async () => {
+      const { configDir, onServer, launchSettings, startHost, client, comment } = await setup();
+      const runs = join(configDir, "runs.log");
+      const starts = join(configDir, "starts.log");
+      await startHost({ REDLINE_TEST_RUNS: runs, REDLINE_TEST_REPORT: starts });
+      const api = await client();
+      const { agent } = await api.launch(launchSettings());
+      await until(async () => (await onServer())[0]?.status === "online");
+      await comment();
+      await until(() => runsOf(runs).length === 1);
+      await until(async () => (await api.list())[0].state === "idle");
+
+      const changed = await api.setModelEffort(agent.id, { model: "sonnet", effort: "low" });
+
+      expect(changed).toMatchObject({ model: "sonnet", effort: "low" });
+      expect(await api.list()).toEqual([expect.objectContaining({ model: "sonnet", effort: "low", state: "idle" })]);
+      expect((await onServer())[0].status).toBe("online");
+      await comment("Another change");
+      await until(() => runsOf(runs).length === 2);
+      expect(runsOf(runs)).toEqual([{ model: "opus", effort: "high" }, { model: "sonnet", effort: "low" }]);
+      expect(readFileSync(starts, "utf8").trim().split("\n")).toHaveLength(1);
+      expect((await onServer())[0].status).toBe("online");
+    });
+
+    it("lets a run in progress finish with the old model and effort", async () => {
+      const { configDir, onServer, launchSettings, startHost, client, comment } = await setup();
+      const hold = join(configDir, "hold");
+      const runs = join(configDir, "runs.log");
+      writeFileSync(hold, "");
+      await startHost({ REDLINE_TEST_HOLD_RUN: hold, REDLINE_TEST_RUNS: runs });
+      const api = await client();
+      const { agent } = await api.launch(launchSettings());
+      await until(async () => (await onServer())[0]?.status === "online");
+      await comment();
+      await until(async () => (await api.list())[0].state === "running");
+
+      await api.setModelEffort(agent.id, { model: "haiku" });
+      rmSync(hold);
+
+      await until(async () => (await api.list())[0].state === "idle");
+      expect(runsOf(runs)).toEqual([{ model: "opus", effort: "high" }]);
+      expect((await api.list())[0]).toMatchObject({ model: "haiku" });
+      expect((await api.list())[0].effort).toBeUndefined();
+      await comment("Next");
+      await until(() => runsOf(runs).length === 2);
+      expect(runsOf(runs)[1].model).toBe("haiku");
+      expect(runsOf(runs)[1].effort).toBeUndefined();
+    });
+
+    it("updates the folder's last launch choice, which the next launch in that folder proposes", async () => {
+      const { configDir, launchSettings, startHost, client } = await setup();
+      await startHost();
+      const api = await client();
+      const settings = launchSettings();
+      const { agent } = await api.launch(settings);
+      await until(async () => (await api.list())[0].state === "idle");
+
+      await api.setModelEffort(agent.id, { model: "haiku", effort: "max" });
+
+      const proposed = await chooseModelEffort({ folder: settings.folder, configDir, claudeSettingsFile: join(configDir, "no-settings.json"), flags: {}, ask: async () => "" });
+      expect(proposed).toEqual({ model: "haiku", effort: "max" });
+    });
+
+    it("keeps the new choice for a stopped agent, its restart and a restarted host", async () => {
+      const { configDir, launchSettings, startHost, client } = await setup();
+      const report = join(configDir, "starts.log");
+      const host = await startHost({ REDLINE_TEST_REPORT: report });
+      const api = await client();
+      const { agent } = await api.launch(launchSettings());
+      await until(async () => (await api.list())[0].state === "idle");
+      await api.stop(agent.id);
+
+      await api.setModelEffort(agent.id, { model: "sonnet", effort: "xhigh" });
+      await api.restart(agent.id);
+      await until(async () => (await api.list())[0].state === "idle");
+      await api.stop(agent.id);
+      await host.stop();
+      await startHost();
+      const after = await client();
+
+      const starts = readFileSync(report, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+      expect(starts.at(-1)).toMatchObject({ model: "sonnet", effort: "xhigh" });
+      expect(await after.list()).toEqual([expect.objectContaining({ model: "sonnet", effort: "xhigh" })]);
+    });
+
+    it("tells subscribers the agent changed, and refuses an unknown agent", async () => {
+      const { launchSettings, startHost, client } = await setup();
+      await startHost();
+      const api = await client();
+      const events: HostEvent[] = [];
+      await api.subscribe((event) => events.push(event));
+      const { agent } = await api.launch(launchSettings());
+      await until(async () => (await api.list())[0].state === "idle");
+
+      await api.setModelEffort(agent.id, { model: "sonnet", effort: "low" });
+
+      await until(() => events.some((event) => event.event === "agent-changed" && event.agent.model === "sonnet" && event.agent.effort === "low"));
+      await expect(api.setModelEffort("nope", { model: "opus" })).rejects.toThrow("No such agent.");
+    });
   });
 
   it("returns the existing agent when the same folder and server are launched twice, without a second worker", async () => {

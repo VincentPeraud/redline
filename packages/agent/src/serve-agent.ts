@@ -1,4 +1,4 @@
-import { cliUpdateCommand } from "@redline/shared";
+import { cliUpdateCommand, type ModelChoice } from "@redline/shared";
 import { formatActivity, type AgentActivity } from "./activity.js";
 import { startAgent, type AgentOptions } from "./agent.js";
 import { ServerUnreachableError } from "./connection.js";
@@ -17,6 +17,8 @@ export interface ServeAgentOptions extends Omit<AgentOptions, "onUpdated"> {
 export interface AgentService {
   /** Closes the connection and stops retrying. */
   stop(): void;
+  /** The model and effort of the work items to come that carry none of their own, now and after a reconnection. A run in progress keeps its own. */
+  setModelEffort(choice: ModelChoice): void;
   /**
    * Resolves after `stop()`, or once an update was installed (`updated`: the caller exits so that its supervisor relaunches it);
    * rejects when the server refuses the agent (wrong token, incompatible protocol, unknown project...).
@@ -29,6 +31,7 @@ export interface AgentService {
  * with a growing delay, so the agent survives a server restart. A refusal by the server is final.
  */
 export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () => undefined, onActivity, ...options }: ServeAgentOptions): AgentService {
+  let choice: ModelChoice = { model: options.model, effort: options.effort };
   let stopped = false;
   let updated = false;
   let wake: () => void = () => undefined;
@@ -56,6 +59,8 @@ export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () =
       try {
         const connection = await startAgent({
           ...options,
+          ...choice,
+          currentChoice: () => choice,
           onActivity: report,
           onUpdated() {
             updated = true;
@@ -99,6 +104,9 @@ export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () =
   }
 
   const service: AgentService = {
+    setModelEffort(next) {
+      choice = next;
+    },
     stop() {
       stopped = true;
       current?.close();

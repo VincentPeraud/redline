@@ -40,6 +40,8 @@ export function runAgentWorker({ engine }: { engine: Engine }): void {
           exit(1);
         },
       );
+    } else if (message.type === "set-model-effort") {
+      service?.setModelEffort({ model: message.model, effort: message.effort });
     } else if (message.type === "stop") {
       if (service) service.stop();
       else exit(0);

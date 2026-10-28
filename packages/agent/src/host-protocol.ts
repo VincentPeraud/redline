@@ -54,7 +54,7 @@ export interface LaunchSettings {
 /**
  * Control API: newline-delimited JSON on the host's Unix socket. A client sends requests, each with a numeric `id`;
  * the host answers each one with a reply carrying the same `id`. After `subscribe`, the host also pushes events.
- * Later commands (`set-model-effort`) are new request types in this union.
+ * Later commands are new request types in this union.
  */
 export type HostRequest =
   | { type: "list" }
@@ -68,6 +68,11 @@ export type HostRequest =
   | { type: "restart"; agentId: string }
   /** Restarts every stopped agent, and returns those. */
   | { type: "restart-all" }
+  /**
+   * Sets the model and effort (absent = Claude's default) of the agent's next runs: the registry and the folder's last launch choice
+   * are updated, and a running worker is told without restarting. A run in progress keeps its own. Returns the agent.
+   */
+  | { type: "set-model-effort"; agentId: string; model: string; effort?: Effort }
   /** The last `lines` entries (default: all that are kept) of the agent's log, oldest first. */
   | { type: "log"; agentId: string; lines?: number }
   /** Keeps the host alive while the connection is open, and streams `HostEvent`s. */
@@ -101,7 +106,9 @@ export type HostToWorker =
   /** First message: everything the worker needs (the token included, so it never appears in a command line or environment). */
   | { type: "start"; config: WorkerConfig }
   /** Closes the connection, cancels the run in progress, and exits. */
-  | { type: "stop" };
+  | { type: "stop" }
+  /** The model and effort the next work items use when they carry none of their own. */
+  | { type: "set-model-effort"; model?: string; effort?: Effort };
 
 /** Worker to host. Exit code 0 is a stop, `UPDATE_EXIT_CODE` an installed update (relaunch), anything else a failure. */
 export type WorkerToHost =

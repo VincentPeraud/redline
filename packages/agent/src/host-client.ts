@@ -1,3 +1,4 @@
+import type { Effort } from "@redline/shared";
 import { spawn } from "node:child_process";
 import { connect, type Socket } from "node:net";
 import { hostSocketPath, type HostAgent, type HostEvent, type HostLogEntry, type HostReply, type HostRequest, type LaunchSettings } from "./host-protocol.js";
@@ -94,6 +95,11 @@ export class HostClient {
   /** Restarts every stopped agent and returns those. */
   async restartAll(): Promise<HostAgent[]> {
     return (await this.request({ type: "restart-all" })).agents ?? [];
+  }
+
+  /** Sets the model and effort (absent = Claude's default) the agent's next runs use; a run in progress keeps its own. */
+  async setModelEffort(agentId: string, { model, effort }: { model: string; effort?: Effort }): Promise<HostAgent> {
+    return (await this.request({ type: "set-model-effort", agentId, model, effort })).agent!;
   }
 
   /** The last `lines` entries of the agent's run log (all that are kept by default), oldest first. */

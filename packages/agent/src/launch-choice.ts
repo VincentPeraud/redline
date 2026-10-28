@@ -69,10 +69,17 @@ export async function chooseModelEffort({ folder, configDir, claudeSettingsFile,
       : effortDefault);
 
   try {
-    mkdirSync(configDir, { recursive: true });
-    writeFileSync(file, JSON.stringify({ ...choices, [folder]: { model, effort } }, null, 2));
+    rememberChoice({ folder, configDir, choice: { model, effort } });
   } catch (error) {
     warn(`Could not remember this choice (${(error as Error).message}).`);
   }
   return { model, effort };
+}
+
+/** Saves the folder's last choice: what the next `redline agent` in that folder proposes. */
+export function rememberChoice({ folder, configDir, choice }: { folder: string; configDir: string; choice: LaunchChoice }): void {
+  const stored = readJson(join(configDir, CHOICES_FILE));
+  const choices = stored !== null && typeof stored === "object" ? (stored as Record<string, unknown>) : {};
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(join(configDir, CHOICES_FILE), JSON.stringify({ ...choices, [folder]: choice }, null, 2));
 }
