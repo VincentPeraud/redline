@@ -91,3 +91,31 @@ it("keeps a design system followed by an archived project from being archived, a
   await tab.getByRole("heading", { name: "Design systems archivés" }).waitFor();
   await tab.getByRole("link").filter({ hasText: "DS Lumora Marketing" }).waitFor();
 }, 60_000);
+
+it("shows an archived project's page read-only: threads and conversations to read, nothing to comment, send or resolve", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Lumora v3" })).json()) as Project;
+  const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Accueil", files: { "accueil.html": "<h1>Accueil</h1>" } })).json()) as { id: string };
+  await server.post(`/api/pages/${page.id}/threads`, { artboard: "accueil.html", selector: "h1", xPct: 10, yPct: 10, body: "Titre plus grand" });
+  await server.post(`/api/projects/${project.id}/archive`, {});
+  const tab = await browser.newPage();
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+
+  await tab.getByRole("status").filter({ hasText: "Projet archivé le" }).waitFor();
+  await tab.getByText("Projet archivé : les conversations se lisent mais ne reçoivent plus de messages.").waitFor();
+  expect(await tab.getByRole("button", { name: "Commenter (C)" }).count()).toBe(0);
+  expect(await tab.getByRole("button", { name: "+ Nouvelle" }).count()).toBe(0);
+  expect(await tab.getByRole("button", { name: "Commenter tout accueil.html" }).count()).toBe(0);
+  await tab.getByTestId("mode-indicator").filter({ hasText: "Canvas interactif : les clics déclenchent les actions." }).waitFor();
+  expect(await tab.getByTestId("mode-indicator").textContent()).not.toContain("Alt+clic");
+
+  await tab.keyboard.press("c");
+  expect(await tab.getByTestId("mode-indicator").textContent()).not.toContain("Mode commentaire");
+
+  await tab.getByRole("tab", { name: /Commentaires/ }).click();
+  await tab.getByText("Titre plus grand").first().waitFor();
+  expect(await tab.getByRole("button", { name: "Résoudre" }).count()).toBe(0);
+  await tab.getByText("Projet archivé : les fils se lisent mais on ne peut plus y répondre ni les résoudre.").waitFor();
+
+  await tab.getByRole("status").getByRole("button", { name: "Désarchiver" }).click();
+  await tab.getByRole("button", { name: "Commenter (C)" }).waitFor();
+}, 60_000);

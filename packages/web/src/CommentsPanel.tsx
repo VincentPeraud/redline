@@ -37,6 +37,8 @@ interface Props {
   /** `held`: "Plus tard", keeps the comment until "Tout envoyer". */
   onSend: (held: boolean) => void;
   onCancel: () => void;
+  /** An archived project's page: threads are read, none is added, answered or resolved. */
+  readOnly?: boolean;
 }
 
 const GROUP_ORDER: Record<Thread["status"], number> = { held: 0, open: 1, resolved: 2 };
@@ -61,6 +63,7 @@ function ThreadCard({
   session,
   choice,
   onResolve,
+  readOnly,
 }: {
   thread: Thread;
   queued: string | undefined;
@@ -68,6 +71,7 @@ function ThreadCard({
   session: SessionRow | undefined;
   choice: ModelEffortChoice;
   onResolve: () => void;
+  readOnly: boolean;
 }) {
   const [replying, setReplying] = useState(false);
   const active = !queued && run !== undefined && run.status !== "answered" && run.status !== "failed";
@@ -134,12 +138,16 @@ function ThreadCard({
             {session && relativeTime(session.activityAt)}
           </span>
           <span className={styles.spacer} />
-          <Button size="sm" aria-expanded={replying} onClick={() => setReplying(!replying)}>
-            Répondre
-          </Button>
-          <Button size="sm" variant="primary" onClick={onResolve}>
-            Résoudre
-          </Button>
+          {!readOnly && (
+            <>
+              <Button size="sm" aria-expanded={replying} onClick={() => setReplying(!replying)}>
+                Répondre
+              </Button>
+              <Button size="sm" variant="primary" onClick={onResolve}>
+                Résoudre
+              </Button>
+            </>
+          )}
         </div>
       )}
       {replying && !active && <ThreadReplyForm threadId={thread.id} choice={choice} onDone={() => setReplying(false)} />}
@@ -149,7 +157,7 @@ function ThreadCard({
 }
 
 /** The "Commentaires" tab: held bar, thread cards and the composer of a new pinned comment. */
-export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel }: Props) {
+export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false }: Props) {
   const ordered = [...threads].sort((a, b) => GROUP_ORDER[a.status] - GROUP_ORDER[b.status] || a.number - b.number);
   const heldCount = threads.filter((t) => t.status === "held").length;
 
@@ -161,7 +169,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
   return (
     <>
       <div className={panel.list}>
-        <HeldBar pageId={pageId} count={heldCount} choice={choice} />
+        {!readOnly && <HeldBar pageId={pageId} count={heldCount} choice={choice} />}
         {ordered.map((thread) => {
           if (thread.status === "held") return <HeldThreadCard key={thread.id} thread={thread} />;
           if (thread.status === "resolved") {
@@ -186,11 +194,17 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
               session={sessions.get(thread.id)}
               choice={choice}
               onResolve={() => void fetch(`/api/threads/${thread.id}/resolve`, { method: "POST" })}
+              readOnly={readOnly}
             />
           );
         })}
-        {threads.length === 0 && <p className={panel.empty}>Pas encore de commentaire. Passe en mode commentaire (C) et clique sur un élément.</p>}
+        {threads.length === 0 && (
+          <p className={panel.empty}>{readOnly ? "Aucun commentaire sur cette page." : "Pas encore de commentaire. Passe en mode commentaire (C) et clique sur un élément."}</p>
+        )}
       </div>
+      {readOnly ? (
+        <div className={panel.readOnlyNote}>Projet archivé : les fils se lisent mais on ne peut plus y répondre ni les résoudre.</div>
+      ) : (
       <div className={panel.composer}>
         <label htmlFor="new-comment" className={panel.label}>
           Nouveau commentaire
@@ -230,6 +244,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
         </div>
         <ModelEffortControls value={choice} onChange={onChoice} defaults={defaults} />
       </div>
+      )}
     </>
   );
 }

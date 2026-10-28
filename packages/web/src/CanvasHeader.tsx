@@ -57,9 +57,11 @@ interface PageMenuProps {
   onRenamePage: (title: string) => Promise<void>;
   /** Design system whose draft the page is previewed with: the menu keeps the preview from page to page and offers no edit. */
   previewOf?: string;
+  /** An archived project's page: no rename. */
+  archived?: boolean;
 }
 
-function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBack, onRenamePage, previewOf }: PageMenuProps) {
+function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBack, onRenamePage, previewOf, archived = false }: PageMenuProps) {
   const who = useWho();
   const [open, setOpen] = useState(false);
   const [deletedOpen, setDeletedOpen] = useState(false);
@@ -144,7 +146,7 @@ function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBa
             ▼
           </span>
         </button>
-        {previewOf === undefined && <RenamePencil label="Renommer la page" size="bare" onClick={() => setRenaming(true)} />}
+        {previewOf === undefined && !archived && <RenamePencil label="Renommer la page" size="bare" onClick={() => setRenaming(true)} />}
       </div>
       {deletedOpen && (
         <DeletedArtboardsList
@@ -221,6 +223,8 @@ interface Props {
   toc: { items: TocItem[]; currentFile?: string; onSelect: (file: string) => void };
   /** Design system whose draft the page is previewed with: the header is then read-only (no comment mode, no agent, no diffusion). */
   previewOf?: string;
+  /** An archived project's (or design system's) page: no comment mode, no agent, no diffusion, nothing to ask Claude. */
+  archived?: boolean;
   /** Design system gaps of the page; the button shows only when there are some. */
   gaps: PageGaps | null;
   gapExceptionCount: number;
@@ -235,7 +239,7 @@ interface Props {
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf }: Props) {
+export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf, archived = false }: Props) {
   const me = useMe();
   return (
     <header className={styles.header}>
@@ -264,21 +268,24 @@ export function CanvasHeader({ project, designSystemId, versionId, pageId, pageT
           onPutBack={onPutBack}
           onRenamePage={onRenamePage}
           previewOf={previewOf}
+          archived={archived}
         />
       </nav>
       {previewOf === undefined && (
         <>
-          <div className={styles.signals}>
-            <GapsButton report={gaps} exceptionCount={gapExceptionCount} onSee={onSeeGap} onException={onGapException} onAsk={onAskFixGaps} onShowExceptions={onShowGapExceptions} />
-            <ErrorsButton entries={errors} onSee={onSeeErrors} onAsk={onAskFixErrors} />
-          </div>
+          {!archived && (
+            <div className={styles.signals}>
+              <GapsButton report={gaps} exceptionCount={gapExceptionCount} onSee={onSeeGap} onException={onGapException} onAsk={onAskFixGaps} onShowExceptions={onShowGapExceptions} />
+              <ErrorsButton entries={errors} onSee={onSeeErrors} onAsk={onAskFixErrors} />
+            </div>
+          )}
           <TocMenu {...toc} />
         </>
       )}
       <div className={styles.spacer} />
       {previewOf !== undefined ? (
         <div className={styles.previewNote}>Commentaires et conversations désactivés pendant l'aperçu</div>
-      ) : (
+      ) : archived ? null : (
         <>
           <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />
           <AgentPill project={project} running={runningCount} />

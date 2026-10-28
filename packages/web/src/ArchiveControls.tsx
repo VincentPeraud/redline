@@ -110,7 +110,7 @@ export function ArchiveFooter({ kind, id, title, onArchived }: { kind: ArchiveKi
 }
 
 /** The banner under the header of an archived project or design system: it is read-only, "Désarchiver" brings it back. */
-export function ArchivedBanner({ kind, id, archivedAt, onUnarchived }: { kind: ArchiveKind; id: string; archivedAt: string; onUnarchived: () => void }) {
+export function ArchivedBanner({ kind, id, archivedAt, onUnarchived, className }: { kind: ArchiveKind; id: string; archivedAt: string; onUnarchived: () => void; className?: string }) {
   const [error, setError] = useState<string | null>(null);
   async function unarchive() {
     const res = await fetch(`/api/projects/${id}/unarchive`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => null);
@@ -122,7 +122,7 @@ export function ArchivedBanner({ kind, id, archivedAt, onUnarchived }: { kind: A
       ? "lecture seule : on ne peut plus commenter ni publier, et les agents ne le voient plus."
       : "lecture seule : on ne peut plus le commenter, le publier ni le diffuser, ni le choisir pour un projet.";
   return (
-    <div role="status" className={styles.banner}>
+    <div role="status" className={cx(styles.banner, className)}>
       <span className={styles.bannerIcon}>
         <ArchiveIcon size={18} />
       </span>

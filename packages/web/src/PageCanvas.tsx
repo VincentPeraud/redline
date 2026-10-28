@@ -44,6 +44,7 @@ import { useGaps } from "./useGaps.js";
 import { UndoToast } from "./UndoToast.js";
 import { CanvasHeader } from "./CanvasHeader.js";
 import { PreviewBanner } from "./PreviewBanner.js";
+import { ArchivedBanner, type ArchiveKind } from "./ArchiveControls.js";
 import { useStoredToggle } from "./useStoredToggle.js";
 import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
@@ -163,18 +164,22 @@ interface Props {
   viewSettings?: PageViewSettings;
   /** The page address: `artboard` (`.../artboards/<file>`) is centred and outlined once, `play` (`.../play/<file>`) is shown in play mode with the `?rendu=` value `renderingParam`. */
   route: PageRoute;
+  /** The page's project or design system is archived: the canvas is read-only behind its banner. */
+  archived?: { kind: ArchiveKind; archivedAt: string; onUnarchived: () => void };
 }
 
-export function PageCanvas({ pageId, pageTitle, project, projectId, designSystemPage, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, route }: Props) {
+export function PageCanvas({ pageId, pageTitle, project, projectId, designSystemPage, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, route, archived }: Props) {
   const { artboard: addressedArtboard, play: playFile, renderingParam, previewOf } = route;
   /** Previewed with a design system's draft: read-only, nothing here comments, converses, saves or publishes. */
   const previewing = previewOf !== undefined;
+  /** Previewed, or archived: nothing comments, saves or publishes (an archived page still shows its threads and conversations). */
+  const readOnly = previewing || archived !== undefined;
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [pickingRequested, setPicking] = useState(false);
-  const picking = pickingRequested && !previewing;
+  const picking = pickingRequested && !readOnly;
   const altPressed = useAltKey();
-  const alt = altPressed && !previewing;
+  const alt = altPressed && !readOnly;
   /** The conversation's selection mode ("+ Élément"), exclusive with comment mode. */
   const [selecting, setSelecting] = useState(false);
   /** Elements the user points at for the next conversation message, numbered by position. */
@@ -428,7 +433,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     function onKey(event: KeyboardEvent) {
       if (playing || isEditableTarget(event.target) || event.metaKey || event.ctrlKey) return;
       const key = event.key.toLowerCase();
-      if (key === "c") {
+      if (key === "c" && !readOnly) {
         setPicking(true);
         setSelecting(false);
       }
@@ -437,7 +442,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggleGuides, playing]);
+  }, [toggleGuides, playing, readOnly]);
 
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
   async function send(held: boolean) {
@@ -668,7 +673,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         }}
         runningCount={runningCount}
         artboardOrigin={artboardOrigin}
-        deleted={previewing ? [] : deleted}
+        deleted={readOnly ? [] : deleted}
         onPutBack={(item) => restore(item.file, item.lastVersionId)}
         onRenamePage={renamePage}
         toc={{ items: tocItems, currentFile: currentTocFile, onSelect: centerOnArtboard }}
@@ -681,7 +686,9 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         errors={errorEntries}
         onSeeErrors={centerOnArtboard}
         onAskFixErrors={() => void askClaudeToFixErrors()}
+        archived={archived !== undefined}
       />
+      {archived && <ArchivedBanner kind={archived.kind} id={projectId} archivedAt={archived.archivedAt} onUnarchived={archived.onUnarchived} className={styles.archivedBanner} />}
       <div className={styles.body}>
         <main className={styles.stage}>
           {manifestError && <div role="alert" className={styles.error}>{manifestError}</div>}
@@ -710,7 +717,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
               drag.current = null;
               const pressed = pressedAt.current;
               pressedAt.current = null;
-              if ((picking || selecting || (e.altKey && !previewing)) && manifest && pressed && Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < CLICK_SLOP) {
+              if ((picking || selecting || (e.altKey && !readOnly)) && manifest && pressed && Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < CLICK_SLOP) {
                 const id = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-canvas-element-id]")?.getAttribute("data-canvas-element-id");
                 const element = manifest.elements.find((candidate) => candidate.id === id);
                 if (element?.id !== undefined && selecting) {
@@ -822,7 +829,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       </button>
                     )}
                     <span className={styles.spacer} />
-                    {!previewing && artboardTweaks(artboard.file).length > 0 && (
+                    {!readOnly && artboardTweaks(artboard.file).length > 0 && (
                       <button
                         type="button"
                         aria-label={`Tweaks · ${artboardTweaks(artboard.file).length}`}
@@ -836,6 +843,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                     )}
                     {!previewing && (
                     <>
+                    {!archived && (
                     <Tooltip label="Commenter l'artboard entier">
                       <button
                         type="button"
@@ -849,6 +857,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                         <BubbleIcon size={13} />
                       </button>
                     </Tooltip>
+                    )}
                     <ArtboardHistory
                       pageId={pageId}
                       file={artboard.file}
@@ -858,6 +867,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       previewVersionId={preview?.file === artboard.file ? preview.versionId : null}
                       onPreview={(previewId) => setPreview(previewId ? { file: artboard.file, versionId: previewId } : null)}
                       onRestore={(restoreId) => restore(artboard.file, restoreId)}
+                      readOnly={archived !== undefined}
                     />
                     <Tooltip label={`Copier le lien de ${artboard.file}`}>
                       <button
@@ -879,6 +889,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                         <FullscreenIcon />
                       </button>
                     </Tooltip>
+                    {!archived && (
                     <ArtboardMoreMenu
                       pageId={pageId}
                       file={artboard.file}
@@ -888,6 +899,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       contentHeight={taller}
                       onFitted={onVersionChange}
                     />
+                    )}
                     </>
                     )}
                   </div>
@@ -1019,7 +1031,11 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
           )}
           <div className={cx(styles.hintWrap, (previewing || selecting || missingArtboard !== null) && styles.hintWrapHidden)}>
             <div data-testid="mode-indicator" className={styles.hint}>
-              {picking ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier." : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
+              {picking
+                ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier."
+                : archived
+                  ? "Canvas interactif : les clics déclenchent les actions."
+                  : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
             </div>
           </div>
           {missingArtboard !== null && (
@@ -1085,6 +1101,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
               onSelectingChange={changeSelecting}
               onRemoveChip={(index) => setChips((current) => removeChip(current, index))}
               onChipsSent={() => setChips([])}
+              readOnly={archived !== undefined}
             />
           ) : tab === "toc" ? (
             <div className={styles.tocPanel}>
@@ -1109,6 +1126,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                   setDraft(null);
                   setText("");
                 }}
+                readOnly={archived !== undefined}
               />
             </PageTweaksContext.Provider>
           )}

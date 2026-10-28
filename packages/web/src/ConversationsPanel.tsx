@@ -87,10 +87,12 @@ interface Props {
   onRemoveChip: (index: number) => void;
   /** Called once the message is sent: the chips and their marks go. */
   onChipsSent: () => void;
+  /** An archived project's page: conversations are read, none is started, sent to or deleted. */
+  readOnly?: boolean;
 }
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
-export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, focusedConversation, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent }: Props) {
+export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, focusedConversation, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent, readOnly = false }: Props) {
   const personLabel = usePersonLabel();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -234,6 +236,8 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
             ▼
           </span>
         </button>
+        {!readOnly && (
+        <>
         <Button variant="accent" className={styles.newButton} onClick={startDraft}>
           + Nouvelle
         </Button>
@@ -248,6 +252,8 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
             <TrashIcon />
           </button>
         </Tooltip>
+        </>
+        )}
         {listOpen && (
           <div role="listbox" aria-label="Conversations de la page" className={styles.list}>
             <div className={styles.listTitle}>Conversations · {pageTitle}</div>
@@ -268,11 +274,13 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
                     {[personLabel(c.startedBy, "history"), `${c.exchangeCount} ${c.exchangeCount === 1 ? "échange" : "échanges"}`, activityLabel(c.lastActivityAt)].filter(Boolean).join(" · ")}
                   </span>
                 </button>
-                <Tooltip label={`Supprimer la conversation ${c.title}`}>
-                  <button type="button" aria-label={`Supprimer la conversation ${c.title}`} className={styles.optionDelete} onClick={() => void archive(c.id)}>
-                    <TrashIcon />
-                  </button>
-                </Tooltip>
+                {!readOnly && (
+                  <Tooltip label={`Supprimer la conversation ${c.title}`}>
+                    <button type="button" aria-label={`Supprimer la conversation ${c.title}`} className={styles.optionDelete} onClick={() => void archive(c.id)}>
+                      <TrashIcon />
+                    </button>
+                  </Tooltip>
+                )}
               </div>
             ))}
             {conversations.length === 0 && <div className={styles.listEmpty}>Aucune conversation sur cette page.</div>}
@@ -286,6 +294,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
         </div>
       )}
 
+      {!readOnly && (
       <div className={styles.context}>
         <span className={styles.contextLabel}>Contexte transmis</span>
         <div className={styles.chips}>
@@ -296,6 +305,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
           ))}
         </div>
       </div>
+      )}
 
       {detail && detail.messages.length > 0 ? (
         <div className={styles.messages}>
@@ -343,7 +353,9 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
         </div>
       ) : (
         <div className={styles.empty}>
-          {detail ? (
+          {readOnly ? (
+            <div className={styles.emptyText}>Aucune conversation sur cette page.</div>
+          ) : detail ? (
             <>
               <div className={styles.emptyTitle}>Nouvelle conversation</div>
               <div className={styles.emptyText}>Claude connaît la page affichée. Demande un retour général, un artboard ou une nouvelle page.</div>
@@ -364,6 +376,9 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
         </div>
       )}
 
+      {readOnly ? (
+        <div className={styles.readOnlyNote}>Projet archivé : les conversations se lisent mais ne reçoivent plus de messages.</div>
+      ) : (
       <div className={styles.composer}>
         <label htmlFor="conversation-message" className={styles.label}>
           Message à Claude
@@ -410,6 +425,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
         {detail && detail.context && detail.context.percent >= CONTEXT_WARNING_PERCENT && <SessionLine conversation={detail} />}
         <div className={styles.sessionId}>{sessionId ? `session ${shortSessionId(sessionId)}` : "aucune session"} · séparée des fils de commentaires</div>
       </div>
+      )}
     </section>
   );
 }
