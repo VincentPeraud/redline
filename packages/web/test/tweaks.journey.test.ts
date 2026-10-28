@@ -103,3 +103,34 @@ it("adjusts every tweak type on the canvas and in play mode, versions each chang
   await expect.poll(attr("gap")).toBe("4");
   await expect.poll(attr("title")).toBe("Welcome");
 }, 90_000);
+
+it("shows in play mode only the shown artboard's tweaks and the page tweaks bound to no artboard", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Studio" })).json()) as { id: string };
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Screens",
+      files: {
+        "home.html": "<!doctype html><body><h1>Home</h1></body>",
+        "script.html": "<!doctype html><body><h1>Script</h1></body>",
+        "manifest.json": JSON.stringify({
+          artboards: [
+            { file: "home.html", width: 400, height: 300 },
+            { file: "script.html", width: 400, height: 300, x: 500 },
+          ],
+          tweaks: [
+            { id: "homeState", type: "choice", label: "Home state", options: ["normal", "empty"], artboard: "home.html" },
+            { id: "scriptState", type: "choice", label: "Script state", options: ["draft", "done"], artboard: "script.html" },
+            { id: "accent", type: "color", label: "Accent", default: "#e5484d" },
+          ],
+        }),
+      },
+    })
+  ).json()) as Page;
+
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}/play/script.html`);
+  const panel = tab.getByRole("complementary", { name: "Tweaks" });
+  await expect.poll(() => panel.getByText("Script state").count()).toBe(1);
+  expect(await panel.getByText("Accent").count()).toBe(1);
+  expect(await panel.getByText("Home state").count()).toBe(0);
+}, 60_000);

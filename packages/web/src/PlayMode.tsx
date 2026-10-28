@@ -166,7 +166,9 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
     return () => window.removeEventListener("keydown", onKey);
   }, [onExit, onToggleGuides, menuOpen, tocItems, current, renderingParam]);
 
-  const hasTweaks = manifest.tweaks.length > 0 && !presentation?.mobileBar;
+  /** The shown artboard's tweaks, plus the page tweaks bound to no artboard. */
+  const shownTweaks = manifest.tweaks.filter((tweak) => tweak.artboard === undefined || tweak.artboard === current);
+  const hasTweaks = shownTweaks.length > 0 && !presentation?.mobileBar;
   return (
     <div data-testid="play" className={styles.play}>
       {presentation?.mobileBar ? (
@@ -306,10 +308,10 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
             </div>
             <TweaksPanel
               theme="dark"
-              tweaks={manifest.tweaks}
+              tweaks={shownTweaks}
               values={tweaks}
               onChange={onTweak}
-              previews={manifest.artboards[0] && { pageId, artboardOrigin, artboard: manifest.artboards[0] }}
+              previews={artboard && { pageId, artboardOrigin, artboard }}
             />
             <div className={styles.spacer} />
             <div className={styles.asideNote}>Les valeurs choisies font partie du design : elles sont enregistrées avec l'artefact et s'appliquent aussi sur le canvas.</div>
