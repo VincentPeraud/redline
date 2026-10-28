@@ -1,4 +1,4 @@
-import { modelLabel } from "@redline/shared";
+import { EFFORTS, MODEL_CHOICES, modelLabel, type Effort } from "@redline/shared";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "./host-protocol.js";
 
 /**
@@ -23,8 +23,14 @@ export interface ScreenState {
   /** When the host started fresh after the previous one died with agents running; the banner shows while every agent is still stopped. */
   freshStartAt?: string;
   /** The dialog open over the screen, if any: it takes every key until it closes. */
-  dialog?: { type: "stop"; agentId: string };
+  dialog?: Dialog;
 }
+
+/** A dialog open over the screen. Each type has its keys (`onDialogKey`), its box (`dialogBox`) and the condition that keeps it open (`dialogStillValid`). */
+export type Dialog =
+  | { type: "stop"; agentId: string }
+  /** The choices being edited; they reach the host only on Enter. */
+  | { type: "model"; agentId: string; field: "model" | "effort"; model: string; effort?: Effort };
 
 /** What a key asks of the driver; the keys of later tickets add commands here (launch, set model...). */
 export type ScreenCommand =
@@ -32,7 +38,8 @@ export type ScreenCommand =
   | { type: "stop"; agentId: string }
   | { type: "remove"; agentId: string }
   | { type: "restart"; agentId: string }
-  | { type: "restart-all" };
+  | { type: "restart-all" }
+  | { type: "set-model-effort"; agentId: string; model: string; effort?: Effort };
 
 export interface Update {
   state: ScreenState;
@@ -61,8 +68,7 @@ export function logLoaded(state: ScreenState, agentId: string, entries: HostLogE
 export function applyEvent(state: ScreenState, event: HostEvent): ScreenState {
   const next = reduce(state, event);
   const started = (event.event === "agent-added" || event.event === "agent-changed") && event.agent.state !== "stopped";
-  const asked = next.dialog && next.agents.find((agent) => agent.id === next.dialog?.agentId);
-  return { ...next, freshStartAt: started ? undefined : next.freshStartAt, dialog: asked?.state === "running" ? next.dialog : undefined };
+  return { ...next, freshStartAt: started ? undefined : next.freshStartAt, dialog: next.dialog && dialogStillValid(next, next.dialog) ? next.dialog : undefined };
 }
 
 function reduce(state: ScreenState, event: HostEvent): ScreenState {
@@ -91,10 +97,7 @@ function nextSelection(agents: HostAgent[], removedId: string): string | undefin
 }
 
 export function onKey(state: ScreenState, key: Key): Update {
-  if (state.dialog) {
-    if (key === "y") return { state: { ...state, dialog: undefined }, commands: [{ type: "stop", agentId: state.dialog.agentId }] };
-    return { state: key === "escape" ? { ...state, dialog: undefined } : state, commands: [] };
-  }
+  if (state.dialog) return onDialogKey(state, state.dialog, key);
   const index = state.agents.findIndex((agent) => agent.id === state.selectedId);
   if (key === "up" || key === "down") {
     const next = state.agents[Math.min(state.agents.length - 1, Math.max(0, index + (key === "up" ? -1 : 1)))];
@@ -106,10 +109,48 @@ export function onKey(state: ScreenState, key: Key): Update {
     if (selected.state === "running") return { state: { ...state, dialog: { type: "stop", agentId: selected.id } }, commands: [] };
     return { state, commands: [{ type: selected.state === "stopped" ? "remove" : "stop", agentId: selected.id }] };
   }
+  if (key === "m" && selected) return { state: { ...state, dialog: { type: "model", agentId: selected.id, field: "model", model: selected.model ?? MODEL_CHOICES[0].id, effort: selected.effort } }, commands: [] };
   if (key === "r" && selected?.state === "stopped") return { state, commands: [{ type: "restart", agentId: selected.id }] };
   if (key === "R" && state.agents.some((agent) => agent.state === "stopped")) return { state, commands: [{ type: "restart-all" }] };
   return { state, commands: [] };
 }
+
+const closeDialog = (state: ScreenState): ScreenState => ({ ...state, dialog: undefined });
+
+/** What a key does while a dialog is open: every key is for the dialog. */
+function onDialogKey(state: ScreenState, dialog: Dialog, key: Key): Update {
+  if (key === "escape") return { state: closeDialog(state), commands: [] };
+  switch (dialog.type) {
+    case "stop":
+      return key === "y" ? { state: closeDialog(state), commands: [{ type: "stop", agentId: dialog.agentId }] } : { state, commands: [] };
+    case "model": {
+      const agent = state.agents.find((a) => a.id === dialog.agentId);
+      if (!agent) return { state: closeDialog(state), commands: [] };
+      if (key === "up" || key === "down") return { state: { ...state, dialog: { ...dialog, field: key === "up" ? "model" : "effort" } }, commands: [] };
+      if (key === "left" || key === "right") {
+        const step = key === "left" ? -1 : 1;
+        const next = (options: readonly (string | undefined)[], current: string | undefined) => options[Math.min(options.length - 1, Math.max(0, options.indexOf(current) + step))];
+        return { state: { ...state, dialog: dialog.field === "model" ? { ...dialog, model: next(modelOptions(agent), dialog.model)! } : { ...dialog, effort: next(EFFORT_OPTIONS, dialog.effort) as Effort | undefined } }, commands: [] };
+      }
+      if (key === "enter") {
+        const unchanged = dialog.model === agent.model && dialog.effort === agent.effort;
+        return { state: closeDialog(state), commands: unchanged ? [] : [{ type: "set-model-effort", agentId: agent.id, model: dialog.model, effort: dialog.effort }] };
+      }
+      return { state, commands: [] };
+    }
+  }
+}
+
+/** A stop dialog is about a run: it goes with the run. The others stay while their agent is listed. */
+function dialogStillValid(state: ScreenState, dialog: Dialog): boolean {
+  const agent = state.agents.find((a) => a.id === dialog.agentId);
+  return dialog.type === "stop" ? agent?.state === "running" : agent !== undefined;
+}
+
+/** The models of the launch choices, plus the full model id the agent may run with. */
+const modelOptions = (agent: HostAgent): string[] => [...MODEL_CHOICES.map((choice) => choice.id as string), ...(agent.model && !MODEL_CHOICES.some((choice) => choice.id === agent.model) ? [agent.model] : [])];
+/** `undefined` leaves the effort to Claude (shown as "default"). */
+const EFFORT_OPTIONS: readonly (Effort | undefined)[] = [undefined, ...EFFORTS];
 
 // ---- Cells ---------------------------------------------------------------------------------------------------
 
@@ -323,7 +364,7 @@ export interface BarItem {
   muted?: boolean;
 }
 
-/** The keys that apply to the selected agent. Later tickets add theirs (n, m, o) before `x`. */
+/** The keys that apply to the selected agent. Later tickets add theirs (n, o) around `m`. */
 export function actionBar(state: ScreenState): BarItem[] {
   const agent = selectedAgent(state);
   if (agent?.state === "stopped") {
@@ -331,11 +372,12 @@ export function actionBar(state: ScreenState): BarItem[] {
       { key: "↑↓", label: "agent" },
       { key: "r", label: "restart" },
       { key: "R", label: "restart all" },
+      { key: "m", label: "model/effort" },
       { key: "x", label: "remove" },
       { key: "q", label: "close", muted: true },
     ];
   }
-  return [{ key: "↑↓", label: "agent" }, ...(agent ? [{ key: "x", label: "stop" }] : []), { key: "q", label: "close · agents keep running", muted: true }];
+  return [{ key: "↑↓", label: "agent" }, ...(agent ? [{ key: "m", label: "model/effort" }, { key: "x", label: "stop" }] : []), { key: "q", label: "close · agents keep running", muted: true }];
 }
 
 function selectedAgent(state: ScreenState): HostAgent | undefined {
@@ -448,7 +490,6 @@ const barRow = (state: ScreenState, columns: number): Span[] => fit([span(spaces
 
 // ---- Dialogs -------------------------------------------------------------------------------------------------
 
-const DIALOG_WIDTH = 90;
 /** The board dims the screen behind a dialog with 55 % black. */
 const DIM = 0.45;
 const dimmed = (hex: string) => `#${[1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * DIM).toString(16).padStart(2, "0")).join("")}`;
@@ -467,28 +508,75 @@ function cut(spans: Span[], from: number, to: number): Span[] {
   return out;
 }
 
-const stopDialog = (state: ScreenState, agent: HostAgent, inner: number): Row[] => {
-  const log = state.logs[agent.id] ?? [];
-  const started = log.filter((entry) => entry.event.type === "run-started").at(-1);
-  const run = started?.event as RunStarted | undefined;
-  const place = run ? placeOf(run.project, run.page) : (agent.page ?? "");
-  const elapsed = started ? ` (${duration(state.now - Date.parse(started.at))})` : "";
+/** The box a dialog draws: its width in cells, and its lines for a given inner width. */
+interface DialogBox {
+  width: number;
+  rows(inner: number): Row[];
+}
+
+/** The shared frame of the dialogs: title, a separator, the body, a separator, and the keys on the darker bar. */
+function dialogFrame(title: Span[], body: Row[], keys: BarItem[], inner: number): Row[] {
   const edge = (text: string, bg = C.bg) => span(text, C.muted, false, bg);
-  const line = (bg: string, ...content: Span[]): Row => ({ spans: [edge("│", bg), ...fit([span(" ", C.text, false, bg), ...content.map((s) => ({ ...s, bg: s.bg ?? bg }))], inner, bg), edge("│", bg)] });
+  const line = (bg: string, spans: Span[]): Row => ({ spans: [edge("│", bg), ...fit([span(" ", C.text, false, bg), ...spans.map((s) => ({ ...s, bg: s.bg ?? bg }))], inner, bg), edge("│", bg)] });
   const separator: Row = { spans: [edge("├"), span("─".repeat(inner), C.rule), edge("┤")] };
   return [
     { spans: [edge(`┌${"─".repeat(inner)}┐`)] },
-    line(C.bg, span(`Stop ${agent.name}?`, C.text, true)),
+    line(C.bg, title),
     separator,
-    line(C.bg, span("A run is in progress on ", C.muted), span(place), span(`${elapsed}.`, C.muted)),
-    line(C.bg, span("Stopping cancels it; the conversation stays open in Redline.", C.muted)),
-    line(C.bg),
-    line(C.bg, span("The agent stays in the list as stopped: ", C.dim), span("r", C.text, true), span(" restarts it, ", C.dim), span("x", C.text, true), span(" again removes it.", C.dim)),
+    ...body.map((row) => line(C.bg, row.spans)),
     separator,
-    line(C.bar, ...keyCaps([{ key: "y", label: "stop" }, { key: "Esc", label: "keep running" }])),
+    line(C.bar, keyCaps(keys)),
     { spans: [edge(`└${"─".repeat(inner)}┘`)] },
   ];
-};
+}
+
+/** The run in progress of an agent, as the dialogs name it: where, and since when. */
+function runOf(state: ScreenState, agent: HostAgent): { place: string; elapsed: string } {
+  const started = (state.logs[agent.id] ?? []).filter((entry) => entry.event.type === "run-started").at(-1);
+  const run = started?.event as RunStarted | undefined;
+  return { place: run ? placeOf(run.project, run.page) : (agent.page ?? ""), elapsed: started ? ` (${duration(state.now - Date.parse(started.at))})` : "" };
+}
+
+function stopBox(state: ScreenState, agent: HostAgent): DialogBox {
+  const { place, elapsed } = runOf(state, agent);
+  const body = [
+    [span("A run is in progress on ", C.muted), span(place), span(`${elapsed}.`, C.muted)],
+    [span("Stopping cancels it; the conversation stays open in Redline.", C.muted)],
+    [],
+    [span("The agent stays in the list as stopped: ", C.dim), span("r", C.text, true), span(" restarts it, ", C.dim), span("x", C.text, true), span(" again removes it.", C.dim)],
+  ];
+  return { width: 90, rows: (inner) => dialogFrame([span(`Stop ${agent.name}?`, C.text, true)], body.map((spans) => ({ spans })), [{ key: "y", label: "stop" }, { key: "Esc", label: "keep running" }], inner) };
+}
+
+/** One row of choices: the picked one in a cap, white when its field is the active one. */
+function choiceRow(label: string, active: boolean, options: string[], picked: number): Span[] {
+  return [
+    span(label.padEnd(LABEL_WIDTH), active ? C.text : C.dim, active),
+    ...options.flatMap((option, index) => [index === picked ? span(` ${option} `, C.bg, true, active ? C.text : C.muted) : span(` ${option} `, C.muted), span(" ")]),
+  ];
+}
+
+function modelBox(state: ScreenState, agent: HostAgent, dialog: Extract<Dialog, { type: "model" }>): DialogBox {
+  const models = modelOptions(agent);
+  const efforts = EFFORT_OPTIONS.map((effort) => effort ?? "default");
+  const body: Span[][] = [choiceRow("Model", dialog.field === "model", models, models.indexOf(dialog.model)), choiceRow("Effort", dialog.field === "effort", efforts, EFFORT_OPTIONS.indexOf(dialog.effort))];
+  if (agent.state === "running") {
+    const { place } = runOf(state, agent);
+    const current = `${agent.model ? modelLabel(agent.model) : "Claude's default"} · ${agent.effort ?? "Claude's default"}`;
+    body.push([], [span("! ", C.amber), span(`A run is in progress (${place}): it finishes with ${current}.`, C.muted)], [span("  The new choice applies from the next run, without restarting the agent.", C.muted)]);
+  }
+  const keys: BarItem[] = [{ key: "↑↓", label: "field" }, { key: "←→", label: "choice" }, { key: "Enter", label: "apply" }, { key: "Esc", label: "cancel" }];
+  return { width: 82, rows: (inner) => dialogFrame([span("Model and effort", C.text, true), span(`  · ${agent.name}`, C.muted)], body.map((spans) => ({ spans })), keys, inner) };
+}
+
+function dialogBox(state: ScreenState, dialog: Dialog, agent: HostAgent): DialogBox {
+  switch (dialog.type) {
+    case "stop":
+      return stopBox(state, agent);
+    case "model":
+      return modelBox(state, agent, dialog);
+  }
+}
 
 /** The whole screen: exactly `rows` lines of `columns` cells, with ANSI colours (24-bit) and background. */
 export function render(state: ScreenState, { columns, rows }: Size): string[] {
@@ -515,8 +603,9 @@ export function render(state: ScreenState, { columns, rows }: Size): string[] {
 
   const asked = state.dialog && selectedAgent(state);
   if (!asked) return frame.map((line) => toAnsi(line));
-  const boxWidth = Math.min(DIALOG_WIDTH, columns - 4);
-  const box = stopDialog(state, asked, boxWidth - 2);
+  const { width: wanted, rows: boxRows } = dialogBox(state, state.dialog!, asked);
+  const boxWidth = Math.min(wanted, columns - 4);
+  const box = boxRows(boxWidth - 2);
   const top = Math.max(1, Math.floor((rows - box.length) * 0.4));
   const boxLeft = Math.floor((columns - boxWidth) / 2);
   return frame.map((line, index) => {

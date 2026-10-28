@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyEvent, closeSummary, initialState, logLoaded, onKey, plainText, render, tick, type ScreenState } from "../src/agents-view.js";
 import { runAgentsScreen, type ScreenHost, type ScreenTerminal } from "../src/agents-screen.js";
+import type { Effort } from "@redline/shared";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "../src/host-protocol.js";
 
 const NOW = Date.parse("2026-10-28T16:12:00");
@@ -215,9 +216,9 @@ describe("stopping, removing and restarting from the view", () => {
     const state = open([lumora, radio, portfolio], "a4");
     expect(onKey(state, "x").commands).toEqual([{ type: "remove", agentId: "a4" }]);
     const frame = text(state);
-    expect(frame).toMatch(/↑↓ +agent +r +restart +R +restart all +x +remove +q +close\s/);
+    expect(frame).toMatch(/↑↓ +agent +r +restart +R +restart all +m +model\/effort +x +remove +q +close\s/);
     expect(frame).not.toContain("close · agents keep running");
-    expect(text(open([lumora, radio, portfolio], "a1"))).toMatch(/↑↓ +agent +x +stop +q +close · agents keep running/);
+    expect(text(open([lumora, radio, portfolio], "a1"))).toMatch(/↑↓ +agent +m +model\/effort +x +stop +q +close · agents keep running/);
     expect(text(open([lumora, radio, portfolio], "a1"))).not.toMatch(/restart all/);
   });
 
@@ -253,6 +254,80 @@ describe("stopping, removing and restarting from the view", () => {
   });
 });
 
+describe("changing the model and effort from the view", () => {
+  const board = () => open([lumora, radio, portfolio]);
+
+  it("opens on m with the agent's model and effort preselected, and the field and choice keys on the bar", () => {
+    const frame = text(onKey(board(), "m").state);
+    expect(frame).toContain("Model and effort  · lumora");
+    expect(frame).toMatch(/Model {6}opus {3}sonnet {3}haiku/);
+    expect(frame).toMatch(/Effort {5}default {3}low {3}medium {3}high {3}xhigh {3}max/);
+    expect(frame).toMatch(/↑↓ +field +←→ +choice +Enter +apply +Esc +cancel/);
+    const lines = render(onKey(board(), "m").state, { columns: 184, rows: 43 });
+    const modelLine = lines.find((line) => plainText([line])[0].includes("Model      opus"))!;
+    expect(modelLine).toContain("48;2;228;228;231;38;2;24;24;27;1m opus ");
+    const effortLine = lines.find((line) => plainText([line])[0].includes("Effort     default"))!;
+    expect(effortLine).toContain("48;2;161;161;170;38;2;24;24;27;1m medium ");
+  });
+
+  it("moves between fields with ↑↓ and between choices with ←→, stopping at the ends, and applies on Enter", () => {
+    let state = onKey(board(), "m").state;
+    state = press(state, "right");
+    expect(text(state)).toContain("Opus · medium");
+    state = press(state, "right", "right", "right");
+    expect(onKey(state, "enter").commands).toEqual([{ type: "set-model-effort", agentId: "a1", model: "haiku", effort: "medium" }]);
+    state = press(state, "down", "right", "right");
+    expect(onKey(state, "enter").commands).toEqual([{ type: "set-model-effort", agentId: "a1", model: "haiku", effort: "xhigh" }]);
+    state = press(state, "left", "left", "left", "left", "left");
+    expect(onKey(state, "enter").commands).toEqual([{ type: "set-model-effort", agentId: "a1", model: "haiku", effort: undefined }]);
+    expect(text(onKey(state, "enter").state)).not.toContain("Model and effort");
+  });
+
+  it("changes nothing on Esc, and sends nothing when nothing was changed", () => {
+    const changed = press(onKey(board(), "m").state, "right", "down", "right");
+    const cancelled = onKey(changed, "escape");
+    expect(cancelled.commands).toEqual([]);
+    expect(text(cancelled.state)).not.toContain("Model and effort");
+    expect(onKey(onKey(board(), "m").state, "enter").commands).toEqual([]);
+  });
+
+  it("offers a full model id the agent runs with", () => {
+    const frame = text(onKey(open([agent({ id: "a9", name: "custom", model: "claude-opus-5-5" })], "a9"), "m").state);
+    expect(frame).toMatch(/Model {6}opus {3}sonnet {3}haiku {3}claude-opus-5-5/);
+  });
+
+  it("says a run in progress finishes with the old settings, and only then", () => {
+    const running = text(tick(onKey(board(), "m").state, NOW));
+    expect(running).toContain("! A run is in progress (Lumora Pro / Tarifs): it finishes with Opus · medium.");
+    expect(running).toContain("The new choice applies from the next run, without restarting the agent.");
+    const idle = text(onKey(open([radio, lumora], "a2"), "m").state);
+    expect(idle).not.toContain("A run is in progress");
+  });
+
+  it("follows the agent's run while open, and closes when the agent goes away", () => {
+    const opened = onKey(open([radio]), "m").state;
+    const started = applyEvent(opened, { event: "agent-changed", agent: { ...radio, state: "running", page: "Tarifs" } });
+    expect(text(started)).toContain("it finishes with Sonnet · high.");
+    expect(text(applyEvent(started, { event: "agent-changed", agent: radio }))).not.toContain("A run is in progress");
+    expect(text(applyEvent(opened, { event: "agent-removed", agentId: "a2" }))).not.toContain("Model and effort");
+  });
+
+  it("also works on a stopped agent, and ignores other keys while open", () => {
+    const stopped = onKey(open([portfolio]), "m").state;
+    expect(text(stopped)).toContain("Model and effort  · portfolio");
+    for (const key of ["q", "x", "y", "n"]) expect(onKey(stopped, key).commands).toEqual([]);
+    expect(text(onKey(stopped, "q").state)).toContain("Model and effort");
+  });
+
+  it("shows the new values in the list and detail once the host reports them", () => {
+    const applied = applyEvent(board(), { event: "agent-changed", agent: { ...lumora, model: "sonnet", effort: "high" } });
+    const frame = text(applied);
+    expect(frame).toContain("Model     Sonnet");
+    expect(frame).toContain("Effort    high");
+    expect(frame).toMatch(/lumora +running +\n.*Sonnet · high/);
+  });
+});
+
 class FakeHost implements ScreenHost {
   listener: ((event: HostEvent) => void) | undefined;
   calls: string[] = [];
@@ -267,6 +342,11 @@ class FakeHost implements ScreenHost {
   async stop(agentId: string) { this.calls.push(`stop ${agentId}`); this.change(agentId, { state: "stopped", page: undefined }); return this.agents.find((a) => a.id === agentId)!; }
   async remove(agentId: string) { this.calls.push(`remove ${agentId}`); this.listener!({ event: "agent-removed", agentId }); }
   async restart(agentId: string) { this.calls.push(`restart ${agentId}`); this.change(agentId, { state: "reconnecting" }); return { agent: this.agents.find((a) => a.id === agentId)!, started: true }; }
+  async setModelEffort(agentId: string, choice: { model: string; effort?: Effort }) {
+    this.calls.push(`set ${agentId} ${choice.model} ${choice.effort ?? "default"}`);
+    this.change(agentId, choice);
+    return this.agents.find((a) => a.id === agentId)!;
+  }
   async restartAll() {
     this.calls.push("restart-all");
     const stopped = this.agents.filter((a) => a.state === "stopped");
@@ -356,6 +436,25 @@ describe("the agents screen over a host client", () => {
     expect(host.calls).toEqual(["remove a4"]);
     expect(terminal.frame).toContain("1 agent ");
     expect(terminal.frame).not.toContain("portfolio");
+    terminal.keyListener("q");
+    await done;
+  });
+
+  it("applies a model and effort chosen in the dialog, and shows them in the list and detail", async () => {
+    const host = new FakeHost([lumora, radio], { a1: lumoraLog });
+    const { terminal, done } = await start(host);
+    terminal.keyListener("m");
+    expect(terminal.frame).toContain("A run is in progress (Lumora Pro / Tarifs): it finishes with Opus · medium.");
+    terminal.keyListener("right");
+    terminal.keyListener("down");
+    terminal.keyListener("right");
+    terminal.keyListener("enter");
+    await settle();
+    expect(host.calls).toEqual(["set a1 sonnet high"]);
+    expect(terminal.frame).not.toContain("Model and effort");
+    expect(terminal.frame).toContain("Model     Sonnet");
+    expect(terminal.frame).toContain("Effort    high");
+    expect(terminal.frame).toContain("Sonnet · high");
     terminal.keyListener("q");
     await done;
   });

@@ -2,7 +2,7 @@ import { applyEvent, initialState, logLoaded, onKey, render, tick, type ScreenCo
 import type { HostClient } from "./host-client.js";
 
 /** What the screen needs from the agent host: a `HostClient` provides it, tests give a fake. Later tickets add their commands here. */
-export type ScreenHost = Pick<HostClient, "snapshot" | "log" | "subscribe" | "stop" | "remove" | "restart" | "restartAll">;
+export type ScreenHost = Pick<HostClient, "snapshot" | "log" | "subscribe" | "stop" | "remove" | "restart" | "restartAll" | "setModelEffort">;
 
 /** The terminal, as the screen sees it: the driver implements it on stdin/stdout, tests record frames. */
 export interface ScreenTerminal {
@@ -36,6 +36,8 @@ function execute(host: ScreenHost, command: ScreenCommand): Promise<unknown> {
       return host.restart(command.agentId);
     case "restart-all":
       return host.restartAll();
+    case "set-model-effort":
+      return host.setModelEffort(command.agentId, { model: command.model, effort: command.effort });
     case "close":
       return Promise.resolve();
   }

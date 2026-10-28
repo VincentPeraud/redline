@@ -1,4 +1,4 @@
-import { cliUpdateCommand } from "@redline/shared";
+import { cliUpdateCommand, type ModelChoice } from "@redline/shared";
 import type { ReportActivity } from "./activity.js";
 import { connectToServer, type AgentConnection, type ConnectOptions } from "./connection.js";
 import type { Engine } from "./engine.js";
@@ -17,10 +17,12 @@ export interface AgentOptions extends Omit<ConnectOptions, "onMessage"> {
   onUpdated?(): void;
   /** Receives the activity of the work runs. */
   onActivity?: ReportActivity;
+  /** The model and effort that work items without their own use, read when each item arrives; defaults to `model` and `effort`. */
+  currentChoice?(): ModelChoice;
 }
 
 /** Connects to the server and runs the work items it pushes, with the given engine. */
-export async function startAgent({ engine, install = installCli, installedBuildHash = buildHash, onUpdated, onActivity, ...connect }: AgentOptions): Promise<AgentConnection> {
+export async function startAgent({ engine, install = installCli, installedBuildHash = buildHash, onUpdated, onActivity, currentChoice = () => connect, ...connect }: AgentOptions): Promise<AgentConnection> {
   const api = new ServerApi(connect.serverUrl, connect.token, connect.buildHash);
   const running = new Set<Promise<void>>();
   const attempts = new Map<string, number>();
@@ -50,7 +52,8 @@ export async function startAgent({ engine, install = installCli, installedBuildH
     ...connect,
     onMessage(message) {
       if (message.type === "work") {
-        const item = { ...message.item, model: message.item.model ?? connect.model, effort: message.item.effort ?? connect.effort };
+        const choice = currentChoice();
+        const item = { ...message.item, model: message.item.model ?? choice.model, effort: message.item.effort ?? choice.effort };
         const attempt = (attempts.get(item.id) ?? 0) + 1;
         attempts.set(item.id, attempt);
         const report: ReportActivity = (event) => {

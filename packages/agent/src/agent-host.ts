@@ -5,6 +5,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { hostname } from "node:os";
 import { basename } from "node:path";
 import { AgentLog, DEFAULT_LOG_CAP } from "./agent-log.js";
+import { rememberChoice } from "./launch-choice.js";
 import { AgentRegistry } from "./agent-registry.js";
 import {
   agentLogPath,
@@ -272,6 +273,14 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
         return { id: request.id, ok: true, agent: entryOf(request.agentId).agent };
       case "log":
         return { id: request.id, ok: true, entries: entryOf(request.agentId).log.read(request.lines) };
+      case "set-model-effort": {
+        const entry = entryOf(request.agentId);
+        const { model, effort } = request;
+        setAgent(entry, { model, effort });
+        rememberChoice({ folder: entry.agent.folder, configDir, choice: { model, effort } });
+        if (entry.child?.connected) entry.child.send({ type: "set-model-effort", model, effort } satisfies HostToWorker);
+        return { id: request.id, ok: true, agent: entry.agent };
+      }
       case "stop": {
         const entry = entryOf(request.agentId);
         await stopWorker(entry);
