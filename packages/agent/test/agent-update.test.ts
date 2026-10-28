@@ -74,6 +74,7 @@ describe("an agent asked to update", () => {
         events.push("install");
         installed.push(command);
       },
+      installedBuildHash: () => "server-build",
     });
     await until(async () => (await agents()).length === 1 && (await agents())[0].status === "online");
     await pin();
@@ -104,6 +105,18 @@ describe("an agent asked to update", () => {
     await until(async () => (await agents())[0].updateError === "npm ERR! 404 Not Found");
     expect((await agents())[0]).toMatchObject({ status: "online" });
     expect((await agents())[0].updating).toBeUndefined();
+    const outcome = await Promise.race([service.done, new Promise((resolve) => setTimeout(() => resolve("still running"), 150))]);
+    expect(outcome).toBe("still running");
+  });
+
+  it("keeps running its previous build when the install left its own files unchanged, and says how to update by hand", async () => {
+    const { options, agents, requestUpdate } = await setup();
+    service = serveAgent({ ...options, engine: new FakeEngine([]), install: async () => undefined, installedBuildHash: () => "old-build" });
+    await until(async () => (await agents())[0]?.status === "online");
+
+    await requestUpdate();
+    await until(async () => (await agents())[0].updateError !== undefined);
+    expect((await agents())[0].updateError).toContain(`Run \`${cliUpdateCommand(options.serverUrl)}\` in a terminal`);
     const outcome = await Promise.race([service.done, new Promise((resolve) => setTimeout(() => resolve("still running"), 150))]);
     expect(outcome).toBe("still running");
   });
