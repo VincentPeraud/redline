@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { EFFORTS, modelLabel, type Effort, type ModelChoice, type Project } from "@redline/shared";
+import { EFFORTS, modelLabel, type AgentKind, type Effort, type ModelChoice, type Project } from "@redline/shared";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface, type Interface } from "node:readline/promises";
@@ -12,9 +12,10 @@ import { checkClaude, claudeConfigDirOf, claudeSettingsFileOf } from "./claude.j
 import { claudeCodeEngine } from "./claude-code-engine.js";
 import { ensureHost, type HostClient } from "./host-client.js";
 import { chooseModelEffort } from "./launch-choice.js";
-import { linkFolder, serverForFolder, type LinkChoice, type MoreChoice } from "./link.js";
+import { linkFolder, linkedServer, serverForFolder, type LinkChoice, type MoreChoice } from "./link.js";
 import { defaultConfigDir, pickServer, requireLogins, type Login } from "./login.js";
 import { sanitizeForTerminal } from "./sanitize.js";
+import { servingAgent } from "./serving-agent.js";
 import { askSecret } from "./secret-prompt.js";
 import { ServerApi } from "./server-api.js";
 import { serveAgent } from "./serve-agent.js";
@@ -147,6 +148,36 @@ async function runAgent(args: string[]): Promise<void> {
   const servers = requireLogins(defaultConfigDir());
   const kind = args.includes("--global") ? "global" : "project";
   const folder = process.cwd();
+  const host = runsInBackground() ? await connectHost() : undefined;
+  try {
+    // Attached from now on: the host would exit, with no agent yet, while the questions are being answered.
+    await host?.subscribe(() => undefined);
+    await startOrOpenAgent({ args, flags, account, servers, kind, folder, host });
+  } finally {
+    host?.close();
+  }
+}
+
+interface AgentRequest {
+  args: string[];
+  flags: ModelChoice;
+  account: string | undefined;
+  servers: Login[];
+  kind: AgentKind;
+  folder: string;
+  /** The agent host, in a terminal; absent when the agent runs in this process. */
+  host: HostClient | undefined;
+}
+
+async function startOrOpenAgent({ args, flags, account, servers, kind, folder, host }: AgentRequest): Promise<void> {
+  // Before any question: an agent that already serves this folder is opened as it is, and its choices stay untouched.
+  const known = host && (kind === "global" ? pickServer(servers, flagValue(args, "--server")) : linkedServer(folder, servers));
+  const serving = host && known && (await servingAgent({ host, folder, serverUrl: known.serverUrl }));
+  if (host && serving) {
+    console.log(`An agent already serves this folder (${serving.name}): opening it.`);
+    await showAgentsScreen(host, serving.id);
+    return;
+  }
   let server: Login;
   let projectIds: string[] | undefined;
   let projectNames: string[] | undefined;
@@ -159,15 +190,10 @@ async function runAgent(args: string[]): Promise<void> {
   }
   const { serverUrl, token } = server;
   const { model, effort } = await askModelEffort(folder, flags);
-  if (runsInBackground()) {
-    const host = await connectHost();
-    try {
-      const { agent, started } = await host.launch({ folder, kind, serverUrl, projectIds, projectNames, model, effort, claudeConfigDir: claudeConfigDirOf(), account });
-      console.log(started ? "(the agents screen opens on this agent — q closes it)" : `An agent already serves this folder (${agent.name}): opening it.`);
-      await showAgentsScreen(host, agent.id);
-    } finally {
-      host.close();
-    }
+  if (host) {
+    const { agent, started } = await host.launch({ folder, kind, serverUrl, projectIds, projectNames, model, effort, claudeConfigDir: claudeConfigDirOf(), account });
+    console.log(started ? "(the agents screen opens on this agent — q closes it)" : `An agent already serves this folder (${agent.name}): opening it.`);
+    await showAgentsScreen(host, agent.id);
     return;
   }
   console.log(`Runs use ${modelLabel(model)} · ${effort ?? "Claude's default effort"}${account ? `, account ${account}` : ""}.`);
