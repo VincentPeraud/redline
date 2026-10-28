@@ -53,6 +53,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send, r
     type: "run-started",
     workId: item.id,
     project: item.labels?.project ?? "",
+    pageId: item.pageId,
     page: pageTitle,
     kind: activityKind(item),
     ...(author ? { author } : {}),

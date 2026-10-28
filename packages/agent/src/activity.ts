@@ -9,7 +9,7 @@ export type AgentActivity =
   /** The server refused the agent (regenerated token, unknown project, incompatible protocol...); final. */
   | { type: "refused"; reason: string }
   /** `attempt` is 2 or more when the server sent again a work item that failed. */
-  | { type: "run-started"; workId: string; project: string; page: string; kind: "comment" | "conversation" | "summary"; author?: string; excerpt?: string; attempt: number }
+  | { type: "run-started"; workId: string; project: string; pageId: string; page: string; kind: "comment" | "conversation" | "summary"; author?: string; excerpt?: string; attempt: number }
   /** After each engine step: the latest ones ("Edit home.html") and the time since the run started. */
   | { type: "run-progress"; workId: string; steps: string[]; elapsedMs: number }
   /** The run ended well; `changed` lists the files it published (empty: nothing changed). */

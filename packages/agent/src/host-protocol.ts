@@ -32,8 +32,9 @@ export interface HostAgent {
   startedAt?: string;
   /** Short name of the machine the worker runs on. */
   machine?: string;
-  /** The page of the run in progress, while the agent is `running`. */
+  /** The page of the run in progress (its title, and its id for the address), while the agent is `running`. */
   page?: string;
+  pageId?: string;
   /** Why the agent is stopped, when it did not stop on request (refused by the server, crashed). */
   reason?: string;
 }

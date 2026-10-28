@@ -8,7 +8,7 @@ import { runAgentsScreen } from "./agents-screen.js";
 import { closeSummary } from "./agents-view.js";
 import { runAgentWorker } from "./agent-worker.js";
 import { buildHash } from "./build-hash.js";
-import { checkClaude } from "./claude.js";
+import { checkClaude, claudeConfigDirOf, claudeSettingsFileOf } from "./claude.js";
 import { claudeCodeEngine } from "./claude-code-engine.js";
 import { ensureHost, type HostClient } from "./host-client.js";
 import { chooseModelEffort } from "./launch-choice.js";
@@ -18,6 +18,8 @@ import { askSecret } from "./secret-prompt.js";
 import { ServerApi } from "./server-api.js";
 import { serveAgent } from "./serve-agent.js";
 import { setupServer } from "./setup.js";
+import { createNewAgentFlow } from "./new-agent.js";
+import { openWithSystem } from "./open-url.js";
 import { openTerminal } from "./terminal-driver.js";
 import { RELAUNCHED_ENV, UPDATE_EXIT_CODE, WORKER_ENV, superviseAgent } from "./supervisor.js";
 import { serveTerminalMcp } from "./terminal-mcp.js";
@@ -130,8 +132,7 @@ const canPrompt = () => process.stdin.isTTY && !process.env[RELAUNCHED_ENV];
 async function askModelEffort(folder: string, flags: ModelChoice) {
   const rl = canPrompt() ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
   try {
-    const claudeSettingsFile = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json");
-    return await chooseModelEffort({ folder, configDir: defaultConfigDir(), claudeSettingsFile, flags, ask: rl && ((question) => rl.question(question)), warn: console.error });
+    return await chooseModelEffort({ folder, configDir: defaultConfigDir(), claudeSettingsFile: claudeSettingsFileOf(), flags, ask: rl && ((question) => rl.question(question)), warn: console.error });
   } finally {
     rl?.close();
   }
@@ -156,10 +157,9 @@ async function runAgent(args: string[]): Promise<void> {
   const { serverUrl, token } = server;
   const { model, effort } = await askModelEffort(folder, flags);
   if (runsInBackground()) {
-    const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
     const host = await connectHost();
     try {
-      const { agent, started } = await host.launch({ folder, kind, serverUrl, projectIds, projectNames, model, effort, claudeConfigDir, account });
+      const { agent, started } = await host.launch({ folder, kind, serverUrl, projectIds, projectNames, model, effort, claudeConfigDir: claudeConfigDirOf(), account });
       console.log(started ? "(the agents screen opens on this agent — q closes it)" : `An agent already serves this folder (${agent.name}): opening it.`);
       await showAgentsScreen(host, agent.id);
     } finally {
@@ -180,7 +180,9 @@ const connectHost = () => ensureHost({ configDir: defaultConfigDir(), hostComman
 
 /** Opens the agents screen, then prints, in the shell, the agents that keep running. */
 async function showAgentsScreen(host: HostClient, selectedId?: string): Promise<void> {
-  const closed = await runAgentsScreen({ host, terminal: openTerminal(), selectedId, home: homedir() });
+  const folder = process.cwd();
+  const newAgent = createNewAgentFlow({ folder, configDir: defaultConfigDir(), claudeSettingsFile: claudeSettingsFileOf(), host, checkClaude });
+  const closed = await runAgentsScreen({ host, terminal: openTerminal(), selectedId, home: homedir(), folder, newAgent, openUrl: openWithSystem });
   for (const line of closeSummary(closed)) console.log(line);
 }
 

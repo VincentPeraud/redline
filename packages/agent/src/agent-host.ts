@@ -119,7 +119,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     entry.log.append(logged);
     publish({ event: "log-line", agentId: entry.agent.id, entry: logged });
   };
-  const stoppedAs = (entry: Entry, reason?: string) => setAgent(entry, { state: "stopped", since: new Date().toISOString(), reason, page: undefined });
+  const stoppedAs = (entry: Entry, reason?: string) => setAgent(entry, { state: "stopped", since: new Date().toISOString(), reason, page: undefined, pageId: undefined });
   const follow = (entry: Entry, event: AgentActivity) => {
     const now = new Date().toISOString();
     switch (event.type) {
@@ -127,13 +127,13 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       case "reconnected":
       case "run-published":
       case "run-failed":
-        setAgent(entry, { state: "idle", since: now, page: undefined });
+        setAgent(entry, { state: "idle", since: now, page: undefined, pageId: undefined });
         break;
       case "connection-lost":
-        setAgent(entry, { state: "reconnecting", since: now, page: undefined });
+        setAgent(entry, { state: "reconnecting", since: now, page: undefined, pageId: undefined });
         break;
       case "run-started":
-        setAgent(entry, { state: "running", since: now, page: event.page });
+        setAgent(entry, { state: "running", since: now, page: event.page, pageId: event.pageId });
         break;
     }
   };
@@ -210,7 +210,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     };
     child.send(start);
     const startedAt = new Date().toISOString();
-    setAgent(entry, { state: "reconnecting", since: startedAt, startedAt, machine: hostname().split(".")[0], reason: undefined, page: undefined });
+    setAgent(entry, { state: "reconnecting", since: startedAt, startedAt, machine: hostname().split(".")[0], reason: undefined, page: undefined, pageId: undefined });
     checkIdle();
   }
 

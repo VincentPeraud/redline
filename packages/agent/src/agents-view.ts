@@ -1,5 +1,6 @@
-import { EFFORTS, MODEL_CHOICES, modelLabel, type Effort } from "@redline/shared";
+import { EFFORTS, MODEL_CHOICES, agentsHash, modelLabel, pageHash, type Effort } from "@redline/shared";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "./host-protocol.js";
+import type { NewAgentAnswers, NewAgentQuestions, ProjectOption } from "./new-agent.js";
 
 /**
  * The agents screen as pure functions: state + key -> next state + commands, state + size -> frame lines.
@@ -20,6 +21,8 @@ export interface ScreenState {
   now: number;
   /** The user's home directory, abbreviated `~` in folders. */
   home: string;
+  /** The folder the screen was opened from: `n` starts or selects its agent. */
+  folder: string;
   /** When the host started fresh after the previous one died with agents running; the banner shows while every agent is still stopped. */
   freshStartAt?: string;
   /** The dialog open over the screen, if any: it takes every key until it closes. */
@@ -30,7 +33,35 @@ export interface ScreenState {
 export type Dialog =
   | { type: "stop"; agentId: string }
   /** The choices being edited; they reach the host only on Enter. */
-  | { type: "model"; agentId: string; field: "model" | "effort"; model: string; effort?: Effort };
+  | { type: "model"; agentId: string; field: "model" | "effort"; model: string; effort?: Effort }
+  | NewAgentDialog;
+
+/**
+ * `n`: the questions of a new agent. It opens `loading` while the folder is inspected, goes through `server` when several are set up
+ * and the folder is not linked, then `form`. The rows of the form are the projects, the create option, the model and the effort.
+ */
+export interface NewAgentDialog {
+  type: "new";
+  stage: "loading" | "server" | "form";
+  servers: string[];
+  serverRow: number;
+  serverUrl?: string;
+  /** The titles of the projects of a linked folder: there is no project question then. */
+  linkedTitles?: string[];
+  projects: ProjectOption[];
+  /** The focused row: a project (or the create option, after the last one), then the model, then the effort. */
+  row: number;
+  /** The project picked: it follows the focus over the project rows and stays when the focus leaves them. */
+  picked: number;
+  /** The last existing project the focus was on: it is picked again when the focus leaves an empty create option. */
+  kept: number;
+  title: string;
+  model: string;
+  effort?: Effort;
+  /** Set once Enter was pressed: the agent is being started. */
+  busy?: boolean;
+  error?: string;
+}
 
 /** What a key asks of the driver; the keys of later tickets add commands here (launch, set model...). */
 export type ScreenCommand =
@@ -39,7 +70,11 @@ export type ScreenCommand =
   | { type: "remove"; agentId: string }
   | { type: "restart"; agentId: string }
   | { type: "restart-all" }
-  | { type: "set-model-effort"; agentId: string; model: string; effort?: Effort };
+  | { type: "set-model-effort"; agentId: string; model: string; effort?: Effort }
+  | { type: "prepare-new" }
+  | { type: "list-projects"; serverUrl: string }
+  | { type: "start-new"; answers: NewAgentAnswers }
+  | { type: "open"; url: string };
 
 export interface Update {
   state: ScreenState;
@@ -51,9 +86,9 @@ export interface Size {
   rows: number;
 }
 
-export function initialState({ agents, selectedId, now, home, freshStartAt }: { agents: HostAgent[]; selectedId?: string; now: number; home: string; freshStartAt?: string }): ScreenState {
+export function initialState({ agents, selectedId, now, home, folder, freshStartAt }: { agents: HostAgent[]; selectedId?: string; now: number; home: string; folder: string; freshStartAt?: string }): ScreenState {
   const selected = agents.some((agent) => agent.id === selectedId) ? selectedId : agents[0]?.id;
-  return { agents, selectedId: selected, logs: {}, loaded: {}, now, home, freshStartAt };
+  return { agents, selectedId: selected, logs: {}, loaded: {}, now, home, folder, freshStartAt };
 }
 
 export const tick = (state: ScreenState, now: number): ScreenState => ({ ...state, now });
@@ -109,11 +144,20 @@ export function onKey(state: ScreenState, key: Key): Update {
     if (selected.state === "running") return { state: { ...state, dialog: { type: "stop", agentId: selected.id } }, commands: [] };
     return { state, commands: [{ type: selected.state === "stopped" ? "remove" : "stop", agentId: selected.id }] };
   }
+  if (key === "n") {
+    const served = state.agents.find((agent) => agent.kind === "project" && agent.folder === state.folder);
+    if (served) return { state: { ...state, selectedId: served.id }, commands: [] };
+    return { state: { ...state, dialog: { type: "new", stage: "loading", servers: [], serverRow: 0, projects: [], row: 0, picked: 0, kept: 0, title: "", model: MODEL_CHOICES[0].id } }, commands: [{ type: "prepare-new" }] };
+  }
+  if (key === "o" && selected && selected.state !== "stopped") return { state, commands: [{ type: "open", url: addressOf(selected) }] };
   if (key === "m" && selected) return { state: { ...state, dialog: { type: "model", agentId: selected.id, field: "model", model: selected.model ?? MODEL_CHOICES[0].id, effort: selected.effort } }, commands: [] };
   if (key === "r" && selected?.state === "stopped") return { state, commands: [{ type: "restart", agentId: selected.id }] };
   if (key === "R" && state.agents.some((agent) => agent.state === "stopped")) return { state, commands: [{ type: "restart-all" }] };
   return { state, commands: [] };
 }
+
+/** The canvas of the run in progress, else the server's Agents screen. */
+const addressOf = (agent: HostAgent): string => `${agent.serverUrl}/${agent.state === "running" && agent.pageId ? pageHash(agent.pageId) : agentsHash}`;
 
 const closeDialog = (state: ScreenState): ScreenState => ({ ...state, dialog: undefined });
 
@@ -121,6 +165,8 @@ const closeDialog = (state: ScreenState): ScreenState => ({ ...state, dialog: un
 function onDialogKey(state: ScreenState, dialog: Dialog, key: Key): Update {
   if (key === "escape") return { state: closeDialog(state), commands: [] };
   switch (dialog.type) {
+    case "new":
+      return onNewKey(state, dialog, key);
     case "stop":
       return key === "y" ? { state: closeDialog(state), commands: [{ type: "stop", agentId: dialog.agentId }] } : { state, commands: [] };
     case "model": {
@@ -130,7 +176,7 @@ function onDialogKey(state: ScreenState, dialog: Dialog, key: Key): Update {
       if (key === "left" || key === "right") {
         const step = key === "left" ? -1 : 1;
         const next = (options: readonly (string | undefined)[], current: string | undefined) => options[Math.min(options.length - 1, Math.max(0, options.indexOf(current) + step))];
-        return { state: { ...state, dialog: dialog.field === "model" ? { ...dialog, model: next(modelOptions(agent), dialog.model)! } : { ...dialog, effort: next(EFFORT_OPTIONS, dialog.effort) as Effort | undefined } }, commands: [] };
+        return { state: { ...state, dialog: dialog.field === "model" ? { ...dialog, model: next(modelOptions(agent.model), dialog.model)! } : { ...dialog, effort: next(EFFORT_OPTIONS, dialog.effort) as Effort | undefined } }, commands: [] };
       }
       if (key === "enter") {
         const unchanged = dialog.model === agent.model && dialog.effort === agent.effort;
@@ -141,14 +187,87 @@ function onDialogKey(state: ScreenState, dialog: Dialog, key: Key): Update {
   }
 }
 
-/** A stop dialog is about a run: it goes with the run. The others stay while their agent is listed. */
+/** A stop dialog is about a run: it goes with the run. The model dialog stays while its agent is listed, the new agent dialog is about no agent. */
 function dialogStillValid(state: ScreenState, dialog: Dialog): boolean {
+  if (dialog.type === "new") return true;
   const agent = state.agents.find((a) => a.id === dialog.agentId);
   return dialog.type === "stop" ? agent?.state === "running" : agent !== undefined;
 }
 
+// ---- New agent -------------------------------------------------------------------------------------------------
+
+const MODEL_ROW = (dialog: NewAgentDialog) => (dialog.linkedTitles ? 0 : dialog.projects.length + 1);
+const CREATE_ROW = (dialog: NewAgentDialog) => dialog.projects.length;
+
+const withNew = (state: ScreenState, dialog: NewAgentDialog): Update => ({ state: { ...state, dialog }, commands: [] });
+
+function openForm(dialog: NewAgentDialog, serverUrl: string, projects: ProjectOption[]): NewAgentDialog {
+  return { ...dialog, stage: "form", serverUrl, projects, row: 0, picked: 0, kept: 0 };
+}
+
+/** The folder was inspected: ask for the server, or go to the form. */
+export function newAgentQuestions(state: ScreenState, questions: NewAgentQuestions): ScreenState {
+  if (state.dialog?.type !== "new") return state;
+  const dialog: NewAgentDialog = { ...state.dialog, servers: questions.servers, model: questions.model, effort: questions.effort, linkedTitles: questions.linkedTitles };
+  return { ...state, dialog: questions.serverUrl ? openForm(dialog, questions.serverUrl, questions.projects ?? []) : { ...dialog, stage: "server" } };
+}
+
+/** The projects of the server picked came back. */
+export function projectsLoaded(state: ScreenState, serverUrl: string, projects: ProjectOption[]): ScreenState {
+  return state.dialog?.type === "new" && state.dialog.stage === "loading" ? { ...state, dialog: openForm(state.dialog, serverUrl, projects) } : state;
+}
+
+/** Inspecting the folder, listing the projects or starting the agent failed: the dialog says why. */
+export function newAgentFailed(state: ScreenState, message: string): ScreenState {
+  if (state.dialog?.type !== "new") return state;
+  const { dialog } = state;
+  return { ...state, dialog: { ...dialog, busy: false, error: message, stage: dialog.stage === "loading" && dialog.servers.length > 1 && !dialog.serverUrl ? "server" : dialog.stage } };
+}
+
+/** The agent was started: the new dialog closes and the agent is selected (it may reach the list just after). */
+export function agentStarted(state: ScreenState, agentId: string): ScreenState {
+  return { ...state, selectedId: agentId, dialog: state.dialog?.type === "new" ? undefined : state.dialog };
+}
+
+function onNewKey(state: ScreenState, dialog: NewAgentDialog, key: Key): Update {
+  if (dialog.stage === "loading" || dialog.busy) return { state, commands: [] };
+  const clear = { ...dialog, error: undefined };
+  if (dialog.stage === "server") {
+    if (key === "up" || key === "down") return withNew(state, { ...clear, serverRow: Math.min(dialog.servers.length - 1, Math.max(0, dialog.serverRow + (key === "up" ? -1 : 1))) });
+    if (key !== "enter") return { state, commands: [] };
+    const serverUrl = dialog.servers[dialog.serverRow];
+    return { state: { ...state, dialog: { ...clear, stage: "loading" } }, commands: [{ type: "list-projects", serverUrl }] };
+  }
+  const model = MODEL_ROW(dialog);
+  if (key === "up" || key === "down") {
+    const row = Math.min(model + 1, Math.max(0, dialog.row + (key === "up" ? -1 : 1)));
+    if (dialog.linkedTitles) return withNew(state, { ...clear, row });
+    const onProject = row <= CREATE_ROW(dialog);
+    const leftEmptyCreate = !onProject && dialog.picked === CREATE_ROW(dialog) && !dialog.title.trim() && dialog.projects.length > 0;
+    return withNew(state, { ...clear, row, picked: onProject ? row : leftEmptyCreate ? dialog.kept : dialog.picked, kept: onProject && row < CREATE_ROW(dialog) ? row : dialog.kept });
+  }
+  if (key === "left" || key === "right") {
+    const step = key === "left" ? -1 : 1;
+    const next = (options: readonly (string | undefined)[], current: string | undefined) => options[Math.min(options.length - 1, Math.max(0, options.indexOf(current) + step))];
+    return withNew(state, dialog.row === model + 1 ? { ...clear, effort: next(EFFORT_OPTIONS, dialog.effort) as Effort | undefined } : { ...clear, model: next(modelOptions(dialog.model), dialog.model)! });
+  }
+  const onCreate = !dialog.linkedTitles && dialog.row === CREATE_ROW(dialog);
+  if (key === "backspace") return onCreate ? withNew(state, { ...clear, title: [...dialog.title].slice(0, -1).join("") }) : { state, commands: [] };
+  if (key === "enter") {
+    const title = dialog.title.trim();
+    const creating = !dialog.linkedTitles && dialog.picked === CREATE_ROW(dialog);
+    if (creating && !title) return { state, commands: [] };
+    const project = dialog.linkedTitles ? undefined : creating ? { create: title } : { existing: dialog.projects[dialog.picked].id };
+    return { state: { ...state, dialog: { ...clear, busy: true } }, commands: [{ type: "start-new", answers: { serverUrl: dialog.serverUrl, ...(project ? { project } : {}), model: dialog.model, effort: dialog.effort } }] };
+  }
+  const typed = [...key].every((char) => char >= " " && char !== "\x7f");
+  return onCreate && typed && key.length > 0 && !NAMED_KEYS.has(key) ? withNew(state, { ...clear, title: dialog.title + key }) : { state, commands: [] };
+}
+
+const NAMED_KEYS = new Set(["up", "down", "left", "right", "enter", "escape", "ctrl-c", "backspace"]);
+
 /** The models of the launch choices, plus the full model id the agent may run with. */
-const modelOptions = (agent: HostAgent): string[] => [...MODEL_CHOICES.map((choice) => choice.id as string), ...(agent.model && !MODEL_CHOICES.some((choice) => choice.id === agent.model) ? [agent.model] : [])];
+const modelOptions = (model: string | undefined): string[] => [...MODEL_CHOICES.map((choice) => choice.id as string), ...(model && !MODEL_CHOICES.some((choice) => choice.id === model) ? [model] : [])];
 /** `undefined` leaves the effort to Claude (shown as "default"). */
 const EFFORT_OPTIONS: readonly (Effort | undefined)[] = [undefined, ...EFFORTS];
 
@@ -364,20 +483,23 @@ export interface BarItem {
   muted?: boolean;
 }
 
-/** The keys that apply to the selected agent. Later tickets add theirs (n, o) around `m`. */
+/** The keys that apply to the selected agent. */
 export function actionBar(state: ScreenState): BarItem[] {
   const agent = selectedAgent(state);
+  const newHere = { key: "n", label: "new agent here" };
   if (agent?.state === "stopped") {
     return [
       { key: "↑↓", label: "agent" },
       { key: "r", label: "restart" },
       { key: "R", label: "restart all" },
+      newHere,
       { key: "m", label: "model/effort" },
       { key: "x", label: "remove" },
       { key: "q", label: "close", muted: true },
     ];
   }
-  return [{ key: "↑↓", label: "agent" }, ...(agent ? [{ key: "m", label: "model/effort" }, { key: "x", label: "stop" }] : []), { key: "q", label: "close · agents keep running", muted: true }];
+  const keys = agent ? [{ key: "↑↓", label: "agent" }, newHere, { key: "m", label: "model/effort" }, { key: "o", label: "open in Redline" }, { key: "x", label: "stop" }] : [newHere];
+  return [...keys, { key: "q", label: "close · agents keep running", muted: true }];
 }
 
 function selectedAgent(state: ScreenState): HostAgent | undefined {
@@ -439,7 +561,7 @@ function bannerRows(state: ScreenState, cells: number): Row[] {
 function leftColumn(state: ScreenState, cells: number, height: number): Row[] {
   const agent = selectedAgent(state);
   if (!agent) {
-    return [{ spans: [] }, { spans: [span(`${spaces(MARGIN)}No agent yet. Run \`redline agent\` in a project folder to start one.`, C.muted)] }];
+    return [{ spans: [] }, { spans: [span(`${spaces(MARGIN)}No agent yet. Press n to start one in this folder.`, C.muted)] }];
   }
   const log = state.logs[agent.id] ?? [];
   const head = [...detailRows(state, agent, log, cells), ruleRow(), ...bannerRows(state, cells), { spans: [span(`${spaces(MARGIN)}LOG`, C.muted, true)] }];
@@ -511,6 +633,8 @@ function cut(spans: Span[], from: number, to: number): Span[] {
 /** The box a dialog draws: its width in cells, and its lines for a given inner width. */
 interface DialogBox {
   width: number;
+  /** Where the box starts, as a share of the free height (the boards place each dialog by hand). Default 0.4. */
+  top?: number;
   rows(inner: number): Row[];
 }
 
@@ -557,7 +681,7 @@ function choiceRow(label: string, active: boolean, options: string[], picked: nu
 }
 
 function modelBox(state: ScreenState, agent: HostAgent, dialog: Extract<Dialog, { type: "model" }>): DialogBox {
-  const models = modelOptions(agent);
+  const models = modelOptions(agent.model);
   const efforts = EFFORT_OPTIONS.map((effort) => effort ?? "default");
   const body: Span[][] = [choiceRow("Model", dialog.field === "model", models, models.indexOf(dialog.model)), choiceRow("Effort", dialog.field === "effort", efforts, EFFORT_OPTIONS.indexOf(dialog.effort))];
   if (agent.state === "running") {
@@ -569,13 +693,47 @@ function modelBox(state: ScreenState, agent: HostAgent, dialog: Extract<Dialog, 
   return { width: 82, rows: (inner) => dialogFrame([span("Model and effort", C.text, true), span(`  · ${agent.name}`, C.muted)], body.map((spans) => ({ spans })), keys, inner) };
 }
 
-function dialogBox(state: ScreenState, dialog: Dialog, agent: HostAgent): DialogBox {
-  switch (dialog.type) {
-    case "stop":
-      return stopBox(state, agent);
-    case "model":
-      return modelBox(state, agent, dialog);
+/** One row of a radio list: the focused row has the red marker, the picked one is filled. */
+function radioRow(label: Span[], focused: boolean, picked: boolean): Span[] {
+  return [focused ? span("› ", C.red, true) : span("  "), picked ? span("● ", C.text) : span("○ ", C.dim), ...label];
+}
+
+function newBox(state: ScreenState, dialog: NewAgentDialog): DialogBox {
+  const where = folderLabel(state.folder, state.home);
+  const body: Span[][] = [];
+  const keys: BarItem[] = [{ key: "Esc", label: "cancel" }];
+  const known = dialog.stage !== "loading" || dialog.serverUrl !== undefined || dialog.error !== undefined;
+  body.push(dialog.linkedTitles ? [span(where, C.muted), span(`  serves ${dialog.linkedTitles.join(", ")}.`, C.dim)] : known ? [span(where, C.muted), span("  isn't linked to a project yet.", C.dim)] : [span(where, C.muted)], []);
+  if (dialog.stage === "loading" && !dialog.error) body.push([span("Checking this folder…", C.dim)]);
+  if (dialog.stage === "server") {
+    body.push([span("Server", C.text, true)], ...dialog.servers.map((url, index) => radioRow([span(url, index === dialog.serverRow ? C.text : C.muted)], index === dialog.serverRow, index === dialog.serverRow)));
+    keys.unshift({ key: "↑↓", label: "server" }, { key: "Enter", label: "next" });
   }
+  if (dialog.stage === "form") {
+    const model = MODEL_ROW(dialog);
+    if (!dialog.linkedTitles) {
+      body.push([span("Project", C.text, true)]);
+      dialog.projects.forEach((project, index) => body.push(radioRow([span(project.title, dialog.picked === index ? C.text : C.muted)], dialog.row === index, dialog.picked === index)));
+      const create = CREATE_ROW(dialog);
+      const focused = dialog.row === create;
+      const title = focused ? span(` ${dialog.title}▏`, C.text, false, C.selected) : dialog.title ? span(` ${dialog.title} `, C.muted, false, C.selected) : span(" Project title ", C.dim, false, C.selected);
+      body.push(radioRow([span("Create a new project:", dialog.picked === create ? C.text : C.muted), span("  "), title], focused, dialog.picked === create), []);
+    }
+    const models = modelOptions(dialog.model);
+    const efforts = EFFORT_OPTIONS.map((effort) => effort ?? "default");
+    body.push(choiceRow("Model", dialog.row <= model, models, models.indexOf(dialog.model)), choiceRow("Effort", dialog.row === model + 1, efforts, EFFORT_OPTIONS.indexOf(dialog.effort)), []);
+    body.push(dialog.busy ? [span("Starting…", C.dim)] : [span("Last choice for this folder is preselected.", C.dim)]);
+    keys.unshift({ key: "↑↓", label: "field" }, { key: "←→", label: "choice" }, { key: "Enter", label: "start" });
+  }
+  if (dialog.error) body.push([], [span("✗ ", C.red), span(dialog.error, C.muted)]);
+  return { width: 82, top: 0.35, rows: (inner) => dialogFrame([span("New agent", C.text, true), span("  in the current folder", C.muted)], body.map((spans) => ({ spans })), keys, inner) };
+}
+
+function dialogBox(state: ScreenState, dialog: Dialog): DialogBox | undefined {
+  if (dialog.type === "new") return newBox(state, dialog);
+  const agent = state.agents.find((a) => a.id === dialog.agentId);
+  if (!agent) return undefined;
+  return dialog.type === "stop" ? stopBox(state, agent) : modelBox(state, agent, dialog);
 }
 
 /** The whole screen: exactly `rows` lines of `columns` cells, with ANSI colours (24-bit) and background. */
@@ -601,12 +759,12 @@ export function render(state: ScreenState, { columns, rows }: Size): string[] {
   out.push(barRow(state, columns));
   const frame = out.slice(0, rows);
 
-  const asked = state.dialog && selectedAgent(state);
+  const asked = state.dialog && dialogBox(state, state.dialog);
   if (!asked) return frame.map((line) => toAnsi(line));
-  const { width: wanted, rows: boxRows } = dialogBox(state, state.dialog!, asked);
+  const { width: wanted, rows: boxRows, top: topShare = 0.4 } = asked;
   const boxWidth = Math.min(wanted, columns - 4);
   const box = boxRows(boxWidth - 2);
-  const top = Math.max(1, Math.floor((rows - box.length) * 0.4));
+  const top = Math.max(1, Math.floor((rows - box.length) * topShare));
   const boxLeft = Math.floor((columns - boxWidth) / 2);
   return frame.map((line, index) => {
     const row = box[index - top];
