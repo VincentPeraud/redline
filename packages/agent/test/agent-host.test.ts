@@ -378,7 +378,7 @@ describe("the agent host's control API", { timeout: 20_000 }, () => {
     await api.stop(agent.id);
 
     expect((await api.list())[0]).toMatchObject({ id: agent.id, state: "stopped" });
-    expect((await api.list())[0].page).toBeUndefined();
+    expect((await api.list())[0].run).toBeUndefined();
     await until(async () => (await onServer())[0]?.status === "offline");
     await until(async () => ((await (await server.get(`/api/pages/${page.id}/queue`)).json()) as { reason?: string }[]).some((entry) => entry.reason === "agent-offline"));
     rmSync(hold);
@@ -497,10 +497,10 @@ describe("the agent host's run log", { timeout: 20_000 }, () => {
     await comment();
 
     await until(async () => (await api.list())[0].state === "running");
-    expect((await api.list())[0]).toMatchObject({ state: "running", page: "Home" });
+    expect((await api.list())[0]).toMatchObject({ state: "running", run: { page: "Home", pageId: expect.any(String) } });
     rmSync(hold);
     await until(async () => (await api.list())[0].state === "idle");
-    expect((await api.list())[0].page).toBeUndefined();
+    expect((await api.list())[0].run).toBeUndefined();
     await until(() => events.some((event) => event.event === "log-line" && event.entry.event.type === "run-published"));
     const lines = events.flatMap((event) => (event.event === "log-line" ? [event] : []));
     expect(lines.every((line) => line.agentId === agent.id)).toBe(true);

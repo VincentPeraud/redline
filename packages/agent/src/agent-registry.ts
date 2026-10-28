@@ -25,7 +25,7 @@ export class AgentRegistry {
     if (!Array.isArray(stored)) return { agents: [], interrupted: new Set() };
     const known = stored.filter((entry): entry is HostAgent => isAgentId(entry?.id) && typeof entry?.folder === "string" && typeof entry?.serverUrl === "string");
     return {
-      agents: known.map((agent) => ({ ...agent, state: "stopped" as const, since: agent.state === "stopped" && typeof agent.since === "string" ? agent.since : now, reason: undefined, page: undefined, pageId: undefined })),
+      agents: known.map((agent) => ({ ...agent, state: "stopped" as const, since: agent.state === "stopped" && typeof agent.since === "string" ? agent.since : now, reason: undefined, run: undefined })),
       interrupted: new Set(known.filter((agent) => agent.state !== "stopped").map((agent) => agent.id)),
     };
   }

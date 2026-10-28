@@ -2,7 +2,7 @@ import { EFFORTS, MODEL_PATTERN, type AgentKind, type Effort } from "@redline/sh
 import type { AgentActivity } from "./activity.js";
 
 /**
- * What an agent is doing: `running` a piece of work (see `HostAgent.page`), `idle` (connected, waiting for work), `reconnecting`
+ * What an agent is doing: `running` a piece of work (see `HostAgent.run`), `idle` (connected, waiting for work), `reconnecting`
  * (its worker is up but not connected to the server: starting, or connection lost), or `stopped` (never started in this host,
  * stopped, failed or refused).
  */
@@ -33,8 +33,7 @@ export interface HostAgent {
   /** Short name of the machine the worker runs on. */
   machine?: string;
   /** The page of the run in progress (its title, and its id for the address), while the agent is `running`. */
-  page?: string;
-  pageId?: string;
+  run?: { page: string; pageId: string };
   /** Why the agent is stopped, when it did not stop on request (refused by the server, crashed). */
   reason?: string;
 }
@@ -89,9 +88,21 @@ export interface ClientEnvironment {
 
 export type HostRequestEnvelope = HostRequest & { id: number };
 
-export type HostReply =
-  | { id: number; ok: true; agents?: HostAgent[]; agent?: HostAgent; started?: boolean; entries?: HostLogEntry[]; freshStartAt?: string }
-  | { id: number; ok: false; error: string };
+/** What the host answers to each type of request. */
+export interface HostReplies {
+  list: { agents: HostAgent[]; freshStartAt?: string };
+  launch: { agent: HostAgent; started: boolean };
+  attach: { agent: HostAgent };
+  stop: { agent: HostAgent };
+  remove: Record<never, never>;
+  restart: { agent: HostAgent; started: boolean };
+  "restart-all": { agents: HostAgent[] };
+  "set-model-effort": { agent: HostAgent };
+  log: { entries: HostLogEntry[] };
+  subscribe: Record<never, never>;
+}
+
+export type HostReply = { [Type in keyof HostReplies]: { id: number; ok: true } & HostReplies[Type] }[keyof HostReplies] | { id: number; ok: false; error: string };
 
 /** What an agent's run log records: the worker's activity, plus the failure of a worker that did not stop on request. */
 export type HostLogEvent = AgentActivity | { type: "stopped"; reason: "failed"; error: string } | { type: "stopped"; reason: "host-restarted" };

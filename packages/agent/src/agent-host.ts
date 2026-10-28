@@ -107,7 +107,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
   };
   const stoppedAs = (entry: Entry, reason?: string) => {
     entry.progress = undefined;
-    setAgent(entry, { state: "stopped", since: new Date().toISOString(), reason, page: undefined, pageId: undefined });
+    setAgent(entry, { state: "stopped", since: new Date().toISOString(), reason, run: undefined });
   };
   const follow = (entry: Entry, event: AgentActivity) => {
     const now = new Date().toISOString();
@@ -116,13 +116,13 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       case "reconnected":
       case "run-published":
       case "run-failed":
-        setAgent(entry, { state: "idle", since: now, page: undefined, pageId: undefined });
+        setAgent(entry, { state: "idle", since: now, run: undefined });
         break;
       case "connection-lost":
-        setAgent(entry, { state: "reconnecting", since: now, page: undefined, pageId: undefined });
+        setAgent(entry, { state: "reconnecting", since: now, run: undefined });
         break;
       case "run-started":
-        setAgent(entry, { state: "running", since: now, page: event.page, pageId: event.pageId });
+        setAgent(entry, { state: "running", since: now, run: { page: event.page, pageId: event.pageId } });
         break;
     }
   };
@@ -177,7 +177,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       config: { serverUrl, token, machine: hostname(), folder: agent.folder, kind: agent.kind, projectIds: agent.projectIds, model: agent.model, effort: agent.effort },
     });
     const startedAt = new Date().toISOString();
-    setAgent(entry, { state: "reconnecting", since: startedAt, startedAt, machine: hostname().split(".")[0], reason: undefined, page: undefined, pageId: undefined });
+    setAgent(entry, { state: "reconnecting", since: startedAt, startedAt, machine: hostname().split(".")[0], reason: undefined, run: undefined });
     checkIdle();
   }
 

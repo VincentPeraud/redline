@@ -24,7 +24,7 @@ const agent = (over: Partial<HostAgent> & Pick<HostAgent, "id" | "name">): HostA
   ...over,
 });
 
-const lumora = agent({ id: "a1", name: "lumora", state: "running", page: "Tarifs" });
+const lumora = agent({ id: "a1", name: "lumora", state: "running", run: { page: "Tarifs", pageId: "p1" } });
 const radio = agent({ id: "a2", name: "radio-haidf", model: "sonnet", effort: "high", projectNames: ["Radio HAIDF"] });
 const portfolio = agent({ id: "a4", name: "portfolio", model: "haiku", effort: "low", state: "stopped" });
 
@@ -166,7 +166,7 @@ describe("the agents screen's view", () => {
 
 describe("stopping, removing and restarting from the view", () => {
   const board = () => open([lumora, radio, agent({ id: "a3", name: "global", kind: "global", projectNames: undefined, effort: undefined }), portfolio]);
-  const stoppedAgent = (a: HostAgent): HostAgent => ({ ...a, state: "stopped", page: undefined, since: new Date("2026-10-28T18:42:10").toISOString() });
+  const stoppedAgent = (a: HostAgent): HostAgent => ({ ...a, state: "stopped", run: undefined, since: new Date("2026-10-28T18:42:10").toISOString() });
   const allStopped = (freshStartAt?: string) => open([lumora, radio, portfolio].map(stoppedAgent), "a1", { a1: lumoraLog }, freshStartAt);
 
   it("asks before stopping an agent that is running a run, and says what stopping does", () => {
@@ -202,7 +202,7 @@ describe("stopping, removing and restarting from the view", () => {
 
   it("closes the dialog when the run ends or the agent goes away while it is open", () => {
     const asked = onKey(board(), "x").state;
-    const done = applyEvent(asked, { event: "agent-changed", agent: { ...lumora, state: "idle", page: undefined } });
+    const done = applyEvent(asked, { event: "agent-changed", agent: { ...lumora, state: "idle", run: undefined } });
     expect(text(done)).not.toContain("Stop lumora?");
     expect(text(applyEvent(asked, { event: "agent-removed", agentId: "a1" }))).not.toContain("Stop lumora?");
   });
@@ -346,7 +346,7 @@ describe("changing the model and effort from the view", () => {
 
   it("follows the agent's run while open, and closes when the agent goes away", () => {
     const opened = onKey(open([radio]), "m").state;
-    const started = applyEvent(opened, { event: "agent-changed", agent: { ...radio, state: "running", page: "Tarifs" } });
+    const started = applyEvent(opened, { event: "agent-changed", agent: { ...radio, state: "running", run: { page: "Tarifs", pageId: "p1" } } });
     expect(text(started)).toContain("it finishes with Sonnet · high.");
     expect(text(applyEvent(started, { event: "agent-changed", agent: radio }))).not.toContain("A run is in progress");
     expect(text(applyEvent(opened, { event: "agent-removed", agentId: "a2" }))).not.toContain("Model and effort");
@@ -379,7 +379,7 @@ class FakeHost implements ScreenHost {
     const current = this.agents.find((a) => a.id === id)!;
     this.listener!({ event: "agent-changed", agent: { ...current, ...change } });
   }
-  async stop(agentId: string) { this.calls.push(`stop ${agentId}`); this.change(agentId, { state: "stopped", page: undefined }); return this.agents.find((a) => a.id === agentId)!; }
+  async stop(agentId: string) { this.calls.push(`stop ${agentId}`); this.change(agentId, { state: "stopped", run: undefined }); return this.agents.find((a) => a.id === agentId)!; }
   async remove(agentId: string) { this.calls.push(`remove ${agentId}`); this.listener!({ event: "agent-removed", agentId }); }
   async restart(agentId: string) { this.calls.push(`restart ${agentId}`); this.change(agentId, { state: "reconnecting" }); return { agent: this.agents.find((a) => a.id === agentId)!, started: true }; }
   async setModelEffort(agentId: string, choice: { model: string; effort?: Effort }) {
@@ -425,7 +425,7 @@ class FakeFlow implements NewAgentFlow {
     return this.agent!;
   }
 }
-const stoppedOf = (a: HostAgent): HostAgent => ({ ...a, state: "stopped", page: undefined });
+const stoppedOf = (a: HostAgent): HostAgent => ({ ...a, state: "stopped", run: undefined });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 describe("the agents screen over a host client", () => {
@@ -678,7 +678,7 @@ describe("the agents screen over a host client", () => {
   });
 
   describe("o: open in Redline", () => {
-    const running = { ...lumora, pageId: "pg-42" };
+    const running = { ...lumora, run: { page: "Tarifs", pageId: "pg-42" } };
 
     it("opens the canvas of the run in progress", async () => {
       const { terminal, done, opened } = await start(new FakeHost([running, radio], { a1: lumoraLog }));
@@ -712,7 +712,7 @@ describe("text from the server on the terminal", () => {
   const clean = "]0;pwned[2J31mEvil  next tab";
 
   it("reaches the screen without any control character: only the screen's own colour codes remain", () => {
-    const attacked = agent({ id: "a1", name: "lumora", state: "running", page: evil, projectNames: [evil], reason: evil });
+    const attacked = agent({ id: "a1", name: "lumora", state: "running", run: { page: evil, pageId: "p1" }, projectNames: [evil], reason: evil });
     const log = [
       entry("14:05:40", { type: "run-started", workId: "w1", project: evil, page: evil, kind: "comment", author: evil, excerpt: evil, attempt: 1 }),
       entry("14:05:41", { type: "run-progress", workId: "w1", steps: [evil], elapsedMs: 1000 }),

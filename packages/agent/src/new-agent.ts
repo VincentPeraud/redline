@@ -4,7 +4,7 @@ import type { HostClient } from "./host-client.js";
 import type { HostAgent } from "./host-protocol.js";
 import { lastLaunchChoice, rememberChoice } from "./launch-choice.js";
 import { linkFolder, linkedServer, listProjects, readLinkedProjectIds, type LinkChoice } from "./link.js";
-import { normalizeServerUrl, requireLogins, type Login } from "./login.js";
+import { findLogin, requireLogins, type Login } from "./login.js";
 
 export interface ProjectOption {
   id: string;
@@ -52,8 +52,7 @@ export interface NewAgentFlowOptions {
 }
 
 const serverOf = (servers: Login[], url: string): Login => {
-  const wanted = normalizeServerUrl(url);
-  const found = servers.find((server) => normalizeServerUrl(server.serverUrl) === wanted);
+  const found = findLogin(servers, url);
   if (!found) throw new Error(`${url} is not a server set up on this machine.`);
   return found;
 };
