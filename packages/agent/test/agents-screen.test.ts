@@ -38,8 +38,8 @@ const lumoraLog: HostLogEntry[] = [
   entry("14:12:31", { type: "run-progress", workId: "w3", steps: ["Edit Tarifs.dc.html", "Read DESIGN.md"], elapsedMs: 28_000 }),
 ];
 
-function open(agents: HostAgent[], selectedId?: string, logs: Record<string, HostLogEntry[]> = { a1: lumoraLog }): ScreenState {
-  let state = initialState({ agents, selectedId, now: NOW, home: "/Users/vincent" });
+function open(agents: HostAgent[], selectedId?: string, logs: Record<string, HostLogEntry[]> = { a1: lumoraLog }, freshStartAt?: string): ScreenState {
+  let state = initialState({ agents, selectedId, now: NOW, home: "/Users/vincent", freshStartAt });
   for (const [id, entries] of Object.entries(logs)) state = logLoaded(state, id, entries);
   return state;
 }
@@ -162,12 +162,117 @@ describe("the agents screen's view", () => {
   });
 });
 
+describe("stopping, removing and restarting from the view", () => {
+  const board = () => open([lumora, radio, agent({ id: "a3", name: "global", kind: "global", projectNames: undefined, effort: undefined }), portfolio]);
+  const stoppedAgent = (a: HostAgent): HostAgent => ({ ...a, state: "stopped", page: undefined, since: new Date("2026-10-28T18:42:10").toISOString() });
+  const allStopped = (freshStartAt?: string) => open([lumora, radio, portfolio].map(stoppedAgent), "a1", { a1: lumoraLog }, freshStartAt);
+
+  it("asks before stopping an agent that is running a run, and says what stopping does", () => {
+    const asked = onKey(tick(board(), Date.parse("2026-10-28T14:12:31")), "x");
+    expect(asked.commands).toEqual([]);
+    const frame = text(asked.state);
+    expect(frame).toContain("Stop lumora?");
+    expect(frame).toContain("A run is in progress on Lumora Pro / Tarifs (28 s).");
+    expect(frame).toContain("Stopping cancels it; the conversation stays open in Redline.");
+    expect(frame).toContain("The agent stays in the list as stopped: r restarts it, x again removes it.");
+    expect(frame).toMatch(/ y {2}stop {4}Esc {2}keep running/);
+  });
+
+  it("stops on y, keeps the agent running on Esc, and ignores other keys while the dialog is open", () => {
+    const asked = onKey(board(), "x").state;
+    expect(onKey(asked, "y").commands).toEqual([{ type: "stop", agentId: "a1" }]);
+    expect(text(onKey(asked, "y").state)).not.toContain("Stop lumora?");
+    const kept = onKey(asked, "escape");
+    expect(kept.commands).toEqual([]);
+    expect(text(kept.state)).not.toContain("Stop lumora?");
+    for (const key of ["down", "q", "r", "x", "n"]) {
+      const ignored = onKey(asked, key);
+      expect(ignored.commands).toEqual([]);
+      expect(text(ignored.state)).toContain("Stop lumora?");
+    }
+  });
+
+  it("stops an agent that is not in a run at once, without a dialog", () => {
+    const idle = onKey(open([radio], "a2"), "x");
+    expect(idle.commands).toEqual([{ type: "stop", agentId: "a2" }]);
+    expect(text(idle.state)).not.toContain("Stop radio-haidf?");
+  });
+
+  it("closes the dialog when the run ends or the agent goes away while it is open", () => {
+    const asked = onKey(board(), "x").state;
+    const done = applyEvent(asked, { event: "agent-changed", agent: { ...lumora, state: "idle", page: undefined } });
+    expect(text(done)).not.toContain("Stop lumora?");
+    expect(text(applyEvent(asked, { event: "agent-removed", agentId: "a1" }))).not.toContain("Stop lumora?");
+  });
+
+  it("dims the screen behind the dialog", () => {
+    const lines = render(onKey(board(), "x").state, { columns: 184, rows: 43 });
+    expect(lines[0]).toContain("48;2;11;11;12;");
+    expect(lines[0]).not.toContain("48;2;24;24;27;");
+  });
+
+  it("removes a stopped agent on x, and shows the stopped agent's keys on the bar", () => {
+    const state = open([lumora, radio, portfolio], "a4");
+    expect(onKey(state, "x").commands).toEqual([{ type: "remove", agentId: "a4" }]);
+    const frame = text(state);
+    expect(frame).toMatch(/↑↓ +agent +r +restart +R +restart all +x +remove +q +close\s/);
+    expect(frame).not.toContain("close · agents keep running");
+    expect(text(open([lumora, radio, portfolio], "a1"))).toMatch(/↑↓ +agent +x +stop +q +close · agents keep running/);
+    expect(text(open([lumora, radio, portfolio], "a1"))).not.toMatch(/restart all/);
+  });
+
+  it("restarts the selected stopped agent on r, and every stopped agent on R only when some exist", () => {
+    const stopped = open([lumora, radio, portfolio], "a4");
+    expect(onKey(stopped, "r").commands).toEqual([{ type: "restart", agentId: "a4" }]);
+    expect(onKey(stopped, "R").commands).toEqual([{ type: "restart-all" }]);
+    const running = open([lumora, radio, portfolio], "a1");
+    expect(onKey(running, "r").commands).toEqual([]);
+    expect(onKey(running, "R").commands).toEqual([{ type: "restart-all" }]);
+    const none = open([lumora, radio], "a1");
+    expect(onKey(none, "R").commands).toEqual([]);
+  });
+
+  it("shows the banner when every agent is stopped after a fresh start, and the log's stop line", () => {
+    const log = [...lumoraLog, entry("18:42:10", { type: "stopped", reason: "host-restarted" })];
+    let state = logLoaded(allStopped(new Date("2026-10-28T18:42:10").toISOString()), "a1", log);
+    const frame = text(state);
+    expect(frame).toContain("○ The agents stopped (the Mac restarted or the session closed at 18:42).");
+    expect(frame).toContain("r restarts the selected one with the same folder, model and effort · R restarts all.");
+    expect(frame).toContain("○ stopped since 18:42");
+    expect(frame).toContain("3 agents · all stopped");
+    expect(frame).toContain("18:42:10  ○ Stopped  the Mac restarted or the session closed");
+    state = applyEvent(state, { event: "agent-changed", agent: { ...stoppedAgent(lumora), state: "reconnecting" } });
+    expect(text(state)).not.toContain("The agents stopped");
+    state = applyEvent(state, { event: "agent-changed", agent: stoppedAgent(lumora) });
+    expect(text(state)).not.toContain("The agents stopped");
+  });
+
+  it("shows no banner without a fresh start, or while an agent is not stopped", () => {
+    expect(text(allStopped())).not.toContain("The agents stopped");
+    expect(text(open([lumora, portfolio], "a4", {}, new Date().toISOString()))).not.toContain("The agents stopped");
+  });
+});
+
 class FakeHost implements ScreenHost {
   listener: ((event: HostEvent) => void) | undefined;
-  constructor(readonly agents: HostAgent[], readonly logs: Record<string, HostLogEntry[]>) {}
-  async list() { return this.agents; }
+  calls: string[] = [];
+  constructor(readonly agents: HostAgent[], readonly logs: Record<string, HostLogEntry[]>, readonly freshStartAt?: string) {}
+  async snapshot() { return { agents: this.agents, freshStartAt: this.freshStartAt }; }
   async log(agentId: string) { return this.logs[agentId] ?? []; }
   async subscribe(listener: (event: HostEvent) => void) { this.listener = listener; }
+  private change(id: string, change: Partial<HostAgent>) {
+    const current = this.agents.find((a) => a.id === id)!;
+    this.listener!({ event: "agent-changed", agent: { ...current, ...change } });
+  }
+  async stop(agentId: string) { this.calls.push(`stop ${agentId}`); this.change(agentId, { state: "stopped", page: undefined }); return this.agents.find((a) => a.id === agentId)!; }
+  async remove(agentId: string) { this.calls.push(`remove ${agentId}`); this.listener!({ event: "agent-removed", agentId }); }
+  async restart(agentId: string) { this.calls.push(`restart ${agentId}`); this.change(agentId, { state: "reconnecting" }); return { agent: this.agents.find((a) => a.id === agentId)!, started: true }; }
+  async restartAll() {
+    this.calls.push("restart-all");
+    const stopped = this.agents.filter((a) => a.state === "stopped");
+    for (const a of stopped) this.change(a.id, { state: "reconnecting" });
+    return stopped;
+  }
 }
 
 class FakeTerminal implements ScreenTerminal {
@@ -184,6 +289,7 @@ class FakeTerminal implements ScreenTerminal {
   close() { this.closed = true; }
   get frame() { return plainText(this.frames.at(-1)!).join("\n"); }
 }
+const stoppedOf = (a: HostAgent): HostAgent => ({ ...a, state: "stopped", page: undefined });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 describe("the agents screen over a host client", () => {
@@ -208,6 +314,52 @@ describe("the agents screen over a host client", () => {
     expect(plainText(closeSummary(closed))[0]).toBe("Screen closed. 2 agents keep running in the background:");
   });
 
+  it("stops a running agent after the confirmation, and keeps it running on Esc", async () => {
+    const host = new FakeHost([lumora, radio], { a1: lumoraLog });
+    const { terminal, done } = await start(host);
+    terminal.keyListener("x");
+    terminal.keyListener("escape");
+    await settle();
+    expect(host.calls).toEqual([]);
+    expect(terminal.frame).not.toContain("Stop lumora?");
+    terminal.keyListener("x");
+    expect(terminal.frame).toContain("Stop lumora?");
+    terminal.keyListener("y");
+    await settle();
+    expect(host.calls).toEqual(["stop a1"]);
+    expect(terminal.frame).toContain("○ stopped since");
+    expect(terminal.frame).toContain("○ lumora");
+    terminal.keyListener("q");
+    await done;
+  });
+
+  it("removes a stopped agent with x and restarts with r and R", async () => {
+    const host = new FakeHost([stoppedOf(lumora), stoppedOf(radio), portfolio], { a1: [] }, new Date("2026-10-28T18:42:10").toISOString());
+    const { terminal, done } = await start(host);
+    expect(terminal.frame).toContain("The agents stopped (the Mac restarted or the session closed at 18:42).");
+    terminal.keyListener("r");
+    await settle();
+    expect(host.calls).toEqual(["restart a1"]);
+    expect(terminal.frame).not.toContain("The agents stopped");
+    terminal.keyListener("R");
+    await settle();
+    expect(host.calls).toEqual(["restart a1", "restart-all"]);
+    terminal.keyListener("q");
+    await done;
+  });
+
+  it("removes the selected stopped agent from the list", async () => {
+    const host = new FakeHost([lumora, portfolio], { a1: lumoraLog });
+    const { terminal, done } = await start(host, "a4");
+    terminal.keyListener("x");
+    await settle();
+    expect(host.calls).toEqual(["remove a4"]);
+    expect(terminal.frame).toContain("1 agent ");
+    expect(terminal.frame).not.toContain("portfolio");
+    terminal.keyListener("q");
+    await done;
+  });
+
   it("redraws on resize", async () => {
     const { terminal, done } = await start(new FakeHost([lumora], { a1: lumoraLog }));
     terminal.columns = 100;
@@ -220,7 +372,7 @@ describe("the agents screen over a host client", () => {
 
   it("restores the terminal when the host fails", async () => {
     const host = new FakeHost([], {});
-    host.list = async () => {
+    host.snapshot = async () => {
       throw new Error("The agent host closed the connection.");
     };
     const terminal = new FakeTerminal();

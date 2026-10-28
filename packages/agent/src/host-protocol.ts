@@ -54,7 +54,7 @@ export interface LaunchSettings {
 /**
  * Control API: newline-delimited JSON on the host's Unix socket. A client sends requests, each with a numeric `id`;
  * the host answers each one with a reply carrying the same `id`. After `subscribe`, the host also pushes events.
- * Later commands (`remove`, `restart`, `restart-all`, `set-model-effort`) are new request types in this union.
+ * Later commands (`set-model-effort`) are new request types in this union.
  */
 export type HostRequest =
   | { type: "list" }
@@ -62,6 +62,12 @@ export type HostRequest =
   /** Keeps the host alive while the connection is open, and returns the agent. */
   | { type: "attach"; agentId: string }
   | { type: "stop"; agentId: string }
+  /** Removes the agent from the registry and deletes its log, stopping its worker first if it runs. */
+  | { type: "remove"; agentId: string }
+  /** Starts a stopped agent with its stored settings; an agent that is not stopped is returned as it is (`started` false). */
+  | { type: "restart"; agentId: string }
+  /** Restarts every stopped agent, and returns those. */
+  | { type: "restart-all" }
   /** The last `lines` entries (default: all that are kept) of the agent's log, oldest first. */
   | { type: "log"; agentId: string; lines?: number }
   /** Keeps the host alive while the connection is open, and streams `HostEvent`s. */
@@ -70,11 +76,11 @@ export type HostRequest =
 export type HostRequestEnvelope = HostRequest & { id: number };
 
 export type HostReply =
-  | { id: number; ok: true; agents?: HostAgent[]; agent?: HostAgent; started?: boolean; entries?: HostLogEntry[] }
+  | { id: number; ok: true; agents?: HostAgent[]; agent?: HostAgent; started?: boolean; entries?: HostLogEntry[]; freshStartAt?: string }
   | { id: number; ok: false; error: string };
 
 /** What an agent's run log records: the worker's activity, plus the failure of a worker that did not stop on request. */
-export type HostLogEvent = AgentActivity | { type: "stopped"; reason: "failed"; error: string };
+export type HostLogEvent = AgentActivity | { type: "stopped"; reason: "failed"; error: string } | { type: "stopped"; reason: "host-restarted" };
 
 /** One line of an agent's run log: the event as structured data (the agents screen formats and colours it), and when it happened. */
 export interface HostLogEntry {
