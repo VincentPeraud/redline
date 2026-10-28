@@ -903,7 +903,8 @@ describe("a worker that stops badly", { timeout: 20_000 }, () => {
     const { agent } = await api.launch(launchSettings());
     await until(async () => (await api.list())[0]?.state === "idle");
     await comment();
-    await until(async () => (await api.list())[0]?.state === "running");
+    // Stopping before the engine began would cancel nothing: wait until Claude is at work.
+    await until(() => existsSync(`${cancelled}.started`));
 
     await api.stop(agent.id);
 

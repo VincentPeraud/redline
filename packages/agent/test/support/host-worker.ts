@@ -44,7 +44,7 @@ const script: FakeScript = async (run) => {
 };
 
 /**
- * REDLINE_TEST_CANCELLED: a file to which a run cancelled by the stop of the agent appends a line.
+ * REDLINE_TEST_CANCELLED: a file to which a run cancelled by the stop of the agent appends a line (the file with `.started` appended exists once a run began).
  * REDLINE_TEST_STEPS: a run of that many steps, then it waits until the file REDLINE_TEST_HOLD_RUN names is gone (when set) and
  * ends without editing anything.
  */
@@ -52,6 +52,7 @@ const stepCount = Number(process.env.REDLINE_TEST_STEPS ?? 0);
 const cancelledReport = process.env.REDLINE_TEST_CANCELLED;
 const steppingEngine: Engine = {
   async *start(request) {
+    if (cancelledReport) writeFileSync(`${cancelledReport}.started`, "");
     const cancelled = () => cancelledReport && appendFileSync(cancelledReport, "cancelled\n");
     // The stop may come before the engine starts: the signal is aborted already.
     if (request.signal?.aborted) cancelled();
