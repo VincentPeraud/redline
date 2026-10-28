@@ -41,6 +41,8 @@ export interface Project {
   globalTakeoverOverride: boolean | null;
   /** The online agent that would run the project's work now (`GET /api/projects...`); absent when none can. */
   servedBy?: { id: string; machine: string; folder: string; kind: AgentKind; takeover: boolean };
+  /** When the project was archived (ISO time): it is then read-only, hidden from sessions, and only it can be deleted. */
+  archivedAt?: string;
 }
 
 /** `PATCH /api/projects/:id`: any field may be sent alone. */

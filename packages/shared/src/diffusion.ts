@@ -108,6 +108,8 @@ export interface DesignSystemUser {
   title: string;
   /** Project-style tokens that redefine a token of the current diffusion. */
   overrideCount: number;
+  /** An archived project still following the design system (it blocks archiving the design system). */
+  archived?: true;
   componentCount: number;
 }
 
@@ -116,6 +118,8 @@ export interface DesignSystemDetail {
   id: string;
   title: string;
   pageId: string;
+  /** When it was archived (ISO time): read-only, no project can choose it. */
+  archivedAt?: string;
   pages: DesignSystemPageInfo[];
   usedBy: DesignSystemUser[];
   /** Components and tokens of the draft. */

@@ -55,6 +55,7 @@ import type {
   ModelChoice,
   PageVersionSummary,
   Project,
+  ProjectUsingDesignSystem,
   ServerEvent,
   SessionKind,
   Thread,
@@ -272,6 +273,8 @@ export class Store {
       );
       this.db.exec("INSERT INTO settings (key, value) VALUES ('routing_rule_migrated', '1')");
     }
+    // When the project (or design system) was archived: read-only, hidden from sessions, deletable.
+    addColumn("projects", "archived_at", "TEXT");
     addColumn("versions", "origin_id", "TEXT");
     addColumn("versions", "origin_label", "TEXT");
     addColumn("versions", "diffusion", "INTEGER");
@@ -508,24 +511,32 @@ export class Store {
   }
 
   getDesignSystem(id: string): DesignSystem | undefined {
-    return this.db
+    const row = this.db
       .prepare(
-        "SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id WHERE p.id = ?",
+        "SELECT p.id, p.title, d.page_id AS pageId, p.archived_at AS archivedAt FROM design_systems d JOIN projects p ON p.id = d.project_id WHERE p.id = ?",
       )
-      .get(id) as DesignSystem | undefined;
+      .get(id) as DesignSystemRow | undefined;
+    return row && toDesignSystem(row);
   }
 
+  /** Every design system, archived ones and the hidden Neutral record included. */
   listDesignSystems(): DesignSystem[] {
-    return this.db
+    const rows = this.db
       .prepare(
-        "SELECT p.id, p.title, d.page_id AS pageId FROM design_systems d JOIN projects p ON p.id = d.project_id ORDER BY p.created_at, p.rowid",
+        "SELECT p.id, p.title, d.page_id AS pageId, p.archived_at AS archivedAt FROM design_systems d JOIN projects p ON p.id = d.project_id ORDER BY p.created_at, p.rowid",
       )
-      .all() as DesignSystem[];
+      .all() as DesignSystemRow[];
+    return rows.map(toDesignSystem);
   }
 
-  /** The design systems a user or session can pick: every one but the hidden Neutral record. */
+  /** The design systems a user or session can pick: every one but the archived ones and the hidden Neutral record. */
   listChoosableDesignSystems(): DesignSystem[] {
-    return this.listDesignSystems().filter((designSystem) => designSystem.id !== NEUTRAL_DESIGN_SYSTEM_ID);
+    return this.listDesignSystems().filter((designSystem) => designSystem.id !== NEUTRAL_DESIGN_SYSTEM_ID && !designSystem.archivedAt);
+  }
+
+  /** Archived design systems, for their own screen. */
+  listArchivedDesignSystems(): DesignSystem[] {
+    return this.listDesignSystems().filter((designSystem) => designSystem.archivedAt);
   }
 
   /** Every thread and conversation with the page and project they belong to (design system pages included). */
@@ -548,23 +559,25 @@ export class Store {
     return this.db.prepare("SELECT 1 FROM agents WHERE id = ? AND project_id IS NOT NULL").get(agentId) !== undefined;
   }
 
-  /** Projects (design systems excluded) whose design system is `designSystemId`. */
-  projectsUsingDesignSystem(designSystemId: string): { id: string; title: string }[] {
-    return this.db
+  /** Projects (design systems excluded) whose design system is `designSystemId`, archived ones marked. */
+  projectsUsingDesignSystem(designSystemId: string): ProjectUsingDesignSystem[] {
+    const rows = this.db
       .prepare(
-        "SELECT id, title FROM projects WHERE design_system = ? AND id NOT IN (SELECT project_id FROM design_systems) ORDER BY created_at, rowid",
+        "SELECT id, title, archived_at AS archivedAt FROM projects WHERE design_system = ? AND id NOT IN (SELECT project_id FROM design_systems) ORDER BY created_at, rowid",
       )
-      .all(designSystemId) as { id: string; title: string }[];
+      .all(designSystemId) as { id: string; title: string; archivedAt: string | null }[];
+    return rows.map(({ id, title, archivedAt }) => ({ id, title, ...(archivedAt ? { archived: true as const } : {}) }));
   }
 
   /** The design system a page belongs to (one of its own pages), if any. */
   designSystemOfPage(pageId: string): DesignSystem | undefined {
-    return this.db
+    const row = this.db
       .prepare(
-        `SELECT p.id, p.title, d.page_id AS pageId FROM pages pg JOIN design_systems d ON d.project_id = pg.project_id
+        `SELECT p.id, p.title, d.page_id AS pageId, p.archived_at AS archivedAt FROM pages pg JOIN design_systems d ON d.project_id = pg.project_id
          JOIN projects p ON p.id = d.project_id WHERE pg.id = ?`,
       )
-      .get(pageId) as DesignSystem | undefined;
+      .get(pageId) as DesignSystemRow | undefined;
+    return row && toDesignSystem(row);
   }
 
   /**
@@ -855,13 +868,16 @@ export class Store {
     for (const { id } of rows) this.saveDesignMd(id, PROJECT_STYLE_PATH, Buffer.from(NEUTRAL_TOKENS_CSS, "utf8"));
   }
 
-  listProjects(): Project[] {
+  /** Projects (design systems excluded): the active ones by default, the archived ones, or both. */
+  listProjects(which: "active" | "archived" | "all" = "active"): Project[] {
+    const archived = { active: "AND p.archived_at IS NULL", archived: "AND p.archived_at IS NOT NULL", all: "" }[which];
     const rows = this.db
       .prepare(
-        `SELECT p.id, p.title, p.instructions, p.design_system AS designSystem, p.takeover_override AS takeoverOverride, a.id AS agentId, a.machine, a.folder, a.status
+        `SELECT p.id, p.title, p.instructions, p.design_system AS designSystem, p.takeover_override AS takeoverOverride, p.archived_at AS archivedAt,
+                a.id AS agentId, a.machine, a.folder, a.status
          FROM projects p LEFT JOIN agents a ON a.project_id = p.id
-         WHERE p.id NOT IN (SELECT project_id FROM design_systems)
-         ORDER BY p.created_at, p.rowid`,
+         WHERE p.id NOT IN (SELECT project_id FROM design_systems) ${archived}
+         ORDER BY ${which === "archived" ? "p.archived_at DESC," : ""} p.created_at, p.rowid`,
       )
       .all() as {
       id: string;
@@ -869,6 +885,7 @@ export class Store {
       instructions: string;
       designSystem: string | null;
       takeoverOverride: number | null;
+      archivedAt: string | null;
       agentId: string | null;
       machine: string;
       folder: string;
@@ -883,11 +900,54 @@ export class Store {
       globalTakeover: r.takeoverOverride === null ? global : r.takeoverOverride === 1,
       globalTakeoverOverride: r.takeoverOverride === null ? null : r.takeoverOverride === 1,
       ...(r.agentId ? { agent: { id: r.agentId, machine: r.machine, folder: r.folder, status: r.status } } : {}),
+      ...(r.archivedAt ? { archivedAt: r.archivedAt } : {}),
     }));
   }
 
+  /** A project, archived or not (design systems excluded). */
   getProject(id: string): Project | undefined {
-    return this.listProjects().find((p) => p.id === id);
+    return this.listProjects("all").find((p) => p.id === id);
+  }
+
+  /** True when the project or design system `id` is archived. */
+  isArchived(id: string): boolean {
+    return this.db.prepare("SELECT 1 FROM projects WHERE id = ? AND archived_at IS NOT NULL").get(id) !== undefined;
+  }
+
+  /** Archives (read-only, hidden from sessions) or unarchives a project or design system. */
+  setArchived(id: string, archived: boolean): void {
+    this.db.prepare("UPDATE projects SET archived_at = ? WHERE id = ?").run(archived ? now() : null, id);
+  }
+
+  /**
+   * Deletes a project or design system for good, with its pages, versions, threads, conversations, files and diffusions.
+   * Blobs stay on disk: they are shared by content hash with other projects.
+   */
+  deleteProject(id: string): void {
+    const pages = "SELECT id FROM pages WHERE project_id = ?";
+    this.db.transaction(() => {
+      for (const sql of [
+        `DELETE FROM thread_replies WHERE thread_id IN (SELECT id FROM threads WHERE page_id IN (${pages}))`,
+        `DELETE FROM threads WHERE page_id IN (${pages})`,
+        `DELETE FROM conversation_messages WHERE conversation_id IN (SELECT id FROM conversations WHERE page_id IN (${pages}))`,
+        `DELETE FROM conversations WHERE page_id IN (${pages})`,
+        `DELETE FROM page_view_settings WHERE page_id IN (${pages})`,
+        `DELETE FROM run_created_pages WHERE page_id IN (${pages})`,
+        `DELETE FROM versions WHERE page_id IN (${pages})`,
+        "DELETE FROM design_system_diffusion_undos WHERE design_system_id = ?",
+        "DELETE FROM design_system_diffusions WHERE design_system_id = ?",
+        "DELETE FROM design_systems WHERE project_id = ?",
+        "DELETE FROM pages WHERE project_id = ?",
+        "DELETE FROM project_files WHERE project_id = ?",
+        "DELETE FROM design_md_versions WHERE project_id = ?",
+        "DELETE FROM work_queue WHERE project_id = ?",
+        "DELETE FROM refused_agents WHERE project_id = ?",
+        "UPDATE agents SET project_id = NULL WHERE project_id = ?",
+        "DELETE FROM projects WHERE id = ?",
+      ]) {
+        this.db.prepare(sql).run(id);
+      }
+    })();
   }
 
   /** Sets (true / false) or clears (null) the project's own takeover choice. */
@@ -1015,6 +1075,7 @@ export class Store {
       .prepare(
         `SELECT p.id, MAX(v.created_at) AS updatedAt FROM pages p JOIN versions v ON v.page_id = p.id
          WHERE p.project_id NOT IN (SELECT project_id FROM design_systems)
+           AND p.project_id NOT IN (SELECT id FROM projects WHERE archived_at IS NOT NULL)
          GROUP BY p.id ORDER BY updatedAt DESC, p.rowid DESC LIMIT ?`,
       )
       .all(limit) as { id: string; updatedAt: string }[];
@@ -1662,6 +1723,17 @@ export interface SessionOrigin {
   projectId: string;
   projectTitle: string;
   createdAt: string;
+}
+
+interface DesignSystemRow {
+  id: string;
+  title: string;
+  pageId: string;
+  archivedAt: string | null;
+}
+
+function toDesignSystem({ archivedAt, ...designSystem }: DesignSystemRow): DesignSystem {
+  return { ...designSystem, ...(archivedAt ? { archivedAt } : {}) };
 }
 
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
