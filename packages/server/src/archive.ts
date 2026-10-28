@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { NEUTRAL_DESIGN_SYSTEM_ID, type ArchiveRefusal, type ArchiveStatus } from "@redline/shared";
 import type { PageLock } from "./page-lock.js";
-import type { Store } from "./store.js";
+import { BLOB_MIN_AGE_MS, type Store } from "./store.js";
 
 /** Routes that change an archived project on purpose: everything else that writes to one is refused by `registerArchivedGuard`. */
 const ARCHIVE_ROUTES = new Set(["POST /api/projects/:projectId/archive", "POST /api/projects/:projectId/unarchive", "DELETE /api/projects/:projectId"]);
@@ -12,6 +12,16 @@ function targetOf(store: Store, params: Record<string, string>): string | undefi
   if (params.designSystemId) return params.designSystemId;
   const pageId = params.pageId ?? (params.threadId && store.getThread(params.threadId)?.pageId) ?? (params.conversationId && store.getConversation(params.conversationId)?.pageId);
   return pageId ? store.projectIdOfPage(pageId) : undefined;
+}
+
+/** Frees the disk of a deleted project's blobs that nothing else uses; the ones too fresh to remove now are retried later. Never fails the delete. */
+function freeBlobs(store: Store, blobs: string[]): void {
+  try {
+    const { tooYoung } = store.collectGarbage(blobs);
+    if (tooYoung.length > 0) setTimeout(() => freeBlobs(store, tooYoung), BLOB_MIN_AGE_MS).unref();
+  } catch {
+    // The store was closed meanwhile (server stopped): the blobs stay, unused.
+  }
 }
 
 export const archivedError = (store: Store, id: string) =>
@@ -52,8 +62,9 @@ export function registerArchiveRoutes(app: FastifyInstance, store: Store, pageLo
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/archive", async (req, reply): Promise<ArchiveStatus | undefined> => {
     const id = req.params.projectId;
     if (!exists(id)) return void reply.code(404).send({ error: "project not found" });
-    const refused = refusal(id);
-    return refused ? { refusal: refused } : {};
+    const archivedAt = (store.getDesignSystem(id) ?? store.getProject(id))?.archivedAt;
+    const refused = archivedAt ? undefined : refusal(id);
+    return { ...(archivedAt ? { archivedAt } : {}), ...(refused ? { refusal: refused } : {}) };
   });
 
   app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/archive", async (req, reply) => {
@@ -85,10 +96,9 @@ export function registerArchiveRoutes(app: FastifyInstance, store: Store, pageLo
       return reply.code(409).send({ error: "Projects still follow this design system: change their design system first." });
     }
     const pageIds = new Set(store.listPages(id).map((page) => page.id));
-    store.deleteProject(id);
+    const blobs = store.deleteProject(id);
     pageLock.forgetPages(pageIds);
-    // Frees the disk: the deleted project's blobs that no other project shares (older ones; a later delete takes the rest).
-    store.collectGarbage();
+    freeBlobs(store, blobs);
     return reply.code(204).send();
   });
 }

@@ -182,6 +182,10 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const alt = altPressed && !readOnly;
   /** The conversation's selection mode ("+ Élément"), exclusive with comment mode. */
   const [selecting, setSelecting] = useState(false);
+  // Archived while selecting elements for a message (or before the project was known): no message can be sent any more.
+  useEffect(() => {
+    if (readOnly) setSelecting(false);
+  }, [readOnly]);
   /** Elements the user points at for the next conversation message, numbered by position. */
   const [chips, setChips] = useState<ThreadTarget[]>([]);
   const [draft, setDraft] = useState<PageDraft | null>(null);
@@ -461,7 +465,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   /** View settings are per page and live on the server; they are not a version and no session hears of them. */
   function changeViewSettings(next: PageViewSettings) {
     setViewSettings(next);
-    if (previewing) return;
+    if (readOnly) return;
     void fetch(`/api/pages/${pageId}/view-settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(next) });
   }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { DesignSystemDetail, PageViewSettings, Project } from "@redline/shared";
+import type { ArchiveStatus, PageViewSettings, Project } from "@redline/shared";
 import { PageCanvas } from "./PageCanvas.js";
 import type { PageRoute } from "./router.js";
 import { subscribeServerEvents } from "./serverEvents.js";
@@ -40,7 +40,7 @@ export function App({ route }: { route: PageRoute }) {
   useEffect(() => {
     // A design system's own project is not a project of the API.
     if (page && !page.designSystem) getJson<Project>(`/api/projects/${page.projectId}`).then(setProject);
-    if (page?.designSystem) getJson<DesignSystemDetail>(`/api/design-systems/${page.projectId}`).then((detail) => setDesignSystemArchivedAt(detail.archivedAt));
+    if (page?.designSystem) getJson<ArchiveStatus>(`/api/projects/${page.projectId}/archive`).then((status) => setDesignSystemArchivedAt(status.archivedAt));
   }, [page?.projectId, page?.designSystem, reloads]);
 
   useEffect(

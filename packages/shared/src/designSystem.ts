@@ -28,6 +28,8 @@ export type ArchiveRefusal = { error: string; reason: "busy" } | { error: string
 
 /** `GET /api/projects/:id/archive`: why archiving the project or design system is refused now; no `refusal` = it can be archived. */
 export interface ArchiveStatus {
+  /** Set when it is archived already. */
+  archivedAt?: string;
   refusal?: ArchiveRefusal;
 }
 

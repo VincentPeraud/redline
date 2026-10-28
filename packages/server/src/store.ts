@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, existsSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { componentFilesOf, projectComponents } from "./components.js";
@@ -910,31 +910,31 @@ export class Store {
   }
 
   /**
-   * Deletes the blobs no table refers to any more (after a project was deleted for good) and returns how many went.
-   * Blobs are shared by content hash, so only those referred to by no page version, project file, DESIGN.md version or
-   * diffusion go. Blobs younger than `minAgeMs` stay: a request may have stored one and not yet recorded it.
+   * Deletes those of `candidates` (a deleted project's blobs) that nothing refers to any more: blobs are shared by content
+   * hash, so one another project, page version, DESIGN.md version or diffusion still uses stays. Blobs written or reused less
+   * than `minAgeMs` ago stay too (a request may have stored one and not recorded it yet): they come back as `tooYoung`.
    */
-  collectGarbage(minAgeMs = 3_600_000): number {
-    const used = new Set<string>();
-    for (const { files } of this.db.prepare("SELECT files FROM versions").all() as { files: string }[]) {
-      for (const hash of Object.values(JSON.parse(files) as Record<string, string>)) used.add(hash);
-    }
-    const columns = [
-      "SELECT hash FROM project_files",
-      "SELECT hash FROM design_md_versions",
-      ...["tokens_hash", "components_hash", "design_md_hash", "component_list_hash", "index_hash", "component_files_hash"].map((column) => `SELECT ${column} AS hash FROM design_system_diffusions`),
-    ];
-    for (const sql of columns) for (const { hash } of this.db.prepare(sql).all() as { hash: string | null }[]) if (hash) used.add(hash);
+  collectGarbage(candidates: Iterable<string>, minAgeMs = BLOB_MIN_AGE_MS): { removed: number; tooYoung: string[] } {
+    const inVersions = this.db.prepare("SELECT 1 FROM versions WHERE instr(files, ?) > 0 LIMIT 1");
+    const elsewhere = BLOB_HASH_COLUMNS.map(({ table, column }) => this.db.prepare(`SELECT 1 FROM ${table} WHERE ${column} = ? LIMIT 1`));
     const oldest = Date.now() - minAgeMs;
+    const tooYoung: string[] = [];
     let removed = 0;
-    for (const name of readdirSync(this.blobDir)) {
-      if (used.has(name)) continue;
-      const path = join(this.blobDir, name);
-      if (minAgeMs > 0 && statSync(path).mtimeMs > oldest) continue;
-      unlinkSync(path);
-      removed += 1;
+    for (const hash of new Set(candidates)) {
+      if (!/^[0-9a-f]{64}$/.test(hash) || inVersions.get(`"${hash}"`) || elsewhere.some((query) => query.get(hash))) continue;
+      const path = join(this.blobDir, hash);
+      try {
+        if (minAgeMs > 0 && statSync(path).mtimeMs > oldest) {
+          tooYoung.push(hash);
+          continue;
+        }
+        unlinkSync(path);
+        removed += 1;
+      } catch {
+        // Already gone, or not removable now: nothing refers to it, a later delete may take it.
+      }
     }
-    return removed;
+    return { removed, tooYoung };
   }
 
   /** The project (or design system) a page belongs to, without loading its files. */
@@ -954,10 +954,17 @@ export class Store {
 
   /**
    * Deletes a project or design system for good, with its pages, versions, threads, conversations, files and diffusions.
-   * Blobs stay on disk: they are shared by content hash with other projects.
+   * Returns the blobs it referred to: they are shared by content hash, so `collectGarbage` removes only those now unused.
    */
-  deleteProject(id: string): void {
+  deleteProject(id: string): string[] {
     const pages = "SELECT id FROM pages WHERE project_id = ?";
+    const blobs: string[] = [];
+    for (const { files } of this.db.prepare(`SELECT files FROM versions WHERE page_id IN (${pages})`).all(id) as { files: string }[]) {
+      blobs.push(...Object.values(JSON.parse(files) as Record<string, string>));
+    }
+    for (const { table, column, owner } of BLOB_HASH_COLUMNS) {
+      for (const row of this.db.prepare(`SELECT ${column} AS hash FROM ${table} WHERE ${owner} = ?`).all(id) as { hash: string | null }[]) if (row.hash) blobs.push(row.hash);
+    }
     this.db.transaction(() => {
       for (const sql of [
         `DELETE FROM thread_replies WHERE thread_id IN (SELECT id FROM threads WHERE page_id IN (${pages}))`,
@@ -981,6 +988,7 @@ export class Store {
         this.db.prepare(sql).run(id);
       }
     })();
+    return blobs;
   }
 
   /** Sets (true / false) or clears (null) the project's own takeover choice. */
@@ -1730,6 +1738,15 @@ export class Store {
     const hash = createHash("sha256").update(content).digest("hex");
     const blobPath = join(this.blobDir, hash);
     if (!existsSync(blobPath)) writeFileSync(blobPath, content);
+    else {
+      // Reused: marked fresh, so that a garbage collection running meanwhile leaves it to the request about to refer to it.
+      const nowDate = new Date();
+      try {
+        utimesSync(blobPath, nowDate, nowDate);
+      } catch {
+        // Read-only data folder: the blob is still there.
+      }
+    }
     return hash;
   }
 }
@@ -1757,6 +1774,23 @@ export interface SessionOrigin {
   projectTitle: string;
   createdAt: string;
 }
+
+/** Blobs younger than this are left by a garbage collection: a request may have stored one and not recorded it yet. */
+export const BLOB_MIN_AGE_MS = 600_000;
+
+/**
+ * Every column holding a blob hash, besides `versions.files` (a JSON map of path -> hash). A new column that stores a
+ * blob hash must be listed here, or deleting a project would remove blobs it still needs. `owner` is its project column.
+ */
+const BLOB_HASH_COLUMNS = [
+  { table: "project_files", column: "hash", owner: "project_id" },
+  { table: "design_md_versions", column: "hash", owner: "project_id" },
+  ...["tokens_hash", "components_hash", "design_md_hash", "component_list_hash", "index_hash", "component_files_hash"].map((column) => ({
+    table: "design_system_diffusions",
+    column,
+    owner: "design_system_id",
+  })),
+] as const;
 
 interface DesignSystemRow {
   id: string;

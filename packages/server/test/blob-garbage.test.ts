@@ -37,8 +37,7 @@ describe("collecting the blobs nothing refers to any more", () => {
     store.setProjectFile(gone.id, "assets/photo.jpg", Buffer.from("photo of Gone"));
 
     const before = blobs();
-    store.deleteProject(gone.id);
-    const removed = store.collectGarbage(0);
+    const { removed } = store.collectGarbage(store.deleteProject(gone.id), 0);
     const after = blobs();
 
     expect(removed).toBe(2); // only.html and photo.jpg: home.html and the logo are shared with Kept
@@ -53,10 +52,19 @@ describe("collecting the blobs nothing refers to any more", () => {
     for (const page of store.listPages(ds.id)) expect(store.readPageFiles(page.id)!.files["index.html"]).toBe("<h1>Brand</h1>");
   });
 
-  it("leaves blobs younger than the given age, which a request may be about to refer to", () => {
+  it("leaves blobs younger than the given age, which a request may be about to refer to, and says which", () => {
     const project = store.createProject("Gone");
     store.createPage(project.id, "Home", { "home.html": "<h1>Fresh</h1>" });
-    store.deleteProject(project.id);
-    expect(store.collectGarbage(60_000)).toBe(0);
+    const result = store.collectGarbage(store.deleteProject(project.id), 60_000);
+    expect(result.removed).toBe(0);
+    expect(result.tooYoung.length).toBeGreaterThan(0);
+  });
+
+  it("never removes a blob a live page refers to, even when given as a candidate", () => {
+    const project = store.createProject("Live");
+    const page = store.createPage(project.id, "Home", { "home.html": "<h1>Live</h1>" });
+    const hashes = Object.values(store.getPage(page.id)!.version.files);
+    expect(store.collectGarbage(hashes, 0).removed).toBe(0);
+    expect(store.readPageFiles(page.id)!.files["home.html"]).toBe("<h1>Live</h1>");
   });
 });
