@@ -211,6 +211,8 @@ async function superviseOrRunAgent(args: string[]): Promise<void> {
 
 /** The agent host, started detached by `redline agent`: it runs until no agent runs and no screen is attached. */
 async function runHost(): Promise<void> {
+  // Everything the host creates is private to the user, whatever the shell's umask.
+  process.umask(0o077);
   const host = await startAgentHost({ configDir: defaultConfigDir(), worker: { command: process.execPath, args: [process.argv[1], "worker"] } }).catch((error) => {
     if (error instanceof HostAlreadyRunningError) return undefined;
     throw error;

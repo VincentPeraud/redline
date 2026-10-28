@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentInfo, AgentTokenResponse, Page, Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
@@ -600,6 +601,7 @@ describe("the agent host's process", { timeout: 20_000 }, () => {
 
   it("takes over the lock of a host that died", async () => {
     const { startHost, configDir } = await setup();
+    mkdirSync(dirname(hostLockPath(configDir)), { recursive: true });
     writeFileSync(hostLockPath(configDir), "999999");
     await startHost();
     expect(await (await HostClient.connect(configDir)).list()).toEqual([]);
@@ -782,6 +784,7 @@ describe("the agent host's input checks", { timeout: 20_000 }, () => {
   it("survives a malformed line from the host", async () => {
     const dir = tempDir("rl-fake-host-");
     const path = hostSocketPath(dir);
+    mkdirSync(dirname(path), { recursive: true });
     const fake = createServer((socket) => {
       socket.on("data", (data) => {
         const { id } = JSON.parse(data.toString().trim());
@@ -960,5 +963,120 @@ describe("the environment of a worker", () => {
     await third.restartAll();
     await until(() => reports(report).length === 4);
     expect(reports(report).at(-1)!.apiKey).toBe("sk-third");
+  });
+});
+
+describe("the agent host's private files", { timeout: 30_000 }, () => {
+  const modeOf = (path: string) => statSync(path).mode & 0o777;
+
+  it("serves its socket from a directory only the user can enter, even when the config directory is open to all", async () => {
+    const { configDir, startHost } = await setup();
+    chmodSync(configDir, 0o755);
+    await startHost();
+
+    expect(modeOf(dirname(hostSocketPath(configDir)))).toBe(0o700);
+    expect(modeOf(hostSocketPath(configDir))).toBe(0o600);
+    expect(modeOf(hostLockPath(configDir))).toBe(0o600);
+  });
+
+  it("tightens a socket directory left open, and refuses one that is a link", async () => {
+    const { configDir, startHost } = await setup();
+    const dir = dirname(hostSocketPath(configDir));
+    mkdirSync(dir, { mode: 0o755 });
+    chmodSync(dir, 0o755);
+    const host = await startHost();
+    expect(modeOf(dir)).toBe(0o700);
+    await host.stop();
+    hosts = [];
+
+    rmSync(dir, { recursive: true });
+    symlinkSync(tempDir("rl-elsewhere-"), dir);
+    await expect(startAgentHost({ configDir, worker: hostWorkerCommand() })).rejects.toThrow(/not a directory of yours/);
+  });
+
+  it("makes the registry, the logs and the last launch choices private even when those files already exist", async () => {
+    const { configDir, launchSettings, startHost, client } = await setup();
+    const logs = join(configDir, "logs");
+    mkdirSync(logs);
+    const open = (path: string) => {
+      writeFileSync(path, "");
+      chmodSync(path, 0o644);
+    };
+    open(join(configDir, "agents.json.tmp"));
+    open(join(configDir, "launch-choices.json"));
+    await startHost();
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+    open(agentLogPath(configDir, agent.id));
+    await api.setModelEffort(agent.id, { model: "sonnet" });
+    await until(async () => (await api.log(agent.id)).length > 0);
+    await api.stop(agent.id);
+
+    for (const file of [join(configDir, "agents.json"), join(configDir, "launch-choices.json"), agentLogPath(configDir, agent.id)]) expect(modeOf(file)).toBe(0o600);
+  });
+});
+
+describe("two agent hosts starting together", { timeout: 30_000 }, () => {
+  it("lets exactly one win the config directory, and the other's client reach it", async () => {
+    const { configDir } = await setup();
+    const starts = await Promise.allSettled([1, 2, 3].map(() => startAgentHost({ configDir, worker: hostWorkerCommand(), idleExitMs: 60_000 })));
+    for (const start of starts) if (start.status === "fulfilled") hosts.push(start.value);
+
+    expect(starts.filter((start) => start.status === "fulfilled")).toHaveLength(1);
+    for (const start of starts) if (start.status === "rejected") expect(start.reason).toBeInstanceOf(HostAlreadyRunningError);
+    const api = await HostClient.connect(configDir);
+    clients.push(api);
+    expect(await api.list()).toEqual([]);
+  });
+
+  it("is one host when two terminals start it through ensureHost", async () => {
+    const { configDir, launchSettings } = await setup();
+    const hostCommand = tsxCommand("./agent-host-process.ts", { REDLINE_CONFIG_DIR: configDir });
+    const [first, second] = await Promise.all([ensureHost({ configDir, hostCommand }), ensureHost({ configDir, hostCommand })]);
+    clients.push(first, second);
+
+    const { agent } = await first.launch(launchSettings());
+    expect((await second.list()).map((a) => a.id)).toEqual([agent.id]);
+    await first.stop(agent.id);
+  });
+
+  it("never takes the lock of a live host nor an empty lock that is still being written, and releases only its own lock", async () => {
+    const { configDir, startHost } = await setup();
+    const lock = hostLockPath(configDir);
+    mkdirSync(dirname(lock), { recursive: true });
+    writeFileSync(lock, "");
+    await expect(startAgentHost({ configDir, worker: hostWorkerCommand() })).rejects.toBeInstanceOf(HostAlreadyRunningError);
+    expect(existsSync(lock)).toBe(true);
+
+    writeFileSync(lock, "garbage");
+    chmodSync(lock, 0o600);
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lock, old, old);
+    const host = await startHost();
+    writeFileSync(lock, "1");
+    await host.stop();
+    hosts = [];
+    expect(readFileSync(lock, "utf8")).toBe("1");
+  });
+
+  it("keeps the socket of a host it did not start, and takes over the socket of one that was killed", async () => {
+    const { configDir, startHost } = await setup();
+    const path = hostSocketPath(configDir);
+    mkdirSync(dirname(path), { recursive: true });
+    const foreign = createServer((socket) => socket.end());
+    await new Promise<void>((resolve) => foreign.listen(path, resolve));
+    await expect(startAgentHost({ configDir, worker: hostWorkerCommand() })).rejects.toBeInstanceOf(HostAlreadyRunningError);
+    await new Promise<void>((resolve) => connect(path).once("connect", () => resolve()));
+    foreign.close();
+
+    const { command, args, env } = tsxCommand("./agent-host-process.ts", { REDLINE_CONFIG_DIR: configDir });
+    const doomed = spawn(command, args, { env: { ...process.env, ...env }, stdio: "ignore" });
+    await until(async () => HostClient.connect(configDir).then((c) => (c.close(), true), () => false));
+    doomed.kill("SIGKILL");
+    await new Promise((resolve) => doomed.once("exit", resolve));
+    expect(existsSync(path)).toBe(true);
+
+    await startHost();
+    expect(await (await HostClient.connect(configDir)).list()).toEqual([]);
   });
 });

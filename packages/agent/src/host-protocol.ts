@@ -139,8 +139,9 @@ export interface WorkerConfig {
   effort?: Effort;
 }
 
-export const hostSocketPath = (configDir: string) => `${configDir}/agent-host.sock`;
-export const hostLockPath = (configDir: string) => `${configDir}/agent-host.lock`;
+/** The socket and the lock live in a directory of their own, private to the user (see `prepareHostDirectory`). */
+export const hostSocketPath = (configDir: string) => `${configDir}/host/agent-host.sock`;
+export const hostLockPath = (configDir: string) => `${configDir}/host/agent-host.lock`;
 export const agentLogPath = (configDir: string, agentId: string) => `${configDir}/logs/${agentId}.jsonl`;
 export const registryPath = (configDir: string) => `${configDir}/agents.json`;
 

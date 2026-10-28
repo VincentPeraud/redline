@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { isAgentId, registryPath, type HostAgent } from "./host-protocol.js";
 
@@ -33,6 +33,8 @@ export class AgentRegistry {
   save(agents: HostAgent[]): void {
     mkdirSync(dirname(this.file), { recursive: true, mode: 0o700 });
     const temporary = `${this.file}.tmp`;
+    // A leftover file keeps its own mode: write to a fresh one.
+    rmSync(temporary, { force: true });
     writeFileSync(temporary, JSON.stringify(agents, null, 2), { mode: 0o600 });
     renameSync(temporary, this.file);
   }

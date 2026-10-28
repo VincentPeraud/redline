@@ -1,15 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { hostname } from "node:os";
 import { basename } from "node:path";
 import { encodeLine, lineReader } from "./ndjson.js";
+export { HostAlreadyRunningError } from "./host-lock.js";
+import { acquireLock, claimSocket, prepareHostDirectory } from "./host-lock.js";
 import { AgentLog, DEFAULT_LOG_CAP } from "./agent-log.js";
 import { rememberChoice } from "./launch-choice.js";
 import { AgentRegistry } from "./agent-registry.js";
 import {
   agentLogPath,
-  hostLockPath,
   hostSocketPath,
   modelChoiceError,
   type HostAgent,
@@ -26,12 +27,6 @@ import { claudeEnvironment, workerEnvironment } from "./worker-environment.js";
 import { spawnWorker, type WorkerProcess } from "./worker-process.js";
 import { loginFor, normalizeServerUrl } from "./login.js";
 import { UPDATE_EXIT_CODE } from "./supervisor.js";
-
-export class HostAlreadyRunningError extends Error {
-  constructor() {
-    super("An agent host is already running.");
-  }
-}
 
 export interface AgentHostOptions {
   configDir: string;
@@ -65,34 +60,9 @@ interface Entry {
   exited?: Promise<void>;
 }
 
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-/** One host per config directory: the lock file holds the pid of the running host; a dead pid's lock is taken over. */
-function acquireLock(configDir: string): () => void {
-  const lock = hostLockPath(configDir);
-  for (;;) {
-    try {
-      writeFileSync(lock, String(process.pid), { flag: "wx", mode: 0o600 });
-      return () => rmSync(lock, { force: true });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      const pid = Number(readFileSync(lock, "utf8"));
-      if (pid && isAlive(pid)) throw new HostAlreadyRunningError();
-      rmSync(lock, { force: true });
-    }
-  }
-}
-
 /** Starts the agent host: the registry, the workers, and the control API on a Unix socket only the user can use. */
 export async function startAgentHost({ configDir, worker, idleExitMs = 5000, stopTimeoutMs = 10_000, logCap = DEFAULT_LOG_CAP }: AgentHostOptions): Promise<AgentHost> {
-  mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  prepareHostDirectory(configDir);
   const releaseLock = acquireLock(configDir);
   const socketPath = hostSocketPath(configDir);
   const registry = new AgentRegistry(configDir);
@@ -359,7 +329,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
   }
 
   try {
-    rmSync(socketPath, { force: true });
+    await claimSocket(configDir);
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(socketPath, () => resolve());
