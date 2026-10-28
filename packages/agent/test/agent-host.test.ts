@@ -463,7 +463,7 @@ describe("the agent host's control API", { timeout: 20_000 }, () => {
 describe("the agent host's run log", { timeout: 20_000 }, () => {
   const types = (entries: HostLogEntry[]) => entries.map((entry) => entry.event.type);
 
-  it("returns the run started, progress and published lines, in order, as structured entries", async () => {
+  it("returns the run started and published lines, in order, as structured entries", async () => {
     const { launchSettings, startHost, client, comment } = await setup();
     await startHost();
     const api = await client();
@@ -474,9 +474,9 @@ describe("the agent host's run log", { timeout: 20_000 }, () => {
 
     await until(async () => types(await api.log(agent.id)).includes("run-published"));
     const entries = await api.log(agent.id);
-    expect(types(entries)).toEqual(["connected", "run-started", "run-progress", "run-published"]);
+    expect(types(entries)).toEqual(["connected", "run-started", "run-published"]);
     expect(entries[1]).toMatchObject({ event: { project: "Acme", page: "Home", kind: "comment", excerpt: "Make the title bigger" } });
-    expect(entries[3]).toMatchObject({ event: { page: "Home", changed: ["home.html"] } });
+    expect(entries[2]).toMatchObject({ event: { page: "Home", changed: ["home.html"] } });
     expect(Number.isNaN(Date.parse(entries[0].at))).toBe(false);
     expect(await api.log(agent.id, 2)).toEqual(entries.slice(-2));
   });
@@ -503,7 +503,8 @@ describe("the agent host's run log", { timeout: 20_000 }, () => {
     await until(() => events.some((event) => event.event === "log-line" && event.entry.event.type === "run-published"));
     const lines = events.flatMap((event) => (event.event === "log-line" ? [event] : []));
     expect(lines.every((line) => line.agentId === agent.id)).toBe(true);
-    expect(types(lines.map((line) => line.entry))).toEqual(types(await api.log(agent.id)));
+    expect(types(lines.map((line) => line.entry))).toEqual(expect.arrayContaining(["run-progress"]));
+    expect(types(lines.map((line) => line.entry)).filter((type) => type !== "run-progress")).toEqual(types(await api.log(agent.id)));
     const states = events.flatMap((event) => (event.event === "agent-changed" ? [event.agent.state] : []));
     expect(states).toEqual(expect.arrayContaining(["idle", "running"]));
     expect(states.lastIndexOf("running")).toBeLessThan(states.lastIndexOf("idle"));
@@ -543,7 +544,7 @@ describe("the agent host's run log", { timeout: 20_000 }, () => {
     const again = await client();
 
     const after = await again.log(agent.id);
-    expect(types(after)).toEqual(["run-started", "run-progress", "run-published", "stopped"]);
+    expect(types(after)).toEqual(["connected", "run-started", "run-published", "stopped"]);
   });
 
   it("ends a refused agent's log with a stopped line carrying the reason", async () => {
@@ -835,3 +836,34 @@ describe("agents the previous host lost", { timeout: 20_000 }, () => {
     await until(() => events.some((e) => e.event === "fresh-start"));
   });
 });
+
+describe("the progress of a run in the log", { timeout: 20_000 }, () => {
+  const progressOf = (entries: HostLogEntry[]) => entries.filter((e) => e.event.type === "run-progress");
+
+  it("streams every step but keeps only the latest one while the run is in progress, and none once it ended", async () => {
+    const { configDir, launchSettings, startHost, client, comment } = await setup();
+    const hold = join(configDir, "hold");
+    writeFileSync(hold, "");
+    await startHost({ REDLINE_TEST_STEPS: "30", REDLINE_TEST_HOLD_RUN: hold });
+    const api = await client();
+    const streamed: HostLogEntry[] = [];
+    await api.subscribe((event) => event.event === "log-line" && streamed.push(event.entry));
+    const { agent } = await api.launch(launchSettings());
+    await until(async () => (await api.list())[0]?.state === "idle");
+    await comment();
+    await until(() => progressOf(streamed).length === 30);
+
+    const during = progressOf(await api.log(agent.id));
+    expect(during).toHaveLength(1);
+    expect(during[0].event).toMatchObject({ type: "run-progress", steps: expect.arrayContaining(["Edit file-30.html"]) });
+    expect(progressOf(readLogFile(configDir, agent.id))).toHaveLength(0);
+
+    rmSync(hold);
+    await until(async () => (await api.log(agent.id)).some((e) => e.event.type === "run-published"));
+    expect(progressOf(await api.log(agent.id))).toHaveLength(0);
+    expect(progressOf(readLogFile(configDir, agent.id))).toHaveLength(0);
+  });
+});
+
+const readLogFile = (configDir: string, agentId: string): HostLogEntry[] =>
+  readFileSync(agentLogPath(configDir, agentId), "utf8").trim().split("\n").map((line) => JSON.parse(line));

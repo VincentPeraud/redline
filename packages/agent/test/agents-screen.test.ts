@@ -67,7 +67,7 @@ describe("the agents screen's view", () => {
     expect(frame).toContain("14:11:30  Connection lost, retrying...");
     expect(frame).toContain("14:11:32  Connected again.");
     expect(frame).toContain("14:12:03  ▸ Run started  Lumora Pro / Tarifs  conversation with Vincent");
-    expect(frame).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 28 s");
+    expect(frame).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 1 h 59 min");
     expect(frame).not.toContain("Read DESIGN.md · 7 s");
     expect(frame).toContain("› ● lumora"+" ".repeat(11)+"running");
     expect(frame).toContain("Opus · medium");
@@ -256,6 +256,44 @@ describe("stopping, removing and restarting from the view", () => {
   });
 });
 
+describe("the elapsed time of the run in progress", () => {
+  it("counts from the start of the run and the screen's clock, not from the last step", () => {
+    const state = open([lumora]);
+    const at = (time: string) => text(tick(state, Date.parse(`2026-10-28T${time}`)));
+    expect(at("14:12:31")).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 28 s");
+    expect(at("14:12:41")).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 38 s");
+    expect(at("14:13:41")).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 1 min 38 s");
+  });
+
+  it("keeps only the latest progress of a run when lines stream in", () => {
+    let state = open([lumora]);
+    const before = state.logs.a1.length; // two progress lines of the run: the next one replaces both
+    for (const [time, step] of [["14:12:40", "Step A"], ["14:12:50", "Step B"]]) {
+      state = applyEvent(state, { event: "log-line", agentId: "a1", entry: entry(time, { type: "run-progress", workId: "w3", steps: [step], elapsedMs: 1 }) });
+    }
+    expect(state.logs.a1).toHaveLength(before - 1);
+    expect(text(state)).toContain("Step B");
+    expect(text(state)).not.toContain("Step A");
+  });
+
+  it("redraws every second so a run's time moves, and only when the picture changed", async () => {
+    const host = new FakeHost([lumora], { a1: lumoraLog });
+    const terminal = new FakeTerminal();
+    let clock = Date.parse("2026-10-28T14:12:31");
+    const done = runAgentsScreen({ host, terminal, now: () => clock, home: "/Users/vincent", folder: FOLDER, newAgent: new FakeFlow(), openUrl: () => undefined, tickMs: 20 });
+    await settle();
+    expect(terminal.frame).toContain("· 28 s");
+    const drawn = terminal.frames.length;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(terminal.frames.length).toBe(drawn);
+    clock += 5_000;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(terminal.frame).toContain("· 33 s");
+    terminal.keyListener("q");
+    await done;
+  });
+});
+
 describe("changing the model and effort from the view", () => {
   const board = () => open([lumora, radio, portfolio]);
 
@@ -405,7 +443,7 @@ describe("the agents screen over a host client", () => {
     const { terminal, done } = await start(host, "a2");
     expect(terminal.frame).toContain("› ● radio-haidf");
     terminal.keyListener("up");
-    expect(terminal.frame).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 28 s");
+    expect(terminal.frame).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 1 h 59 min");
     host.listener!({ event: "log-line", agentId: "a1", entry: entry("14:13:00", { type: "reconnected" }) });
     expect(terminal.frame).toContain("14:13:00  Connected again.");
     terminal.keyListener("q");

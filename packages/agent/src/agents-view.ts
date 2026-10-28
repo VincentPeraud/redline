@@ -123,8 +123,12 @@ function reduce(state: ScreenState, event: HostEvent): ScreenState {
     }
     case "fresh-start":
       return { ...state, freshStartAt: event.freshStartAt };
-    case "log-line":
-      return { ...state, logs: { ...state.logs, [event.agentId]: [...(state.logs[event.agentId] ?? []), event.entry] } };
+    case "log-line": {
+      // Only a run's latest progress is worth keeping: the screen would otherwise grow with every step.
+      const { event: logged } = event.entry;
+      const kept = (state.logs[event.agentId] ?? []).filter((e) => !(logged.type === "run-progress" && e.event.type === "run-progress" && e.event.workId === logged.workId));
+      return { ...state, logs: { ...state.logs, [event.agentId]: [...kept, event.entry] } };
+    }
   }
 }
 
@@ -393,8 +397,8 @@ const dot = (agent: HostAgent) => (agent.state === "stopped" ? "○" : "●");
 
 const TIME_WIDTH = 10;
 
-function logRows(log: HostLogEntry[]): Row[] {
-  // A run's progress shows under its start line only while the run is in progress: a later end of the run, or of the worker, drops it.
+function logRows(log: HostLogEntry[], now: number): Row[] {
+  // A run's progress shows under its start line, its time counted from the start of the run, only while the run is in progress: a later end of the run, or of the worker, drops it.
   const progress = new Map<string, Extract<HostLogEvent, { type: "run-progress" }>>();
   const lastStart = new Map<string, number>();
   const projects = new Map<string, string>();
@@ -447,7 +451,7 @@ function logRows(log: HostLogEntry[]): Row[] {
         rows.push(line(at, ...title("▸", C.amber, "Run started"), span(placeOf(event.project, event.page)), span(`  ${event.kind}${who}${attempt}`, C.muted)));
         if (event.excerpt) rows.push(detail(`« ${event.excerpt} »`));
         const latest = progress.get(event.workId);
-        if (latest && lastStart.get(event.workId) === index) rows.push(detail([...latest.steps.slice(-2), duration(latest.elapsedMs)].join(" · ")));
+        if (latest && lastStart.get(event.workId) === index) rows.push(detail([...latest.steps.slice(-2), duration(now - Date.parse(at))].join(" · ")));
         break;
       }
       case "run-progress":
@@ -568,7 +572,7 @@ function leftColumn(state: ScreenState, cells: number, height: number): Row[] {
   }
   const log = state.logs[agent.id] ?? [];
   const head = [...detailRows(state, agent, log, cells), ruleRow(), ...bannerRows(state, cells), { spans: [span(`${spaces(MARGIN)}LOG`, C.muted, true)] }];
-  const lines = logRows(log).map((row) => ({ spans: [span(spaces(MARGIN)), ...row.spans] }));
+  const lines = logRows(log, state.now).map((row) => ({ spans: [span(spaces(MARGIN)), ...row.spans] }));
   return [...head, ...lines.slice(-Math.max(0, height - head.length))];
 }
 

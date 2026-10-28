@@ -15,6 +15,7 @@ import {
   modelChoiceError,
   type HostAgent,
   type HostEvent,
+  type HostLogEntry,
   type HostLogEvent,
   type HostReply,
   type HostRequestEnvelope,
@@ -57,6 +58,8 @@ interface Entry {
   stopRequested?: boolean;
   failure?: string;
   log: AgentLog;
+  /** The latest progress of the run in progress: streamed and answered like a log line, but not written to the log (see `record`). */
+  progress?: HostLogEntry;
   exited?: Promise<void>;
 }
 
@@ -122,10 +125,18 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
 
   const record = (entry: Entry, event: HostLogEvent) => {
     const logged = { at: new Date().toISOString(), event };
-    entry.log.append(logged);
+    if (event.type === "run-progress") entry.progress = logged;
+    else {
+      // Every step would push the history out of the capped log: only the latest progress of the run in progress is kept.
+      if (event.type !== "reconnected" && event.type !== "connection-lost") entry.progress = undefined;
+      entry.log.append(logged);
+    }
     publish({ event: "log-line", agentId: entry.agent.id, entry: logged });
   };
-  const stoppedAs = (entry: Entry, reason?: string) => setAgent(entry, { state: "stopped", since: new Date().toISOString(), reason, page: undefined, pageId: undefined });
+  const stoppedAs = (entry: Entry, reason?: string) => {
+    entry.progress = undefined;
+    setAgent(entry, { state: "stopped", since: new Date().toISOString(), reason, page: undefined, pageId: undefined });
+  };
   const follow = (entry: Entry, event: AgentActivity) => {
     const now = new Date().toISOString();
     switch (event.type) {
@@ -258,6 +269,10 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     return { agent: entry.agent, started: true };
   }
 
+  const logEntries = ({ log, progress }: Entry, lines?: number) => {
+    const all = progress ? [...log.read(), progress] : log.read();
+    return lines === undefined ? all : lines <= 0 ? [] : all.slice(-lines);
+  };
   const entryOf = (agentId: string) => {
     const entry = entries.get(agentId);
     if (!entry) throw new Error("No such agent.");
@@ -280,7 +295,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
         checkIdle();
         return { id: request.id, ok: true, agent: entryOf(request.agentId).agent };
       case "log":
-        return { id: request.id, ok: true, entries: entryOf(request.agentId).log.read(request.lines) };
+        return { id: request.id, ok: true, entries: logEntries(entryOf(request.agentId), request.lines) };
       case "set-model-effort": {
         const entry = entryOf(request.agentId);
         const { model, effort } = request;

@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { runAgentWorker } from "../../src/agent-worker.js";
 import type { HostToWorker } from "../../src/host-protocol.js";
+import type { Engine } from "../../src/engine.js";
 import { FakeEngine, type FakeScript } from "./fake-engine.js";
 
 /**
@@ -35,4 +36,20 @@ const script: FakeScript = async (run) => {
   ];
 };
 
-runAgentWorker({ engine: new FakeEngine(script) });
+/**
+ * REDLINE_TEST_STEPS: a run of that many steps, then it waits until the file REDLINE_TEST_HOLD_RUN names is gone (when set) and
+ * ends without editing anything.
+ */
+const stepCount = Number(process.env.REDLINE_TEST_STEPS ?? 0);
+const steppingEngine: Engine = {
+  async *start() {
+    for (let i = 1; i <= stepCount; i++) yield { type: "step", tool: "Edit", summary: `file-${i}.html` };
+    while (holdRun && existsSync(holdRun)) await new Promise((resolve) => setTimeout(resolve, 20));
+    yield { type: "result", summary: "" };
+  },
+  resume() {
+    return this.start({} as never);
+  },
+};
+
+runAgentWorker({ engine: stepCount > 0 ? steppingEngine : new FakeEngine(script) });

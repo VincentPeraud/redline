@@ -29,7 +29,7 @@ export interface AgentsScreenOptions {
   newAgent: NewAgentFlow;
   /** Opens an address in the user's browser (`o`). */
   openUrl(url: string): void;
-  /** How often the clock of uptimes advances. Default 10 s. */
+  /** How often the clock (uptimes, the time of a run in progress) advances. Default 1 s; a frame that did not change is not drawn again. */
   tickMs?: number;
 }
 
@@ -55,11 +55,17 @@ function execute(host: ScreenHost, command: ScreenCommand): Promise<unknown> {
 }
 
 /** Runs the agents screen until the user closes it; resolves with the final state (for `closeSummary`). The terminal is restored on any outcome. */
-export async function runAgentsScreen({ host, terminal, selectedId, now = Date.now, home, folder, newAgent, openUrl, tickMs = 10_000 }: AgentsScreenOptions): Promise<ScreenState> {
+export async function runAgentsScreen({ host, terminal, selectedId, now = Date.now, home, folder, newAgent, openUrl, tickMs = 1000 }: AgentsScreenOptions): Promise<ScreenState> {
   let timer: NodeJS.Timeout | undefined;
   try {
     let state = initialState({ agents: [], now: now(), home, folder });
-    const draw = () => terminal.draw(render(state, terminal.size()));
+    let drawn: string[] = [];
+    const draw = (onlyIfChanged = false) => {
+      const lines = render(state, terminal.size());
+      if (onlyIfChanged && lines.length === drawn.length && lines.every((line, index) => line === drawn[index])) return;
+      drawn = lines;
+      terminal.draw(lines);
+    };
     /** The questions of the `n` dialog run apart from the host: their failures are shown in the dialog, not fatal to the screen. */
     const askNewAgent = (command: ScreenCommand) => {
       const show = (change: (current: ScreenState) => ScreenState) => {
@@ -99,10 +105,10 @@ export async function runAgentsScreen({ host, terminal, selectedId, now = Date.n
           execute(host, command).catch(reject);
         }
       });
-      terminal.onResize(draw);
+      terminal.onResize(() => draw());
       timer = setInterval(() => {
         state = tick(state, now());
-        draw();
+        draw(true);
       }, tickMs);
       draw();
     });
