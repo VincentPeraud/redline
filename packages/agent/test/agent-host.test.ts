@@ -867,3 +867,98 @@ describe("the progress of a run in the log", { timeout: 20_000 }, () => {
 
 const readLogFile = (configDir: string, agentId: string): HostLogEntry[] =>
   readFileSync(agentLogPath(configDir, agentId), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+
+describe("a worker that stops badly", { timeout: 20_000 }, () => {
+  it("shows the error of a worker that crashed with an exception", async () => {
+    const { launchSettings, startHost, client } = await setup();
+    await startHost({ REDLINE_TEST_CRASH: "throw" });
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+
+    await until(async () => (await api.list())[0]?.state === "stopped");
+    expect((await api.list())[0].reason).toContain("boom in the worker");
+    expect((await api.log(agent.id)).at(-1)?.event).toMatchObject({ type: "stopped", reason: "failed", error: expect.stringContaining("boom in the worker") });
+  });
+
+  it("shows the last words of a worker that died with its message on stderr", async () => {
+    const { launchSettings, startHost, client } = await setup();
+    await startHost({ REDLINE_TEST_CRASH: "stderr" });
+    const api = await client();
+    await api.launch(launchSettings());
+
+    await until(async () => (await api.list())[0]?.state === "stopped");
+    expect((await api.list())[0].reason).toBe("The agent process exited (code 4): fatal: the disk is full");
+  });
+
+  it("cancels the run in progress when the agent is stopped", async () => {
+    const { configDir, launchSettings, startHost, client, comment } = await setup();
+    const hold = join(configDir, "hold");
+    const cancelled = join(configDir, "cancelled");
+    writeFileSync(hold, "");
+    await startHost({ REDLINE_TEST_STEPS: "1", REDLINE_TEST_HOLD_RUN: hold, REDLINE_TEST_CANCELLED: cancelled });
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+    await until(async () => (await api.list())[0]?.state === "idle");
+    await comment();
+    await until(async () => (await api.list())[0]?.state === "running");
+
+    await api.stop(agent.id);
+
+    expect(existsSync(cancelled)).toBe(true);
+  });
+});
+
+describe("the environment of a worker", () => {
+  const reports = (file: string) => (existsSync(file) ? readFileSync(file, "utf8") : "").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { leak?: string; apiKey?: string; awsProfile?: string; path?: string });
+  const clientWith = async (configDir: string, env: NodeJS.ProcessEnv) => {
+    const connected = await HostClient.connect(configDir, env);
+    clients.push(connected);
+    return connected;
+  };
+
+  it("comes from the client that launched the agent, not from the terminal that started the host", async () => {
+    const { configDir, launchSettings, startHost } = await setup();
+    const report = join(configDir, "report");
+    process.env.REDLINE_TEST_LEAK = "from-the-host";
+    try {
+      await startHost({ REDLINE_TEST_ENV_REPORT: report });
+      const api = await clientWith(configDir, { PATH: "/client/bin:/usr/bin", ANTHROPIC_API_KEY: "sk-client", AWS_PROFILE: "work", UNRELATED: "no" });
+      const { agent } = await api.launch(launchSettings());
+      await until(() => existsSync(report));
+
+      expect(reports(report)).toEqual([{ apiKey: "sk-client", awsProfile: "work", path: "/client/bin:/usr/bin" }]);
+      // Only in the host's memory: neither listed nor written to the registry.
+      expect(JSON.stringify(await api.list())).not.toContain("sk-client");
+      expect(readFileSync(join(configDir, "agents.json"), "utf8")).not.toContain("sk-client");
+      expect(agent.id).toBeDefined();
+    } finally {
+      delete process.env.REDLINE_TEST_LEAK;
+    }
+  });
+
+  it("is reused by an update relaunch, and replaced by the client that restarts the agent, also after a host restart", async () => {
+    const { configDir, launchSettings, startHost } = await setup();
+    const report = join(configDir, "report");
+    const updateOnce = join(configDir, "update-once");
+    const host = await startHost({ REDLINE_TEST_ENV_REPORT: report, REDLINE_TEST_UPDATE_ONCE: updateOnce });
+    const first = await clientWith(configDir, { ANTHROPIC_API_KEY: "sk-first" });
+    const { agent } = await first.launch(launchSettings());
+    await until(() => existsSync(report) && reports(report).length === 2);
+    expect(reports(report).map((r) => r.apiKey)).toEqual(["sk-first", "sk-first"]);
+
+    await first.stop(agent.id);
+    const second = await clientWith(configDir, { ANTHROPIC_API_KEY: "sk-second" });
+    await second.restart(agent.id);
+    await until(() => reports(report).length === 3);
+    expect(reports(report).at(-1)!.apiKey).toBe("sk-second");
+
+    await second.stop(agent.id);
+    await host.stop();
+    hosts = [];
+    await startHost({ REDLINE_TEST_ENV_REPORT: report });
+    const third = await clientWith(configDir, { ANTHROPIC_API_KEY: "sk-third" });
+    await third.restartAll();
+    await until(() => reports(report).length === 4);
+    expect(reports(report).at(-1)!.apiKey).toBe("sk-third");
+  });
+});

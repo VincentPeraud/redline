@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import path from "node:path";
 import type { EngineEvent } from "@redline/shared";
@@ -161,13 +161,31 @@ export interface ClaudeCodeEngineOptions {
   env?: NodeJS.ProcessEnv;
 }
 
+/**
+ * Ends Claude Code and everything it started (its tools, MCP servers): it runs as the leader of its own process group, which is
+ * signalled as a whole. Windows has no process groups: the process alone is killed.
+ */
+function killTree(child: ChildProcess): void {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  try {
+    if (process.platform === "win32") child.kill();
+    else process.kill(-child.pid, "SIGTERM");
+  } catch {
+    child.kill();
+  }
+}
+
 export function claudeCodeEngine(options: ClaudeCodeEngineOptions = {}): Engine {
   async function* run(request: EngineRunRequest, mode: "start" | "resume"): AsyncGenerator<EngineEvent> {
+    if (request.signal?.aborted) return;
     const child = spawn(options.command ?? "claude", buildClaudeArgs(request, mode), {
       cwd: request.cwd,
       env: options.env ?? process.env,
       stdio: ["pipe", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     });
+    const cancel = () => killTree(child);
+    request.signal?.addEventListener("abort", cancel, { once: true });
     let stderr = "";
     child.stderr.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString()).slice(-2000);
@@ -195,7 +213,8 @@ export function claudeCodeEngine(options: ClaudeCodeEngineOptions = {}): Engine 
       }
       yield* parser.end(stderr.trim());
     } finally {
-      child.kill();
+      request.signal?.removeEventListener("abort", cancel);
+      killTree(child);
     }
   }
 

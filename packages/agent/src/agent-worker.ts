@@ -24,10 +24,20 @@ export function runAgentWorker({ engine }: { engine: Engine }): void {
     });
   };
   const exit = (code: number) => {
-    exitCode = code;
+    exitCode ??= code;
     exitWhenFlushed();
   };
   let service: ReturnType<typeof serveAgent> | undefined;
+
+  // A crash is told to the host, which shows it as the reason the agent stopped; the run in progress is cancelled first, so that
+  // Claude Code does not outlive the worker.
+  const crashed = (error: unknown) => {
+    service?.stop();
+    send({ type: "failed", reason: `The agent crashed: ${error instanceof Error ? error.message : String(error)}` });
+    exit(1);
+  };
+  process.on("uncaughtException", crashed);
+  process.on("unhandledRejection", crashed);
 
   process.on("message", (message: HostToWorker) => {
     if (message.type === "start" && !service) {

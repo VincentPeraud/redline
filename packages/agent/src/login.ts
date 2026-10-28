@@ -58,6 +58,12 @@ export function readLogins(configDir: string): Login[] {
   );
 }
 
+/** The login for a server URL (compared normalized), if the machine has one. */
+export function loginFor(configDir: string, serverUrl: string): Login | undefined {
+  const wanted = normalizeServerUrl(serverUrl);
+  return readLogins(configDir).find((login) => normalizeServerUrl(login.serverUrl) === wanted);
+}
+
 export function requireLogins(configDir: string): Login[] {
   const servers = readLogins(configDir);
   if (servers.length === 0) throw new Error("No server set up. Run `redline setup <server-url> --token <token>` first.");

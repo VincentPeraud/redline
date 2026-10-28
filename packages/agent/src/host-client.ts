@@ -1,6 +1,7 @@
 import type { Effort } from "@redline/shared";
 import { spawn } from "node:child_process";
 import { connect, type Socket } from "node:net";
+import { claudeEnvironment } from "./worker-environment.js";
 import { encodeLine, lineReader } from "./ndjson.js";
 import { hostSocketPath, type HostAgent, type HostEvent, type HostLogEntry, type HostReply, type HostRequest, type LaunchSettings } from "./host-protocol.js";
 
@@ -13,7 +14,10 @@ export class HostClient {
   private readonly pending = new Map<number, Pending>();
   private readonly listeners = new Set<(event: HostEvent) => void>();
 
-  private constructor(private readonly socket: Socket) {
+  private constructor(
+    private readonly socket: Socket,
+    private readonly env: NodeJS.ProcessEnv,
+  ) {
     socket.setEncoding("utf8");
     const read = lineReader((line) => {
       try {
@@ -34,10 +38,10 @@ export class HostClient {
   }
 
   /** Rejects when no host listens on the config directory's socket. */
-  static connect(configDir: string): Promise<HostClient> {
+  static connect(configDir: string, env: NodeJS.ProcessEnv = process.env): Promise<HostClient> {
     return new Promise((resolve, reject) => {
       const socket = connect(hostSocketPath(configDir));
-      socket.once("connect", () => resolve(new HostClient(socket)));
+      socket.once("connect", () => resolve(new HostClient(socket, env)));
       socket.once("error", reject);
     });
   }
@@ -74,7 +78,7 @@ export class HostClient {
 
   /** Starts the agent of this folder and server, or returns the one that already exists (`started` is then false). */
   async launch(settings: LaunchSettings): Promise<{ agent: HostAgent; started: boolean }> {
-    const reply = await this.request({ type: "launch", ...settings });
+    const reply = await this.request({ type: "launch", ...settings, env: claudeEnvironment(this.env) });
     return { agent: reply.agent!, started: reply.started! };
   }
 
@@ -90,13 +94,13 @@ export class HostClient {
 
   /** Starts a stopped agent again with its stored settings; `started` is false when it was not stopped. */
   async restart(agentId: string): Promise<{ agent: HostAgent; started: boolean }> {
-    const reply = await this.request({ type: "restart", agentId });
+    const reply = await this.request({ type: "restart", agentId, env: claudeEnvironment(this.env) });
     return { agent: reply.agent!, started: reply.started! };
   }
 
   /** Restarts every stopped agent and returns those. */
   async restartAll(): Promise<HostAgent[]> {
-    return (await this.request({ type: "restart-all" })).agents ?? [];
+    return (await this.request({ type: "restart-all", env: claudeEnvironment(this.env) })).agents ?? [];
   }
 
   /** Sets the model and effort (absent = Claude's default) the agent's next runs use; a run in progress keeps its own. */

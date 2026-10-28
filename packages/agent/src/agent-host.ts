@@ -1,4 +1,3 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
@@ -19,12 +18,13 @@ import {
   type HostLogEvent,
   type HostReply,
   type HostRequestEnvelope,
-  type HostToWorker,
   type LaunchSettings,
   type WorkerToHost,
 } from "./host-protocol.js";
 import type { AgentActivity } from "./activity.js";
-import { normalizeServerUrl, readLogins } from "./login.js";
+import { claudeEnvironment, workerEnvironment } from "./worker-environment.js";
+import { spawnWorker, type WorkerProcess } from "./worker-process.js";
+import { loginFor, normalizeServerUrl } from "./login.js";
 import { UPDATE_EXIT_CODE } from "./supervisor.js";
 
 export class HostAlreadyRunningError extends Error {
@@ -54,7 +54,9 @@ export interface AgentHost {
 
 interface Entry {
   agent: HostAgent;
-  child?: ChildProcess;
+  worker?: WorkerProcess;
+  /** The Claude-relevant environment of the client that launched the agent; memory only, never persisted or logged. */
+  env?: Record<string, string>;
   stopRequested?: boolean;
   failure?: string;
   log: AgentLog;
@@ -156,16 +158,16 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
   };
 
   function checkIdle(): void {
-    const busy = attached.size > 0 || [...entries.values()].some((entry) => entry.child);
+    const busy = attached.size > 0 || [...entries.values()].some((entry) => entry.worker);
     if (busy || shuttingDown) {
       clearTimeout(idleTimer);
       idleTimer = undefined;
     } else idleTimer ??= setTimeout(() => void stop(), idleExitMs);
   }
 
-  function startWorker(entry: Entry): void {
+  function startWorker(entry: Entry, env?: Record<string, string>): void {
     const { agent } = entry;
-    const login = readLogins(configDir).find((candidate) => normalizeServerUrl(candidate.serverUrl) === normalizeServerUrl(agent.serverUrl));
+    const login = loginFor(configDir, agent.serverUrl);
     if (!login) {
       const error = `No token for ${agent.serverUrl}. Run \`redline setup\` first.`;
       record(entry, { type: "stopped", reason: "failed", error });
@@ -173,85 +175,60 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       return;
     }
     found(agent.id);
-    const child = spawn(worker.command, worker.args, {
-      stdio: ["ignore", "ignore", "ignore", "ipc"],
-      env: { ...process.env, ...worker.env, CLAUDE_CONFIG_DIR: agent.claudeConfigDir },
-    });
-    entry.child = child;
-    entry.failure = undefined;
-    entry.exited = new Promise((resolve) => {
-      let done = false;
-      let exit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
-      let disconnected = false;
-      const finish = (code: number | null, signal: NodeJS.Signals | null, error?: Error) => {
-        if (done) return;
-        done = true;
-        entry.child = undefined;
-        if (entry.stopRequested) {
-          entry.stopRequested = false;
-          stoppedAs(entry);
-        } else if (code === UPDATE_EXIT_CODE && !shuttingDown) startWorker(entry);
-        else {
-          const reason = entry.failure ?? error?.message ?? (signal ? `The agent process was killed (${signal}).` : `The agent process exited (code ${code}).`);
-          record(entry, { type: "stopped", reason: "failed", error: reason });
-          stoppedAs(entry, reason);
-        }
-        resolve();
-        checkIdle();
-      };
-      // The channel closes after every message the worker sent has been read: finish only then, so the log is complete.
-      const settle = () => {
-        if (exit && disconnected) finish(exit.code, exit.signal);
-      };
-      child.on("exit", (code, signal) => {
-        exit = { code, signal };
-        settle();
-      });
-      child.on("disconnect", () => {
-        disconnected = true;
-        settle();
-      });
-      child.on("error", (error) => finish(null, null, error));
-    });
-    child.on("message", (message: WorkerToHost) => {
+    // The environment of the client that launched the agent is kept in memory: an update relaunch reuses it, a restart replaces it.
+    if (env) entry.env = claudeEnvironment(env);
+    const running = spawnWorker(worker, workerEnvironment({ host: process.env, client: entry.env, extra: worker.env, claudeConfigDir: agent.claudeConfigDir }), (message: WorkerToHost) => {
       if (message.type === "failed") entry.failure = message.reason;
       else {
         record(entry, message.event);
         follow(entry, message.event);
       }
     });
+    entry.worker = running;
+    entry.failure = undefined;
+    entry.exited = running.exited.then(({ code, signal, error, stderrTail }) => {
+      entry.worker = undefined;
+      if (entry.stopRequested) {
+        entry.stopRequested = false;
+        stoppedAs(entry);
+      } else if (code === UPDATE_EXIT_CODE && !shuttingDown) startWorker(entry);
+      else {
+        const lastWords = stderrTail.trim().split("\n").at(-1)?.slice(0, 300);
+        const how = signal ? `The agent process was killed (${signal})` : `The agent process exited (code ${code})`;
+        const reason = entry.failure ?? error?.message ?? `${how}${lastWords ? `: ${lastWords}` : "."}`;
+        record(entry, { type: "stopped", reason: "failed", error: reason });
+        stoppedAs(entry, reason);
+      }
+      checkIdle();
+    });
     const { serverUrl, token } = login;
-    const start: HostToWorker = {
+    running.send({
       type: "start",
       config: { serverUrl, token, machine: hostname(), folder: agent.folder, kind: agent.kind, projectIds: agent.projectIds, model: agent.model, effort: agent.effort },
-    };
-    child.send(start);
+    });
     const startedAt = new Date().toISOString();
     setAgent(entry, { state: "reconnecting", since: startedAt, startedAt, machine: hostname().split(".")[0], reason: undefined, page: undefined, pageId: undefined });
     checkIdle();
   }
 
   async function stopWorker(entry: Entry): Promise<void> {
-    const { child, exited } = entry;
-    if (!child || !exited) return;
+    if (!entry.worker || !entry.exited) return;
     entry.stopRequested = true;
-    if (child.connected) child.send({ type: "stop" } satisfies HostToWorker);
-    const killer = setTimeout(() => child.kill("SIGKILL"), stopTimeoutMs);
-    await exited;
-    clearTimeout(killer);
+    await entry.worker.stop(stopTimeoutMs);
+    await entry.exited;
   }
 
-  function launch(settings: LaunchSettings): { agent: HostAgent; started: boolean } {
+  function launch(settings: LaunchSettings, env?: Record<string, string>): { agent: HostAgent; started: boolean } {
     const serverUrl = normalizeServerUrl(settings.serverUrl);
     const existing = [...entries.values()].find((entry) => entry.agent.folder === settings.folder && normalizeServerUrl(entry.agent.serverUrl) === serverUrl);
     if (existing && existing.agent.state !== "stopped") return { agent: existing.agent, started: false };
-    if (!readLogins(configDir).some((login) => normalizeServerUrl(login.serverUrl) === serverUrl)) {
+    if (!loginFor(configDir, serverUrl)) {
       throw new Error(`${serverUrl} is not set up. Run \`redline setup ${serverUrl} --token <token>\` first.`);
     }
     const settled = { ...settings, serverUrl };
     if (existing) {
       existing.agent = { ...existing.agent, ...settled };
-      startWorker(existing);
+      startWorker(existing, env);
       return { agent: existing.agent, started: true };
     }
     const agent: HostAgent = {
@@ -265,7 +242,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     entries.set(agent.id, entry);
     persist();
     publish({ event: "agent-added", agent });
-    startWorker(entry);
+    startWorker(entry, env);
     return { agent: entry.agent, started: true };
   }
 
@@ -288,7 +265,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
         const invalid = modelChoiceError(request);
         if (invalid) throw new Error(invalid);
         const { folder, kind, serverUrl, projectIds, projectNames, model, effort, claudeConfigDir, account } = request;
-        return { id: request.id, ok: true, ...launch({ folder, kind, serverUrl, projectIds, projectNames, model, effort, claudeConfigDir, account }) };
+        return { id: request.id, ok: true, ...launch({ folder, kind, serverUrl, projectIds, projectNames, model, effort, claudeConfigDir, account }, request.env) };
       }
       case "attach":
         attached.add(client);
@@ -303,7 +280,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
         if (invalid) throw new Error(invalid);
         setAgent(entry, { model, effort });
         rememberChoice({ folder: entry.agent.folder, configDir, choice: { model, effort } });
-        if (entry.child?.connected) entry.child.send({ type: "set-model-effort", model, effort } satisfies HostToWorker);
+        entry.worker?.send({ type: "set-model-effort", model, effort });
         return { id: request.id, ok: true, agent: entry.agent };
       }
       case "stop": {
@@ -324,12 +301,12 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       case "restart": {
         const entry = entryOf(request.agentId);
         const started = entry.agent.state === "stopped";
-        if (started) startWorker(entry);
+        if (started) startWorker(entry, request.env);
         return { id: request.id, ok: true, agent: entry.agent, started };
       }
       case "restart-all": {
         const stopped = [...entries.values()].filter((entry) => entry.agent.state === "stopped");
-        for (const entry of stopped) startWorker(entry);
+        for (const entry of stopped) startWorker(entry, request.env);
         return { id: request.id, ok: true, agents: stopped.map((entry) => entry.agent) };
       }
       case "subscribe":

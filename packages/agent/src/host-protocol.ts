@@ -59,16 +59,16 @@ export interface LaunchSettings {
  */
 export type HostRequest =
   | { type: "list" }
-  | ({ type: "launch" } & LaunchSettings)
+  | ({ type: "launch" } & LaunchSettings & ClientEnvironment)
   /** Keeps the host alive while the connection is open, and returns the agent. */
   | { type: "attach"; agentId: string }
   | { type: "stop"; agentId: string }
   /** Removes the agent from the registry and deletes its log, stopping its worker first if it runs. */
   | { type: "remove"; agentId: string }
   /** Starts a stopped agent with its stored settings; an agent that is not stopped is returned as it is (`started` false). */
-  | { type: "restart"; agentId: string }
+  | ({ type: "restart"; agentId: string } & ClientEnvironment)
   /** Restarts every stopped agent, and returns those. */
-  | { type: "restart-all" }
+  | ({ type: "restart-all" } & ClientEnvironment)
   /**
    * Sets the model and effort (absent = Claude's default) of the agent's next runs: the registry and the folder's last launch choice
    * are updated, and a running worker is told without restarting. A run in progress keeps its own. Returns the agent.
@@ -78,6 +78,14 @@ export type HostRequest =
   | { type: "log"; agentId: string; lines?: number }
   /** Keeps the host alive while the connection is open, and streams `HostEvent`s. */
   | { type: "subscribe" };
+
+/**
+ * The Claude-relevant environment (`claudeEnvironment`) of the client that launches or restarts agents: their workers run with it
+ * rather than with the host's, which comes from whichever terminal started the host first. The host keeps it in memory only.
+ */
+export interface ClientEnvironment {
+  env?: Record<string, string>;
+}
 
 export type HostRequestEnvelope = HostRequest & { id: number };
 
