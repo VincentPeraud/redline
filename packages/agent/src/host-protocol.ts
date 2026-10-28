@@ -1,0 +1,91 @@
+import type { Effort } from "@redline/shared";
+
+/** An agent is either run by a worker process of the host, or stopped (never started yet in this host, stopped, failed or refused). */
+export type HostAgentState = "running" | "stopped";
+
+/** What the host knows of an agent; also what it persists in its registry. */
+export interface HostAgent {
+  id: string;
+  /** The folder's base name, `global` for a global agent. */
+  name: string;
+  folder: string;
+  kind: "project" | "global";
+  serverUrl: string;
+  projectIds?: string[];
+  model?: string;
+  effort?: Effort;
+  /** The Claude config directory of the terminal that launched the agent: its worker runs with it. */
+  claudeConfigDir: string;
+  /** Email of the Claude account of that config directory, when known. */
+  account?: string;
+  state: HostAgentState;
+  /** ISO time of the last state change. */
+  since: string;
+  /** Why the agent is stopped, when it did not stop on request (refused by the server, crashed). */
+  reason?: string;
+}
+
+/** What a client gives to start an agent. The token is not part of it: the host reads it from the config directory's logins. */
+export interface LaunchSettings {
+  folder: string;
+  kind: "project" | "global";
+  serverUrl: string;
+  projectIds?: string[];
+  model?: string;
+  effort?: Effort;
+  claudeConfigDir: string;
+  account?: string;
+}
+
+/**
+ * Control API: newline-delimited JSON on the host's Unix socket. A client sends requests, each with a numeric `id`;
+ * the host answers each one with a reply carrying the same `id`. After `subscribe`, the host also pushes events.
+ * Later commands (`remove`, `restart`, `restart-all`, `set-model-effort`, `log`) are new request types in this union.
+ */
+export type HostRequest =
+  | { type: "list" }
+  | ({ type: "launch" } & LaunchSettings)
+  /** Keeps the host alive while the connection is open, and returns the agent. */
+  | { type: "attach"; agentId: string }
+  | { type: "stop"; agentId: string }
+  /** Keeps the host alive while the connection is open, and streams `HostEvent`s. */
+  | { type: "subscribe" };
+
+export type HostRequestEnvelope = HostRequest & { id: number };
+
+export type HostReply =
+  | { id: number; ok: true; agents?: HostAgent[]; agent?: HostAgent; started?: boolean }
+  | { id: number; ok: false; error: string };
+
+/** Pushed to subscribers; distinguished from replies by the `event` key. New events (log lines) are added here. */
+export type HostEvent =
+  | { event: "agent-added"; agent: HostAgent }
+  | { event: "agent-changed"; agent: HostAgent }
+  | { event: "agent-removed"; agentId: string };
+
+/** Host to worker, over the parent channel. */
+export type HostToWorker =
+  /** First message: everything the worker needs (the token included, so it never appears in a command line or environment). */
+  | { type: "start"; config: WorkerConfig }
+  /** Closes the connection, cancels the run in progress, and exits. */
+  | { type: "stop" };
+
+/** Worker to host. Exit code 0 is a stop, `UPDATE_EXIT_CODE` an installed update (relaunch), anything else a failure. */
+export type WorkerToHost =
+  /** The agent cannot run (refused by the server, wrong token...): the host shows it stopped with this reason. */
+  | { type: "failed"; reason: string };
+
+export interface WorkerConfig {
+  serverUrl: string;
+  token: string;
+  machine: string;
+  folder: string;
+  kind: "project" | "global";
+  projectIds?: string[];
+  model?: string;
+  effort?: Effort;
+}
+
+export const hostSocketPath = (configDir: string) => `${configDir}/agent-host.sock`;
+export const hostLockPath = (configDir: string) => `${configDir}/agent-host.lock`;
+export const registryPath = (configDir: string) => `${configDir}/agents.json`;

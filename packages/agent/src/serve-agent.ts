@@ -53,6 +53,8 @@ export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () =
           },
         });
         current = connection;
+        // `stop()` came while connecting: it had no connection to close yet.
+        if (stopped) connection.close();
         failures = 0;
         log(`Connected to ${options.serverUrl} as ${options.kind} agent in ${options.folder}. Ctrl-C to stop.`);
         if (connection.outdated && !warnedOutdated) {
