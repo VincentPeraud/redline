@@ -52,7 +52,10 @@ const stepCount = Number(process.env.REDLINE_TEST_STEPS ?? 0);
 const cancelledReport = process.env.REDLINE_TEST_CANCELLED;
 const steppingEngine: Engine = {
   async *start(request) {
-    if (cancelledReport) request.signal?.addEventListener("abort", () => appendFileSync(cancelledReport, "cancelled\n"));
+    const cancelled = () => cancelledReport && appendFileSync(cancelledReport, "cancelled\n");
+    // The stop may come before the engine starts: the signal is aborted already.
+    if (request.signal?.aborted) cancelled();
+    else request.signal?.addEventListener("abort", cancelled);
     for (let i = 1; i <= stepCount; i++) yield { type: "step", tool: "Edit", summary: `file-${i}.html` };
     while (holdRun && existsSync(holdRun)) await new Promise((resolve) => setTimeout(resolve, 20));
     yield { type: "result", summary: "" };
