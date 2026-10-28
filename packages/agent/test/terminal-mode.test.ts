@@ -385,9 +385,17 @@ describe("terminal mode: projects and pages", () => {
     await call("create_page", { title: "Linked" });
     await call("create_page", { title: "Blank id", projectId: "" });
     expect(await listTitles()).toEqual(expect.arrayContaining(["Linked", "Blank id"]));
+    await client!.close();
+
+    const several = mkdtempSync(join(tmpdir(), "redline-terminal-"));
+    mkdirSync(join(several, ".redline"));
+    writeFileSync(join(several, ".redline", "project.json"), JSON.stringify({ projectIds: [seam.project.id, "other"] }));
+    call = await connectTerminal(several);
+    expect(await call("create_page", { title: "Which one" })).toMatch(/several projects.*projectId/);
 
     rmSync(bare, { recursive: true, force: true });
     rmSync(linked, { recursive: true, force: true });
+    rmSync(several, { recursive: true, force: true });
   });
   it("renames the checked-out page, or the page given by id, and explains when there is none", async () => {
     seam = await startSeam2(new FakeEngine([]));

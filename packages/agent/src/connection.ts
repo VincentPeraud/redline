@@ -16,8 +16,8 @@ export interface ConnectOptions {
   machine: string;
   folder: string;
   kind: AgentKind;
-  /** The project a project agent serves. */
-  projectId?: string;
+  /** The projects a project agent serves. */
+  projectIds?: string[];
   /** Default model and effort for the agent's runs; absent = Claude Code's own configuration. */
   model?: string;
   effort?: Effort;
@@ -61,7 +61,9 @@ export function connectToServer(options: ConnectOptions): Promise<AgentConnectio
         machine: options.machine,
         folder: options.folder,
         kind: options.kind,
-        projectId: options.projectId,
+        projectIds: options.projectIds,
+        // A server older than several projects per folder reads only this one.
+        projectId: options.projectIds?.[0],
         model: options.model,
         effort: options.effort,
         buildHash: options.buildHash ?? ownBuildHash(),

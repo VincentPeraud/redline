@@ -1144,7 +1144,9 @@ export interface AgentHello extends ModelChoice {
   machine: string;
   folder: string;
   kind: AgentKind;
-  /** The project a project agent serves (the link recorded in its folder). */
+  /** The projects a project agent serves (the links recorded in its folder). */
+  projectIds?: string[];
+  /** The single project sent by agents built before a folder could serve several; read as `projectIds: [projectId]`. */
   projectId?: string;
   /** Hash of the CLI build the agent runs ("dev" from sources). */
   buildHash?: string;

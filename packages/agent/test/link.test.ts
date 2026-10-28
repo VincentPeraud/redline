@@ -36,15 +36,15 @@ describe("linking a folder to a project", () => {
 
   it("creates a project when the user chooses to, and records the link in the folder", async () => {
     const dir = folder();
-    const { projectId } = await linkFolder({ folder: dir, ...on(server.url, token), choose: async () => ({ create: "Acme" }) });
-    expect(await projects()).toMatchObject([{ id: projectId, title: "Acme" }]);
-    expect(JSON.parse(readFileSync(join(dir, ".redline", "project.json"), "utf8"))).toEqual({ serverUrl: server.url, projectId });
+    const { projectIds } = await linkFolder({ folder: dir, ...on(server.url, token), choose: async () => ({ create: "Acme" }) });
+    expect(await projects()).toMatchObject([{ id: projectIds[0], title: "Acme" }]);
+    expect(JSON.parse(readFileSync(join(dir, ".redline", "project.json"), "utf8"))).toEqual({ serverUrl: server.url, projectIds });
   });
 
   it("offers the existing projects and links the one picked without creating another", async () => {
     const existing = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
     let offered: Project[] = [];
-    const { projectId } = await linkFolder({
+    const { projectIds } = await linkFolder({
       folder: folder(),
       ...on(server.url, token),
       choose: async (list) => {
@@ -53,14 +53,72 @@ describe("linking a folder to a project", () => {
       },
     });
     expect(offered.map((p) => p.title)).toEqual(["Acme"]);
-    expect(projectId).toBe(existing.id);
+    expect(projectIds).toEqual([existing.id]);
     expect(await projects()).toHaveLength(1);
   });
 
   it("does not ask again for a folder that is already linked", async () => {
     const dir = folder();
-    const { projectId: first } = await linkFolder({ folder: dir, ...on(server.url, token), choose: async () => ({ create: "Acme" }) });
-    expect((await linkFolder({ folder: dir, ...on(server.url, token), choose: never })).projectId).toBe(first);
+    const { projectIds: first } = await linkFolder({ folder: dir, ...on(server.url, token), choose: async () => ({ create: "Acme" }) });
+    expect((await linkFolder({ folder: dir, ...on(server.url, token), choose: never })).projectIds).toEqual(first);
+  });
+
+  it("offers to add a project to a linked folder, which then serves both", async () => {
+    const dir = folder();
+    const studio = (await (await server.post("/api/projects", { title: "Reel studio" })).json()) as Project;
+    await linkFolder({ folder: dir, ...on(server.url, token), choose: async () => ({ create: "Sueurs froides" }) });
+    const offers: { linked: string[]; others: string[] }[] = [];
+    const linked = await linkFolder({
+      folder: dir,
+      ...on(server.url, token),
+      choose: never,
+      chooseMore: async (linked, others) => {
+        offers.push({ linked: linked.map((p) => p.title), others: others.map((p) => p.title) });
+        return offers.length === 1 ? { existing: studio.id } : undefined;
+      },
+    });
+    expect(offers).toEqual([
+      { linked: ["Sueurs froides"], others: ["Reel studio"] },
+      { linked: ["Sueurs froides", "Reel studio"], others: [] },
+    ]);
+    expect(linked.projects.map((p) => p.title)).toEqual(["Sueurs froides", "Reel studio"]);
+    expect(JSON.parse(readFileSync(join(dir, ".redline", "project.json"), "utf8")).projectIds).toEqual(linked.projectIds);
+  });
+
+  it("stops serving a project on request, but never the last one", async () => {
+    const dir = folder();
+    const studio = (await (await server.post("/api/projects", { title: "Reel studio" })).json()) as Project;
+    const chills = (await (await server.post("/api/projects", { title: "Sueurs froides" })).json()) as Project;
+    mkdirSync(join(dir, ".redline"));
+    writeFileSync(join(dir, ".redline", "project.json"), JSON.stringify({ serverUrl: server.url, projectIds: [studio.id, chills.id, studio.id] }));
+    const answers = [{ remove: studio.id }, { remove: chills.id }];
+    const linked = await linkFolder({ folder: dir, ...on(server.url, token), choose: never, chooseMore: async () => answers.shift() });
+    expect(linked.projectIds).toEqual([chills.id]);
+  });
+
+  it("does not offer a project another online agent serves", async () => {
+    const dir = folder();
+    const taken = (await (await server.post("/api/projects", { title: "Taken" })).json()) as Project;
+    await linkFolder({ folder: dir, ...on(server.url, token), choose: async () => ({ create: "Mine" }) });
+    const other = await connectToServer({ serverUrl: server.url, token, kind: "project", projectIds: [taken.id], machine: "iMac", folder: "/other" });
+    let offered: string[] = [];
+    await linkFolder({ folder: dir, ...on(server.url, token), choose: never, chooseMore: async (_, others) => ((offered = others.map((p) => p.title)), undefined) });
+    expect(offered).toEqual([]);
+    other.close();
+    await other.closed;
+  });
+
+  it("does not offer to add a project right after linking an unlinked folder", async () => {
+    const linked = await linkFolder({ folder: folder(), ...on(server.url, token), choose: async () => ({ create: "Acme" }), chooseMore: never });
+    expect(linked.projects.map((p) => p.title)).toEqual(["Acme"]);
+  });
+
+  it("drops a linked project that no longer exists and keeps the others", async () => {
+    const dir = folder();
+    const kept = (await (await server.post("/api/projects", { title: "Kept" })).json()) as Project;
+    mkdirSync(join(dir, ".redline"));
+    writeFileSync(join(dir, ".redline", "project.json"), JSON.stringify({ serverUrl: server.url, projectIds: ["gone", kept.id] }));
+    expect((await linkFolder({ folder: dir, ...on(server.url, token), choose: never })).projectIds).toEqual([kept.id]);
   });
 
   it("asks again when the linked project no longer exists on this server", async () => {
@@ -69,8 +127,8 @@ describe("linking a folder to a project", () => {
     const other = await startTestServer();
     try {
       const otherToken = ((await (await other.get("/api/agent-token")).json()) as { token: string }).token;
-      const { projectId: id } = await linkFolder({ folder: dir, ...on(other.url, otherToken), choose: async () => ({ create: "Fresh" }) });
-      expect(id).toBeTruthy();
+      const { projectIds } = await linkFolder({ folder: dir, ...on(other.url, otherToken), choose: async () => ({ create: "Fresh" }) });
+      expect(projectIds).toHaveLength(1);
     } finally {
       await other.stop();
     }
@@ -106,8 +164,8 @@ describe("linking a folder to a project", () => {
 
   it("a linked agent connects as the project's agent, and a second folder for the same project is refused", async () => {
     const dir = folder();
-    const { projectId } = await linkFolder({ folder: dir, ...on(server.url, token), choose: async () => ({ create: "Acme" }) });
-    const base = { serverUrl: server.url, token, kind: "project" as const, projectId };
+    const { projectIds } = await linkFolder({ folder: dir, ...on(server.url, token), choose: async () => ({ create: "Acme" }) });
+    const base = { serverUrl: server.url, token, kind: "project" as const, projectIds };
     const first = await connectToServer({ ...base, machine: "MacBook", folder: dir });
     expect(((await projects())[0].agent)?.machine).toBe("MacBook");
     await expect(connectToServer({ ...base, machine: "iMac", folder: "/other" })).rejects.toThrow(/MacBook/);
@@ -120,8 +178,8 @@ describe("linking a folder to a project", () => {
     mkdirSync(join(dir, ".redline"));
     writeFileSync(join(dir, ".redline", "project.json"), JSON.stringify({ projectId: project.id }));
     const linked = await linkFolder({ folder: dir, ...on(server.url, token), choose: never });
-    expect(linked.projectId).toBe(project.id);
-    expect(JSON.parse(readFileSync(join(dir, ".redline", "project.json"), "utf8"))).toEqual({ serverUrl: server.url, projectId: project.id });
+    expect(linked.projectIds).toEqual([project.id]);
+    expect(JSON.parse(readFileSync(join(dir, ".redline", "project.json"), "utf8"))).toEqual({ serverUrl: server.url, projectIds: [project.id] });
   });
 
   it("with several servers, asks for the server first, then the project, and remembers both", async () => {

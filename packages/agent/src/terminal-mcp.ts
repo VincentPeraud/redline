@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { uploadChangedAssets } from "./assets.js";
-import { readLinkedProjectId } from "./link.js";
+import { readLinkedProjectIds } from "./link.js";
 import { pageAddresses } from "./page-addresses.js";
 import { buildHash } from "./build-hash.js";
 import type { ServerApi } from "./server-api.js";
@@ -122,7 +122,7 @@ export function createTerminalMcpServer({ api, folder, runningBuild = buildHash(
   server.registerTool(
     CREATE_PROJECT_TOOL,
     {
-      description: "Create a Redline project. It does not link the current folder to it (that is `redline init`).",
+      description: "Create a Redline project. It does not link the current folder to it (`redline agent` does, when asked to add a project).",
       inputSchema: {
         title: z.string(),
         designSystem: z.string().optional().describe("Id of an existing design system (refused when unknown); none uses the neutral default"),
@@ -181,13 +181,15 @@ export function createTerminalMcpServer({ api, folder, runningBuild = buildHash(
     CREATE_PAGE_TOOL,
     {
       description:
-        "Create a new, empty page (a manifest, no artboard). Without projectId it goes in the project of the checked-out page, else of the folder linked by `redline init`.",
+        "Create a new, empty page (a manifest, no artboard). Without projectId it goes in the project of the checked-out page, else of the folder's linked project when it is linked to only one.",
       inputSchema: { title: z.string(), projectId: z.string().optional().describe("Id of the project (see list_projects)") },
     },
     tool(async ({ title, projectId }: { title: string; projectId?: string }) => {
-      const target = projectId?.trim() || (current ? undefined : readLinkedProjectId(folder));
+      const linked = readLinkedProjectIds(folder);
+      const target = projectId?.trim() || (current || linked.length !== 1 ? undefined : linked[0]);
       if (!target && !current) {
-        throw new Error("No project to create the page in: pass projectId (see list_projects), or check out a page of the project first.");
+        const why = linked.length > 1 ? " (this folder is linked to several projects)" : "";
+        throw new Error(`No project to create the page in${why}: pass projectId (see list_projects), or check out a page of the project first.`);
       }
       const page = target ? await api.createPage(target, title) : await api.createPageBeside(current!.pageId, title);
       return `Page "${page.title}" created (id ${page.id}), empty: ${api.pageUrl(page.id)}. Call checkout_page with this id to add its artboards.`;

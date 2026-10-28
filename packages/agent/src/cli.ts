@@ -2,12 +2,12 @@
 import { EFFORTS, modelLabel, type Effort, type ModelChoice, type Project } from "@redline/shared";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline/promises";
 import { buildHash } from "./build-hash.js";
 import { checkClaude } from "./claude.js";
 import { claudeCodeEngine } from "./claude-code-engine.js";
 import { chooseModelEffort } from "./launch-choice.js";
-import { linkFolder, serverForFolder, type LinkChoice } from "./link.js";
+import { linkFolder, serverForFolder, type LinkChoice, type MoreChoice } from "./link.js";
 import { defaultConfigDir, pickServer, requireLogins, type Login } from "./login.js";
 import { askSecret } from "./secret-prompt.js";
 import { ServerApi } from "./server-api.js";
@@ -56,30 +56,51 @@ async function askServer(servers: Login[]): Promise<Login> {
   }
 }
 
-async function askLinkChoice(projects: Project[]): Promise<LinkChoice> {
-  console.log("This folder is not linked to a project yet.");
+async function pickProject(rl: Interface, projects: Project[]): Promise<LinkChoice> {
   projects.forEach((project, index) => console.log(`  ${index + 1}. ${project.title}`));
   console.log("  n. Create a new project");
+  for (;;) {
+    const answer = (await rl.question("Pick a project: ")).trim().toLowerCase();
+    const picked = projects[Number(answer) - 1];
+    if (picked) return { existing: picked.id };
+    if (answer === "n" || (answer === "" && projects.length === 0)) {
+      const title = (await rl.question("New project title: ")).trim();
+      if (title) return { create: title };
+    }
+  }
+}
+
+async function askLinkChoice(projects: Project[]): Promise<LinkChoice> {
+  console.log("This folder is not linked to a project yet.");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    for (;;) {
-      const answer = (await rl.question("Pick a project: ")).trim().toLowerCase();
-      const picked = projects[Number(answer) - 1];
-      if (picked) return { existing: picked.id };
-      if (answer === "n" || (answer === "" && projects.length === 0)) {
-        const title = (await rl.question("New project title: ")).trim();
-        if (title) return { create: title };
-      }
-    }
+    return await pickProject(rl, projects);
   } finally {
     rl.close();
   }
 }
 
-async function runInit(): Promise<void> {
-  const servers = requireLogins(defaultConfigDir());
-  await linkFolder({ folder: process.cwd(), servers, chooseServer: askServer, choose: askLinkChoice });
-  console.log("Folder linked. Run `redline agent` to start serving it.");
+/** A linked folder can serve one more project, or one less (never none); Enter starts the agent as is. */
+async function askMoreProjects(linked: Project[], others: Project[]): Promise<MoreChoice | undefined> {
+  console.log(`This folder serves ${linked.map((p) => p.title).join(", ")}.`);
+  const canRemove = linked.length > 1;
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    for (;;) {
+      const answer = (await rl.question(`Press Enter to start, a to add a project${canRemove ? ", r to remove one" : ""}: `)).trim().toLowerCase();
+      if (answer === "") return undefined;
+      if (answer === "a") return await pickProject(rl, others);
+      if (answer === "r" && canRemove) {
+        linked.forEach((project, index) => console.log(`  ${index + 1}. ${project.title}`));
+        for (;;) {
+          const picked = linked[Number((await rl.question("Stop serving: ")).trim()) - 1];
+          if (picked) return { remove: picked.id };
+        }
+      }
+    }
+  } finally {
+    rl.close();
+  }
 }
 
 function flagValue(args: string[], flag: string): string | undefined {
@@ -97,8 +118,11 @@ function parseEffort(value: string | undefined): Effort | undefined {
 }
 
 /** Asks the model and effort in a terminal; outside one, or after an update relaunch, the folder's last choice is used as is. */
+/** Questions are asked in a terminal, but not when the supervisor relaunches the agent after an update. */
+const canPrompt = () => process.stdin.isTTY && !process.env[RELAUNCHED_ENV];
+
 async function askModelEffort(folder: string, flags: ModelChoice) {
-  const rl = process.stdin.isTTY && !process.env[RELAUNCHED_ENV] ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
+  const rl = canPrompt() ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
   try {
     const claudeSettingsFile = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json");
     return await chooseModelEffort({ folder, configDir: defaultConfigDir(), claudeSettingsFile, flags, ask: rl && ((question) => rl.question(question)), warn: console.error });
@@ -114,15 +138,17 @@ async function runAgent(args: string[]): Promise<void> {
   const kind = args.includes("--global") ? "global" : "project";
   const folder = process.cwd();
   let server: Login;
-  let projectId: string | undefined;
+  let projectIds: string[] | undefined;
   if (kind === "global") server = pickServer(servers, flagValue(args, "--server"));
   else {
-      ({ projectId, server } = await linkFolder({ folder, servers, chooseServer: askServer, choose: askLinkChoice }));
+    let projects: Project[];
+    ({ projectIds, projects, server } = await linkFolder({ folder, servers, chooseServer: askServer, choose: askLinkChoice, chooseMore: canPrompt() ? askMoreProjects : undefined }));
+    console.log(`Serving ${projects.map((p) => p.title).join(", ")}.`);
   }
   const { serverUrl, token } = server;
   const { model, effort } = await askModelEffort(folder, flags);
   console.log(`Runs use ${modelLabel(model)} · ${effort ?? "Claude's default effort"}${account ? `, account ${account}` : ""}.`);
-  const identity = { serverUrl, token, machine: hostname(), folder, kind, projectId } as const;
+  const identity = { serverUrl, token, machine: hostname(), folder, kind, projectIds } as const;
 
   const service = serveAgent({ ...identity, engine: claudeCodeEngine(), model, effort, log: console.log });
   process.on("SIGINT", () => {
@@ -149,11 +175,10 @@ const [command, ...args] = process.argv.slice(2);
 try {
   if (command === "setup") await runSetup(args);
   else if (command === "login") await runLogin(args[0]);
-  else if (command === "init") await runInit();
   else if (command === "agent") await superviseOrRunAgent(args);
   else if (command === "mcp") await runMcp();
   else if (command === "build-hash") console.log(buildHash());
-  else throw new Error("Usage: redline setup <server-url> --token <token> | redline login [<server-url>] | redline init | redline mcp | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
+  else throw new Error("Usage: redline setup <server-url> --token <token> | redline login [<server-url>] | redline mcp | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
 } catch (error) {
   console.error((error as Error).message);
   process.exit(1);

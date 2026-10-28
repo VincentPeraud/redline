@@ -97,6 +97,7 @@ export async function startTestServer(options: { webDir?: string; cliDir?: strin
         folder: options.folder ?? "/test/folder",
         kind: options.kind ?? "project",
         projectId: options.projectId,
+        projectIds: options.projectIds,
         model: options.model,
         effort: options.effort,
         buildHash: options.buildHash,

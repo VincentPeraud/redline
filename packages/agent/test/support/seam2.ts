@@ -90,7 +90,7 @@ export async function startSeam2(engine: Engine, options: { webDir?: string; ret
     machine: "test-machine",
     folder,
     kind: "project",
-    projectId: project.id,
+    projectIds: [project.id],
     engine,
     ...options.agent,
   });

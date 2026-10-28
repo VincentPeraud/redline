@@ -66,7 +66,7 @@ import type {
 } from "@redline/shared";
 
 /** Which agent a hello comes from: one per machine and folder. */
-type AgentIdentity = Pick<AgentHello, "machine" | "folder" | "kind" | "projectId">;
+type AgentIdentity = Pick<AgentHello, "machine" | "folder" | "kind" | "projectIds" | "projectId">;
 
 export class Store {
   private readonly db: Database.Database;
@@ -219,6 +219,11 @@ export class Store {
         retry_limit INTEGER,
         message TEXT
       );
+      -- The projects each project agent serves: a folder can be linked to several, a project has at most one agent.
+      CREATE TABLE IF NOT EXISTS agent_projects (
+        project_id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS refused_agents (
         machine TEXT NOT NULL,
         folder TEXT NOT NULL,
@@ -231,6 +236,11 @@ export class Store {
     `);
     const agentColumns = this.db.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
     if (!agentColumns.some((c) => c.name === "project_id")) this.db.exec("ALTER TABLE agents ADD COLUMN project_id TEXT");
+    // agents.project_id held the single project of an agent before agent_projects; it is only read to migrate.
+    if (!this.db.prepare("SELECT 1 FROM settings WHERE key = 'agent_projects_migrated'").get()) {
+      this.db.exec("INSERT OR IGNORE INTO agent_projects (project_id, agent_id) SELECT project_id, id FROM agents WHERE project_id IS NOT NULL");
+      this.db.exec("INSERT INTO settings (key, value) VALUES ('agent_projects_migrated', '1')");
+    }
     if (!agentColumns.some((c) => c.name === "model")) this.db.exec("ALTER TABLE agents ADD COLUMN model TEXT");
     if (!agentColumns.some((c) => c.name === "build_hash")) this.db.exec("ALTER TABLE agents ADD COLUMN build_hash TEXT");
     if (!agentColumns.some((c) => c.name === "effort")) this.db.exec("ALTER TABLE agents ADD COLUMN effort TEXT");
@@ -539,13 +549,13 @@ export class Store {
 
   /** The agent linked to the project, online or not. */
   projectAgentId(projectId: string): string | undefined {
-    const row = this.db.prepare("SELECT id FROM agents WHERE project_id = ?").get(projectId) as { id: string } | undefined;
+    const row = this.db.prepare("SELECT agent_id AS id FROM agent_projects WHERE project_id = ?").get(projectId) as { id: string } | undefined;
     return row?.id;
   }
 
   /** True while the agent is linked to a project; a project agent replaced by a newer one, and a global agent, are not. */
   isProjectAgent(agentId: string): boolean {
-    return this.db.prepare("SELECT 1 FROM agents WHERE id = ? AND project_id IS NOT NULL").get(agentId) !== undefined;
+    return this.db.prepare("SELECT 1 FROM agent_projects WHERE agent_id = ?").get(agentId) !== undefined;
   }
 
   /** Projects (design systems excluded) whose design system is `designSystemId`. */
@@ -671,7 +681,7 @@ export class Store {
 
   /** Id of the online project agent serving the project. */
   findOnlineProjectAgentId(projectId: string): string | undefined {
-    const row = this.db.prepare("SELECT id FROM agents WHERE project_id = ? AND status = 'online'").get(projectId) as
+    const row = this.db.prepare("SELECT a.id FROM agent_projects ap JOIN agents a ON a.id = ap.agent_id WHERE ap.project_id = ? AND a.status = 'online'").get(projectId) as
       | { id: string }
       | undefined;
     return row?.id;
@@ -694,16 +704,19 @@ export class Store {
   }
 
   /** Records an agent as online; one entry per machine and folder. */
-  markAgentOnline({ machine, folder, kind, projectId, model, effort, buildHash }: AgentIdentity & Pick<AgentHello, "model" | "effort" | "buildHash">): string {
-    if (projectId) this.db.prepare("UPDATE agents SET project_id = NULL WHERE project_id = ?").run(projectId);
+  markAgentOnline({ machine, folder, kind, projectIds = [], model, effort, buildHash }: Omit<AgentIdentity, "projectId"> & Pick<AgentHello, "model" | "effort" | "buildHash">): string {
     this.db
       .prepare(
-        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, project_id, model, effort, build_hash) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?)
-         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, project_id = excluded.project_id, model = excluded.model, effort = excluded.effort, build_hash = excluded.build_hash`,
+        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, model, effort, build_hash) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?)
+         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, model = excluded.model, effort = excluded.effort, build_hash = excluded.build_hash`,
       )
-      .run(randomUUID(), machine, folder, kind, now(), projectId ?? null, model ?? null, effort ?? null, buildHash ?? null);
+      .run(randomUUID(), machine, folder, kind, now(), model ?? null, effort ?? null, buildHash ?? null);
     this.db.prepare("DELETE FROM refused_agents WHERE machine = ? AND folder = ?").run(machine, folder);
     const id = (this.db.prepare("SELECT id FROM agents WHERE machine = ? AND folder = ?").get(machine, folder) as { id: string }).id;
+    // The agent now serves exactly its folder's projects, taking them from any agent that served them before.
+    this.db.prepare("DELETE FROM agent_projects WHERE agent_id = ?").run(id);
+    const link = this.db.prepare("INSERT INTO agent_projects (project_id, agent_id) VALUES (?, ?) ON CONFLICT(project_id) DO UPDATE SET agent_id = excluded.agent_id");
+    for (const projectId of projectIds) link.run(projectId, id);
     this.updatingAgents.delete(id);
     this.updateErrors.delete(id);
     return id;
@@ -734,7 +747,7 @@ export class Store {
   findOtherOnlineProjectAgent(projectId: string, machine: string, folder: string): { machine: string; folder: string } | undefined {
     return this.db
       .prepare(
-        "SELECT machine, folder FROM agents WHERE project_id = ? AND status = 'online' AND NOT (machine = ? AND folder = ?)",
+        "SELECT a.machine, a.folder FROM agent_projects ap JOIN agents a ON a.id = ap.agent_id WHERE ap.project_id = ? AND a.status = 'online' AND NOT (a.machine = ? AND a.folder = ?)",
       )
       .get(projectId, machine, folder) as { machine: string; folder: string } | undefined;
   }
@@ -767,7 +780,7 @@ export class Store {
   }
 
   /** Remembers an agent refused for its protocol until it connects again. */
-  recordRefusedAgent({ machine, folder, kind, projectId }: AgentIdentity): void {
+  recordRefusedAgent({ machine, folder, kind, projectIds, projectId = projectIds?.[0] }: AgentIdentity): void {
     this.db
       .prepare(
         "INSERT INTO refused_agents (machine, folder, kind, project_id, refused_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, project_id = excluded.project_id, refused_at = excluded.refused_at",
@@ -859,7 +872,7 @@ export class Store {
     const rows = this.db
       .prepare(
         `SELECT p.id, p.title, p.instructions, p.design_system AS designSystem, p.takeover_override AS takeoverOverride, a.id AS agentId, a.machine, a.folder, a.status
-         FROM projects p LEFT JOIN agents a ON a.project_id = p.id
+         FROM projects p LEFT JOIN agent_projects ap ON ap.project_id = p.id LEFT JOIN agents a ON a.id = ap.agent_id
          WHERE p.id NOT IN (SELECT project_id FROM design_systems)
          ORDER BY p.created_at, p.rowid`,
       )

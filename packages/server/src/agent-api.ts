@@ -60,7 +60,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (typeof build === "string" && store.isOutdated(build)) reply.header(OUTDATED_HEADER, "1");
       });
 
-      // `redline init` / `redline agent` pick or create the project a folder serves, before they have anything else to call.
+      // `redline agent` picks or creates the projects a folder serves, before they have anything else to call.
       api.get("/projects", async () => store.listProjects());
 
       api.post<{ Body: { title?: unknown; designSystem?: unknown } }>("/projects", async (req, reply) => {

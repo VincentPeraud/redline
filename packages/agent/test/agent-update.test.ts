@@ -46,7 +46,7 @@ async function setup() {
     machine: "test-machine",
     folder: tempDir("redline-agent-folder-"),
     kind: "project" as const,
-    projectId: project.id,
+    projectIds: [project.id],
     buildHash: "old-build",
   };
   const requestUpdate = async () => s.post(`/api/agents/${(await agents())[0].id}/update`, {});

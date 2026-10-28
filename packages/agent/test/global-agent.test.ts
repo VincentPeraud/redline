@@ -25,7 +25,7 @@ async function startAgentIn(kind: "project" | "global", engine: FakeEngine, proj
   const folder = mkdtempSync(join(tmpdir(), "redline-agent-folder-"));
   folders.push(folder);
   const { token } = (await (await server!.get("/api/agent-token")).json()) as AgentTokenResponse;
-  const agent = await startAgent({ serverUrl: server!.url, token, machine, folder, kind, projectId, engine });
+  const agent = await startAgent({ serverUrl: server!.url, token, machine, folder, kind, projectIds: projectId ? [projectId] : undefined, engine });
   agents.push(agent);
   return agent;
 }

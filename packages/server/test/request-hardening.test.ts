@@ -127,7 +127,7 @@ describe("the agent API", () => {
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
     });
 
-  it("lists and creates projects for `redline init`, behind the agents' token", async () => {
+  it("lists and creates projects for `redline agent`, behind the agents' token", async () => {
     expect((await call("/projects", { token: "abt_wrong" })).status).toBe(401);
     expect((await fetch(server.url + AGENT_API_PREFIX + "/projects")).status).toBe(401);
 

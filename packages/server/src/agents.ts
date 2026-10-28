@@ -31,6 +31,7 @@ function parseHello(raw: string): AgentHello | undefined {
       typeof m.folder === "string" &&
       (m.kind === "project" || m.kind === "global") &&
       (m.projectId === undefined || typeof m.projectId === "string") &&
+      (m.projectIds === undefined || (Array.isArray(m.projectIds) && m.projectIds.every((id) => typeof id === "string"))) &&
       (m.buildHash === undefined || typeof m.buildHash === "string") &&
       (m.model === undefined || typeof m.model === "string") &&
       (m.effort === undefined || (EFFORTS as readonly unknown[]).includes(m.effort));
@@ -119,22 +120,29 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         });
         return socket.close(AgentCloseCode.IncompatibleProtocol, "incompatible protocol");
       }
-      if (hello.projectId !== undefined) {
-        if (!store.projectExists(hello.projectId)) {
-          send(socket, { type: "error", code: "unknown_project", message: "This folder is linked to a project that no longer exists. Run `redline init` again." });
-          return socket.close(AgentCloseCode.UnknownProject, "unknown project");
-        }
-        const other = store.findOtherOnlineProjectAgent(hello.projectId, hello.machine, hello.folder);
+      const projectIds = [...new Set(hello.projectIds ?? (hello.projectId !== undefined ? [hello.projectId] : []))];
+      const missing = projectIds.filter((id) => !store.projectExists(id));
+      if (missing.length > 0) {
+        send(socket, {
+          type: "error",
+          code: "unknown_project",
+          message: `This folder is linked to a project that no longer exists (${missing.join(", ")}). Run \`redline agent\` again: it drops it from the folder's link.`,
+        });
+        return socket.close(AgentCloseCode.UnknownProject, "unknown project");
+      }
+      for (const projectId of projectIds) {
+        const other = store.findOtherOnlineProjectAgent(projectId, hello.machine, hello.folder);
         if (other) {
+          const title = projectIds.length > 1 ? `"${store.getProject(projectId)?.title}"` : "This project";
           send(socket, {
             type: "error",
             code: "project_taken",
-            message: `This project is already served by the agent on ${other.machine} (${other.folder}). Stop it first.`,
+            message: `${title} is already served by the agent on ${other.machine} (${other.folder}). Stop it first.`,
           });
           return socket.close(AgentCloseCode.ProjectTaken, "project taken");
         }
       }
-      const agentId = store.markAgentOnline(hello);
+      const agentId = store.markAgentOnline({ ...hello, projectIds });
       connected.set(socket, agentId);
       store.emit({ type: "agents-updated" });
       socket.on("close", () => {
