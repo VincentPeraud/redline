@@ -3,6 +3,7 @@ import { applyEvent, closeSummary, initialState, logLoaded, onKey, plainText, re
 import { runAgentsScreen, type ScreenHost, type ScreenTerminal } from "../src/agents-screen.js";
 import type { Effort } from "@redline/shared";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "../src/host-protocol.js";
+import type { NewAgentAnswers, NewAgentFlow, NewAgentQuestions, ProjectOption } from "../src/new-agent.js";
 
 const NOW = Date.parse("2026-10-28T16:12:00");
 const entry = (time: string, event: HostLogEvent): HostLogEntry => ({ at: new Date(`2026-10-28T${time}`).toISOString(), event });
@@ -40,7 +41,7 @@ const lumoraLog: HostLogEntry[] = [
 ];
 
 function open(agents: HostAgent[], selectedId?: string, logs: Record<string, HostLogEntry[]> = { a1: lumoraLog }, freshStartAt?: string): ScreenState {
-  let state = initialState({ agents, selectedId, now: NOW, home: "/Users/vincent", freshStartAt });
+  let state = initialState({ agents, selectedId, now: NOW, home: "/Users/vincent", folder: FOLDER, freshStartAt });
   for (const [id, entries] of Object.entries(logs)) state = logLoaded(state, id, entries);
   return state;
 }
@@ -100,7 +101,7 @@ describe("the agents screen's view", () => {
   it("shows an empty state when no agent exists", () => {
     const frame = text(open([]));
     expect(frame).toContain("0 agents");
-    expect(frame).toContain("No agent yet. Run `redline agent` in a project folder to start one.");
+    expect(frame).toContain("No agent yet. Press n to start one in this folder.");
   });
 
   it("adds a new log line without a key press", () => {
@@ -216,9 +217,9 @@ describe("stopping, removing and restarting from the view", () => {
     const state = open([lumora, radio, portfolio], "a4");
     expect(onKey(state, "x").commands).toEqual([{ type: "remove", agentId: "a4" }]);
     const frame = text(state);
-    expect(frame).toMatch(/↑↓ +agent +r +restart +R +restart all +m +model\/effort +x +remove +q +close\s/);
+    expect(frame).toMatch(/↑↓ +agent +r +restart +R +restart all +n +new agent here +m +model\/effort +x +remove +q +close\s/);
     expect(frame).not.toContain("close · agents keep running");
-    expect(text(open([lumora, radio, portfolio], "a1"))).toMatch(/↑↓ +agent +m +model\/effort +x +stop +q +close · agents keep running/);
+    expect(text(open([lumora, radio, portfolio], "a1"))).toMatch(/↑↓ +agent +n +new agent here +m +model\/effort +o +open in Redline +x +stop +q +close · agents keep running/);
     expect(text(open([lumora, radio, portfolio], "a1"))).not.toMatch(/restart all/);
   });
 
@@ -369,15 +370,33 @@ class FakeTerminal implements ScreenTerminal {
   close() { this.closed = true; }
   get frame() { return plainText(this.frames.at(-1)!).join("\n"); }
 }
+const FOLDER = "/Users/vincent/claude-projects/cv";
+
+class FakeFlow implements NewAgentFlow {
+  questions: NewAgentQuestions = { servers: ["https://redline.brightco.fr"], serverUrl: "https://redline.brightco.fr", projects: [{ id: "p1", title: "Lumora" }, { id: "p2", title: "Radio HAIDF" }], model: "opus", effort: "medium" };
+  projectsByServer: Record<string, ProjectOption[]> = {};
+  started: NewAgentAnswers[] = [];
+  failWith?: string;
+  agent?: HostAgent;
+  async inspect() { return this.questions; }
+  async projectsOf(serverUrl: string) { return this.projectsByServer[serverUrl] ?? []; }
+  async start(answers: NewAgentAnswers) {
+    this.started.push(answers);
+    if (this.failWith) throw new Error(this.failWith);
+    return this.agent!;
+  }
+}
 const stoppedOf = (a: HostAgent): HostAgent => ({ ...a, state: "stopped", page: undefined });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 describe("the agents screen over a host client", () => {
   const start = async (host: FakeHost, selectedId?: string) => {
     const terminal = new FakeTerminal();
-    const done = runAgentsScreen({ host, terminal, selectedId, now: () => NOW, home: "/Users/vincent", tickMs: 1_000_000 });
+    const flow = new FakeFlow();
+    const opened: string[] = [];
+    const done = runAgentsScreen({ host, terminal, selectedId, now: () => NOW, home: "/Users/vincent", folder: FOLDER, newAgent: flow, openUrl: (url) => opened.push(url), tickMs: 1_000_000 });
     await settle();
-    return { terminal, done };
+    return { terminal, done, flow, opened };
   };
 
   it("opens on the requested agent with its log, follows live lines, and resolves with the final state on q", async () => {
@@ -475,7 +494,173 @@ describe("the agents screen over a host client", () => {
       throw new Error("The agent host closed the connection.");
     };
     const terminal = new FakeTerminal();
-    await expect(runAgentsScreen({ host, terminal, now: () => NOW, home: "/", tickMs: 1_000_000 })).rejects.toThrow("closed the connection");
+    await expect(runAgentsScreen({ host, terminal, now: () => NOW, home: "/", folder: FOLDER, newAgent: new FakeFlow(), openUrl: () => undefined, tickMs: 1_000_000 })).rejects.toThrow("closed the connection");
     expect(terminal.closed).toBe(true);
+  });
+
+  describe("n: a new agent for the screen's folder", () => {
+    const type = (terminal: FakeTerminal, text: string) => [...text].forEach((char) => terminal.keyListener(char));
+    const cv = agent({ id: "a9", name: "cv", folder: FOLDER, projectNames: ["CV Vincent"], state: "reconnecting" });
+
+    it("offers the server's projects and the create option for a folder that is not linked yet, and starts the agent on the project created", async () => {
+      const host = new FakeHost([lumora, radio], { a1: lumoraLog });
+      const { terminal, done, flow } = await start(host);
+      flow.agent = cv;
+      terminal.keyListener("n");
+      await settle();
+      expect(terminal.frame).toContain("New agent  in the current folder");
+      expect(terminal.frame).toContain("~/claude-projects/cv  isn't linked to a project yet.");
+      expect(terminal.frame).toContain("› ● Lumora");
+      expect(terminal.frame).toContain("○ Radio HAIDF");
+      expect(terminal.frame).toContain("Create a new project:");
+      expect(terminal.frame).toMatch(/Model {5} opus {3}sonnet {3}haiku/);
+      expect(terminal.frame).toMatch(/Effort {4} default {3}low {3}medium {3}high {3}xhigh {3}max/);
+      expect(terminal.frame).toContain("Last choice for this folder is preselected.");
+      terminal.keyListener("down");
+      terminal.keyListener("down");
+      expect(terminal.frame).toContain("› ● Create a new project:");
+      type(terminal, "CV Vincent");
+      expect(terminal.frame).toContain("CV Vincent▏");
+      terminal.keyListener("backspace");
+      expect(terminal.frame).toContain("CV Vincen▏");
+      terminal.keyListener("t");
+      terminal.keyListener("right");
+      terminal.keyListener("enter");
+      await settle();
+      expect(flow.started).toEqual([{ serverUrl: "https://redline.brightco.fr", project: { create: "CV Vincent" }, model: "sonnet", effort: "medium" }]);
+      host.listener!({ event: "agent-added", agent: cv });
+      await settle();
+      expect(terminal.frame).not.toContain("New agent  in the current folder");
+      expect(terminal.frame).toContain("› ● cv");
+      expect(terminal.frame).toContain("3 agents");
+      terminal.keyListener("q");
+      await done;
+    });
+
+    it("links an existing project when one is picked, and takes the effort chosen", async () => {
+      const { terminal, done, flow } = await start(new FakeHost([lumora], { a1: lumoraLog }));
+      flow.agent = cv;
+      terminal.keyListener("n");
+      await settle();
+      for (const key of ["down", "down", "down", "down", "right"]) terminal.keyListener(key);
+      terminal.keyListener("enter");
+      await settle();
+      expect(flow.started).toEqual([{ serverUrl: "https://redline.brightco.fr", project: { existing: "p2" }, model: "opus", effort: "high" }]);
+      terminal.keyListener("q");
+      await done;
+    });
+
+    it("does not start with an empty project title", async () => {
+      const { terminal, done, flow } = await start(new FakeHost([lumora], { a1: lumoraLog }));
+      terminal.keyListener("n");
+      await settle();
+      terminal.keyListener("down");
+      terminal.keyListener("down");
+      terminal.keyListener("enter");
+      await settle();
+      expect(flow.started).toEqual([]);
+      terminal.keyListener("escape");
+      terminal.keyListener("q");
+      await done;
+    });
+
+    it("skips the project question for a folder that is already linked", async () => {
+      const { terminal, done, flow } = await start(new FakeHost([lumora], { a1: lumoraLog }));
+      flow.questions = { servers: [], serverUrl: "https://redline.brightco.fr", linkedTitles: ["Lumora", "Lumora Pro"], model: "haiku", effort: undefined };
+      flow.agent = cv;
+      terminal.keyListener("n");
+      await settle();
+      expect(terminal.frame).toContain("~/claude-projects/cv  serves Lumora, Lumora Pro.");
+      expect(terminal.frame).not.toContain("Create a new project");
+      expect(terminal.frame).toMatch(/Model {5} opus {3}sonnet {3}haiku/);
+      terminal.keyListener("enter");
+      await settle();
+      expect(flow.started).toEqual([{ serverUrl: "https://redline.brightco.fr", model: "haiku", effort: undefined }]);
+      terminal.keyListener("q");
+      await done;
+    });
+
+    it("asks the server first when several are set up, then its projects", async () => {
+      const { terminal, done, flow } = await start(new FakeHost([lumora], { a1: lumoraLog }));
+      flow.questions = { servers: ["https://a.example", "https://b.example"], model: "opus" };
+      flow.projectsByServer["https://b.example"] = [{ id: "pb", title: "Bravo" }];
+      flow.agent = cv;
+      terminal.keyListener("n");
+      await settle();
+      expect(terminal.frame).toContain("Server");
+      expect(terminal.frame).toContain("https://a.example");
+      terminal.keyListener("down");
+      terminal.keyListener("enter");
+      await settle();
+      expect(terminal.frame).toContain("› ● Bravo");
+      terminal.keyListener("enter");
+      await settle();
+      expect(flow.started).toEqual([{ serverUrl: "https://b.example", project: { existing: "pb" }, model: "opus", effort: undefined }]);
+      terminal.keyListener("q");
+      await done;
+    });
+
+    it("selects the agent that already serves the folder instead of opening the dialog", async () => {
+      const { terminal, done, flow } = await start(new FakeHost([lumora, cv], { a1: lumoraLog }));
+      expect(terminal.frame).toContain("› ● lumora");
+      terminal.keyListener("n");
+      await settle();
+      expect(terminal.frame).toContain("› ● cv");
+      expect(terminal.frame).not.toContain("New agent  in the current folder");
+      expect(flow.started).toEqual([]);
+      terminal.keyListener("q");
+      await done;
+    });
+
+    it("shows why an agent could not be started, and stays open", async () => {
+      const { terminal, done, flow } = await start(new FakeHost([lumora], { a1: lumoraLog }));
+      flow.failWith = "Claude Code is not logged in.";
+      terminal.keyListener("n");
+      await settle();
+      terminal.keyListener("enter");
+      await settle();
+      expect(terminal.frame).toContain("✗ Claude Code is not logged in.");
+      terminal.keyListener("escape");
+      expect(terminal.frame).not.toContain("New agent  in the current folder");
+      terminal.keyListener("q");
+      await done;
+    });
+
+    it("offers n on an empty screen and in the bar", async () => {
+      const { terminal, done } = await start(new FakeHost([], {}));
+      expect(terminal.frame).toContain("No agent yet. Press n to start one in this folder.");
+      expect(terminal.frame).toMatch(/ n +new agent here/);
+      terminal.keyListener("q");
+      await done;
+    });
+  });
+
+  describe("o: open in Redline", () => {
+    const running = { ...lumora, pageId: "pg-42" };
+
+    it("opens the canvas of the run in progress", async () => {
+      const { terminal, done, opened } = await start(new FakeHost([running, radio], { a1: lumoraLog }));
+      terminal.keyListener("o");
+      expect(opened).toEqual(["https://redline.brightco.fr/#/pages/pg-42"]);
+      terminal.keyListener("q");
+      await done;
+    });
+
+    it("opens the server's Agents screen when the agent is idle", async () => {
+      const { terminal, done, opened } = await start(new FakeHost([lumora, radio], { a1: lumoraLog }), "a2");
+      terminal.keyListener("o");
+      expect(opened).toEqual(["https://redline.brightco.fr/#/agents"]);
+      terminal.keyListener("q");
+      await done;
+    });
+
+    it("shows the keys in the bar, in the board's order, and none for a stopped agent", async () => {
+      const { terminal, done } = await start(new FakeHost([lumora, portfolio], { a1: lumoraLog }));
+      expect(terminal.frame).toMatch(/↑↓ +agent +n +new agent here +m +model\/effort +o +open in Redline +x +stop +q +close · agents keep running/);
+      terminal.keyListener("down");
+      expect(terminal.frame).toMatch(/↑↓ +agent +r +restart +R +restart all +n +new agent here +m +model\/effort +x +remove +q +close\s/);
+      terminal.keyListener("q");
+      await done;
+    });
   });
 });

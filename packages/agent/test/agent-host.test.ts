@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentInfo, AgentTokenResponse, Page, Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 import { startAgentHost, HostAlreadyRunningError, type AgentHost } from "../src/agent-host.js";
+import { createNewAgentFlow, type NewAgentFlow } from "../src/new-agent.js";
 import { runAgentsScreen, type ScreenTerminal } from "../src/agents-screen.js";
 import { plainText } from "../src/agents-view.js";
 import { ensureHost, HostClient } from "../src/host-client.js";
@@ -89,6 +90,8 @@ describe("the agent host's control API", { timeout: 20_000 }, () => {
     const { agent, started } = await api.launch(settings);
     expect(started).toBe(true);
     await until(async () => (await onServer())[0]?.status === "online");
+    // The host learns of the connection from the worker, a moment after the server does.
+    await until(async () => (await api.list())[0]?.state === "idle");
 
     expect(await api.list()).toEqual([expect.objectContaining({ id: agent.id, folder: settings.folder, kind: "project", serverUrl: settings.serverUrl, projectIds: settings.projectIds, model: "opus", effort: "high", claudeConfigDir: settings.claudeConfigDir, account: "me@example.com", state: "idle" })]);
 
@@ -634,6 +637,7 @@ describe("the agent host's process", { timeout: 20_000 }, () => {
     expect((await onServer())[0].status).toBe("online");
     const later = await HostClient.connect(configDir);
     clients.push(later);
+    await until(async () => (await later.list())[0]?.state === "idle");
     expect((await later.list())[0]).toMatchObject({ id: agent.id, state: "idle" });
     await later.stop(agent.id);
     later.close();
@@ -663,7 +667,7 @@ describe("the agent host's process", { timeout: 20_000 }, () => {
     const screens = [0, 1].map(async () => {
       const terminal = new RecordingTerminal();
       const host = await client();
-      const done = runAgentsScreen({ host, terminal, selectedId: agent.id, home: "/nowhere" });
+      const done = runAgentsScreen({ host, terminal, selectedId: agent.id, home: "/nowhere", folder: "/nowhere", newAgent: noNewAgent, openUrl: () => undefined });
       return { terminal, done };
     });
     const [first, second] = await Promise.all(screens);
@@ -680,6 +684,46 @@ describe("the agent host's process", { timeout: 20_000 }, () => {
     expect([first.terminal.closed, second.terminal.closed]).toEqual([true, true]);
   });
 });
+
+describe("starting an agent from the agents screen", { timeout: 20_000 }, () => {
+  it("creates the project from the dialog, links the folder, and brings the agent online serving it", async () => {
+    const { server: s, configDir, onServer, startHost, client } = await setup();
+    await startHost();
+    const host = await client();
+    const folder = tempDir("rl-folder-");
+    const flow = createNewAgentFlow({ folder, configDir, claudeSettingsFile: join(configDir, "settings.json"), host, checkClaude: async () => "me@example.com" });
+    const terminal = new RecordingTerminal();
+    const done = runAgentsScreen({ host, terminal, home: "/nowhere", folder, newAgent: flow, openUrl: () => undefined });
+    await until(() => terminal.frame.includes("No agent yet"));
+
+    terminal.keyListener("n");
+    await until(() => terminal.frame.includes("Create a new project:"));
+    expect(terminal.frame).toContain("Acme");
+    terminal.keyListener("down");
+    for (const char of "CV Vincent") terminal.keyListener(char);
+    terminal.keyListener("enter");
+
+    await until(async () => (await onServer())[0]?.status === "online");
+    const created = ((await (await s.get("/api/projects")).json()) as Project[]).find((p) => p.title === "CV Vincent")!;
+    expect(created).toBeDefined();
+    expect(JSON.parse(readFileSync(join(folder, ".redline", "project.json"), "utf8"))).toEqual({ serverUrl: s.url, projectIds: [created.id] });
+    expect(created.servedBy).toMatchObject({ folder, kind: "project" });
+    await until(() => terminal.frame.includes("Projects  CV Vincent") && terminal.frame.includes("Account   me@example.com"));
+    expect(terminal.frame).toContain("› ● ");
+    terminal.keyListener("q");
+    await done;
+  });
+});
+
+const noNewAgent: NewAgentFlow = {
+  inspect: async () => {
+    throw new Error("not used");
+  },
+  projectsOf: async () => [],
+  start: async () => {
+    throw new Error("not used");
+  },
+};
 
 class RecordingTerminal implements ScreenTerminal {
   lines: string[] = [];
