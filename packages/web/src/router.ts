@@ -4,6 +4,8 @@ import { artboardHash, pageHash, playHash } from "@redline/shared";
 export type Route =
   | { name: "home" }
   | { name: "projects" }
+  | { name: "archivedProjects" }
+  | { name: "archivedDesignSystems" }
   | { name: "agents" }
   | { name: "sessions" }
   | { name: "designSystems" }
@@ -37,6 +39,8 @@ export function parseRoute(hash: string): Route {
   if (section === "agents") return { name: "agents" };
   if (section === "sessions") return { name: "sessions" };
   if (section === "projects" && !id) return { name: "projects" };
+  if (section === "archived-projects") return { name: "archivedProjects" };
+  if (section === "archived-design-systems") return { name: "archivedDesignSystems" };
   if (section === "design-systems" && id) return { name: "designSystem", designSystemId: id, ...viaProject };
   if (section === "design-systems") return { name: "designSystems" };
   if (section === "projects" && id && sub === "design-md") return { name: "designMd", projectId: id };
@@ -60,6 +64,10 @@ export function routeHref(route: Route): string {
       return "#/";
     case "projects":
       return "#/projects";
+    case "archivedProjects":
+      return "#/archived-projects";
+    case "archivedDesignSystems":
+      return "#/archived-design-systems";
     case "agents":
       return "#/agents";
     case "sessions":

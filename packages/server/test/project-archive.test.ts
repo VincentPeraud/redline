@@ -92,6 +92,7 @@ describe("archiving and deleting projects and design systems", () => {
     const work = agent.messages.find((m) => m.type === "work");
     expect(work).toBeDefined();
 
+    expect(await json(server.get(`/api/projects/${acme.id}/archive`))).toMatchObject({ refusal: { reason: "busy" } });
     const busy = await server.post(`/api/projects/${acme.id}/archive`, {});
     expect(busy.status).toBe(409);
     expect(await busy.json()).toMatchObject({ reason: "busy" });
@@ -106,11 +107,13 @@ describe("archiving and deleting projects and design systems", () => {
     const follower = await createProject("Halloween", ds.id);
     await server.post(`/api/projects/${follower.id}/archive`, {});
 
+    expect(await json(server.get(`/api/projects/${ds.id}/archive`))).toMatchObject({ refusal: { reason: "followed", projects: [{ id: follower.id, title: "Halloween", archived: true }] } });
     const followed = await server.post(`/api/projects/${ds.id}/archive`, {});
     expect(followed.status).toBe(409);
     expect(await followed.json()).toMatchObject({ reason: "followed" });
 
     await send("DELETE", `/api/projects/${follower.id}`);
+    expect(await json(server.get(`/api/projects/${ds.id}/archive`))).toEqual({});
     expect((await server.post(`/api/projects/${ds.id}/archive`, {})).status).toBe(200);
     expect((await json<DesignSystemSummary[]>(server.get("/api/design-systems"))).map((d) => d.title)).not.toContain("Lumora DS");
     const archived = await json<DesignSystemSummary[]>(server.get("/api/design-systems?archived=1"));

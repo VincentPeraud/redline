@@ -3,8 +3,11 @@ import {
   type HomeProject,
   type CreateProjectRequest,
   type DesignSystemSummary,
+  type Page,
   type Project,
+  type Thread,
 } from "@redline/shared";
+import { ArchiveIcon, archivedOnLabel } from "./ArchiveControls.js";
 import { agentLabel } from "./agentLabel.js";
 import { Dialog } from "./Dialog.js";
 import { ProjectPreview } from "./ProjectPreview.js";
@@ -191,11 +194,15 @@ export function ProjectsScreen() {
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState("");
+  const [archivedCount, setArchivedCount] = useState(0);
 
   useEffect(() => {
     fetch("/api/projects")
       .then((res) => res.json() as Promise<Project[]>)
       .then(setProjects);
+    fetch("/api/projects?archived=1")
+      .then((res) => res.json() as Promise<Project[]>)
+      .then((archived) => setArchivedCount(archived.length));
     fetch("/api/design-systems")
       .then((res) => res.json() as Promise<DesignSystemSummary[]>)
       .then(setDesignSystems);
@@ -240,6 +247,15 @@ export function ProjectsScreen() {
           </button>
         </div>
       )}
+      {archivedCount > 0 && (
+        <a href={routeHref({ name: "archivedProjects" })} className={styles.archivedLink}>
+          <ArchiveIcon size={16} />
+          Projets archivés · {archivedCount}
+          <span aria-hidden="true" className={styles.archivedChevron}>
+            ›
+          </span>
+        </a>
+      )}
       {creating && (
         <NewProjectDialog
           onClose={() => setCreating(false)}
@@ -247,6 +263,98 @@ export function ProjectsScreen() {
             window.location.hash = routeHref({ name: "project", projectId: project.id });
           }}
         />
+      )}
+    </PageContent>
+  );
+}
+
+interface ArchivedStats {
+  pageCount: number;
+  threadCount: number;
+  firstPageId?: string;
+}
+
+function ArchivedProjectCard({ project, stats, designSystemTitle }: { project: Project; stats: ArchivedStats | undefined; designSystemTitle: string | undefined }) {
+  const details = [plural(stats?.pageCount ?? 0, "page", "pages"), plural(stats?.threadCount ?? 0, "fil", "fils"), designSystemTitle ? `DS ${designSystemTitle}` : "sans DS"].join(" · ");
+  return (
+    <a href={routeHref({ name: "project", projectId: project.id })} className={styles.card}>
+      <div className={styles.archivedPreview}>
+        <ProjectPreview pageId={stats?.firstPageId} height={190} />
+      </div>
+      <div className={styles.cardBody}>
+        <div className={styles.cardTitleRow}>
+          <span className={styles.cardTitle}>{project.title}</span>
+          <span className={styles.archivedPill}>Archivé</span>
+        </div>
+        <div className={styles.archivedDetails}>{details}</div>
+        {project.archivedAt && <div className={styles.modified}>{archivedOnLabel(project.archivedAt)}</div>}
+      </div>
+    </a>
+  );
+}
+
+/** "Projets archivés": read-only projects, each opened to be unarchived or deleted for good. */
+export function ArchivedProjectsScreen() {
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [stats, setStats] = useState<Record<string, ArchivedStats>>({});
+  const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    fetch("/api/projects?archived=1")
+      .then((res) => res.json() as Promise<Project[]>)
+      .then(async (archived) => {
+        setProjects(archived);
+        const entries = await Promise.all(
+          archived.map(async (project): Promise<[string, ArchivedStats]> => {
+            const pages = (await (await fetch(`/api/projects/${project.id}/pages`)).json()) as Page[];
+            const threads = await Promise.all(pages.map(async (page) => ((await (await fetch(`/api/pages/${page.id}/threads`)).json()) as Thread[]).length));
+            return [project.id, { pageCount: pages.length, threadCount: threads.reduce((sum, count) => sum + count, 0), firstPageId: pages[0]?.id }];
+          }),
+        );
+        setStats(Object.fromEntries(entries));
+      });
+    fetch("/api/design-systems")
+      .then((res) => res.json() as Promise<DesignSystemSummary[]>)
+      .then(setDesignSystems);
+  }, []);
+
+  const query = search.trim().toLowerCase();
+  const visible = (projects ?? []).filter((project) => project.title.toLowerCase().includes(query));
+
+  return (
+    <PageContent>
+      <div className={styles.archivedHeading}>
+        <nav aria-label="Fil d'Ariane" className={styles.archivedBreadcrumb}>
+          <a href={routeHref({ name: "projects" })}>Projets</a>
+          <span aria-hidden="true">/</span>
+          <span className={styles.archivedCurrent}>Archivés</span>
+        </nav>
+        <div className={styles.header}>
+          <h1 className={styles.title}>Projets archivés</h1>
+          <TextInput
+            type="search"
+            size="md"
+            aria-label="Rechercher un projet archivé"
+            placeholder="Rechercher un projet archivé…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className={styles.archivedSearch}
+          />
+        </div>
+        <p className={styles.archivedIntro}>En lecture seule. Ouvre un projet pour le désarchiver ou le supprimer définitivement.</p>
+      </div>
+      {projects && (
+        <div className={styles.grid}>
+          {visible.map((project) => (
+            <ArchivedProjectCard
+              key={project.id}
+              project={project}
+              stats={stats[project.id]}
+              designSystemTitle={designSystems.find((ds) => ds.id === project.designSystem)?.title}
+            />
+          ))}
+        </div>
       )}
     </PageContent>
   );

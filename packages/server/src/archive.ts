@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { NEUTRAL_DESIGN_SYSTEM_ID, type ArchiveRefusal } from "@redline/shared";
+import { NEUTRAL_DESIGN_SYSTEM_ID, type ArchiveRefusal, type ArchiveStatus } from "@redline/shared";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -40,18 +40,27 @@ export function registerArchiveRoutes(app: FastifyInstance, store: Store, pageLo
   const busy = (id: string) => pageLock.hasWorkOn(new Set(store.listPages(id).map((page) => page.id)));
   const current = (id: string) => store.getDesignSystem(id) ?? store.getProject(id);
 
+  /** Why archiving `id` is refused right now, if it is. */
+  const refusal = (id: string): ArchiveRefusal | undefined => {
+    if (busy(id)) return { error: "An agent is working on it: wait until it has finished to archive it.", reason: "busy" };
+    const followers = store.getDesignSystem(id) ? store.projectsUsingDesignSystem(id) : [];
+    if (followers.length > 0) return { error: "Projects still follow this design system: change their design system first.", reason: "followed", projects: followers };
+    return undefined;
+  };
+
+  // The project and design system pages show the archive link disabled, with the reason, before any click.
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/archive", async (req, reply): Promise<ArchiveStatus | undefined> => {
+    const id = req.params.projectId;
+    if (!exists(id)) return void reply.code(404).send({ error: "project not found" });
+    const refused = refusal(id);
+    return refused ? { refusal: refused } : {};
+  });
+
   app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/archive", async (req, reply) => {
     const id = req.params.projectId;
     if (!exists(id)) return reply.code(404).send({ error: "project not found" });
-    if (busy(id)) {
-      const refusal: ArchiveRefusal = { error: "An agent is working on it: wait until it has finished to archive it.", reason: "busy" };
-      return reply.code(409).send(refusal);
-    }
-    const followers = store.getDesignSystem(id) ? store.projectsUsingDesignSystem(id) : [];
-    if (followers.length > 0) {
-      const refusal: ArchiveRefusal = { error: "Projects still follow this design system: change their design system first.", reason: "followed", projects: followers };
-      return reply.code(409).send(refusal);
-    }
+    const refused = refusal(id);
+    if (refused) return reply.code(409).send(refused);
     if (!store.isArchived(id)) store.setArchived(id, true);
     return current(id);
   });

@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import type { DesignMdResponse, DesignSystemDetail, DiffusionListItem, RollbackImpact } from "@redline/shared";
 import { useDesignSystemDetail, useOpenDiffusionDialog } from "./DiffusionDialog.js";
 import { componentCountLabel, diffusionChangeParts, pageCountLabel, pendingCountLabel, pendingNames, tokenCountLabel, usagePlaceLabel, usedByHeading, userSummary } from "./diffusionLabels.js";
-import { agree } from "./plural.js";
+import { agree, counted } from "./plural.js";
+import { ArchiveFooter, ArchivedBanner, DeleteSection } from "./ArchiveControls.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
-import { routeHref } from "./router.js";
+import { navigateTo, routeHref } from "./router.js";
 import { Button, Dialog, DialogActions, Logo, cx } from "./ui/index.js";
 import styles from "./DesignSystemOverview.module.css";
 
@@ -169,8 +170,11 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
 
   if (!detail) return <main className={styles.screen}>Chargement…</main>;
 
-  const pendingCount = detail.pending.count;
+  const archivedAt = detail.archivedAt;
+  const readOnly = archivedAt !== undefined;
+  const pendingCount = readOnly ? 0 : detail.pending.count;
   const listed = pendingNames(detail.pending);
+  const reload = () => setReloads((n) => n + 1);
 
   return (
     <div className={styles.screen}>
@@ -181,6 +185,12 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
         <nav aria-label="Fil d'Ariane" className={styles.breadcrumb}>
           <a href={routeHref({ name: "designSystems" })}>Design systems</a>
           <span aria-hidden="true">/</span>
+          {readOnly && (
+            <>
+              <a href={routeHref({ name: "archivedDesignSystems" })}>Archivés</a>
+              <span aria-hidden="true">/</span>
+            </>
+          )}
           <span className={styles.current}>{detail.title}</span>
         </nav>
         <div className={styles.grow} />
@@ -189,17 +199,22 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
             Diffuser aux projets <span className={styles.diffuseCount}>{pendingCount}</span>
           </button>
         )}
-        <button type="button" className={styles.newPage} onClick={() => setCreatingPage(true)}>
-          Nouvelle page
-        </button>
+        {!readOnly && (
+          <button type="button" className={styles.newPage} onClick={() => setCreatingPage(true)}>
+            Nouvelle page
+          </button>
+        )}
       </header>
+      {archivedAt && <ArchivedBanner kind="designSystem" id={detail.id} archivedAt={archivedAt} onUnarchived={reload} />}
 
       <div className={styles.body}>
         <main className={styles.main}>
           <div className={styles.heading}>
             <h1 className={styles.title}>{detail.title}</h1>
             <div data-testid="ds-stats" className={styles.stats}>
-              {`Design system · ${pageCountLabel(detail.pages.length)} · ${componentCountLabel(detail.componentCount)} · ${tokenCountLabel(detail.tokenCount)} · diffusion ${detail.current.number} en cours`}
+              {readOnly
+                ? `Design system · ${pageCountLabel(detail.pages.length)} · ${componentCountLabel(detail.componentCount)} · ${counted(diffusions.length, "diffusion", "diffusions")}`
+                : `Design system · ${pageCountLabel(detail.pages.length)} · ${componentCountLabel(detail.componentCount)} · ${tokenCountLabel(detail.tokenCount)} · diffusion ${detail.current.number} en cours`}
             </div>
           </div>
 
@@ -234,7 +249,7 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
                   diffusion={diffusion}
                   isCurrent={diffusion.number === detail.current.number}
                   isFirst={index === diffusions.length - 1}
-                  canRollBack={diffusion.number < detail.current.number && !diffusion.undone}
+                  canRollBack={!readOnly && diffusion.number < detail.current.number && !diffusion.undone}
                   onRollBack={() => setRollbackTo(diffusion.number)}
                 />
               ))}
@@ -243,6 +258,19 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
               Revenir à une diffusion la renvoie à tous les projets. Les pages du design system gardent leur version actuelle, pour que tu puisses la corriger.
             </div>
           </section>
+
+          {readOnly ? (
+            <DeleteSection
+              kind="designSystem"
+              id={detail.id}
+              title={detail.title}
+              summary="Ses pages, composants, diffusions, fils, versions et assets sont effacés. Aucun projet ne le suit. Impossible de revenir en arrière."
+              contents={`Ses ${pageCountLabel(detail.pages.length)}, ${componentCountLabel(detail.componentCount)}, ${counted(diffusions.length, "diffusion", "diffusions")}, ses fils, ses versions et ses assets`}
+              onDeleted={() => navigateTo({ name: "archivedDesignSystems" }, "replace")}
+            />
+          ) : (
+            <ArchiveFooter kind="designSystem" id={detail.id} title={detail.title} onArchived={reload} />
+          )}
         </main>
 
         <aside aria-label="Contexte du design system" className={styles.side}>
@@ -250,8 +278,20 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
             <h2 className={styles.sideTitle}>{usedByHeading(detail.usedBy.length)}</h2>
             <div className={styles.users}>
               {detail.usedBy.map((user) => (
-                <a key={user.id} href={routeHref({ name: "projectDesignSystem", projectId: user.id })} data-testid="ds-user" className={styles.user}>
-                  <span className={styles.userTitle}>{user.title}</span>
+                <a
+                  key={user.id}
+                  href={routeHref(user.archived ? { name: "project", projectId: user.id } : { name: "projectDesignSystem", projectId: user.id })}
+                  data-testid="ds-user"
+                  className={styles.user}
+                >
+                  {user.archived ? (
+                    <span className={styles.userTitleRow}>
+                      <span className={styles.userTitle}>{user.title}</span>
+                      <span className={styles.archivedPill}>Archivé</span>
+                    </span>
+                  ) : (
+                    <span className={styles.userTitle}>{user.title}</span>
+                  )}
                   <span className={cx(styles.userSummary, user.overrideCount > 0 && styles.userOverridden)}>{userSummary(user)}</span>
                 </a>
               ))}
@@ -262,7 +302,7 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
             <div className={styles.designMdHeading}>
               <h2 className={styles.designMdTitle}>DESIGN.md</h2>
               <div className={styles.grow} />
-              <a href={routeHref({ name: "designMd", projectId: detail.id })}>Modifier</a>
+              {!readOnly && <a href={routeHref({ name: "designMd", projectId: detail.id })}>Modifier</a>}
             </div>
             <div className={styles.sideText}>
               Règles de la marque, lues par les sessions de tous les projets qui utilisent {detail.title}. Les règles d'un projet l'emportent en cas de conflit.

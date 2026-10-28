@@ -26,6 +26,11 @@ export const CORE_TOKENS = [
 /** Why `POST /api/projects/:id/archive` was refused (409): a run is in progress, or projects still follow the design system. */
 export type ArchiveRefusal = { error: string; reason: "busy" } | { error: string; reason: "followed"; projects: ProjectUsingDesignSystem[] };
 
+/** `GET /api/projects/:id/archive`: why archiving the project or design system is refused now; no `refusal` = it can be archived. */
+export interface ArchiveStatus {
+  refusal?: ArchiveRefusal;
+}
+
 /** A project following a design system; `archived` when it is an archived one. */
 export interface ProjectUsingDesignSystem {
   id: string;
