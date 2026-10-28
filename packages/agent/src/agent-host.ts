@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:
 import { createServer, type Server, type Socket } from "node:net";
 import { hostname } from "node:os";
 import { basename } from "node:path";
+import { encodeLine, lineReader } from "./ndjson.js";
 import { AgentLog, DEFAULT_LOG_CAP } from "./agent-log.js";
 import { rememberChoice } from "./launch-choice.js";
 import { AgentRegistry } from "./agent-registry.js";
@@ -11,6 +12,7 @@ import {
   agentLogPath,
   hostLockPath,
   hostSocketPath,
+  modelChoiceError,
   type HostAgent,
   type HostEvent,
   type HostLogEvent,
@@ -106,7 +108,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
 
   const persist = () => registry.save([...entries.values()].map((entry) => entry.agent));
   const publish = (event: HostEvent) => {
-    for (const client of subscribers) client.write(`${JSON.stringify(event)}\n`);
+    for (const client of subscribers) client.write(encodeLine(event));
   };
   const setAgent = (entry: Entry, change: Partial<HostAgent>) => {
     entry.agent = { ...entry.agent, ...change };
@@ -264,6 +266,8 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
         return { id: request.id, ok: true, agents: [...entries.values()].map((entry) => entry.agent), freshStartAt };
       case "launch":
       {
+        const invalid = modelChoiceError(request);
+        if (invalid) throw new Error(invalid);
         const { folder, kind, serverUrl, projectIds, projectNames, model, effort, claudeConfigDir, account } = request;
         return { id: request.id, ok: true, ...launch({ folder, kind, serverUrl, projectIds, projectNames, model, effort, claudeConfigDir, account }) };
       }
@@ -276,6 +280,8 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       case "set-model-effort": {
         const entry = entryOf(request.agentId);
         const { model, effort } = request;
+        const invalid = modelChoiceError(request);
+        if (invalid) throw new Error(invalid);
         setAgent(entry, { model, effort });
         rememberChoice({ folder: entry.agent.folder, configDir, choice: { model, effort } });
         if (entry.child?.connected) entry.child.send({ type: "set-model-effort", model, effort } satisfies HostToWorker);
@@ -316,15 +322,10 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
 
   const server: Server = createServer((client) => {
     clients.add(client);
-    let buffer = "";
     client.setEncoding("utf8");
+    const read = lineReader((line) => void respond(client, line));
     client.on("data", (chunk: string) => {
-      buffer += chunk;
-      for (let newline = buffer.indexOf("\n"); newline !== -1; newline = buffer.indexOf("\n")) {
-        const line = buffer.slice(0, newline);
-        buffer = buffer.slice(newline + 1);
-        if (line.trim()) void respond(client, line);
-      }
+      if (!read(chunk)) client.destroy();
     });
     client.on("error", () => undefined);
     client.on("close", () => {
@@ -345,7 +346,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     } catch (error) {
       reply = { id, ok: false, error: (error as Error).message };
     }
-    if (!client.destroyed) client.write(`${JSON.stringify(reply)}\n`);
+    if (!client.destroyed) client.write(encodeLine(reply));
   }
 
   async function stop(): Promise<void> {

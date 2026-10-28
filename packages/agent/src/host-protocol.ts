@@ -1,4 +1,4 @@
-import type { Effort } from "@redline/shared";
+import { EFFORTS, MODEL_PATTERN, type AgentKind, type Effort } from "@redline/shared";
 import type { AgentActivity } from "./activity.js";
 
 /**
@@ -14,7 +14,7 @@ export interface HostAgent {
   /** The folder's base name, `global` for a global agent. */
   name: string;
   folder: string;
-  kind: "project" | "global";
+  kind: AgentKind;
   serverUrl: string;
   projectIds?: string[];
   /** Titles of the projects, as the launching terminal knew them (shown by the agents screen). */
@@ -42,7 +42,7 @@ export interface HostAgent {
 /** What a client gives to start an agent. The token is not part of it: the host reads it from the config directory's logins. */
 export interface LaunchSettings {
   folder: string;
-  kind: "project" | "global";
+  kind: AgentKind;
   serverUrl: string;
   projectIds?: string[];
   projectNames?: string[];
@@ -123,7 +123,7 @@ export interface WorkerConfig {
   token: string;
   machine: string;
   folder: string;
-  kind: "project" | "global";
+  kind: AgentKind;
   projectIds?: string[];
   model?: string;
   effort?: Effort;
@@ -133,3 +133,12 @@ export const hostSocketPath = (configDir: string) => `${configDir}/agent-host.so
 export const hostLockPath = (configDir: string) => `${configDir}/agent-host.lock`;
 export const agentLogPath = (configDir: string, agentId: string) => `${configDir}/logs/${agentId}.jsonl`;
 export const registryPath = (configDir: string) => `${configDir}/agents.json`;
+
+/** The message to answer a request whose model or effort is invalid; both are optional. */
+export function modelChoiceError({ model, effort }: { model?: unknown; effort?: unknown }): string | undefined {
+  if (model !== undefined && (typeof model !== "string" || !MODEL_PATTERN.test(model))) return "invalid model";
+  if (effort !== undefined && !(EFFORTS as readonly unknown[]).includes(effort)) return "invalid effort";
+  return undefined;
+}
+
+export const isAgentId = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);

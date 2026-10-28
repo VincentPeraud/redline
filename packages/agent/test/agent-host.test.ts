@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -736,3 +737,63 @@ class RecordingTerminal implements ScreenTerminal {
   close() { this.closed = true; }
   get frame() { return plainText(this.lines).join("\n"); }
 }
+
+describe("the agent host's input checks", { timeout: 20_000 }, () => {
+  it("refuses a model that is not a model name and an unknown effort, on launch and on set-model-effort", async () => {
+    const { launchSettings, startHost, client } = await setup();
+    await startHost();
+    const api = await client();
+
+    await expect(api.launch({ ...launchSettings(), model: "opus; rm -rf /" })).rejects.toThrow("invalid model");
+    await expect(api.launch({ ...launchSettings(), effort: "extreme" as "high" })).rejects.toThrow("invalid effort");
+    expect(await api.list()).toEqual([]);
+
+    const { agent } = await api.launch(launchSettings());
+    await expect(api.setModelEffort(agent.id, { model: "--dangerous" + " x" })).rejects.toThrow("invalid model");
+    await expect(api.setModelEffort(agent.id, { model: "sonnet[1m]", effort: "huge" as "high" })).rejects.toThrow("invalid effort");
+    expect((await api.list())[0]).toMatchObject({ model: "opus", effort: "high" });
+  });
+
+  it("ignores registry entries whose id is not a UUID, so that no log path is built from them", async () => {
+    const { configDir, launchSettings, startHost, client } = await setup();
+    const real = "11111111-2222-4333-8444-555555555555";
+    const entry = (id: string) => ({ ...launchSettings(), id, name: "x", state: "stopped", since: "2026-01-01T00:00:00.000Z" });
+    writeFileSync(join(configDir, "agents.json"), JSON.stringify([entry("../../../etc/passwd"), entry(real)]));
+    await startHost();
+    const api = await client();
+
+    expect((await api.list()).map((agent) => agent.id)).toEqual([real]);
+  });
+
+  it("drops a client that sends a line without end beyond the limit, and keeps serving the others", async () => {
+    const { configDir, startHost, client } = await setup();
+    await startHost();
+    const flood = connect(hostSocketPath(configDir));
+    await new Promise((resolve) => flood.once("connect", resolve));
+    const closed = new Promise((resolve) => flood.once("close", resolve));
+    flood.on("error", () => undefined);
+    for (let i = 0; i < 12 && !flood.destroyed; i++) flood.write("x".repeat(256 * 1024));
+    await closed;
+
+    expect(await (await client()).list()).toEqual([]);
+  });
+
+  it("survives a malformed line from the host", async () => {
+    const dir = tempDir("rl-fake-host-");
+    const path = hostSocketPath(dir);
+    const fake = createServer((socket) => {
+      socket.on("data", (data) => {
+        const { id } = JSON.parse(data.toString().trim());
+        socket.write(`not json\n{"id":${id},"ok":true,"agents":[]}\n`);
+      });
+    });
+    await new Promise<void>((resolve) => fake.listen(path, resolve));
+    try {
+      const api = await HostClient.connect(dir);
+      clients.push(api);
+      expect(await api.list()).toEqual([]);
+    } finally {
+      fake.close();
+    }
+  });
+});

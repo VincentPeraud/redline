@@ -1,6 +1,7 @@
 import type { Effort } from "@redline/shared";
 import { spawn } from "node:child_process";
 import { connect, type Socket } from "node:net";
+import { encodeLine, lineReader } from "./ndjson.js";
 import { hostSocketPath, type HostAgent, type HostEvent, type HostLogEntry, type HostReply, type HostRequest, type LaunchSettings } from "./host-protocol.js";
 
 type Reply = Extract<HostReply, { ok: true }>;
@@ -13,15 +14,16 @@ export class HostClient {
   private readonly listeners = new Set<(event: HostEvent) => void>();
 
   private constructor(private readonly socket: Socket) {
-    let buffer = "";
     socket.setEncoding("utf8");
-    socket.on("data", (chunk: string) => {
-      buffer += chunk;
-      for (let newline = buffer.indexOf("\n"); newline !== -1; newline = buffer.indexOf("\n")) {
-        const line = buffer.slice(0, newline);
-        buffer = buffer.slice(newline + 1);
-        if (line.trim()) this.receive(JSON.parse(line) as HostReply | HostEvent);
+    const read = lineReader((line) => {
+      try {
+        this.receive(JSON.parse(line) as HostReply | HostEvent);
+      } catch {
+        // A line that is not JSON is not from a host this client can talk to: skip it.
       }
+    });
+    socket.on("data", (chunk: string) => {
+      if (!read(chunk)) socket.destroy();
     });
     const lost = () => {
       for (const { reject } of this.pending.values()) reject(new Error("The agent host closed the connection."));
@@ -56,7 +58,7 @@ export class HostClient {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.socket.write(`${JSON.stringify({ ...request, id })}\n`);
+      this.socket.write(encodeLine({ ...request, id }));
     });
   }
 

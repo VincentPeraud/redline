@@ -4,6 +4,7 @@ import {
   WORKING_COPY_PROJECT_COMPONENTS_DIR,
   EFFORTS,
   MANIFEST_PATH,
+  MODEL_PATTERN,
   MAX_TITLE_LENGTH,
   RESPONSIVE_FORMATS,
   TWEAKS_PATH,
@@ -27,9 +28,6 @@ import {
 export function requiredString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
-
-/** Model names reach `claude --model`: letters, digits, `.`, `_`, `-` and brackets only (`opus`, `claude-opus-4-1`, `sonnet[1m]`). */
-const MODEL_PATTERN = /^[\w.\-[\]]+$/;
 
 /** Error message when a model/effort pair of a request is invalid, else null. Both are optional. */
 export function modelChoiceError({ model, effort }: { model?: unknown; effort?: unknown }): string | null {

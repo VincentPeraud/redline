@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { registryPath, type HostAgent } from "./host-protocol.js";
+import { isAgentId, registryPath, type HostAgent } from "./host-protocol.js";
 
 /** The host's agents, persisted in the config directory (no token in it: tokens stay in the logins). */
 export class AgentRegistry {
@@ -22,7 +22,7 @@ export class AgentRegistry {
       return { agents: [], interrupted: new Set() };
     }
     if (!Array.isArray(stored)) return { agents: [], interrupted: new Set() };
-    const known = stored.filter((entry): entry is HostAgent => typeof entry?.id === "string" && typeof entry?.folder === "string" && typeof entry?.serverUrl === "string");
+    const known = stored.filter((entry): entry is HostAgent => isAgentId(entry?.id) && typeof entry?.folder === "string" && typeof entry?.serverUrl === "string");
     return {
       agents: known.map((agent) => ({ ...agent, state: "stopped" as const, since: now, reason: undefined, page: undefined })),
       interrupted: new Set(known.filter((agent) => agent.state !== "stopped").map((agent) => agent.id)),
