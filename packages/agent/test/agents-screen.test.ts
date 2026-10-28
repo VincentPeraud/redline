@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, closeSummary, initialState, logLoaded, onKey, plainText, render, tick, type ScreenState } from "../src/agents-view.js";
+import { applyEvent, closeSummary, initialState, logLoaded, newAgentFailed, newAgentQuestions, onKey, plainText, render, tick, type ScreenState } from "../src/agents-view.js";
 import { runAgentsScreen, type ScreenHost, type ScreenTerminal } from "../src/agents-screen.js";
 import type { Effort } from "@redline/shared";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "../src/host-protocol.js";
@@ -662,5 +662,34 @@ describe("the agents screen over a host client", () => {
       terminal.keyListener("q");
       await done;
     });
+  });
+});
+
+describe("text from the server on the terminal", () => {
+  const evil = "\x1b]0;pwned\x07\x1b[2J\x9b31mEvil\r\nnext\ttab";
+  const clean = "]0;pwned[2J31mEvil  next tab";
+
+  it("reaches the screen without any control character: only the screen's own colour codes remain", () => {
+    const attacked = agent({ id: "a1", name: "lumora", state: "running", page: evil, projectNames: [evil], reason: evil });
+    const log = [
+      entry("14:05:40", { type: "run-started", workId: "w1", project: evil, page: evil, kind: "comment", author: evil, excerpt: evil, attempt: 1 }),
+      entry("14:05:41", { type: "run-progress", workId: "w1", steps: [evil], elapsedMs: 1000 }),
+      entry("14:06:00", { type: "stopped", reason: "failed", error: evil }),
+    ];
+    const lines = render(open([attacked], "a1", { a1: log }), { columns: 184, rows: 43 });
+    const withoutOwnCodes = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+    for (const line of withoutOwnCodes) expect(line).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+    expect(withoutOwnCodes.join("\n")).toContain(clean);
+    for (const line of closeSummary(open([attacked], "a1", { a1: log }))) expect(line.replace(/\x1b\[[0-9;]*m/g, "")).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+  });
+
+  it("is cleaned in the project titles and the errors of the new agent dialog too", () => {
+    let state = open([]);
+    state = onKey(state, "n").state;
+    state = newAgentQuestions(state, { servers: [], serverUrl: "https://redline.brightco.fr", projects: [{ id: "p1", title: evil }], model: "opus" });
+    state = newAgentFailed(state, evil);
+    const lines = render(state, { columns: 184, rows: 43 }).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+    for (const line of lines) expect(line).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+    expect(lines.join("\n")).toContain(clean);
   });
 });

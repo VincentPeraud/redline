@@ -14,6 +14,7 @@ import { ensureHost, type HostClient } from "./host-client.js";
 import { chooseModelEffort } from "./launch-choice.js";
 import { linkFolder, serverForFolder, type LinkChoice, type MoreChoice } from "./link.js";
 import { defaultConfigDir, pickServer, requireLogins, type Login } from "./login.js";
+import { sanitizeForTerminal } from "./sanitize.js";
 import { askSecret } from "./secret-prompt.js";
 import { ServerApi } from "./server-api.js";
 import { serveAgent } from "./serve-agent.js";
@@ -64,8 +65,10 @@ async function askServer(servers: Login[]): Promise<Login> {
   }
 }
 
+const titles = (projects: Project[]) => projects.map((project) => sanitizeForTerminal(project.title)).join(", ");
+
 async function pickProject(rl: Interface, projects: Project[]): Promise<LinkChoice> {
-  projects.forEach((project, index) => console.log(`  ${index + 1}. ${project.title}`));
+  projects.forEach((project, index) => console.log(`  ${index + 1}. ${sanitizeForTerminal(project.title)}`));
   console.log("  n. Create a new project");
   for (;;) {
     const answer = (await rl.question("Pick a project: ")).trim().toLowerCase();
@@ -90,7 +93,7 @@ async function askLinkChoice(projects: Project[]): Promise<LinkChoice> {
 
 /** A linked folder can serve one more project, or one less (never none); Enter starts the agent as is. */
 async function askMoreProjects(linked: Project[], others: Project[]): Promise<MoreChoice | undefined> {
-  console.log(`This folder serves ${linked.map((p) => p.title).join(", ")}.`);
+  console.log(`This folder serves ${titles(linked)}.`);
   const canRemove = linked.length > 1;
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
@@ -99,7 +102,7 @@ async function askMoreProjects(linked: Project[], others: Project[]): Promise<Mo
       if (answer === "") return undefined;
       if (answer === "a") return await pickProject(rl, others);
       if (answer === "r" && canRemove) {
-        linked.forEach((project, index) => console.log(`  ${index + 1}. ${project.title}`));
+        linked.forEach((project, index) => console.log(`  ${index + 1}. ${sanitizeForTerminal(project.title)}`));
         for (;;) {
           const picked = linked[Number((await rl.question("Stop serving: ")).trim()) - 1];
           if (picked) return { remove: picked.id };
@@ -152,7 +155,7 @@ async function runAgent(args: string[]): Promise<void> {
     let projects: Project[];
     ({ projectIds, projects, server } = await linkFolder({ folder, servers, chooseServer: askServer, choose: askLinkChoice, chooseMore: canPrompt() ? askMoreProjects : undefined }));
     projectNames = projects.map((project) => project.title);
-    console.log(`Serving ${projects.map((p) => p.title).join(", ")}.`);
+    console.log(`Serving ${titles(projects)}.`);
   }
   const { serverUrl, token } = server;
   const { model, effort } = await askModelEffort(folder, flags);

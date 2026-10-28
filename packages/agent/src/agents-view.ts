@@ -1,4 +1,5 @@
 import { EFFORTS, MODEL_CHOICES, agentsHash, modelLabel, pageHash, type Effort } from "@redline/shared";
+import { sanitizeForTerminal } from "./sanitize.js";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "./host-protocol.js";
 import type { NewAgentAnswers, NewAgentQuestions, ProjectOption } from "./new-agent.js";
 
@@ -298,7 +299,8 @@ interface Row {
   rule?: boolean;
 }
 
-const span = (text: string, fg: string = C.text, bold = false, bg?: string): Span => ({ text, fg, bold, bg });
+/** Every text of the screen is made here, so it is cleaned here (see `sanitizeForTerminal`). */
+const span = (text: string, fg: string = C.text, bold = false, bg?: string): Span => ({ text: sanitizeForTerminal(text), fg, bold, bg });
 const width = (spans: Span[]) => spans.reduce((total, s) => total + [...s.text].length, 0);
 const spaces = (count: number) => " ".repeat(Math.max(0, count));
 

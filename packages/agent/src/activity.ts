@@ -1,4 +1,5 @@
 import type { AgentKind } from "@redline/shared";
+import { sanitizeForTerminal } from "./sanitize.js";
 
 /** What an agent reports about itself, as structured events: the foreground prints them, the agent host logs them. */
 export type AgentActivity =
@@ -22,8 +23,10 @@ export type ReportActivity = (event: AgentActivity) => void;
 
 const seconds = (ms: number) => `${Math.max(1, Math.round(ms / 1000))}s`;
 
-/** One plain English line for an event. */
-export function formatActivity(event: AgentActivity): string {
+/** One plain English line for an event, safe to print on a terminal. */
+export const formatActivity = (event: AgentActivity): string => sanitizeForTerminal(describe(event));
+
+function describe(event: AgentActivity): string {
   switch (event.type) {
     case "connected":
       return `Connected to ${event.serverUrl} as ${event.kind} agent in ${event.folder}. Ctrl-C to stop.`;
