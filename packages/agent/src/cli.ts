@@ -151,10 +151,7 @@ async function runAgent(args: string[]): Promise<void> {
   const identity = { serverUrl, token, machine: hostname(), folder, kind, projectIds } as const;
 
   const service = serveAgent({ ...identity, engine: claudeCodeEngine(), model, effort, log: console.log });
-  process.on("SIGINT", () => {
-    console.log("\nAgent stopped.");
-    service.stop();
-  });
+  process.on("SIGINT", () => service.stop());
   const { updated } = await service.done;
   if (updated) process.exit(UPDATE_EXIT_CODE);
 }

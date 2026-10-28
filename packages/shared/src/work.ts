@@ -66,6 +66,15 @@ export interface WorkItem extends ModelChoice {
   /** Engine session id to start, or to resume when `resume` is true. */
   sessionId: string;
   resume: boolean;
+  /** Set by the server when it sends the item: what the agent tells its user about the run. Never stored with the queued item. */
+  labels?: WorkLabels;
+}
+
+/** Names the agent shows in its activity log; the author is absent without SSO. */
+export interface WorkLabels {
+  project: string;
+  page: string;
+  author?: string;
 }
 
 /** Messages an agent sends about a work item. */

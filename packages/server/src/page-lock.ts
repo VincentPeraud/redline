@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Person, QueueEntry, QueueReason, WorkItem } from "@redline/shared";
+import type { Person, QueueEntry, QueueReason, WorkItem, WorkLabels } from "@redline/shared";
 import { chooseAgent } from "./agent-selection.js";
 import type { AgentHub } from "./agents.js";
 import { RETRY_DELAYS_MS, UNKNOWN_RESET_WAIT_MS, isSubscriptionLimit, limitResetAt } from "./retry-policy.js";
@@ -299,8 +299,9 @@ export class PageLock {
         continue;
       }
       const { agentId, item } = target;
-      this.active.set(queued.item.id, { queued, agentId, requester: this.store.requestingPersonOfItem(item) });
-      if (this.hub.send(agentId, { type: "work", item })) {
+      const requester = this.store.requestingPersonOfItem(item);
+      this.active.set(queued.item.id, { queued, agentId, requester });
+      if (this.hub.send(agentId, { type: "work", item: { ...item, labels: this.labelsOf(item, requester) } })) {
         this.recordSession(agentId, item);
         this.store.emit({ type: "work-dispatched", pageId, workId: item.id, threadIds: item.threads.map((t) => t.threadId) });
         continue;
@@ -312,6 +313,17 @@ export class PageLock {
     this.queue = stillWaiting;
     this.save();
     for (const pageId of touched) this.store.emit({ type: "queue-updated", pageId });
+  }
+
+  private labelsOf(item: WorkItem, requester: Person | undefined): WorkLabels {
+    const page = this.store.getPage(item.pageId);
+    const projectId = page?.projectId ?? "";
+    const author = requester && (requester.name || requester.email);
+    return {
+      project: this.store.getProject(projectId)?.title ?? this.store.getDesignSystem(projectId)?.title ?? "",
+      page: page?.title ?? "",
+      ...(author ? { author } : {}),
+    };
   }
 
   /** The sent item's session now belongs to the agent that got it: threads and conversations resume it there. */
