@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { DesignMdVersion, Page, Project, ProjectAsset, ProjectContext } from "@redline/shared";
+import { CORE_TOKENS, type DesignMdVersion, type DesignSystem, type Page, type Project, type ProjectAsset, type ProjectContext } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 const html = "<!doctype html><html><head></head><body><h1>Hi</h1></body></html>";
+const dsTokens = `:root {\n${CORE_TOKENS.map((t) => `  ${t}: #111;`).join("\n")}\n}\n`;
 const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe, 0x80]);
 
 describe("DESIGN.md and project assets over the server HTTP API", () => {
@@ -126,6 +127,30 @@ describe("DESIGN.md and project assets over the server HTTP API", () => {
       expect(Buffer.from(await res.arrayBuffer()).equals(pngBytes)).toBe(true);
     }
     expect((await fetch(`${server.artboardOrigin}/pages/${other.id}/assets/logo.png`)).status).toBe(404);
+  });
+
+  it("serves the assets next to each stylesheet, since a url(assets/…) in it resolves against the stylesheet", async () => {
+    const project = await createProject();
+    await putAsset(project, "fonts/inter.woff2", pngBytes);
+    const ds = (await (await server.post("/api/design-systems", { title: "Acme DS", files: { "tokens.css": dsTokens, "index.html": html } })).json()) as DesignSystem;
+    await putAsset({ id: ds.id } as Project, "fonts/brand.woff2", pngBytes);
+    await server.post(`/api/design-systems/${ds.id}/diffusions`, {});
+
+    for (const url of [
+      `/project-styles/${project.id}/assets/fonts/inter.woff2`,
+      `/projects/${project.id}/assets/fonts/inter.woff2`,
+      `/design-systems/${ds.id}/assets/fonts/brand.woff2`,
+      `/design-systems/${ds.id}/diffusions/1/assets/fonts/brand.woff2`,
+    ]) {
+      const res = await fetch(server.artboardOrigin + url);
+      expect(res.status, url).toBe(200);
+      expect(res.headers.get("access-control-allow-origin")).toBe("*");
+      expect(Buffer.from(await res.arrayBuffer()).equals(pngBytes)).toBe(true);
+    }
+    const missing = await fetch(`${server.artboardOrigin}/project-styles/${project.id}/assets/fonts/none.woff2`);
+    expect(missing.status).toBe(404);
+    // Without it, an opaque-origin artboard reports a missing font as a CORS error.
+    expect(missing.headers.get("access-control-allow-origin")).toBe("*");
   });
 
   it("accepts an asset of up to 20 MB and refuses a bigger one, while other bodies stay under 10 MB, saying why", async () => {

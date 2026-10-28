@@ -44,7 +44,7 @@ import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
 import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
-import { projectContext, readPageAsset, registerProjectFileRoutes } from "./project-files.js";
+import { projectContext, readPageAsset, readProjectAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
@@ -583,6 +583,19 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
   const sendStylesheet = (reply: FastifyReply, css: string | Buffer, cacheControl = "no-cache") =>
     reply.header("content-security-policy", "sandbox allow-scripts").header("cache-control", cacheControl).type(MIME[".css"]).send(css);
 
+  // A url(assets/…) in a stylesheet resolves against the stylesheet, so each stylesheet route serves its project's assets beside it.
+  // CORS on the 404 too: without it, an opaque-origin artboard reports a missing font as a CORS error.
+  const sendStylesheetAsset = (reply: FastifyReply, projectId: string, name: string) => {
+    reply.header("access-control-allow-origin", "*");
+    const asset = readProjectAsset(store, projectId, name);
+    if (!asset) return reply.code(404).send("not found");
+    return reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[extname(name)] ?? "application/octet-stream").send(asset);
+  };
+
+  app.get<{ Params: { designSystemId: string; "*": string } }>("/design-systems/:designSystemId/diffusions/:number/assets/*", async (req, reply) =>
+    sendStylesheetAsset(reply, req.params.designSystemId, req.params["*"]),
+  );
+
   app.get<{ Params: { designSystemId: string; number: string; file: string } }>("/design-systems/:designSystemId/diffusions/:number/:file", async (req, reply) => {
     const { designSystemId, number, file } = req.params;
     const content =
@@ -610,6 +623,7 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
 
   app.get<{ Params: { designSystemId: string; "*": string } }>("/design-systems/:designSystemId/*", async (req, reply) => {
     const designSystem = store.getDesignSystem(req.params.designSystemId);
+    if (designSystem && req.params["*"].startsWith("assets/")) return sendStylesheetAsset(reply, designSystem.id, req.params["*"].slice("assets/".length));
     if (designSystem && req.params["*"] === COMPONENTS_CSS_PATH) return sendStylesheet(reply, projectComponents(store, designSystem.id).css);
     const content = designSystem && req.params["*"] === DESIGN_SYSTEM_TOKENS_PATH ? store.readProjectFile(designSystem.id, DESIGN_SYSTEM_TOKENS_PATH) : undefined;
     if (!content) return reply.code(404).send("not found");
@@ -620,8 +634,11 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
     store.projectExists(req.params.projectId) ? sendStylesheet(reply, projectComponents(store, req.params.projectId).css) : reply.code(404).send("not found"),
   );
 
+  app.get<{ Params: { projectId: string; "*": string } }>("/projects/:projectId/assets/*", async (req, reply) => sendStylesheetAsset(reply, req.params.projectId, req.params["*"]));
+
   app.get<{ Params: { projectId: string; "*": string } }>("/project-styles/:projectId/*", async (req, reply) => {
     const { projectId } = req.params;
+    if (req.params["*"].startsWith("assets/")) return sendStylesheetAsset(reply, projectId, req.params["*"].slice("assets/".length));
     if (!store.projectExists(projectId) || store.isDesignSystemProject(projectId) || req.params["*"] !== PROJECT_STYLE_PATH) return reply.code(404).send("not found");
     return reply
       .header("content-security-policy", "sandbox allow-scripts")

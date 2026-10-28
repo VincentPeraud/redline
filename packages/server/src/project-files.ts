@@ -129,8 +129,13 @@ export function putProjectAsset(store: Store, projectId: string, name: string, b
 /** An asset of the project the page belongs to, so every artboard reaches it as `assets/<name>`. */
 export function readPageAsset(store: Store, pageId: string, rawName: string): Buffer | undefined {
   const page = store.getPage(pageId);
+  return page ? readProjectAsset(store, page.projectId, rawName) : undefined;
+}
+
+/** An asset of a project (a design system's included), as reached from one of its stylesheets as `assets/<name>`. */
+export function readProjectAsset(store: Store, projectId: string, rawName: string): Buffer | undefined {
   const name = assetNameOf(rawName);
-  return page && name !== undefined ? store.readProjectFile(page.projectId, `${ASSETS_DIR}/${name}`) : undefined;
+  return name !== undefined && store.projectExists(projectId) ? store.readProjectFile(projectId, `${ASSETS_DIR}/${name}`) : undefined;
 }
 
 const authorOf = ({ origin, originId, originLabel, person }: DesignMdAuthor): DesignMdAuthor => ({
