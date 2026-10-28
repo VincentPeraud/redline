@@ -17,6 +17,8 @@ export interface HostAgent {
   kind: "project" | "global";
   serverUrl: string;
   projectIds?: string[];
+  /** Titles of the projects, as the launching terminal knew them (shown by the agents screen). */
+  projectNames?: string[];
   model?: string;
   effort?: Effort;
   /** The Claude config directory of the terminal that launched the agent: its worker runs with it. */
@@ -26,6 +28,10 @@ export interface HostAgent {
   state: HostAgentState;
   /** ISO time of the last state change. */
   since: string;
+  /** ISO time the current worker started: the agent's uptime counts from it, `since` changes at each state change. */
+  startedAt?: string;
+  /** Short name of the machine the worker runs on. */
+  machine?: string;
   /** The page of the run in progress, while the agent is `running`. */
   page?: string;
   /** Why the agent is stopped, when it did not stop on request (refused by the server, crashed). */
@@ -38,6 +44,7 @@ export interface LaunchSettings {
   kind: "project" | "global";
   serverUrl: string;
   projectIds?: string[];
+  projectNames?: string[];
   model?: string;
   effort?: Effort;
   claudeConfigDir: string;

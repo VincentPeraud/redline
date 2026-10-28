@@ -4,11 +4,13 @@ import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface, type Interface } from "node:readline/promises";
 import { HostAlreadyRunningError, startAgentHost } from "./agent-host.js";
+import { runAgentsScreen } from "./agents-screen.js";
+import { closeSummary } from "./agents-view.js";
 import { runAgentWorker } from "./agent-worker.js";
 import { buildHash } from "./build-hash.js";
 import { checkClaude } from "./claude.js";
 import { claudeCodeEngine } from "./claude-code-engine.js";
-import { ensureHost } from "./host-client.js";
+import { ensureHost, type HostClient } from "./host-client.js";
 import { chooseModelEffort } from "./launch-choice.js";
 import { linkFolder, serverForFolder, type LinkChoice, type MoreChoice } from "./link.js";
 import { defaultConfigDir, pickServer, requireLogins, type Login } from "./login.js";
@@ -16,6 +18,7 @@ import { askSecret } from "./secret-prompt.js";
 import { ServerApi } from "./server-api.js";
 import { serveAgent } from "./serve-agent.js";
 import { setupServer } from "./setup.js";
+import { openTerminal } from "./terminal-driver.js";
 import { RELAUNCHED_ENV, UPDATE_EXIT_CODE, WORKER_ENV, superviseAgent } from "./supervisor.js";
 import { serveTerminalMcp } from "./terminal-mcp.js";
 
@@ -142,32 +145,54 @@ async function runAgent(args: string[]): Promise<void> {
   const folder = process.cwd();
   let server: Login;
   let projectIds: string[] | undefined;
+  let projectNames: string[] | undefined;
   if (kind === "global") server = pickServer(servers, flagValue(args, "--server"));
   else {
     let projects: Project[];
     ({ projectIds, projects, server } = await linkFolder({ folder, servers, chooseServer: askServer, choose: askLinkChoice, chooseMore: canPrompt() ? askMoreProjects : undefined }));
+    projectNames = projects.map((project) => project.title);
     console.log(`Serving ${projects.map((p) => p.title).join(", ")}.`);
   }
   const { serverUrl, token } = server;
   const { model, effort } = await askModelEffort(folder, flags);
-  console.log(`Runs use ${modelLabel(model)} · ${effort ?? "Claude's default effort"}${account ? `, account ${account}` : ""}.`);
   if (runsInBackground()) {
     const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
-    const host = await ensureHost({ configDir: defaultConfigDir(), hostCommand: { command: process.execPath, args: [process.argv[1], "host"] } });
+    const host = await connectHost();
     try {
-      await host.launch({ folder, kind, serverUrl, projectIds, model, effort, claudeConfigDir, account });
+      const { agent, started } = await host.launch({ folder, kind, serverUrl, projectIds, projectNames, model, effort, claudeConfigDir, account });
+      console.log(started ? "(the agents screen opens on this agent — q closes it)" : `An agent already serves this folder (${agent.name}): opening it.`);
+      await showAgentsScreen(host, agent.id);
     } finally {
       host.close();
     }
-    console.log("Agent running in the background.");
     return;
   }
+  console.log(`Runs use ${modelLabel(model)} · ${effort ?? "Claude's default effort"}${account ? `, account ${account}` : ""}.`);
   const identity = { serverUrl, token, machine: hostname(), folder, kind, projectIds } as const;
 
   const service = serveAgent({ ...identity, engine: claudeCodeEngine(), model, effort, log: console.log });
   process.on("SIGINT", () => service.stop());
   const { updated } = await service.done;
   if (updated) process.exit(UPDATE_EXIT_CODE);
+}
+
+const connectHost = () => ensureHost({ configDir: defaultConfigDir(), hostCommand: { command: process.execPath, args: [process.argv[1], "host"] } });
+
+/** Opens the agents screen, then prints, in the shell, the agents that keep running. */
+async function showAgentsScreen(host: HostClient, selectedId?: string): Promise<void> {
+  const closed = await runAgentsScreen({ host, terminal: openTerminal(), selectedId, home: homedir() });
+  for (const line of closeSummary(closed)) console.log(line);
+}
+
+/** `redline agents`: the agents screen on the first agent, launching nothing. */
+async function runAgents(): Promise<void> {
+  if (!runsInBackground()) throw new Error("`redline agents` needs a terminal (not available on Windows yet).");
+  const host = await connectHost();
+  try {
+    await showAgentsScreen(host);
+  } finally {
+    host.close();
+  }
 }
 
 /** In a terminal (not on Windows, which has no host yet) the agent runs in the agent host, which outlives the terminal. */
@@ -199,11 +224,12 @@ try {
   if (command === "setup") await runSetup(args);
   else if (command === "login") await runLogin(args[0]);
   else if (command === "agent") await superviseOrRunAgent(args);
+  else if (command === "agents") await runAgents();
   else if (command === "mcp") await runMcp();
   else if (command === "host") await runHost();
   else if (command === "worker") runAgentWorker({ engine: claudeCodeEngine() });
   else if (command === "build-hash") console.log(buildHash());
-  else throw new Error("Usage: redline setup <server-url> --token <token> | redline login [<server-url>] | redline mcp | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
+  else throw new Error("Usage: redline setup <server-url> --token <token> | redline login [<server-url>] | redline mcp | redline agents | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
 } catch (error) {
   console.error((error as Error).message);
   process.exit(1);

@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentInfo, AgentTokenResponse, Page, Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 import { startAgentHost, HostAlreadyRunningError, type AgentHost } from "../src/agent-host.js";
+import { runAgentsScreen, type ScreenTerminal } from "../src/agents-screen.js";
+import { plainText } from "../src/agents-view.js";
 import { ensureHost, HostClient } from "../src/host-client.js";
 import { hostLockPath, hostSocketPath, type HostEvent, type HostLogEntry, type LaunchSettings } from "../src/host-protocol.js";
 import { saveLogin } from "../src/login.js";
@@ -400,4 +402,56 @@ describe("the agent host's process", { timeout: 20_000 }, () => {
     later.close();
     await until(async () => HostClient.connect(configDir).then((c) => (c.close(), false), () => true));
   });
+
+  it("records the project names, the machine and when the worker started, for the agents screen", async () => {
+    const { launchSettings, startHost, client } = await setup();
+    await startHost();
+    const api = await client();
+    const before = Date.now();
+
+    const { agent } = await api.launch({ ...launchSettings(), projectNames: ["Acme"] });
+
+    const [listed] = await api.list();
+    expect(listed).toMatchObject({ id: agent.id, projectNames: ["Acme"], machine: expect.not.stringContaining(".") });
+    expect(Date.parse(listed.startedAt!)).toBeGreaterThanOrEqual(before);
+  });
+
+  it("shows the same agents and the same live log on two agents screens", async () => {
+    const { launchSettings, startHost, client, comment, onServer } = await setup();
+    await startHost();
+    const api = await client();
+    const { agent } = await api.launch({ ...launchSettings(), projectNames: ["Acme"] });
+    await until(async () => (await onServer())[0]?.status === "online");
+
+    const screens = [0, 1].map(async () => {
+      const terminal = new RecordingTerminal();
+      const host = await client();
+      const done = runAgentsScreen({ host, terminal, selectedId: agent.id, home: "/nowhere" });
+      return { terminal, done };
+    });
+    const [first, second] = await Promise.all(screens);
+    await comment();
+
+    for (const { terminal } of [first, second]) {
+      await until(() => terminal.frame.includes("Published"));
+      expect(terminal.frame).toMatch(/Run started {2}Acme \/ Home/);
+      expect(terminal.frame).toContain("Projects  Acme");
+    }
+    first.terminal.keyListener("q");
+    second.terminal.keyListener("ctrl-c");
+    await Promise.all([first.done, second.done]);
+    expect([first.terminal.closed, second.terminal.closed]).toEqual([true, true]);
+  });
 });
+
+class RecordingTerminal implements ScreenTerminal {
+  lines: string[] = [];
+  keyListener: (key: string) => void = () => undefined;
+  closed = false;
+  size() { return { columns: 184, rows: 43 }; }
+  draw(lines: string[]) { this.lines = lines; }
+  onKey(listener: (key: string) => void) { this.keyListener = listener; }
+  onResize() {}
+  close() { this.closed = true; }
+  get frame() { return plainText(this.lines).join("\n"); }
+}
