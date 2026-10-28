@@ -3,9 +3,12 @@ import { EFFORTS, modelLabel, type Effort, type ModelChoice, type Project } from
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface, type Interface } from "node:readline/promises";
+import { HostAlreadyRunningError, startAgentHost } from "./agent-host.js";
+import { runAgentWorker } from "./agent-worker.js";
 import { buildHash } from "./build-hash.js";
 import { checkClaude } from "./claude.js";
 import { claudeCodeEngine } from "./claude-code-engine.js";
+import { ensureHost } from "./host-client.js";
 import { chooseModelEffort } from "./launch-choice.js";
 import { linkFolder, serverForFolder, type LinkChoice, type MoreChoice } from "./link.js";
 import { defaultConfigDir, pickServer, requireLogins, type Login } from "./login.js";
@@ -148,6 +151,17 @@ async function runAgent(args: string[]): Promise<void> {
   const { serverUrl, token } = server;
   const { model, effort } = await askModelEffort(folder, flags);
   console.log(`Runs use ${modelLabel(model)} · ${effort ?? "Claude's default effort"}${account ? `, account ${account}` : ""}.`);
+  if (runsInBackground()) {
+    const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+    const host = await ensureHost({ configDir: defaultConfigDir(), hostCommand: { command: process.execPath, args: [process.argv[1], "host"] } });
+    try {
+      await host.launch({ folder, kind, serverUrl, projectIds, model, effort, claudeConfigDir, account });
+    } finally {
+      host.close();
+    }
+    console.log("Agent running in the background.");
+    return;
+  }
   const identity = { serverUrl, token, machine: hostname(), folder, kind, projectIds } as const;
 
   const service = serveAgent({ ...identity, engine: claudeCodeEngine(), model, effort, log: console.log });
@@ -156,10 +170,22 @@ async function runAgent(args: string[]): Promise<void> {
   if (updated) process.exit(UPDATE_EXIT_CODE);
 }
 
-/** `redline agent` supervises a worker process running the agent, so that an update from the browser can restart it. */
+/** In a terminal (not on Windows, which has no host yet) the agent runs in the agent host, which outlives the terminal. */
+const runsInBackground = () => Boolean(process.stdin.isTTY) && process.platform !== "win32" && !process.env[WORKER_ENV];
+
+/** Without a terminal, `redline agent` supervises a worker process running the agent, so that an update from the browser can restart it. */
 async function superviseOrRunAgent(args: string[]): Promise<void> {
-  if (process.env[WORKER_ENV]) return runAgent(args);
+  if (process.env[WORKER_ENV] || runsInBackground()) return runAgent(args);
   process.exitCode = await superviseAgent({ command: process.execPath, args: [process.argv[1], "agent", ...args], log: console.log });
+}
+
+/** The agent host, started detached by `redline agent`: it runs until no agent runs and no screen is attached. */
+async function runHost(): Promise<void> {
+  const host = await startAgentHost({ configDir: defaultConfigDir(), worker: { command: process.execPath, args: [process.argv[1], "worker"] } }).catch((error) => {
+    if (error instanceof HostAlreadyRunningError) return undefined;
+    throw error;
+  });
+  await host?.closed;
 }
 
 /** Terminal mode: an MCP server on stdio for the user's own Claude Code (registered by `redline setup`). */
@@ -174,6 +200,8 @@ try {
   else if (command === "login") await runLogin(args[0]);
   else if (command === "agent") await superviseOrRunAgent(args);
   else if (command === "mcp") await runMcp();
+  else if (command === "host") await runHost();
+  else if (command === "worker") runAgentWorker({ engine: claudeCodeEngine() });
   else if (command === "build-hash") console.log(buildHash());
   else throw new Error("Usage: redline setup <server-url> --token <token> | redline login [<server-url>] | redline mcp | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
 } catch (error) {

@@ -63,6 +63,8 @@ export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () =
           },
         });
         current = connection;
+        // `stop()` came while connecting: it had no connection to close yet.
+        if (stopped) connection.close();
         failures = 0;
         lostReported = false;
         report(connectedBefore ? { type: "reconnected" } : { type: "connected", serverUrl: options.serverUrl, kind: options.kind, folder: options.folder });
