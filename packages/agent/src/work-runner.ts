@@ -1,5 +1,5 @@
-import type { AgentWorkMessage, EngineEvent, WorkItem } from "@redline/shared";
-import type { ReportActivity } from "./activity.js";
+import { MANIFEST_PATH, defaultManifest, parseManifest, type AgentWorkMessage, type EngineEvent, type WorkItem } from "@redline/shared";
+import type { ArtboardChanges, ReportActivity } from "./activity.js";
 import { uploadChangedAssets } from "./assets.js";
 import type { Engine } from "./engine.js";
 import { pageAddresses } from "./page-addresses.js";
@@ -33,6 +33,25 @@ const activityKind = (item: WorkItem) => (item.kind === "thread" ? "comment" : i
 
 function changedPaths(before: Record<string, string>, after: Record<string, string>): string[] {
   return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((path) => before[path] !== after[path]).sort();
+}
+
+function artboardFiles(files: Record<string, string>): Set<string> {
+  try {
+    const manifest = files[MANIFEST_PATH] === undefined ? defaultManifest(Object.keys(files)) : parseManifest(files[MANIFEST_PATH]);
+    return new Set(manifest.artboards.map((artboard) => artboard.file));
+  } catch {
+    return new Set();
+  }
+}
+
+/** The artboards a run added, changed or removed, read from the manifests before and after it. */
+function artboardChanges(before: Record<string, string>, after: Record<string, string>): ArtboardChanges {
+  const [was, is] = [artboardFiles(before), artboardFiles(after)];
+  return {
+    added: [...is].filter((file) => !was.has(file)).length,
+    changed: [...is].filter((file) => was.has(file) && before[file] !== after[file]).length,
+    removed: [...was].filter((file) => !is.has(file)).length,
+  };
 }
 
 function versionMessage(item: WorkItem, summary: string): string {
@@ -131,7 +150,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send, r
     });
     await postReplies();
     send({ type: "work-done", workId: item.id, versionId: version.id });
-    report({ type: "run-published", workId: item.id, page: pageTitle, changed: changedPaths(checkout.files, files), durationMs: Date.now() - startedAt });
+    report({ type: "run-published", workId: item.id, page: pageTitle, changed: changedPaths(checkout.files, files), artboards: artboardChanges(checkout.files, files), durationMs: Date.now() - startedAt });
   } catch (error) {
     if (signal?.aborted) return;
     const reason = (error as Error).message;

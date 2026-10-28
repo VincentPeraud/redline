@@ -13,11 +13,17 @@ export type AgentActivity =
   | { type: "run-started"; workId: string; project: string; pageId: string; page: string; kind: "comment" | "conversation" | "summary"; author?: string; excerpt?: string; attempt: number }
   /** After each engine step: the latest ones ("Edit home.html") and the time since the run started. */
   | { type: "run-progress"; workId: string; steps: string[]; elapsedMs: number }
-  /** The run ended well; `changed` lists the files it published (empty: nothing changed). */
-  | { type: "run-published"; workId: string; page: string; changed: string[]; durationMs: number }
+  /** The run ended well; `changed` lists the files it published (empty: nothing changed), `artboards` counts the artboards among them (absent in logs older than the count). */
+  | { type: "run-published"; workId: string; page: string; changed: string[]; artboards?: ArtboardChanges; durationMs: number }
   /** The server decides whether a failed run is tried again: it then sends the item again, as a `run-started` with a higher `attempt`. */
   | { type: "run-failed"; workId: string; page: string; reason: string; attempt: number }
   | { type: "stopped"; reason: "stopped" | "updated" };
+
+export interface ArtboardChanges {
+  added: number;
+  changed: number;
+  removed: number;
+}
 
 export type ReportActivity = (event: AgentActivity) => void;
 
@@ -27,6 +33,16 @@ export const wording = {
   connectionLost: (reason?: string) => (reason ? `${reason} Retrying...` : "Connection lost, retrying..."),
   reconnected: "Connected again.",
 };
+
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+/** What a published run changed: "1 artboard added, 2 changed", else the count of other files it published. */
+export function publishedOutcome(changed: string[], artboards?: ArtboardChanges): string {
+  if (changed.length === 0) return "nothing changed";
+  const parts = artboards ? (["added", "changed", "removed"] as const).filter((what) => artboards[what] > 0).map((what) => [artboards[what], what] as const) : [];
+  if (parts.length === 0) return `${plural(changed.length, "file")} changed`;
+  return parts.map(([count, what], index) => (index === 0 ? `${plural(count, "artboard")} ${what}` : `${count} ${what}`)).join(", ");
+}
 
 const seconds = (ms: number) => `${Math.max(1, Math.round(ms / 1000))}s`;
 
@@ -53,7 +69,7 @@ function describe(event: AgentActivity): string {
       return `Working (${seconds(event.elapsedMs)}): ${event.steps.at(-1) ?? "thinking"}`;
     case "run-published":
       return event.changed.length > 0
-        ? `Run published on ${event.page} in ${seconds(event.durationMs)}: ${event.changed.join(", ")}`
+        ? `Run published on ${event.page} in ${seconds(event.durationMs)}, ${publishedOutcome(event.changed, event.artboards)}: ${event.changed.join(", ")}`
         : `Run finished on ${event.page} in ${seconds(event.durationMs)}, nothing changed`;
     case "run-failed":
       return `Run failed: ${event.reason}`;

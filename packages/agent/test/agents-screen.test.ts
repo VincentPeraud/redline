@@ -31,7 +31,7 @@ const portfolio = agent({ id: "a4", name: "portfolio", model: "haiku", effort: "
 const lumoraLog: HostLogEntry[] = [
   entry("13:58:02", { type: "connected", serverUrl: "https://redline.brightco.fr", kind: "project", folder: "/x" }),
   entry("14:05:40", { type: "run-started", workId: "w1", project: "Lumora", page: "Accueil", kind: "comment", author: "Vincent", excerpt: "Le titre du hero est trop gros sur mobile", attempt: 1 }),
-  entry("14:06:57", { type: "run-published", workId: "w1", page: "Accueil", changed: ["home.html", "m.html"], durationMs: 77_000 }),
+  entry("14:06:57", { type: "run-published", workId: "w1", page: "Accueil", changed: ["home.html", "m.html"], artboards: { added: 0, changed: 2, removed: 0 }, durationMs: 77_000 }),
   entry("14:09:12", { type: "run-failed", workId: "w2", page: "Onboarding", reason: "Claude hit its usage limit", attempt: 1 }),
   entry("14:11:30", { type: "connection-lost" }),
   entry("14:11:32", { type: "reconnected" }),
@@ -62,7 +62,7 @@ describe("the agents screen's view", () => {
     expect(frame).toContain("13:58:02  Connected to https://redline.brightco.fr as project agent.");
     expect(frame).toContain("14:05:40  ▸ Run started  Lumora / Accueil  comment by Vincent");
     expect(frame).toContain("« Le titre du hero est trop gros sur mobile »");
-    expect(frame).toContain("14:06:57  ✓ Published  Lumora / Accueil  2 files changed · 1 min 17 s");
+    expect(frame).toContain("14:06:57  ✓ Published  Lumora / Accueil  2 artboards changed · 1 min 17 s");
     expect(frame).toContain("14:09:12  ✗ Run failed  Onboarding  Claude hit its usage limit");
     expect(frame).toContain("14:11:30  Connection lost, retrying...");
     expect(frame).toContain("14:11:32  Connected again.");
@@ -110,6 +110,21 @@ describe("the agents screen's view", () => {
     const frame = text(state);
     expect(frame).toContain("14:13:00  ✓ Finished  Lumora Pro / Tarifs  nothing changed · 52 s");
     expect(frame).not.toContain("Edit Tarifs.dc.html · Read DESIGN.md");
+  });
+
+  it("says which artboards a run added, changed or removed, and what else it published", () => {
+    const published = (at: string, changed: string[], artboards?: { added: number; changed: number; removed: number }) =>
+      entry(at, { type: "run-published", workId: "w3", page: "Tarifs", changed, ...(artboards ? { artboards } : {}), durationMs: 52_000 });
+    let state = open([lumora, radio]);
+    state = applyEvent(state, { event: "log-line", agentId: "a1", entry: published("14:13:00", ["p.html"], { added: 1, changed: 0, removed: 0 }) });
+    state = applyEvent(state, { event: "log-line", agentId: "a1", entry: published("14:14:00", ["a.html", "b.html", "c.html"], { added: 1, changed: 1, removed: 1 }) });
+    state = applyEvent(state, { event: "log-line", agentId: "a1", entry: published("14:15:00", ["manifest.json"], { added: 0, changed: 0, removed: 0 }) });
+    state = applyEvent(state, { event: "log-line", agentId: "a1", entry: published("14:16:00", ["home.html", "m.html"]) });
+    const frame = text(state);
+    expect(frame).toContain("14:13:00  ✓ Published  Lumora Pro / Tarifs  1 artboard added · 52 s");
+    expect(frame).toContain("14:14:00  ✓ Published  Lumora Pro / Tarifs  1 artboard added, 1 changed, 1 removed · 52 s");
+    expect(frame).toContain("14:15:00  ✓ Published  Lumora Pro / Tarifs  1 file changed · 52 s");
+    expect(frame).toContain("14:16:00  ✓ Published  Lumora Pro / Tarifs  2 files changed · 52 s");
   });
 
   it("follows agent changes, additions and removals", () => {

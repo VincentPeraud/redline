@@ -1,5 +1,5 @@
 import { EFFORTS, MODEL_CHOICES, agentsHash, modelLabel, pageHash, type Effort } from "@redline/shared";
-import { wording } from "./activity.js";
+import { publishedOutcome, wording } from "./activity.js";
 import { sanitizeForTerminal } from "./sanitize.js";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "./host-protocol.js";
 import type { NewAgentAnswers, NewAgentQuestions, ProjectOption } from "./new-agent.js";
@@ -461,7 +461,7 @@ function logRows(log: HostLogEntry[], now: number): Row[] {
         break;
       case "run-published": {
         const place = placeOf(projects.get(event.workId), event.page);
-        const outcome = event.changed.length > 0 ? `${plural(event.changed.length, "file")} changed` : "nothing changed";
+        const outcome = publishedOutcome(event.changed, event.artboards);
         rows.push(line(at, ...title("✓", C.green, event.changed.length > 0 ? "Published" : "Finished"), span(place), span(`  ${outcome} · ${duration(event.durationMs)}`, C.muted)));
         break;
       }

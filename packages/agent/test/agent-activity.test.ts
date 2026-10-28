@@ -112,8 +112,23 @@ describe("agent activity: runs", () => {
     expect(progress.at(-1)?.elapsedMs).toBeGreaterThanOrEqual(0);
     const [published] = of(activity, "run-published");
     expect(published.changed).toEqual(["home.html"]);
+    expect(published.artboards).toEqual({ added: 0, changed: 1, removed: 0 });
     expect(published.durationMs).toBeGreaterThanOrEqual(0);
     expect(types().filter((t) => t.startsWith("run-"))).toEqual(["run-started", "run-progress", "run-progress", "run-published"]);
+  });
+
+  it("counts the artboards a run added and changed, apart from the other files", async () => {
+    const { activity, types, comment } = await start([
+      { edit: { path: "home.html", content: "<h1>New</h1>" } },
+      { edit: { path: "pricing.html", content: "<h1>Pricing</h1>" } },
+      { edit: { path: "manifest.json", content: JSON.stringify({ artboards: [{ file: "home.html" }, { file: "pricing.html" }] }) } },
+      { type: "result", summary: "Done" },
+    ]);
+    await comment("Add a pricing artboard");
+    await until(() => types().includes("run-published"), "the run to publish");
+
+    const [published] = of(activity, "run-published");
+    expect(published.artboards).toEqual({ added: 1, changed: 1, removed: 0 });
   });
 
   it("reports a failed run with the engine's reason, then the retry", async () => {
