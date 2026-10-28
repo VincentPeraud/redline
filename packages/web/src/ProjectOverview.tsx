@@ -55,7 +55,8 @@ function PageCard({
   const artboards = usePageArtboards(page.id, page.version.files);
   const [renaming, setRenaming] = useState(false);
   const count = counted(artboards?.length ?? 0, "artboard", "artboards");
-  const modified = stats?.updatedAt ? ` · modifié ${relativeTime(stats.updatedAt)}` : "";
+  // An archived project's cards say what the page holds (and would be deleted with it), not when it last changed.
+  const modified = readOnly ? ` · ${counted(stats?.threads ?? 0, "fil", "fils")}` : stats?.updatedAt ? ` · modifié ${relativeTime(stats.updatedAt)}` : "";
 
   return (
     <div data-testid="page-card" className={cx(styles.pageCard, renameHost, current && styles.pageCardCurrent)}>
@@ -80,7 +81,7 @@ function PageCard({
             </a>
             {!readOnly && <RenamePencil label="Renommer la page" size="page" onClick={() => setRenaming(true)} />}
             <span className={styles.spacer} />
-            {stats && stats.openThreads > 0 && (
+            {!readOnly && stats && stats.openThreads > 0 && (
               <StatusBadge tone="warning" className={styles.chip}>
                 {counted(stats.openThreads, "fil", "fils")}
               </StatusBadge>

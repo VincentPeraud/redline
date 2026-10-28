@@ -275,7 +275,7 @@ interface ArchivedStats {
 }
 
 function ArchivedProjectCard({ project, stats, designSystemTitle }: { project: Project; stats: ArchivedStats | undefined; designSystemTitle: string | undefined }) {
-  const details = [plural(stats?.pageCount ?? 0, "page", "pages"), plural(stats?.threadCount ?? 0, "fil", "fils"), designSystemTitle ? `DS ${designSystemTitle}` : "sans DS"].join(" · ");
+  const details = [plural(stats?.pageCount ?? 0, "page", "pages"), plural(stats?.threadCount ?? 0, "fil", "fils"), designSystemTitle ?? "sans DS"].join(" · ");
   return (
     <a href={routeHref({ name: "project", projectId: project.id })} className={styles.card}>
       <div className={styles.archivedPreview}>
