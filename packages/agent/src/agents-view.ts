@@ -633,6 +633,8 @@ function cut(spans: Span[], from: number, to: number): Span[] {
 /** The box a dialog draws: its width in cells, and its lines for a given inner width. */
 interface DialogBox {
   width: number;
+  /** Where the box starts, as a share of the free height (the boards place each dialog by hand). Default 0.4. */
+  top?: number;
   rows(inner: number): Row[];
 }
 
@@ -724,7 +726,7 @@ function newBox(state: ScreenState, dialog: NewAgentDialog): DialogBox {
     keys.unshift({ key: "↑↓", label: "field" }, { key: "←→", label: "choice" }, { key: "Enter", label: "start" });
   }
   if (dialog.error) body.push([], [span("✗ ", C.red), span(dialog.error, C.muted)]);
-  return { width: 82, rows: (inner) => dialogFrame([span("New agent", C.text, true), span("  in the current folder", C.muted)], body.map((spans) => ({ spans })), keys, inner) };
+  return { width: 82, top: 0.35, rows: (inner) => dialogFrame([span("New agent", C.text, true), span("  in the current folder", C.muted)], body.map((spans) => ({ spans })), keys, inner) };
 }
 
 function dialogBox(state: ScreenState, dialog: Dialog): DialogBox | undefined {
@@ -759,10 +761,10 @@ export function render(state: ScreenState, { columns, rows }: Size): string[] {
 
   const asked = state.dialog && dialogBox(state, state.dialog);
   if (!asked) return frame.map((line) => toAnsi(line));
-  const { width: wanted, rows: boxRows } = asked;
+  const { width: wanted, rows: boxRows, top: topShare = 0.4 } = asked;
   const boxWidth = Math.min(wanted, columns - 4);
   const box = boxRows(boxWidth - 2);
-  const top = Math.max(1, Math.floor((rows - box.length) * 0.4));
+  const top = Math.max(1, Math.floor((rows - box.length) * topShare));
   const boxLeft = Math.floor((columns - boxWidth) / 2);
   return frame.map((line, index) => {
     const row = box[index - top];
