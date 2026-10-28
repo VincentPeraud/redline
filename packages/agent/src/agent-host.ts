@@ -202,7 +202,8 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       config: { serverUrl, token, machine: hostname(), folder: agent.folder, kind: agent.kind, projectIds: agent.projectIds, model: agent.model, effort: agent.effort },
     };
     child.send(start);
-    setAgent(entry, { state: "reconnecting", since: new Date().toISOString(), reason: undefined, page: undefined });
+    const startedAt = new Date().toISOString();
+    setAgent(entry, { state: "reconnecting", since: startedAt, startedAt, machine: hostname().split(".")[0], reason: undefined, page: undefined });
     checkIdle();
   }
 
@@ -256,8 +257,8 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
         return { id: request.id, ok: true, agents: [...entries.values()].map((entry) => entry.agent) };
       case "launch":
       {
-        const { folder, kind, serverUrl, projectIds, model, effort, claudeConfigDir, account } = request;
-        return { id: request.id, ok: true, ...launch({ folder, kind, serverUrl, projectIds, model, effort, claudeConfigDir, account }) };
+        const { folder, kind, serverUrl, projectIds, projectNames, model, effort, claudeConfigDir, account } = request;
+        return { id: request.id, ok: true, ...launch({ folder, kind, serverUrl, projectIds, projectNames, model, effort, claudeConfigDir, account }) };
       }
       case "attach":
         attached.add(client);
