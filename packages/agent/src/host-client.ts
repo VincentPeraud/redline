@@ -1,10 +1,11 @@
 import type { Effort } from "@redline/shared";
 import { spawn } from "node:child_process";
 import { connect, type Socket } from "node:net";
-import { hostSocketPath, type HostAgent, type HostEvent, type HostLogEntry, type HostReply, type HostRequest, type LaunchSettings } from "./host-protocol.js";
+import { claudeEnvironment } from "./worker-environment.js";
+import { encodeLine, lineReader } from "./ndjson.js";
+import { hostSocketPath, type HostAgent, type HostEvent, type HostLogEntry, type HostReplies, type HostReply, type HostRequest, type LaunchSettings } from "./host-protocol.js";
 
-type Reply = Extract<HostReply, { ok: true }>;
-type Pending = { resolve(reply: Reply): void; reject(error: Error): void };
+type Pending = { resolve(reply: never): void; reject(error: Error): void };
 
 /** A connection to the agent host's control API: the agents screen, `redline agent` and the tests are all clients. */
 export class HostClient {
@@ -12,16 +13,20 @@ export class HostClient {
   private readonly pending = new Map<number, Pending>();
   private readonly listeners = new Set<(event: HostEvent) => void>();
 
-  private constructor(private readonly socket: Socket) {
-    let buffer = "";
+  private constructor(
+    private readonly socket: Socket,
+    private readonly env: NodeJS.ProcessEnv,
+  ) {
     socket.setEncoding("utf8");
-    socket.on("data", (chunk: string) => {
-      buffer += chunk;
-      for (let newline = buffer.indexOf("\n"); newline !== -1; newline = buffer.indexOf("\n")) {
-        const line = buffer.slice(0, newline);
-        buffer = buffer.slice(newline + 1);
-        if (line.trim()) this.receive(JSON.parse(line) as HostReply | HostEvent);
+    const read = lineReader((line) => {
+      try {
+        this.receive(JSON.parse(line) as HostReply | HostEvent);
+      } catch {
+        // A line that is not JSON is not from a host this client can talk to: skip it.
       }
+    });
+    socket.on("data", (chunk: string) => {
+      if (!read(chunk)) socket.destroy();
     });
     const lost = () => {
       for (const { reject } of this.pending.values()) reject(new Error("The agent host closed the connection."));
@@ -32,10 +37,10 @@ export class HostClient {
   }
 
   /** Rejects when no host listens on the config directory's socket. */
-  static connect(configDir: string): Promise<HostClient> {
+  static connect(configDir: string, env: NodeJS.ProcessEnv = process.env): Promise<HostClient> {
     return new Promise((resolve, reject) => {
       const socket = connect(hostSocketPath(configDir));
-      socket.once("connect", () => resolve(new HostClient(socket)));
+      socket.once("connect", () => resolve(new HostClient(socket, env)));
       socket.once("error", reject);
     });
   }
@@ -48,22 +53,21 @@ export class HostClient {
     const waiting = this.pending.get(message.id);
     if (!waiting) return;
     this.pending.delete(message.id);
-    if (message.ok) waiting.resolve(message);
+    if (message.ok) waiting.resolve(message as never);
     else waiting.reject(new Error(message.error));
   }
 
-  private request(request: HostRequest): Promise<Reply> {
+  private request<Type extends HostRequest["type"]>(request: Extract<HostRequest, { type: Type }>): Promise<HostReplies[Type]> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.socket.write(`${JSON.stringify({ ...request, id })}\n`);
+      this.socket.write(encodeLine({ ...request, id }));
     });
   }
 
   /** The agents, and when the host started fresh after the previous one died with agents running (until an agent is started again). */
   async snapshot(): Promise<{ agents: HostAgent[]; freshStartAt?: string }> {
-    const reply = await this.request({ type: "list" });
-    return { agents: reply.agents ?? [], freshStartAt: reply.freshStartAt };
+    return this.request({ type: "list" });
   }
 
   async list(): Promise<HostAgent[]> {
@@ -72,13 +76,12 @@ export class HostClient {
 
   /** Starts the agent of this folder and server, or returns the one that already exists (`started` is then false). */
   async launch(settings: LaunchSettings): Promise<{ agent: HostAgent; started: boolean }> {
-    const reply = await this.request({ type: "launch", ...settings });
-    return { agent: reply.agent!, started: reply.started! };
+    return this.request({ type: "launch", ...settings, env: claudeEnvironment(this.env) });
   }
 
   /** Resolves once the agent's worker has exited. */
   async stop(agentId: string): Promise<HostAgent> {
-    return (await this.request({ type: "stop", agentId })).agent!;
+    return (await this.request({ type: "stop", agentId })).agent;
   }
 
   /** Removes the agent from the host's list and deletes its log. */
@@ -88,28 +91,27 @@ export class HostClient {
 
   /** Starts a stopped agent again with its stored settings; `started` is false when it was not stopped. */
   async restart(agentId: string): Promise<{ agent: HostAgent; started: boolean }> {
-    const reply = await this.request({ type: "restart", agentId });
-    return { agent: reply.agent!, started: reply.started! };
+    return this.request({ type: "restart", agentId, env: claudeEnvironment(this.env) });
   }
 
   /** Restarts every stopped agent and returns those. */
   async restartAll(): Promise<HostAgent[]> {
-    return (await this.request({ type: "restart-all" })).agents ?? [];
+    return (await this.request({ type: "restart-all", env: claudeEnvironment(this.env) })).agents;
   }
 
   /** Sets the model and effort (absent = Claude's default) the agent's next runs use; a run in progress keeps its own. */
   async setModelEffort(agentId: string, { model, effort }: { model: string; effort?: Effort }): Promise<HostAgent> {
-    return (await this.request({ type: "set-model-effort", agentId, model, effort })).agent!;
+    return (await this.request({ type: "set-model-effort", agentId, model, effort })).agent;
   }
 
   /** The last `lines` entries of the agent's run log (all that are kept by default), oldest first. */
   async log(agentId: string, lines?: number): Promise<HostLogEntry[]> {
-    return (await this.request({ type: "log", agentId, lines })).entries ?? [];
+    return (await this.request({ type: "log", agentId, lines })).entries;
   }
 
   /** Keeps the host alive while this connection is open. */
   async attach(agentId: string): Promise<HostAgent> {
-    return (await this.request({ type: "attach", agentId })).agent!;
+    return (await this.request({ type: "attach", agentId })).agent;
   }
 
   /** Keeps the host alive while this connection is open, and calls `listener` for each change. */

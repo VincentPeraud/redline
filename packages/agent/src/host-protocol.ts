@@ -1,8 +1,8 @@
-import type { Effort } from "@redline/shared";
+import { EFFORTS, MODEL_PATTERN, type AgentKind, type Effort } from "@redline/shared";
 import type { AgentActivity } from "./activity.js";
 
 /**
- * What an agent is doing: `running` a piece of work (see `HostAgent.page`), `idle` (connected, waiting for work), `reconnecting`
+ * What an agent is doing: `running` a piece of work (see `HostAgent.run`), `idle` (connected, waiting for work), `reconnecting`
  * (its worker is up but not connected to the server: starting, or connection lost), or `stopped` (never started in this host,
  * stopped, failed or refused).
  */
@@ -14,7 +14,7 @@ export interface HostAgent {
   /** The folder's base name, `global` for a global agent. */
   name: string;
   folder: string;
-  kind: "project" | "global";
+  kind: AgentKind;
   serverUrl: string;
   projectIds?: string[];
   /** Titles of the projects, as the launching terminal knew them (shown by the agents screen). */
@@ -33,8 +33,7 @@ export interface HostAgent {
   /** Short name of the machine the worker runs on. */
   machine?: string;
   /** The page of the run in progress (its title, and its id for the address), while the agent is `running`. */
-  page?: string;
-  pageId?: string;
+  run?: { page: string; pageId: string };
   /** Why the agent is stopped, when it did not stop on request (refused by the server, crashed). */
   reason?: string;
 }
@@ -42,7 +41,7 @@ export interface HostAgent {
 /** What a client gives to start an agent. The token is not part of it: the host reads it from the config directory's logins. */
 export interface LaunchSettings {
   folder: string;
-  kind: "project" | "global";
+  kind: AgentKind;
   serverUrl: string;
   projectIds?: string[];
   projectNames?: string[];
@@ -59,16 +58,16 @@ export interface LaunchSettings {
  */
 export type HostRequest =
   | { type: "list" }
-  | ({ type: "launch" } & LaunchSettings)
+  | ({ type: "launch" } & LaunchSettings & ClientEnvironment)
   /** Keeps the host alive while the connection is open, and returns the agent. */
   | { type: "attach"; agentId: string }
   | { type: "stop"; agentId: string }
   /** Removes the agent from the registry and deletes its log, stopping its worker first if it runs. */
   | { type: "remove"; agentId: string }
   /** Starts a stopped agent with its stored settings; an agent that is not stopped is returned as it is (`started` false). */
-  | { type: "restart"; agentId: string }
+  | ({ type: "restart"; agentId: string } & ClientEnvironment)
   /** Restarts every stopped agent, and returns those. */
-  | { type: "restart-all" }
+  | ({ type: "restart-all" } & ClientEnvironment)
   /**
    * Sets the model and effort (absent = Claude's default) of the agent's next runs: the registry and the folder's last launch choice
    * are updated, and a running worker is told without restarting. A run in progress keeps its own. Returns the agent.
@@ -79,11 +78,31 @@ export type HostRequest =
   /** Keeps the host alive while the connection is open, and streams `HostEvent`s. */
   | { type: "subscribe" };
 
+/**
+ * The Claude-relevant environment (`claudeEnvironment`) of the client that launches or restarts agents: their workers run with it
+ * rather than with the host's, which comes from whichever terminal started the host first. The host keeps it in memory only.
+ */
+export interface ClientEnvironment {
+  env?: Record<string, string>;
+}
+
 export type HostRequestEnvelope = HostRequest & { id: number };
 
-export type HostReply =
-  | { id: number; ok: true; agents?: HostAgent[]; agent?: HostAgent; started?: boolean; entries?: HostLogEntry[]; freshStartAt?: string }
-  | { id: number; ok: false; error: string };
+/** What the host answers to each type of request. */
+export interface HostReplies {
+  list: { agents: HostAgent[]; freshStartAt?: string };
+  launch: { agent: HostAgent; started: boolean };
+  attach: { agent: HostAgent };
+  stop: { agent: HostAgent };
+  remove: Record<never, never>;
+  restart: { agent: HostAgent; started: boolean };
+  "restart-all": { agents: HostAgent[] };
+  "set-model-effort": { agent: HostAgent };
+  log: { entries: HostLogEntry[] };
+  subscribe: Record<never, never>;
+}
+
+export type HostReply = { [Type in keyof HostReplies]: { id: number; ok: true } & HostReplies[Type] }[keyof HostReplies] | { id: number; ok: false; error: string };
 
 /** What an agent's run log records: the worker's activity, plus the failure of a worker that did not stop on request. */
 export type HostLogEvent = AgentActivity | { type: "stopped"; reason: "failed"; error: string } | { type: "stopped"; reason: "host-restarted" };
@@ -100,7 +119,9 @@ export type HostEvent =
   | { event: "agent-added"; agent: HostAgent }
   | { event: "agent-changed"; agent: HostAgent }
   | { event: "agent-removed"; agentId: string }
-  | { event: "log-line"; agentId: string; entry: HostLogEntry };
+  | { event: "log-line"; agentId: string; entry: HostLogEntry }
+  /** The last agent the previous host lost is running again (or gone): the fresh start is over. */
+  | { event: "fresh-start"; freshStartAt?: string };
 
 /** Host to worker, over the parent channel. */
 export type HostToWorker =
@@ -123,13 +144,23 @@ export interface WorkerConfig {
   token: string;
   machine: string;
   folder: string;
-  kind: "project" | "global";
+  kind: AgentKind;
   projectIds?: string[];
   model?: string;
   effort?: Effort;
 }
 
-export const hostSocketPath = (configDir: string) => `${configDir}/agent-host.sock`;
-export const hostLockPath = (configDir: string) => `${configDir}/agent-host.lock`;
+/** The socket and the lock live in a directory of their own, private to the user (see `prepareHostDirectory`). */
+export const hostSocketPath = (configDir: string) => `${configDir}/host/agent-host.sock`;
+export const hostLockPath = (configDir: string) => `${configDir}/host/agent-host.lock`;
 export const agentLogPath = (configDir: string, agentId: string) => `${configDir}/logs/${agentId}.jsonl`;
 export const registryPath = (configDir: string) => `${configDir}/agents.json`;
+
+/** The message to answer a request whose model or effort is invalid; both are optional. */
+export function modelChoiceError({ model, effort }: { model?: unknown; effort?: unknown }): string | undefined {
+  if (model !== undefined && (typeof model !== "string" || !MODEL_PATTERN.test(model))) return "invalid model";
+  if (effort !== undefined && !(EFFORTS as readonly unknown[]).includes(effort)) return "invalid effort";
+  return undefined;
+}
+
+export const isAgentId = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);

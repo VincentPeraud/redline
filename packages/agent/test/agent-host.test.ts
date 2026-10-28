@@ -1,6 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { connect, createServer } from "node:net";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentInfo, AgentTokenResponse, Page, Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
@@ -376,7 +378,7 @@ describe("the agent host's control API", { timeout: 20_000 }, () => {
     await api.stop(agent.id);
 
     expect((await api.list())[0]).toMatchObject({ id: agent.id, state: "stopped" });
-    expect((await api.list())[0].page).toBeUndefined();
+    expect((await api.list())[0].run).toBeUndefined();
     await until(async () => (await onServer())[0]?.status === "offline");
     await until(async () => ((await (await server.get(`/api/pages/${page.id}/queue`)).json()) as { reason?: string }[]).some((entry) => entry.reason === "agent-offline"));
     rmSync(hold);
@@ -462,7 +464,7 @@ describe("the agent host's control API", { timeout: 20_000 }, () => {
 describe("the agent host's run log", { timeout: 20_000 }, () => {
   const types = (entries: HostLogEntry[]) => entries.map((entry) => entry.event.type);
 
-  it("returns the run started, progress and published lines, in order, as structured entries", async () => {
+  it("returns the run started and published lines, in order, as structured entries", async () => {
     const { launchSettings, startHost, client, comment } = await setup();
     await startHost();
     const api = await client();
@@ -473,9 +475,9 @@ describe("the agent host's run log", { timeout: 20_000 }, () => {
 
     await until(async () => types(await api.log(agent.id)).includes("run-published"));
     const entries = await api.log(agent.id);
-    expect(types(entries)).toEqual(["connected", "run-started", "run-progress", "run-published"]);
+    expect(types(entries)).toEqual(["connected", "run-started", "run-published"]);
     expect(entries[1]).toMatchObject({ event: { project: "Acme", page: "Home", kind: "comment", excerpt: "Make the title bigger" } });
-    expect(entries[3]).toMatchObject({ event: { page: "Home", changed: ["home.html"] } });
+    expect(entries[2]).toMatchObject({ event: { page: "Home", changed: ["home.html"] } });
     expect(Number.isNaN(Date.parse(entries[0].at))).toBe(false);
     expect(await api.log(agent.id, 2)).toEqual(entries.slice(-2));
   });
@@ -495,14 +497,15 @@ describe("the agent host's run log", { timeout: 20_000 }, () => {
     await comment();
 
     await until(async () => (await api.list())[0].state === "running");
-    expect((await api.list())[0]).toMatchObject({ state: "running", page: "Home" });
+    expect((await api.list())[0]).toMatchObject({ state: "running", run: { page: "Home", pageId: expect.any(String) } });
     rmSync(hold);
     await until(async () => (await api.list())[0].state === "idle");
-    expect((await api.list())[0].page).toBeUndefined();
+    expect((await api.list())[0].run).toBeUndefined();
     await until(() => events.some((event) => event.event === "log-line" && event.entry.event.type === "run-published"));
     const lines = events.flatMap((event) => (event.event === "log-line" ? [event] : []));
     expect(lines.every((line) => line.agentId === agent.id)).toBe(true);
-    expect(types(lines.map((line) => line.entry))).toEqual(types(await api.log(agent.id)));
+    expect(types(lines.map((line) => line.entry))).toEqual(expect.arrayContaining(["run-progress"]));
+    expect(types(lines.map((line) => line.entry)).filter((type) => type !== "run-progress")).toEqual(types(await api.log(agent.id)));
     const states = events.flatMap((event) => (event.event === "agent-changed" ? [event.agent.state] : []));
     expect(states).toEqual(expect.arrayContaining(["idle", "running"]));
     expect(states.lastIndexOf("running")).toBeLessThan(states.lastIndexOf("idle"));
@@ -542,7 +545,7 @@ describe("the agent host's run log", { timeout: 20_000 }, () => {
     const again = await client();
 
     const after = await again.log(agent.id);
-    expect(types(after)).toEqual(["run-started", "run-progress", "run-published", "stopped"]);
+    expect(types(after)).toEqual(["connected", "run-started", "run-published", "stopped"]);
   });
 
   it("ends a refused agent's log with a stopped line carrying the reason", async () => {
@@ -598,6 +601,7 @@ describe("the agent host's process", { timeout: 20_000 }, () => {
 
   it("takes over the lock of a host that died", async () => {
     const { startHost, configDir } = await setup();
+    mkdirSync(dirname(hostLockPath(configDir)), { recursive: true });
     writeFileSync(hostLockPath(configDir), "999999");
     await startHost();
     expect(await (await HostClient.connect(configDir)).list()).toEqual([]);
@@ -736,3 +740,344 @@ class RecordingTerminal implements ScreenTerminal {
   close() { this.closed = true; }
   get frame() { return plainText(this.lines).join("\n"); }
 }
+
+describe("the agent host's input checks", { timeout: 20_000 }, () => {
+  it("refuses a model that is not a model name and an unknown effort, on launch and on set-model-effort", async () => {
+    const { launchSettings, startHost, client } = await setup();
+    await startHost();
+    const api = await client();
+
+    await expect(api.launch({ ...launchSettings(), model: "opus; rm -rf /" })).rejects.toThrow("invalid model");
+    await expect(api.launch({ ...launchSettings(), effort: "extreme" as "high" })).rejects.toThrow("invalid effort");
+    expect(await api.list()).toEqual([]);
+
+    const { agent } = await api.launch(launchSettings());
+    await expect(api.setModelEffort(agent.id, { model: "--dangerous" + " x" })).rejects.toThrow("invalid model");
+    await expect(api.setModelEffort(agent.id, { model: "sonnet[1m]", effort: "huge" as "high" })).rejects.toThrow("invalid effort");
+    expect((await api.list())[0]).toMatchObject({ model: "opus", effort: "high" });
+  });
+
+  it("ignores registry entries whose id is not a UUID, so that no log path is built from them", async () => {
+    const { configDir, launchSettings, startHost, client } = await setup();
+    const real = "11111111-2222-4333-8444-555555555555";
+    const entry = (id: string) => ({ ...launchSettings(), id, name: "x", state: "stopped", since: "2026-01-01T00:00:00.000Z" });
+    writeFileSync(join(configDir, "agents.json"), JSON.stringify([entry("../../../etc/passwd"), entry(real)]));
+    await startHost();
+    const api = await client();
+
+    expect((await api.list()).map((agent) => agent.id)).toEqual([real]);
+  });
+
+  it("drops a client that sends a line without end beyond the limit, and keeps serving the others", async () => {
+    const { configDir, startHost, client } = await setup();
+    await startHost();
+    const flood = connect(hostSocketPath(configDir));
+    await new Promise((resolve) => flood.once("connect", resolve));
+    const closed = new Promise((resolve) => flood.once("close", resolve));
+    flood.on("error", () => undefined);
+    for (let i = 0; i < 12 && !flood.destroyed; i++) flood.write("x".repeat(256 * 1024));
+    await closed;
+
+    expect(await (await client()).list()).toEqual([]);
+  });
+
+  it("survives a malformed line from the host", async () => {
+    const dir = tempDir("rl-fake-host-");
+    const path = hostSocketPath(dir);
+    mkdirSync(dirname(path), { recursive: true });
+    const fake = createServer((socket) => {
+      socket.on("data", (data) => {
+        const { id } = JSON.parse(data.toString().trim());
+        socket.write(`not json\n{"id":${id},"ok":true,"agents":[]}\n`);
+      });
+    });
+    await new Promise<void>((resolve) => fake.listen(path, resolve));
+    try {
+      const api = await HostClient.connect(dir);
+      clients.push(api);
+      expect(await api.list()).toEqual([]);
+    } finally {
+      fake.close();
+    }
+  });
+});
+
+describe("agents the previous host lost", { timeout: 20_000 }, () => {
+  const ids = ["11111111-2222-4333-8444-555555555551", "11111111-2222-4333-8444-555555555552"];
+  const stoppedOn = "2026-01-02T03:04:05.000Z";
+
+  it("keeps the time an agent stopped, and dates the ones the host lost at the fresh start", async () => {
+    const { configDir, launchSettings, startHost, client } = await setup();
+    const entry = (id: string, state: string) => ({ ...launchSettings(), id, name: id, state, since: stoppedOn });
+    writeFileSync(join(configDir, "agents.json"), JSON.stringify([entry(ids[0], "stopped"), entry(ids[1], "idle")]));
+    await startHost();
+    const api = await client();
+
+    const { agents, freshStartAt } = await api.snapshot();
+    expect(agents.find((a) => a.id === ids[0])!.since).toBe(stoppedOn);
+    expect(agents.find((a) => a.id === ids[1])!.since).toBe(freshStartAt);
+  });
+
+  it("keeps telling the fresh start while some of them are still stopped, whatever else is launched, and says when the last one is back", async () => {
+    const { configDir, launchSettings, startHost, client } = await setup();
+    const entry = (id: string) => ({ ...launchSettings(), id, name: id, state: "idle", since: stoppedOn });
+    writeFileSync(join(configDir, "agents.json"), JSON.stringify(ids.map(entry)));
+    await startHost();
+    const api = await client();
+    const events: HostEvent[] = [];
+    await api.subscribe((event) => events.push(event));
+    const fresh = (await api.snapshot()).freshStartAt;
+    expect(fresh).toBeDefined();
+
+    await api.launch(launchSettings());
+    expect((await api.snapshot()).freshStartAt).toBe(fresh);
+    await api.restart(ids[0]);
+    expect((await api.snapshot()).freshStartAt).toBe(fresh);
+    expect(events.some((e) => e.event === "fresh-start")).toBe(false);
+    await api.restart(ids[1]);
+    expect((await api.snapshot()).freshStartAt).toBeUndefined();
+    await until(() => events.some((e) => e.event === "fresh-start"));
+  });
+});
+
+describe("the progress of a run in the log", { timeout: 20_000 }, () => {
+  const progressOf = (entries: HostLogEntry[]) => entries.filter((e) => e.event.type === "run-progress");
+
+  it("streams every step but keeps only the latest one while the run is in progress, and none once it ended", async () => {
+    const { configDir, launchSettings, startHost, client, comment } = await setup();
+    const hold = join(configDir, "hold");
+    writeFileSync(hold, "");
+    await startHost({ REDLINE_TEST_STEPS: "30", REDLINE_TEST_HOLD_RUN: hold });
+    const api = await client();
+    const streamed: HostLogEntry[] = [];
+    await api.subscribe((event) => event.event === "log-line" && streamed.push(event.entry));
+    const { agent } = await api.launch(launchSettings());
+    await until(async () => (await api.list())[0]?.state === "idle");
+    await comment();
+    await until(() => progressOf(streamed).length === 30);
+
+    const during = progressOf(await api.log(agent.id));
+    expect(during).toHaveLength(1);
+    expect(during[0].event).toMatchObject({ type: "run-progress", steps: expect.arrayContaining(["Edit file-30.html"]) });
+    expect(progressOf(readLogFile(configDir, agent.id))).toHaveLength(0);
+
+    rmSync(hold);
+    await until(async () => (await api.log(agent.id)).some((e) => e.event.type === "run-published"));
+    expect(progressOf(await api.log(agent.id))).toHaveLength(0);
+    expect(progressOf(readLogFile(configDir, agent.id))).toHaveLength(0);
+  });
+});
+
+const readLogFile = (configDir: string, agentId: string): HostLogEntry[] =>
+  readFileSync(agentLogPath(configDir, agentId), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+
+describe("a worker that stops badly", { timeout: 20_000 }, () => {
+  it("shows the error of a worker that crashed with an exception", async () => {
+    const { launchSettings, startHost, client } = await setup();
+    await startHost({ REDLINE_TEST_CRASH: "throw" });
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+
+    await until(async () => (await api.list())[0]?.state === "stopped");
+    expect((await api.list())[0].reason).toContain("boom in the worker");
+    expect((await api.log(agent.id)).at(-1)?.event).toMatchObject({ type: "stopped", reason: "failed", error: expect.stringContaining("boom in the worker") });
+  });
+
+  it("shows the last words of a worker that died with its message on stderr", async () => {
+    const { launchSettings, startHost, client } = await setup();
+    await startHost({ REDLINE_TEST_CRASH: "stderr" });
+    const api = await client();
+    await api.launch(launchSettings());
+
+    await until(async () => (await api.list())[0]?.state === "stopped");
+    expect((await api.list())[0].reason).toBe("The agent process exited (code 4): fatal: the disk is full");
+  });
+
+  it("cancels the run in progress when the agent is stopped", async () => {
+    const { configDir, launchSettings, startHost, client, comment } = await setup();
+    const hold = join(configDir, "hold");
+    const cancelled = join(configDir, "cancelled");
+    writeFileSync(hold, "");
+    await startHost({ REDLINE_TEST_STEPS: "1", REDLINE_TEST_HOLD_RUN: hold, REDLINE_TEST_CANCELLED: cancelled });
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+    await until(async () => (await api.list())[0]?.state === "idle");
+    await comment();
+    // Stopping before the engine began would cancel nothing: wait until Claude is at work.
+    await until(() => existsSync(`${cancelled}.started`));
+
+    await api.stop(agent.id);
+
+    expect(existsSync(cancelled)).toBe(true);
+  });
+});
+
+describe("the environment of a worker", () => {
+  const reports = (file: string) => (existsSync(file) ? readFileSync(file, "utf8") : "").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as { leak?: string; apiKey?: string; awsProfile?: string; path?: string });
+  const clientWith = async (configDir: string, env: NodeJS.ProcessEnv) => {
+    const connected = await HostClient.connect(configDir, env);
+    clients.push(connected);
+    return connected;
+  };
+
+  it("comes from the client that launched the agent, not from the terminal that started the host", async () => {
+    const { configDir, launchSettings, startHost } = await setup();
+    const report = join(configDir, "report");
+    process.env.REDLINE_TEST_LEAK = "from-the-host";
+    try {
+      await startHost({ REDLINE_TEST_ENV_REPORT: report });
+      const api = await clientWith(configDir, { PATH: "/client/bin:/usr/bin", ANTHROPIC_API_KEY: "sk-client", AWS_PROFILE: "work", UNRELATED: "no" });
+      const { agent } = await api.launch(launchSettings());
+      await until(() => existsSync(report));
+
+      expect(reports(report)).toEqual([{ apiKey: "sk-client", awsProfile: "work", path: "/client/bin:/usr/bin" }]);
+      // Only in the host's memory: neither listed nor written to the registry.
+      expect(JSON.stringify(await api.list())).not.toContain("sk-client");
+      expect(readFileSync(join(configDir, "agents.json"), "utf8")).not.toContain("sk-client");
+      expect(agent.id).toBeDefined();
+    } finally {
+      delete process.env.REDLINE_TEST_LEAK;
+    }
+  });
+
+  it("is reused by an update relaunch, and replaced by the client that restarts the agent, also after a host restart", async () => {
+    const { configDir, launchSettings, startHost } = await setup();
+    const report = join(configDir, "report");
+    const updateOnce = join(configDir, "update-once");
+    const host = await startHost({ REDLINE_TEST_ENV_REPORT: report, REDLINE_TEST_UPDATE_ONCE: updateOnce });
+    const first = await clientWith(configDir, { ANTHROPIC_API_KEY: "sk-first" });
+    const { agent } = await first.launch(launchSettings());
+    await until(() => existsSync(report) && reports(report).length === 2);
+    expect(reports(report).map((r) => r.apiKey)).toEqual(["sk-first", "sk-first"]);
+
+    await first.stop(agent.id);
+    const second = await clientWith(configDir, { ANTHROPIC_API_KEY: "sk-second" });
+    await second.restart(agent.id);
+    await until(() => reports(report).length === 3);
+    expect(reports(report).at(-1)!.apiKey).toBe("sk-second");
+
+    await second.stop(agent.id);
+    await host.stop();
+    hosts = [];
+    await startHost({ REDLINE_TEST_ENV_REPORT: report });
+    const third = await clientWith(configDir, { ANTHROPIC_API_KEY: "sk-third" });
+    await third.restartAll();
+    await until(() => reports(report).length === 4);
+    expect(reports(report).at(-1)!.apiKey).toBe("sk-third");
+  });
+});
+
+describe("the agent host's private files", { timeout: 30_000 }, () => {
+  const modeOf = (path: string) => statSync(path).mode & 0o777;
+
+  it("serves its socket from a directory only the user can enter, even when the config directory is open to all", async () => {
+    const { configDir, startHost } = await setup();
+    chmodSync(configDir, 0o755);
+    await startHost();
+
+    expect(modeOf(dirname(hostSocketPath(configDir)))).toBe(0o700);
+    expect(modeOf(hostSocketPath(configDir))).toBe(0o600);
+    expect(modeOf(hostLockPath(configDir))).toBe(0o600);
+  });
+
+  it("tightens a socket directory left open, and refuses one that is a link", async () => {
+    const { configDir, startHost } = await setup();
+    const dir = dirname(hostSocketPath(configDir));
+    mkdirSync(dir, { mode: 0o755 });
+    chmodSync(dir, 0o755);
+    const host = await startHost();
+    expect(modeOf(dir)).toBe(0o700);
+    await host.stop();
+    hosts = [];
+
+    rmSync(dir, { recursive: true });
+    symlinkSync(tempDir("rl-elsewhere-"), dir);
+    await expect(startAgentHost({ configDir, worker: hostWorkerCommand() })).rejects.toThrow(/not a directory of yours/);
+  });
+
+  it("makes the registry, the logs and the last launch choices private even when those files already exist", async () => {
+    const { configDir, launchSettings, startHost, client } = await setup();
+    const logs = join(configDir, "logs");
+    mkdirSync(logs);
+    const open = (path: string) => {
+      writeFileSync(path, "");
+      chmodSync(path, 0o644);
+    };
+    open(join(configDir, "agents.json.tmp"));
+    open(join(configDir, "launch-choices.json"));
+    await startHost();
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+    open(agentLogPath(configDir, agent.id));
+    await api.setModelEffort(agent.id, { model: "sonnet" });
+    await until(async () => (await api.log(agent.id)).length > 0);
+    await api.stop(agent.id);
+
+    for (const file of [join(configDir, "agents.json"), join(configDir, "launch-choices.json"), agentLogPath(configDir, agent.id)]) expect(modeOf(file)).toBe(0o600);
+  });
+});
+
+describe("two agent hosts starting together", { timeout: 30_000 }, () => {
+  it("lets exactly one win the config directory, and the other's client reach it", async () => {
+    const { configDir } = await setup();
+    const starts = await Promise.allSettled([1, 2, 3].map(() => startAgentHost({ configDir, worker: hostWorkerCommand(), idleExitMs: 60_000 })));
+    for (const start of starts) if (start.status === "fulfilled") hosts.push(start.value);
+
+    expect(starts.filter((start) => start.status === "fulfilled")).toHaveLength(1);
+    for (const start of starts) if (start.status === "rejected") expect(start.reason).toBeInstanceOf(HostAlreadyRunningError);
+    const api = await HostClient.connect(configDir);
+    clients.push(api);
+    expect(await api.list()).toEqual([]);
+  });
+
+  it("is one host when two terminals start it through ensureHost", async () => {
+    const { configDir, launchSettings } = await setup();
+    const hostCommand = tsxCommand("./agent-host-process.ts", { REDLINE_CONFIG_DIR: configDir });
+    const [first, second] = await Promise.all([ensureHost({ configDir, hostCommand }), ensureHost({ configDir, hostCommand })]);
+    clients.push(first, second);
+
+    const { agent } = await first.launch(launchSettings());
+    expect((await second.list()).map((a) => a.id)).toEqual([agent.id]);
+    await first.stop(agent.id);
+  });
+
+  it("never takes the lock of a live host nor an empty lock that is still being written, and releases only its own lock", async () => {
+    const { configDir, startHost } = await setup();
+    const lock = hostLockPath(configDir);
+    mkdirSync(dirname(lock), { recursive: true });
+    writeFileSync(lock, "");
+    await expect(startAgentHost({ configDir, worker: hostWorkerCommand() })).rejects.toBeInstanceOf(HostAlreadyRunningError);
+    expect(existsSync(lock)).toBe(true);
+
+    writeFileSync(lock, "garbage");
+    chmodSync(lock, 0o600);
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lock, old, old);
+    const host = await startHost();
+    writeFileSync(lock, "1");
+    await host.stop();
+    hosts = [];
+    expect(readFileSync(lock, "utf8")).toBe("1");
+  });
+
+  it("keeps the socket of a host it did not start, and takes over the socket of one that was killed", async () => {
+    const { configDir, startHost } = await setup();
+    const path = hostSocketPath(configDir);
+    mkdirSync(dirname(path), { recursive: true });
+    const foreign = createServer((socket) => socket.end());
+    await new Promise<void>((resolve) => foreign.listen(path, resolve));
+    await expect(startAgentHost({ configDir, worker: hostWorkerCommand() })).rejects.toBeInstanceOf(HostAlreadyRunningError);
+    await new Promise<void>((resolve) => connect(path).once("connect", () => resolve()));
+    foreign.close();
+
+    const { command, args, env } = tsxCommand("./agent-host-process.ts", { REDLINE_CONFIG_DIR: configDir });
+    const doomed = spawn(command, args, { env: { ...process.env, ...env }, stdio: "ignore" });
+    await until(async () => HostClient.connect(configDir).then((c) => (c.close(), true), () => false));
+    doomed.kill("SIGKILL");
+    await new Promise((resolve) => doomed.once("exit", resolve));
+    expect(existsSync(path)).toBe(true);
+
+    await startHost();
+    expect(await (await HostClient.connect(configDir)).list()).toEqual([]);
+  });
+});

@@ -1,4 +1,6 @@
 import { EFFORTS, MODEL_CHOICES, agentsHash, modelLabel, pageHash, type Effort } from "@redline/shared";
+import { wording } from "./activity.js";
+import { sanitizeForTerminal } from "./sanitize.js";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "./host-protocol.js";
 import type { NewAgentAnswers, NewAgentQuestions, ProjectOption } from "./new-agent.js";
 
@@ -23,7 +25,7 @@ export interface ScreenState {
   home: string;
   /** The folder the screen was opened from: `n` starts or selects its agent. */
   folder: string;
-  /** When the host started fresh after the previous one died with agents running; the banner shows while every agent is still stopped. */
+  /** When the host started fresh after the previous one died with agents running; the banner shows while some agent is still stopped (the host says when the last one is back). */
   freshStartAt?: string;
   /** The dialog open over the screen, if any: it takes every key until it closes. */
   dialog?: Dialog;
@@ -102,8 +104,7 @@ export function logLoaded(state: ScreenState, agentId: string, entries: HostLogE
 
 export function applyEvent(state: ScreenState, event: HostEvent): ScreenState {
   const next = reduce(state, event);
-  const started = (event.event === "agent-added" || event.event === "agent-changed") && event.agent.state !== "stopped";
-  return { ...next, freshStartAt: started ? undefined : next.freshStartAt, dialog: next.dialog && dialogStillValid(next, next.dialog) ? next.dialog : undefined };
+  return { ...next, dialog: next.dialog && dialogStillValid(next, next.dialog) ? next.dialog : undefined };
 }
 
 function reduce(state: ScreenState, event: HostEvent): ScreenState {
@@ -121,8 +122,14 @@ function reduce(state: ScreenState, event: HostEvent): ScreenState {
       const { [event.agentId]: _loaded, ...loaded } = state.loaded;
       return { ...state, agents, selectedId, logs, loaded };
     }
-    case "log-line":
-      return { ...state, logs: { ...state.logs, [event.agentId]: [...(state.logs[event.agentId] ?? []), event.entry] } };
+    case "fresh-start":
+      return { ...state, freshStartAt: event.freshStartAt };
+    case "log-line": {
+      // Only a run's latest progress is worth keeping: the screen would otherwise grow with every step.
+      const { event: logged } = event.entry;
+      const kept = (state.logs[event.agentId] ?? []).filter((e) => !(logged.type === "run-progress" && e.event.type === "run-progress" && e.event.workId === logged.workId));
+      return { ...state, logs: { ...state.logs, [event.agentId]: [...kept, event.entry] } };
+    }
   }
 }
 
@@ -157,7 +164,7 @@ export function onKey(state: ScreenState, key: Key): Update {
 }
 
 /** The canvas of the run in progress, else the server's Agents screen. */
-const addressOf = (agent: HostAgent): string => `${agent.serverUrl}/${agent.state === "running" && agent.pageId ? pageHash(agent.pageId) : agentsHash}`;
+const addressOf = (agent: HostAgent): string => `${agent.serverUrl}/${agent.state === "running" && agent.run ? pageHash(agent.run.pageId) : agentsHash}`;
 
 const closeDialog = (state: ScreenState): ScreenState => ({ ...state, dialog: undefined });
 
@@ -298,7 +305,8 @@ interface Row {
   rule?: boolean;
 }
 
-const span = (text: string, fg: string = C.text, bold = false, bg?: string): Span => ({ text, fg, bold, bg });
+/** Every text of the screen is made here, so it is cleaned here (see `sanitizeForTerminal`). */
+const span = (text: string, fg: string = C.text, bold = false, bg?: string): Span => ({ text: sanitizeForTerminal(text), fg, bold, bg });
 const width = (spans: Span[]) => spans.reduce((total, s) => total + [...s.text].length, 0);
 const spaces = (count: number) => " ".repeat(Math.max(0, count));
 
@@ -367,6 +375,8 @@ function uptime(ms: number): string {
   return hours < 24 ? `${hours} h ${minutes % 60} min` : `${Math.floor(hours / 24)} d ${hours % 24} h`;
 }
 
+const modelText = (model: string | undefined) => (model ? modelLabel(model) : "Claude's default");
+const effortText = (effort: Effort | undefined) => effort ?? "Claude's default";
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 const folderLabel = (folder: string, home: string) => (home && (folder === home || folder.startsWith(`${home}/`)) ? `~${folder.slice(home.length)}` : folder);
 
@@ -378,7 +388,7 @@ const placeOf = (project: string | undefined, page: string) => (project ? `${pro
 function activityLabel(agent: HostAgent, log: HostLogEntry[]): string {
   if (agent.state !== "running") return agent.state;
   const started = lastStarted(log);
-  const page = agent.page ?? started?.page;
+  const page = agent.run?.page ?? started?.page;
   if (!page) return "running";
   return `running · ${placeOf(started?.page === page ? started.project : undefined, page)}`;
 }
@@ -390,8 +400,8 @@ const dot = (agent: HostAgent) => (agent.state === "stopped" ? "○" : "●");
 
 const TIME_WIDTH = 10;
 
-function logRows(log: HostLogEntry[]): Row[] {
-  // A run's progress shows under its start line only while the run is in progress: a later end of the run, or of the worker, drops it.
+function logRows(log: HostLogEntry[], now: number): Row[] {
+  // A run's progress shows under its start line, its time counted from the start of the run, only while the run is in progress: a later end of the run, or of the worker, drops it.
   const progress = new Map<string, Extract<HostLogEvent, { type: "run-progress" }>>();
   const lastStart = new Map<string, number>();
   const projects = new Map<string, string>();
@@ -427,13 +437,13 @@ function logRows(log: HostLogEntry[]): Row[] {
   log.forEach(({ at, event }, index) => {
     switch (event.type) {
       case "connected":
-        rows.push(line(at, span(`Connected to ${event.serverUrl} as ${event.kind} agent.`, C.muted)));
+        rows.push(line(at, span(`${wording.connected(event.serverUrl, event.kind)}.`, C.muted)));
         break;
       case "connection-lost":
-        rows.push(line(at, span(event.reason ? `${event.reason} Retrying...` : "Connection lost, retrying...", C.muted)));
+        rows.push(line(at, span(wording.connectionLost(event.reason), C.muted)));
         break;
       case "reconnected":
-        rows.push(line(at, span("Connected again.", C.muted)));
+        rows.push(line(at, span(wording.reconnected, C.muted)));
         break;
       case "refused":
         rows.push(line(at, ...title("✗", C.red, "Refused"), span(event.reason, C.muted)));
@@ -444,7 +454,7 @@ function logRows(log: HostLogEntry[]): Row[] {
         rows.push(line(at, ...title("▸", C.amber, "Run started"), span(placeOf(event.project, event.page)), span(`  ${event.kind}${who}${attempt}`, C.muted)));
         if (event.excerpt) rows.push(detail(`« ${event.excerpt} »`));
         const latest = progress.get(event.workId);
-        if (latest && lastStart.get(event.workId) === index) rows.push(detail([...latest.steps.slice(-2), duration(latest.elapsedMs)].join(" · ")));
+        if (latest && lastStart.get(event.workId) === index) rows.push(detail([...latest.steps.slice(-2), duration(now - Date.parse(at))].join(" · ")));
         break;
       }
       case "run-progress":
@@ -536,16 +546,16 @@ function detailRows(state: ScreenState, agent: HostAgent, log: HostLogEntry[], c
     { spans: [] },
     { spans: [span(spaces(MARGIN)), ...left, span(spaces(gap)), ...status] },
     field("Projects", projects),
-    field("Model", agent.model ? modelLabel(agent.model) : "Claude's default"),
-    field("Effort", agent.effort ?? "Claude's default"),
+    field("Model", modelText(agent.model)),
+    field("Effort", effortText(agent.effort)),
     field("Account", agent.account ?? "unknown"),
     field("Machine", machine, C.muted),
   ];
 }
 
-/** After a fresh start of the host, while every agent is still stopped: says why, and which keys bring them back. */
+/** After a fresh start of the host, while some agent is still stopped: says why, and which keys bring them back. */
 function bannerRows(state: ScreenState, cells: number): Row[] {
-  if (!state.freshStartAt || state.agents.length === 0 || state.agents.some((agent) => agent.state !== "stopped")) return [];
+  if (!state.freshStartAt || !state.agents.some((agent) => agent.state === "stopped")) return [];
   const inner = cells - 2 * MARGIN - 2;
   const edge = (text: string) => span(text, C.rule, false, C.bar);
   const line = (...content: Span[]): Row => ({ spans: [span(spaces(MARGIN)), edge("│"), ...fit([span(" ", C.text, false, C.bar), ...content.map((s) => ({ ...s, bg: C.bar }))], inner, C.bar), edge("│")] });
@@ -565,7 +575,7 @@ function leftColumn(state: ScreenState, cells: number, height: number): Row[] {
   }
   const log = state.logs[agent.id] ?? [];
   const head = [...detailRows(state, agent, log, cells), ruleRow(), ...bannerRows(state, cells), { spans: [span(`${spaces(MARGIN)}LOG`, C.muted, true)] }];
-  const lines = logRows(log).map((row) => ({ spans: [span(spaces(MARGIN)), ...row.spans] }));
+  const lines = logRows(log, state.now).map((row) => ({ spans: [span(spaces(MARGIN)), ...row.spans] }));
   return [...head, ...lines.slice(-Math.max(0, height - head.length))];
 }
 
@@ -586,7 +596,7 @@ function rightColumn(state: ScreenState, cells: number, height: number): Row[] {
     const bg = isSelected ? C.selected : undefined;
     const stopped = agent.state === "stopped";
     const name = clip([span(agent.name)], nameWidth).map((s) => s.text).join("").padEnd(nameWidth);
-    const model = agent.model ? modelLabel(agent.model) : "Claude's default";
+    const model = modelText(agent.model);
     const nameLine = [
       span(isSelected ? "▎" : " ", C.red, false, bg),
       span(" ", C.text, false, bg),
@@ -595,7 +605,7 @@ function rightColumn(state: ScreenState, cells: number, height: number): Row[] {
       span(name, stopped ? C.dim : C.text, isSelected, bg),
       span(agent.state.padStart(10), STATE_COLOR[agent.state], false, bg),
     ];
-    const second = [span("    ", C.text, false, bg), span(`${model} · ${agent.effort ?? "Claude's default"}`, C.dim, false, bg)];
+    const second = [span("    ", C.text, false, bg), span(`${model} · ${effortText(agent.effort)}`, C.dim, false, bg)];
     rows.push({ spans: fit(nameLine, cells, bg) });
     rows.push({ spans: fit([span(isSelected ? "▎" : " ", C.red, false, bg), span(" ", C.text, false, bg), ...second], cells, bg) });
     rows.push({ spans: [] });
@@ -658,7 +668,7 @@ function dialogFrame(title: Span[], body: Row[], keys: BarItem[], inner: number)
 function runOf(state: ScreenState, agent: HostAgent): { place: string; elapsed: string } {
   const started = (state.logs[agent.id] ?? []).filter((entry) => entry.event.type === "run-started").at(-1);
   const run = started?.event as RunStarted | undefined;
-  return { place: run ? placeOf(run.project, run.page) : (agent.page ?? ""), elapsed: started ? ` (${duration(state.now - Date.parse(started.at))})` : "" };
+  return { place: run ? placeOf(run.project, run.page) : (agent.run?.page ?? ""), elapsed: started ? ` (${duration(state.now - Date.parse(started.at))})` : "" };
 }
 
 function stopBox(state: ScreenState, agent: HostAgent): DialogBox {
@@ -686,7 +696,7 @@ function modelBox(state: ScreenState, agent: HostAgent, dialog: Extract<Dialog, 
   const body: Span[][] = [choiceRow("Model", dialog.field === "model", models, models.indexOf(dialog.model)), choiceRow("Effort", dialog.field === "effort", efforts, EFFORT_OPTIONS.indexOf(dialog.effort))];
   if (agent.state === "running") {
     const { place } = runOf(state, agent);
-    const current = `${agent.model ? modelLabel(agent.model) : "Claude's default"} · ${agent.effort ?? "Claude's default"}`;
+    const current = `${modelText(agent.model)} · ${effortText(agent.effort)}`;
     body.push([], [span("! ", C.amber), span(`A run is in progress (${place}): it finishes with ${current}.`, C.muted)], [span("  The new choice applies from the next run, without restarting the agent.", C.muted)]);
   }
   const keys: BarItem[] = [{ key: "↑↓", label: "field" }, { key: "←→", label: "choice" }, { key: "Enter", label: "apply" }, { key: "Esc", label: "cancel" }];

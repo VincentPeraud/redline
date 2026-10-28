@@ -5,7 +5,7 @@ import { ServerUnreachableError } from "./connection.js";
 
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10_000, 30_000];
 
-export interface ServeAgentOptions extends Omit<AgentOptions, "onUpdated"> {
+export interface ServeAgentOptions extends Omit<AgentOptions, "onUpdated" | "signal"> {
   /** Waits between attempts while the server is unreachable or the connection was lost; the last one repeats. */
   reconnectDelaysMs?: number[];
   /** Receives every activity event (connection, runs, stop). */
@@ -15,7 +15,7 @@ export interface ServeAgentOptions extends Omit<AgentOptions, "onUpdated"> {
 }
 
 export interface AgentService {
-  /** Closes the connection and stops retrying. */
+  /** Cancels the runs in progress, closes the connection and stops retrying. */
   stop(): void;
   /** The model and effort of the work items to come that carry none of their own, now and after a reconnection. A run in progress keeps its own. */
   setModelEffort(choice: ModelChoice): void;
@@ -32,6 +32,7 @@ export interface AgentService {
  */
 export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () => undefined, onActivity, ...options }: ServeAgentOptions): AgentService {
   let choice: ModelChoice = { model: options.model, effort: options.effort };
+  const cancelled = new AbortController();
   let stopped = false;
   let updated = false;
   let wake: () => void = () => undefined;
@@ -60,6 +61,7 @@ export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () =
         const connection = await startAgent({
           ...options,
           ...choice,
+          signal: cancelled.signal,
           currentChoice: () => choice,
           onActivity: report,
           onUpdated() {
@@ -109,6 +111,7 @@ export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () =
     },
     stop() {
       stopped = true;
+      cancelled.abort();
       current?.close();
       wake();
     },

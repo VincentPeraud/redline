@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, closeSummary, initialState, logLoaded, onKey, plainText, render, tick, type ScreenState } from "../src/agents-view.js";
+import { applyEvent, closeSummary, initialState, logLoaded, newAgentFailed, newAgentQuestions, onKey, plainText, render, tick, type ScreenState } from "../src/agents-view.js";
 import { runAgentsScreen, type ScreenHost, type ScreenTerminal } from "../src/agents-screen.js";
 import type { Effort } from "@redline/shared";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "../src/host-protocol.js";
@@ -24,7 +24,7 @@ const agent = (over: Partial<HostAgent> & Pick<HostAgent, "id" | "name">): HostA
   ...over,
 });
 
-const lumora = agent({ id: "a1", name: "lumora", state: "running", page: "Tarifs" });
+const lumora = agent({ id: "a1", name: "lumora", state: "running", run: { page: "Tarifs", pageId: "p1" } });
 const radio = agent({ id: "a2", name: "radio-haidf", model: "sonnet", effort: "high", projectNames: ["Radio HAIDF"] });
 const portfolio = agent({ id: "a4", name: "portfolio", model: "haiku", effort: "low", state: "stopped" });
 
@@ -67,7 +67,7 @@ describe("the agents screen's view", () => {
     expect(frame).toContain("14:11:30  Connection lost, retrying...");
     expect(frame).toContain("14:11:32  Connected again.");
     expect(frame).toContain("14:12:03  ▸ Run started  Lumora Pro / Tarifs  conversation with Vincent");
-    expect(frame).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 28 s");
+    expect(frame).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 1 h 59 min");
     expect(frame).not.toContain("Read DESIGN.md · 7 s");
     expect(frame).toContain("› ● lumora"+" ".repeat(11)+"running");
     expect(frame).toContain("Opus · medium");
@@ -166,7 +166,7 @@ describe("the agents screen's view", () => {
 
 describe("stopping, removing and restarting from the view", () => {
   const board = () => open([lumora, radio, agent({ id: "a3", name: "global", kind: "global", projectNames: undefined, effort: undefined }), portfolio]);
-  const stoppedAgent = (a: HostAgent): HostAgent => ({ ...a, state: "stopped", page: undefined, since: new Date("2026-10-28T18:42:10").toISOString() });
+  const stoppedAgent = (a: HostAgent): HostAgent => ({ ...a, state: "stopped", run: undefined, since: new Date("2026-10-28T18:42:10").toISOString() });
   const allStopped = (freshStartAt?: string) => open([lumora, radio, portfolio].map(stoppedAgent), "a1", { a1: lumoraLog }, freshStartAt);
 
   it("asks before stopping an agent that is running a run, and says what stopping does", () => {
@@ -202,7 +202,7 @@ describe("stopping, removing and restarting from the view", () => {
 
   it("closes the dialog when the run ends or the agent goes away while it is open", () => {
     const asked = onKey(board(), "x").state;
-    const done = applyEvent(asked, { event: "agent-changed", agent: { ...lumora, state: "idle", page: undefined } });
+    const done = applyEvent(asked, { event: "agent-changed", agent: { ...lumora, state: "idle", run: undefined } });
     expect(text(done)).not.toContain("Stop lumora?");
     expect(text(applyEvent(asked, { event: "agent-removed", agentId: "a1" }))).not.toContain("Stop lumora?");
   });
@@ -244,14 +244,53 @@ describe("stopping, removing and restarting from the view", () => {
     expect(frame).toContain("3 agents · all stopped");
     expect(frame).toContain("18:42:10  ○ Stopped  the Mac restarted or the session closed");
     state = applyEvent(state, { event: "agent-changed", agent: { ...stoppedAgent(lumora), state: "reconnecting" } });
-    expect(text(state)).not.toContain("The agents stopped");
-    state = applyEvent(state, { event: "agent-changed", agent: stoppedAgent(lumora) });
+    expect(text(state)).toContain("The agents stopped");
+    state = applyEvent(state, { event: "fresh-start" });
     expect(text(state)).not.toContain("The agents stopped");
   });
 
-  it("shows no banner without a fresh start, or while an agent is not stopped", () => {
+  it("shows no banner without a fresh start, or once no agent is stopped; an agent launched since does not hide it", () => {
     expect(text(allStopped())).not.toContain("The agents stopped");
-    expect(text(open([lumora, portfolio], "a4", {}, new Date().toISOString()))).not.toContain("The agents stopped");
+    expect(text(open([lumora, portfolio], "a4", {}, new Date().toISOString()))).toContain("The agents stopped");
+    expect(text(open([lumora, radio], "a1", {}, new Date().toISOString()))).not.toContain("The agents stopped");
+  });
+});
+
+describe("the elapsed time of the run in progress", () => {
+  it("counts from the start of the run and the screen's clock, not from the last step", () => {
+    const state = open([lumora]);
+    const at = (time: string) => text(tick(state, Date.parse(`2026-10-28T${time}`)));
+    expect(at("14:12:31")).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 28 s");
+    expect(at("14:12:41")).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 38 s");
+    expect(at("14:13:41")).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 1 min 38 s");
+  });
+
+  it("keeps only the latest progress of a run when lines stream in", () => {
+    let state = open([lumora]);
+    const before = state.logs.a1.length; // two progress lines of the run: the next one replaces both
+    for (const [time, step] of [["14:12:40", "Step A"], ["14:12:50", "Step B"]]) {
+      state = applyEvent(state, { event: "log-line", agentId: "a1", entry: entry(time, { type: "run-progress", workId: "w3", steps: [step], elapsedMs: 1 }) });
+    }
+    expect(state.logs.a1).toHaveLength(before - 1);
+    expect(text(state)).toContain("Step B");
+    expect(text(state)).not.toContain("Step A");
+  });
+
+  it("redraws every second so a run's time moves, and only when the picture changed", async () => {
+    const host = new FakeHost([lumora], { a1: lumoraLog });
+    const terminal = new FakeTerminal();
+    let clock = Date.parse("2026-10-28T14:12:31");
+    const done = runAgentsScreen({ host, terminal, now: () => clock, home: "/Users/vincent", folder: FOLDER, newAgent: new FakeFlow(), openUrl: () => undefined, tickMs: 20 });
+    await settle();
+    expect(terminal.frame).toContain("· 28 s");
+    const drawn = terminal.frames.length;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(terminal.frames.length).toBe(drawn);
+    clock += 5_000;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(terminal.frame).toContain("· 33 s");
+    terminal.keyListener("q");
+    await done;
   });
 });
 
@@ -307,7 +346,7 @@ describe("changing the model and effort from the view", () => {
 
   it("follows the agent's run while open, and closes when the agent goes away", () => {
     const opened = onKey(open([radio]), "m").state;
-    const started = applyEvent(opened, { event: "agent-changed", agent: { ...radio, state: "running", page: "Tarifs" } });
+    const started = applyEvent(opened, { event: "agent-changed", agent: { ...radio, state: "running", run: { page: "Tarifs", pageId: "p1" } } });
     expect(text(started)).toContain("it finishes with Sonnet · high.");
     expect(text(applyEvent(started, { event: "agent-changed", agent: radio }))).not.toContain("A run is in progress");
     expect(text(applyEvent(opened, { event: "agent-removed", agentId: "a2" }))).not.toContain("Model and effort");
@@ -340,7 +379,7 @@ class FakeHost implements ScreenHost {
     const current = this.agents.find((a) => a.id === id)!;
     this.listener!({ event: "agent-changed", agent: { ...current, ...change } });
   }
-  async stop(agentId: string) { this.calls.push(`stop ${agentId}`); this.change(agentId, { state: "stopped", page: undefined }); return this.agents.find((a) => a.id === agentId)!; }
+  async stop(agentId: string) { this.calls.push(`stop ${agentId}`); this.change(agentId, { state: "stopped", run: undefined }); return this.agents.find((a) => a.id === agentId)!; }
   async remove(agentId: string) { this.calls.push(`remove ${agentId}`); this.listener!({ event: "agent-removed", agentId }); }
   async restart(agentId: string) { this.calls.push(`restart ${agentId}`); this.change(agentId, { state: "reconnecting" }); return { agent: this.agents.find((a) => a.id === agentId)!, started: true }; }
   async setModelEffort(agentId: string, choice: { model: string; effort?: Effort }) {
@@ -386,7 +425,7 @@ class FakeFlow implements NewAgentFlow {
     return this.agent!;
   }
 }
-const stoppedOf = (a: HostAgent): HostAgent => ({ ...a, state: "stopped", page: undefined });
+const stoppedOf = (a: HostAgent): HostAgent => ({ ...a, state: "stopped", run: undefined });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 describe("the agents screen over a host client", () => {
@@ -404,7 +443,7 @@ describe("the agents screen over a host client", () => {
     const { terminal, done } = await start(host, "a2");
     expect(terminal.frame).toContain("› ● radio-haidf");
     terminal.keyListener("up");
-    expect(terminal.frame).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 28 s");
+    expect(terminal.frame).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 1 h 59 min");
     host.listener!({ event: "log-line", agentId: "a1", entry: entry("14:13:00", { type: "reconnected" }) });
     expect(terminal.frame).toContain("14:13:00  Connected again.");
     terminal.keyListener("q");
@@ -439,10 +478,13 @@ describe("the agents screen over a host client", () => {
     terminal.keyListener("r");
     await settle();
     expect(host.calls).toEqual(["restart a1"]);
-    expect(terminal.frame).not.toContain("The agents stopped");
+    expect(terminal.frame).toContain("The agents stopped");
     terminal.keyListener("R");
     await settle();
     expect(host.calls).toEqual(["restart a1", "restart-all"]);
+    host.listener!({ event: "fresh-start" });
+    await settle();
+    expect(terminal.frame).not.toContain("The agents stopped");
     terminal.keyListener("q");
     await done;
   });
@@ -636,7 +678,7 @@ describe("the agents screen over a host client", () => {
   });
 
   describe("o: open in Redline", () => {
-    const running = { ...lumora, pageId: "pg-42" };
+    const running = { ...lumora, run: { page: "Tarifs", pageId: "pg-42" } };
 
     it("opens the canvas of the run in progress", async () => {
       const { terminal, done, opened } = await start(new FakeHost([running, radio], { a1: lumoraLog }));
@@ -662,5 +704,34 @@ describe("the agents screen over a host client", () => {
       terminal.keyListener("q");
       await done;
     });
+  });
+});
+
+describe("text from the server on the terminal", () => {
+  const evil = "\x1b]0;pwned\x07\x1b[2J\x9b31mEvil\r\nnext\ttab";
+  const clean = "]0;pwned[2J31mEvil  next tab";
+
+  it("reaches the screen without any control character: only the screen's own colour codes remain", () => {
+    const attacked = agent({ id: "a1", name: "lumora", state: "running", run: { page: evil, pageId: "p1" }, projectNames: [evil], reason: evil });
+    const log = [
+      entry("14:05:40", { type: "run-started", workId: "w1", project: evil, page: evil, kind: "comment", author: evil, excerpt: evil, attempt: 1 }),
+      entry("14:05:41", { type: "run-progress", workId: "w1", steps: [evil], elapsedMs: 1000 }),
+      entry("14:06:00", { type: "stopped", reason: "failed", error: evil }),
+    ];
+    const lines = render(open([attacked], "a1", { a1: log }), { columns: 184, rows: 43 });
+    const withoutOwnCodes = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+    for (const line of withoutOwnCodes) expect(line).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+    expect(withoutOwnCodes.join("\n")).toContain(clean);
+    for (const line of closeSummary(open([attacked], "a1", { a1: log }))) expect(line.replace(/\x1b\[[0-9;]*m/g, "")).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+  });
+
+  it("is cleaned in the project titles and the errors of the new agent dialog too", () => {
+    let state = open([]);
+    state = onKey(state, "n").state;
+    state = newAgentQuestions(state, { servers: [], serverUrl: "https://redline.brightco.fr", projects: [{ id: "p1", title: evil }], model: "opus" });
+    state = newAgentFailed(state, evil);
+    const lines = render(state, { columns: 184, rows: 43 }).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+    for (const line of lines) expect(line).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+    expect(lines.join("\n")).toContain(clean);
   });
 });

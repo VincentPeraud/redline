@@ -15,6 +15,8 @@ export interface AgentOptions extends Omit<ConnectOptions, "onMessage"> {
   installedBuildHash?(): string;
   /** Called once the update is installed: the agent should exit so that its supervisor relaunches it. */
   onUpdated?(): void;
+  /** Aborted when the agent stops: the runs in progress are cancelled. */
+  signal?: AbortSignal;
   /** Receives the activity of the work runs. */
   onActivity?: ReportActivity;
   /** The model and effort that work items without their own use, read when each item arrives; defaults to `model` and `effort`. */
@@ -22,7 +24,7 @@ export interface AgentOptions extends Omit<ConnectOptions, "onMessage"> {
 }
 
 /** Connects to the server and runs the work items it pushes, with the given engine. */
-export async function startAgent({ engine, install = installCli, installedBuildHash = buildHash, onUpdated, onActivity, currentChoice = () => connect, ...connect }: AgentOptions): Promise<AgentConnection> {
+export async function startAgent({ engine, install = installCli, installedBuildHash = buildHash, onUpdated, onActivity, signal, currentChoice = () => connect, ...connect }: AgentOptions): Promise<AgentConnection> {
   const api = new ServerApi(connect.serverUrl, connect.token, connect.buildHash);
   const running = new Set<Promise<void>>();
   const attempts = new Map<string, number>();
@@ -60,7 +62,7 @@ export async function startAgent({ engine, install = installCli, installedBuildH
           if (event.type === "run-published") attempts.delete(item.id);
           onActivity?.(event);
         };
-        const run = runWorkItem(item, { folder: connect.folder, api, engine, send: (m) => connection.send(m), report, attempt });
+        const run = runWorkItem(item, { folder: connect.folder, api, engine, send: (m) => connection.send(m), report, attempt, signal });
         running.add(run);
         void run.finally(() => running.delete(run));
       } else if (message.type === "update") void update();

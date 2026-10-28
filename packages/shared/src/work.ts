@@ -20,6 +20,9 @@ export const MODEL_CHOICES = [
   { id: "haiku", label: "Haiku" },
 ] as const;
 
+/** Model names reach `claude --model`: letters, digits, `.`, `_`, `-` and brackets only (`opus`, `claude-opus-4-1`, `sonnet[1m]`). */
+export const MODEL_PATTERN = /^[\w.\-[\]]+$/;
+
 /** Display name of a model alias ("sonnet" -> "Sonnet"); unknown names are shown as given. */
 export const modelLabel = (model: string): string => MODEL_CHOICES.find((choice) => choice.id === model)?.label ?? model;
 

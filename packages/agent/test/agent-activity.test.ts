@@ -153,4 +153,17 @@ describe("foreground output", () => {
       "Run started on Acme / Home (conversation) for Ariane Martin, attempt 2",
     );
   });
+
+  it("prints server-provided text without control characters", () => {
+    const evil = "\x1b]0;pwned\x07\x1b[2Jx\ny";
+    const lines = [
+      formatActivity({ type: "run-started", workId: "w", project: evil, page: evil, kind: "comment", author: evil, excerpt: evil, attempt: 1 }),
+      formatActivity({ type: "run-failed", workId: "w", page: evil, reason: evil, attempt: 1 }),
+      formatActivity({ type: "refused", reason: evil }),
+      formatActivity({ type: "run-progress", workId: "w", steps: [evil], elapsedMs: 1000 }),
+      formatActivity({ type: "connection-lost", reason: evil }),
+    ];
+    for (const line of lines) expect(line).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+    expect(lines[2]).toBe("Refused by the server: ]0;pwned[2Jx y");
+  });
 });

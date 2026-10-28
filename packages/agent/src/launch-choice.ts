@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EFFORTS, MODEL_CHOICES, type Effort, type ModelChoice } from "@redline/shared";
 
@@ -87,5 +87,7 @@ export function rememberChoice({ folder, configDir, choice }: { folder: string; 
   const stored = readJson(join(configDir, CHOICES_FILE));
   const choices = stored !== null && typeof stored === "object" ? (stored as Record<string, unknown>) : {};
   mkdirSync(configDir, { recursive: true });
-  writeFileSync(join(configDir, CHOICES_FILE), JSON.stringify({ ...choices, [folder]: choice }, null, 2));
+  const file = join(configDir, CHOICES_FILE);
+  writeFileSync(file, JSON.stringify({ ...choices, [folder]: choice }, null, 2), { mode: 0o600 });
+  chmodSync(file, 0o600);
 }
