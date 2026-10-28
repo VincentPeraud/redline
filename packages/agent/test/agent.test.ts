@@ -88,7 +88,12 @@ describe("Claude Code check", () => {
     await expect(checkClaude({ PATH })).rejects.toThrow(/not logged in.*claude/);
   });
 
-  it("passes when Claude Code is installed and logged in", async () => {
+  it("passes when Claude Code is installed and logged in, and returns the logged-in account", async () => {
+    const PATH = fakeClaudePath('if [ "$1" = "auth" ]; then echo \'{"loggedIn": true, "email": "someone@example.fr"}\'; exit 0; fi; echo 2.1.0');
+    await expect(checkClaude({ PATH })).resolves.toBe("someone@example.fr");
+  });
+
+  it("returns no account when the auth status has no email", async () => {
     const PATH = fakeClaudePath('if [ "$1" = "auth" ]; then echo \'{"loggedIn": true}\'; exit 0; fi; echo 2.1.0');
     await expect(checkClaude({ PATH })).resolves.toBeUndefined();
   });

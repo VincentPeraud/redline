@@ -109,7 +109,7 @@ async function askModelEffort(folder: string, flags: ModelChoice) {
 
 async function runAgent(args: string[]): Promise<void> {
   const flags = { model: flagValue(args, "--model"), effort: parseEffort(flagValue(args, "--effort")) };
-  await checkClaude();
+  const account = await checkClaude();
   const servers = requireLogins(defaultConfigDir());
   const kind = args.includes("--global") ? "global" : "project";
   const folder = process.cwd();
@@ -121,7 +121,7 @@ async function runAgent(args: string[]): Promise<void> {
   }
   const { serverUrl, token } = server;
   const { model, effort } = await askModelEffort(folder, flags);
-  console.log(`Runs use ${modelLabel(model)} · ${effort ?? "Claude's default effort"}.`);
+  console.log(`Runs use ${modelLabel(model)} · ${effort ?? "Claude's default effort"}${account ? `, account ${account}` : ""}.`);
   const identity = { serverUrl, token, machine: hostname(), folder, kind, projectId } as const;
 
   const service = serveAgent({ ...identity, engine: claudeCodeEngine(), model, effort, log: console.log });
