@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { connect, type Socket } from "node:net";
-import { hostSocketPath, type HostAgent, type HostEvent, type HostReply, type HostRequest, type LaunchSettings } from "./host-protocol.js";
+import { hostSocketPath, type HostAgent, type HostEvent, type HostLogEntry, type HostReply, type HostRequest, type LaunchSettings } from "./host-protocol.js";
 
 type Reply = Extract<HostReply, { ok: true }>;
 type Pending = { resolve(reply: Reply): void; reject(error: Error): void };
@@ -72,6 +72,11 @@ export class HostClient {
   /** Resolves once the agent's worker has exited. */
   async stop(agentId: string): Promise<HostAgent> {
     return (await this.request({ type: "stop", agentId })).agent!;
+  }
+
+  /** The last `lines` entries of the agent's run log (all that are kept by default), oldest first. */
+  async log(agentId: string, lines?: number): Promise<HostLogEntry[]> {
+    return (await this.request({ type: "log", agentId, lines })).entries ?? [];
   }
 
   /** Keeps the host alive while this connection is open. */
