@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { componentFilesOf, projectComponents } from "./components.js";
@@ -907,6 +907,34 @@ export class Store {
   /** A project, archived or not (design systems excluded). */
   getProject(id: string): Project | undefined {
     return this.listProjects("all").find((p) => p.id === id);
+  }
+
+  /**
+   * Deletes the blobs no table refers to any more (after a project was deleted for good) and returns how many went.
+   * Blobs are shared by content hash, so only those referred to by no page version, project file, DESIGN.md version or
+   * diffusion go. Blobs younger than `minAgeMs` stay: a request may have stored one and not yet recorded it.
+   */
+  collectGarbage(minAgeMs = 3_600_000): number {
+    const used = new Set<string>();
+    for (const { files } of this.db.prepare("SELECT files FROM versions").all() as { files: string }[]) {
+      for (const hash of Object.values(JSON.parse(files) as Record<string, string>)) used.add(hash);
+    }
+    const columns = [
+      "SELECT hash FROM project_files",
+      "SELECT hash FROM design_md_versions",
+      ...["tokens_hash", "components_hash", "design_md_hash", "component_list_hash", "index_hash", "component_files_hash"].map((column) => `SELECT ${column} AS hash FROM design_system_diffusions`),
+    ];
+    for (const sql of columns) for (const { hash } of this.db.prepare(sql).all() as { hash: string | null }[]) if (hash) used.add(hash);
+    const oldest = Date.now() - minAgeMs;
+    let removed = 0;
+    for (const name of readdirSync(this.blobDir)) {
+      if (used.has(name)) continue;
+      const path = join(this.blobDir, name);
+      if (minAgeMs > 0 && statSync(path).mtimeMs > oldest) continue;
+      unlinkSync(path);
+      removed += 1;
+    }
+    return removed;
   }
 
   /** The project (or design system) a page belongs to, without loading its files. */

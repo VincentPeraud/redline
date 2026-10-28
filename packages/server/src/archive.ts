@@ -87,6 +87,8 @@ export function registerArchiveRoutes(app: FastifyInstance, store: Store, pageLo
     const pageIds = new Set(store.listPages(id).map((page) => page.id));
     store.deleteProject(id);
     pageLock.forgetPages(pageIds);
+    // Frees the disk: the deleted project's blobs that no other project shares (older ones; a later delete takes the rest).
+    store.collectGarbage();
     return reply.code(204).send();
   });
 }
