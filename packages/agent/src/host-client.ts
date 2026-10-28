@@ -59,8 +59,14 @@ export class HostClient {
     });
   }
 
+  /** The agents, and when the host started fresh after the previous one died with agents running (until an agent is started again). */
+  async snapshot(): Promise<{ agents: HostAgent[]; freshStartAt?: string }> {
+    const reply = await this.request({ type: "list" });
+    return { agents: reply.agents ?? [], freshStartAt: reply.freshStartAt };
+  }
+
   async list(): Promise<HostAgent[]> {
-    return (await this.request({ type: "list" })).agents ?? [];
+    return (await this.snapshot()).agents;
   }
 
   /** Starts the agent of this folder and server, or returns the one that already exists (`started` is then false). */
@@ -72,6 +78,22 @@ export class HostClient {
   /** Resolves once the agent's worker has exited. */
   async stop(agentId: string): Promise<HostAgent> {
     return (await this.request({ type: "stop", agentId })).agent!;
+  }
+
+  /** Removes the agent from the host's list and deletes its log. */
+  async remove(agentId: string): Promise<void> {
+    await this.request({ type: "remove", agentId });
+  }
+
+  /** Starts a stopped agent again with its stored settings; `started` is false when it was not stopped. */
+  async restart(agentId: string): Promise<{ agent: HostAgent; started: boolean }> {
+    const reply = await this.request({ type: "restart", agentId });
+    return { agent: reply.agent!, started: reply.started! };
+  }
+
+  /** Restarts every stopped agent and returns those. */
+  async restartAll(): Promise<HostAgent[]> {
+    return (await this.request({ type: "restart-all" })).agents ?? [];
   }
 
   /** The last `lines` entries of the agent's run log (all that are kept by default), oldest first. */

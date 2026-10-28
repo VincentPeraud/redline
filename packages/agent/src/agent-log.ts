@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { HostLogEntry } from "./host-protocol.js";
 
@@ -35,6 +35,12 @@ export class AgentLog {
       entries.splice(0, entries.length - this.cap);
       writeFileSync(this.file, entries.map((e) => `${JSON.stringify(e)}\n`).join(""), { mode: 0o600 });
     } else appendFileSync(this.file, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+  }
+
+  /** Deletes the log file; the log is empty afterwards. */
+  delete(): void {
+    this.entries = [];
+    rmSync(this.file, { force: true });
   }
 
   /** The last `lines` entries (all by default), oldest first. */

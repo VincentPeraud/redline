@@ -89,7 +89,12 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
   const socketPath = hostSocketPath(configDir);
   const registry = new AgentRegistry(configDir);
   const logOf = (agentId: string) => new AgentLog(agentLogPath(configDir, agentId), logCap);
-  const entries = new Map<string, Entry>(registry.load(new Date().toISOString()).map((agent) => [agent.id, { agent, log: logOf(agent.id) }]));
+  const startedAt = new Date().toISOString();
+  const loaded = registry.load(startedAt);
+  const entries = new Map<string, Entry>(loaded.agents.map((agent) => [agent.id, { agent, log: logOf(agent.id) }]));
+  for (const id of loaded.interrupted) entries.get(id)!.log.append({ at: startedAt, event: { type: "stopped", reason: "host-restarted" } });
+  /** Set when the previous host died with agents running; cleared as soon as an agent is started. */
+  let freshStartAt: string | undefined = loaded.interrupted.size > 0 ? startedAt : undefined;
   const clients = new Set<Socket>();
   const attached = new Set<Socket>();
   const subscribers = new Set<Socket>();
@@ -149,6 +154,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       stoppedAs(entry, error);
       return;
     }
+    freshStartAt = undefined;
     const child = spawn(worker.command, worker.args, {
       stdio: ["ignore", "ignore", "ignore", "ipc"],
       env: { ...process.env, ...worker.env, CLAUDE_CONFIG_DIR: agent.claudeConfigDir },
@@ -254,7 +260,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
   async function handle(client: Socket, request: HostRequestEnvelope): Promise<HostReply> {
     switch (request.type) {
       case "list":
-        return { id: request.id, ok: true, agents: [...entries.values()].map((entry) => entry.agent) };
+        return { id: request.id, ok: true, agents: [...entries.values()].map((entry) => entry.agent), freshStartAt };
       case "launch":
       {
         const { folder, kind, serverUrl, projectIds, projectNames, model, effort, claudeConfigDir, account } = request;
@@ -270,6 +276,26 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
         const entry = entryOf(request.agentId);
         await stopWorker(entry);
         return { id: request.id, ok: true, agent: entry.agent };
+      }
+      case "remove": {
+        const entry = entryOf(request.agentId);
+        await stopWorker(entry);
+        entries.delete(request.agentId);
+        entry.log.delete();
+        persist();
+        publish({ event: "agent-removed", agentId: request.agentId });
+        return { id: request.id, ok: true };
+      }
+      case "restart": {
+        const entry = entryOf(request.agentId);
+        const started = entry.agent.state === "stopped";
+        if (started) startWorker(entry);
+        return { id: request.id, ok: true, agent: entry.agent, started };
+      }
+      case "restart-all": {
+        const stopped = [...entries.values()].filter((entry) => entry.agent.state === "stopped");
+        for (const entry of stopped) startWorker(entry);
+        return { id: request.id, ok: true, agents: stopped.map((entry) => entry.agent) };
       }
       case "subscribe":
         attached.add(client);

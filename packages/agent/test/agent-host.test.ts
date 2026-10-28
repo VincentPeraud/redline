@@ -8,7 +8,7 @@ import { startAgentHost, HostAlreadyRunningError, type AgentHost } from "../src/
 import { runAgentsScreen, type ScreenTerminal } from "../src/agents-screen.js";
 import { plainText } from "../src/agents-view.js";
 import { ensureHost, HostClient } from "../src/host-client.js";
-import { hostLockPath, hostSocketPath, type HostEvent, type HostLogEntry, type LaunchSettings } from "../src/host-protocol.js";
+import { agentLogPath, hostLockPath, hostSocketPath, type HostEvent, type HostLogEntry, type LaunchSettings } from "../src/host-protocol.js";
 import { saveLogin } from "../src/login.js";
 import { hostWorkerCommand, tsxCommand } from "./support/host-launch.js";
 
@@ -178,6 +178,138 @@ describe("the agent host's control API", { timeout: 20_000 }, () => {
     expect(again).toMatchObject({ started: true, agent: { id: agent.id, model: "sonnet" } });
     expect(await api.list()).toHaveLength(1);
     await until(async () => (await onServer())[0]?.status === "online");
+  });
+
+  it("restarts a stopped agent with its folder, model, effort and Claude config directory, and does not touch a running one", async () => {
+    const { onServer, launchSettings, startHost, client, configDir } = await setup();
+    const report = join(configDir, "starts.log");
+    await startHost({ REDLINE_TEST_REPORT: report });
+    const api = await client();
+    const settings = launchSettings();
+    const { agent } = await api.launch(settings);
+    await until(async () => (await onServer())[0]?.status === "online");
+    expect((await api.restart(agent.id)).started).toBe(false);
+    await api.stop(agent.id);
+    await until(async () => (await onServer())[0]?.status === "offline");
+
+    const restarted = await api.restart(agent.id);
+
+    expect(restarted).toMatchObject({ started: true, agent: { id: agent.id } });
+    await until(async () => (await onServer())[0]?.status === "online");
+    const starts = readFileSync(report, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(starts).toHaveLength(2);
+    expect(starts[1]).toEqual({ claudeConfigDir: settings.claudeConfigDir, model: "opus", effort: "high", folder: settings.folder });
+    await until(async () => (await api.list())[0].state === "idle");
+  });
+
+  it("restarts every stopped agent, and only those", async () => {
+    const { launchSettings, startHost, client } = await setup();
+    await startHost();
+    const api = await client();
+    const project = await api.launch(launchSettings());
+    const global = await api.launch({ ...launchSettings(), kind: "global", projectIds: undefined });
+    await until(async () => (await api.list()).every((agent) => agent.state === "idle"));
+    await api.stop(project.agent.id);
+
+    expect((await api.restartAll()).map((agent) => agent.id)).toEqual([project.agent.id]);
+    await until(async () => (await api.list()).every((agent) => agent.state === "idle"));
+
+    await api.stop(project.agent.id);
+    await api.stop(global.agent.id);
+    expect((await api.restartAll()).map((agent) => agent.id).sort()).toEqual([project.agent.id, global.agent.id].sort());
+    await until(async () => (await api.list()).every((agent) => agent.state === "idle"));
+    expect(await api.list()).toHaveLength(2);
+  });
+
+  it("removes an agent from the list and deletes its log file", async () => {
+    const { launchSettings, startHost, client, configDir } = await setup();
+    await startHost();
+    const watcher = await client();
+    const events: HostEvent[] = [];
+    await watcher.subscribe((event) => events.push(event));
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+    await until(async () => (await api.log(agent.id)).length > 0);
+    await api.stop(agent.id);
+    expect(existsSync(agentLogPath(configDir, agent.id))).toBe(true);
+
+    await api.remove(agent.id);
+
+    expect(await api.list()).toEqual([]);
+    expect(existsSync(agentLogPath(configDir, agent.id))).toBe(false);
+    await expect(api.log(agent.id)).rejects.toThrow(/No such agent/);
+    await until(() => events.some((event) => event.event === "agent-removed" && event.agentId === agent.id));
+  });
+
+  it("stops a running agent when it is removed", async () => {
+    const { onServer, launchSettings, startHost, client } = await setup();
+    await startHost();
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+    await until(async () => (await onServer())[0]?.status === "online");
+
+    await api.remove(agent.id);
+
+    expect(await api.list()).toEqual([]);
+    await until(async () => (await onServer())[0]?.status === "offline");
+  });
+
+  it("stops during a run: the server sees the run failed and the agent offline, and the agent is stopped", async () => {
+    const { configDir, server, onServer, launchSettings, startHost, client, comment } = await setup();
+    const hold = join(configDir, "hold");
+    writeFileSync(hold, "");
+    await startHost({ REDLINE_TEST_HOLD_RUN: hold });
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+    await until(async () => (await api.list())[0].state === "idle");
+    const page = await comment();
+    await until(async () => (await api.list())[0].state === "running");
+
+    await api.stop(agent.id);
+
+    expect((await api.list())[0]).toMatchObject({ id: agent.id, state: "stopped" });
+    expect((await api.list())[0].page).toBeUndefined();
+    await until(async () => (await onServer())[0]?.status === "offline");
+    await until(async () => ((await (await server.get(`/api/pages/${page.id}/queue`)).json()) as { reason?: string }[]).some((entry) => entry.reason === "agent-offline"));
+    rmSync(hold);
+  });
+
+  it("tells clients a fresh start only when the previous host died without stopping its agents", async () => {
+    const { configDir, onServer, launchSettings, startHost, client } = await setup();
+    const host = await startHost();
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+    await until(async () => (await onServer())[0]?.status === "online");
+    expect((await api.snapshot()).freshStartAt).toBeUndefined();
+    await host.stop();
+    hosts = [];
+    api.close();
+    clients = [];
+
+    await startHost();
+    expect((await (await client()).snapshot()).freshStartAt).toBeUndefined();
+    await (await client()).launch(launchSettings());
+    expect((await (await client()).snapshot()).freshStartAt).toBeUndefined();
+
+    // A host that died (Mac restarted, session closed) left its agents recorded as running.
+    const registryFile = join(configDir, "agents.json");
+    const stored = JSON.parse(readFileSync(registryFile, "utf8")) as { id: string; state: string }[];
+    expect(stored.some((entry) => entry.id === agent.id)).toBe(true);
+    for (const c of clients) c.close();
+    clients = [];
+    await hosts[0].stop();
+    hosts = [];
+    writeFileSync(registryFile, JSON.stringify(stored.map((entry) => ({ ...entry, state: "idle" }))));
+    await startHost();
+    const again = await client();
+
+    const snapshot = await again.snapshot();
+    expect(Date.parse(snapshot.freshStartAt!)).toBeLessThanOrEqual(Date.now());
+    expect(snapshot.agents.every((a) => a.state === "stopped")).toBe(true);
+    expect((await again.log(agent.id)).at(-1)?.event).toEqual({ type: "stopped", reason: "host-restarted" });
+
+    await again.restartAll();
+    expect((await again.snapshot()).freshStartAt).toBeUndefined();
   });
 
   it("streams agent added and state changes to a subscriber", async () => {

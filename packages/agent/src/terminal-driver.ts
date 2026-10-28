@@ -3,7 +3,7 @@ import type { ScreenTerminal } from "./agents-screen.js";
 const ENTER_SCREEN = "\x1b[?1049h\x1b[?25l";
 const LEAVE_SCREEN = "\x1b[?25h\x1b[?1049l";
 
-const KEYS: Record<string, string> = { "\x1b[A": "up", "\x1b[B": "down", "\x1bOA": "up", "\x1bOB": "down", "\x03": "ctrl-c" };
+const KEYS: Record<string, string> = { "\x1b[A": "up", "\x1b[B": "down", "\x1bOA": "up", "\x1bOB": "down", "\x03": "ctrl-c", "\x1b": "escape" };
 
 /** The real terminal: alternate screen, raw keys, resize. Restored by `close`, and also if the process exits without it (a crash). */
 export function openTerminal(input: NodeJS.ReadStream = process.stdin, output: NodeJS.WriteStream = process.stdout): ScreenTerminal {

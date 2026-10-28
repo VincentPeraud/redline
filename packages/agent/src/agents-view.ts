@@ -20,10 +20,19 @@ export interface ScreenState {
   now: number;
   /** The user's home directory, abbreviated `~` in folders. */
   home: string;
+  /** When the host started fresh after the previous one died with agents running; the banner shows while every agent is still stopped. */
+  freshStartAt?: string;
+  /** The dialog open over the screen, if any: it takes every key until it closes. */
+  dialog?: { type: "stop"; agentId: string };
 }
 
-/** What a key asks of the driver; the keys of later tickets add commands here (stop, launch, restart...). */
-export type ScreenCommand = { type: "close" };
+/** What a key asks of the driver; the keys of later tickets add commands here (launch, set model...). */
+export type ScreenCommand =
+  | { type: "close" }
+  | { type: "stop"; agentId: string }
+  | { type: "remove"; agentId: string }
+  | { type: "restart"; agentId: string }
+  | { type: "restart-all" };
 
 export interface Update {
   state: ScreenState;
@@ -35,9 +44,9 @@ export interface Size {
   rows: number;
 }
 
-export function initialState({ agents, selectedId, now, home }: { agents: HostAgent[]; selectedId?: string; now: number; home: string }): ScreenState {
+export function initialState({ agents, selectedId, now, home, freshStartAt }: { agents: HostAgent[]; selectedId?: string; now: number; home: string; freshStartAt?: string }): ScreenState {
   const selected = agents.some((agent) => agent.id === selectedId) ? selectedId : agents[0]?.id;
-  return { agents, selectedId: selected, logs: {}, loaded: {}, now, home };
+  return { agents, selectedId: selected, logs: {}, loaded: {}, now, home, freshStartAt };
 }
 
 export const tick = (state: ScreenState, now: number): ScreenState => ({ ...state, now });
@@ -50,10 +59,17 @@ export function logLoaded(state: ScreenState, agentId: string, entries: HostLogE
 }
 
 export function applyEvent(state: ScreenState, event: HostEvent): ScreenState {
+  const next = reduce(state, event);
+  const started = (event.event === "agent-added" || event.event === "agent-changed") && event.agent.state !== "stopped";
+  const asked = next.dialog && next.agents.find((agent) => agent.id === next.dialog?.agentId);
+  return { ...next, freshStartAt: started ? undefined : next.freshStartAt, dialog: asked?.state === "running" ? next.dialog : undefined };
+}
+
+function reduce(state: ScreenState, event: HostEvent): ScreenState {
   switch (event.event) {
     case "agent-added":
       return state.agents.some((agent) => agent.id === event.agent.id)
-        ? applyEvent(state, { event: "agent-changed", agent: event.agent })
+        ? reduce(state, { event: "agent-changed", agent: event.agent })
         : { ...state, agents: [...state.agents, event.agent], selectedId: state.selectedId ?? event.agent.id };
     case "agent-changed":
       return { ...state, agents: state.agents.map((agent) => (agent.id === event.agent.id ? event.agent : agent)) };
@@ -75,12 +91,23 @@ function nextSelection(agents: HostAgent[], removedId: string): string | undefin
 }
 
 export function onKey(state: ScreenState, key: Key): Update {
+  if (state.dialog) {
+    if (key === "y") return { state: { ...state, dialog: undefined }, commands: [{ type: "stop", agentId: state.dialog.agentId }] };
+    return { state: key === "escape" ? { ...state, dialog: undefined } : state, commands: [] };
+  }
   const index = state.agents.findIndex((agent) => agent.id === state.selectedId);
   if (key === "up" || key === "down") {
     const next = state.agents[Math.min(state.agents.length - 1, Math.max(0, index + (key === "up" ? -1 : 1)))];
     return { state: next ? { ...state, selectedId: next.id } : state, commands: [] };
   }
   if (key === "q" || key === "ctrl-c") return { state, commands: [{ type: "close" }] };
+  const selected = selectedAgent(state);
+  if (key === "x" && selected) {
+    if (selected.state === "running") return { state: { ...state, dialog: { type: "stop", agentId: selected.id } }, commands: [] };
+    return { state, commands: [{ type: selected.state === "stopped" ? "remove" : "stop", agentId: selected.id }] };
+  }
+  if (key === "r" && selected?.state === "stopped") return { state, commands: [{ type: "restart", agentId: selected.id }] };
+  if (key === "R" && state.agents.some((agent) => agent.state === "stopped")) return { state, commands: [{ type: "restart-all" }] };
   return { state, commands: [] };
 }
 
@@ -273,7 +300,10 @@ function logRows(log: HostLogEntry[]): Row[] {
         break;
       case "stopped":
         if (event.reason === "failed") rows.push(line(at, ...title("✗", C.red, "Stopped"), span(event.error, C.muted)));
-        else rows.push(line(at, ...title("○", C.dim, "Stopped"), span(event.reason === "updated" ? "updating, restarting" : "stopped on request", C.muted)));
+        else {
+          const why = { updated: "updating, restarting", stopped: "stopped on request", "host-restarted": "the Mac restarted or the session closed" }[event.reason];
+          rows.push(line(at, span("○ Stopped", C.muted, true), span(`  ${why}`, C.dim)));
+        }
         break;
     }
   });
@@ -293,15 +323,24 @@ export interface BarItem {
   muted?: boolean;
 }
 
-/** The keys that apply now. Later tickets add theirs (n, m, o, x, r, R) before `q`, according to the selected agent. */
-export function actionBar(_state: ScreenState): BarItem[] {
-  return [
-    { key: "↑↓", label: "agent" },
-    { key: "q", label: "close · agents keep running", muted: true },
-  ];
+/** The keys that apply to the selected agent. Later tickets add theirs (n, m, o) before `x`. */
+export function actionBar(state: ScreenState): BarItem[] {
+  const agent = selectedAgent(state);
+  if (agent?.state === "stopped") {
+    return [
+      { key: "↑↓", label: "agent" },
+      { key: "r", label: "restart" },
+      { key: "R", label: "restart all" },
+      { key: "x", label: "remove" },
+      { key: "q", label: "close", muted: true },
+    ];
+  }
+  return [{ key: "↑↓", label: "agent" }, ...(agent ? [{ key: "x", label: "stop" }] : []), { key: "q", label: "close · agents keep running", muted: true }];
 }
 
-const selectedAgent = (state: ScreenState) => state.agents.find((agent) => agent.id === state.selectedId);
+function selectedAgent(state: ScreenState): HostAgent | undefined {
+  return state.agents.find((agent) => agent.id === state.selectedId);
+}
 
 function headerRow(state: ScreenState, columns: number): Row {
   const agent = selectedAgent(state);
@@ -340,13 +379,28 @@ function detailRows(state: ScreenState, agent: HostAgent, log: HostLogEntry[], c
   ];
 }
 
+/** After a fresh start of the host, while every agent is still stopped: says why, and which keys bring them back. */
+function bannerRows(state: ScreenState, cells: number): Row[] {
+  if (!state.freshStartAt || state.agents.length === 0 || state.agents.some((agent) => agent.state !== "stopped")) return [];
+  const inner = cells - 2 * MARGIN - 2;
+  const edge = (text: string) => span(text, C.rule, false, C.bar);
+  const line = (...content: Span[]): Row => ({ spans: [span(spaces(MARGIN)), edge("│"), ...fit([span(" ", C.text, false, C.bar), ...content.map((s) => ({ ...s, bg: C.bar }))], inner, C.bar), edge("│")] });
+  const border = (left: string, right: string): Row => ({ spans: [span(spaces(MARGIN)), edge(`${left}${"─".repeat(inner)}${right}`)] });
+  return [
+    border("┌", "┐"),
+    line(span("○ ", C.dim), span(`The agents stopped (the Mac restarted or the session closed at ${clock(state.freshStartAt, false)}).`, C.muted)),
+    line(span("  "), span("r", C.text, true), span(" restarts the selected one with the same folder, model and effort · ", C.muted), span("R", C.text, true), span(" restarts all.", C.muted)),
+    border("└", "┘"),
+  ];
+}
+
 function leftColumn(state: ScreenState, cells: number, height: number): Row[] {
   const agent = selectedAgent(state);
   if (!agent) {
     return [{ spans: [] }, { spans: [span(`${spaces(MARGIN)}No agent yet. Run \`redline agent\` in a project folder to start one.`, C.muted)] }];
   }
   const log = state.logs[agent.id] ?? [];
-  const head = [...detailRows(state, agent, log, cells), ruleRow(), { spans: [span(`${spaces(MARGIN)}LOG`, C.muted, true)] }];
+  const head = [...detailRows(state, agent, log, cells), ruleRow(), ...bannerRows(state, cells), { spans: [span(`${spaces(MARGIN)}LOG`, C.muted, true)] }];
   const lines = logRows(log).map((row) => ({ spans: [span(spaces(MARGIN)), ...row.spans] }));
   return [...head, ...lines.slice(-Math.max(0, height - head.length))];
 }
@@ -385,13 +439,56 @@ function rightColumn(state: ScreenState, cells: number, height: number): Row[] {
   return rows;
 }
 
-function barRow(state: ScreenState, columns: number): Span[] {
-  const spans: Span[] = [span(spaces(MARGIN), C.text, false, C.bar)];
-  for (const item of actionBar(state)) {
-    spans.push(span(` ${item.key} `, C.bg, true, item.muted ? C.muted : C.text), span(" ", C.muted, false, C.bar), span(item.label, C.muted, false, C.bar), span("   ", C.muted, false, C.bar));
-  }
-  return fit(spans, columns, C.bar);
+/** Inverse-video key caps, each followed by its label. */
+function keyCaps(items: BarItem[]): Span[] {
+  return items.flatMap((item) => [span(` ${item.key} `, C.bg, true, item.muted ? C.muted : C.text), span(" ", C.muted, false, C.bar), span(item.label, C.muted, false, C.bar), span("   ", C.muted, false, C.bar)]);
 }
+
+const barRow = (state: ScreenState, columns: number): Span[] => fit([span(spaces(MARGIN), C.text, false, C.bar), ...keyCaps(actionBar(state))], columns, C.bar);
+
+// ---- Dialogs -------------------------------------------------------------------------------------------------
+
+const DIALOG_WIDTH = 90;
+/** The board dims the screen behind a dialog with 55 % black. */
+const DIM = 0.45;
+const dimmed = (hex: string) => `#${[1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * DIM).toString(16).padStart(2, "0")).join("")}`;
+const dim = (spans: Span[]): Span[] => spans.map((s) => ({ ...s, fg: dimmed(s.fg ?? C.text), bg: dimmed(s.bg ?? C.bg) }));
+
+/** The cells from `from` up to `to` of a line. */
+function cut(spans: Span[], from: number, to: number): Span[] {
+  const out: Span[] = [];
+  let at = 0;
+  for (const s of spans) {
+    const chars = [...s.text];
+    const text = chars.slice(Math.max(0, from - at), Math.max(0, to - at)).join("");
+    if (text) out.push({ ...s, text });
+    at += chars.length;
+  }
+  return out;
+}
+
+const stopDialog = (state: ScreenState, agent: HostAgent, inner: number): Row[] => {
+  const log = state.logs[agent.id] ?? [];
+  const started = log.filter((entry) => entry.event.type === "run-started").at(-1);
+  const run = started?.event as RunStarted | undefined;
+  const place = run ? placeOf(run.project, run.page) : (agent.page ?? "");
+  const elapsed = started ? ` (${duration(state.now - Date.parse(started.at))})` : "";
+  const edge = (text: string, bg = C.bg) => span(text, C.muted, false, bg);
+  const line = (bg: string, ...content: Span[]): Row => ({ spans: [edge("│", bg), ...fit([span(" ", C.text, false, bg), ...content.map((s) => ({ ...s, bg: s.bg ?? bg }))], inner, bg), edge("│", bg)] });
+  const separator: Row = { spans: [edge("├"), span("─".repeat(inner), C.rule), edge("┤")] };
+  return [
+    { spans: [edge(`┌${"─".repeat(inner)}┐`)] },
+    line(C.bg, span(`Stop ${agent.name}?`, C.text, true)),
+    separator,
+    line(C.bg, span("A run is in progress on ", C.muted), span(place), span(`${elapsed}.`, C.muted)),
+    line(C.bg, span("Stopping cancels it; the conversation stays open in Redline.", C.muted)),
+    line(C.bg),
+    line(C.bg, span("The agent stays in the list as stopped: ", C.dim), span("r", C.text, true), span(" restarts it, ", C.dim), span("x", C.text, true), span(" again removes it.", C.dim)),
+    separator,
+    line(C.bar, ...keyCaps([{ key: "y", label: "stop" }, { key: "Esc", label: "keep running" }])),
+    { spans: [edge(`└${"─".repeat(inner)}┘`)] },
+  ];
+};
 
 /** The whole screen: exactly `rows` lines of `columns` cells, with ANSI colours (24-bit) and background. */
 export function render(state: ScreenState, { columns, rows }: Size): string[] {
@@ -401,20 +498,32 @@ export function render(state: ScreenState, { columns, rows }: Size): string[] {
   const left = leftColumn(state, leftCells, bodyHeight);
   const right = rightColumn(state, rightCells, bodyHeight);
   const rule = (cells: number) => span("─".repeat(cells), C.rule);
-  const out: string[] = [];
+  const out: Span[][] = [];
 
-  out.push(toAnsi(fit(headerRow(state, columns).spans, columns)));
-  out.push(toAnsi([span("─".repeat(leftCells), C.rule), span("┬", C.rule), rule(rightCells)]));
+  out.push(fit(headerRow(state, columns).spans, columns));
+  out.push([span("─".repeat(leftCells), C.rule), span("┬", C.rule), rule(rightCells)]);
   for (let i = 0; i < bodyHeight; i++) {
     const l = left[i] ?? { spans: [] };
     const r = right[i] ?? { spans: [] };
     const joint = l.rule && r.rule ? "┼" : l.rule ? "┤" : r.rule ? "├" : "│";
     const side = (row: Row, cells: number) => (row.rule ? [rule(cells)] : fit(row.spans, cells));
-    out.push(toAnsi([...side(l, leftCells), span(joint, C.rule), ...side(r, rightCells)]));
+    out.push([...side(l, leftCells), span(joint, C.rule), ...side(r, rightCells)]);
   }
-  out.push(toAnsi([span("─".repeat(leftCells), C.rule), span("┴", C.rule), rule(rightCells)]));
-  out.push(toAnsi(barRow(state, columns)));
-  return out.slice(0, rows);
+  out.push([span("─".repeat(leftCells), C.rule), span("┴", C.rule), rule(rightCells)]);
+  out.push(barRow(state, columns));
+  const frame = out.slice(0, rows);
+
+  const asked = state.dialog && selectedAgent(state);
+  if (!asked) return frame.map((line) => toAnsi(line));
+  const boxWidth = Math.min(DIALOG_WIDTH, columns - 4);
+  const box = stopDialog(state, asked, boxWidth - 2);
+  const top = Math.max(1, Math.floor((rows - box.length) * 0.4));
+  const boxLeft = Math.floor((columns - boxWidth) / 2);
+  return frame.map((line, index) => {
+    const row = box[index - top];
+    const behind = dim(line);
+    return toAnsi(row ? [...cut(behind, 0, boxLeft), ...fit(row.spans, boxWidth), ...cut(behind, boxLeft + boxWidth, columns)] : behind);
+  });
 }
 
 /** Printed in the shell after the screen closes (board `AgentsTuiShell`). */
