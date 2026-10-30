@@ -480,7 +480,7 @@ export async function buildMainApp(
     const invalidChoice = modelChoiceError(req.body);
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
     const message = store.addReply(thread.id, body, "user", [], req.person)!;
-    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body));
+    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body), (id) => terminalSessions.isPresent(id));
     return reply.code(201).send(message);
   });
 

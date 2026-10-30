@@ -14,6 +14,7 @@ import {
   type CreateVersionRequest,
   type TerminalHeartbeatRequest,
   type TerminalReleaseRequest,
+  type TerminalPickedPage,
   type TerminalWaitingPage,
   type MoveArtboardRequest,
   type RenamePageRequest,
@@ -83,6 +84,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (pageId !== undefined && released.length === 0) return reply.code(409).send({ error: "this terminal session does not hold that page" });
         return released;
       });
+
+      // `pending_comments`: the waiting comments are handed to the session, which then answers them with `reply_in_thread`.
+      api.post<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/pick", async (req): Promise<TerminalPickedPage[]> => terminalSessions.pick(req.params.sessionId));
 
       api.post<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/bye", async (req, reply) => {
         terminalSessions.bye(req.params.sessionId);
@@ -296,9 +300,15 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const thread = store.getThread(req.params.threadId);
         if (!thread) return reply.code(404).send({ error: "thread not found" });
         // The pages the run created appear under its first answer.
+        const { terminalSessionId } = req.body;
+        if (terminalSessionId !== undefined && !terminalSessions.isPickedBy(thread.id, terminalSessionId)) {
+          return reply.code(409).send({ error: `Thread ${thread.id} was not given to this session: only the threads pending_comments returned can be answered here.` });
+        }
         const workId = req.body.workId;
         const createdPageIds = workOrigin(store, pageLock, workId, thread.pageId) ? store.takeCreatedPages(workId!) : [];
-        return reply.code(201).send(store.addReply(thread.id, body, "claude", createdPageIds));
+        const posted = store.addReply(thread.id, body, "claude", createdPageIds);
+        if (terminalSessionId !== undefined) terminalSessions.answered(thread.id);
+        return reply.code(201).send(posted);
       });
     },
     { prefix: AGENT_API_PREFIX },

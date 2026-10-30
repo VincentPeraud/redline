@@ -311,7 +311,7 @@ export class Store {
     const threadColumns = this.db.prepare("PRAGMA table_info(threads)").all() as { name: string }[];
     if (!threadColumns.some((c) => c.name === "session_id")) this.db.exec("ALTER TABLE threads ADD COLUMN session_id TEXT");
     if (!threadColumns.some((c) => c.name === "agent_id")) this.db.exec("ALTER TABLE threads ADD COLUMN agent_id TEXT");
-    for (const column of ["context", "new_session", "session_seed"]) {
+    for (const column of ["context", "new_session", "session_seed", "terminal_session_id"]) {
       if (!threadColumns.some((c) => c.name === column)) this.db.exec(`ALTER TABLE threads ADD COLUMN ${column} TEXT`);
     }
     this.db.exec("UPDATE versions SET origin = 'creation' WHERE origin = 'terminal' AND message = 'Page created'");
@@ -1381,7 +1381,25 @@ export class Store {
   }
 
   setThreadSession(threadId: string, sessionId: string, agentId: string): void {
-    this.db.prepare("UPDATE threads SET session_id = ?, agent_id = ? WHERE id = ?").run(sessionId, agentId, threadId);
+    this.db.prepare("UPDATE threads SET session_id = ?, agent_id = ?, terminal_session_id = NULL WHERE id = ?").run(sessionId, agentId, threadId);
+  }
+
+  /** The terminal session that started the thread (it picked it with `pending_comments`); none once an agent session took it over. */
+  getTerminalOwner(threadId: string): string | undefined {
+    const row = this.db.prepare("SELECT terminal_session_id FROM threads WHERE id = ?").get(threadId) as { terminal_session_id: string | null } | undefined;
+    return row?.terminal_session_id ?? undefined;
+  }
+
+  /** The thread now belongs to a terminal session, not to an agent session. */
+  setTerminalOwner(threadId: string, terminalSessionId: string): void {
+    this.db.prepare("UPDATE threads SET terminal_session_id = ?, session_id = NULL, agent_id = NULL WHERE id = ?").run(terminalSessionId, threadId);
+    const thread = this.getThread(threadId);
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
+  }
+
+  /** The thread belongs to no terminal session any more: it was handed over to the agents. */
+  clearTerminalOwner(threadId: string): void {
+    this.db.prepare("UPDATE threads SET terminal_session_id = NULL WHERE id = ?").run(threadId);
   }
 
   setThreadContext(threadId: string, context: ThreadContext | null): void {

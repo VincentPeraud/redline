@@ -21,6 +21,7 @@ export const LIST_DESIGN_SYSTEMS_TOOL = "list_design_systems";
 export const CREATE_DESIGN_SYSTEM_TOOL = "create_design_system";
 export const SET_PROJECT_DESIGN_SYSTEM_TOOL = "set_project_design_system";
 export const RELEASE_PAGE_TOOL = "release_page";
+export const PENDING_COMMENTS_TOOL = "pending_comments";
 
 /** The last line of every answer: the comments waiting for this session, per page; nothing when there are none (or the server cannot be asked). */
 async function waitingLine(api: ServerApi, sessionId: string): Promise<string | undefined> {
@@ -87,7 +88,8 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
         content: [{ type: "text", text: "Redline: the Redline CLI was updated on this machine, but this MCP still runs the previous version, so its tools are paused. Tell the user to type /mcp in Claude Code and reconnect redline, then call the tool again." }],
       };
     },
-    allowedThreadIds: [],
+    // The server answers only for the threads this session picked with pending_comments.
+    postReply: (threadId, replyText) => api.replyInThread(threadId, replyText, undefined, sessionId),
     get pageId() {
       return checkedOut().pageId;
     },
@@ -111,6 +113,25 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       return text((error as Error).message, true);
     }
   };
+  server.registerTool(
+    PENDING_COMMENTS_TOOL,
+    {
+      description:
+        "Take the Redline comments waiting for this session (on the pages it published), grouped by page, with each page's and artboard's addresses. Call it only when the user asks you to handle their comments. Taking them marks the threads as being handled by you: answer each one with reply_in_thread.",
+    },
+    tool(async () => {
+      const pages = await api.terminalPick(sessionId);
+      if (pages.length === 0) return "No comment is waiting for this session.";
+      const sections = await Promise.all(
+        pages.map(async ({ pageId, title, messages }) => {
+          const { files } = await api.checkout(pageId);
+          return [`## ${title}`, pageAddresses(api, pageId, files), "", messages.join("\n\n---\n\n")].join("\n");
+        }),
+      );
+      const steps = "For each page: checkout_page, make the changes the comments ask for, then publish_page once. Then answer each thread once with reply_in_thread (threadId as given).";
+      return `${steps}\n\n${sections.join("\n\n=====\n\n")}`;
+    }),
+  );
   server.registerTool(
     LIST_PROJECTS_TOOL,
     { description: "List the Redline projects, with their ids and links." },

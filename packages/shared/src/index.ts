@@ -255,6 +255,13 @@ export interface TerminalReleaseRequest {
   pageId?: string;
 }
 
+/** `POST /agent-api/terminal-sessions/:id/pick`: the waiting comments handed to this terminal session, per page; each message is the text an agent session would receive. */
+export interface TerminalPickedPage {
+  pageId: string;
+  title: string;
+  messages: string[];
+}
+
 /** A page a run created through `create_page`, shown as a link card under the answer. */
 export interface CreatedPage {
   pageId: string;

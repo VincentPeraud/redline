@@ -13,6 +13,7 @@ import type { SessionOrigin, Store } from "./store.js";
 
 interface Derived extends Pick<SessionRow, "name" | "sessionId" | "model" | "effort" | "context" | "activityAt"> {
   agentId?: string;
+  terminal?: true;
   workId?: string;
   threadId?: string;
   messages: SessionMessage[];
@@ -52,6 +53,7 @@ export function registerSessionRoutes(
         name: thread.title,
         sessionId: session?.sessionId,
         agentId: session?.agentId,
+        ...(store.getTerminalOwner(thread.id) ? { terminal: true as const } : {}),
         model: thread.context?.model,
         effort: thread.context?.effort,
         context: thread.context,
@@ -129,6 +131,7 @@ export function registerSessionRoutes(
       ...(d.messages[0]?.person ? { startedBy: d.messages[0].person } : {}),
       ...(agent ? { agent: { id: agent.id, machine: agent.machine, folder: agent.folder, kind: agent.kind } } : {}),
       ...(d.sessionId ? { sessionId: d.sessionId } : {}),
+      ...(d.terminal ? { terminal: true as const } : {}),
       ...(d.model ? { model: d.model } : {}),
       ...(d.effort ? { effort: d.effort } : {}),
       ...(d.context ? { context: d.context } : {}),
