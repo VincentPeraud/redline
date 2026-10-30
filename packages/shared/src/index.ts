@@ -250,6 +250,11 @@ export interface TerminalWaitingPage {
   count: number;
 }
 
+/** `POST /agent-api/terminal-sessions/:id/release`: one page of the session, or all of them without `pageId`. Answers with what was handed over. */
+export interface TerminalReleaseRequest {
+  pageId?: string;
+}
+
 /** A page a run created through `create_page`, shown as a link card under the answer. */
 export interface CreatedPage {
   pageId: string;

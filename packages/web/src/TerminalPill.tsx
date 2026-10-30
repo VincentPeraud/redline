@@ -64,7 +64,14 @@ export function TerminalPill({ pageId }: { pageId: string }) {
           <div className={styles.divider} />
           <div className={styles.hint}>Les nouveaux commentaires sur cette page attendent cette session. Dis-lui « traite mes commentaires » dans le terminal.</div>
           <div className={styles.actions}>
-            <Button size="sm" className={styles.handOver}>
+            <Button
+              size="sm"
+              className={styles.handOver}
+              onClick={() => {
+                setOpen(false);
+                void fetch(`/api/pages/${pageId}/terminal-release`, { method: "POST" });
+              }}
+            >
               Confier la page à l'agent
             </Button>
           </div>

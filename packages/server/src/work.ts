@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type ModelChoice, Thread, WorkItem, WorkThread } from "@redline/shared";
+import { type ModelChoice, type Person, Thread, WorkItem, WorkThread } from "@redline/shared";
 import { seededMessage } from "./context.js";
 import { threadSubject } from "./thread-subject.js";
 import type { PageLock } from "./page-lock.js";
@@ -144,4 +144,27 @@ function threadItem(thread: Thread, message: string, sessionId: string, resume: 
     sessionId,
     resume,
   };
+}
+
+const userReplies = (threads: Thread[]): string[] => threads.flatMap((t) => t.replies.filter((r) => r.author === "user").map((r) => replyMessage(t, r.body)));
+
+/**
+ * Sends the waiting work of one thread to the agents under the single routing rule. A thread waiting in a batch leaves it:
+ * it gets its own work item and the others keep waiting. False when the thread is not waiting for a terminal session.
+ * The thread belongs to the agent from then on: its item is sent to an agent, which records the session, and replies resume it.
+ * The user's replies written while it waited go with the message.
+ */
+export function handOverThread(store: Store, lock: PageLock, threadId: string, handedOverBy?: Person): boolean {
+  return lock.handOverThread(
+    threadId,
+    (item) => {
+      const thread = store.getThread(threadId)!;
+      const others = item.threads.filter((t) => t.threadId !== threadId).map((t) => store.getThread(t.threadId)!);
+      return {
+        handed: { ...item, id: randomUUID(), sessionId: randomUUID(), threads: [workThread(thread)], message: [threadMessage(thread), ...userReplies([thread])].join("\n\n") },
+        rest: { ...item, threads: others.map(workThread), message: [batchMessage(others), ...userReplies(others)].join("\n\n") },
+      };
+    },
+    handedOverBy,
+  );
 }

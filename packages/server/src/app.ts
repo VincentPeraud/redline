@@ -70,7 +70,7 @@ import { registerSessionRoutes } from "./sessions.js";
 import { registerHomeRoutes } from "./home.js";
 import { archivedError, registerArchiveRoutes, registerArchivedGuard } from "./archive.js";
 import { moveArtboard } from "./move-artboard.js";
-import { dispatchBatch, dispatchReply, dispatchThread } from "./work.js";
+import { dispatchBatch, dispatchReply, dispatchThread, handOverThread } from "./work.js";
 
 const PALETTE_TOKENS = ["--color-primary", "--color-text", "--color-background"];
 
@@ -401,6 +401,13 @@ export async function buildMainApp(
     return terminalSessions.holderOf(req.params.pageId) ?? null;
   });
 
+  // "Confier la page à l'agent": the hold ends and what waited for the terminal session goes to the agents, until a terminal session publishes again.
+  app.post<{ Params: { pageId: string } }>("/api/pages/:pageId/terminal-release", async (req, reply) => {
+    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+    terminalSessions.releasePage(req.params.pageId, req.person);
+    return reply.code(204).send();
+  });
+
   app.post<{ Params: { pageId: string }; Body: PageViewSettings }>("/api/pages/:pageId/view-settings", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
     const invalid = viewSettingsError(req.body);
@@ -475,6 +482,13 @@ export async function buildMainApp(
     const message = store.addReply(thread.id, body, "user", [], req.person)!;
     dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body));
     return reply.code(201).send(message);
+  });
+
+  // "Confier à l'agent": a thread waiting for the terminal session goes to the agents; the page stays held.
+  app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/hand-over", async (req, reply) => {
+    if (!store.getThread(req.params.threadId)) return reply.code(404).send({ error: "thread not found" });
+    if (!handOverThread(store, pageLock, req.params.threadId, req.person)) return reply.code(409).send({ error: "this thread is not waiting for a terminal session" });
+    return reply.code(204).send();
   });
 
   app.patch<{ Params: { threadId: string }; Body: UpdateThreadRequest }>("/api/threads/:threadId", async (req, reply) => {

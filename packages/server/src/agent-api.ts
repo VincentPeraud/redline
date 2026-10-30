@@ -13,6 +13,7 @@ import {
   type CreateSiblingRequest,
   type CreateVersionRequest,
   type TerminalHeartbeatRequest,
+  type TerminalReleaseRequest,
   type TerminalWaitingPage,
   type MoveArtboardRequest,
   type RenamePageRequest,
@@ -73,6 +74,15 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       });
 
       api.get<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/waiting", async (req): Promise<TerminalWaitingPage[]> => terminalSessions.waitingFor(req.params.sessionId));
+
+      // `release_page`: the session hands one page it holds (or all of them) over to the agents.
+      api.post<{ Params: { sessionId: string }; Body: Partial<TerminalReleaseRequest> }>("/terminal-sessions/:sessionId/release", async (req, reply): Promise<TerminalWaitingPage[] | void> => {
+        const pageId = req.body?.pageId;
+        if (pageId !== undefined && !requiredString(pageId)) return reply.code(400).send({ error: "pageId must be a page id" });
+        const released = terminalSessions.releaseHeldBy(req.params.sessionId, pageId);
+        if (pageId !== undefined && released.length === 0) return reply.code(409).send({ error: "this terminal session does not hold that page" });
+        return released;
+      });
 
       api.post<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/bye", async (req, reply) => {
         terminalSessions.bye(req.params.sessionId);

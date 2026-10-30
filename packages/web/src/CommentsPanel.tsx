@@ -61,6 +61,7 @@ function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNo
 function ThreadCard({
   thread,
   queued,
+  waitingForTerminal,
   run,
   session,
   choice,
@@ -69,6 +70,7 @@ function ThreadCard({
 }: {
   thread: Thread;
   queued: string | undefined;
+  waitingForTerminal: boolean;
   run: ThreadRun | undefined;
   session: SessionRow | undefined;
   choice: ModelEffortChoice;
@@ -129,7 +131,7 @@ function ThreadCard({
       {active ? (
         session?.sessionId && <span className={styles.sessionMeta}>session {shortSessionId(session.sessionId)}</span>
       ) : (
-        <div className={styles.footer}>
+        <div className={cx(styles.footer, waitingForTerminal && styles.footerStacked)}>
           <span className={styles.sessionMeta}>
             {session?.sessionId && (
               <>
@@ -139,16 +141,21 @@ function ThreadCard({
             )}
             {session && relativeTime(session.activityAt)}
           </span>
-          <span className={styles.spacer} />
+          {!waitingForTerminal && <span className={styles.spacer} />}
           {!readOnly && (
-            <>
+            <div className={styles.footerActions}>
+              {waitingForTerminal && (
+                <Button size="sm" onClick={() => void fetch(`/api/threads/${thread.id}/hand-over`, { method: "POST" })}>
+                  Confier à l'agent
+                </Button>
+              )}
               <Button size="sm" aria-expanded={replying} onClick={() => setReplying(!replying)}>
                 Répondre
               </Button>
               <Button size="sm" variant="primary" onClick={onResolve}>
                 Résoudre
               </Button>
-            </>
+            </div>
           )}
         </div>
       )}
@@ -192,6 +199,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
               key={thread.id}
               thread={thread}
               queued={queueLabel(queue, thread.id)}
+              waitingForTerminal={queue.some((e) => e.reason === "terminal" && e.threadIds.includes(thread.id))}
               run={runs.filter((r) => r.threadIds.includes(thread.id)).slice(-1)[0]}
               session={sessions.get(thread.id)}
               choice={choice}

@@ -19,6 +19,8 @@ export interface SubmitOptions {
    * Only for new work no agent session owns.
    */
   forTerminal?: boolean;
+  /** The person who handed the item over to the agent from a held page: the run works for them instead of the commenter. */
+  handedOverBy?: Person;
 }
 
 interface Queued extends SubmitOptions {
@@ -82,7 +84,14 @@ export class PageLock {
   /** Loads the persisted state. Call once, after every listener of the store events is registered (the run tracker needs the replayed events). */
   restore(): void {
     const rows = this.store.loadWorkQueue();
-    const toQueued = ({ projectId, agentId, item, takeoverItem, forTerminal }: PersistedWork): Queued => ({ projectId, agentId, item, takeoverItem, ...(forTerminal ? { forTerminal } : {}) });
+    const toQueued = ({ projectId, agentId, item, takeoverItem, forTerminal, handedOverBy }: PersistedWork): Queued => ({
+      projectId,
+      agentId,
+      item,
+      takeoverItem,
+      ...(forTerminal ? { forTerminal } : {}),
+      ...(handedOverBy ? { handedOverBy } : {}),
+    });
     this.queue = [...rows.filter((r) => r.state === "active"), ...rows.filter((r) => r.state === "queued")].map(toQueued);
     for (const row of rows) {
       if (row.attempts > 0) this.attempts.set(row.item.id, row.attempts);
@@ -110,14 +119,37 @@ export class PageLock {
   }
 
   /** Sends the work of a page that waited for its terminal session to the agents, under the single routing rule (the session left, or the page was handed over). */
-  releaseTerminalWork(pageId: string): void {
+  releaseTerminalWork(pageId: string, handedOverBy?: Person): void {
     let released = false;
     for (const queued of this.queue) {
       if (!queued.forTerminal || queued.item.pageId !== pageId) continue;
       delete queued.forTerminal;
+      if (handedOverBy) queued.handedOverBy = handedOverBy;
       released = true;
     }
     if (released) this.pump();
+  }
+
+  /**
+   * Sends the waiting work of one thread to the agents. A batch holding other threads is split: `split` gives the item
+   * for the thread and the item for the others. False when no item waiting for a terminal session holds the thread.
+   */
+  handOverThread(threadId: string, split: (item: WorkItem) => { handed: WorkItem; rest: WorkItem }, handedOverBy?: Person): boolean {
+    const index = this.queue.findIndex((q) => q.forTerminal && q.item.threads.some((t) => t.threadId === threadId));
+    if (index < 0) return false;
+    const queued = this.queue[index];
+    if (queued.item.threads.length > 1) {
+      const { handed, rest } = split(queued.item);
+      queued.item = rest;
+      this.queue.splice(index + 1, 0, { projectId: queued.projectId, item: handed, ...(handedOverBy ? { handedOverBy } : {}) });
+    } else {
+      delete queued.forTerminal;
+      if (handedOverBy) queued.handedOverBy = handedOverBy;
+    }
+    this.pump();
+    this.save();
+    this.store.emit({ type: "queue-updated", pageId: queued.item.pageId });
+    return true;
   }
 
   /** The comments waiting for a terminal session, per page. */
@@ -338,7 +370,7 @@ export class PageLock {
         continue;
       }
       const { agentId, item } = target;
-      const requester = this.store.requestingPersonOfItem(item);
+      const requester = queued.handedOverBy ?? this.store.requestingPersonOfItem(item);
       this.active.set(queued.item.id, { queued, agentId, requester });
       if (this.hub.send(agentId, { type: "work", item: { ...item, labels: this.labelsOf(item, requester) } })) {
         this.recordSession(agentId, item);
@@ -423,6 +455,7 @@ export class PageLock {
       item: queued.item,
       takeoverItem: queued.takeoverItem,
       ...(queued.forTerminal ? { forTerminal: true } : {}),
+      ...(queued.handedOverBy ? { handedOverBy: queued.handedOverBy } : {}),
       attempts: this.attempts.get(queued.item.id) ?? 0,
       ...extra,
     });

@@ -1,4 +1,4 @@
-import type { TerminalHolder } from "@redline/shared";
+import type { Person, TerminalHolder } from "@redline/shared";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -68,6 +68,23 @@ export class TerminalSessions {
     const counts = new Map<string, number>();
     for (const { pageId, threadIds } of this.lock.terminalWaiting()) if (held.has(pageId)) counts.set(pageId, (counts.get(pageId) ?? 0) + threadIds.length);
     return [...counts].map(([pageId, count]) => ({ pageId, title: this.store.getPage(pageId)?.title ?? "", count }));
+  }
+
+  /** A person or the terminal session hands the page over to the agents: the hold ends and what waited for it goes to routing. */
+  releasePage(pageId: string, handedOverBy?: Person): void {
+    this.store.clearHold(pageId);
+    this.lock.releaseTerminalWork(pageId, handedOverBy);
+  }
+
+  /** `release_page`: hands over one page this session holds, or all of them. Returns what was handed over; a page the session does not hold is not in it. */
+  releaseHeldBy(sessionId: string, pageId?: string): { pageId: string; title: string; count: number }[] {
+    const waiting = new Map(this.waitingFor(sessionId).map((w) => [w.pageId, w.count]));
+    const held = this.store
+      .heldPageIds()
+      .filter((h) => h.sessionId === sessionId && (pageId === undefined || h.pageId === pageId))
+      .map((h) => ({ pageId: h.pageId, title: this.store.getPage(h.pageId)?.title ?? "", count: waiting.get(h.pageId) ?? 0 }));
+    for (const page of held) this.releasePage(page.pageId);
+    return held;
   }
 
   private release(sessionId: string): void {

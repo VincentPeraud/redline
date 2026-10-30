@@ -20,6 +20,7 @@ import {
   type Project,
   type ProjectAsset,
   type TerminalHeartbeatRequest,
+  type TerminalReleaseRequest,
   type TerminalWaitingPage,
   type ThreadReply,
   type VersionOrigin,
@@ -87,6 +88,12 @@ export class ServerApi {
   /** The comments waiting for this terminal session, per page it holds. */
   terminalWaiting(sessionId: string): Promise<TerminalWaitingPage[]> {
     return this.request("GET", `/terminal-sessions/${encodeURIComponent(sessionId)}/waiting`);
+  }
+
+  /** Hands one page this terminal session holds (or all of them) over to the agents; answers with what was handed over. */
+  terminalRelease(sessionId: string, pageId?: string): Promise<TerminalWaitingPage[]> {
+    const body: TerminalReleaseRequest = pageId ? { pageId } : {};
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/release`, body);
   }
 
   /** Tells the server this terminal session is closing. */

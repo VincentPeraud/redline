@@ -20,6 +20,7 @@ export const CREATE_PROJECT_TOOL = "create_project";
 export const LIST_DESIGN_SYSTEMS_TOOL = "list_design_systems";
 export const CREATE_DESIGN_SYSTEM_TOOL = "create_design_system";
 export const SET_PROJECT_DESIGN_SYSTEM_TOOL = "set_project_design_system";
+export const RELEASE_PAGE_TOOL = "release_page";
 
 /** The last line of every answer: the comments waiting for this session, per page; nothing when there are none (or the server cannot be asked). */
 async function waitingLine(api: ServerApi, sessionId: string): Promise<string | undefined> {
@@ -283,6 +284,20 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
         versionId: fresh.versionId,
       };
       return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}, merged with changes made to the page since the checkout. The working copy was refreshed.${hintAfter}`;
+    }),
+  );
+  server.registerTool(
+    RELEASE_PAGE_TOOL,
+    {
+      description:
+        "Stop holding a page: its waiting comments go to the Redline agent, and new comments go to the agent until a terminal session publishes the page again. Without pageId, releases every page this session holds. Use it when the user asks you to let go of a page.",
+      inputSchema: { pageId: z.string().optional().describe("Id of the page to release; leave out to release all the pages this session holds") },
+    },
+    tool(async ({ pageId }: { pageId?: string }) => {
+      const released = await api.terminalRelease(sessionId, pageId);
+      if (released.length === 0) return "This session holds no page: nothing to release.";
+      const lines = released.map((page) => `- ${page.title}: ${page.count === 0 ? "no waiting comment" : `${page.count} comment${page.count > 1 ? "s" : ""} handed over to the agent`}`);
+      return `Released ${released.length > 1 ? "these pages" : "this page"}; the agent now takes its comments until a terminal session publishes ${released.length > 1 ? "them" : "it"} again:\n${lines.join("\n")}`;
     }),
   );
   return server;

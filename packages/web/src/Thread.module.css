@@ -132,6 +132,25 @@
   gap: var(--space-2);
 }
 
+/* A thread waiting for the terminal session: the time on its own line, the buttons on a right-aligned row below. */
+.footerStacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.footerActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* The board draws the footer buttons at 13 px, one step above the small button's 12 px. */
+.footerActions button {
+  font-size: var(--font-size-sm);
+}
+
 .sessionMeta {
   min-width: 0;
   font-family: var(--font-mono);

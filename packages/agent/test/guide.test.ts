@@ -128,3 +128,9 @@ it("gives spacing, arrow, content and asking rules, so pages come out clean with
   expect(REDLINE_GUIDE).toContain("contrast of 4.5:1");
   expect(REDLINE_GUIDE).toContain("state your assumptions in one line");
 });
+
+it("tells terminal Claude to call release_page only when asked to let go of a page", () => {
+  expect(REDLINE_GUIDE).toContain("## Letting go of a page (terminal mode)");
+  expect(REDLINE_GUIDE).toContain("release_page {pageId}");
+  expect(REDLINE_GUIDE).toContain("Never release a page on your own");
+});
