@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { randomUUID } from "node:crypto";
+import { hostname } from "node:os";
 import { z } from "zod";
 import { uploadChangedAssets } from "./assets.js";
 import { readLinkedProjectIds } from "./link.js";
@@ -46,7 +48,7 @@ interface Checkout {
  * No thread or conversation is involved.
  */
 /** `runningBuild` is the build this process loaded; `installedBuild` reads the one installed now (an update replaces it on disk). */
-export function createTerminalMcpServer({ api, folder, runningBuild = buildHash(), installedBuild = buildHash }: { api: ServerApi; folder: string; runningBuild?: string; installedBuild?: () => string }): McpServer {
+export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(), runningBuild = buildHash(), installedBuild = buildHash }: { api: ServerApi; folder: string; sessionId?: string; runningBuild?: string; installedBuild?: () => string }): McpServer {
   let current: Checkout | undefined;
   let removalsConfirmed = false;
   const checkedOut = (): Checkout => {
@@ -246,6 +248,7 @@ export function createTerminalMcpServer({ api, folder, runningBuild = buildHash(
       const confirmRemovals = removalsConfirmed;
       removalsConfirmed = false;
       const version = await api.publish(pageId, files, message, "terminal", versionId, {
+        terminalSessionId: sessionId,
         ...(confirmRemovals ? { confirmRemovals: true } : {}),
         ...(designMd !== baseDesignMd ? { designMd: { content: designMd, base: baseDesignMd } } : {}),
         ...(projectStyle !== baseStyle ? { projectStyle: { content: projectStyle!, base: baseStyle! } } : {}),
@@ -275,7 +278,39 @@ export function createTerminalMcpServer({ api, folder, runningBuild = buildHash(
   return server;
 }
 
+export const PRESENCE_INTERVAL_MS = 20_000;
+
+/**
+ * Tells the server this terminal session is present now and then every `intervalMs`; `stop` says bye (best effort) and stops.
+ * A heartbeat that fails is simply sent again at the next tick.
+ */
+export function startPresence({ api, sessionId, folder, machine = hostname(), intervalMs = PRESENCE_INTERVAL_MS }: { api: ServerApi; sessionId: string; folder: string; machine?: string; intervalMs?: number }): { firstBeat: Promise<void>; stop: () => Promise<void> } {
+  const beat = () => api.terminalHeartbeat(sessionId, folder, machine).catch(() => undefined);
+  const firstBeat = beat();
+  const timer = setInterval(beat, intervalMs);
+  timer.unref();
+  return {
+    firstBeat,
+    stop: async () => {
+      clearInterval(timer);
+      await api.terminalBye(sessionId).catch(() => undefined);
+    },
+  };
+}
+
 /** Serves the terminal MCP server on stdin/stdout until the client goes away. */
-export async function serveTerminalMcp(options: { api: ServerApi; folder: string }): Promise<void> {
-  await createTerminalMcpServer(options).connect(new StdioServerTransport());
+export async function serveTerminalMcp({ api, folder }: { api: ServerApi; folder: string }): Promise<void> {
+  const sessionId = randomUUID();
+  const server = createTerminalMcpServer({ api, folder, sessionId });
+  const transport = new StdioServerTransport();
+  const presence = startPresence({ api, sessionId, folder });
+  const closed = new Promise<void>((resolve) => {
+    transport.onclose = resolve;
+    process.stdin.on("end", resolve);
+    process.once("SIGINT", resolve);
+    process.once("SIGTERM", resolve);
+  });
+  await server.connect(transport);
+  await closed;
+  await presence.stop();
 }

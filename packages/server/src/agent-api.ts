@@ -12,6 +12,7 @@ import {
   type AgentReplyRequest,
   type CreateSiblingRequest,
   type CreateVersionRequest,
+  type TerminalHeartbeatRequest,
   type MoveArtboardRequest,
   type RenamePageRequest,
   type DesignMdAuthor,
@@ -31,6 +32,7 @@ import { requiredString, titleError, tokensError, versionRequestError } from "./
 import { projectContext, putProjectAsset } from "./project-files.js";
 import { designSystemChangeError } from "./project-design-system.js";
 import type { PageLock } from "./page-lock.js";
+import type { TerminalSessions } from "./terminal-sessions.js";
 import type { OriginRef, Store } from "./store.js";
 
 /** The thread or conversation a running work item answers, as version/DESIGN.md origin; none when the item is unknown or belongs to another page. */
@@ -48,7 +50,7 @@ export function workOrigin(store: Store, pageLock: PageLock, workId: unknown, pa
 }
 
 /** HTTP API for agents and their sessions' MCP tools, guarded by the agent token (see `AGENT_API_PREFIX`). */
-export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock): Promise<void> {
+export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock, terminalSessions: TerminalSessions): Promise<void> {
   await app.register(
     async (api) => {
       // onRequest, not preHandler: a wrong token is refused before its body (up to 20 MB for assets) is read.
@@ -59,6 +61,19 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         }
         const build = req.headers[BUILD_HASH_HEADER];
         if (typeof build === "string" && store.isOutdated(build)) reply.header(OUTDATED_HEADER, "1");
+      });
+
+      // Terminal mode (`redline mcp`) says it is there: every ~20 s while the session is open, and once more as it closes.
+      api.post<{ Params: { sessionId: string }; Body: Partial<TerminalHeartbeatRequest> }>("/terminal-sessions/:sessionId/heartbeat", async (req, reply) => {
+        const { folder, machine } = req.body ?? {};
+        if (!requiredString(folder) || !requiredString(machine)) return reply.code(400).send({ error: "folder and machine are required" });
+        terminalSessions.heartbeat(req.params.sessionId, folder, machine);
+        return reply.code(204).send();
+      });
+
+      api.post<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/bye", async (req, reply) => {
+        terminalSessions.bye(req.params.sessionId);
+        return reply.code(204).send();
       });
 
       // `redline agent` picks or creates the projects a folder serves, before they have anything else to call.
@@ -167,6 +182,8 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const ref: OriginRef | undefined = from && { originId: from.originId, originLabel: from.originLabel, person: from.person };
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
+          // The terminal session that publishes a page holds it, replacing the previous holder.
+          if (origin === "terminal" && requiredString(req.body.terminalSessionId)) store.holdPage(req.params.pageId, req.body.terminalSessionId);
           if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());
           if (styleChanged) store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(projectStyle.content, "utf8"), author());
           const { gaps } = agentGaps(store, req.params.pageId, result.files);

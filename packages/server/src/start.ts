@@ -21,6 +21,8 @@ export interface StartOptions {
   identity?: IdentityConfig;
   /** Waits before each retry of a failed work item; default 1, 5 and 15 minutes. */
   retryDelaysMs?: number[];
+  /** How long a terminal session may go without a heartbeat before it counts as gone; default 60 s. */
+  terminalPresenceTimeoutMs?: number;
 }
 
 export interface RunningServer {
@@ -38,6 +40,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
 
   const mainApp = await buildMainApp(store, { artboardOrigin }, options.webDir, {
     retryDelaysMs: options.retryDelaysMs,
+    terminalPresenceTimeoutMs: options.terminalPresenceTimeoutMs,
     proxySecrets: options.proxySecrets,
     identity: options.identity,
     cliBuild: loadCliBuild(options.cliDir),

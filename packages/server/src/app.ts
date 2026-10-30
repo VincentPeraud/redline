@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
   type PageViewSettings,
+  type TerminalHolder,
   COMPONENTS_CSS_PATH,
   withoutComponentStyles,
   DESIGN_SYSTEM_TOKENS_PATH,
@@ -43,6 +44,7 @@ import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, i
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
+import { TerminalSessions } from "./terminal-sessions.js";
 import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
 import { projectContext, readPageAsset, readProjectAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
@@ -120,7 +122,7 @@ export async function buildMainApp(
   store: Store,
   config: ServerConfig,
   webDir?: string,
-  options: { retryDelaysMs?: number[]; proxySecrets?: ProxySecrets; identity?: IdentityConfig; cliBuild?: CliBuild } = {},
+  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; cliBuild?: CliBuild } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ bodyLimit: MAX_PAGE_BYTES });
   registerProxySecretCheck(app, options.proxySecrets);
@@ -139,7 +141,9 @@ export async function buildMainApp(
   const agents = await registerAgentRoutes(app, store);
   const pageLock = new PageLock(store, agents, options.retryDelaysMs);
   app.addHook("onClose", async () => pageLock.dispose());
-  await registerAgentApi(app, store, pageLock);
+  const terminalSessions = new TerminalSessions(store, options.terminalPresenceTimeoutMs);
+  app.addHook("onClose", async () => terminalSessions.dispose());
+  await registerAgentApi(app, store, pageLock, terminalSessions);
   await registerProjectFileRoutes(app, store);
   registerProjectDesignSystemRoutes(app, store);
   registerEventRoutes(app, store);
@@ -390,6 +394,11 @@ export async function buildMainApp(
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId", async (req, reply) => {
     const page = store.getPage(req.params.pageId);
     return page ? { ...page, viewSettings: store.getViewSettings(page.id), designSystem: store.isDesignSystemProject(page.projectId) } : reply.code(404).send({ error: "page not found" });
+  });
+
+  app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/terminal-holder", async (req, reply): Promise<TerminalHolder | null> => {
+    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+    return terminalSessions.holderOf(req.params.pageId) ?? null;
   });
 
   app.post<{ Params: { pageId: string }; Body: PageViewSettings }>("/api/pages/:pageId/view-settings", async (req, reply) => {

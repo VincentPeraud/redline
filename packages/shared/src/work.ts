@@ -147,6 +147,8 @@ export type ServerEvent =
   | { type: "work-retrying"; pageId: string; workId: string; threadIds: string[]; retryAt: string; limit: boolean; message: string }
   /** Live state of a run, sent after every change (full snapshot, replace by `workId`). */
   | { type: "run-updated"; pageId: string; run: ThreadRun }
+  /** A terminal session took, released or lost the page, or connected or left while holding it (`GET /api/pages/:id/terminal-holder`). */
+  | { type: "terminal-hold-changed"; pageId: string }
   /** An agent connected or disconnected. */
   | { type: "agents-updated" };
 

@@ -19,6 +19,7 @@ import {
   type PageVersionSummary,
   type Project,
   type ProjectAsset,
+  type TerminalHeartbeatRequest,
   type ThreadReply,
   type VersionOrigin,
   type RenamePageRequest,
@@ -59,7 +60,7 @@ export class ServerApi {
     message: string,
     origin: VersionOrigin,
     baseVersionId: string,
-    extra: Pick<CreateVersionRequest, "workId" | "designMd" | "projectStyle" | "confirmRemovals"> = {},
+    extra: Pick<CreateVersionRequest, "workId" | "designMd" | "projectStyle" | "confirmRemovals" | "terminalSessionId"> = {},
   ): Promise<PageVersionSummary> {
     const body: CreateVersionRequest = { files, message, origin, baseVersionId, ...extra };
     return this.request("POST", `/pages/${pageId}/versions`, body);
@@ -74,6 +75,17 @@ export class ServerApi {
   /** Stores an asset in the project of `pageId`; every artboard of the project reaches it as `assets/<name>`. */
   uploadAsset(pageId: string, name: string, bytes: Buffer): Promise<ProjectAsset> {
     return this.request("PUT", `/pages/${pageId}/assets/${name.split("/").map(encodeURIComponent).join("/")}`, bytes);
+  }
+
+  /** Tells the server this terminal session is present (sent at start and then regularly). */
+  terminalHeartbeat(sessionId: string, folder: string, machine: string): Promise<void> {
+    const body: TerminalHeartbeatRequest = { folder, machine };
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/heartbeat`, body);
+  }
+
+  /** Tells the server this terminal session is closing. */
+  terminalBye(sessionId: string): Promise<void> {
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/bye`, {});
   }
 
   replyInThread(threadId: string, text: string, workId?: string): Promise<ThreadReply> {
@@ -169,6 +181,6 @@ export class ServerApi {
       const error = await res.json().then((body: { error?: string }) => body.error, () => undefined);
       throw new Error(error ?? `The server answered ${res.status} ${res.statusText}`.trim());
     }
-    return (await res.json()) as T;
+    return (res.status === 204 ? undefined : await res.json()) as T;
   }
 }

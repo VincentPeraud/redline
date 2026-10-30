@@ -287,6 +287,8 @@ export class Store {
     addColumn("projects", "archived_at", "TEXT");
     // When the page was archived: read-only, out of the page lists and of sessions, deletable.
     addColumn("pages", "archived_at", "TEXT");
+    addColumn("pages", "held_by", "TEXT");
+    addColumn("pages", "held_at", "TEXT");
     addColumn("versions", "origin_id", "TEXT");
     addColumn("versions", "origin_label", "TEXT");
     addColumn("versions", "diffusion", "INTEGER");
@@ -1172,6 +1174,28 @@ export class Store {
       version: { id: version.id, files: JSON.parse(version.files) },
       ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
     };
+  }
+
+  /** The terminal session that took the page with its last terminal publish, whether it is still present or not. */
+  holdOf(pageId: string): { sessionId: string; since: string } | undefined {
+    const row = this.db.prepare("SELECT held_by, held_at FROM pages WHERE id = ?").get(pageId) as { held_by: string | null; held_at: string | null } | undefined;
+    return row?.held_by && row.held_at ? { sessionId: row.held_by, since: row.held_at } : undefined;
+  }
+
+  holdPage(pageId: string, sessionId: string): void {
+    this.db.prepare("UPDATE pages SET held_by = ?, held_at = ? WHERE id = ?").run(sessionId, new Date().toISOString(), pageId);
+    this.emit({ type: "terminal-hold-changed", pageId });
+  }
+
+  /** The held pages with their holder, leaving out the holders in `except`. */
+  heldPageIds(except: ReadonlySet<string> = new Set()): { pageId: string; sessionId: string }[] {
+    const rows = this.db.prepare("SELECT id, held_by FROM pages WHERE held_by IS NOT NULL").all() as { id: string; held_by: string }[];
+    return rows.filter((row) => !except.has(row.held_by)).map((row) => ({ pageId: row.id, sessionId: row.held_by }));
+  }
+
+  clearHold(pageId: string): void {
+    this.db.prepare("UPDATE pages SET held_by = NULL, held_at = NULL WHERE id = ?").run(pageId);
+    this.emit({ type: "terminal-hold-changed", pageId });
   }
 
   /** True when the page itself is archived (its project may be archived too, see `isArchived`). */

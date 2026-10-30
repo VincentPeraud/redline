@@ -75,8 +75,8 @@ function collectEvents(url: string, into: ServerEvent[], signal: AbortSignal): P
  * Seam 2: a real server and a real agent (project agent in a temp folder) driven by the given engine
  * (usually a `FakeEngine`). Pass `webDir` to serve the web UI for browser journeys.
  */
-export async function startSeam2(engine: Engine, options: { webDir?: string; retryDelaysMs?: number[]; agent?: { model?: string; effort?: Effort } } = {}): Promise<Seam2> {
-  const server = await startTestServer({ webDir: options.webDir, retryDelaysMs: options.retryDelaysMs });
+export async function startSeam2(engine: Engine, options: { webDir?: string; retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; agent?: { model?: string; effort?: Effort } } = {}): Promise<Seam2> {
+  const server = await startTestServer({ webDir: options.webDir, retryDelaysMs: options.retryDelaysMs, terminalPresenceTimeoutMs: options.terminalPresenceTimeoutMs });
   const folder = mkdtempSync(join(tmpdir(), "redline-agent-folder-"));
   const events: ServerEvent[] = [];
   const abort = new AbortController();

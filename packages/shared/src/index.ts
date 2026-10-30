@@ -119,6 +119,8 @@ export interface CreateVersionRequest {
   designMd?: { content: string; base: string };
   /** `/agent-api` only: the project style `tokens.css` of the working copy, sent when the session changed it; same `base` rule as `designMd`. */
   projectStyle?: { content: string; base: string };
+  /** `/agent-api` terminal publishes only: the terminal session publishing, which then holds the page. */
+  terminalSessionId?: string;
   /**
    * Design system pages only: removing a token or a component that pages of a using project still reference is refused with the list
    * of pages, unless this is true (Claude asks the user first).
@@ -226,6 +228,20 @@ export interface Page {
 }
 
 export type PageCreator = "claude" | "user";
+
+/** The terminal session holding a page while it is present (`GET /api/pages/:pageId/terminal-holder`). */
+export interface TerminalHolder {
+  folder: string;
+  machine: string;
+  /** When it took the page (ISO time): its last terminal publish. */
+  since: string;
+}
+
+/** `POST /agent-api/terminal-sessions/:id/heartbeat`: a terminal session says it is present. */
+export interface TerminalHeartbeatRequest {
+  folder: string;
+  machine: string;
+}
 
 /** A page a run created through `create_page`, shown as a link card under the answer. */
 export interface CreatedPage {
