@@ -414,6 +414,18 @@ describe("terminal mode: projects and pages", () => {
     expect(await call("rename_page", { title: "  " })).toMatch(/title/);
   });
 
+  it("archives the page given by id, which then leaves list_pages", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const web = await seam.createPage(PAGE_FILES, "Sortie");
+    const other = await seam.createPage(PAGE_FILES, "Brouillon");
+    const call = await connectTerminal(seam.folder);
+
+    expect(await call("archive_page", { pageId: other.id })).toMatch(/archived "Brouillon"/);
+    const listed = await call("list_pages", { projectId: web.projectId });
+    expect(listed).toContain(web.id);
+    expect(listed).not.toContain(other.id);
+  });
+
   it("refuses a manifest title changed to rename the page, and keeps one left as checked out", async () => {
     seam = await startSeam2(new FakeEngine([]));
     const manifest = (title: string) => JSON.stringify({ title, artboards: [{ file: "home.html", x: 0, y: 0 }] }, null, 2);

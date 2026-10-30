@@ -32,6 +32,7 @@ export function moveArtboard(
     if (!page) return refuse(404, "target page not found");
     if (page.id === sourceId) return refuse(400, "the artboard already is on that page");
     if (page.projectId !== source.projectId) return refuse(400, "an artboard can only move to a page of the same project");
+    if (page.archivedAt) return refuse(409, `"${page.title}" is archived: unarchive it in Redline to move artboards to it.`);
     if (page.version.files[file] !== undefined) return refuse(409, `"${page.title}" already has a file named ${file}`);
     if (pageLock.isHeldByOther(page.id, version.exceptWorkId)) return refuse(409, `A session is working on "${page.title}": try again once it is done.`);
     target = { pageId: page.id };

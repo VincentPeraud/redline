@@ -53,7 +53,7 @@ it("archives a project from its page, finds it under Projets archivés, unarchiv
 
   await tab.getByRole("button", { name: "Archiver ce projet" }).click();
   await tab.getByRole("dialog").getByRole("button", { name: "Archiver", exact: true }).click();
-  await tab.getByRole("button", { name: "Supprimer définitivement…" }).click();
+  await tab.getByRole("button", { name: "Supprimer définitivement", exact: true }).click();
   const remove = tab.getByRole("dialog", { name: "Supprimer « Lumora v1 » définitivement ?" });
   await remove.getByText("Ses 1 page, 0 fil, 1 version").waitFor();
   const red = remove.getByRole("button", { name: "Supprimer définitivement", exact: true });
@@ -118,4 +118,50 @@ it("shows an archived project's page read-only: threads and conversations to rea
 
   await tab.getByRole("status").getByRole("button", { name: "Désarchiver" }).click();
   await tab.getByRole("button", { name: "Commenter (C)" }).waitFor();
+}, 60_000);
+
+it("archives a page from its card, unfolds it under Pages archivées, shows it read-only, unarchives it, then deletes it once its name is typed", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Lumora v4" })).json()) as Project;
+  await server.post(`/api/projects/${project.id}/pages`, { title: "Accueil v2", files: { "index.html": "<h1>Hi</h1>" } });
+  const old = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Accueil v1", files: { "accueil.html": "<h1>Accueil</h1>" } })).json()) as { id: string };
+  await server.post(`/api/pages/${old.id}/threads`, { artboard: "accueil.html", selector: "h1", xPct: 10, yPct: 10, body: "Titre plus grand" });
+  const tab = await browser.newPage();
+  await tab.goto(`${server.url}/#/projects/${project.id}`);
+
+  const card = tab.getByTestId("page-card").filter({ hasText: "Accueil v1" });
+  await card.hover();
+  await card.getByRole("button", { name: "Archiver la page" }).click();
+  const toggle = tab.getByRole("button", { name: "Pages archivées · 1" });
+  await toggle.waitFor();
+  expect(await tab.getByTestId("page-card").count()).toBe(1);
+  await toggle.click();
+  const archivedCard = tab.getByTestId("page-card").filter({ hasText: "Accueil v1" });
+  await archivedCard.getByText(/archivée le/).waitFor();
+  expect(await archivedCard.getByRole("button", { name: "Archiver la page" }).count()).toBe(0);
+
+  await archivedCard.getByRole("link", { name: "Accueil v1" }).click();
+  const banner = tab.getByRole("status").filter({ hasText: "Page archivée le" });
+  await banner.waitFor();
+  await tab.getByText("Page archivée : les conversations se lisent mais ne reçoivent plus de messages.").waitFor();
+  expect(await tab.getByRole("button", { name: "Commenter (C)" }).count()).toBe(0);
+
+  await banner.getByRole("button", { name: "Désarchiver" }).click();
+  await tab.getByRole("button", { name: "Commenter (C)" }).waitFor();
+  expect(((await (await server.get(`/api/pages/${old.id}`)).json()) as { archivedAt?: string }).archivedAt).toBeUndefined();
+
+  await server.post(`/api/pages/${old.id}/archive`, {});
+  await tab.reload();
+  await tab.getByRole("status").getByRole("button", { name: "Supprimer définitivement", exact: true }).click();
+  const remove = tab.getByRole("dialog", { name: "Supprimer « Accueil v1 » définitivement ?" });
+  await remove.getByText("Ses 1 artboard, 1 fil, 1 version et ses conversations seront effacés. Les assets du projet restent.").waitFor();
+  const red = remove.getByRole("button", { name: "Supprimer définitivement", exact: true });
+  await red.click({ force: true });
+  expect((await server.get(`/api/pages/${old.id}`)).status).toBe(200);
+  await remove.getByLabel("Tape le nom de la page pour confirmer").fill("Accueil v1");
+  await red.click();
+
+  await expect.poll(() => tab.url()).toContain(`#/projects/${project.id}`);
+  expect((await server.get(`/api/pages/${old.id}`)).status).toBe(404);
+  await tab.getByTestId("page-card").filter({ hasText: "Accueil v2" }).waitFor();
+  expect(await tab.getByRole("button", { name: /Pages archivées/ }).count()).toBe(0);
 }, 60_000);

@@ -10,7 +10,7 @@ import {
   type Thread,
 } from "@redline/shared";
 import { AgentPill } from "./AgentPill.js";
-import { ArchiveFooter, ArchivedBanner, DeleteSection } from "./ArchiveControls.js";
+import { ArchiveFooter, ArchiveIcon, ArchivedBanner, DeleteSection, PageArchiveButton, pageArchivedOnLabel } from "./ArchiveControls.js";
 import { dayLabel, designMdStatus } from "./historyLabels.js";
 import { useWho } from "./useMe.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
@@ -44,6 +44,7 @@ function PageCard({
   current,
   readOnly,
   onRename,
+  onArchived,
 }: {
   page: Page;
   stats: PageStats | undefined;
@@ -51,15 +52,22 @@ function PageCard({
   current: boolean;
   readOnly: boolean;
   onRename: (title: string) => Promise<void>;
+  onArchived: () => void;
 }) {
   const artboards = usePageArtboards(page.id, page.version.files);
   const [renaming, setRenaming] = useState(false);
   const count = counted(artboards?.length ?? 0, "artboard", "artboards");
-  // An archived project's cards say what the page holds (and would be deleted with it), not when it last changed.
-  const modified = readOnly ? ` · ${counted(stats?.threads ?? 0, "fil", "fils")}` : stats?.updatedAt ? ` · modifié ${relativeTime(stats.updatedAt)}` : "";
+  // An archived project's cards say what the page holds (and would be deleted with it), not when it last changed; an archived page's card, when it was archived.
+  const modified = page.archivedAt
+    ? ` · ${pageArchivedOnLabel(page.archivedAt)}`
+    : readOnly
+      ? ` · ${counted(stats?.threads ?? 0, "fil", "fils")}`
+      : stats?.updatedAt
+        ? ` · modifié ${relativeTime(stats.updatedAt)}`
+        : "";
 
   return (
-    <div data-testid="page-card" className={cx(styles.pageCard, renameHost, current && styles.pageCardCurrent)}>
+    <div data-testid="page-card" className={cx(styles.pageCard, renameHost, current && styles.pageCardCurrent, page.archivedAt && styles.pageCardArchived)}>
       <PageThumbnail pageId={page.id} artboards={artboards} artboardOrigin={artboardOrigin} />
       <div className={styles.pageInfo}>
         {renaming ? (
@@ -80,6 +88,7 @@ function PageCard({
               {page.title}
             </a>
             {!readOnly && <RenamePencil label="Renommer la page" size="page" onClick={() => setRenaming(true)} />}
+            {!readOnly && <PageArchiveButton pageId={page.id} onArchived={onArchived} />}
             <span className={styles.spacer} />
             {!readOnly && stats && stats.openThreads > 0 && (
               <StatusBadge tone="warning" className={styles.chip}>
@@ -193,6 +202,8 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
   const who = useWho();
   const [project, setProject] = useState<Project | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
+  const [archivedPages, setArchivedPages] = useState<Page[]>([]);
+  const [showArchivedPages, setShowArchivedPages] = useState(false);
   const [pageStats, setPageStats] = useState<Record<string, PageStats>>({});
   const [artboardOrigin, setArtboardOrigin] = useState("");
   const [designSystem, setDesignSystem] = useState<ProjectDesignSystem | null>(null);
@@ -240,6 +251,9 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
         );
         setPageStats(Object.fromEntries(entries));
       });
+    fetch(`/api/projects/${projectId}/pages?archived=1`)
+      .then((res) => res.json() as Promise<Page[]>)
+      .then(setArchivedPages);
     fetch(`/api/projects/${projectId}/design-md`)
       .then((res) => res.json() as Promise<DesignMdResponse>)
       .then(({ content }) => setDesignMd(content));
@@ -355,6 +369,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
                 current={index === 0 && !readOnly}
                 readOnly={readOnly}
                 onRename={(title) => renamePage(page.id, title)}
+                onArchived={() => setReload((count) => count + 1)}
               />
             ))}
             {!readOnly && (
@@ -367,6 +382,24 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
               </button>
             )}
           </div>
+          {archivedPages.length > 0 && (
+            <>
+              <button type="button" aria-expanded={showArchivedPages} className={styles.archivedToggle} onClick={() => setShowArchivedPages(!showArchivedPages)}>
+                <ArchiveIcon size={16} />
+                Pages archivées · {archivedPages.length}
+                <span aria-hidden="true" className={cx(styles.archivedChevron, showArchivedPages && styles.archivedChevronOpen)}>
+                  ›
+                </span>
+              </button>
+              {showArchivedPages && (
+                <div className={styles.pageGrid}>
+                  {archivedPages.map((page) => (
+                    <PageCard key={page.id} page={page} stats={undefined} artboardOrigin={artboardOrigin} current={false} readOnly onRename={async () => {}} onArchived={() => {}} />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </section>
 
         <section className={styles.section}>

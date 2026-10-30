@@ -221,6 +221,8 @@ export interface Page {
   viewSettings?: PageViewSettings;
   /** Only on `GET /api/pages/:pageId`: the page belongs to a design system's own project (its `projectId` is the design system's id). */
   designSystem?: boolean;
+  /** When the page was archived (ISO time): it is then read-only, out of the page lists and of sessions, and only it can be deleted. */
+  archivedAt?: string;
 }
 
 export type PageCreator = "claude" | "user";

@@ -87,12 +87,14 @@ interface Props {
   onRemoveChip: (index: number) => void;
   /** Called once the message is sent: the chips and their marks go. */
   onChipsSent: () => void;
-  /** An archived project's page: conversations are read, none is started, sent to or deleted. */
+  /** An archived project's (or archived) page: conversations are read, none is started, sent to or deleted. */
   readOnly?: boolean;
+  /** What is archived, opening the read-only note: "Projet archivé" (default) or "Page archivée". */
+  archivedLabel?: string;
 }
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
-export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, focusedConversation, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent, readOnly = false }: Props) {
+export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, focusedConversation, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent, readOnly = false, archivedLabel = "Projet archivé" }: Props) {
   const personLabel = usePersonLabel();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -377,7 +379,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
       )}
 
       {readOnly ? (
-        <div className={styles.readOnlyNote}>Projet archivé : les conversations se lisent mais ne reçoivent plus de messages.</div>
+        <div className={styles.readOnlyNote}>{archivedLabel} : les conversations se lisent mais ne reçoivent plus de messages.</div>
       ) : (
       <div className={styles.composer}>
         <label htmlFor="conversation-message" className={styles.label}>

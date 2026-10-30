@@ -26,7 +26,7 @@ describe("session MCP tools", () => {
   it("offers add_artboard, create_page, check_page and read_guide", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing" }]);
     await runOnce(engine);
-    expect(engine.runs[0].mcpTools).toEqual(expect.arrayContaining(["add_artboard", "create_page", "move_artboard", "rename_page", "check_page", "read_guide"]));
+    expect(engine.runs[0].mcpTools).toEqual(expect.arrayContaining(["add_artboard", "create_page", "move_artboard", "rename_page", "archive_page", "check_page", "read_guide"]));
   });
 
   it("add_artboard writes the HTML and its manifest entry, published with the run", async () => {
@@ -261,6 +261,34 @@ describe("session MCP tools", () => {
     expect(answers[2]).toMatch(/cannot rename/);
     // An open canvas hears of the new title.
     expect(seam.events()).toEqual(expect.arrayContaining([{ type: "page-renamed", pageId: page.id }]));
+  });
+
+  it("archive_page archives another page of the project, but neither the run's own page nor another project's", async () => {
+    const answers: string[] = [];
+    let others: { own: string; mine: string; foreign: string } | undefined;
+    const engine = new FakeEngine(async (run) => {
+      answers.push(await run.callTool("archive_page", { pageId: others!.mine }));
+      answers.push(await run.callTool("archive_page", { pageId: others!.own }));
+      answers.push(await run.callTool("archive_page", { pageId: others!.foreign }));
+      return [{ type: "result", summary: "Archived" }];
+    });
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    const mine = await seam.createPage(PAGE_FILES, "Brouillon");
+    const otherProject = (await (await seam.server.post("/api/projects", { title: "Other" })).json()) as { id: string };
+    const foreign = (await (await seam.server.post(`/api/projects/${otherProject.id}/pages`, { title: "Theirs", files: PAGE_FILES })).json()) as Page;
+    others = { own: page.id, mine: mine.id, foreign: foreign.id };
+    await seam.pinThread(page.id, "home.html", "Archive the draft");
+    await engine.finished(1);
+    await seam.waitForWorkEnd();
+
+    const archivedAt = async (pageId: string) => ((await (await seam!.server.get(`/api/pages/${pageId}`)).json()) as Page).archivedAt;
+    expect(answers[0]).toMatch(/archived "Brouillon"/);
+    expect(await archivedAt(mine.id)).toEqual(expect.any(String));
+    expect(answers[1]).toMatch(/working on this page/);
+    expect(await archivedAt(page.id)).toBeUndefined();
+    expect(answers[2]).toMatch(/cannot archive/);
+    expect(await archivedAt(foreign.id)).toBeUndefined();
   });
 
   it("read_guide returns the manifest, tweaks, assets and design system rules", async () => {

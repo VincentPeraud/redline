@@ -245,7 +245,7 @@ export class PageLock {
 
   /** Forgets the waiting and failed items of deleted pages, so they are neither sent, persisted nor offered to "Relancer". */
   forgetPages(pageIds: Set<string>): void {
-    // A terminal publish waiting for the page (`onGranted`) stays: once granted, its write is refused by the archive guard and answered.
+    // A terminal publish waiting for the page (`onGranted`) stays: once granted, the route finds the page gone and answers.
     this.queue = this.queue.filter((queued) => queued.onGranted !== undefined || !pageIds.has(queued.item.pageId));
     for (const [workId, failed] of this.failed) if (pageIds.has(failed.queued.item.pageId)) this.failed.delete(workId);
     this.save();
@@ -266,13 +266,24 @@ export class PageLock {
   private reasons(): { queued: Queued; reason: QueueReason }[] {
     return this.queue.map((queued) => ({
       queued,
-      reason: this.isArchivedPage(queued.item.pageId) ? "project-archived" : this.isPageLocked(queued.item.pageId) ? "page-busy" : "agent-offline",
+      reason: this.isArchivedProjectPage(queued.item.pageId)
+        ? "project-archived"
+        : this.store.isPageArchived(queued.item.pageId)
+          ? "page-archived"
+          : this.isPageLocked(queued.item.pageId)
+            ? "page-busy"
+            : "agent-offline",
     }));
   }
 
-  private isArchivedPage(pageId: string): boolean {
+  private isArchivedProjectPage(pageId: string): boolean {
     const projectId = this.store.projectIdOfPage(pageId);
     return projectId !== undefined && this.store.isArchived(projectId);
+  }
+
+  /** The page, or its project, is archived: its waiting items stay queued until it is unarchived. */
+  private isArchivedPage(pageId: string): boolean {
+    return this.store.isPageArchived(pageId) || this.isArchivedProjectPage(pageId);
   }
 
   private pump(): void {
@@ -282,8 +293,9 @@ export class PageLock {
     const stillWaiting: Queued[] = [];
     for (const queued of this.queue) {
       const { pageId, sessionId } = queued.item;
-      // An archived project's waiting items stay queued until it is unarchived (`reconsider`).
-      if (this.isPageLocked(pageId) || (sessionId !== "" && waitingSessions.has(sessionId)) || this.isArchivedPage(pageId)) {
+      // An archived project's or page's waiting items stay queued until it is unarchived (`reconsider`); a terminal publish
+      // waiting for the page (`onGranted`) is granted, so that the archive guard refuses its write and the call is answered.
+      if (this.isPageLocked(pageId) || (sessionId !== "" && waitingSessions.has(sessionId)) || (this.isArchivedPage(pageId) && !queued.onGranted)) {
         stillWaiting.push(queued);
         continue;
       }

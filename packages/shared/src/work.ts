@@ -130,6 +130,8 @@ export type ServerEvent =
   | { type: "page-updated"; pageId: string; versionId: string }
   /** The page got a new title (from the header or a session's rename_page): an open canvas shows it. */
   | { type: "page-renamed"; pageId: string }
+  /** The page was archived or unarchived (from the web UI or a session's archive_page): an open canvas turns read-only, or back. */
+  | { type: "page-archive-changed"; pageId: string; projectId: string }
   /** A design system got a new version: the pages that use it (`pageIds`) reload their artboards to pick up the tokens. */
   | { type: "design-system-updated"; designSystemId?: string; pageIds: string[] }
   | { type: "thread-updated"; pageId: string; threadId: string }
@@ -178,8 +180,8 @@ export const retryRunPath = (pageId: string, workId: string) => `/api/pages/${pa
 export const pageRunsPath = (pageId: string) => `/api/pages/${pageId}/runs`;
 
 /** Why a work item is not running yet. */
-/** "project-archived": the project was archived while the item waited; it is sent once the project is unarchived. */
-export type QueueReason = "page-busy" | "agent-offline" | "project-archived";
+/** "project-archived" / "page-archived": the project or the page was archived while the item waited; it is sent once unarchived. */
+export type QueueReason = "page-busy" | "agent-offline" | "project-archived" | "page-archived";
 
 /** A work item waiting for its turn on a page. */
 export interface QueueEntry {

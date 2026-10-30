@@ -58,7 +58,7 @@ export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock:
       if (!lastUpdate.has(page.projectId)) lastUpdate.set(page.projectId, { updatedAt, lastPageId: page.id });
     }
     const homeProjects: HomeProject[] = projects.map((p) => {
-      const pages = store.listPages(p.id);
+      const pages = store.listPages(p.id, "active");
       return {
         id: p.id,
         title: p.title,

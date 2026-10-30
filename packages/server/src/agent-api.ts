@@ -22,6 +22,7 @@ import {
 import { manifestTitleError, mergeOntoCurrent } from "./publish.js";
 import { agentGaps } from "./gaps.js";
 import { moveArtboard } from "./move-artboard.js";
+import { ARCHIVED_PAGE_ERROR, archivePage, archivedError } from "./archive.js";
 import { tokensEqual } from "./request-hardening.js";
 import { versionComponentsError } from "./components.js";
 import { removalsError } from "./removals.js";
@@ -104,7 +105,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
 
       api.get<{ Params: { projectId: string } }>("/projects/:projectId/pages", async (req, reply) => {
         if (!projectFor(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-        return store.listPages(req.params.projectId);
+        return store.listPages(req.params.projectId, "active");
       });
 
       api.post<{ Params: { projectId: string }; Body: { title?: unknown } }>("/projects/:projectId/pages", async (req, reply) => {
@@ -175,6 +176,11 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         // Terminal mode takes its turn on the page like a thread: wait while a session runs on it.
         const release = await pageLock.acquire(req.params.pageId);
         try {
+          // The archive guard ran before the wait: the page (or its project) may have been archived, or deleted, meanwhile.
+          const page = store.getPage(req.params.pageId);
+          if (!page) return reply.code(404).send({ error: "page not found" });
+          if (store.isArchived(page.projectId)) return reply.code(409).send({ error: archivedError(store, page.projectId) });
+          if (page.archivedAt) return reply.code(409).send({ error: ARCHIVED_PAGE_ERROR });
           return record();
         } finally {
           release();
@@ -228,6 +234,19 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         }
         store.renamePage(page.id, (title as string).trim());
         return store.getPage(page.id);
+      });
+
+      // `archive_page`: a session archives a page of its own project, but not the one it works on; terminal mode, any active page.
+      api.post<{ Params: { pageId: string }; Body: { workId?: unknown } }>("/pages/:pageId/archive", async (req, reply) => {
+        const page = store.getPage(req.params.pageId);
+        if (!page) return reply.code(404).send({ error: "page not found" });
+        const workId = req.body?.workId;
+        const workPage = typeof workId === "string" ? pageLock.itemOf(workId)?.pageId : undefined;
+        if (workId !== undefined && store.getPage(workPage ?? "")?.projectId !== page.projectId) {
+          return reply.code(403).send({ error: "This session cannot archive that page: it belongs to another project, or the run is over." });
+        }
+        const { status, body } = archivePage(store, pageLock, page);
+        return reply.code(status).send(body);
       });
 
       api.post<{ Params: { pageId: string }; Body: Partial<MoveArtboardRequest> }>("/pages/:pageId/move-artboard", async (req, reply) => {

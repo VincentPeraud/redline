@@ -4,6 +4,7 @@ const REASON_LABEL: Record<QueueReason, string> = {
   "page-busy": "page occupée par une autre session",
   "agent-offline": "agent hors ligne",
   "project-archived": "projet archivé",
+  "page-archived": "page archivée",
 };
 
 /** "En file · <reason>" for a thread waiting in the page's queue, undefined when it is not waiting. */

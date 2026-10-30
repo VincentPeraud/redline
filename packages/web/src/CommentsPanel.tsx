@@ -37,8 +37,10 @@ interface Props {
   /** `held`: "Plus tard", keeps the comment until "Tout envoyer". */
   onSend: (held: boolean) => void;
   onCancel: () => void;
-  /** An archived project's page: threads are read, none is added, answered or resolved. */
+  /** An archived project's (or archived) page: threads are read, none is added, answered or resolved. */
   readOnly?: boolean;
+  /** What is archived, opening the read-only note: "Projet archivé" (default) or "Page archivée". */
+  archivedLabel?: string;
 }
 
 const GROUP_ORDER: Record<Thread["status"], number> = { held: 0, open: 1, resolved: 2 };
@@ -157,7 +159,7 @@ function ThreadCard({
 }
 
 /** The "Commentaires" tab: held bar, thread cards and the composer of a new pinned comment. */
-export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false }: Props) {
+export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, archivedLabel = "Projet archivé" }: Props) {
   const ordered = [...threads].sort((a, b) => GROUP_ORDER[a.status] - GROUP_ORDER[b.status] || a.number - b.number);
   const heldCount = threads.filter((t) => t.status === "held").length;
 
@@ -203,7 +205,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
         )}
       </div>
       {readOnly ? (
-        <div className={panel.readOnlyNote}>Projet archivé : les fils se lisent mais on ne peut plus y répondre ni les résoudre.</div>
+        <div className={panel.readOnlyNote}>{archivedLabel} : les fils se lisent mais on ne peut plus y répondre ni les résoudre.</div>
       ) : (
       <div className={panel.composer}>
         <label htmlFor="new-comment" className={panel.label}>

@@ -26,6 +26,9 @@ export function RenamePencil({ label, size, onClick }: { label: string; size: Re
 
 export const renameHost = styles.renameHost!;
 
+/** The pencil's look and hover reveal, for another icon button beside it (a page card's archive icon). */
+export const hostRevealButton = (size: RenameSize) => cx(styles.pencil, styles[`pencil-${size}`]);
+
 interface FormProps {
   label: string;
   value: string;

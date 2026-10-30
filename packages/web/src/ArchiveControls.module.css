@@ -168,3 +168,26 @@
   color: var(--color-text-inverse);
   cursor: pointer;
 }
+
+.cardArchive[aria-disabled="true"] {
+  color: var(--color-text-placeholder);
+  cursor: not-allowed;
+}
+
+.bannerDelete {
+  flex-shrink: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bannerDelete:hover {
+  background: var(--color-danger-bg);
+}

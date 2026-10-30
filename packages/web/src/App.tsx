@@ -12,6 +12,8 @@ interface Page {
   viewSettings: PageViewSettings;
   /** The page belongs to a design system's own project. */
   designSystem?: boolean;
+  /** The page itself is archived. */
+  archivedAt?: string;
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -46,7 +48,7 @@ export function App({ route }: { route: PageRoute }) {
   useEffect(
     () =>
       subscribeServerEvents((event) => {
-        if ((event.type === "page-updated" || event.type === "page-renamed") && event.pageId === pageId) void loadPage();
+        if ((event.type === "page-updated" || event.type === "page-renamed" || event.type === "page-archive-changed") && event.pageId === pageId) void loadPage();
         if (event.type === "agents-updated" && page && !page.designSystem) void getJson<Project>(`/api/projects/${page.projectId}`).then(setProject);
       }),
     [pageId, page?.projectId],
@@ -54,10 +56,13 @@ export function App({ route }: { route: PageRoute }) {
 
   if (!page) return <main style={{ padding: 24 }}>Chargement…</main>;
 
+  // An archived project or design system wins over an archived page: unarchiving the page alone would not make it writable.
   const archivedAt = page.designSystem ? designSystemArchivedAt : project?.archivedAt;
   const archived = archivedAt
     ? { kind: page.designSystem ? ("designSystem" as const) : ("project" as const), archivedAt, onUnarchived: () => setReloads((count) => count + 1) }
-    : undefined;
+    : page.archivedAt && project
+      ? { kind: "page" as const, archivedAt: page.archivedAt, onUnarchived: () => void loadPage() }
+      : undefined;
 
   return (
     <>

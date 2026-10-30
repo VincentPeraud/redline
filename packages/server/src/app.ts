@@ -382,8 +382,9 @@ export async function buildMainApp(
     return { files, ...projectContext(store, page.id) };
   });
 
-  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/pages", async (req) =>
-    store.listPages(req.params.projectId),
+  // The project's pages; `?archived=1` lists its archived pages instead, the most recently archived first.
+  app.get<{ Params: { projectId: string }; Querystring: { archived?: string } }>("/api/projects/:projectId/pages", async (req) =>
+    store.listPages(req.params.projectId, req.query.archived ? "archived" : "active"),
   );
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId", async (req, reply) => {

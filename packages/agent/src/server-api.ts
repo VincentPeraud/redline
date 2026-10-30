@@ -93,6 +93,11 @@ export class ServerApi {
     return this.request("PUT", `/pages/${pageId}/title`, body);
   }
 
+  /** Archives `pageId` (read-only, out of the page lists); `workId` keeps a session to the pages of its own project. */
+  archivePage(pageId: string, workId?: string): Promise<Page> {
+    return this.request("POST", `/pages/${pageId}/archive`, workId ? { workId } : {});
+  }
+
   /** Moves an artboard of `pageId` to another page of its project (`targetPageId`), or to a new page (`newPageTitle`). */
   moveArtboard(pageId: string, request: MoveArtboardRequest): Promise<MoveArtboardResponse> {
     return this.request("POST", `/pages/${pageId}/move-artboard`, request);

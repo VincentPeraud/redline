@@ -16,6 +16,7 @@ export const ADD_ARTBOARD_TOOL = "add_artboard";
 export const CREATE_PAGE_TOOL = "create_page";
 export const MOVE_ARTBOARD_TOOL = "move_artboard";
 export const RENAME_PAGE_TOOL = "rename_page";
+export const ARCHIVE_PAGE_TOOL = "archive_page";
 export const CONFIRM_REMOVALS_TOOL = "confirm_removals";
 export const READ_GUIDE_TOOL = "read_guide";
 export const CHECK_PAGE_TOOL = "check_page";
@@ -171,7 +172,7 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
     RENAME_PAGE_TOOL,
     {
       description:
-        "Rename a page of this project: the title shown in Redline's page lists and header (the manifest has no page title). For example, to keep an old page aside before starting a new one, rename it \"Archive · <title>\". Without pageId it renames the page you work on.",
+        "Rename a page of this project: the title shown in Redline's page lists and header (the manifest has no page title). Without pageId it renames the page you work on.",
       inputSchema: {
         title: z.string(),
         pageId: z.string().optional().describe("Id of the page to rename (see list_pages); default: the page you work on"),
@@ -181,6 +182,22 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
       try {
         const page = await api.renamePage(pageId ?? context.pageId, title, context.workId);
         return text(`Page renamed "${page.title}" (id ${page.id}).`);
+      } catch (error) {
+        return text((error as Error).message, true);
+      }
+    },
+  );
+  server.registerTool(
+    ARCHIVE_PAGE_TOOL,
+    {
+      description:
+        "Archive a page of this project that is no longer needed (an old version, a draft): it leaves the page lists and list_pages and becomes read-only, but keeps its versions and comments, and the user can unarchive it in Redline. Pages cannot be deleted from here. A design system's page, and a page a session works on (yours included), cannot be archived.",
+      inputSchema: { pageId: z.string().describe("Id of the page to archive (see list_pages)") },
+    },
+    async ({ pageId }) => {
+      try {
+        const page = await api.archivePage(pageId, context.workId);
+        return text(`Page archived "${page.title}" (id ${page.id}).`);
       } catch (error) {
         return text((error as Error).message, true);
       }

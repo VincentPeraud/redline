@@ -285,6 +285,8 @@ export class Store {
     }
     // When the project (or design system) was archived: read-only, hidden from sessions, deletable.
     addColumn("projects", "archived_at", "TEXT");
+    // When the page was archived: read-only, out of the page lists and of sessions, deletable.
+    addColumn("pages", "archived_at", "TEXT");
     addColumn("versions", "origin_id", "TEXT");
     addColumn("versions", "origin_label", "TEXT");
     addColumn("versions", "diffusion", "INTEGER");
@@ -980,13 +982,7 @@ export class Store {
     }
     this.db.transaction(() => {
       for (const sql of [
-        `DELETE FROM thread_replies WHERE thread_id IN (SELECT id FROM threads WHERE page_id IN (${pages}))`,
-        `DELETE FROM threads WHERE page_id IN (${pages})`,
-        `DELETE FROM conversation_messages WHERE conversation_id IN (SELECT id FROM conversations WHERE page_id IN (${pages}))`,
-        `DELETE FROM conversations WHERE page_id IN (${pages})`,
-        `DELETE FROM page_view_settings WHERE page_id IN (${pages})`,
-        `DELETE FROM run_created_pages WHERE page_id IN (${pages})`,
-        `DELETE FROM versions WHERE page_id IN (${pages})`,
+        ...pageRowDeletes(pages),
         "DELETE FROM design_system_diffusion_undos WHERE design_system_id = ?",
         "DELETE FROM design_system_diffusions WHERE design_system_id = ?",
         "DELETE FROM design_systems WHERE project_id = ?",
@@ -1117,9 +1113,11 @@ export class Store {
     return this.getPage(id)!;
   }
 
-  listPages(projectId: string): Page[] {
+  /** Pages of a project: all of them by default (what the server keeps up to date), or only the active or the archived ones (what people and sessions see). */
+  listPages(projectId: string, which: "active" | "archived" | "all" = "all"): Page[] {
+    const archived = { active: "AND archived_at IS NULL", archived: "AND archived_at IS NOT NULL", all: "" }[which];
     const ids = this.db
-      .prepare("SELECT id FROM pages WHERE project_id = ? ORDER BY created_at, rowid")
+      .prepare(`SELECT id FROM pages WHERE project_id = ? ${archived} ORDER BY ${which === "archived" ? "archived_at DESC," : ""} created_at, rowid`)
       .all(projectId) as { id: string }[];
     return ids.map(({ id }) => this.getPage(id)!);
   }
@@ -1131,6 +1129,7 @@ export class Store {
         `SELECT p.id, MAX(v.created_at) AS updatedAt FROM pages p JOIN versions v ON v.page_id = p.id
          WHERE p.project_id NOT IN (SELECT project_id FROM design_systems)
            AND p.project_id NOT IN (SELECT id FROM projects WHERE archived_at IS NOT NULL)
+           AND p.archived_at IS NULL
          GROUP BY p.id ORDER BY updatedAt DESC, p.rowid DESC LIMIT ?`,
       )
       .all(limit) as { id: string; updatedAt: string }[];
@@ -1157,8 +1156,8 @@ export class Store {
 
   getPage(id: string): Page | undefined {
     const row = this.db
-      .prepare("SELECT id, project_id, title, created_by, person_id FROM pages WHERE id = ?")
-      .get(id) as { id: string; project_id: string; title: string; created_by: PageCreator; person_id: string | null } | undefined;
+      .prepare("SELECT id, project_id, title, created_by, person_id, archived_at FROM pages WHERE id = ?")
+      .get(id) as { id: string; project_id: string; title: string; created_by: PageCreator; person_id: string | null; archived_at: string | null } | undefined;
     if (!row) return undefined;
     const version = this.db
       .prepare("SELECT id, files FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
@@ -1171,7 +1170,37 @@ export class Store {
       createdBy: row.created_by,
       ...(createdByPerson ? { createdByPerson } : {}),
       version: { id: version.id, files: JSON.parse(version.files) },
+      ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
     };
+  }
+
+  /** True when the page itself is archived (its project may be archived too, see `isArchived`). */
+  isPageArchived(pageId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM pages WHERE id = ? AND archived_at IS NOT NULL").get(pageId) !== undefined;
+  }
+
+  /** Archives (read-only, out of the page lists and of sessions) or unarchives a page. */
+  setPageArchived(pageId: string, archived: boolean): void {
+    this.db.prepare("UPDATE pages SET archived_at = ? WHERE id = ?").run(archived ? now() : null, pageId);
+    const projectId = this.projectIdOfPage(pageId);
+    if (projectId) this.emit({ type: "page-archive-changed", pageId, projectId });
+  }
+
+  /**
+   * Deletes a page for good, with its versions, threads, conversations and view settings; the project's files (assets,
+   * DESIGN.md) stay. Returns the blobs its versions referred to, for `collectGarbage`.
+   */
+  deletePage(pageId: string): string[] {
+    const blobs: string[] = [];
+    for (const { files } of this.db.prepare("SELECT files FROM versions WHERE page_id = ?").all(pageId) as { files: string }[]) {
+      blobs.push(...Object.values(JSON.parse(files) as Record<string, string>));
+    }
+    this.db.transaction(() => {
+      for (const sql of [...pageRowDeletes("?"), "DELETE FROM pages WHERE id = ?"]) {
+        this.db.prepare(sql).run(pageId);
+      }
+    })();
+    return blobs;
   }
 
   /** The element of the page's current manifest carrying `id`; undefined when there is none (or no manifest). */
@@ -1791,6 +1820,20 @@ export interface SessionOrigin {
 
 /** Blobs younger than this are left by a garbage collection: a request may have stored one and not recorded it yet. */
 export const BLOB_MIN_AGE_MS = 600_000;
+
+/**
+ * The rows that belong to the pages `pages` selects (one `?` parameter: a page id, or a subquery on a project id), deleted
+ * before the pages themselves: a new table that refers to pages must be listed here.
+ */
+const pageRowDeletes = (pages: string) => [
+  `DELETE FROM thread_replies WHERE thread_id IN (SELECT id FROM threads WHERE page_id IN (${pages}))`,
+  `DELETE FROM threads WHERE page_id IN (${pages})`,
+  `DELETE FROM conversation_messages WHERE conversation_id IN (SELECT id FROM conversations WHERE page_id IN (${pages}))`,
+  `DELETE FROM conversations WHERE page_id IN (${pages})`,
+  `DELETE FROM page_view_settings WHERE page_id IN (${pages})`,
+  `DELETE FROM run_created_pages WHERE page_id IN (${pages})`,
+  `DELETE FROM versions WHERE page_id IN (${pages})`,
+];
 
 /**
  * Every column holding a blob hash, besides `versions.files` (a JSON map of path -> hash). A new column that stores a

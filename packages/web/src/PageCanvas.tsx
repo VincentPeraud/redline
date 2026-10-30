@@ -54,6 +54,7 @@ import { ArtboardMoreMenu } from "./ArtboardMoreMenu.js";
 import { CopyLinkIcon } from "./CopyLinkIcon.js";
 import { MissingArtboardNotice } from "./MissingArtboardNotice.js";
 import { useCopiedBubble } from "./useCopiedBubble.js";
+import { counted } from "./plural.js";
 import { navigateTo, playRoute, type PageRoute } from "./router.js";
 import { TocList } from "./TocList.js";
 import { artboardAtCentre, type TocItem } from "./tocItems.js";
@@ -174,6 +175,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const previewing = previewOf !== undefined;
   /** Previewed, or archived: nothing comments, saves or publishes (an archived page still shows its threads and conversations). */
   const readOnly = previewing || archived !== undefined;
+  const archivedLabel = archived?.kind === "page" ? "Page archivée" : "Projet archivé";
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [pickingRequested, setPicking] = useState(false);
@@ -692,7 +694,28 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         onAskFixErrors={() => void askClaudeToFixErrors()}
         archived={archived !== undefined}
       />
-      {archived && <ArchivedBanner kind={archived.kind} id={projectId} archivedAt={archived.archivedAt} onUnarchived={archived.onUnarchived} className={styles.archivedBanner} />}
+      {archived && (
+        <ArchivedBanner
+          kind={archived.kind}
+          id={archived.kind === "page" ? pageId : projectId}
+          archivedAt={archived.archivedAt}
+          onUnarchived={archived.onUnarchived}
+          deletion={
+            archived.kind === "page"
+              ? {
+                  title: pageTitle,
+                  contents: async () => {
+                    const versions = ((await (await fetch(`/api/pages/${pageId}/versions`)).json()) as unknown[]).length;
+                    const artboards = counted(manifest?.artboards.length ?? 0, "artboard", "artboards");
+                    return `Ses ${artboards}, ${counted(threads.length, "fil", "fils")}, ${counted(versions, "version", "versions")} et ses conversations seront effacés. Les assets du projet restent.`;
+                  },
+                  onDeleted: () => navigateTo({ name: "project", projectId }, "replace"),
+                }
+              : undefined
+          }
+          className={styles.archivedBanner}
+        />
+      )}
       <div className={styles.body}>
         <main className={styles.stage}>
           {manifestError && <div role="alert" className={styles.error}>{manifestError}</div>}
@@ -1106,6 +1129,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
               onRemoveChip={(index) => setChips((current) => removeChip(current, index))}
               onChipsSent={() => setChips([])}
               readOnly={archived !== undefined}
+              archivedLabel={archivedLabel}
             />
           ) : tab === "toc" ? (
             <div className={styles.tocPanel}>
@@ -1131,6 +1155,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                   setText("");
                 }}
                 readOnly={archived !== undefined}
+                archivedLabel={archivedLabel}
               />
             </PageTweaksContext.Provider>
           )}

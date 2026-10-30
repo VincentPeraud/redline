@@ -93,7 +93,8 @@ function promotedManifest(store: Store, projectId: string): { artboards: Manifes
   const elements: ManifestTitleElement[] = [];
   const tweaks: ManifestTweak[] = [];
   let nextY = PREVIEW_ARTBOARD.y + PREVIEW_ARTBOARD.height + PAGE_GAP;
-  for (const page of store.listPages(projectId)) {
+  // An archived page is read-only: its components are neither promoted nor removed (see `removeComponentCopies`).
+  for (const page of store.listPages(projectId, "active")) {
     const files = store.readPageFiles(page.id)?.files ?? {};
     const manifest = files[MANIFEST_PATH] === undefined ? defaultManifest(Object.keys(files)) : parseManifest(files[MANIFEST_PATH]);
     const mine = manifest.artboards.filter((a) => componentNameOf(a.file) !== null && files[a.file] !== undefined);
@@ -136,7 +137,7 @@ export function designSystemChangeError(store: Store, designSystem: unknown): st
 
 /** After a promotion the design system is the only source of the components: remove the project's copies from its pages, one user version per page. */
 function removeComponentCopies(store: Store, projectId: string, ref?: OriginRef): void {
-  for (const page of store.listPages(projectId)) {
+  for (const page of store.listPages(projectId, "active")) {
     const files = store.readPageFiles(page.id)?.files ?? {};
     const removed = Object.keys(files).filter((path) => componentNameOf(path) !== null);
     if (removed.length === 0) continue;

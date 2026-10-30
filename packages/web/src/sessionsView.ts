@@ -53,6 +53,7 @@ export const WAITING_NOTE: Record<NonNullable<SessionRow["waitingReason"]>, stri
   "page-busy": "En file : traité dès que la session en cours sur cette page est terminée, pour ne pas modifier la même page en même temps.",
   "agent-offline": "Aucun agent ne tourne pour ce projet : le fil part dès qu'un agent est lancé dans son dossier.",
   "project-archived": "Le projet est archivé : le fil partira s'il est désarchivé.",
+  "page-archived": "La page est archivée : le fil partira si elle est désarchivée.",
   "design-system-agent-offline": "Aucun agent ne tourne pour les projets qui utilisent ce design system : le fil part dès que l'agent de l'un d'eux est lancé.",
   retrying: "Échec temporaire : nouvelle tentative programmée.",
 };
