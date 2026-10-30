@@ -119,6 +119,8 @@ export interface CreateVersionRequest {
   designMd?: { content: string; base: string };
   /** `/agent-api` only: the project style `tokens.css` of the working copy, sent when the session changed it; same `base` rule as `designMd`. */
   projectStyle?: { content: string; base: string };
+  /** `/agent-api` terminal publishes only: the terminal session publishing, which then holds the page. */
+  terminalSessionId?: string;
   /**
    * Design system pages only: removing a token or a component that pages of a using project still reference is refused with the list
    * of pages, unless this is true (Claude asks the user first).
@@ -226,6 +228,41 @@ export interface Page {
 }
 
 export type PageCreator = "claude" | "user";
+
+/** The terminal session holding a page while it is present (`GET /api/pages/:pageId/terminal-holder`). */
+export interface TerminalHolder {
+  folder: string;
+  machine: string;
+  /** When it took the page (ISO time): its last terminal publish. */
+  since: string;
+  /** The comments of this page waiting for it. */
+  waiting: number;
+}
+
+/** `POST /agent-api/terminal-sessions/:id/heartbeat`: a terminal session says it is present. */
+export interface TerminalHeartbeatRequest {
+  folder: string;
+  machine: string;
+}
+
+/** `GET /agent-api/terminal-sessions/:id/waiting`: the comments waiting for this terminal session, per page it holds. */
+export interface TerminalWaitingPage {
+  pageId: string;
+  title: string;
+  count: number;
+}
+
+/** `POST /agent-api/terminal-sessions/:id/release`: one page of the session, or all of them without `pageId`. Answers with what was handed over. */
+export interface TerminalReleaseRequest {
+  pageId?: string;
+}
+
+/** `POST /agent-api/terminal-sessions/:id/pick`: the waiting comments handed to this terminal session, per page; each message is the text an agent session would receive. */
+export interface TerminalPickedPage {
+  pageId: string;
+  title: string;
+  messages: string[];
+}
 
 /** A page a run created through `create_page`, shown as a link card under the answer. */
 export interface CreatedPage {

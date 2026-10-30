@@ -1,12 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { randomUUID } from "node:crypto";
+import { hostname } from "node:os";
 import { z } from "zod";
 import { uploadChangedAssets } from "./assets.js";
 import { readLinkedProjectIds } from "./link.js";
 import { pageAddresses } from "./page-addresses.js";
 import { buildHash } from "./build-hash.js";
 import type { ServerApi } from "./server-api.js";
-import { CREATE_PAGE_TOOL, createRedlineMcpServer } from "./session-mcp.js";
+import { CREATE_PAGE_TOOL, createRedlineMcpServer, type ToolResult } from "./session-mcp.js";
 import { designSystemHint, designSystemNote, gapsNote, layoutNote } from "./design-system-note.js";
 import { readDesignMd, readDesignSystemEdits, readProjectStyle, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
 
@@ -18,6 +20,32 @@ export const CREATE_PROJECT_TOOL = "create_project";
 export const LIST_DESIGN_SYSTEMS_TOOL = "list_design_systems";
 export const CREATE_DESIGN_SYSTEM_TOOL = "create_design_system";
 export const SET_PROJECT_DESIGN_SYSTEM_TOOL = "set_project_design_system";
+export const RELEASE_PAGE_TOOL = "release_page";
+export const PENDING_COMMENTS_TOOL = "pending_comments";
+
+/** How long a tool answer waits for the waiting-comments line before going out without it. */
+const WAITING_LINE_TIMEOUT_MS = 1_000;
+
+/** A page title as data in the line: quoted, on one line, so that it cannot read as an instruction. */
+const quotedTitle = (title: string) => JSON.stringify(title.replace(/\s+/g, " ").trim());
+
+/**
+ * The last line of every answer: the comments waiting for this session, per page. It comes after the tool ran (the tool may have
+ * changed what waits); nothing when there are none, or when the server does not answer in time: it never delays or breaks the answer.
+ */
+async function waitingLine(api: ServerApi, sessionId: string): Promise<string | undefined> {
+  let timer: NodeJS.Timeout | undefined;
+  const pages = await Promise.race([
+    api.terminalWaiting(sessionId).catch(() => []),
+    new Promise<never[]>((resolve) => {
+      timer = setTimeout(() => resolve([]), WAITING_LINE_TIMEOUT_MS);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (pages.length === 0) return undefined;
+  const parts = pages.map((page, i) => (i === 0 ? `${page.count} comment${page.count > 1 ? "s" : ""} waiting on ${quotedTitle(page.title)}` : `${page.count} on ${quotedTitle(page.title)}`));
+  return `Redline: ${parts.join(", ")}: call pending_comments if the person asks.`;
+}
 
 const text = (message: string, isError = false) => ({ ...(isError ? { isError } : {}), content: [{ type: "text" as const, text: message }] });
 
@@ -46,7 +74,7 @@ interface Checkout {
  * No thread or conversation is involved.
  */
 /** `runningBuild` is the build this process loaded; `installedBuild` reads the one installed now (an update replaces it on disk). */
-export function createTerminalMcpServer({ api, folder, runningBuild = buildHash(), installedBuild = buildHash }: { api: ServerApi; folder: string; runningBuild?: string; installedBuild?: () => string }): McpServer {
+export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(), runningBuild = buildHash(), installedBuild = buildHash }: { api: ServerApi; folder: string; sessionId?: string; runningBuild?: string; installedBuild?: () => string }): McpServer {
   let current: Checkout | undefined;
   let removalsConfirmed = false;
   const checkedOut = (): Checkout => {
@@ -57,12 +85,14 @@ export function createTerminalMcpServer({ api, folder, runningBuild = buildHash(
   const server = createRedlineMcpServer({
     api,
     // One line, in the first answer only, once the server has said this CLI is out of date.
-    decorateResult: (result) => {
-      if (noticeSent || !api.outdated) return result;
+    decorateResult: async (result) => {
+      const waiting = await waitingLine(api, sessionId);
+      const withWaiting: ToolResult = waiting ? { ...result, content: [...result.content, { type: "text", text: waiting }] } : result;
+      if (noticeSent || !api.outdated) return withWaiting;
       noticeSent = true;
-      const [first, ...rest] = result.content;
+      const [first, ...rest] = withWaiting.content;
       const notice = `Redline: this CLI is not up to date. Tell the user to update it with \`${api.updateCommand()}\`, then to type /mcp in Claude Code and reconnect redline.`;
-      return { ...result, content: [{ type: "text", text: first ? `${notice}\n${first.text}` : notice }, ...rest] };
+      return { ...withWaiting, content: [{ type: "text", text: first ? `${notice}\n${first.text}` : notice }, ...rest] };
     },
     // The CLI was reinstalled under this running MCP (the Agents screen's update, or npm by hand): its code is the previous one
     // until Claude Code reconnects it, so no tool runs. "dev" (sources, or a file being replaced) never pauses.
@@ -74,7 +104,8 @@ export function createTerminalMcpServer({ api, folder, runningBuild = buildHash(
         content: [{ type: "text", text: "Redline: the Redline CLI was updated on this machine, but this MCP still runs the previous version, so its tools are paused. Tell the user to type /mcp in Claude Code and reconnect redline, then call the tool again." }],
       };
     },
-    allowedThreadIds: [],
+    // The server answers only for the threads this session picked with pending_comments.
+    postReply: (threadId, replyText) => api.replyInThread(threadId, replyText, undefined, sessionId),
     get pageId() {
       return checkedOut().pageId;
     },
@@ -98,6 +129,29 @@ export function createTerminalMcpServer({ api, folder, runningBuild = buildHash(
       return text((error as Error).message, true);
     }
   };
+  server.registerTool(
+    PENDING_COMMENTS_TOOL,
+    {
+      description:
+        "Take the Redline comments waiting for this session (on the pages it published), grouped by page, with each page's and artboard's addresses. Call it only when the user asks you to handle their comments. Taking them marks the threads as being handled by you: answer each one with reply_in_thread.",
+    },
+    tool(async () => {
+      const pages = await api.terminalPick(sessionId);
+      if (pages.length === 0) return "No comment is waiting for this session.";
+      const sections = await Promise.all(
+        pages.map(async ({ pageId, title, messages }) => {
+          // The comments are already taken: they are given even when the page's addresses cannot be fetched.
+          const addresses = await api.checkout(pageId).then(
+            ({ files }) => pageAddresses(api, pageId, files),
+            (error: Error) => `Page ${pageId}: its addresses could not be fetched (${error.message}); call checkout_page to get them.`,
+          );
+          return [`## ${title}`, addresses, "", messages.join("\n\n---\n\n")].join("\n");
+        }),
+      );
+      const steps = "For each page: checkout_page, make the changes the comments ask for, then publish_page once. Then answer each thread once with reply_in_thread (threadId as given).";
+      return `${steps}\n\n${sections.join("\n\n=====\n\n")}`;
+    }),
+  );
   server.registerTool(
     LIST_PROJECTS_TOOL,
     { description: "List the Redline projects, with their ids and links." },
@@ -246,6 +300,7 @@ export function createTerminalMcpServer({ api, folder, runningBuild = buildHash(
       const confirmRemovals = removalsConfirmed;
       removalsConfirmed = false;
       const version = await api.publish(pageId, files, message, "terminal", versionId, {
+        terminalSessionId: sessionId,
         ...(confirmRemovals ? { confirmRemovals: true } : {}),
         ...(designMd !== baseDesignMd ? { designMd: { content: designMd, base: baseDesignMd } } : {}),
         ...(projectStyle !== baseStyle ? { projectStyle: { content: projectStyle!, base: baseStyle! } } : {}),
@@ -272,10 +327,63 @@ export function createTerminalMcpServer({ api, folder, runningBuild = buildHash(
       return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}, merged with changes made to the page since the checkout. The working copy was refreshed.${hintAfter}`;
     }),
   );
+  server.registerTool(
+    RELEASE_PAGE_TOOL,
+    {
+      description:
+        "Stop holding a page: its waiting comments go to the Redline agent, and new comments go to the agent until a terminal session publishes the page again. Without pageId, releases every page this session holds. Use it when the user asks you to let go of a page.",
+      inputSchema: { pageId: z.string().optional().describe("Id of the page to release; leave out to release all the pages this session holds") },
+    },
+    tool(async ({ pageId }: { pageId?: string }) => {
+      const released = await api.terminalRelease(sessionId, pageId);
+      if (released.length === 0) return "This session holds no page: nothing to release.";
+      const lines = released.map((page) => `- ${page.title}: ${page.count === 0 ? "no waiting comment" : `${page.count} comment${page.count > 1 ? "s" : ""} handed over to the agent`}`);
+      return `Released ${released.length > 1 ? "these pages" : "this page"}; the agent now takes its comments until a terminal session publishes ${released.length > 1 ? "them" : "it"} again:\n${lines.join("\n")}`;
+    }),
+  );
   return server;
 }
 
+export const PRESENCE_INTERVAL_MS = 20_000;
+
+/**
+ * Tells the server this terminal session is present now and then every `intervalMs`; `stop` says bye (best effort) and stops.
+ * A heartbeat that fails is simply sent again at the next tick.
+ */
+export function startPresence({ api, sessionId, folder, machine = hostname(), intervalMs = PRESENCE_INTERVAL_MS }: { api: ServerApi; sessionId: string; folder: string; machine?: string; intervalMs?: number }): { firstBeat: Promise<void>; stop: () => Promise<void> } {
+  const beat = () => api.terminalHeartbeat(sessionId, folder, machine).catch(() => undefined);
+  const firstBeat = beat();
+  const timer = setInterval(beat, intervalMs);
+  timer.unref();
+  return {
+    firstBeat,
+    stop: async () => {
+      clearInterval(timer);
+      await api.terminalBye(sessionId).catch(() => undefined);
+    },
+  };
+}
+
 /** Serves the terminal MCP server on stdin/stdout until the client goes away. */
-export async function serveTerminalMcp(options: { api: ServerApi; folder: string }): Promise<void> {
-  await createTerminalMcpServer(options).connect(new StdioServerTransport());
+export async function serveTerminalMcp({ api, folder }: { api: ServerApi; folder: string }): Promise<void> {
+  const sessionId = randomUUID();
+  const server = createTerminalMcpServer({ api, folder, sessionId });
+  const transport = new StdioServerTransport();
+  const presence = startPresence({ api, sessionId, folder });
+  let signalled = false;
+  const closed = new Promise<void>((resolve) => {
+    transport.onclose = resolve;
+    process.stdin.on("end", resolve);
+    // A handler replaces Node's default exit: leave once bye is said.
+    const onSignal = () => {
+      signalled = true;
+      resolve();
+    };
+    process.once("SIGINT", onSignal);
+    process.once("SIGTERM", onSignal);
+  });
+  await server.connect(transport);
+  await closed;
+  await presence.stop();
+  if (signalled) process.exit(0);
 }

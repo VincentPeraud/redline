@@ -48,6 +48,8 @@ export interface SessionRow extends ModelChoice {
   agent?: { id: string; machine: string; folder: string; kind: AgentKind };
   /** Engine session id; absent until the first run was sent. */
   sessionId?: string;
+  /** The thread belongs to a terminal session (it has no engine session id here). */
+  terminal?: true;
   context?: ThreadContext;
   /** Why the session waits, when `status` is "queued" or "waiting-agent"; "design-system-agent-offline" = "agent-offline" on a design system's page. */
   waitingReason?: QueueReason | "retrying" | "design-system-agent-offline";

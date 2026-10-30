@@ -253,6 +253,8 @@ export class Store {
     };
     // Page types were removed (2026-10-22); the column was NOT NULL, so databases from before must drop it.
     if (columnsOf("pages").includes("type")) this.db.exec("ALTER TABLE pages DROP COLUMN type");
+    addColumn("work_queue", "for_terminal", "INTEGER");
+    addColumn("work_queue", "handed_over_by", "TEXT");
     addColumn("design_systems", "current_diffusion", "INTEGER");
     addColumn("design_system_diffusions", "component_files_hash", "TEXT");
     addColumn("design_system_diffusions", "rolled_back_to", "INTEGER");
@@ -287,6 +289,8 @@ export class Store {
     addColumn("projects", "archived_at", "TEXT");
     // When the page was archived: read-only, out of the page lists and of sessions, deletable.
     addColumn("pages", "archived_at", "TEXT");
+    addColumn("pages", "held_by", "TEXT");
+    addColumn("pages", "held_at", "TEXT");
     addColumn("versions", "origin_id", "TEXT");
     addColumn("versions", "origin_label", "TEXT");
     addColumn("versions", "diffusion", "INTEGER");
@@ -307,7 +311,7 @@ export class Store {
     const threadColumns = this.db.prepare("PRAGMA table_info(threads)").all() as { name: string }[];
     if (!threadColumns.some((c) => c.name === "session_id")) this.db.exec("ALTER TABLE threads ADD COLUMN session_id TEXT");
     if (!threadColumns.some((c) => c.name === "agent_id")) this.db.exec("ALTER TABLE threads ADD COLUMN agent_id TEXT");
-    for (const column of ["context", "new_session", "session_seed"]) {
+    for (const column of ["context", "new_session", "session_seed", "terminal_session_id", "terminal_pick_run"]) {
       if (!threadColumns.some((c) => c.name === column)) this.db.exec(`ALTER TABLE threads ADD COLUMN ${column} TEXT`);
     }
     this.db.exec("UPDATE versions SET origin = 'creation' WHERE origin = 'terminal' AND message = 'Page created'");
@@ -322,8 +326,8 @@ export class Store {
   /** Replaces the persisted work queue (see `PageLock`) with `rows`, in order. */
   saveWorkQueue(rows: PersistedWork[]): void {
     const insert = this.db.prepare(
-      `INSERT INTO work_queue (id, position, state, project_id, agent_id, item, takeover_item, attempts, retry_at, retry_limit, message)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO work_queue (id, position, state, project_id, agent_id, item, takeover_item, attempts, retry_at, retry_limit, message, for_terminal, handed_over_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.db.transaction(() => {
       this.db.prepare("DELETE FROM work_queue").run();
@@ -340,6 +344,8 @@ export class Store {
           row.retryAt ?? null,
           row.limit === undefined ? null : row.limit ? 1 : 0,
           row.message ?? null,
+          row.forTerminal ? 1 : 0,
+          row.handedOverBy ? JSON.stringify(row.handedOverBy) : null,
         ),
       );
     })();
@@ -356,6 +362,8 @@ export class Store {
       retry_at: string | null;
       retry_limit: number | null;
       message: string | null;
+      for_terminal: number | null;
+      handed_over_by: string | null;
     }[];
     return rows.map((r) => ({
       state: r.state,
@@ -367,6 +375,8 @@ export class Store {
       ...(r.retry_at ? { retryAt: r.retry_at } : {}),
       ...(r.retry_limit === null ? {} : { limit: r.retry_limit === 1 }),
       ...(r.message === null ? {} : { message: r.message }),
+      ...(r.for_terminal ? { forTerminal: true } : {}),
+      ...(r.handed_over_by ? { handedOverBy: JSON.parse(r.handed_over_by) as Person } : {}),
     }));
   }
 
@@ -1174,6 +1184,28 @@ export class Store {
     };
   }
 
+  /** The terminal session that took the page with its last terminal publish, whether it is still present or not. */
+  holdOf(pageId: string): { sessionId: string; since: string } | undefined {
+    const row = this.db.prepare("SELECT held_by, held_at FROM pages WHERE id = ?").get(pageId) as { held_by: string | null; held_at: string | null } | undefined;
+    return row?.held_by && row.held_at ? { sessionId: row.held_by, since: row.held_at } : undefined;
+  }
+
+  holdPage(pageId: string, sessionId: string): void {
+    this.db.prepare("UPDATE pages SET held_by = ?, held_at = ? WHERE id = ?").run(sessionId, new Date().toISOString(), pageId);
+    this.emit({ type: "terminal-hold-changed", pageId });
+  }
+
+  /** The held pages with their holder. */
+  heldPages(): { pageId: string; sessionId: string }[] {
+    const rows = this.db.prepare("SELECT id, held_by FROM pages WHERE held_by IS NOT NULL").all() as { id: string; held_by: string }[];
+    return rows.map((row) => ({ pageId: row.id, sessionId: row.held_by }));
+  }
+
+  clearHold(pageId: string): void {
+    this.db.prepare("UPDATE pages SET held_by = NULL, held_at = NULL WHERE id = ?").run(pageId);
+    this.emit({ type: "terminal-hold-changed", pageId });
+  }
+
   /** True when the page itself is archived (its project may be archived too, see `isArchived`). */
   isPageArchived(pageId: string): boolean {
     return this.db.prepare("SELECT 1 FROM pages WHERE id = ? AND archived_at IS NOT NULL").get(pageId) !== undefined;
@@ -1349,7 +1381,41 @@ export class Store {
   }
 
   setThreadSession(threadId: string, sessionId: string, agentId: string): void {
-    this.db.prepare("UPDATE threads SET session_id = ?, agent_id = ? WHERE id = ?").run(sessionId, agentId, threadId);
+    this.db.prepare("UPDATE threads SET session_id = ?, agent_id = ?, terminal_session_id = NULL, terminal_pick_run = NULL WHERE id = ?").run(sessionId, agentId, threadId);
+  }
+
+  /** The terminal session of a thread: the one that started it (it picked it with `pending_comments`); none once an agent session took it over. */
+  getThreadTerminalSession(threadId: string): string | undefined {
+    const row = this.db.prepare("SELECT terminal_session_id FROM threads WHERE id = ?").get(threadId) as { terminal_session_id: string | null } | undefined;
+    return row?.terminal_session_id ?? undefined;
+  }
+
+  /** The thread is now handled by a terminal session, not by an agent session: `runId` is the run showing it as being worked on. */
+  pickThreadForTerminalSession(threadId: string, terminalSessionId: string, runId: string): void {
+    this.db.prepare("UPDATE threads SET terminal_session_id = ?, terminal_pick_run = ?, session_id = NULL, agent_id = NULL WHERE id = ?").run(terminalSessionId, runId, threadId);
+    const thread = this.getThread(threadId);
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
+  }
+
+  /** The threads terminal sessions picked and have not answered yet, with the run that shows them as being worked on. */
+  terminalPicks(): { threadId: string; pageId: string; sessionId: string; runId: string }[] {
+    const rows = this.db.prepare("SELECT id, page_id, terminal_session_id, terminal_pick_run FROM threads WHERE terminal_pick_run IS NOT NULL AND terminal_session_id IS NOT NULL").all() as {
+      id: string;
+      page_id: string;
+      terminal_session_id: string;
+      terminal_pick_run: string;
+    }[];
+    return rows.map((row) => ({ threadId: row.id, pageId: row.page_id, sessionId: row.terminal_session_id, runId: row.terminal_pick_run }));
+  }
+
+  /** The terminal session answered the thread (or gave it back): it stays the thread's terminal session, but is no longer working on it. */
+  endTerminalPick(threadId: string): void {
+    this.db.prepare("UPDATE threads SET terminal_pick_run = NULL WHERE id = ?").run(threadId);
+  }
+
+  /** The thread belongs to no terminal session any more: it was handed over to the agents. */
+  clearThreadTerminalSession(threadId: string): void {
+    this.db.prepare("UPDATE threads SET terminal_session_id = NULL, terminal_pick_run = NULL WHERE id = ?").run(threadId);
   }
 
   setThreadContext(threadId: string, context: ThreadContext | null): void {
@@ -1806,6 +1872,10 @@ export interface PersistedWork {
   retryAt?: string;
   limit?: boolean;
   message?: string;
+  /** The item waits for the terminal session holding its page (see `PageLock.releaseTerminalWork`). */
+  forTerminal?: boolean;
+  /** The person who handed the item over to the agent (see `PageLock.handOverThread`). */
+  handedOverBy?: Person;
 }
 
 export interface SessionOrigin {

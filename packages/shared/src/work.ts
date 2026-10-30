@@ -123,6 +123,8 @@ export interface CreateReplyRequest extends ModelChoice {
 /** Body of `POST /agent-api/threads/:id/replies`: `workId` is the run posting the answer (to attach the pages it created). */
 export interface AgentReplyRequest extends CreateReplyRequest {
   workId?: string;
+  /** The terminal session answering: accepted only for a thread it picked with `pending_comments`. */
+  terminalSessionId?: string;
 }
 
 /** Server-sent events on `GET /api/events`, so the web UI refreshes without polling. */
@@ -147,6 +149,8 @@ export type ServerEvent =
   | { type: "work-retrying"; pageId: string; workId: string; threadIds: string[]; retryAt: string; limit: boolean; message: string }
   /** Live state of a run, sent after every change (full snapshot, replace by `workId`). */
   | { type: "run-updated"; pageId: string; run: ThreadRun }
+  /** A terminal session took, released or lost the page, or connected or left while holding it (`GET /api/pages/:id/terminal-holder`). */
+  | { type: "terminal-hold-changed"; pageId: string }
   /** An agent connected or disconnected. */
   | { type: "agents-updated" };
 
@@ -180,8 +184,11 @@ export const retryRunPath = (pageId: string, workId: string) => `/api/pages/${pa
 export const pageRunsPath = (pageId: string) => `/api/pages/${pageId}/runs`;
 
 /** Why a work item is not running yet. */
-/** "project-archived" / "page-archived": the project or the page was archived while the item waited; it is sent once unarchived. */
-export type QueueReason = "page-busy" | "agent-offline" | "project-archived" | "page-archived";
+/**
+ * "project-archived" / "page-archived": the project or the page was archived while the item waited; it is sent once unarchived.
+ * "terminal": the page is held by a present terminal session, which the item waits for.
+ */
+export type QueueReason = "page-busy" | "agent-offline" | "project-archived" | "page-archived" | "terminal";
 
 /** A work item waiting for its turn on a page. */
 export interface QueueEntry {

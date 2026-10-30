@@ -118,6 +118,18 @@ _Avoid_: Daemon, supervisor
 The full-screen terminal view (`redline agents`, or opened by `redline agent`) of the agents of a machine: the selected agent's detail and run log, the list of agents, and the keys to act on them. Closing it does not stop any agent.
 _Avoid_: Dashboard, TUI
 
+**Terminal session**:
+One running `redline mcp` process, which is one Claude Code session in terminal mode. Identified by a random id generated when the process starts and never stored on disk; it reports its folder and machine in a heartbeat, and is present while the heartbeat is recent.
+_Avoid_: Terminal agent (it is not an **agent**: it runs no work Redline sends it)
+
+**Held page**:
+A page held by the **terminal session** that last published it, while that session is present. "Hold" is the verb: only a terminal publish takes a page, and the hold ends when its session leaves. The canvas header shows a pill while the page is held.
+_Avoid_: Locked page, owner (the page lock is a different thing)
+
+**Terminal session of a thread**:
+The **terminal session** that took a thread with `pending_comments` and answers it. Later replies in the thread wait for that session while it is present, whatever session holds the page; once it is gone, or the page was released, an agent takes them. An agent session is the other way a thread gets handled; a thread has one or the other.
+_Avoid_: Owner of a thread, terminal agent
+
 ### People
 
 **Person**:

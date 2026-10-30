@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
   type PageViewSettings,
+  type TerminalHolder,
   COMPONENTS_CSS_PATH,
   withoutComponentStyles,
   DESIGN_SYSTEM_TOKENS_PATH,
@@ -43,6 +44,7 @@ import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, i
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
+import { TerminalSessions } from "./terminal-sessions.js";
 import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
 import { projectContext, readPageAsset, readProjectAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
@@ -68,7 +70,7 @@ import { registerSessionRoutes } from "./sessions.js";
 import { registerHomeRoutes } from "./home.js";
 import { archivedError, registerArchiveRoutes, registerArchivedGuard } from "./archive.js";
 import { moveArtboard } from "./move-artboard.js";
-import { dispatchBatch, dispatchReply, dispatchThread } from "./work.js";
+import { dispatchBatch, dispatchReply, dispatchThread, handOverThread } from "./work.js";
 
 const PALETTE_TOKENS = ["--color-primary", "--color-text", "--color-background"];
 
@@ -120,7 +122,7 @@ export async function buildMainApp(
   store: Store,
   config: ServerConfig,
   webDir?: string,
-  options: { retryDelaysMs?: number[]; proxySecrets?: ProxySecrets; identity?: IdentityConfig; cliBuild?: CliBuild } = {},
+  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; cliBuild?: CliBuild } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ bodyLimit: MAX_PAGE_BYTES });
   registerProxySecretCheck(app, options.proxySecrets);
@@ -139,7 +141,9 @@ export async function buildMainApp(
   const agents = await registerAgentRoutes(app, store);
   const pageLock = new PageLock(store, agents, options.retryDelaysMs);
   app.addHook("onClose", async () => pageLock.dispose());
-  await registerAgentApi(app, store, pageLock);
+  const terminalSessions = new TerminalSessions(store, pageLock, options.terminalPresenceTimeoutMs);
+  app.addHook("onClose", async () => terminalSessions.dispose());
+  await registerAgentApi(app, store, pageLock, terminalSessions);
   await registerProjectFileRoutes(app, store);
   registerProjectDesignSystemRoutes(app, store);
   registerEventRoutes(app, store);
@@ -154,6 +158,7 @@ export async function buildMainApp(
   registerArtboardHistoryRoutes(app, store);
   registerGapRoutes(app, store);
   pageLock.restore();
+  terminalSessions.restore();
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
@@ -392,6 +397,18 @@ export async function buildMainApp(
     return page ? { ...page, viewSettings: store.getViewSettings(page.id), designSystem: store.isDesignSystemProject(page.projectId) } : reply.code(404).send({ error: "page not found" });
   });
 
+  app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/terminal-holder", async (req, reply): Promise<TerminalHolder | null> => {
+    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+    return terminalSessions.holderOf(req.params.pageId) ?? null;
+  });
+
+  // "Confier la page à l'agent": the hold ends and what waited for the terminal session goes to the agents, until a terminal session publishes again.
+  app.post<{ Params: { pageId: string } }>("/api/pages/:pageId/terminal-release", async (req, reply) => {
+    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+    terminalSessions.releasePage(req.params.pageId, { handedOverBy: req.person });
+    return reply.code(204).send();
+  });
+
   app.post<{ Params: { pageId: string }; Body: PageViewSettings }>("/api/pages/:pageId/view-settings", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
     const invalid = viewSettingsError(req.body);
@@ -445,7 +462,7 @@ export async function buildMainApp(
       }
       const thread = store.createThread(req.params.pageId, request, req.person);
       if (thread.status === "held") return reply.code(201).send(thread);
-      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(request));
+      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(request), terminalSessions);
       return reply.code(201).send(thread);
     },
   );
@@ -464,8 +481,15 @@ export async function buildMainApp(
     const invalidChoice = modelChoiceError(req.body);
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
     const message = store.addReply(thread.id, body, "user", [], req.person)!;
-    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body));
+    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body), terminalSessions);
     return reply.code(201).send(message);
+  });
+
+  // "Confier à l'agent": a thread waiting for the terminal session goes to the agents; the page stays held.
+  app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/hand-over", async (req, reply) => {
+    if (!store.getThread(req.params.threadId)) return reply.code(404).send({ error: "thread not found" });
+    if (!handOverThread(store, pageLock, req.params.threadId, req.person)) return reply.code(409).send({ error: "this thread is not waiting for a terminal session" });
+    return reply.code(204).send();
   });
 
   app.patch<{ Params: { threadId: string }; Body: UpdateThreadRequest }>("/api/threads/:threadId", async (req, reply) => {
@@ -494,7 +518,7 @@ export async function buildMainApp(
     const held = store.listHeldThreads(page.id);
     if (held.length > 0) {
       for (const thread of held) store.releaseHeldThread(thread.id);
-      dispatchBatch(pageLock, page.projectId, held, modelChoiceOf(req.body ?? {}));
+      dispatchBatch(pageLock, page.projectId, held, modelChoiceOf(req.body ?? {}), terminalSessions);
     }
     const response: SendHeldResponse = { threads: held.length };
     return response;

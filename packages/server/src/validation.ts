@@ -29,6 +29,16 @@ export function requiredString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
 
+const TERMINAL_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A terminal session id is a UUID, made by `redline mcp`. */
+export function isTerminalSessionId(value: unknown): value is string {
+  return typeof value === "string" && TERMINAL_SESSION_ID.test(value);
+}
+
+/** The longest folder or machine name a terminal session may report. */
+export const MAX_TERMINAL_TEXT_LENGTH = 512;
+
 /** Error message when a model/effort pair of a request is invalid, else null. Both are optional. */
 export function modelChoiceError({ model, effort }: { model?: unknown; effort?: unknown }): string | null {
   if (model !== undefined && (typeof model !== "string" || !MODEL_PATTERN.test(model))) return "invalid model";

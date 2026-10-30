@@ -6,6 +6,7 @@ import { GapsButton } from "./GapsReport.js";
 import { ErrorsButton, type ArtboardErrorsEntry } from "./ArtboardErrors.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
 import { TocMenu } from "./TocMenu.js";
+import { TerminalPill } from "./TerminalPill.js";
 import { AccountMenu, displayName } from "./AccountMenu.js";
 import { avatarClassName } from "./Avatar.js";
 import { useMe, useWho } from "./useMe.js";
@@ -288,6 +289,7 @@ export function CanvasHeader({ project, designSystemId, versionId, pageId, pageT
       ) : archived ? null : (
         <>
           <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />
+          <TerminalPill pageId={pageId} />
           <AgentPill project={project} running={runningCount} />
           <div role="group" aria-label="Mode du canvas" className={styles.modes}>
             <button type="button" aria-pressed={!picking} className={cx(styles.mode, !picking && styles.modeInteract)} onClick={() => onPickingChange(false)}>

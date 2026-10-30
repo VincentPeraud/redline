@@ -19,6 +19,10 @@ import {
   type PageVersionSummary,
   type Project,
   type ProjectAsset,
+  type TerminalHeartbeatRequest,
+  type TerminalReleaseRequest,
+  type TerminalPickedPage,
+  type TerminalWaitingPage,
   type ThreadReply,
   type VersionOrigin,
   type RenamePageRequest,
@@ -59,7 +63,7 @@ export class ServerApi {
     message: string,
     origin: VersionOrigin,
     baseVersionId: string,
-    extra: Pick<CreateVersionRequest, "workId" | "designMd" | "projectStyle" | "confirmRemovals"> = {},
+    extra: Pick<CreateVersionRequest, "workId" | "designMd" | "projectStyle" | "confirmRemovals" | "terminalSessionId"> = {},
   ): Promise<PageVersionSummary> {
     const body: CreateVersionRequest = { files, message, origin, baseVersionId, ...extra };
     return this.request("POST", `/pages/${pageId}/versions`, body);
@@ -76,8 +80,35 @@ export class ServerApi {
     return this.request("PUT", `/pages/${pageId}/assets/${name.split("/").map(encodeURIComponent).join("/")}`, bytes);
   }
 
-  replyInThread(threadId: string, text: string, workId?: string): Promise<ThreadReply> {
-    const body: AgentReplyRequest = { body: text, ...(workId ? { workId } : {}) };
+  /** Tells the server this terminal session is present (sent at start and then regularly). */
+  terminalHeartbeat(sessionId: string, folder: string, machine: string): Promise<void> {
+    const body: TerminalHeartbeatRequest = { folder, machine };
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/heartbeat`, body);
+  }
+
+  /** The comments waiting for this terminal session, per page it holds. */
+  terminalWaiting(sessionId: string): Promise<TerminalWaitingPage[]> {
+    return this.request("GET", `/terminal-sessions/${encodeURIComponent(sessionId)}/waiting`);
+  }
+
+  /** Hands one page this terminal session holds (or all of them) over to the agents; answers with what was handed over. */
+  terminalRelease(sessionId: string, pageId?: string): Promise<TerminalWaitingPage[]> {
+    const body: TerminalReleaseRequest = pageId ? { pageId } : {};
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/release`, body);
+  }
+
+  /** Takes the comments waiting for this terminal session: they leave the waiting list and become its to answer. */
+  terminalPick(sessionId: string): Promise<TerminalPickedPage[]> {
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/pick`, {});
+  }
+
+  /** Tells the server this terminal session is closing. */
+  terminalBye(sessionId: string): Promise<void> {
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/bye`, {});
+  }
+
+  replyInThread(threadId: string, text: string, workId?: string, terminalSessionId?: string): Promise<ThreadReply> {
+    const body: AgentReplyRequest = { body: text, ...(workId ? { workId } : {}), ...(terminalSessionId ? { terminalSessionId } : {}) };
     return this.request("POST", `/threads/${threadId}/replies`, body);
   }
 
@@ -169,6 +200,6 @@ export class ServerApi {
       const error = await res.json().then((body: { error?: string }) => body.error, () => undefined);
       throw new Error(error ?? `The server answered ${res.status} ${res.statusText}`.trim());
     }
-    return (await res.json()) as T;
+    return (res.status === 204 ? undefined : await res.json()) as T;
   }
 }

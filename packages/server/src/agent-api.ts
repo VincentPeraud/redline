@@ -12,6 +12,10 @@ import {
   type AgentReplyRequest,
   type CreateSiblingRequest,
   type CreateVersionRequest,
+  type TerminalHeartbeatRequest,
+  type TerminalReleaseRequest,
+  type TerminalPickedPage,
+  type TerminalWaitingPage,
   type MoveArtboardRequest,
   type RenamePageRequest,
   type DesignMdAuthor,
@@ -27,10 +31,11 @@ import { tokensEqual } from "./request-hardening.js";
 import { versionComponentsError } from "./components.js";
 import { removalsError } from "./removals.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
-import { requiredString, titleError, tokensError, versionRequestError } from "./validation.js";
+import { MAX_TERMINAL_TEXT_LENGTH, isTerminalSessionId, requiredString, titleError, tokensError, versionRequestError } from "./validation.js";
 import { projectContext, putProjectAsset } from "./project-files.js";
 import { designSystemChangeError } from "./project-design-system.js";
 import type { PageLock } from "./page-lock.js";
+import type { TerminalSessions } from "./terminal-sessions.js";
 import type { OriginRef, Store } from "./store.js";
 
 /** The thread or conversation a running work item answers, as version/DESIGN.md origin; none when the item is unknown or belongs to another page. */
@@ -48,7 +53,7 @@ export function workOrigin(store: Store, pageLock: PageLock, workId: unknown, pa
 }
 
 /** HTTP API for agents and their sessions' MCP tools, guarded by the agent token (see `AGENT_API_PREFIX`). */
-export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock): Promise<void> {
+export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock, terminalSessions: TerminalSessions): Promise<void> {
   await app.register(
     async (api) => {
       // onRequest, not preHandler: a wrong token is refused before its body (up to 20 MB for assets) is read.
@@ -59,6 +64,39 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         }
         const build = req.headers[BUILD_HASH_HEADER];
         if (typeof build === "string" && store.isOutdated(build)) reply.header(OUTDATED_HEADER, "1");
+      });
+
+      api.addHook("preHandler", async (req, reply) => {
+        const { sessionId } = (req.params ?? {}) as { sessionId?: string };
+        if (sessionId !== undefined && !isTerminalSessionId(sessionId)) return reply.code(400).send({ error: "a terminal session id is a UUID" });
+      });
+
+      // Terminal mode (`redline mcp`) says it is there: every ~20 s while the session is open, and once more as it closes.
+      api.post<{ Params: { sessionId: string }; Body: Partial<TerminalHeartbeatRequest> }>("/terminal-sessions/:sessionId/heartbeat", async (req, reply) => {
+        const { folder, machine } = req.body ?? {};
+        if (!requiredString(folder) || !requiredString(machine)) return reply.code(400).send({ error: "folder and machine are required" });
+        if (folder.length > MAX_TERMINAL_TEXT_LENGTH || machine.length > MAX_TERMINAL_TEXT_LENGTH) return reply.code(400).send({ error: `folder and machine are ${MAX_TERMINAL_TEXT_LENGTH} characters at most` });
+        terminalSessions.heartbeat(req.params.sessionId, folder, machine);
+        return reply.code(204).send();
+      });
+
+      api.get<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/waiting", async (req): Promise<TerminalWaitingPage[]> => terminalSessions.waitingFor(req.params.sessionId));
+
+      // `release_page`: the session hands one page it holds (or all of them) over to the agents.
+      api.post<{ Params: { sessionId: string }; Body: Partial<TerminalReleaseRequest> }>("/terminal-sessions/:sessionId/release", async (req, reply): Promise<TerminalWaitingPage[] | void> => {
+        const pageId = req.body?.pageId;
+        if (pageId !== undefined && !requiredString(pageId)) return reply.code(400).send({ error: "pageId must be a page id" });
+        const released = terminalSessions.releaseHeldBy(req.params.sessionId, pageId);
+        if (pageId !== undefined && released.length === 0) return reply.code(409).send({ error: "this terminal session does not hold that page" });
+        return released;
+      });
+
+      // `pending_comments`: the waiting comments are handed to the session, which then answers them with `reply_in_thread`.
+      api.post<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/pick", async (req): Promise<TerminalPickedPage[]> => terminalSessions.pick(req.params.sessionId));
+
+      api.post<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/bye", async (req, reply) => {
+        terminalSessions.bye(req.params.sessionId);
+        return reply.code(204).send();
       });
 
       // `redline agent` picks or creates the projects a folder serves, before they have anything else to call.
@@ -134,6 +172,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           return reply.code(403).send({ error: "This work belongs to a page of another project: it cannot publish here." });
         }
         if (!requiredString(baseVersionId)) return reply.code(400).send({ error: "baseVersionId is required" });
+        if (req.body.terminalSessionId !== undefined && !isTerminalSessionId(req.body.terminalSessionId)) return reply.code(400).send({ error: "terminalSessionId must be a UUID" });
         const invalidTitle = manifestTitleError(store, req.params.pageId, files, baseVersionId);
         if (invalidTitle) return reply.code(400).send({ error: invalidTitle });
         if (designMd !== undefined && (typeof designMd?.content !== "string" || typeof designMd.base !== "string")) {
@@ -167,6 +206,8 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const ref: OriginRef | undefined = from && { originId: from.originId, originLabel: from.originLabel, person: from.person };
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
+          // The terminal session that publishes a page holds it, replacing the previous holder.
+          if (origin === "terminal" && req.body.terminalSessionId !== undefined) store.holdPage(req.params.pageId, req.body.terminalSessionId);
           if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());
           if (styleChanged) store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(projectStyle.content, "utf8"), author());
           const { gaps } = agentGaps(store, req.params.pageId, result.files);
@@ -266,9 +307,15 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const thread = store.getThread(req.params.threadId);
         if (!thread) return reply.code(404).send({ error: "thread not found" });
         // The pages the run created appear under its first answer.
+        const { terminalSessionId } = req.body;
+        if (terminalSessionId !== undefined && !terminalSessions.isPickedBy(thread.id, terminalSessionId)) {
+          return reply.code(409).send({ error: `Thread ${thread.id} was not given to this session: only the threads pending_comments returned can be answered here.` });
+        }
         const workId = req.body.workId;
         const createdPageIds = workOrigin(store, pageLock, workId, thread.pageId) ? store.takeCreatedPages(workId!) : [];
-        return reply.code(201).send(store.addReply(thread.id, body, "claude", createdPageIds));
+        const posted = store.addReply(thread.id, body, "claude", createdPageIds);
+        if (terminalSessionId !== undefined) terminalSessions.answered(thread.id);
+        return reply.code(201).send(posted);
       });
     },
     { prefix: AGENT_API_PREFIX },
