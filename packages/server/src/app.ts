@@ -141,7 +141,7 @@ export async function buildMainApp(
   const agents = await registerAgentRoutes(app, store);
   const pageLock = new PageLock(store, agents, options.retryDelaysMs);
   app.addHook("onClose", async () => pageLock.dispose());
-  const terminalSessions = new TerminalSessions(store, options.terminalPresenceTimeoutMs);
+  const terminalSessions = new TerminalSessions(store, pageLock, options.terminalPresenceTimeoutMs);
   app.addHook("onClose", async () => terminalSessions.dispose());
   await registerAgentApi(app, store, pageLock, terminalSessions);
   await registerProjectFileRoutes(app, store);
@@ -454,7 +454,7 @@ export async function buildMainApp(
       }
       const thread = store.createThread(req.params.pageId, request, req.person);
       if (thread.status === "held") return reply.code(201).send(thread);
-      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(request));
+      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(request), terminalSessions.holderOf(req.params.pageId) !== undefined);
       return reply.code(201).send(thread);
     },
   );
@@ -503,7 +503,7 @@ export async function buildMainApp(
     const held = store.listHeldThreads(page.id);
     if (held.length > 0) {
       for (const thread of held) store.releaseHeldThread(thread.id);
-      dispatchBatch(pageLock, page.projectId, held, modelChoiceOf(req.body ?? {}));
+      dispatchBatch(store, pageLock, page.projectId, held, modelChoiceOf(req.body ?? {}), terminalSessions.holderOf(page.id) !== undefined);
     }
     const response: SendHeldResponse = { threads: held.length };
     return response;

@@ -20,6 +20,7 @@ import {
   type Project,
   type ProjectAsset,
   type TerminalHeartbeatRequest,
+  type TerminalWaitingPage,
   type ThreadReply,
   type VersionOrigin,
   type RenamePageRequest,
@@ -81,6 +82,11 @@ export class ServerApi {
   terminalHeartbeat(sessionId: string, folder: string, machine: string): Promise<void> {
     const body: TerminalHeartbeatRequest = { folder, machine };
     return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/heartbeat`, body);
+  }
+
+  /** The comments waiting for this terminal session, per page it holds. */
+  terminalWaiting(sessionId: string): Promise<TerminalWaitingPage[]> {
+    return this.request("GET", `/terminal-sessions/${encodeURIComponent(sessionId)}/waiting`);
   }
 
   /** Tells the server this terminal session is closing. */

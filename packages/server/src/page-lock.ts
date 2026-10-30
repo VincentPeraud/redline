@@ -14,6 +14,11 @@ export interface SubmitOptions {
    * offline with the global agent taking over, or no longer the project's agent. Without it a pinned item just waits.
    */
   takeoverItem?: WorkItem;
+  /**
+   * The item waits for the terminal session that holds its page instead of going to an agent, until `releaseTerminalWork`.
+   * Only for new work no agent session owns.
+   */
+  forTerminal?: boolean;
 }
 
 interface Queued extends SubmitOptions {
@@ -77,7 +82,7 @@ export class PageLock {
   /** Loads the persisted state. Call once, after every listener of the store events is registered (the run tracker needs the replayed events). */
   restore(): void {
     const rows = this.store.loadWorkQueue();
-    const toQueued = ({ projectId, agentId, item, takeoverItem }: PersistedWork): Queued => ({ projectId, agentId, item, takeoverItem });
+    const toQueued = ({ projectId, agentId, item, takeoverItem, forTerminal }: PersistedWork): Queued => ({ projectId, agentId, item, takeoverItem, ...(forTerminal ? { forTerminal } : {}) });
     this.queue = [...rows.filter((r) => r.state === "active"), ...rows.filter((r) => r.state === "queued")].map(toQueued);
     for (const row of rows) {
       if (row.attempts > 0) this.attempts.set(row.item.id, row.attempts);
@@ -102,6 +107,22 @@ export class PageLock {
   submit(options: SubmitOptions, item: WorkItem): void {
     this.queue.push({ ...options, item });
     this.pump();
+  }
+
+  /** Sends the work of a page that waited for its terminal session to the agents, under the single routing rule (the session left, or the page was handed over). */
+  releaseTerminalWork(pageId: string): void {
+    let released = false;
+    for (const queued of this.queue) {
+      if (!queued.forTerminal || queued.item.pageId !== pageId) continue;
+      delete queued.forTerminal;
+      released = true;
+    }
+    if (released) this.pump();
+  }
+
+  /** The comments waiting for a terminal session, per page. */
+  terminalWaiting(): { pageId: string; threadIds: string[] }[] {
+    return this.queue.filter((q) => q.forTerminal).map((q) => ({ pageId: q.item.pageId, threadIds: q.item.threads.map((t) => t.threadId) }));
   }
 
   /** Waits for the page's turn like any work item (no agent needed); resolves with the function that releases the page. */
@@ -266,7 +287,9 @@ export class PageLock {
   private reasons(): { queued: Queued; reason: QueueReason }[] {
     return this.queue.map((queued) => ({
       queued,
-      reason: this.isArchivedProjectPage(queued.item.pageId)
+      reason: queued.forTerminal
+        ? "terminal"
+        : this.isArchivedProjectPage(queued.item.pageId)
         ? "project-archived"
         : this.store.isPageArchived(queued.item.pageId)
           ? "page-archived"
@@ -293,6 +316,10 @@ export class PageLock {
     const stillWaiting: Queued[] = [];
     for (const queued of this.queue) {
       const { pageId, sessionId } = queued.item;
+      if (queued.forTerminal) {
+        stillWaiting.push(queued);
+        continue;
+      }
       // An archived project's or page's waiting items stay queued until it is unarchived (`reconsider`); a terminal publish
       // waiting for the page (`onGranted`) is granted, so that the archive guard refuses its write and the call is answered.
       if (this.isPageLocked(pageId) || (sessionId !== "" && waitingSessions.has(sessionId)) || (this.isArchivedPage(pageId) && !queued.onGranted)) {
@@ -395,6 +422,7 @@ export class PageLock {
       agentId: queued.agentId,
       item: queued.item,
       takeoverItem: queued.takeoverItem,
+      ...(queued.forTerminal ? { forTerminal: true } : {}),
       attempts: this.attempts.get(queued.item.id) ?? 0,
       ...extra,
     });

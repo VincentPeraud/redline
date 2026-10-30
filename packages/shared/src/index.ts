@@ -243,6 +243,13 @@ export interface TerminalHeartbeatRequest {
   machine: string;
 }
 
+/** `GET /agent-api/terminal-sessions/:id/waiting`: the comments waiting for this terminal session, per page it holds. */
+export interface TerminalWaitingPage {
+  pageId: string;
+  title: string;
+  count: number;
+}
+
 /** A page a run created through `create_page`, shown as a link card under the answer. */
 export interface CreatedPage {
   pageId: string;

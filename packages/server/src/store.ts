@@ -253,6 +253,7 @@ export class Store {
     };
     // Page types were removed (2026-10-22); the column was NOT NULL, so databases from before must drop it.
     if (columnsOf("pages").includes("type")) this.db.exec("ALTER TABLE pages DROP COLUMN type");
+    addColumn("work_queue", "for_terminal", "INTEGER");
     addColumn("design_systems", "current_diffusion", "INTEGER");
     addColumn("design_system_diffusions", "component_files_hash", "TEXT");
     addColumn("design_system_diffusions", "rolled_back_to", "INTEGER");
@@ -324,8 +325,8 @@ export class Store {
   /** Replaces the persisted work queue (see `PageLock`) with `rows`, in order. */
   saveWorkQueue(rows: PersistedWork[]): void {
     const insert = this.db.prepare(
-      `INSERT INTO work_queue (id, position, state, project_id, agent_id, item, takeover_item, attempts, retry_at, retry_limit, message)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO work_queue (id, position, state, project_id, agent_id, item, takeover_item, attempts, retry_at, retry_limit, message, for_terminal)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.db.transaction(() => {
       this.db.prepare("DELETE FROM work_queue").run();
@@ -342,6 +343,7 @@ export class Store {
           row.retryAt ?? null,
           row.limit === undefined ? null : row.limit ? 1 : 0,
           row.message ?? null,
+          row.forTerminal ? 1 : 0,
         ),
       );
     })();
@@ -358,6 +360,7 @@ export class Store {
       retry_at: string | null;
       retry_limit: number | null;
       message: string | null;
+      for_terminal: number | null;
     }[];
     return rows.map((r) => ({
       state: r.state,
@@ -369,6 +372,7 @@ export class Store {
       ...(r.retry_at ? { retryAt: r.retry_at } : {}),
       ...(r.retry_limit === null ? {} : { limit: r.retry_limit === 1 }),
       ...(r.message === null ? {} : { message: r.message }),
+      ...(r.for_terminal ? { forTerminal: true } : {}),
     }));
   }
 
@@ -1830,6 +1834,8 @@ export interface PersistedWork {
   retryAt?: string;
   limit?: boolean;
   message?: string;
+  /** The item waits for the terminal session holding its page (see `PageLock.releaseTerminalWork`). */
+  forTerminal?: boolean;
 }
 
 export interface SessionOrigin {

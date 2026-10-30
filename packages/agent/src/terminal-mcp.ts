@@ -8,7 +8,7 @@ import { readLinkedProjectIds } from "./link.js";
 import { pageAddresses } from "./page-addresses.js";
 import { buildHash } from "./build-hash.js";
 import type { ServerApi } from "./server-api.js";
-import { CREATE_PAGE_TOOL, createRedlineMcpServer } from "./session-mcp.js";
+import { CREATE_PAGE_TOOL, createRedlineMcpServer, type ToolResult } from "./session-mcp.js";
 import { designSystemHint, designSystemNote, gapsNote, layoutNote } from "./design-system-note.js";
 import { readDesignMd, readDesignSystemEdits, readProjectStyle, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
 
@@ -20,6 +20,14 @@ export const CREATE_PROJECT_TOOL = "create_project";
 export const LIST_DESIGN_SYSTEMS_TOOL = "list_design_systems";
 export const CREATE_DESIGN_SYSTEM_TOOL = "create_design_system";
 export const SET_PROJECT_DESIGN_SYSTEM_TOOL = "set_project_design_system";
+
+/** The last line of every answer: the comments waiting for this session, per page; nothing when there are none (or the server cannot be asked). */
+async function waitingLine(api: ServerApi, sessionId: string): Promise<string | undefined> {
+  const pages = await api.terminalWaiting(sessionId).catch(() => []);
+  if (pages.length === 0) return undefined;
+  const parts = pages.map((page, i) => (i === 0 ? `${page.count} commentaire${page.count > 1 ? "s" : ""} en attente sur ${page.title}` : `${page.count} sur ${page.title}`));
+  return `Redline: ${parts.join(", ")} : appelle pending_comments si la personne le demande.`;
+}
 
 const text = (message: string, isError = false) => ({ ...(isError ? { isError } : {}), content: [{ type: "text" as const, text: message }] });
 
@@ -59,12 +67,14 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
   const server = createRedlineMcpServer({
     api,
     // One line, in the first answer only, once the server has said this CLI is out of date.
-    decorateResult: (result) => {
-      if (noticeSent || !api.outdated) return result;
+    decorateResult: async (result) => {
+      const waiting = await waitingLine(api, sessionId);
+      const withWaiting: ToolResult = waiting ? { ...result, content: [...result.content, { type: "text", text: waiting }] } : result;
+      if (noticeSent || !api.outdated) return withWaiting;
       noticeSent = true;
-      const [first, ...rest] = result.content;
+      const [first, ...rest] = withWaiting.content;
       const notice = `Redline: this CLI is not up to date. Tell the user to update it with \`${api.updateCommand()}\`, then to type /mcp in Claude Code and reconnect redline.`;
-      return { ...result, content: [{ type: "text", text: first ? `${notice}\n${first.text}` : notice }, ...rest] };
+      return { ...withWaiting, content: [{ type: "text", text: first ? `${notice}\n${first.text}` : notice }, ...rest] };
     },
     // The CLI was reinstalled under this running MCP (the Agents screen's update, or npm by hand): its code is the previous one
     // until Claude Code reconnects it, so no tool runs. "dev" (sources, or a file being replaced) never pauses.

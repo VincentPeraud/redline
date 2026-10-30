@@ -40,6 +40,8 @@ export interface Seam2 {
   events(): ServerEvent[];
   /** What the agent reported about its work items, in order (`work-event`, `work-done`, `work-failed`). */
   workMessages(): AgentWorkMessage[];
+  /** Restarts the server on the same data folder (see `TestServer.restart`); the event stream is reopened, `events()` keeps what came before. */
+  restartServer(options?: { downForMs?: number }): Promise<void>;
   waitForVersions(pageId: string, count: number): Promise<void>;
   /** Resolves once `count` work items have ended (done or failed). */
   waitForWorkEnd(count?: number): Promise<void>;
@@ -79,7 +81,7 @@ export async function startSeam2(engine: Engine, options: { webDir?: string; ret
   const server = await startTestServer({ webDir: options.webDir, retryDelaysMs: options.retryDelaysMs, terminalPresenceTimeoutMs: options.terminalPresenceTimeoutMs });
   const folder = mkdtempSync(join(tmpdir(), "redline-agent-folder-"));
   const events: ServerEvent[] = [];
-  const abort = new AbortController();
+  let abort = new AbortController();
   void collectEvents(server.url, events, abort.signal);
 
   const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
@@ -120,6 +122,13 @@ export async function startSeam2(engine: Engine, options: { webDir?: string; ret
       return (await server.get(`/api/pages/${pageId}/files/${path}`)).text();
     },
     events: () => events,
+    async restartServer(restartOptions) {
+      // An open event stream would keep the old server from closing.
+      abort.abort();
+      await server.restart(restartOptions);
+      abort = new AbortController();
+      void collectEvents(server.url, events, abort.signal);
+    },
     workMessages,
     waitForVersions: (pageId, count) => until(async () => (await versions(pageId)).length >= count, `${count} versions`),
     waitForWorkEnd: (count = 1) =>

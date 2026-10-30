@@ -46,9 +46,12 @@ export function takeoverMessage(thread: Thread, body: string): string {
   ].join("\n");
 }
 
-/** Queues a work item for a freshly sent thread on its page's lock; the lock remembers the session once the item is sent. */
-export function dispatchThread(lock: PageLock, projectId: string, thread: Thread, choice: ModelChoice = {}): void {
-  lock.submit({ projectId }, { ...threadItem(thread, threadMessage(thread), randomUUID(), false), ...definedChoice(choice) });
+/**
+ * Queues a work item for a freshly sent thread on its page's lock; the lock remembers the session once the item is sent.
+ * `forTerminal`: the page is held by a present terminal session, which the thread waits for instead of an agent.
+ */
+export function dispatchThread(lock: PageLock, projectId: string, thread: Thread, choice: ModelChoice = {}, forTerminal = false): void {
+  lock.submit({ projectId, ...(forTerminal ? { forTerminal } : {}) }, { ...threadItem(thread, threadMessage(thread), randomUUID(), false), ...definedChoice(choice) });
 }
 
 /** The message Claude receives for a batch: every held comment of a page with its thread id, artboard, element and position. */
@@ -66,10 +69,20 @@ export function batchMessage(threads: Thread[]): string {
   ].join("\n");
 }
 
-/** Queues the held comments of one page as a single work item (one message, one new session shared by the threads). */
-export function dispatchBatch(lock: PageLock, projectId: string, threads: Thread[], choice: ModelChoice = {}): void {
-  const item = { ...threadItem(threads[0], batchMessage(threads), randomUUID(), false), threads: threads.map(workThread), ...definedChoice(choice) };
-  lock.submit({ projectId }, item);
+/**
+ * Queues the held comments of one page as a single work item (one message, one new session shared by the threads).
+ * `forTerminal`: the page is held by a present terminal session; the batch waits for it, except the threads an agent session
+ * already owns, which leave to the agents as their own item.
+ */
+export function dispatchBatch(store: Store, lock: PageLock, projectId: string, threads: Thread[], choice: ModelChoice = {}, forTerminal = false): void {
+  const submit = (group: Thread[], waitForTerminal: boolean) => {
+    const item = { ...threadItem(group[0], batchMessage(group), randomUUID(), false), threads: group.map(workThread), ...definedChoice(choice) };
+    lock.submit({ projectId, ...(waitForTerminal ? { forTerminal: true } : {}) }, item);
+  };
+  const owned = forTerminal ? threads.filter((t) => store.getThreadSession(t.id)) : [];
+  const fresh = threads.filter((t) => !owned.includes(t));
+  if (owned.length > 0) submit(owned, false);
+  if (fresh.length > 0) submit(fresh, forTerminal);
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   type CreateSiblingRequest,
   type CreateVersionRequest,
   type TerminalHeartbeatRequest,
+  type TerminalWaitingPage,
   type MoveArtboardRequest,
   type RenamePageRequest,
   type DesignMdAuthor,
@@ -70,6 +71,8 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         terminalSessions.heartbeat(req.params.sessionId, folder, machine);
         return reply.code(204).send();
       });
+
+      api.get<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/waiting", async (req): Promise<TerminalWaitingPage[]> => terminalSessions.waitingFor(req.params.sessionId));
 
       api.post<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/bye", async (req, reply) => {
         terminalSessions.bye(req.params.sessionId);

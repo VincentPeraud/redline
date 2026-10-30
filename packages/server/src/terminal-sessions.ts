@@ -1,4 +1,5 @@
 import type { TerminalHolder } from "@redline/shared";
+import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
 /** A terminal session with no heartbeat for this long is gone. */
@@ -21,6 +22,7 @@ export class TerminalSessions {
 
   constructor(
     private readonly store: Store,
+    private readonly lock: PageLock,
     private readonly timeoutMs: number = TERMINAL_PRESENCE_TIMEOUT_MS,
   ) {
     this.timer = setInterval(() => this.sweep(), Math.max(20, Math.floor(timeoutMs / 4)));
@@ -57,11 +59,25 @@ export class TerminalSessions {
       this.release(sessionId);
     }
     if (now - this.startedAt <= this.timeoutMs) return;
-    for (const { pageId } of this.store.heldPageIds(new Set(this.present.keys()))) this.store.clearHold(pageId);
+    for (const { pageId } of this.store.heldPageIds(new Set(this.present.keys()))) this.drop(pageId);
+  }
+
+  /** The comments waiting for the pages this session holds, per page. */
+  waitingFor(sessionId: string): { pageId: string; title: string; count: number }[] {
+    const held = new Set(this.store.heldPageIds().filter((h) => h.sessionId === sessionId).map((h) => h.pageId));
+    const counts = new Map<string, number>();
+    for (const { pageId, threadIds } of this.lock.terminalWaiting()) if (held.has(pageId)) counts.set(pageId, (counts.get(pageId) ?? 0) + threadIds.length);
+    return [...counts].map(([pageId, count]) => ({ pageId, title: this.store.getPage(pageId)?.title ?? "", count }));
   }
 
   private release(sessionId: string): void {
-    for (const { pageId, sessionId: holder } of this.store.heldPageIds()) if (holder === sessionId) this.store.clearHold(pageId);
+    for (const { pageId, sessionId: holder } of this.store.heldPageIds()) if (holder === sessionId) this.drop(pageId);
+  }
+
+  /** The page is no longer held: what waited for its terminal session goes to the agents. */
+  private drop(pageId: string): void {
+    this.store.clearHold(pageId);
+    this.lock.releaseTerminalWork(pageId);
   }
 
   private announceHolds(sessionId: string): void {
