@@ -13,6 +13,7 @@ import { AgentPill } from "./AgentPill.js";
 import { ArchiveFooter, ArchiveIcon, ArchivedBanner, DeleteSection, PageArchiveButton, pageArchivedOnLabel } from "./ArchiveControls.js";
 import { dayLabel, designMdStatus } from "./historyLabels.js";
 import { useWho } from "./useMe.js";
+import { useDocumentTitle } from "./documentTitle.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
@@ -262,6 +263,8 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
       .then(setDesignMdInfo);
     void loadAssets();
   }, [projectId, reload]);
+
+  useDocumentTitle(project?.title);
 
   if (!project) return <PageContent>Chargement…</PageContent>;
 

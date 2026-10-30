@@ -8,6 +8,7 @@ import { relativeTime } from "./relativeTime.js";
 import { routeHref } from "./router.js";
 import { Button, Dialog, DialogActions, Field, Logo, TextInput, Tooltip, cx } from "./ui/index.js";
 import styles from "./ProjectDesignSystemScreen.module.css";
+import { useDocumentTitle } from "./documentTitle.js";
 
 const CHEVRON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={styles.chevron}>
@@ -272,6 +273,8 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
     await loadVersions();
     setHistoryOpen(false);
   }
+
+  useDocumentTitle("Design system", project?.title);
 
   if (!project || !detail) return <main className={styles.screen}>Chargement…</main>;
 

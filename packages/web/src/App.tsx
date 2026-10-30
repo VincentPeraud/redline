@@ -3,6 +3,7 @@ import type { ArchiveStatus, PageViewSettings, Project } from "@redline/shared";
 import { PageCanvas } from "./PageCanvas.js";
 import type { PageRoute } from "./router.js";
 import { subscribeServerEvents } from "./serverEvents.js";
+import { useDocumentTitle } from "./documentTitle.js";
 
 interface Page {
   id: string;
@@ -53,6 +54,9 @@ export function App({ route }: { route: PageRoute }) {
       }),
     [pageId, page?.projectId],
   );
+
+  // A design system's own page has no project of the API: its tab shows the page alone.
+  useDocumentTitle(page?.title, page?.designSystem ? null : project?.title);
 
   if (!page) return <main style={{ padding: 24 }}>Chargement…</main>;
 

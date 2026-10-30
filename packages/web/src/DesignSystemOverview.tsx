@@ -9,6 +9,7 @@ import { NewPageDialog } from "./NewPageDialog.js";
 import { navigateTo, routeHref } from "./router.js";
 import { Button, Dialog, DialogActions, Logo, cx } from "./ui/index.js";
 import styles from "./DesignSystemOverview.module.css";
+import { useDocumentTitle } from "./documentTitle.js";
 
 const dayAndTime = (iso: string) => {
   const date = new Date(iso);
@@ -167,6 +168,8 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
       .then((res) => res.json() as Promise<DesignMdResponse>)
       .then((body) => setDesignMd(body.content));
   }, [designSystemId]);
+
+  useDocumentTitle(detail?.title);
 
   if (!detail) return <main className={styles.screen}>Chargement…</main>;
 

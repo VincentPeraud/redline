@@ -7,6 +7,7 @@ import { relativeTime } from "./relativeTime.js";
 import { routeHref, type Route } from "./router.js";
 import { Button, Dialog, Logo, cx } from "./ui/index.js";
 import styles from "./DesignMdScreen.module.css";
+import { useDocumentTitle } from "./documentTitle.js";
 
 const plural = (count: number) => `${count} ${count <= 1 ? "version" : "versions"}`;
 
@@ -72,6 +73,8 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
       });
     void loadVersions();
   }, [projectId]);
+
+  useDocumentTitle("DESIGN.md", owner?.title);
 
   if (!owner || saved === null) return <main className={styles.screen}>Chargement…</main>;
 

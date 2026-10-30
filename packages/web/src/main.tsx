@@ -18,6 +18,24 @@ import { useRoute } from "./router";
 import { SessionsScreen } from "./SessionsScreen";
 import { HomeProvider } from "./useHome.js";
 import { notePageRoute } from "./viaProject.js";
+import { useDocumentTitle } from "./documentTitle.js";
+import type { Route } from "./router";
+
+/** Tab titles of the screens that have no name of their own; the others (a page, a project, a design system) set theirs. */
+const SECTION_TITLES: Partial<Record<Route["name"], string>> = {
+  home: "Accueil",
+  agents: "Agents",
+  sessions: "Sessions",
+  projects: "Projets",
+  archivedProjects: "Projets archivés",
+  designSystems: "Design systems",
+  archivedDesignSystems: "Design systems archivés",
+};
+
+function SectionTitle({ title }: { title: string }) {
+  useDocumentTitle(title);
+  return null;
+}
 
 /** The banner on top of every screen; the screens below shrink by its height (`--banner-height`). */
 function WithBanner({ children }: { children: ReactNode }) {
@@ -32,6 +50,16 @@ function WithBanner({ children }: { children: ReactNode }) {
 
 function Screen() {
   const route = useRoute();
+  const section = SECTION_TITLES[route.name];
+  return (
+    <>
+      {section && <SectionTitle key={section} title={section} />}
+      <RouteScreen route={route} />
+    </>
+  );
+}
+
+function RouteScreen({ route }: { route: Route }) {
   notePageRoute(route.name === "page" ? route.pageId : undefined, route.name === "page" ? route.viaProjectId : undefined);
   switch (route.name) {
     case "page":
