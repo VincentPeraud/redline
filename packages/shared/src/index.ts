@@ -235,6 +235,8 @@ export interface TerminalHolder {
   machine: string;
   /** When it took the page (ISO time): its last terminal publish. */
   since: string;
+  /** The comments of this page waiting for it. */
+  waiting: number;
 }
 
 /** `POST /agent-api/terminal-sessions/:id/heartbeat`: a terminal session says it is present. */

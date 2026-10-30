@@ -181,7 +181,8 @@ describe("the terminal session handles its comments", () => {
     await terminal.call("pending_comments", {});
 
     await terminal.quit();
-    await seam!.waitForWorkEnd(1);
+    // The run of the pick ends as failed when the thread goes back: wait for the agent's own answer.
+    await until(async () => (await threadOf(page.id, thread.id)).replies.length === 1, "the agent to answer");
 
     expect(engine.runs[0].message).toContain(thread.id);
     expect((await threadOf(page.id, thread.id)).replies.map((r) => r.body)).toEqual(["Agent answer"]);
@@ -193,7 +194,7 @@ describe("the terminal session handles its comments", () => {
     const { engine, terminal } = await waitingThread(answeringEngine(), { terminalPresenceTimeoutMs: 600 });
     await terminal.call("pending_comments", {});
 
-    await seam!.waitForWorkEnd(1);
+    await until(() => engine.runs.length === 1, "the agent to run");
 
     expect(engine.runs).toHaveLength(1);
   });

@@ -118,21 +118,21 @@ export class PageLock {
     this.pump();
   }
 
-  /** Sends the work of a page that waited for its terminal session to the agents, under the single routing rule (the session left, or the page was handed over). */
-  releaseTerminalWork(pageId: string, only: (item: WorkItem) => boolean = () => true, handedOverBy?: Person): void {
+  /** Sends the waiting work `only` accepts to the agents, under the single routing rule (its terminal session left, or its page was handed over). */
+  releaseTerminalWork(only: (item: WorkItem) => boolean, handedOverBy?: Person): void {
     let released = false;
     for (const queued of this.queue) {
-      if (!queued.forTerminal || queued.item.pageId !== pageId || !only(queued.item)) continue;
-      delete queued.forTerminal;
-      if (handedOverBy) queued.handedOverBy = handedOverBy;
-      this.withoutTerminalSession(queued);
+      if (!queued.forTerminal || !only(queued.item)) continue;
+      this.sendToAgents(queued, handedOverBy);
       released = true;
     }
     if (released) this.pump();
   }
 
-  /** A reply that waited in a thread the terminal session started: the agent has no session to resume, so it gets the thread's history. */
-  private withoutTerminalSession(queued: Queued): void {
+  /** The item stops waiting for a terminal session. A reply that waited in a thread the terminal session started gets the thread's history: the agent has no session to resume. */
+  private sendToAgents(queued: Queued, handedOverBy?: Person): void {
+    delete queued.forTerminal;
+    if (handedOverBy) queued.handedOverBy = handedOverBy;
     if (!queued.takeoverItem || queued.agentId) return;
     queued.item = { ...queued.takeoverItem, id: queued.item.id };
     delete queued.takeoverItem;
@@ -142,7 +142,7 @@ export class PageLock {
    * Sends the waiting work of one thread to the agents. A batch holding other threads is split: `split` gives the item
    * for the thread and the item for the others. False when no item waiting for a terminal session holds the thread.
    */
-  handOverThread(threadId: string, split: (item: WorkItem) => { handed: WorkItem; rest: WorkItem }, handedOverBy?: Person): boolean {
+  releaseTerminalThread(threadId: string, split: (item: WorkItem) => { handed: WorkItem; rest: WorkItem }, handedOverBy?: Person): boolean {
     const index = this.queue.findIndex((q) => q.forTerminal && q.item.threads.some((t) => t.threadId === threadId));
     if (index < 0) return false;
     const queued = this.queue[index];
@@ -151,9 +151,7 @@ export class PageLock {
       queued.item = rest;
       this.queue.splice(index + 1, 0, { projectId: queued.projectId, item: handed, ...(handedOverBy ? { handedOverBy } : {}) });
     } else {
-      delete queued.forTerminal;
-      if (handedOverBy) queued.handedOverBy = handedOverBy;
-      this.withoutTerminalSession(queued);
+      this.sendToAgents(queued, handedOverBy);
     }
     this.pump();
     this.save();
@@ -166,14 +164,34 @@ export class PageLock {
     return this.queue.filter((q) => q.forTerminal).map((q) => ({ pageId: q.item.pageId, threadIds: q.item.threads.map((t) => t.threadId) }));
   }
 
-  /** Hands the waiting items `match` accepts to a terminal session: they leave the queue without being sent. */
-  takeTerminalWork(match: (item: WorkItem) => boolean): WorkItem[] {
+  /**
+   * Hands the waiting items `match` accepts to a terminal session: they leave the queue without being sent, and each of their
+   * threads gets a run of its own showing it as being worked on (so that answering one thread does not end the others of a batch).
+   */
+  takeTerminalWork(match: (item: WorkItem) => boolean): { item: WorkItem; runs: { threadId: string; workId: string }[] }[] {
     const taken = this.queue.filter((q) => q.forTerminal && match(q.item));
     if (taken.length === 0) return [];
     this.queue = this.queue.filter((q) => !taken.includes(q));
     this.save();
     for (const pageId of new Set(taken.map((q) => q.item.pageId))) this.store.emit({ type: "queue-updated", pageId });
-    return taken.map((q) => q.item);
+    return taken.map(({ item }) => ({
+      item,
+      runs: item.threads.map(({ threadId }) => {
+        const workId = randomUUID();
+        this.showTerminalRun(item.pageId, workId, threadId);
+        return { threadId, workId };
+      }),
+    }));
+  }
+
+  /** Shows a thread as being worked on by a terminal session (a picked thread, or one picked before a restart). */
+  showTerminalRun(pageId: string, workId: string, threadId: string): void {
+    this.store.emit({ type: "work-dispatched", pageId, workId, threadIds: [threadId] });
+  }
+
+  /** Ends the run of a thread picked by a terminal session: done (the session answered) or failed (the thread goes back to the agents). */
+  endTerminalRun(workId: string, failure?: string): void {
+    this.store.emit({ type: "work", message: failure === undefined ? { type: "work-done", workId } : { type: "work-failed", workId, message: failure } });
   }
 
   /** Waits for the page's turn like any work item (no agent needed); resolves with the function that releases the page. */

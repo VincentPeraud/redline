@@ -46,11 +46,18 @@ export function takeoverMessage(thread: Thread, body: string): string {
   ].join("\n");
 }
 
+/** What the routing step asks about terminal sessions: new work waits for the present session holding its page, a reply for the present session of its thread. */
+export interface TerminalPresence {
+  holdsPage(pageId: string): boolean;
+  isPresent(terminalSessionId: string): boolean;
+}
+
 /**
  * Queues a work item for a freshly sent thread on its page's lock; the lock remembers the session once the item is sent.
- * `forTerminal`: the page is held by a present terminal session, which the thread waits for instead of an agent.
+ * It waits for the terminal session instead of an agent when a present one holds the page.
  */
-export function dispatchThread(lock: PageLock, projectId: string, thread: Thread, choice: ModelChoice = {}, forTerminal = false): void {
+export function dispatchThread(lock: PageLock, projectId: string, thread: Thread, choice: ModelChoice = {}, terminal?: TerminalPresence): void {
+  const forTerminal = terminal?.holdsPage(thread.pageId) ?? false;
   lock.submit({ projectId, ...(forTerminal ? { forTerminal } : {}) }, { ...threadItem(thread, threadMessage(thread), randomUUID(), false), ...definedChoice(choice) });
 }
 
@@ -88,18 +95,12 @@ export function batchMessage(threads: Thread[]): string {
 
 /**
  * Queues the held comments of one page as a single work item (one message, one new session shared by the threads).
- * `forTerminal`: the page is held by a present terminal session; the batch waits for it, except the threads an agent session
- * already owns, which leave to the agents as their own item.
+ * It waits for the terminal session instead of an agent when a present one holds the page.
  */
-export function dispatchBatch(store: Store, lock: PageLock, projectId: string, threads: Thread[], choice: ModelChoice = {}, forTerminal = false): void {
-  const submit = (group: Thread[], waitForTerminal: boolean) => {
-    const item = { ...threadItem(group[0], batchMessage(group), randomUUID(), false), threads: group.map(workThread), ...definedChoice(choice) };
-    lock.submit({ projectId, ...(waitForTerminal ? { forTerminal: true } : {}) }, item);
-  };
-  const owned = forTerminal ? threads.filter((t) => store.getThreadSession(t.id)) : [];
-  const fresh = threads.filter((t) => !owned.includes(t));
-  if (owned.length > 0) submit(owned, false);
-  if (fresh.length > 0) submit(fresh, forTerminal);
+export function dispatchBatch(lock: PageLock, projectId: string, threads: Thread[], choice: ModelChoice = {}, terminal?: TerminalPresence): void {
+  const forTerminal = terminal?.holdsPage(threads[0].pageId) ?? false;
+  const item = { ...threadItem(threads[0], batchMessage(threads), randomUUID(), false), threads: threads.map(workThread), ...definedChoice(choice) };
+  lock.submit({ projectId, ...(forTerminal ? { forTerminal } : {}) }, item);
 }
 
 /**
@@ -114,7 +115,7 @@ export function dispatchReply(
   thread: Thread,
   body: string,
   choice: ModelChoice = {},
-  terminalPresent: (terminalSessionId: string) => boolean = () => false,
+  terminal?: TerminalPresence,
 ): void {
   const reply = replyMessage(thread, body);
   const join = (item: WorkItem): WorkItem => ({
@@ -127,25 +128,28 @@ export function dispatchReply(
   // The thread's own message has not left yet (no session): the reply goes in the same message.
   if (lock.amendQueued((item) => item.threads.some((t) => t.threadId === thread.id), join)) return;
 
-  const owner = store.getTerminalOwner(thread.id);
-  if (owner) {
+  const takeover = { ...threadItem(thread, takeoverMessage(thread, body), randomUUID(), false), ...definedChoice(choice) };
+  const terminalSession = store.getThreadTerminalSession(thread.id);
+  if (terminalSession) {
     // A thread a terminal session started: it waits for that session while it is present, else an agent starts afresh from the thread's history.
-    const takeover = { ...threadItem(thread, takeoverMessage(thread, body), randomUUID(), false), ...definedChoice(choice) };
-    if (terminalPresent(owner)) lock.submit({ projectId, forTerminal: true, takeoverItem: takeover }, { ...threadItem(thread, reply, randomUUID(), false), ...definedChoice(choice) });
+    if (terminal?.isPresent(terminalSession)) lock.submit({ projectId, forTerminal: true, takeoverItem: takeover }, { ...threadItem(thread, reply, randomUUID(), false), ...definedChoice(choice) });
     else lock.submit({ projectId }, takeover);
     return;
   }
 
   const session = store.getThreadSession(thread.id);
-  if (!session) return;
+  if (!session) {
+    // Answered by a terminal session that let go of its page since: an agent starts afresh from the thread's history.
+    if (thread.replies.some((r) => r.author === "claude")) lock.submit({ projectId }, takeover);
+    return;
+  }
   // A seeded item (new session from a summary) is not a resume, but still belongs to the session.
   if (lock.amendQueued((item) => item.sessionId === session.sessionId, join)) return;
 
   const seed = store.getSessionSeed(thread.id);
   const message = seed ? seededMessage(seed, reply) : reply;
   const item = { ...threadItem(thread, message, session.sessionId, !seed), ...definedChoice(choice) };
-  const takeoverItem = { ...threadItem(thread, takeoverMessage(thread, body), randomUUID(), false), ...definedChoice(choice) };
-  lock.submit({ projectId, agentId: session.agentId, takeoverItem }, item);
+  lock.submit({ projectId, agentId: session.agentId, takeoverItem: takeover }, item);
 }
 
 function workThread(thread: Thread): WorkThread {
@@ -182,7 +186,7 @@ const userReplies = (threads: Thread[]): string[] => threads.flatMap((t) => t.re
  * The user's replies written while it waited go with the message.
  */
 export function handOverThread(store: Store, lock: PageLock, threadId: string, handedOverBy?: Person): boolean {
-  const handed = lock.handOverThread(
+  const handed = lock.releaseTerminalThread(
     threadId,
     (item) => {
       const thread = store.getThread(threadId)!;
@@ -194,6 +198,6 @@ export function handOverThread(store: Store, lock: PageLock, threadId: string, h
     },
     handedOverBy,
   );
-  if (handed) store.clearTerminalOwner(threadId);
+  if (handed) store.clearThreadTerminalSession(threadId);
   return handed;
 }

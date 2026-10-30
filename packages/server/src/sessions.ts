@@ -53,7 +53,7 @@ export function registerSessionRoutes(
         name: thread.title,
         sessionId: session?.sessionId,
         agentId: session?.agentId,
-        ...(store.getTerminalOwner(thread.id) ? { terminal: true as const } : {}),
+        ...(store.getThreadTerminalSession(thread.id) ? { terminal: true as const } : {}),
         model: thread.context?.model,
         effort: thread.context?.effort,
         context: thread.context,

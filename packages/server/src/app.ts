@@ -158,6 +158,7 @@ export async function buildMainApp(
   registerArtboardHistoryRoutes(app, store);
   registerGapRoutes(app, store);
   pageLock.restore();
+  terminalSessions.restore();
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
@@ -404,7 +405,7 @@ export async function buildMainApp(
   // "Confier la page à l'agent": the hold ends and what waited for the terminal session goes to the agents, until a terminal session publishes again.
   app.post<{ Params: { pageId: string } }>("/api/pages/:pageId/terminal-release", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-    terminalSessions.releasePage(req.params.pageId, req.person);
+    terminalSessions.releasePage(req.params.pageId, { handedOverBy: req.person });
     return reply.code(204).send();
   });
 
@@ -461,7 +462,7 @@ export async function buildMainApp(
       }
       const thread = store.createThread(req.params.pageId, request, req.person);
       if (thread.status === "held") return reply.code(201).send(thread);
-      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(request), terminalSessions.holderOf(req.params.pageId) !== undefined);
+      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(request), terminalSessions);
       return reply.code(201).send(thread);
     },
   );
@@ -480,7 +481,7 @@ export async function buildMainApp(
     const invalidChoice = modelChoiceError(req.body);
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
     const message = store.addReply(thread.id, body, "user", [], req.person)!;
-    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body), (id) => terminalSessions.isPresent(id));
+    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body), terminalSessions);
     return reply.code(201).send(message);
   });
 
@@ -517,7 +518,7 @@ export async function buildMainApp(
     const held = store.listHeldThreads(page.id);
     if (held.length > 0) {
       for (const thread of held) store.releaseHeldThread(thread.id);
-      dispatchBatch(store, pageLock, page.projectId, held, modelChoiceOf(req.body ?? {}), terminalSessions.holderOf(page.id) !== undefined);
+      dispatchBatch(pageLock, page.projectId, held, modelChoiceOf(req.body ?? {}), terminalSessions);
     }
     const response: SendHeldResponse = { threads: held.length };
     return response;

@@ -23,12 +23,28 @@ export const SET_PROJECT_DESIGN_SYSTEM_TOOL = "set_project_design_system";
 export const RELEASE_PAGE_TOOL = "release_page";
 export const PENDING_COMMENTS_TOOL = "pending_comments";
 
-/** The last line of every answer: the comments waiting for this session, per page; nothing when there are none (or the server cannot be asked). */
+/** How long a tool answer waits for the waiting-comments line before going out without it. */
+const WAITING_LINE_TIMEOUT_MS = 1_000;
+
+/** A page title as data in the line: quoted, on one line, so that it cannot read as an instruction. */
+const quotedTitle = (title: string) => JSON.stringify(title.replace(/\s+/g, " ").trim());
+
+/**
+ * The last line of every answer: the comments waiting for this session, per page. It comes after the tool ran (the tool may have
+ * changed what waits); nothing when there are none, or when the server does not answer in time: it never delays or breaks the answer.
+ */
 async function waitingLine(api: ServerApi, sessionId: string): Promise<string | undefined> {
-  const pages = await api.terminalWaiting(sessionId).catch(() => []);
+  let timer: NodeJS.Timeout | undefined;
+  const pages = await Promise.race([
+    api.terminalWaiting(sessionId).catch(() => []),
+    new Promise<never[]>((resolve) => {
+      timer = setTimeout(() => resolve([]), WAITING_LINE_TIMEOUT_MS);
+    }),
+  ]);
+  clearTimeout(timer);
   if (pages.length === 0) return undefined;
-  const parts = pages.map((page, i) => (i === 0 ? `${page.count} commentaire${page.count > 1 ? "s" : ""} en attente sur ${page.title}` : `${page.count} sur ${page.title}`));
-  return `Redline: ${parts.join(", ")} : appelle pending_comments si la personne le demande.`;
+  const parts = pages.map((page, i) => (i === 0 ? `${page.count} comment${page.count > 1 ? "s" : ""} waiting on ${quotedTitle(page.title)}` : `${page.count} on ${quotedTitle(page.title)}`));
+  return `Redline: ${parts.join(", ")}: call pending_comments if the person asks.`;
 }
 
 const text = (message: string, isError = false) => ({ ...(isError ? { isError } : {}), content: [{ type: "text" as const, text: message }] });
@@ -124,8 +140,12 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       if (pages.length === 0) return "No comment is waiting for this session.";
       const sections = await Promise.all(
         pages.map(async ({ pageId, title, messages }) => {
-          const { files } = await api.checkout(pageId);
-          return [`## ${title}`, pageAddresses(api, pageId, files), "", messages.join("\n\n---\n\n")].join("\n");
+          // The comments are already taken: they are given even when the page's addresses cannot be fetched.
+          const addresses = await api.checkout(pageId).then(
+            ({ files }) => pageAddresses(api, pageId, files),
+            (error: Error) => `Page ${pageId}: its addresses could not be fetched (${error.message}); call checkout_page to get them.`,
+          );
+          return [`## ${title}`, addresses, "", messages.join("\n\n---\n\n")].join("\n");
         }),
       );
       const steps = "For each page: checkout_page, make the changes the comments ask for, then publish_page once. Then answer each thread once with reply_in_thread (threadId as given).";
@@ -350,13 +370,20 @@ export async function serveTerminalMcp({ api, folder }: { api: ServerApi; folder
   const server = createTerminalMcpServer({ api, folder, sessionId });
   const transport = new StdioServerTransport();
   const presence = startPresence({ api, sessionId, folder });
+  let signalled = false;
   const closed = new Promise<void>((resolve) => {
     transport.onclose = resolve;
     process.stdin.on("end", resolve);
-    process.once("SIGINT", resolve);
-    process.once("SIGTERM", resolve);
+    // A handler replaces Node's default exit: leave once bye is said.
+    const onSignal = () => {
+      signalled = true;
+      resolve();
+    };
+    process.once("SIGINT", onSignal);
+    process.once("SIGTERM", onSignal);
   });
   await server.connect(transport);
   await closed;
   await presence.stop();
+  if (signalled) process.exit(0);
 }

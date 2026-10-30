@@ -6,9 +6,6 @@ import { useCloseOnOutsidePointer } from "./useCloseOnOutsidePointer.js";
 import { Button, cx } from "./ui/index.js";
 import styles from "./TerminalPill.module.css";
 
-/** `/Users/ana/work/site` shows as `~/work/site`. */
-const homeShortened = (folder: string) => folder.replace(/^\/(?:Users|home)\/[^/]+/, "~");
-
 /** The terminal session holding the page, live; none when no present session holds it. */
 function useTerminalHolder(pageId: string): TerminalHolder | null {
   const [holder, setHolder] = useState<TerminalHolder | null>(null);
@@ -19,7 +16,7 @@ function useTerminalHolder(pageId: string): TerminalHolder | null {
         .then(setHolder);
     load();
     return subscribeServerEvents((event) => {
-      if (event.type === "terminal-hold-changed" && event.pageId === pageId) load();
+      if ((event.type === "terminal-hold-changed" || event.type === "queue-updated") && event.pageId === pageId) load();
     });
   }, [pageId]);
   return holder;
@@ -56,7 +53,7 @@ export function TerminalPill({ pageId }: { pageId: string }) {
         <div role="dialog" aria-label="Session terminal" className={styles.popover}>
           <div className={styles.details}>
             <div className={styles.name}>Session terminal</div>
-            <div className={styles.folder}>{homeShortened(holder.folder)}</div>
+            <div className={styles.folder}>{holder.folder}</div>
             <div className={styles.secondary}>
               {holder.machine} · connectée · a publié la page {relativeTime(holder.since)}
             </div>

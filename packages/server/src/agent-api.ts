@@ -31,7 +31,7 @@ import { tokensEqual } from "./request-hardening.js";
 import { versionComponentsError } from "./components.js";
 import { removalsError } from "./removals.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
-import { requiredString, titleError, tokensError, versionRequestError } from "./validation.js";
+import { MAX_TERMINAL_TEXT_LENGTH, isTerminalSessionId, requiredString, titleError, tokensError, versionRequestError } from "./validation.js";
 import { projectContext, putProjectAsset } from "./project-files.js";
 import { designSystemChangeError } from "./project-design-system.js";
 import type { PageLock } from "./page-lock.js";
@@ -66,10 +66,16 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (typeof build === "string" && store.isOutdated(build)) reply.header(OUTDATED_HEADER, "1");
       });
 
+      api.addHook("preHandler", async (req, reply) => {
+        const { sessionId } = (req.params ?? {}) as { sessionId?: string };
+        if (sessionId !== undefined && !isTerminalSessionId(sessionId)) return reply.code(400).send({ error: "a terminal session id is a UUID" });
+      });
+
       // Terminal mode (`redline mcp`) says it is there: every ~20 s while the session is open, and once more as it closes.
       api.post<{ Params: { sessionId: string }; Body: Partial<TerminalHeartbeatRequest> }>("/terminal-sessions/:sessionId/heartbeat", async (req, reply) => {
         const { folder, machine } = req.body ?? {};
         if (!requiredString(folder) || !requiredString(machine)) return reply.code(400).send({ error: "folder and machine are required" });
+        if (folder.length > MAX_TERMINAL_TEXT_LENGTH || machine.length > MAX_TERMINAL_TEXT_LENGTH) return reply.code(400).send({ error: `folder and machine are ${MAX_TERMINAL_TEXT_LENGTH} characters at most` });
         terminalSessions.heartbeat(req.params.sessionId, folder, machine);
         return reply.code(204).send();
       });
@@ -166,6 +172,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           return reply.code(403).send({ error: "This work belongs to a page of another project: it cannot publish here." });
         }
         if (!requiredString(baseVersionId)) return reply.code(400).send({ error: "baseVersionId is required" });
+        if (req.body.terminalSessionId !== undefined && !isTerminalSessionId(req.body.terminalSessionId)) return reply.code(400).send({ error: "terminalSessionId must be a UUID" });
         const invalidTitle = manifestTitleError(store, req.params.pageId, files, baseVersionId);
         if (invalidTitle) return reply.code(400).send({ error: invalidTitle });
         if (designMd !== undefined && (typeof designMd?.content !== "string" || typeof designMd.base !== "string")) {
@@ -200,7 +207,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
           // The terminal session that publishes a page holds it, replacing the previous holder.
-          if (origin === "terminal" && requiredString(req.body.terminalSessionId)) store.holdPage(req.params.pageId, req.body.terminalSessionId);
+          if (origin === "terminal" && req.body.terminalSessionId !== undefined) store.holdPage(req.params.pageId, req.body.terminalSessionId);
           if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());
           if (styleChanged) store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(projectStyle.content, "utf8"), author());
           const { gaps } = agentGaps(store, req.params.pageId, result.files);

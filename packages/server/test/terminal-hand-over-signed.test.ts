@@ -73,8 +73,8 @@ async function connectAgent(projectId: string): Promise<{ work: () => Promise<Wo
 async function heldPage(): Promise<{ page: Page; thread: Thread; baseVersionId: string }> {
   const project = await post<Project>("/api/projects", ariane, { title: "Acme" });
   const page = await post<Page>(`/api/projects/${project.id}/pages`, ariane, { title: "Home", files: FILES });
-  await agentCall("/terminal-sessions/t1/heartbeat", { folder: "/work", machine: "mac" });
-  const published = await agentCall<PageVersionSummary>(`/pages/${page.id}/versions`, { files: { ...FILES, "home.html": "<h1>Terminal</h1>" }, message: "Terminal", origin: "terminal", baseVersionId: page.version.id, terminalSessionId: "t1" });
+  await agentCall("/terminal-sessions/7d1f1d1e-3c0a-4d6e-9a43-5b8d3c1a2f10/heartbeat", { folder: "/work", machine: "mac" });
+  const published = await agentCall<PageVersionSummary>(`/pages/${page.id}/versions`, { files: { ...FILES, "home.html": "<h1>Terminal</h1>" }, message: "Terminal", origin: "terminal", baseVersionId: page.version.id, terminalSessionId: "7d1f1d1e-3c0a-4d6e-9a43-5b8d3c1a2f10" });
   const thread = await post<Thread>(`/api/pages/${page.id}/threads`, ariane, { artboard: "home.html", selector: "h1", xPct: 10, yPct: 20, body: "Bigger" });
   return { page, thread, baseVersionId: published.id };
 }

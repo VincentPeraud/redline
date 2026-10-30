@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,10 +28,14 @@ afterAll(async () => {
   rmSync(webDir, { recursive: true, force: true });
 });
 
+/** A terminal session id is a UUID: the tests name their sessions, this makes the id of a name. */
+const sessionIdOf = (name: string) => createHash("md5").update(name).digest("hex").replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+
 const PAGE_FILES = { "home.html": "<!doctype html><h1>Home</h1>", "manifest.json": JSON.stringify({ artboards: [{ file: "home.html" }] }) };
 
 /** A page held by a terminal session, with one waiting thread per body. */
-async function heldPage(sessionId: string, title: string, bodies: string[]) {
+async function heldPage(name: string, title: string, bodies: string[]) {
+  const sessionId = sessionIdOf(name);
   const { token } = (await (await server.get("/api/agent-token")).json()) as AgentTokenResponse;
   const call = (path: string, body: unknown) =>
     fetch(`${server.url}/agent-api${path}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) });

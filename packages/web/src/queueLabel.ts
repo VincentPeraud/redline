@@ -1,11 +1,10 @@
 import type { QueueEntry, QueueReason } from "@redline/shared";
 
-const REASON_LABEL: Record<QueueReason, string> = {
+const REASON_LABEL: Record<Exclude<QueueReason, "terminal">, string> = {
   "page-busy": "page occupée par une autre session",
   "agent-offline": "agent hors ligne",
   "project-archived": "projet archivé",
   "page-archived": "page archivée",
-  terminal: "en attente de la session terminal",
 };
 
 const WAITING_FOR_TERMINAL = "En attente de la session terminal";

@@ -128,7 +128,7 @@ describe("comments wait for the terminal session that holds the page", () => {
 
     const answer = await terminal.call("list_projects", {});
 
-    expect(answer).toMatch(/2 commentaires en attente sur Accueil, 1 sur Inscription : appelle pending_comments si la personne le demande/);
+    expect(answer).toMatch(/2 comments waiting on "Accueil", 1 on "Inscription": call pending_comments if the person asks/);
   });
 
   it("gives the waiting threads to the agent when the terminal session says bye", async () => {

@@ -311,7 +311,7 @@ export class Store {
     const threadColumns = this.db.prepare("PRAGMA table_info(threads)").all() as { name: string }[];
     if (!threadColumns.some((c) => c.name === "session_id")) this.db.exec("ALTER TABLE threads ADD COLUMN session_id TEXT");
     if (!threadColumns.some((c) => c.name === "agent_id")) this.db.exec("ALTER TABLE threads ADD COLUMN agent_id TEXT");
-    for (const column of ["context", "new_session", "session_seed", "terminal_session_id"]) {
+    for (const column of ["context", "new_session", "session_seed", "terminal_session_id", "terminal_pick_run"]) {
       if (!threadColumns.some((c) => c.name === column)) this.db.exec(`ALTER TABLE threads ADD COLUMN ${column} TEXT`);
     }
     this.db.exec("UPDATE versions SET origin = 'creation' WHERE origin = 'terminal' AND message = 'Page created'");
@@ -1195,10 +1195,10 @@ export class Store {
     this.emit({ type: "terminal-hold-changed", pageId });
   }
 
-  /** The held pages with their holder, leaving out the holders in `except`. */
-  heldPageIds(except: ReadonlySet<string> = new Set()): { pageId: string; sessionId: string }[] {
+  /** The held pages with their holder. */
+  heldPages(): { pageId: string; sessionId: string }[] {
     const rows = this.db.prepare("SELECT id, held_by FROM pages WHERE held_by IS NOT NULL").all() as { id: string; held_by: string }[];
-    return rows.filter((row) => !except.has(row.held_by)).map((row) => ({ pageId: row.id, sessionId: row.held_by }));
+    return rows.map((row) => ({ pageId: row.id, sessionId: row.held_by }));
   }
 
   clearHold(pageId: string): void {
@@ -1381,25 +1381,41 @@ export class Store {
   }
 
   setThreadSession(threadId: string, sessionId: string, agentId: string): void {
-    this.db.prepare("UPDATE threads SET session_id = ?, agent_id = ?, terminal_session_id = NULL WHERE id = ?").run(sessionId, agentId, threadId);
+    this.db.prepare("UPDATE threads SET session_id = ?, agent_id = ?, terminal_session_id = NULL, terminal_pick_run = NULL WHERE id = ?").run(sessionId, agentId, threadId);
   }
 
-  /** The terminal session that started the thread (it picked it with `pending_comments`); none once an agent session took it over. */
-  getTerminalOwner(threadId: string): string | undefined {
+  /** The terminal session of a thread: the one that started it (it picked it with `pending_comments`); none once an agent session took it over. */
+  getThreadTerminalSession(threadId: string): string | undefined {
     const row = this.db.prepare("SELECT terminal_session_id FROM threads WHERE id = ?").get(threadId) as { terminal_session_id: string | null } | undefined;
     return row?.terminal_session_id ?? undefined;
   }
 
-  /** The thread now belongs to a terminal session, not to an agent session. */
-  setTerminalOwner(threadId: string, terminalSessionId: string): void {
-    this.db.prepare("UPDATE threads SET terminal_session_id = ?, session_id = NULL, agent_id = NULL WHERE id = ?").run(terminalSessionId, threadId);
+  /** The thread is now handled by a terminal session, not by an agent session: `runId` is the run showing it as being worked on. */
+  pickThreadForTerminalSession(threadId: string, terminalSessionId: string, runId: string): void {
+    this.db.prepare("UPDATE threads SET terminal_session_id = ?, terminal_pick_run = ?, session_id = NULL, agent_id = NULL WHERE id = ?").run(terminalSessionId, runId, threadId);
     const thread = this.getThread(threadId);
     if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
   }
 
+  /** The threads terminal sessions picked and have not answered yet, with the run that shows them as being worked on. */
+  terminalPicks(): { threadId: string; pageId: string; sessionId: string; runId: string }[] {
+    const rows = this.db.prepare("SELECT id, page_id, terminal_session_id, terminal_pick_run FROM threads WHERE terminal_pick_run IS NOT NULL AND terminal_session_id IS NOT NULL").all() as {
+      id: string;
+      page_id: string;
+      terminal_session_id: string;
+      terminal_pick_run: string;
+    }[];
+    return rows.map((row) => ({ threadId: row.id, pageId: row.page_id, sessionId: row.terminal_session_id, runId: row.terminal_pick_run }));
+  }
+
+  /** The terminal session answered the thread (or gave it back): it stays the thread's terminal session, but is no longer working on it. */
+  endTerminalPick(threadId: string): void {
+    this.db.prepare("UPDATE threads SET terminal_pick_run = NULL WHERE id = ?").run(threadId);
+  }
+
   /** The thread belongs to no terminal session any more: it was handed over to the agents. */
-  clearTerminalOwner(threadId: string): void {
-    this.db.prepare("UPDATE threads SET terminal_session_id = NULL WHERE id = ?").run(threadId);
+  clearThreadTerminalSession(threadId: string): void {
+    this.db.prepare("UPDATE threads SET terminal_session_id = NULL, terminal_pick_run = NULL WHERE id = ?").run(threadId);
   }
 
   setThreadContext(threadId: string, context: ThreadContext | null): void {

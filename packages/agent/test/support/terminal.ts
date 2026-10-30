@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -16,11 +17,12 @@ export interface Terminal {
 }
 
 /** A terminal session: `redline mcp` in its own folder, present on the server. */
-export async function openTerminal(seam: Seam2, stops: (() => Promise<void>)[], machine: string, options: { heartbeatMs?: number } = {}): Promise<Terminal> {
+export async function openTerminal(seam: Seam2, stops: (() => Promise<void>)[], machine: string, options: { heartbeatMs?: number; folder?: string; wrapApi?: (api: ServerApi) => ServerApi } = {}): Promise<Terminal> {
   const { token } = (await (await seam.server.get("/api/agent-token")).json()) as AgentTokenResponse;
-  const api = new ServerApi(seam.server.url, token);
-  const sessionId = `terminal-${Math.random().toString(36).slice(2)}`;
-  const folder = `/work/${machine}`;
+  const base = new ServerApi(seam.server.url, token);
+  const api = options.wrapApi?.(base) ?? base;
+  const sessionId = randomUUID();
+  const folder = options.folder ?? `/work/${machine}`;
   const server = createTerminalMcpServer({ api, folder: seam.folder, sessionId });
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
