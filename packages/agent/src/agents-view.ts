@@ -750,12 +750,14 @@ function dialogBox(state: ScreenState, dialog: Dialog): DialogBox | undefined {
 export function render(state: ScreenState, { columns, rows }: Size): string[] {
   const rightCells = Math.min(RIGHT_WIDTH, Math.floor(columns / 3));
   const leftCells = Math.max(1, columns - rightCells - 1);
-  const bodyHeight = Math.max(0, rows - 4);
+  const bodyHeight = Math.max(0, rows - 5);
   const left = leftColumn(state, leftCells, bodyHeight);
   const right = rightColumn(state, rightCells, bodyHeight);
   const rule = (cells: number) => span("─".repeat(cells), C.rule);
   const out: Span[][] = [];
 
+  // A blank row above the header, so the title does not touch the terminal's tab bar.
+  out.push(fit([], columns));
   out.push(fit(headerRow(state, columns).spans, columns));
   out.push([span("─".repeat(leftCells), C.rule), span("┬", C.rule), rule(rightCells)]);
   for (let i = 0; i < bodyHeight; i++) {
