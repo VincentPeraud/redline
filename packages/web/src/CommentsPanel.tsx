@@ -58,6 +58,12 @@ function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNo
   );
 }
 
+/** "session terminal" for a thread a terminal session handles, else "session 7c2e…a91". */
+function sessionLabel(session: SessionRow | undefined): string | undefined {
+  if (session?.terminal) return "session terminal";
+  return session?.sessionId ? `session ${shortSessionId(session.sessionId)}` : undefined;
+}
+
 function ThreadCard({
   thread,
   queued,
@@ -127,13 +133,13 @@ function ThreadCard({
       {messages}
       {run && !queued && <RunProgress run={run} />}
       {active ? (
-        session?.sessionId && <span className={styles.sessionMeta}>session {shortSessionId(session.sessionId)}</span>
+        sessionLabel(session) && <span className={styles.sessionMeta}>{sessionLabel(session)}</span>
       ) : (
         <div className={styles.footer}>
           <span className={styles.sessionMeta}>
-            {session?.sessionId && (
+            {sessionLabel(session) && (
               <>
-                session {shortSessionId(session.sessionId)}
+                {sessionLabel(session)}
                 <br />
               </>
             )}

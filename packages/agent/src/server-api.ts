@@ -20,6 +20,7 @@ import {
   type Project,
   type ProjectAsset,
   type TerminalHeartbeatRequest,
+  type TerminalPickedPage,
   type TerminalWaitingPage,
   type ThreadReply,
   type VersionOrigin,
@@ -89,13 +90,18 @@ export class ServerApi {
     return this.request("GET", `/terminal-sessions/${encodeURIComponent(sessionId)}/waiting`);
   }
 
+  /** Takes the comments waiting for this terminal session: they leave the waiting list and become its to answer. */
+  terminalPick(sessionId: string): Promise<TerminalPickedPage[]> {
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/pick`, {});
+  }
+
   /** Tells the server this terminal session is closing. */
   terminalBye(sessionId: string): Promise<void> {
     return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/bye`, {});
   }
 
-  replyInThread(threadId: string, text: string, workId?: string): Promise<ThreadReply> {
-    const body: AgentReplyRequest = { body: text, ...(workId ? { workId } : {}) };
+  replyInThread(threadId: string, text: string, workId?: string, terminalSessionId?: string): Promise<ThreadReply> {
+    const body: AgentReplyRequest = { body: text, ...(workId ? { workId } : {}), ...(terminalSessionId ? { terminalSessionId } : {}) };
     return this.request("POST", `/threads/${threadId}/replies`, body);
   }
 

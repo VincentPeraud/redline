@@ -110,11 +110,16 @@ export class PageLock {
   }
 
   /** Sends the work of a page that waited for its terminal session to the agents, under the single routing rule (the session left, or the page was handed over). */
-  releaseTerminalWork(pageId: string): void {
+  releaseTerminalWork(pageId: string, only: (item: WorkItem) => boolean = () => true): void {
     let released = false;
     for (const queued of this.queue) {
-      if (!queued.forTerminal || queued.item.pageId !== pageId) continue;
+      if (!queued.forTerminal || queued.item.pageId !== pageId || !only(queued.item)) continue;
       delete queued.forTerminal;
+      // A reply that waited in a thread the terminal session started: the agent has no session to resume, so it gets the thread's history.
+      if (queued.takeoverItem && !queued.agentId) {
+        queued.item = { ...queued.takeoverItem, id: queued.item.id };
+        delete queued.takeoverItem;
+      }
       released = true;
     }
     if (released) this.pump();
@@ -123,6 +128,16 @@ export class PageLock {
   /** The comments waiting for a terminal session, per page. */
   terminalWaiting(): { pageId: string; threadIds: string[] }[] {
     return this.queue.filter((q) => q.forTerminal).map((q) => ({ pageId: q.item.pageId, threadIds: q.item.threads.map((t) => t.threadId) }));
+  }
+
+  /** Hands the waiting items `match` accepts to a terminal session: they leave the queue without being sent. */
+  takeTerminalWork(match: (item: WorkItem) => boolean): WorkItem[] {
+    const taken = this.queue.filter((q) => q.forTerminal && match(q.item));
+    if (taken.length === 0) return [];
+    this.queue = this.queue.filter((q) => !taken.includes(q));
+    this.save();
+    for (const pageId of new Set(taken.map((q) => q.item.pageId))) this.store.emit({ type: "queue-updated", pageId });
+    return taken.map((q) => q.item);
   }
 
   /** Waits for the page's turn like any work item (no agent needed); resolves with the function that releases the page. */

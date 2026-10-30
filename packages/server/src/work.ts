@@ -54,6 +54,23 @@ export function dispatchThread(lock: PageLock, projectId: string, thread: Thread
   lock.submit({ projectId, ...(forTerminal ? { forTerminal } : {}) }, { ...threadItem(thread, threadMessage(thread), randomUUID(), false), ...definedChoice(choice) });
 }
 
+/** The message of a thread an agent takes over with no session to resume (a terminal session left): the comment, then the conversation so far, if any. */
+export function freshSessionMessage(thread: Thread): string {
+  if (thread.replies.length === 0) return threadMessage(thread);
+  const history = thread.replies.map((r) => `${r.author === "user" ? "User" : "Claude"}: ${r.body}`);
+  return [
+    threadMessage(thread),
+    "",
+    "This comment was already discussed in an earlier session that is not available now. Conversation so far:",
+    ...history.flatMap((line) => ["", line]),
+  ].join("\n");
+}
+
+/** Sends a thread to the agents in a fresh session (the terminal session that had it is gone). */
+export function dispatchToAgent(lock: PageLock, projectId: string, thread: Thread): void {
+  lock.submit({ projectId }, threadItem(thread, freshSessionMessage(thread), randomUUID(), false));
+}
+
 /** The message Claude receives for a batch: every held comment of a page with its thread id, artboard, element and position. */
 export function batchMessage(threads: Thread[]): string {
   return [
@@ -97,6 +114,7 @@ export function dispatchReply(
   thread: Thread,
   body: string,
   choice: ModelChoice = {},
+  terminalPresent: (terminalSessionId: string) => boolean = () => false,
 ): void {
   const reply = replyMessage(thread, body);
   const join = (item: WorkItem): WorkItem => ({
@@ -108,6 +126,15 @@ export function dispatchReply(
 
   // The thread's own message has not left yet (no session): the reply goes in the same message.
   if (lock.amendQueued((item) => item.threads.some((t) => t.threadId === thread.id), join)) return;
+
+  const owner = store.getTerminalOwner(thread.id);
+  if (owner) {
+    // A thread a terminal session started: it waits for that session while it is present, else an agent starts afresh from the thread's history.
+    const takeover = { ...threadItem(thread, takeoverMessage(thread, body), randomUUID(), false), ...definedChoice(choice) };
+    if (terminalPresent(owner)) lock.submit({ projectId, forTerminal: true, takeoverItem: takeover }, { ...threadItem(thread, reply, randomUUID(), false), ...definedChoice(choice) });
+    else lock.submit({ projectId }, takeover);
+    return;
+  }
 
   const session = store.getThreadSession(thread.id);
   if (!session) return;

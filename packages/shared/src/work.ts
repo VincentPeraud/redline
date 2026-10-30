@@ -123,6 +123,8 @@ export interface CreateReplyRequest extends ModelChoice {
 /** Body of `POST /agent-api/threads/:id/replies`: `workId` is the run posting the answer (to attach the pages it created). */
 export interface AgentReplyRequest extends CreateReplyRequest {
   workId?: string;
+  /** The terminal session answering: accepted only for a thread it picked with `pending_comments`. */
+  terminalSessionId?: string;
 }
 
 /** Server-sent events on `GET /api/events`, so the web UI refreshes without polling. */
