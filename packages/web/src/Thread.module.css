@@ -28,12 +28,36 @@
 }
 
 .resolved {
-  flex-direction: row;
+  gap: 0;
+  padding: 0;
+}
+
+.resolvedRow {
+  display: flex;
   align-items: center;
   gap: var(--space-2);
+  width: 100%;
   padding: 12px 14px;
+  border: none;
+  border-radius: inherit;
+  background: none;
+  font: inherit;
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.resolvedLabel,
+.resolvedChevron {
+  flex-shrink: 0;
+}
+
+.resolvedBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 14px 14px;
 }
 
 .resolvedTitle {
@@ -203,19 +227,48 @@
   gap: 3px;
 }
 
+/* Claude is working: a wave runs through the three dots; still dots, fading left to right, with reduced motion. */
 .dots span {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: currentColor;
+  animation: dot-wave 1.2s ease-in-out infinite;
 }
 
 .dots span:nth-child(2) {
-  opacity: 0.6;
+  animation-delay: 0.2s;
 }
 
 .dots span:nth-child(3) {
-  opacity: 0.3;
+  animation-delay: 0.4s;
+}
+
+@keyframes dot-wave {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dots span {
+    animation: none;
+  }
+
+  .dots span:nth-child(2) {
+    opacity: 0.6;
+  }
+
+  .dots span:nth-child(3) {
+    opacity: 0.3;
+  }
 }
 
 .steps {

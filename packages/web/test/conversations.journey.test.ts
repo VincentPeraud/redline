@@ -81,6 +81,23 @@ it("types and sends on a page without conversation: the first message creates it
   await expect.poll(() => panel.getByTestId("conversation-message").count()).toBe(0);
 }, 60_000);
 
+it("shows a new conversation and its message as soon as it is sent, even when no live event reaches the tab", async () => {
+  const page = await seam.createPage({ "home.html": "<!doctype html><h1>Title</h1>" });
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  // The tab holding the shared stream can be frozen in the background: then no event comes.
+  await tab.route("**/api/events", (route) => route.abort());
+  await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
+  const panel = tab.getByTestId("conversations");
+
+  await panel.getByText("Nouvelle conversation", { exact: true }).waitFor();
+  await panel.getByLabel("Message à Claude").fill("Without events");
+  await panel.getByRole("button", { name: "Envoyer" }).click();
+
+  await expect.poll(() => panel.getByTestId("conversation-message").first().textContent()).toBe("Without events");
+  await expect.poll(() => panel.getByRole("button", { name: "Conversation", exact: true }).textContent()).not.toContain("Aucune conversation");
+  await tab.close();
+}, 60_000);
+
 it("creates no conversation on \"+ Nouvelle\": only the first message sent does", async () => {
   const before = engine.runs.length;
   const page = await seam.createPage({ "home.html": "<!doctype html><h1>Title</h1>" });

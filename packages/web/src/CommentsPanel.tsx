@@ -64,6 +64,82 @@ function sessionLabel(session: SessionRow | undefined): string | undefined {
   return session?.sessionId ? `session ${shortSessionId(session.sessionId)}` : undefined;
 }
 
+/** "session 7c2e…a91" over "il y a 2 min", in a card's footer. */
+function SessionMeta({ session }: { session: SessionRow | undefined }) {
+  return (
+    <span className={styles.sessionMeta}>
+      {sessionLabel(session) && (
+        <>
+          {sessionLabel(session)}
+          <br />
+        </>
+      )}
+      {session && relativeTime(session.activityAt)}
+    </span>
+  );
+}
+
+/** The comment and its replies, as the card of an open or a resolved thread shows them. */
+function ThreadMessages({ thread }: { thread: Thread }) {
+  return (
+    <>
+      <div className={styles.message}>
+        <MessageAuthor person={thread.person} />
+        {thread.body}
+      </div>
+      {thread.replies.map((reply) => (
+        <Fragment key={reply.id}>
+          <div data-testid="reply" className={cx(styles.message, reply.author === "claude" && styles.claudeReply)}>
+            {reply.author === "user" ? <MessageAuthor person={reply.person} /> : <MessageAuthor claude />}
+            {reply.body}
+          </div>
+          <CreatedPageCards pages={reply.createdPages} />
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+/** A resolved thread: one line, which unfolds the discussion read-only, with "Rouvrir" to put it back among the open threads. */
+function ResolvedThreadCard({ thread, session, readOnly }: { thread: Thread; session: SessionRow | undefined; readOnly: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.resolved, thread.removed && styles.removed)}>
+      <button type="button" aria-expanded={open} className={styles.resolvedRow} onClick={() => setOpen(!open)}>
+        <span className={cx(styles.badge, styles.badgeDone, thread.removed && styles.badgeRemoved)} aria-hidden="true">
+          ✓
+        </span>
+        <span className={styles.resolvedTitle}>{thread.title}</span>
+        <span className={styles.spacer} />
+        {thread.removed && <RemovedTag />}
+        <span className={styles.resolvedLabel}>Résolu</span>
+        <svg aria-hidden="true" className={styles.resolvedChevron} width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d={open ? "M4 10l4-4 4 4" : "M4 6l4 4 4-4"} />
+        </svg>
+      </button>
+      {open && (
+        <div className={styles.resolvedBody}>
+          <div className={styles.head}>
+            <span className={styles.where}>{threadWhere(thread)}</span>
+            <RenderingChip thread={thread} />
+          </div>
+          <ThreadMessages thread={thread} />
+          <div className={styles.footer}>
+            <SessionMeta session={session} />
+            <span className={styles.spacer} />
+            {!readOnly && (
+              <Button size="sm" onClick={() => void fetch(`/api/threads/${thread.id}/reopen`, { method: "POST" })}>
+                Rouvrir
+              </Button>
+            )}
+          </div>
+          <ContextLine thread={thread} />
+        </div>
+      )}
+    </article>
+  );
+}
+
 function ThreadCard({
   thread,
   queued,
@@ -87,23 +163,7 @@ function ThreadCard({
   const active = !queued && run !== undefined && run.status !== "answered" && run.status !== "failed";
   const failed = !queued && run?.status === "failed";
 
-  const messages = (
-    <>
-      <div className={styles.message}>
-        <MessageAuthor person={thread.person} />
-        {thread.body}
-      </div>
-      {thread.replies.map((reply) => (
-        <Fragment key={reply.id}>
-          <div data-testid="reply" className={cx(styles.message, reply.author === "claude" && styles.claudeReply)}>
-            {reply.author === "user" ? <MessageAuthor person={reply.person} /> : <MessageAuthor claude />}
-            {reply.body}
-          </div>
-          <CreatedPageCards pages={reply.createdPages} />
-        </Fragment>
-      ))}
-    </>
-  );
+  const messages = <ThreadMessages thread={thread} />;
 
   if (failed) {
     return (
@@ -138,15 +198,7 @@ function ThreadCard({
         sessionLabel(session) && <span className={styles.sessionMeta}>{sessionLabel(session)}</span>
       ) : (
         <div className={cx(styles.footer, waitingForTerminal && styles.footerStacked)}>
-          <span className={styles.sessionMeta}>
-            {sessionLabel(session) && (
-              <>
-                {sessionLabel(session)}
-                <br />
-              </>
-            )}
-            {session && relativeTime(session.activityAt)}
-          </span>
+          <SessionMeta session={session} />
           {!waitingForTerminal && <span className={styles.spacer} />}
           {!readOnly && (
             <div className={styles.footerActions}>
@@ -187,19 +239,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
         {!readOnly && <HeldBar pageId={pageId} count={heldCount} choice={choice} />}
         {ordered.map((thread) => {
           if (thread.status === "held") return <HeldThreadCard key={thread.id} thread={thread} />;
-          if (thread.status === "resolved") {
-            return (
-              <article key={thread.id} className={cx(styles.card, styles.resolved, thread.removed && styles.removed)}>
-                <span className={cx(styles.badge, styles.badgeDone, thread.removed && styles.badgeRemoved)} aria-hidden="true">
-                  ✓
-                </span>
-                <span className={styles.resolvedTitle}>{thread.title}</span>
-                <span className={styles.spacer} />
-                {thread.removed && <RemovedTag />}
-                <span>Résolu</span>
-              </article>
-            );
-          }
+          if (thread.status === "resolved") return <ResolvedThreadCard key={thread.id} thread={thread} session={sessions.get(thread.id)} readOnly={readOnly} />;
           return (
             <ThreadCard
               key={thread.id}

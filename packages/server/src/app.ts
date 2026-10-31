@@ -532,6 +532,14 @@ export async function buildMainApp(
     return thread ?? reply.code(404).send({ error: "thread not found" });
   });
 
+  // A user action of the web UI too: a resolved thread goes back to the open threads, without starting a run.
+  app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/reopen", async (req, reply) => {
+    const thread = store.reopenThread(req.params.threadId);
+    if (thread) return thread;
+    if (!store.getThread(req.params.threadId)) return reply.code(404).send({ error: "thread not found" });
+    return reply.code(409).send({ error: "only a resolved thread can be reopened" });
+  });
+
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/versions", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
     return store.listVersions(req.params.pageId);

@@ -1372,6 +1372,15 @@ export class Store {
     return thread;
   }
 
+  /** Puts a resolved thread back among the open ones; undefined when the thread does not exist or is not resolved. */
+  reopenThread(id: string): Thread | undefined {
+    const { changes } = this.db.prepare("UPDATE threads SET status = 'open' WHERE id = ? AND status = 'resolved'").run(id);
+    if (changes === 0) return undefined;
+    const thread = this.getThread(id)!;
+    this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
+    return thread;
+  }
+
   /** The engine session that opened the thread and the agent that owns it; undefined until a work item was sent. */
   getThreadSession(threadId: string): { sessionId: string; agentId: string } | undefined {
     const row = this.db.prepare("SELECT session_id, agent_id FROM threads WHERE id = ?").get(threadId) as

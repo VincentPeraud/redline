@@ -111,15 +111,28 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
+  /** A failed refresh keeps what is shown: the next event or send refreshes again. */
   const refreshList = useCallback(async () => {
-    const res = await fetch(`/api/pages/${pageId}/conversations`);
-    const list = ((await res.json()) as Conversation[]).filter((c) => !c.archived);
-    setConversations(list.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)));
+    try {
+      const res = await fetch(`/api/pages/${pageId}/conversations`);
+      if (!res.ok) return;
+      const list = ((await res.json()) as Conversation[]).filter((c) => !c.archived);
+      setConversations(list.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)));
+    } catch {
+      // Network error: same as a failed response.
+    }
   }, [pageId]);
 
+  /** Only lands if `id` is still the conversation shown: switching while it loads must not show the previous one. */
   const refreshDetail = useCallback(async (id: string) => {
-    const res = await fetch(`/api/conversations/${id}`);
-    setDetail((await res.json()) as ConversationDetail);
+    try {
+      const res = await fetch(`/api/conversations/${id}`);
+      if (!res.ok) return;
+      const detail = (await res.json()) as ConversationDetail;
+      if (activeRef.current === id) setDetail(detail);
+    } catch {
+      // Network error: same as a failed response.
+    }
   }, []);
 
   useEffect(() => {
@@ -202,6 +215,9 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
       if (!res.ok) throw new Error("message");
       setText("");
       onChipsSent();
+      // Not only on the live event: the tab relaying the shared stream may be frozen in the background.
+      void refreshList();
+      if (activeRef.current === conversationId) void refreshDetail(conversationId);
     } catch {
       setSendError("Le message n'a pas été envoyé. Ton texte est conservé, réessaie.");
     } finally {

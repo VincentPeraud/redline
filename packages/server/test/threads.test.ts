@@ -182,7 +182,24 @@ describe("pinned threads over the server HTTP API", () => {
     expect((await server.post(`/api/threads/unknown/resolve`, {})).status).toBe(404);
   });
 
-  it("exposes no way to change a thread's status other than the user's resolve route", async () => {
+  it("lets the user reopen a resolved thread, which goes back to the open threads", async () => {
+    const thread = await createThread("Fix the header");
+    await server.post(`/api/threads/${thread.id}/resolve`, {});
+    const res = await server.post(`/api/threads/${thread.id}/reopen`, {});
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: thread.id, status: "open", title: "Fix the header" });
+    const list = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+    expect(list.map((t) => t.status)).toEqual(["open"]);
+    expect((await server.post(`/api/threads/unknown/reopen`, {})).status).toBe(404);
+  });
+
+  it("only reopens a resolved thread: a held comment stays held", async () => {
+    const thread = await createThread("Later", { held: true });
+    expect(thread.status).toBe("held");
+    expect((await server.post(`/api/threads/${thread.id}/reopen`, {})).status).toBe(409);
+  });
+
+  it("exposes no way to change a thread's status other than the user's resolve and reopen routes", async () => {
     const thread = await createThread("Fix the header");
     for (const method of ["PATCH", "PUT"]) {
       const res = await fetch(`${server.url}/api/threads/${thread.id}`, {
