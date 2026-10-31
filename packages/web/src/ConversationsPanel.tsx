@@ -26,6 +26,7 @@ import { AddressPill, PlainLink } from "./AddressPill.js";
 import { splitMessageLinks } from "./messageLinks.js";
 import { rememberArtboardTitles } from "./otherPageArtboards.js";
 import { Button, Textarea, Tooltip, cx } from "./ui/index.js";
+import { useStickToBottom } from "./useStickToBottom.js";
 import { viaProjectField } from "./viaProject.js";
 import styles from "./ConversationsPanel.module.css";
 
@@ -96,6 +97,7 @@ interface Props {
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
 export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, focusedConversation, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent, readOnly = false, archivedLabel = "Projet archivé" }: Props) {
   const personLabel = usePersonLabel();
+  const messagesRef = useStickToBottom<HTMLDivElement>({ startAtBottom: true });
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   /** `activeId` as of now, not as of the last render: a message sent right after another one must land in the conversation just created. */
@@ -326,7 +328,7 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
       )}
 
       {detail && detail.messages.length > 0 ? (
-        <div className={styles.messages}>
+        <div ref={messagesRef} className={styles.messages}>
           {detail.messages.map((m) =>
             m.author === "user" ? (
               <div key={m.id} className={styles.userMessage}>

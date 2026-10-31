@@ -93,3 +93,8 @@
   line-height: 1.5;
   color: var(--color-text-secondary);
 }
+
+/* A card takes the canvas to its comment. */
+.list [data-thread] {
+  cursor: pointer;
+}

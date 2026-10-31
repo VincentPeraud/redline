@@ -1,4 +1,4 @@
-import { useContext, useEffect, useId, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
 import type { ArtboardGuides as Guides, Thread, TweakValues } from "@redline/shared";
 import { ArtboardErrorsContext } from "./ArtboardErrors.js";
 import { ArtboardGuides } from "./ArtboardGuides.js";
@@ -24,6 +24,9 @@ interface ForwardedWheel {
   clientX: number;
   clientY: number;
 }
+
+/** Opens a pin's thread in the side panel; without it, pins are only marks. */
+export const PinClickContext = createContext<((threadId: string) => void) | undefined>(undefined);
 
 interface PinPosition {
   id: string;
@@ -75,6 +78,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
   onDocHeightRef.current = onDocHeight;
 
   const pinned = threads;
+  const onPinClick = useContext(PinClickContext);
   const { seen, onRect } = useContext(SeenGapContext);
   const onRectRef = useRef(onRect);
   onRectRef.current = onRect;
@@ -164,17 +168,21 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
       </div>
       {pinned.map((thread) => {
         const position = positions.find((p) => p.id === thread.id) ?? thread;
-        const resolved = thread.status === "resolved";
         return (
-          <span
+          <button
+            type="button"
             key={thread.id}
             data-pin={thread.number}
+            data-pin-thread={thread.id}
             title={`${thread.title} · ${threadWhere(thread)}`}
-            className={cx(styles.pin, thread.status === "held" && styles.pinHeld, resolved && styles.pinResolved)}
+            aria-label={`Ouvrir le commentaire ${thread.number}`}
+            disabled={!onPinClick}
+            className={cx(styles.pin, thread.status === "held" && styles.pinHeld)}
             style={{ left: `${position.xPct}%`, top: `${position.yPct}%`, transform: `translate(-50%, -50%) scale(${1 / zoom})` }}
+            onClick={() => onPinClick?.(thread.id)}
           >
-            {resolved ? "✓" : thread.number}
-          </span>
+            {thread.number}
+          </button>
         );
       })}
     </div>

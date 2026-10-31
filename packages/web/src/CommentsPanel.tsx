@@ -12,6 +12,7 @@ import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
 import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
+import { useStickToBottom } from "./useStickToBottom.js";
 import { ThreadReplyForm } from "./ThreadReplyForm.js";
 import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./Thread.module.css";
@@ -41,6 +42,10 @@ interface Props {
   readOnly?: boolean;
   /** What is archived, opening the read-only note: "Projet archivé" (default) or "Page archivée". */
   archivedLabel?: string;
+  /** The thread whose pin was just clicked: a resolved one unfolds. */
+  focusedThreadId?: string | null;
+  /** A click on a thread's card (not on one of its controls): the canvas goes to where the comment is. */
+  onShowThread?: (threadId: string) => void;
 }
 
 const GROUP_ORDER: Record<Thread["status"], number> = { held: 0, open: 1, resolved: 2 };
@@ -101,10 +106,13 @@ function ThreadMessages({ thread }: { thread: Thread }) {
 }
 
 /** A resolved thread: one line, which unfolds the discussion read-only, with "Rouvrir" to put it back among the open threads. */
-function ResolvedThreadCard({ thread, session, readOnly }: { thread: Thread; session: SessionRow | undefined; readOnly: boolean }) {
+function ResolvedThreadCard({ thread, session, readOnly, focused }: { thread: Thread; session: SessionRow | undefined; readOnly: boolean; focused: boolean }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (focused) setOpen(true);
+  }, [focused]);
   return (
-    <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.resolved, thread.removed && styles.removed)}>
+    <article data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.resolved, thread.removed && styles.removed)}>
       <button type="button" aria-expanded={open} className={styles.resolvedRow} onClick={() => setOpen(!open)}>
         <span className={cx(styles.badge, styles.badgeDone, thread.removed && styles.badgeRemoved)} aria-hidden="true">
           ✓
@@ -167,7 +175,7 @@ function ThreadCard({
 
   if (failed) {
     return (
-      <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.failed, thread.removed && styles.removed)}>
+      <article data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.failed, thread.removed && styles.removed)}>
         <div className={styles.head}>
           <span className={cx(styles.badge, styles.badgeFailed, thread.removed && styles.badgeRemoved)}>{thread.number}</span>
           <span className={styles.where}>{threadWhere(thread)}</span>
@@ -184,7 +192,7 @@ function ThreadCard({
   }
 
   return (
-    <article data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running, thread.removed && styles.removed)}>
+    <article data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running, thread.removed && styles.removed)}>
       <ThreadHeader thread={thread}>
         {queued && (
           <span data-testid="queued" className={styles.queued}>
@@ -224,9 +232,10 @@ function ThreadCard({
 }
 
 /** The "Commentaires" tab: held bar, thread cards and the composer of a new pinned comment. */
-export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, archivedLabel = "Projet archivé" }: Props) {
+export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, archivedLabel = "Projet archivé", focusedThreadId, onShowThread }: Props) {
   const ordered = [...threads].sort((a, b) => GROUP_ORDER[a.status] - GROUP_ORDER[b.status] || a.number - b.number);
   const heldCount = threads.filter((t) => t.status === "held").length;
+  const listRef = useStickToBottom<HTMLDivElement>();
 
   // Picking an element (or the whole artboard) starts a draft: type right away.
   useEffect(() => {
@@ -235,11 +244,21 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
 
   return (
     <>
-      <div className={panel.list}>
+      <div
+        ref={listRef}
+        className={panel.list}
+        onClick={(event) => {
+          const target = event.target as HTMLElement;
+          // A control does its own job, and a drag that selects text is not a click on the card.
+          if (target.closest("button, a, input, textarea, select, summary") || !window.getSelection()?.isCollapsed) return;
+          const threadId = target.closest("[data-thread]")?.getAttribute("data-thread");
+          if (threadId) onShowThread?.(threadId);
+        }}
+      >
         {!readOnly && <HeldBar pageId={pageId} count={heldCount} choice={choice} />}
         {ordered.map((thread) => {
           if (thread.status === "held") return <HeldThreadCard key={thread.id} thread={thread} />;
-          if (thread.status === "resolved") return <ResolvedThreadCard key={thread.id} thread={thread} session={sessions.get(thread.id)} readOnly={readOnly} />;
+          if (thread.status === "resolved") return <ResolvedThreadCard key={thread.id} thread={thread} session={sessions.get(thread.id)} readOnly={readOnly} focused={focusedThreadId === thread.id} />;
           return (
             <ThreadCard
               key={thread.id}

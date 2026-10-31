@@ -49,7 +49,7 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
   }
 
   return (
-    <article data-testid="held-thread" data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.held, thread.removed && styles.removed)}>
+    <article data-testid="held-thread" data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.held, thread.removed && styles.removed)}>
       <div className={styles.head}>
         <span className={cx(styles.badge, styles.badgeHeld, thread.removed && styles.badgeRemoved)}>{thread.number}</span>
         <span className={styles.where}>{threadWhere(thread)}</span>

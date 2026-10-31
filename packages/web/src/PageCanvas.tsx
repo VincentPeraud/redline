@@ -33,7 +33,7 @@ import {
 } from "@redline/shared";
 import { ComponentMarker } from "./ComponentMarker.js";
 import { useDesignSystemDetail } from "./DiffusionDialog.js";
-import { ArtboardFrame, type Pick } from "./ArtboardFrame.js";
+import { ArtboardFrame, PinClickContext, type Pick } from "./ArtboardFrame.js";
 import { ArtboardHistory } from "./ArtboardHistory.js";
 import { restoreArtboard, useDeletedArtboards } from "./restoreArtboard.js";
 import { SeenGapContext, type SeenGap } from "./GapsReport.js";
@@ -191,6 +191,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const [tab, setTab] = useState<SideTab>("conversation");
   /** Artboard whose whole-artboard threads the Commentaires tab scrolls to once shown. */
   const [scrollToArtboard, setScrollToArtboard] = useState<string | null>(null);
+  const [scrollToThread, setScrollToThread] = useState<string | null>(null);
   const [tweaksOpenFor, setTweaksOpenFor] = useState<string | null>(null);
   const [moreOpenFor, setMoreOpenFor] = useState<string | null>(null);
   /** Bumped when the page's design system changed: artboards remount to load the new tokens. */
@@ -426,6 +427,23 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     setScrollToArtboard(null);
   }, [scrollToArtboard, tab, threads]);
 
+  // A pin was clicked: bring its thread into view and flash it so the eye finds it.
+  useEffect(() => {
+    if (scrollToThread === null || tab !== "comments") return;
+    const card = document.querySelector<HTMLElement>(`[data-thread="${CSS.escape(scrollToThread)}"]`);
+    setScrollToThread(null);
+    if (!card) return;
+    card.scrollIntoView({ block: "nearest" });
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      card.animate([{ boxShadow: "0 0 0 3px var(--color-accent)" }, { boxShadow: "0 0 0 3px transparent" }], { duration: 1200, easing: "ease-out" });
+    }
+  }, [scrollToThread, tab, threads]);
+
+  const openPinThread = useCallback((threadId: string) => {
+    setTab("comments");
+    setScrollToThread(threadId);
+  }, []);
+
   useEffect(() => {
     if (!selecting) return;
     function onEscape(event: KeyboardEvent) {
@@ -508,7 +526,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const firstArtboard = manifest?.artboards[0]?.file;
   // Stable per pick: the comments panel focuses its textarea when this changes.
   const draftInfo: Draft | null = useMemo(() => draft && { label: draftLabel(draft) }, [draft]);
-  const pinnedOn = (file: string) => threads.filter((t) => t.target.kind === "element" && t.artboard === file);
+  // A resolved thread no longer marks its artboard: it stays readable in the comments panel.
+  const pinnedOn = (file: string) => threads.filter((t) => t.target.kind === "element" && t.artboard === file && t.status !== "resolved");
   const wholeArtboardThreads = (file: string) => threads.filter((t) => t.target.kind === "artboard" && t.artboard === file && t.status !== "resolved");
   const hiddenOf = (artboard: Manifest["artboards"][number]) => (artboard.responsive ? hiddenRenderingKeys(artboard.responsive, viewSettings, artboard.file) : new Set<string>());
   const layoutOf = (artboard: Manifest["artboards"][number]) =>
@@ -648,6 +667,27 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     seenFile.current = null;
     if (box) setView(centerOn({ x: box.x + rect.x, y: box.y + rect.y, width: rect.width, height: rect.height }, viewportSize));
   }
+  /** Glides to a thread's pin, zoomed in at least enough to see its whole artboard, then makes the pin pulse; no pin (a resolved or whole-artboard thread): to the artboard. */
+  function showThread(threadId: string) {
+    const thread = threads.find((t) => t.id === threadId);
+    if (!thread) return;
+    const pin = document.querySelector<HTMLElement>(`[data-pin-thread="${CSS.escape(threadId)}"]`);
+    const stage = viewport.current?.getBoundingClientRect();
+    if (!pin || !stage) {
+      if (thread.artboard) centerOnArtboard(thread.artboard);
+      return;
+    }
+    const spot = pin.getBoundingClientRect();
+    const x = (spot.left + spot.width / 2 - stage.left - view.x) / view.zoom;
+    const y = (spot.top + spot.height / 2 - stage.top - view.y) / view.zoom;
+    const box = thread.artboard ? artboardBoxes.get(thread.artboard) : undefined;
+    const zoom = Math.max(view.zoom, box ? centerOn(box, viewportSize).zoom : view.zoom);
+    glideTo({ zoom, x: viewportSize.width / 2 - x * zoom, y: viewportSize.height / 2 - y * zoom });
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const ring = "0 0 0 3px var(--color-surface)";
+      pin.animate([{ boxShadow: `${ring}, 0 0 0 4px var(--color-accent)` }, { boxShadow: `${ring}, 0 0 0 14px transparent` }], { duration: 700, delay: GLIDE_MS, iterations: 2, easing: "ease-out" });
+    }
+  }
   function centerOnArtboard(file: string) {
     const box = artboardBoxes.get(file);
     if (!box) return;
@@ -688,6 +728,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
 
   return (
     <SeenGapContext.Provider value={{ seen: seenGap, onRect: centerOnSeenGap }}>
+    <PinClickContext.Provider value={previewing ? undefined : openPinThread}>
     <div className={styles.page}>
       {previewOf !== undefined && <PreviewBanner designSystemId={previewOf} onLeave={() => navigateTo({ name: "page", pageId })} />}
       <CanvasHeader
@@ -1206,6 +1247,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                 }}
                 readOnly={archived !== undefined}
                 archivedLabel={archivedLabel}
+                focusedThreadId={scrollToThread}
+                onShowThread={showThread}
               />
             </PageTweaksContext.Provider>
           )}
@@ -1213,6 +1256,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         )}
       </div>
     </div>
+    </PinClickContext.Provider>
     </SeenGapContext.Provider>
   );
 }

@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { CANVAS_ELEMENT_KIND_LABELS, HOVER_FINISH, MARK_FINISH, placeAnchoredElements, type ArrowEnd, type ManifestArrowElement, type ManifestElement, type ManifestElementKind, type ManifestImageElement, type ManifestLinkElement, type ManifestTitleElement, type Page, type Project, type Thread } from "@redline/shared";
+import { PinClickContext } from "./ArtboardFrame.js";
 import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
 import { routeHref } from "./router.js";
 import { artboardLabel } from "./elementChips.js";
@@ -425,7 +426,10 @@ export function CanvasElements({
     const box = outlineBoxes.get(mark.elementId);
     return element && box ? [{ ...mark, box, kind: element.kind }] : [];
   });
+  const onPinClick = useContext(PinClickContext);
+  // A resolved thread no longer marks the canvas: it stays readable in the comments panel.
   const pinned = threads.flatMap((thread) => {
+    if (thread.status === "resolved") return [];
     const spot = thread.target.kind === "canvas-element" ? pinSpots.get(thread.target.elementId) : undefined;
     return spot ? [{ thread, spot }] : [];
   });
@@ -480,20 +484,22 @@ export function CanvasElements({
           </span>
         </div>
       ))}
-      {pinned.map(({ thread, spot }) => {
-        const resolved = thread.status === "resolved";
-        return (
-          <span
-            key={thread.id}
-            data-canvas-pin={thread.number}
-            title={`${thread.title} · ${threadWhere(thread)}`}
-            className={cx(styles.pin, thread.status === "held" && styles.pinHeld, resolved && styles.pinResolved)}
-            style={{ left: spot.x, top: spot.y, transform: `translate(calc(-50% - ${spot.inset ? PIN_INSET / zoom : 0}px), calc(-50% + ${spot.inset ? PIN_INSET / zoom : 0}px)) scale(${1 / zoom})` }}
-          >
-            {resolved ? "✓" : thread.number}
-          </span>
-        );
-      })}
+      {pinned.map(({ thread, spot }) => (
+        <button
+          type="button"
+          key={thread.id}
+          data-canvas-pin={thread.number}
+          data-pin-thread={thread.id}
+          title={`${thread.title} · ${threadWhere(thread)}`}
+          aria-label={`Ouvrir le commentaire ${thread.number}`}
+          disabled={!onPinClick}
+          className={cx(styles.pin, thread.status === "held" && styles.pinHeld)}
+          style={{ left: spot.x, top: spot.y, transform: `translate(calc(-50% - ${spot.inset ? PIN_INSET / zoom : 0}px), calc(-50% + ${spot.inset ? PIN_INSET / zoom : 0}px)) scale(${1 / zoom})` }}
+          onClick={() => onPinClick?.(thread.id)}
+        >
+          {thread.number}
+        </button>
+      ))}
     </>
   );
 }

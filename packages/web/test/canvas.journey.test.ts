@@ -400,3 +400,41 @@ it("draws link cards: a page card with title, project and thumbnail that opens i
   await tab.waitForURL(`${server.url}/#/pages/${target.id}`);
   await tab.close();
 });
+
+it("opens a pin's thread in the comments panel, takes the canvas to a thread from its card, and hides resolved pins", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Pins" })).json()) as { id: string };
+  const html = (title: string) => `<!doctype html><body style="margin:0"><h1 style="margin:40px">${title}</h1><p style="margin:1400px 40px 40px">Footer</p></body>`;
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Long",
+      files: {
+        "home.html": html("Home"),
+        "manifest.json": JSON.stringify({ artboards: [{ file: "home.html", title: "Home", width: 400, height: 1600, x: 0, y: 0 }] }),
+      },
+    })
+  ).json()) as Page;
+  const post = (selector: string, yPct: number, body: string) => server.post(`/api/pages/${page.id}/threads`, { artboard: "home.html", selector, xPct: 20, yPct, body });
+  await post("h1", 3, "Bigger title");
+  const footer = (await (await post("p", 90, "Footer too tall")).json()) as { id: string };
+  const done = (await (await post("h1", 5, "Already fixed")).json()) as { id: string };
+  await server.post(`/api/threads/${done.id}/resolve`, {});
+
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}`);
+  await tab.locator('[data-pin="2"]').waitFor();
+  expect(await tab.locator('[data-pin="3"]').count()).toBe(0);
+
+  await tab.locator('[data-pin="1"]').click();
+  await expect.poll(() => tab.getByRole("tab", { name: /^Commentaires/ }).getAttribute("aria-selected")).toBe("true");
+  await tab.getByText("Footer too tall").waitFor();
+
+  const canvas = await box(tab.getByTestId("canvas"));
+  const pin = tab.locator(`[data-pin-thread="${footer.id}"]`);
+  await tab.getByText("Footer too tall").click();
+  await expect
+    .poll(async () => {
+      const p = await box(pin);
+      return Math.round(Math.abs(p.y + p.height / 2 - (canvas.y + canvas.height / 2)));
+    })
+    .toBeLessThan(4);
+}, 60_000);

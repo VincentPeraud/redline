@@ -36,7 +36,15 @@
   box-shadow: 0 0 0 3px var(--color-surface);
   color: var(--color-text-inverse);
   font-size: var(--font-size-sm);
+  font-family: inherit;
   font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+}
+
+.pin:disabled {
   pointer-events: none;
 }
 
@@ -45,8 +53,4 @@
   border: 2px dashed var(--color-warning-strong);
   background: var(--color-surface);
   color: var(--color-warning-strong);
-}
-
-.pinResolved {
-  background: var(--color-online);
 }
