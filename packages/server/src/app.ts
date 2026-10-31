@@ -64,6 +64,7 @@ import { registerGapRoutes } from "./gaps.js";
 import { registerIdentity, personRef, type IdentityConfig } from "./identity.js";
 import { type CliBuild } from "./cli-build.js";
 import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
+import { registerPublicDeadline } from "./public-deadline.js";
 import { registerRequestHardening } from "./request-hardening.js";
 import { announceDiffusion, registerDesignSystemReload } from "./design-system-reload.js";
 import { registerSessionRoutes } from "./sessions.js";
@@ -122,9 +123,10 @@ export async function buildMainApp(
   store: Store,
   config: ServerConfig,
   webDir?: string,
-  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; cliBuild?: CliBuild } = {},
+  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; cliBuild?: CliBuild; publicUntil?: Date } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ bodyLimit: MAX_PAGE_BYTES });
+  registerPublicDeadline(app, options.publicUntil);
   registerProxySecretCheck(app, options.proxySecrets);
   registerHealthRoute(app);
   registerIdentity(app, store, options.proxySecrets, options.identity);
@@ -604,8 +606,9 @@ export async function buildMainApp(
  * share an origin with the API. The CSP sandbox (without allow-same-origin) also gives
  * the document an opaque origin, even if someone opens the URL directly.
  */
-export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets): Promise<FastifyInstance> {
+export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets, publicUntil?: Date): Promise<FastifyInstance> {
   const app = Fastify();
+  registerPublicDeadline(app, publicUntil);
   registerProxySecretCheck(app, proxySecrets, { artboards: true });
 
   app.get(BRIDGE_PATH, async (_req, reply) =>

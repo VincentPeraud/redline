@@ -19,6 +19,8 @@ export interface StartOptions {
   proxySecrets?: ProxySecrets;
   /** Names of the SSO identity headers and the logout URL; the headers are read only when proxy secrets are set. */
   identity?: IdentityConfig;
+  /** After this date, requests whose `Host` is not a local name (a tunnel's) are refused. */
+  publicUntil?: Date;
   /** Waits before each retry of a failed work item; default 1, 5 and 15 minutes. */
   retryDelaysMs?: number[];
   /** How long a terminal session may go without a heartbeat before it counts as gone; default 60 s. */
@@ -34,7 +36,7 @@ export interface RunningServer {
 export async function startServer(options: StartOptions): Promise<RunningServer> {
   if (options.proxySecrets) assertValidProxySecrets(options.proxySecrets);
   const store = new Store(options.dataDir);
-  const artboardApp = await buildArtboardApp(store, options.proxySecrets);
+  const artboardApp = await buildArtboardApp(store, options.proxySecrets, options.publicUntil);
   await artboardApp.listen({ port: options.artboardPort, host: options.host });
   const artboardOrigin = options.artboardOrigin ?? `http://${options.host}:${portOf(artboardApp.server.address())}`;
 
@@ -43,6 +45,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     terminalPresenceTimeoutMs: options.terminalPresenceTimeoutMs,
     proxySecrets: options.proxySecrets,
     identity: options.identity,
+    publicUntil: options.publicUntil,
     cliBuild: loadCliBuild(options.cliDir),
   });
   await mainApp.listen({ port: options.port, host: options.host });

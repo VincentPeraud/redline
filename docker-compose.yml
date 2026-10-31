@@ -9,6 +9,8 @@ services:
     environment:
       # Public origin of the artboard port; set it when serving behind a proxy.
       REDLINE_ARTBOARD_ORIGIN: ${REDLINE_ARTBOARD_ORIGIN:-http://localhost:${REDLINE_ARTBOARD_PORT:-3001}}
+      # Deadline of a temporary tunnel share (see README); empty means none.
+      REDLINE_PUBLIC_UNTIL: ${REDLINE_PUBLIC_UNTIL:-}
     volumes:
       - redline-data:/data
 

@@ -20,6 +20,7 @@ Environment variables (all optional):
 | `REDLINE_PORT` | `3000` | Host port of the web UI and API |
 | `REDLINE_ARTBOARD_PORT` | `3001` | Host port of the artboard origin |
 | `REDLINE_ARTBOARD_ORIGIN` | `http://localhost:$REDLINE_ARTBOARD_PORT` | Public origin of the artboard listener; set it when behind a proxy |
+| `REDLINE_PUBLIC_UNTIL` | unset | ISO date after which requests whose `Host` is not a local name (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`) are refused, see "Sharing through a tunnel" |
 
 ### Limits
 
@@ -63,6 +64,18 @@ The defaults are Authelia's. oauth2-proxy sends `X-Auth-Request-User`, `X-Auth-R
 ### CLI download
 
 The image carries the CLI as a tarball in `REDLINE_CLI_DIR` (`/app/cli`: `redline-cli.tgz` and `build-hash.txt`). The server serves it at `/cli/redline-cli.tgz` without a token (npm cannot send one; behind a proxy this is the machine route), so `npm i -g <origin>/cli/redline-cli.tgz` installs the `redline` command. Then `redline setup <origin> --token <token>` (the Agents screen shows the full command) checks the token, stores the server and registers the Redline MCP in Claude Code at user scope. Run it again with another URL to set up several servers; a folder remembers its server, and `redline agent --global` needs `--server <url>` when there are several. `http://` is accepted only for `localhost`, `*.localhost` and `127.0.0.1`. `redline build-hash` prints the hash of the installed build, which equals the image's `build-hash.txt`.
+
+### Sharing through a tunnel
+
+To show your local Redline to someone for a while (a Cloudflare quick tunnel, for example), open one tunnel per port, set `REDLINE_ARTBOARD_ORIGIN` to the artboard tunnel's address and `REDLINE_PUBLIC_UNTIL` to the end of the share, then recreate the container:
+
+```sh
+cloudflared tunnel --url http://127.0.0.1:3000   # UI and API
+cloudflared tunnel --url http://127.0.0.1:3001   # artboards
+REDLINE_ARTBOARD_ORIGIN=https://<artboard tunnel> REDLINE_PUBLIC_UNTIL=2026-11-01T13:39:00+01:00 docker compose up -d
+```
+
+Whoever has the link administers everything: Redline has no login, and the tunnel reaches every project and the agents' token. After the deadline, each request that does not name a local host is refused (403) and the connections public hosts opened are closed within a minute, even if the tunnel keeps running; `localhost` and `*.localhost` keep working. The tunnel must keep the visitor's `Host` (cloudflared does by default): only that header is read, never `X-Forwarded-Host`. Stop the tunnels and run `docker compose up -d` without the two variables to end the share.
 
 ### Behind Traefik (local)
 
