@@ -122,7 +122,11 @@ export function putProjectAsset(store: Store, projectId: string, name: string, b
   const safe = assetNameOf(name);
   if (safe === undefined) return { error: "invalid asset name" };
   if (!Buffer.isBuffer(body)) return { error: "file content is required" };
-  const hash = store.setProjectFile(projectId, `${ASSETS_DIR}/${safe}`, body);
+  const path = `${ASSETS_DIR}/${safe}`;
+  const unchanged = store.readProjectFile(projectId, path)?.equals(body) ?? false;
+  const hash = store.setProjectFile(projectId, path, body);
+  // Assets are not part of a page version: an open artboard keeps the old one (a stylesheet's tweak rules, say) until it reloads.
+  if (!unchanged) store.announceProjectStyleChange(projectId);
   return { name: safe, hash, size: body.length };
 }
 

@@ -129,6 +129,43 @@ describe("DESIGN.md and project assets over the server HTTP API", () => {
     expect((await fetch(`${server.artboardOrigin}/pages/${other.id}/assets/logo.png`)).status).toBe(404);
   });
 
+  it("tells the open pages of the project to reload when an asset changes, not when it is saved unchanged", async () => {
+    const project = await createProject();
+    const [first, second] = [await createPage(project), await createPage(project)];
+    await putAsset(project, "home.css", Buffer.from("h1 { color: red; }"));
+    const controller = new AbortController();
+    let text = "";
+    const stream = await fetch(`${server.url}/api/events`, { signal: controller.signal });
+    void (async () => {
+      const reader = stream.body!.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) return;
+          text += new TextDecoder().decode(value);
+        }
+      } catch {
+        // aborted
+      }
+    })();
+    const reloads = () =>
+      text
+        .split("\n\n")
+        .flatMap((f) => (f.startsWith("data: ") ? [JSON.parse(f.slice(6)) as { type: string; pageIds?: string[] }] : []))
+        .filter((e) => e.type === "design-system-updated");
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+    await putAsset(project, "home.css", Buffer.from("h1 { color: red; }"));
+    await settle();
+    expect(reloads()).toEqual([]);
+
+    await putAsset(project, "home.css", Buffer.from('html[data-tweak-peps="Nuit"] h1 { color: white; }'));
+    for (let i = 0; i < 100 && reloads().length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort();
+    expect(reloads()).toHaveLength(1);
+    expect(reloads()[0]!.pageIds).toEqual(expect.arrayContaining([first.id, second.id]));
+  });
+
   it("serves the assets next to each stylesheet, since a url(assets/…) in it resolves against the stylesheet", async () => {
     const project = await createProject();
     await putAsset(project, "fonts/inter.woff2", pngBytes);
