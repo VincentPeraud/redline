@@ -40,6 +40,11 @@ describe("canvas view", () => {
     expect(view.y).toBe(125);
   });
 
+  it("never enlarges a small canvas past 100 % when fitting it", () => {
+    const view = fitView({ x: 100, y: 50, width: 200, height: 100 }, { width: 1000, height: 800 });
+    expect(view).toEqual({ zoom: 1, x: 300, y: 300 });
+  });
+
   it("centres an artboard so that it fills 70 % of the viewport, leaving its surroundings visible, never past 100 %", () => {
     const viewport = { width: 1000, height: 800 };
     const large = centerOn({ x: 200, y: 100, width: 1400, height: 800 }, viewport);

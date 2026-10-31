@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser, type Page as Tab } from "playwright";
+import { type Browser, type Page as Tab } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { CORE_TOKENS, type AgentTokenResponse, type DesignSystem } from "@redline/shared";
 import { FakeEngine, startSeam2, type Seam2 } from "@redline/agent/seam2";
@@ -36,7 +37,7 @@ beforeAll(async () => {
   globalFolder = mkdtempSync(join(tmpdir(), "redline-global-folder-"));
   const { token } = (await (await seam.server.get("/api/agent-token")).json()) as AgentTokenResponse;
   globalAgent = await startAgent({ serverUrl: seam.server.url, token, machine: "global-machine", folder: globalFolder, kind: "global", engine });
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, 60_000);
 
 afterAll(async () => {

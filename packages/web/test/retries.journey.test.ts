@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser } from "playwright";
+import { type Browser } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { FakeEngine, startSeam2, type Seam2 } from "@redline/agent/seam2";
 
@@ -19,7 +20,7 @@ beforeAll(async () => {
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
   const engine = new FakeEngine(() => (failing ? [{ type: "error", message: "Crashed" }] : [{ type: "result", summary: "Fixed" }]));
   seam = await startSeam2(engine, { webDir, retryDelaysMs: [] });
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, 60_000);
 
 afterAll(async () => {

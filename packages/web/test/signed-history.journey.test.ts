@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser, type Page } from "playwright";
+import { type Browser, type Page } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import WebSocket from "ws";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { AGENT_API_PREFIX, AGENT_ENDPOINT, MANIFEST_PATH, PROTOCOL_VERSION, type WorkItem } from "@redline/shared";
@@ -76,7 +77,7 @@ beforeAll(async () => {
     identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email" },
   });
   plain = await startTestServer({ webDir });
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 
   // Both people are known to the server before anything is signed.
   await call(sso.url, ariane)("GET", "/api/me");

@@ -9,6 +9,7 @@ import { arrowGeometry, elementBox, type ArrowGeometry, type Box, type Point, ty
 import { hoverLabelStyle, hoverOutlineStyle, markBadgeStyle } from "./hoverFinishStyle.js";
 import { threadWhere } from "./threadLabel.js";
 import { cx } from "./ui/index.js";
+import { boundsOf } from "./canvasPhotoFit.js";
 import { paletteShades } from "./canvasPalette.js";
 import styles from "./CanvasElements.module.css";
 
@@ -303,6 +304,8 @@ export function CanvasElements({
   zoom,
   threads,
   marks,
+  onContentBounds,
+  liftTitles = true,
   children,
 }: {
   elements: ManifestElement[];
@@ -315,6 +318,10 @@ export function CanvasElements({
   threads: Thread[];
   /** Elements chosen as chips for the next message, drawn with the outline and numbered badge of the artboards' marks. */
   marks: { number: number; elementId: string }[];
+  /** Told the box holding the artboards and every element, with the sizes measured in the DOM, whenever it changes. */
+  onContentBounds?: (bounds: Box) => void;
+  /** Raise group titles clear of the artboards' name strips; off where no strip is drawn (a canvas photo). */
+  liftTitles?: boolean;
   children?: ReactNode;
 }) {
   const underRef = useRef<HTMLDivElement>(null);
@@ -324,8 +331,9 @@ export function CanvasElements({
   // Anchored elements sit against the measured box of their target: a note that grows pushes what hangs below it.
   const elements = useMemo(() => {
     const sizeOf = (element: ManifestElement) => elementBox(element, element.id === undefined ? undefined : sizes[element.id]) ?? { width: 0, height: 0 };
-    return liftTitlesOverStrips(placeAnchoredElements(declared, artboardBoxes, sizeOf), artboardBoxes, sizeOf, zoom);
-  }, [declared, artboardBoxes, sizes, zoom]);
+    const placed = placeAnchoredElements(declared, artboardBoxes, sizeOf);
+    return liftTitles ? liftTitlesOverStrips(placed, artboardBoxes, sizeOf, zoom) : placed;
+  }, [declared, artboardBoxes, sizes, zoom, liftTitles]);
   const under = elements.filter((element) => element.kind === "shape");
   const over = elements.filter((element) => element.kind !== "shape");
 
@@ -396,6 +404,19 @@ export function CanvasElements({
       pinSpots.set(element.id, { ...geometry.label, inset: false });
     }
   }
+
+  const contentBounds = boundsOf([
+    ...artboardBoxes.values(),
+    ...elements.flatMap((element) => (element.kind === "arrow" ? [] : [elementBox(element, element.id === undefined ? undefined : sizes[element.id])].filter((box): box is Box => box !== null))),
+    ...[...arrowGeometries.values()].map((geometry) => geometry.box),
+  ]);
+  const boundsKey = `${contentBounds.x} ${contentBounds.y} ${contentBounds.width} ${contentBounds.height}`;
+  const reportBounds = useRef(onContentBounds);
+  reportBounds.current = onContentBounds;
+  useEffect(() => {
+    reportBounds.current?.(contentBounds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reported once per change of the box, not per render
+  }, [boundsKey]);
 
   const hovered = hoveredId === null ? undefined : elements.find((element) => element.id === hoveredId);
   const hoveredBox = hovered?.id === undefined ? undefined : outlineBoxes.get(hovered.id);

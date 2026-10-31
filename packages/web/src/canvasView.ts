@@ -58,9 +58,10 @@ export function interpolateView(from: CanvasView, to: CanvasView, t: number, vie
   return { zoom, x: viewport.width / 2 - centre.x * zoom, y: viewport.height / 2 - centre.y * zoom };
 }
 
+/** Shows the whole of `bounds` centred in the viewport inside `margin`, never past 100 % ("Tout voir"). */
 export function fitView(bounds: Bounds, viewport: { width: number; height: number }, margin = 48): CanvasView {
   const zoom = clampZoom(
-    Math.min((viewport.width - 2 * margin) / bounds.width, (viewport.height - 2 * margin) / bounds.height),
+    Math.min(1, (viewport.width - 2 * margin) / bounds.width, (viewport.height - 2 * margin) / bounds.height),
   );
   return {
     zoom,

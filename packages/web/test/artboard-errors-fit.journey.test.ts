@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser, type BrowserContext } from "playwright";
+import { type Browser, type BrowserContext } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { MANIFEST_PATH, parseManifest } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
@@ -19,7 +20,7 @@ beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
   server = await startTestServer({ webDir });
-  browser = await chromium.launch();
+  browser = await launchBrowser();
   context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 }, 60_000);
 

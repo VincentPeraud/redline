@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { MANIFEST_PATH, defaultManifest, parseManifest, type ManifestArtboard } from "@redline/shared";
+import type { ManifestArtboard } from "@redline/shared";
+import { usePageManifest } from "./usePageManifest.js";
 import { cx } from "./ui/index.js";
 import styles from "./PageThumbnail.module.css";
 
@@ -10,23 +11,7 @@ const ARTBOARD_GAP = 12;
 
 /** Artboards of a page, read from its manifest (or the default one when the page has none). */
 export function usePageArtboards(pageId: string, files: Record<string, string>): ManifestArtboard[] | null {
-  const [artboards, setArtboards] = useState<ManifestArtboard[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const manifest =
-        MANIFEST_PATH in files
-          ? parseManifest(await (await fetch(`/api/pages/${pageId}/files/${MANIFEST_PATH}`)).text())
-          : defaultManifest(Object.keys(files));
-      if (!cancelled) setArtboards(manifest.artboards);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [pageId, files]);
-
-  return artboards;
+  return usePageManifest(pageId, files)?.artboards ?? null;
 }
 
 /** First artboards of the page, rendered live and scaled to fit the card's preview area. */

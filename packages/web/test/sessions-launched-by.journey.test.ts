@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser } from "playwright";
+import { type Browser } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { MANIFEST_PATH } from "@redline/shared";
 import { startServer, type RunningServer } from "../../server/src/start.js";
@@ -51,7 +52,7 @@ beforeAll(async () => {
   plain = await startTestServer({ webDir });
   await seed(server.url, [ariane, vincent, anonymous], ["Mine", "His", "Before SSO"]);
   await seed(plain.url, [{}], ["Plain"]);
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, 60_000);
 
 afterAll(async () => {

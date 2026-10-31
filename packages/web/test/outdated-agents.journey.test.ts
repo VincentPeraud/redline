@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser } from "playwright";
+import { type Browser } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { PROTOCOL_VERSION, cliUpdateCommand, pageHash, starterPageFiles, type Page, type Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
@@ -22,7 +23,7 @@ beforeAll(async () => {
   writeFileSync(join(cliDir, "build-hash.txt"), "server-build");
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
   server = await startTestServer({ webDir, cliDir });
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, 60_000);
 
 afterAll(async () => {

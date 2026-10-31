@@ -322,15 +322,23 @@
   color: var(--color-text-muted);
 }
 
-.hintWrap {
+/* Zoom bar on the left, the mode hint centred in the room left, the overview on the right: none covers another. */
+.bottomBar {
   position: absolute;
-  bottom: var(--space-5);
-  /* Clear of the zoom bar in the bottom-left corner. */
-  left: 290px;
+  left: var(--space-5);
   right: var(--space-5);
+  bottom: var(--space-5);
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+  pointer-events: none;
+}
+
+.hintWrap {
+  flex: 1;
+  min-width: 0;
   display: flex;
   justify-content: center;
-  pointer-events: none;
 }
 
 .hint {
@@ -395,9 +403,9 @@
 }
 
 .zoom {
-  position: absolute;
-  left: var(--space-5);
-  bottom: var(--space-5);
+  position: relative;
+  flex-shrink: 0;
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 6px;

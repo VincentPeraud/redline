@@ -48,7 +48,10 @@ import { ArchivedBanner, type ArchiveKind } from "./ArchiveControls.js";
 import { useStoredToggle } from "./useStoredToggle.js";
 import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
-import { centerOn, interpolateView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { centerOn, fitView, interpolateView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { boundsOf } from "./canvasPhotoFit.js";
+import { photoArtboards } from "./CanvasPhoto.js";
+import { OverviewMap } from "./OverviewMap.js";
 import { copyAddress } from "./copyLink.js";
 import { ArtboardMoreMenu } from "./ArtboardMoreMenu.js";
 import { CopyLinkIcon } from "./CopyLinkIcon.js";
@@ -89,15 +92,6 @@ const START_BOTTOM = 40;
 const CLICK_SLOP = 4;
 
 type SideTab = "conversation" | "comments" | "toc";
-
-function boundsOf(boxes: { x: number; y: number; width: number; height: number }[]) {
-  if (boxes.length === 0) return { x: 0, y: 0, width: 1, height: 1 };
-  const left = Math.min(...boxes.map((b) => b.x));
-  const top = Math.min(...boxes.map((b) => b.y));
-  const right = Math.max(...boxes.map((b) => b.x + b.width));
-  const bottom = Math.max(...boxes.map((b) => b.y + b.height));
-  return { x: left, y: top, width: Math.max(right - left, 1), height: Math.max(bottom - top, 1) };
-}
 
 /** Initial view: artboards at 100 % under the group titles, shrunk when they would not fit the stage height. */
 function initialView(manifest: Manifest, stage: { width: number; height: number }): CanvasView {
@@ -221,6 +215,9 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     return pendingComponents.added.includes(name) ? "nouveau" : pendingComponents.changed.includes(name) ? "modifié" : null;
   };
   const [guidesVisible, toggleGuides] = useStoredToggle("redline:guides", false);
+  const [overviewVisible, toggleOverview] = useStoredToggle("redline:overview", true);
+  /** Box holding the artboards and every canvas element, as laid out on the canvas. */
+  const [contentBounds, setContentBounds] = useState<Box | null>(null);
   /** Real page height of each rendering of a responsive artboard, by artboard file then rendering key, as reported by the bridge. */
   const [docHeights, setDocHeights] = useState<Record<string, Record<string, number>>>({});
   /** Real page height of each plain artboard, by file, as reported by the bridge. */
@@ -254,6 +251,10 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   /** Frame request of the running glide, stopped as soon as the user pans or zooms. */
   const glide = useRef<number | null>(null);
+  /** The latest "Tout voir", for the keyboard shortcut. */
+  const fitAllRef = useRef(() => {});
+  /** Whether the page has an overview to show or hide with M. */
+  const hasOverviewRef = useRef(false);
   const stopGlide = useCallback(() => {
     if (glide.current !== null) cancelAnimationFrame(glide.current);
     glide.current = null;
@@ -445,10 +446,12 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
       }
       if (key === "p") setPicking(false);
       if (key === "g") toggleGuides();
+      if (key === "f") fitAllRef.current();
+      if (key === "m" && hasOverviewRef.current) toggleOverview();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggleGuides, playing, readOnly]);
+  }, [toggleGuides, toggleOverview, playing, readOnly]);
 
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
   async function send(held: boolean) {
@@ -584,6 +587,17 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     placedArtboards.map((artboard) => ({ file: artboard.file, title: artboard.title, ...artboardBoxes.get(artboard.file)! })),
     manifest ? groupTitlesOf(manifest) : [],
   ).map((entry) => ({ ...entry, openThreads: threads.filter((t) => t.artboard === entry.file && t.status !== "resolved").length }));
+  const hasContent = manifest !== null && (manifest.artboards.length > 0 || manifest.elements.length > 0);
+  hasOverviewRef.current = hasContent;
+  // Only rebuilt when the layout or a page changes, so panning and zooming do not redraw the mini-map.
+  const overviewArtboards = useMemo(
+    () =>
+      hasContent
+        ? photoArtboards(placedArtboards, manifest.tweaks, (file) => ({ src: artboardSrc(file), version: `${files[file]}@${tokensVersion}@${preview?.file === file ? preview.versionId : ""}` }), { heightOf, responsiveOf: layoutOf })
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- artboardSrc, heightOf and layoutOf read only these
+    [hasContent, placedArtboards, manifest, files, tokensVersion, preview, previewing, artboardOrigin, pageId, docHeights, pageHeights, viewSettings],
+  );
   if (playing && manifest && playFile !== undefined) {
     return (
       <PlayMode
@@ -656,6 +670,17 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     };
     glide.current = requestAnimationFrame(step);
   }
+  /** The page an artboard shows: an old version being previewed, the draft in a design system preview, else the live one. */
+  function artboardSrc(file: string) {
+    return preview?.file === file
+      ? `${artboardOrigin}${versionPreviewPath(pageId, preview.versionId, file)}`
+      : `${artboardOrigin}/pages/${pageId}/${file}${previewing ? `?${DRAFT_PREVIEW_QUERY}` : ""}`;
+  }
+  /** "Tout voir (F)": glides to the view that shows the whole canvas. */
+  function fitAll() {
+    if (contentBounds && viewportSize.width > 0) glideTo(fitView(contentBounds, viewportSize));
+  }
+  fitAllRef.current = fitAll;
   const conversationContext = messageContext({ view, viewport: viewportSize, boxes: artboardBoxes, manifest, tweakValues: tweaks.values });
   const artboardTweaks = (file: string) => (manifest?.tweaks ?? []).filter((tweak) => (tweak.artboard ? tweak.artboard === file : file === firstArtboard));
 
@@ -758,7 +783,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
           >
             <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
               {manifest && (
-              <CanvasElements elements={placedElements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking || selecting || alt} zoom={view.zoom} threads={threads} marks={canvasMarks}>
+              <CanvasElements elements={placedElements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking || selecting || alt} zoom={view.zoom} threads={threads} marks={canvasMarks} onContentBounds={setContentBounds}>
               {placedArtboards.map((artboard) => {
                 const layout = layoutOf(artboard);
                 const grid = gridOf(artboard);
@@ -767,10 +792,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                 const errorCount = errorsOf(artboard.file).length;
                 const previewed = preview?.file === artboard.file;
                 const frameWidth = artboardBoxes.get(artboard.file)!.width;
-                const src =
-                  preview?.file === artboard.file
-                    ? `${artboardOrigin}${versionPreviewPath(pageId, preview.versionId, artboard.file)}`
-                    : `${artboardOrigin}/pages/${pageId}/${artboard.file}${previewing ? `?${DRAFT_PREVIEW_QUERY}` : ""}`;
+                const src = artboardSrc(artboard.file);
                 return (
                 <div
                   key={`${artboard.file}@${files[artboard.file]}@${tokensVersion}`}
@@ -1056,15 +1078,6 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
               Sélection : clique sur un élément, un artboard ou une note pour l'ajouter au message <span className={styles.selectionHintKeys}>· Échap pour finir</span>
             </div>
           )}
-          <div className={cx(styles.hintWrap, (previewing || selecting || missingArtboard !== null) && styles.hintWrapHidden)}>
-            <div data-testid="mode-indicator" className={styles.hint}>
-              {picking
-                ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier."
-                : archived
-                  ? "Canvas interactif : les clics déclenchent les actions."
-                  : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
-            </div>
-          </div>
           {missingArtboard !== null && (
             <div className={styles.missingWrap}>
               <MissingArtboardNotice file={missingArtboard} onClose={() => setMissingArtboard(null)} className={styles.missing} />
@@ -1079,6 +1092,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
               onExpire={() => setToast(null)}
             />
           )}
+          <div className={styles.bottomBar}>
           <div className={styles.zoom}>
             <Tooltip label="Dézoomer">
               <button type="button" aria-label="Dézoomer" className={styles.zoomButton} onClick={() => zoomFromCenter(1 / ZOOM_STEP)}>
@@ -1091,6 +1105,16 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                 +
               </button>
             </Tooltip>
+            <span aria-hidden="true" className={styles.zoomSeparator} />
+            <button type="button" title="Voir tout le canvas (F)" className={styles.guidesButton} onClick={fitAll}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <path d="M4 9V4h5" />
+                <path d="M15 4h5v5" />
+                <path d="M20 15v5h-5" />
+                <path d="M9 20H4v-5" />
+              </svg>
+              Tout voir (F)
+            </button>
             <span aria-hidden="true" className={styles.zoomSeparator} />
             <GuidesButton pressed={guidesVisible} onToggle={toggleGuides} className={cx(styles.guidesButton, guidesVisible && styles.guidesButtonOn)} />
             {responsiveArtboards.length > 0 && (
@@ -1105,6 +1129,32 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                 />
               </>
             )}
+          </div>
+          <div className={cx(styles.hintWrap, (previewing || selecting || missingArtboard !== null) && styles.hintWrapHidden)}>
+            <div data-testid="mode-indicator" className={styles.hint}>
+              {picking
+                ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier."
+                : archived
+                  ? "Canvas interactif : les clics déclenchent les actions."
+                  : "Canvas interactif : les clics déclenchent les actions. Alt+clic pour commenter."}
+            </div>
+          </div>
+          {overviewArtboards && manifest && (
+            <OverviewMap
+              pageId={pageId}
+              artboardOrigin={artboardOrigin}
+              artboards={overviewArtboards}
+              elements={placedElements}
+              view={view}
+              viewport={viewportSize}
+              visible={overviewVisible}
+              onToggle={toggleOverview}
+              onMove={(next) => {
+                stopGlide();
+                setView(next);
+              }}
+            />
+          )}
           </div>
         </main>
 

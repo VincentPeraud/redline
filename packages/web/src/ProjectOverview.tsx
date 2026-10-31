@@ -16,7 +16,7 @@ import { useWho } from "./useMe.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
-import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
+import { PageCanvasPhoto, usePageManifest } from "./CanvasPhoto.js";
 import { overrideCountLabel, projectComponentCountLabel } from "./diffusionLabels.js";
 import { counted } from "./plural.js";
 import { previewSwatches } from "./projectDesignSystemLabels.js";
@@ -55,9 +55,9 @@ function PageCard({
   onRename: (title: string) => Promise<void>;
   onArchived: () => void;
 }) {
-  const artboards = usePageArtboards(page.id, page.version.files);
+  const manifest = usePageManifest(page.id, page.version.files);
   const [renaming, setRenaming] = useState(false);
-  const count = counted(artboards?.length ?? 0, "artboard", "artboards");
+  const count = counted(manifest?.artboards.length ?? 0, "artboard", "artboards");
   // An archived project's cards say what the page holds (and would be deleted with it), not when it last changed; an archived page's card, when it was archived.
   const modified = page.archivedAt
     ? ` · ${pageArchivedOnLabel(page.archivedAt)}`
@@ -69,7 +69,7 @@ function PageCard({
 
   return (
     <div data-testid="page-card" className={cx(styles.pageCard, renameHost, current && styles.pageCardCurrent, page.archivedAt && styles.pageCardArchived)}>
-      <PageThumbnail pageId={page.id} artboards={artboards} artboardOrigin={artboardOrigin} />
+      <PageCanvasPhoto pageId={page.id} files={page.version.files} manifest={manifest} artboardOrigin={artboardOrigin} height={150} />
       <div className={styles.pageInfo}>
         {renaming ? (
           <RenameForm

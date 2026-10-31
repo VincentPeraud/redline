@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Page } from "@redline/shared";
-import { PageThumbnail, usePageArtboards } from "./PageThumbnail.js";
+import { PageCanvasPhoto, usePageManifest } from "./CanvasPhoto.js";
 
 const NO_FILES: Record<string, string> = {};
 
@@ -24,7 +24,7 @@ function useArtboardOrigin(): string {
   return origin;
 }
 
-/** A project card's preview: the first artboards of its last changed page, as on the project overview. Empty without pages. */
+/** A project card's preview: the canvas photo of its last changed page, as on the project overview. Empty without pages. */
 export function ProjectPreview({ pageId, height }: { pageId: string | undefined; height: number }) {
   const artboardOrigin = useArtboardOrigin();
   const [page, setPage] = useState<Page | null>(null);
@@ -42,6 +42,6 @@ export function ProjectPreview({ pageId, height }: { pageId: string | undefined;
     };
   }, [pageId]);
 
-  const artboards = usePageArtboards(page?.id ?? "", page?.version.files ?? NO_FILES);
-  return <PageThumbnail pageId={page?.id ?? ""} artboards={page ? artboards : []} artboardOrigin={artboardOrigin} areaHeight={height} />;
+  const manifest = usePageManifest(page?.id ?? "", page?.version.files ?? NO_FILES);
+  return <PageCanvasPhoto pageId={page?.id ?? ""} files={page?.version.files ?? NO_FILES} manifest={page ? manifest : null} artboardOrigin={artboardOrigin} height={height} />;
 }
