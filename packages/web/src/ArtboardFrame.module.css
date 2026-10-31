@@ -54,3 +54,7 @@
   background: var(--color-surface);
   color: var(--color-warning-strong);
 }
+
+.pinResolved {
+  background: var(--color-online);
+}

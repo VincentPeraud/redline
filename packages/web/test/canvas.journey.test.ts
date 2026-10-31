@@ -437,4 +437,18 @@ it("opens a pin's thread in the comments panel, takes the canvas to a thread fro
       return Math.round(Math.abs(p.y + p.height / 2 - (canvas.y + canvas.height / 2)));
     })
     .toBeLessThan(4);
+
+  // Unfolding a resolved thread draws its pin again, as a check mark, and takes the canvas there; folding hides it.
+  const resolvedRow = tab.getByRole("button", { name: /Already fixed/ });
+  await resolvedRow.click();
+  const resolvedPin = tab.locator(`[data-pin-thread="${done.id}"]`);
+  await expect.poll(() => resolvedPin.textContent()).toBe("✓");
+  await expect
+    .poll(async () => {
+      const p = await box(resolvedPin);
+      return Math.round(Math.abs(p.y + p.height / 2 - (canvas.y + canvas.height / 2)));
+    })
+    .toBeLessThan(4);
+  await resolvedRow.click();
+  await expect.poll(() => resolvedPin.count()).toBe(0);
 }, 60_000);

@@ -58,8 +58,7 @@ it("shows status, steps and streamed text as a run goes, and still shows them af
   await tab.reload();
   await tab.getByRole("tab", { name: /^Commentaires/ }).click();
   await expect.poll(() => tab.getByTestId("run-steps").textContent()).toContain("Lit");
-  await tab.getByText("Texte de Claude").click();
-  await expect.poll(() => tab.getByTestId("run-text").textContent()).toBe("Checking the title.");
+  expect(await tab.getByText("Checking the title.").count()).toBe(0);
 
   release();
   await expect.poll(() => tab.getByTestId("run-status").getAttribute("data-status")).toBe("answered");

@@ -427,9 +427,7 @@ export function CanvasElements({
     return element && box ? [{ ...mark, box, kind: element.kind }] : [];
   });
   const onPinClick = useContext(PinClickContext);
-  // A resolved thread no longer marks the canvas: it stays readable in the comments panel.
   const pinned = threads.flatMap((thread) => {
-    if (thread.status === "resolved") return [];
     const spot = thread.target.kind === "canvas-element" ? pinSpots.get(thread.target.elementId) : undefined;
     return spot ? [{ thread, spot }] : [];
   });
@@ -493,11 +491,11 @@ export function CanvasElements({
           title={`${thread.title} · ${threadWhere(thread)}`}
           aria-label={`Ouvrir le commentaire ${thread.number}`}
           disabled={!onPinClick}
-          className={cx(styles.pin, thread.status === "held" && styles.pinHeld)}
+          className={cx(styles.pin, thread.status === "held" && styles.pinHeld, thread.status === "resolved" && styles.pinResolved)}
           style={{ left: spot.x, top: spot.y, transform: `translate(calc(-50% - ${spot.inset ? PIN_INSET / zoom : 0}px), calc(-50% + ${spot.inset ? PIN_INSET / zoom : 0}px)) scale(${1 / zoom})` }}
           onClick={() => onPinClick?.(thread.id)}
         >
-          {thread.number}
+          {thread.status === "resolved" ? "✓" : thread.number}
         </button>
       ))}
     </>

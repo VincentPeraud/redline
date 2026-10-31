@@ -103,6 +103,8 @@ function initialView(manifest: Manifest, stage: { width: number; height: number 
 const OUTLINE_MS = 2000;
 /** Length of the glide from one artboard to another when the table of contents picks it. */
 const GLIDE_MS = 450;
+/** How long a pin drawn again waits for the bridge to place it on its element. */
+const PIN_SETTLE_MS = 150;
 
 const ignoreErrors = () => undefined;
 
@@ -192,6 +194,10 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   /** Artboard whose whole-artboard threads the Commentaires tab scrolls to once shown. */
   const [scrollToArtboard, setScrollToArtboard] = useState<string | null>(null);
   const [scrollToThread, setScrollToThread] = useState<string | null>(null);
+  /** Resolved threads unfolded in the comments panel: only these show their (resolved) pin again. */
+  const [unfoldedResolved, setUnfoldedResolved] = useState<ReadonlySet<string>>(new Set());
+  /** A thread to glide to once its pin is drawn (a resolved thread just unfolded). */
+  const [showAfterRender, setShowAfterRender] = useState<string | null>(null);
   const [tweaksOpenFor, setTweaksOpenFor] = useState<string | null>(null);
   const [moreOpenFor, setMoreOpenFor] = useState<string | null>(null);
   /** Bumped when the page's design system changed: artboards remount to load the new tokens. */
@@ -439,6 +445,26 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     }
   }, [scrollToThread, tab, threads]);
 
+  function unfoldResolved(threadId: string, open: boolean) {
+    setUnfoldedResolved((current) => {
+      const next = new Set(current);
+      if (open) next.add(threadId);
+      else next.delete(threadId);
+      return next;
+    });
+    if (open) setShowAfterRender(threadId);
+  }
+  useEffect(() => {
+    if (showAfterRender === null) return;
+    // The pin is first drawn at its stored spot; the artboard's bridge moves it onto its element a moment later.
+    const settle = setTimeout(() => {
+      setShowAfterRender(null);
+      showThread(showAfterRender);
+    }, PIN_SETTLE_MS);
+    return () => clearTimeout(settle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showAfterRender]);
+
   const openPinThread = useCallback((threadId: string) => {
     setTab("comments");
     setScrollToThread(threadId);
@@ -526,8 +552,9 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const firstArtboard = manifest?.artboards[0]?.file;
   // Stable per pick: the comments panel focuses its textarea when this changes.
   const draftInfo: Draft | null = useMemo(() => draft && { label: draftLabel(draft) }, [draft]);
-  // A resolved thread no longer marks its artboard: it stays readable in the comments panel.
-  const pinnedOn = (file: string) => threads.filter((t) => t.target.kind === "element" && t.artboard === file && t.status !== "resolved");
+  // A resolved thread no longer marks the canvas, unless it is unfolded in the comments panel.
+  const pinnedThreads = threads.filter((t) => t.status !== "resolved" || unfoldedResolved.has(t.id));
+  const pinnedOn = (file: string) => pinnedThreads.filter((t) => t.target.kind === "element" && t.artboard === file);
   const wholeArtboardThreads = (file: string) => threads.filter((t) => t.target.kind === "artboard" && t.artboard === file && t.status !== "resolved");
   const hiddenOf = (artboard: Manifest["artboards"][number]) => (artboard.responsive ? hiddenRenderingKeys(artboard.responsive, viewSettings, artboard.file) : new Set<string>());
   const layoutOf = (artboard: Manifest["artboards"][number]) =>
@@ -824,7 +851,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
           >
             <div className={styles.world} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
               {manifest && (
-              <CanvasElements elements={placedElements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking || selecting || alt} zoom={view.zoom} threads={threads} marks={canvasMarks} onContentBounds={setContentBounds}>
+              <CanvasElements elements={placedElements} artboardBoxes={artboardBoxes} assetBase={`${artboardOrigin}/pages/${pageId}`} artboardOrigin={artboardOrigin} picking={picking || selecting || alt} zoom={view.zoom} threads={pinnedThreads} marks={canvasMarks} onContentBounds={setContentBounds}>
               {placedArtboards.map((artboard) => {
                 const layout = layoutOf(artboard);
                 const grid = gridOf(artboard);
@@ -1247,7 +1274,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                 }}
                 readOnly={archived !== undefined}
                 archivedLabel={archivedLabel}
-                focusedThreadId={scrollToThread}
+                unfolded={unfoldedResolved}
+                onUnfold={unfoldResolved}
                 onShowThread={showThread}
               />
             </PageTweaksContext.Provider>

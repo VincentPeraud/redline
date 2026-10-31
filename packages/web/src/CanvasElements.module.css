@@ -167,6 +167,10 @@
   pointer-events: none;
 }
 
+.pinResolved {
+  background: var(--color-online);
+}
+
 .pinHeld {
   border: 2px dashed var(--color-warning-strong);
   background: var(--color-surface);

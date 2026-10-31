@@ -284,27 +284,6 @@
   font-weight: var(--font-weight-medium);
 }
 
-.details {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-body);
-}
-
-.details summary {
-  cursor: pointer;
-  color: var(--color-text-secondary);
-}
-
-.liveText {
-  margin-top: 6px;
-  padding: 8px 10px;
-  border-radius: var(--radius-md);
-  background: var(--color-surface-muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  line-height: 1.5;
-  white-space: pre-wrap;
-}
-
 .pastStatus {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);

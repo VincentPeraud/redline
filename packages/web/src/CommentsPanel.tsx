@@ -42,8 +42,9 @@ interface Props {
   readOnly?: boolean;
   /** What is archived, opening the read-only note: "Projet archivé" (default) or "Page archivée". */
   archivedLabel?: string;
-  /** The thread whose pin was just clicked: a resolved one unfolds. */
-  focusedThreadId?: string | null;
+  /** Resolved threads unfolded in the list: their pins show again on the canvas. */
+  unfolded: ReadonlySet<string>;
+  onUnfold: (threadId: string, open: boolean) => void;
   /** A click on a thread's card (not on one of its controls): the canvas goes to where the comment is. */
   onShowThread?: (threadId: string) => void;
 }
@@ -106,14 +107,10 @@ function ThreadMessages({ thread }: { thread: Thread }) {
 }
 
 /** A resolved thread: one line, which unfolds the discussion read-only, with "Rouvrir" to put it back among the open threads. */
-function ResolvedThreadCard({ thread, session, readOnly, focused }: { thread: Thread; session: SessionRow | undefined; readOnly: boolean; focused: boolean }) {
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (focused) setOpen(true);
-  }, [focused]);
+function ResolvedThreadCard({ thread, session, readOnly, open, onOpen }: { thread: Thread; session: SessionRow | undefined; readOnly: boolean; open: boolean; onOpen: (open: boolean) => void }) {
   return (
     <article data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.resolved, thread.removed && styles.removed)}>
-      <button type="button" aria-expanded={open} className={styles.resolvedRow} onClick={() => setOpen(!open)}>
+      <button type="button" aria-expanded={open} className={styles.resolvedRow} onClick={() => onOpen(!open)}>
         <span className={cx(styles.badge, styles.badgeDone, thread.removed && styles.badgeRemoved)} aria-hidden="true">
           ✓
         </span>
@@ -232,7 +229,7 @@ function ThreadCard({
 }
 
 /** The "Commentaires" tab: held bar, thread cards and the composer of a new pinned comment. */
-export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, archivedLabel = "Projet archivé", focusedThreadId, onShowThread }: Props) {
+export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, archivedLabel = "Projet archivé", unfolded, onUnfold, onShowThread }: Props) {
   const ordered = [...threads].sort((a, b) => GROUP_ORDER[a.status] - GROUP_ORDER[b.status] || a.number - b.number);
   const heldCount = threads.filter((t) => t.status === "held").length;
   const listRef = useStickToBottom<HTMLDivElement>();
@@ -258,7 +255,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
         {!readOnly && <HeldBar pageId={pageId} count={heldCount} choice={choice} />}
         {ordered.map((thread) => {
           if (thread.status === "held") return <HeldThreadCard key={thread.id} thread={thread} />;
-          if (thread.status === "resolved") return <ResolvedThreadCard key={thread.id} thread={thread} session={sessions.get(thread.id)} readOnly={readOnly} focused={focusedThreadId === thread.id} />;
+          if (thread.status === "resolved") return <ResolvedThreadCard key={thread.id} thread={thread} session={sessions.get(thread.id)} readOnly={readOnly} open={unfolded.has(thread.id)} onOpen={(open) => onUnfold(thread.id, open)} />;
           return (
             <ThreadCard
               key={thread.id}

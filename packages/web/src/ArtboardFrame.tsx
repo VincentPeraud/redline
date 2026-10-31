@@ -177,11 +177,11 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
             title={`${thread.title} · ${threadWhere(thread)}`}
             aria-label={`Ouvrir le commentaire ${thread.number}`}
             disabled={!onPinClick}
-            className={cx(styles.pin, thread.status === "held" && styles.pinHeld)}
+            className={cx(styles.pin, thread.status === "held" && styles.pinHeld, thread.status === "resolved" && styles.pinResolved)}
             style={{ left: `${position.xPct}%`, top: `${position.yPct}%`, transform: `translate(-50%, -50%) scale(${1 / zoom})` }}
             onClick={() => onPinClick?.(thread.id)}
           >
-            {thread.number}
+            {thread.status === "resolved" ? "✓" : thread.number}
           </button>
         );
       })}
