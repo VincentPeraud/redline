@@ -225,39 +225,44 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
         <label htmlFor="new-comment" className={panel.label}>
           Nouveau commentaire
         </label>
-        {draft && (
-          <div className={panel.draft}>
-            <span>
-              Commentaire sur <code>{draft.label}</code>
-            </span>
-            <button type="button" className={panel.cancel} onClick={onCancel}>
-              Annuler
-            </button>
-          </div>
+        {!draft ? (
+          <p className={panel.hint}>
+            Clique sur un élément en mode Commenter (C), ou ⌥ clic en mode Interagir, pour y épingler un commentaire.
+          </p>
+        ) : (
+          <>
+            <div className={panel.draft}>
+              <span>
+                Commentaire sur <code>{draft.label}</code>
+              </span>
+              <button type="button" className={panel.cancel} onClick={onCancel}>
+                Annuler
+              </button>
+            </div>
+            <Textarea
+              id="new-comment"
+              rows={3}
+              className={panel.textarea}
+              placeholder="Ton commentaire"
+              value={text}
+              onChange={(e) => onText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  onSend(e.metaKey || e.ctrlKey);
+                }
+              }}
+            />
+            <div className={panel.actions}>
+              <Button className={panel.action} aria-disabled={text.trim() === ""} title="Garde ce commentaire pour l'envoyer avec les autres (⌘ Entrée)" onClick={() => onSend(true)}>
+                Plus tard
+              </Button>
+              <Button className={panel.action} variant="primary" aria-disabled={text.trim() === ""} title="Envoie ce commentaire tout de suite, seul (Entrée)" onClick={() => onSend(false)}>
+                Envoyer
+              </Button>
+            </div>
+          </>
         )}
-        <Textarea
-          id="new-comment"
-          rows={3}
-          className={panel.textarea}
-          placeholder="Clique sur un élément pour épingler ton commentaire…"
-          disabled={!draft}
-          value={text}
-          onChange={(e) => onText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              onSend(e.metaKey || e.ctrlKey);
-            }
-          }}
-        />
-        <div className={panel.actions}>
-          <Button className={panel.action} aria-disabled={!draft || text.trim() === ""} title="Garde ce commentaire pour l'envoyer avec les autres (⌘ Entrée)" onClick={() => onSend(true)}>
-            Plus tard
-          </Button>
-          <Button className={panel.action} variant="primary" aria-disabled={!draft || text.trim() === ""} title="Envoie ce commentaire tout de suite, seul (Entrée)" onClick={() => onSend(false)}>
-            Envoyer
-          </Button>
-        </div>
         <ModelEffortControls value={choice} onChange={onChoice} defaults={defaults} />
       </div>
       )}

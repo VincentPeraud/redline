@@ -55,9 +55,14 @@
   line-height: normal;
 }
 
-.textarea:disabled {
-  background: var(--color-surface);
-  cursor: not-allowed;
+.hint {
+  margin: 0;
+  padding: var(--space-3) 14px;
+  border-radius: var(--radius-lg);
+  background: var(--color-accent-soft);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--color-accent-ink);
 }
 
 .actions {
