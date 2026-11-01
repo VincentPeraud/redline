@@ -41,6 +41,7 @@ export type Dialog =
 /**
  * `n`: the questions of a new agent. It opens `loading` while the folder is inspected, goes through `server` when several are set up
  * and the folder is not linked, then `form`. The rows of the form are the projects, the create option, the model and the effort.
+ * A folder not linked yet picks one project (radio rows); a linked folder ticks those its agent serves (checkbox rows).
  */
 export interface NewAgentDialog {
   type: "new";
@@ -48,8 +49,10 @@ export interface NewAgentDialog {
   servers: string[];
   serverRow: number;
   serverUrl?: string;
-  /** The titles of the projects of a linked folder: there is no project question then. */
+  /** The titles of the projects of a linked folder: its projects are then ticked rather than picked. */
   linkedTitles?: string[];
+  /** The projects ticked, for a linked folder. */
+  ticked: string[];
   projects: ProjectOption[];
   /** The focused row: a project (or the create option, after the last one), then the model, then the effort. */
   row: number;
@@ -154,7 +157,7 @@ export function onKey(state: ScreenState, key: Key): Update {
   if (key === "n") {
     const served = state.agents.find((agent) => agent.kind === "project" && agent.folder === state.folder);
     if (served) return { state: { ...state, selectedId: served.id }, commands: [] };
-    return { state: { ...state, dialog: { type: "new", stage: "loading", servers: [], serverRow: 0, projects: [], row: 0, picked: 0, kept: 0, title: "", model: MODEL_CHOICES[0].id } }, commands: [{ type: "prepare-new" }] };
+    return { state: { ...state, dialog: { type: "new", stage: "loading", servers: [], serverRow: 0, projects: [], ticked: [], row: 0, picked: 0, kept: 0, title: "", model: MODEL_CHOICES[0].id } }, commands: [{ type: "prepare-new" }] };
   }
   if (key === "o" && selected && selected.state !== "stopped") return { state, commands: [{ type: "open", url: addressOf(selected) }] };
   if (key === "m" && selected) return { state: { ...state, dialog: { type: "model", agentId: selected.id, field: "model", model: selected.model ?? MODEL_CHOICES[0].id, effort: selected.effort } }, commands: [] };
@@ -203,7 +206,7 @@ function dialogStillValid(state: ScreenState, dialog: Dialog): boolean {
 
 // ---- New agent -------------------------------------------------------------------------------------------------
 
-const MODEL_ROW = (dialog: NewAgentDialog) => (dialog.linkedTitles ? 0 : dialog.projects.length + 1);
+const MODEL_ROW = (dialog: NewAgentDialog) => dialog.projects.length + 1;
 const CREATE_ROW = (dialog: NewAgentDialog) => dialog.projects.length;
 
 const withNew = (state: ScreenState, dialog: NewAgentDialog): Update => ({ state: { ...state, dialog }, commands: [] });
@@ -215,7 +218,7 @@ function openForm(dialog: NewAgentDialog, serverUrl: string, projects: ProjectOp
 /** The folder was inspected: ask for the server, or go to the form. */
 export function newAgentQuestions(state: ScreenState, questions: NewAgentQuestions): ScreenState {
   if (state.dialog?.type !== "new") return state;
-  const dialog: NewAgentDialog = { ...state.dialog, servers: questions.servers, model: questions.model, effort: questions.effort, linkedTitles: questions.linkedTitles };
+  const dialog: NewAgentDialog = { ...state.dialog, servers: questions.servers, model: questions.model, effort: questions.effort, linkedTitles: questions.linkedTitles, ticked: questions.linkedIds ?? [] };
   return { ...state, dialog: questions.serverUrl ? openForm(dialog, questions.serverUrl, questions.projects ?? []) : { ...dialog, stage: "server" } };
 }
 
@@ -258,14 +261,29 @@ function onNewKey(state: ScreenState, dialog: NewAgentDialog, key: Key): Update 
     const next = (options: readonly (string | undefined)[], current: string | undefined) => options[Math.min(options.length - 1, Math.max(0, options.indexOf(current) + step))];
     return withNew(state, dialog.row === model + 1 ? { ...clear, effort: next(EFFORT_OPTIONS, dialog.effort) as Effort | undefined } : { ...clear, model: next(modelOptions(dialog.model), dialog.model)! });
   }
-  const onCreate = !dialog.linkedTitles && dialog.row === CREATE_ROW(dialog);
+  const onCreate = dialog.row === CREATE_ROW(dialog);
+  if (key === " " && dialog.linkedTitles && dialog.row < CREATE_ROW(dialog)) {
+    const project = dialog.projects[dialog.row];
+    if (project.takenBy) return { state, commands: [] };
+    const ticked = dialog.ticked.includes(project.id) ? dialog.ticked.filter((id) => id !== project.id) : [...dialog.ticked, project.id];
+    return withNew(state, { ...clear, ticked });
+  }
   if (key === "backspace") return onCreate ? withNew(state, { ...clear, title: [...dialog.title].slice(0, -1).join("") }) : { state, commands: [] };
   if (key === "enter") {
     const title = dialog.title.trim();
-    const creating = !dialog.linkedTitles && dialog.picked === CREATE_ROW(dialog);
+    const start = (choice: Pick<NewAgentAnswers, "project" | "serve">): Update => ({
+      state: { ...state, dialog: { ...clear, busy: true } },
+      commands: [{ type: "start-new", answers: { serverUrl: dialog.serverUrl, ...choice, model: dialog.model, effort: dialog.effort } }],
+    });
+    if (dialog.linkedTitles) {
+      // Listed in the order of the rows, whatever the order they were ticked in.
+      const projectIds = dialog.projects.filter((p) => dialog.ticked.includes(p.id)).map((p) => p.id);
+      if (projectIds.length === 0 && !title) return withNew(state, { ...clear, error: "Tick at least one project." });
+      return start({ serve: { projectIds, ...(title ? { create: title } : {}) } });
+    }
+    const creating = dialog.picked === CREATE_ROW(dialog);
     if (creating && !title) return { state, commands: [] };
-    const project = dialog.linkedTitles ? undefined : creating ? { create: title } : { existing: dialog.projects[dialog.picked].id };
-    return { state: { ...state, dialog: { ...clear, busy: true } }, commands: [{ type: "start-new", answers: { serverUrl: dialog.serverUrl, ...(project ? { project } : {}), model: dialog.model, effort: dialog.effort } }] };
+    return start({ project: creating ? { create: title } : { existing: dialog.projects[dialog.picked].id } });
   }
   const typed = [...key].every((char) => char >= " " && char !== "\x7f");
   return onCreate && typed && key.length > 0 && !NAMED_KEYS.has(key) ? withNew(state, { ...clear, title: dialog.title + key }) : { state, commands: [] };
@@ -708,6 +726,31 @@ function radioRow(label: Span[], focused: boolean, picked: boolean): Span[] {
   return [focused ? span("› ", C.red, true) : span("  "), picked ? span("● ", C.text) : span("○ ", C.dim), ...label];
 }
 
+/** The field of the project to create: the cursor while focused, else the title typed or a placeholder. */
+function titleField(dialog: NewAgentDialog, focused: boolean): Span {
+  if (focused) return span(` ${dialog.title}▏`, C.text, false, C.selected);
+  return dialog.title ? span(` ${dialog.title} `, C.muted, false, C.selected) : span(" Project title ", C.dim, false, C.selected);
+}
+
+/** The projects of a linked folder, as a checklist: a project served by another agent cannot be ticked. */
+function tickRows(dialog: NewAgentDialog): Span[][] {
+  const marker = (row: number) => (dialog.row === row ? span("› ", C.red, true) : span("  "));
+  const rows = dialog.projects.map((project, index) => {
+    const ticked = dialog.ticked.includes(project.id);
+    const box = project.takenBy ? span("– ", C.dim) : ticked ? span("■ ", C.text) : span("□ ", C.dim);
+    const served = project.takenBy ? [span(`  served by ${project.takenBy}`, C.dim)] : [];
+    return [marker(index), box, span(project.title, project.takenBy ? C.dim : ticked ? C.text : C.muted), ...served];
+  });
+  const create = CREATE_ROW(dialog);
+  const typed = dialog.title.trim() !== "";
+  return [
+    [span("Projects", C.text, true), span("  this folder's agent serves every ticked project", C.dim)],
+    ...rows,
+    [marker(create), span("+ ", typed ? C.text : C.dim), span("Create a new project:", typed ? C.text : C.muted), span("  "), titleField(dialog, dialog.row === create)],
+    [],
+  ];
+}
+
 function newBox(state: ScreenState, dialog: NewAgentDialog): DialogBox {
   const where = folderLabel(state.folder, state.home);
   const body: Span[][] = [];
@@ -721,19 +764,19 @@ function newBox(state: ScreenState, dialog: NewAgentDialog): DialogBox {
   }
   if (dialog.stage === "form") {
     const model = MODEL_ROW(dialog);
-    if (!dialog.linkedTitles) {
+    if (dialog.linkedTitles) body.push(...tickRows(dialog));
+    else {
       body.push([span("Project", C.text, true)]);
       dialog.projects.forEach((project, index) => body.push(radioRow([span(project.title, dialog.picked === index ? C.text : C.muted)], dialog.row === index, dialog.picked === index)));
       const create = CREATE_ROW(dialog);
       const focused = dialog.row === create;
-      const title = focused ? span(` ${dialog.title}▏`, C.text, false, C.selected) : dialog.title ? span(` ${dialog.title} `, C.muted, false, C.selected) : span(" Project title ", C.dim, false, C.selected);
-      body.push(radioRow([span("Create a new project:", dialog.picked === create ? C.text : C.muted), span("  "), title], focused, dialog.picked === create), []);
+      body.push(radioRow([span("Create a new project:", dialog.picked === create ? C.text : C.muted), span("  "), titleField(dialog, focused)], focused, dialog.picked === create), []);
     }
     const models = modelOptions(dialog.model);
     const efforts = EFFORT_OPTIONS.map((effort) => effort ?? "default");
     body.push(choiceRow("Model", dialog.row <= model, models, models.indexOf(dialog.model)), choiceRow("Effort", dialog.row === model + 1, efforts, EFFORT_OPTIONS.indexOf(dialog.effort)), []);
     body.push(dialog.busy ? [span("Starting…", C.dim)] : [span("Last choice for this folder is preselected.", C.dim)]);
-    keys.unshift({ key: "↑↓", label: "field" }, { key: "←→", label: "choice" }, { key: "Enter", label: "start" });
+    keys.unshift({ key: "↑↓", label: "field" }, ...(dialog.linkedTitles && dialog.row < CREATE_ROW(dialog) ? [{ key: "Space", label: "tick" }] : []), { key: "←→", label: "choice" }, { key: "Enter", label: "start" });
   }
   if (dialog.error) body.push([], [span("✗ ", C.red), span(dialog.error, C.muted)]);
   return { width: 82, top: 0.35, rows: (inner) => dialogFrame([span("New agent", C.text, true), span("  in the current folder", C.muted)], body.map((spans) => ({ spans })), keys, inner) };

@@ -621,20 +621,85 @@ describe("the agents screen over a host client", () => {
       await done;
     });
 
-    it("skips the project question for a folder that is already linked", async () => {
-      const { terminal, done, flow } = await start(new FakeHost([lumora], { a1: lumoraLog }));
-      flow.questions = { servers: [], serverUrl: "https://redline.brightco.fr", linkedTitles: ["Lumora", "Lumora Pro"], model: "haiku", effort: undefined };
-      flow.agent = cv;
-      terminal.keyListener("n");
-      await settle();
-      expect(terminal.frame).toContain("~/claude-projects/cv  serves Lumora, Lumora Pro.");
-      expect(terminal.frame).not.toContain("Create a new project");
-      expect(terminal.frame).toMatch(/Model {5} opus {3}sonnet {3}haiku/);
-      terminal.keyListener("enter");
-      await settle();
-      expect(flow.started).toEqual([{ serverUrl: "https://redline.brightco.fr", model: "haiku", effort: undefined }]);
-      terminal.keyListener("q");
-      await done;
+    describe("a folder that is already linked", () => {
+      const linkedQuestions: NewAgentQuestions = {
+        servers: [],
+        serverUrl: "https://redline.brightco.fr",
+        linkedTitles: ["Lumora", "Lumora Pro"],
+        linkedIds: ["p1", "p3"],
+        projects: [{ id: "p1", title: "Lumora" }, { id: "p3", title: "Lumora Pro" }, { id: "p2", title: "Radio HAIDF" }, { id: "p4", title: "TDA", takenBy: "tda" }],
+        model: "haiku",
+        effort: undefined,
+      };
+
+      it("lists the server's projects with the folder's ones ticked, and starts on them as they are", async () => {
+        const { terminal, done, flow } = await start(new FakeHost([lumora], { a1: lumoraLog }));
+        flow.questions = linkedQuestions;
+        flow.agent = cv;
+        terminal.keyListener("n");
+        await settle();
+        expect(terminal.frame).toContain("~/claude-projects/cv  serves Lumora, Lumora Pro.");
+        expect(terminal.frame).toContain("Projects  this folder's agent serves every ticked project");
+        expect(terminal.frame).toContain("› ■ Lumora");
+        expect(terminal.frame).toContain("■ Lumora Pro");
+        expect(terminal.frame).toContain("□ Radio HAIDF");
+        expect(terminal.frame).toContain("– TDA  served by tda");
+        expect(terminal.frame).toContain("+ Create a new project:");
+        expect(terminal.frame).toMatch(/Space +tick/);
+        terminal.keyListener("enter");
+        await settle();
+        expect(flow.started).toEqual([{ serverUrl: "https://redline.brightco.fr", serve: { projectIds: ["p1", "p3"] }, model: "haiku", effort: undefined }]);
+        terminal.keyListener("q");
+        await done;
+      });
+
+      it("ticks and unticks projects with Space, never one served elsewhere, and adds a project to create", async () => {
+        const { terminal, done, flow } = await start(new FakeHost([lumora], { a1: lumoraLog }));
+        flow.questions = linkedQuestions;
+        flow.agent = cv;
+        terminal.keyListener("n");
+        await settle();
+        terminal.keyListener(" ");
+        expect(terminal.frame).toContain("› □ Lumora");
+        for (const key of ["down", "down", " ", "down", " "]) terminal.keyListener(key);
+        expect(terminal.frame).toContain("■ Radio HAIDF");
+        expect(terminal.frame).toContain("› – TDA");
+        terminal.keyListener("down");
+        for (const char of "Teasers") terminal.keyListener(char);
+        expect(terminal.frame).toContain("Teasers▏");
+        terminal.keyListener("enter");
+        await settle();
+        expect(flow.started).toEqual([{ serverUrl: "https://redline.brightco.fr", serve: { projectIds: ["p3", "p2"], create: "Teasers" }, model: "haiku", effort: undefined }]);
+        terminal.keyListener("q");
+        await done;
+      });
+
+      it("types a space into the new project's title instead of ticking", async () => {
+        const { terminal, done, flow } = await start(new FakeHost([lumora], { a1: lumoraLog }));
+        flow.questions = linkedQuestions;
+        terminal.keyListener("n");
+        await settle();
+        for (const key of ["down", "down", "down", "down"]) terminal.keyListener(key);
+        for (const char of "Reels Studio") terminal.keyListener(char);
+        expect(terminal.frame).toContain("Reels Studio▏");
+        terminal.keyListener("escape");
+        terminal.keyListener("q");
+        await done;
+      });
+
+      it("refuses to start with no project ticked", async () => {
+        const { terminal, done, flow } = await start(new FakeHost([lumora], { a1: lumoraLog }));
+        flow.questions = linkedQuestions;
+        terminal.keyListener("n");
+        await settle();
+        for (const key of [" ", "down", " ", "enter"]) terminal.keyListener(key);
+        await settle();
+        expect(flow.started).toEqual([]);
+        expect(terminal.frame).toContain("✗ Tick at least one project.");
+        terminal.keyListener("escape");
+        terminal.keyListener("q");
+        await done;
+      });
     });
 
     it("asks the server first when several are set up, then its projects", async () => {
