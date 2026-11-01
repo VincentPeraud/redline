@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { centerOn, fitView, interpolateView, panBy, zoomAt, MAX_ZOOM, MIN_ZOOM } from "../src/canvasView.js";
+import { centerOn, fitView, interpolateView, panBy, zoomAt, zoomWithin, MAX_ZOOM, MIN_ZOOM } from "../src/canvasView.js";
 
 describe("canvas view", () => {
   it("zooms around the cursor so the canvas point under it does not move", () => {
@@ -38,6 +38,28 @@ describe("canvas view", () => {
     expect(view.zoom).toBe(0.5);
     expect(view.x).toBe(0);
     expect(view.y).toBe(125);
+  });
+
+  it("fits a canvas too wide for the minimum zoom, below it", () => {
+    const view = fitView({ x: 0, y: 0, width: 40000, height: 1000 }, { width: 1000, height: 800 }, 0);
+    expect(view.zoom).toBe(0.025);
+  });
+
+  it("zooms out past the minimum zoom down to a lower floor, never further", () => {
+    expect(zoomAt({ x: 0, y: 0, zoom: 0.1 }, 0.5, { x: 0, y: 0 }, 0.025).zoom).toBe(0.05);
+    expect(zoomAt({ x: 0, y: 0, zoom: 0.1 }, 0.0001, { x: 0, y: 0 }, 0.025).zoom).toBe(0.025);
+  });
+
+  it("lands on the whole-canvas view when zooming all the way out of a canvas wider than the minimum zoom shows", () => {
+    const fit = { x: 500, y: 300, zoom: 0.025 };
+    expect(zoomWithin({ x: 0, y: 0, zoom: 0.1 }, 0.5, { x: 0, y: 0 }, fit)).toEqual({ x: 0, y: 0, zoom: 0.05 });
+    expect(zoomWithin({ x: 0, y: 0, zoom: 0.05 }, 0.1, { x: 0, y: 0 }, fit)).toBe(fit);
+  });
+
+  it("zooms a canvas the minimum zoom shows whole as usual, down to the minimum zoom", () => {
+    const fit = { x: 300, y: 300, zoom: 1 };
+    expect(zoomWithin({ x: 0, y: 0, zoom: 1 }, 0.5, { x: 0, y: 0 }, fit)).toEqual({ x: 0, y: 0, zoom: 0.5 });
+    expect(zoomWithin({ x: 0, y: 0, zoom: 1 }, 0.0001, { x: 0, y: 0 }, null).zoom).toBe(MIN_ZOOM);
   });
 
   it("never enlarges a small canvas past 100 % when fitting it", () => {

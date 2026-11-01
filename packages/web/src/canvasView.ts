@@ -15,15 +15,28 @@ export interface Bounds {
 export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 4;
 
-function clampZoom(zoom: number): number {
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+function clampZoom(zoom: number, minZoom = MIN_ZOOM): number {
+  return Math.min(MAX_ZOOM, Math.max(minZoom, zoom));
 }
 
-/** Zoom by `factor` keeping the canvas point under `cursor` (viewport coordinates) fixed. */
-export function zoomAt(view: CanvasView, factor: number, cursor: { x: number; y: number }): CanvasView {
-  const zoom = clampZoom(view.zoom * factor);
+/**
+ * Zoom by `factor` keeping the canvas point under `cursor` (viewport coordinates) fixed. `minZoom` lowers the floor for a
+ * canvas wider than what `MIN_ZOOM` shows, so zooming all the way out still shows all of it.
+ */
+export function zoomAt(view: CanvasView, factor: number, cursor: { x: number; y: number }, minZoom = MIN_ZOOM): CanvasView {
+  const zoom = clampZoom(view.zoom * factor, Math.min(minZoom, MIN_ZOOM));
   const ratio = zoom / view.zoom;
   return { zoom, x: cursor.x - (cursor.x - view.x) * ratio, y: cursor.y - (cursor.y - view.y) * ratio };
+}
+
+/**
+ * The user's zoom (wheel, + and − buttons). For a canvas wider than what `MIN_ZOOM` shows, `fit` (its "Tout voir" view)
+ * is the floor, and reaching it lands on that view, so zooming all the way out shows the whole canvas, centred.
+ */
+export function zoomWithin(view: CanvasView, factor: number, cursor: { x: number; y: number }, fit: CanvasView | null): CanvasView {
+  if (!fit || fit.zoom >= MIN_ZOOM) return zoomAt(view, factor, cursor);
+  const next = zoomAt(view, factor, cursor, fit.zoom);
+  return next.zoom <= fit.zoom ? fit : next;
 }
 
 export function panBy(view: CanvasView, dx: number, dy: number): CanvasView {
@@ -58,10 +71,11 @@ export function interpolateView(from: CanvasView, to: CanvasView, t: number, vie
   return { zoom, x: viewport.width / 2 - centre.x * zoom, y: viewport.height / 2 - centre.y * zoom };
 }
 
-/** Shows the whole of `bounds` centred in the viewport inside `margin`, never past 100 % ("Tout voir"). */
+/** Shows the whole of `bounds` centred in the viewport inside `margin`, never past 100 % but below `MIN_ZOOM` if need be ("Tout voir"). */
 export function fitView(bounds: Bounds, viewport: { width: number; height: number }, margin = 48): CanvasView {
   const zoom = clampZoom(
     Math.min(1, (viewport.width - 2 * margin) / bounds.width, (viewport.height - 2 * margin) / bounds.height),
+    0,
   );
   return {
     zoom,

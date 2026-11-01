@@ -48,7 +48,7 @@ import { ArchivedBanner, type ArchiveKind } from "./ArchiveControls.js";
 import { useStoredToggle } from "./useStoredToggle.js";
 import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
-import { centerOn, fitView, interpolateView, panBy, zoomAt, type CanvasView } from "./canvasView.js";
+import { centerOn, fitView, interpolateView, panBy, zoomWithin, type CanvasView } from "./canvasView.js";
 import { boundsOf } from "./canvasPhotoFit.js";
 import { photoArtboards } from "./CanvasPhoto.js";
 import { OverviewMap } from "./OverviewMap.js";
@@ -260,6 +260,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const glide = useRef<number | null>(null);
   /** The latest "Tout voir", for the keyboard shortcut. */
   const fitAllRef = useRef(() => {});
+  /** The "Tout voir" view, the floor of the user's zoom (see `zoomWithin`). Read by the wheel listener. */
+  const fitViewRef = useRef<CanvasView | null>(null);
   /** Whether the page has an overview to show or hide with M. */
   const hasOverviewRef = useRef(false);
   const stopGlide = useCallback(() => {
@@ -331,7 +333,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
       const rect = element!.getBoundingClientRect();
       if (event.ctrlKey || event.metaKey) {
         const cursor = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-        setView((v) => zoomAt(v, Math.exp(-event.deltaY * 0.01), cursor));
+        setView((v) => zoomWithin(v, Math.exp(-event.deltaY * 0.01), cursor, fitViewRef.current));
       } else {
         setView((v) => panBy(v, -event.deltaX, -event.deltaY));
       }
@@ -388,7 +390,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     const rect = viewport.current?.getBoundingClientRect();
     if (!rect) return;
     stopGlide();
-    setView((v) => zoomAt(v, factor, { x: rect.width / 2, y: rect.height / 2 }));
+    setView((v) => zoomWithin(v, factor, { x: rect.width / 2, y: rect.height / 2 }, fitViewRef.current));
   }
 
   const servingAgentId = project?.servedBy?.id ?? project?.agent?.id;
@@ -748,6 +750,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     if (contentBounds && viewportSize.width > 0) glideTo(fitView(contentBounds, viewportSize));
   }
   fitAllRef.current = fitAll;
+  fitViewRef.current = contentBounds && viewportSize.width > 0 ? fitView(contentBounds, viewportSize) : null;
   const conversationContext = messageContext({ view, viewport: viewportSize, boxes: artboardBoxes, manifest, tweakValues: tweaks.values });
   const artboardTweaks = (file: string) => (manifest?.tweaks ?? []).filter((tweak) => (tweak.artboard ? tweak.artboard === file : file === firstArtboard));
 
