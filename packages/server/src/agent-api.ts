@@ -26,7 +26,7 @@ import {
 import { manifestTitleError, mergeOntoCurrent } from "./publish.js";
 import { agentGaps } from "./gaps.js";
 import { moveArtboard } from "./move-artboard.js";
-import { ARCHIVED_PAGE_ERROR, archivePage, archivedError } from "./archive.js";
+import { ARCHIVED_PAGE_ERROR, archivableExists, archivePage, archiveProject, archivedError, projectOrDesignSystem } from "./archive.js";
 import { tokensEqual } from "./request-hardening.js";
 import { versionComponentsError } from "./components.js";
 import { removalsError } from "./removals.js";
@@ -136,6 +136,28 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (invalid) return reply.code(400).send({ error: invalid });
         store.setProjectDesignSystem(req.params.projectId, designSystem as string | null, "terminal");
         return store.getProject(req.params.projectId);
+      });
+
+      // Terminal mode's `rename_project` and `archive_project`, for a project or a design system: an archived one is refused by the archived guard.
+      api.post<{ Params: { projectId: string }; Body: { title?: unknown } }>("/projects/:projectId/rename", async (req, reply) => {
+        const id = req.params.projectId;
+        if (!archivableExists(store, id)) return reply.code(404).send({ error: "project not found" });
+        const title = req.body?.title;
+        if (titleError(title)) return reply.code(400).send({ error: titleError(title) });
+        store.renameProject(id, (title as string).trim());
+        // The session links the user to the project's page, or the design system's.
+        return { ...projectOrDesignSystem(store, id), isDesignSystem: store.getDesignSystem(id) !== undefined };
+      });
+
+      api.post<{ Params: { projectId: string } }>("/projects/:projectId/archive", async (req, reply) => {
+        if (!archivableExists(store, req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+        const result = archiveProject(store, pageLock, req.params.projectId);
+        if (!("refusal" in result)) return result.archived;
+        const { refusal } = result;
+        if (refusal.reason !== "followed") return reply.code(409).send(refusal);
+        // A session only reads `error`: it names the projects to switch first, and the archived ones to unarchive before.
+        const followers = refusal.projects.map((p) => (p.archived ? `${p.title} (archived: unarchive it in Redline first)` : p.title)).join(", ");
+        return reply.code(409).send({ ...refusal, error: `Projects still follow this design system (${followers}): change their design system first.` });
       });
 
       // Terminal mode finds and creates pages without having one checked out. A design system's own project, and an archived project, are not among them.

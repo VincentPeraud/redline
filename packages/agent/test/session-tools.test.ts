@@ -27,6 +27,8 @@ describe("session MCP tools", () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing" }]);
     await runOnce(engine);
     expect(engine.runs[0].mcpTools).toEqual(expect.arrayContaining(["add_artboard", "create_page", "move_artboard", "rename_page", "archive_page", "check_page", "read_guide"]));
+    expect(engine.runs[0].mcpTools).not.toContain("rename_project");
+    expect(engine.runs[0].mcpTools).not.toContain("archive_project");
   });
 
   it("add_artboard writes the HTML and its manifest entry, published with the run", async () => {

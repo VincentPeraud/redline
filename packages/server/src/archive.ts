@@ -12,6 +12,7 @@ const ARCHIVE_ROUTES = new Set([
   "POST /api/pages/:pageId/unarchive",
   "DELETE /api/pages/:pageId",
   `POST ${AGENT_API_PREFIX}/pages/:pageId/archive`,
+  `POST ${AGENT_API_PREFIX}/projects/:projectId/archive`,
 ]);
 
 /** The page a request writes to, from its route parameters. */
@@ -83,22 +84,39 @@ export function archivePage(store: Store, pageLock: PageLock, page: Page): { sta
   return { status: 200, body: store.getPage(page.id) };
 }
 
+/** A project or design system (not the neutral one): what the archive routes, the web's and terminal mode's, act on. */
+export const archivableExists = (store: Store, id: string) => id !== NEUTRAL_DESIGN_SYSTEM_ID && store.projectExists(id);
+
+/** The project or design system as the routes answer it. */
+export const projectOrDesignSystem = (store: Store, id: string) => store.getDesignSystem(id) ?? store.getProject(id);
+
+const projectBusy = (store: Store, pageLock: PageLock, id: string) => pageLock.hasWorkOn(new Set(store.listPages(id).map((page) => page.id)));
+
+/** Why archiving the project or design system `id` is refused right now, if it is. */
+function projectArchiveRefusal(store: Store, pageLock: PageLock, id: string): ArchiveRefusal | undefined {
+  if (projectBusy(store, pageLock, id)) return { error: "An agent is working on it: wait until it has finished to archive it.", reason: "busy" };
+  const followers = store.getDesignSystem(id) ? store.projectsUsingDesignSystem(id) : [];
+  if (followers.length > 0) return { error: "Projects still follow this design system: change their design system first.", reason: "followed", projects: followers };
+  return undefined;
+}
+
+/** Archives a project or design system (`id` exists), from the web UI or terminal mode's `archive_project` (never deleted from a session). */
+export function archiveProject(store: Store, pageLock: PageLock, id: string): { refusal: ArchiveRefusal } | { archived: ReturnType<typeof projectOrDesignSystem> } {
+  const refusal = projectArchiveRefusal(store, pageLock, id);
+  if (refusal) return { refusal };
+  if (!store.isArchived(id)) store.setArchived(id, true);
+  return { archived: projectOrDesignSystem(store, id) };
+}
+
 /**
- * Archiving, unarchiving and deleting projects and design systems: from the web UI only (no session tool calls them).
+ * Archiving, unarchiving and deleting projects and design systems from the web UI (terminal mode archives through `archiveProject`).
  * A design system's id is its project's, so the same routes serve both.
  */
 export function registerArchiveRoutes(app: FastifyInstance, store: Store, pageLock: PageLock): void {
-  const exists = (id: string) => id !== NEUTRAL_DESIGN_SYSTEM_ID && store.projectExists(id);
-  const busy = (id: string) => pageLock.hasWorkOn(new Set(store.listPages(id).map((page) => page.id)));
-  const current = (id: string) => store.getDesignSystem(id) ?? store.getProject(id);
-
-  /** Why archiving `id` is refused right now, if it is. */
-  const refusal = (id: string): ArchiveRefusal | undefined => {
-    if (busy(id)) return { error: "An agent is working on it: wait until it has finished to archive it.", reason: "busy" };
-    const followers = store.getDesignSystem(id) ? store.projectsUsingDesignSystem(id) : [];
-    if (followers.length > 0) return { error: "Projects still follow this design system: change their design system first.", reason: "followed", projects: followers };
-    return undefined;
-  };
+  const exists = (id: string) => archivableExists(store, id);
+  const busy = (id: string) => projectBusy(store, pageLock, id);
+  const current = (id: string) => projectOrDesignSystem(store, id);
+  const refusal = (id: string) => projectArchiveRefusal(store, pageLock, id);
 
   // The project and design system pages show the archive link disabled, with the reason, before any click.
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/archive", async (req, reply): Promise<ArchiveStatus | undefined> => {
@@ -112,10 +130,8 @@ export function registerArchiveRoutes(app: FastifyInstance, store: Store, pageLo
   app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/archive", async (req, reply) => {
     const id = req.params.projectId;
     if (!exists(id)) return reply.code(404).send({ error: "project not found" });
-    const refused = refusal(id);
-    if (refused) return reply.code(409).send(refused);
-    if (!store.isArchived(id)) store.setArchived(id, true);
-    return current(id);
+    const result = archiveProject(store, pageLock, id);
+    return "refusal" in result ? reply.code(409).send(result.refusal) : result.archived;
   });
 
   app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/unarchive", async (req, reply) => {

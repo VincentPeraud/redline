@@ -142,6 +142,16 @@ export class ServerApi {
     return this.request("POST", "/projects", { title, ...(designSystem ? { designSystem } : {}) });
   }
 
+  /** Renames a project or a design system. */
+  renameProject(projectId: string, title: string): Promise<Project & { isDesignSystem: boolean }> {
+    return this.request("POST", `/projects/${encodeURIComponent(projectId)}/rename`, { title });
+  }
+
+  /** Archives a project or a design system (read-only, unarchived from Redline). */
+  archiveProject(projectId: string): Promise<Project> {
+    return this.request("POST", `/projects/${encodeURIComponent(projectId)}/archive`, {});
+  }
+
   listDesignSystems(): Promise<AgentDesignSystem[]> {
     return this.request("GET", "/design-systems");
   }
@@ -167,6 +177,10 @@ export class ServerApi {
   /** Where the user opens a project or a page in the Redline UI. */
   projectUrl(projectId: string): string {
     return `${this.serverUrl}/#/projects/${encodeURIComponent(projectId)}`;
+  }
+
+  designSystemUrl(designSystemId: string): string {
+    return `${this.serverUrl}/#/design-systems/${encodeURIComponent(designSystemId)}`;
   }
 
   pageUrl(pageId: string): string {

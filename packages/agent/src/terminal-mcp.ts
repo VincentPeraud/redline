@@ -17,6 +17,8 @@ export const PUBLISH_PAGE_TOOL = "publish_page";
 export const LIST_PROJECTS_TOOL = "list_projects";
 export const LIST_PAGES_TOOL = "list_pages";
 export const CREATE_PROJECT_TOOL = "create_project";
+export const RENAME_PROJECT_TOOL = "rename_project";
+export const ARCHIVE_PROJECT_TOOL = "archive_project";
 export const LIST_DESIGN_SYSTEMS_TOOL = "list_design_systems";
 export const CREATE_DESIGN_SYSTEM_TOOL = "create_design_system";
 export const SET_PROJECT_DESIGN_SYSTEM_TOOL = "set_project_design_system";
@@ -185,6 +187,32 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     tool(async ({ title, designSystem }: { title: string; designSystem?: string }) => {
       const project = await api.createProject(title, designSystem);
       return `Project "${project.title}" created (id ${project.id}): ${api.projectUrl(project.id)}. Add its first page with create_page.`;
+    }),
+  );
+  server.registerTool(
+    RENAME_PROJECT_TOOL,
+    {
+      description: "Rename a Redline project or a shared design system: the title shown in Redline. An archived one cannot be renamed.",
+      inputSchema: {
+        projectId: z.string().describe("Id of the project or design system (see list_projects, list_design_systems)"),
+        title: z.string(),
+      },
+    },
+    tool(async ({ projectId, title }: { projectId: string; title: string }) => {
+      const project = await api.renameProject(projectId, title);
+      return `Renamed "${project.title}" (id ${project.id}): ${project.isDesignSystem ? api.designSystemUrl(project.id) : api.projectUrl(project.id)}.`;
+    }),
+  );
+  server.registerTool(
+    ARCHIVE_PROJECT_TOOL,
+    {
+      description:
+        "Archive a Redline project or a shared design system the user no longer needs: it leaves list_projects and list_design_systems and becomes read-only (its pages can no longer be published), but keeps its pages, versions and comments, and the user can unarchive it in Redline. Nothing can be deleted from here. Refused while an agent works on one of its pages, and for a design system projects still follow. Only when the user asks.",
+      inputSchema: { projectId: z.string().describe("Id of the project or design system (see list_projects, list_design_systems)") },
+    },
+    tool(async ({ projectId }: { projectId: string }) => {
+      const project = await api.archiveProject(projectId);
+      return `Archived "${project.title}" (id ${project.id}). The user can unarchive it in Redline.`;
     }),
   );
   server.registerTool(

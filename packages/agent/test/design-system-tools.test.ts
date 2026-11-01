@@ -135,3 +135,40 @@ describe("terminal design system tools", () => {
     expect((await call("set_project_design_system", { projectId: "nope", designSystem: null })).isError).toBe(true);
   });
 });
+
+describe("terminal project tools", () => {
+  it("renames a project and a design system, with their links", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const call = await connectTerminal(seam.folder);
+    await call("create_design_system", { title: "Lumora" });
+    const ds = (await designSystems()).find((d) => d.title === "Lumora")!;
+
+    const project = await call("rename_project", { projectId: seam.project.id, title: "Radio HAIDF v2" });
+    expect(project.isError).toBe(false);
+    expect(project.text).toContain(`#/projects/${seam.project.id}`);
+    expect((await projectOf(seam.project.id)).title).toBe("Radio HAIDF v2");
+
+    const renamed = await call("rename_project", { projectId: ds.id, title: "Lumora v2" });
+    expect(renamed.text).toContain(`#/design-systems/${ds.id}`);
+    expect((await designSystems()).find((d) => d.id === ds.id)!.title).toBe("Lumora v2");
+
+    expect((await call("rename_project", { projectId: "nope", title: "X" })).isError).toBe(true);
+  });
+
+  it("archives a project, and explains why a followed design system is refused", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const call = await connectTerminal(seam.folder);
+    await call("create_design_system", { title: "Lumora" });
+    const ds = (await designSystems()).find((d) => d.title === "Lumora")!;
+    const follower = (await (await seam.server.post("/api/projects", { title: "Halloween", designSystem: ds.id })).json()) as Project;
+
+    const followed = await call("archive_project", { projectId: ds.id });
+    expect(followed.isError).toBe(true);
+    expect(followed.text).toContain("Halloween");
+
+    const archived = await call("archive_project", { projectId: follower.id });
+    expect(archived.isError).toBe(false);
+    expect(await projectOf(follower.id)).toBeUndefined();
+    expect((await call("rename_project", { projectId: follower.id, title: "Back" })).text).toMatch(/archived/);
+  });
+});

@@ -207,6 +207,60 @@ describe("archiving and deleting projects and design systems", () => {
     expect((await server.post("/api/design-systems", { title: "From Acme", fromProjectId: acme.id })).status).toBe(409);
   });
 
+  const agentPost = async (path: string, body: unknown = {}) => {
+    const { token } = await json<{ token: string }>(server.get("/api/agent-token"));
+    return fetch(server.url + AGENT_API_PREFIX + path, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+  };
+
+  it("lets terminal mode rename a project or a design system, but not an archived one, the neutral one or an unknown id", async () => {
+    const acme = await createProject("Acme");
+    const ds = await json<DesignSystem>(server.post("/api/design-systems", { title: "Lumora DS" }));
+
+    expect(await json(agentPost(`/projects/${acme.id}/rename`, { title: "  Acme v2 " }))).toMatchObject({ id: acme.id, title: "Acme v2", isDesignSystem: false });
+    expect((await json<Project>(server.get(`/api/projects/${acme.id}`))).title).toBe("Acme v2");
+    expect(await json(agentPost(`/projects/${ds.id}/rename`, { title: "Lumora DS v2" }))).toMatchObject({ id: ds.id, title: "Lumora DS v2", isDesignSystem: true });
+    expect((await json<DesignSystemSummary[]>(server.get("/api/design-systems"))).map((d) => d.title)).toContain("Lumora DS v2");
+
+    expect((await agentPost(`/projects/${acme.id}/rename`, { title: "  " })).status).toBe(400);
+    expect((await agentPost("/projects/nope/rename", { title: "X" })).status).toBe(404);
+    expect((await agentPost("/projects/neutral/rename", { title: "X" })).status).toBe(404);
+    await server.post(`/api/projects/${acme.id}/archive`, {});
+    const archived = await agentPost(`/projects/${acme.id}/rename`, { title: "Acme v3" });
+    expect(archived.status).toBe(409);
+    expect(((await archived.json()) as { error: string }).error).toMatch(/archived/);
+  });
+
+  it("lets terminal mode archive a project or a design system, with the web's refusals", async () => {
+    const acme = await createProject("Acme");
+    const ds = await json<DesignSystem>(server.post("/api/design-systems", { title: "Lumora DS" }));
+    const follower = await createProject("Halloween", ds.id);
+
+    const followed = await agentPost(`/projects/${ds.id}/archive`);
+    expect(followed.status).toBe(409);
+    expect(await followed.json()).toMatchObject({ reason: "followed", projects: [{ id: follower.id, title: "Halloween" }], error: expect.stringContaining("(Halloween)") });
+    await server.post(`/api/projects/${follower.id}/archive`, {});
+    expect(((await (await agentPost(`/projects/${ds.id}/archive`)).json()) as { error: string }).error).toMatch(/Halloween \(archived: unarchive it in Redline first\)/);
+
+    expect(await json(agentPost(`/projects/${acme.id}/archive`))).toMatchObject({ id: acme.id, archivedAt: expect.any(String) });
+    expect((await agentPost(`/projects/${acme.id}/archive`)).status).toBe(200);
+    expect((await agentPost("/projects/nope/archive")).status).toBe(404);
+    expect((await agentPost("/projects/neutral/archive")).status).toBe(404);
+  });
+
+  it("refuses a terminal archive of a project while an agent works on it", async () => {
+    const acme = await createProject("Acme");
+    const page = await createPage(acme.id);
+    const agent = await server.connectAgent({ projectId: acme.id });
+    await agent.hello;
+    await pin(page.id);
+    for (let i = 0; i < 100 && !agent.messages.some((m) => m.type === "work"); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(agent.messages.some((m) => m.type === "work")).toBe(true);
+
+    const busy = await agentPost(`/projects/${acme.id}/archive`);
+    expect(busy.status).toBe(409);
+    expect(await busy.json()).toMatchObject({ reason: "busy" });
+  });
+
   it("survives a restart archived", async () => {
     const acme = await createProject("Acme");
     await server.post(`/api/projects/${acme.id}/archive`, {});
