@@ -215,7 +215,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const [seenGap, setSeenGap] = useState<SeenGap | null>(null);
   const seenFile = useRef<string | null>(null);
   const designSystemId = designSystemPage ? projectId : undefined;
-  const pendingComponents = useDesignSystemDetail(designSystemId, versionId)?.pending.components;
+  const designSystemDetail = useDesignSystemDetail(designSystemId, versionId);
+  const pendingComponents = designSystemDetail?.pending.components;
   const componentChange = (file: string): "modifié" | "nouveau" | null => {
     const name = componentNameOf(file);
     if (name === null || !pendingComponents) return null;
@@ -765,6 +766,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         previewOf={previewOf}
         project={project}
         designSystemId={designSystemId}
+        designSystemTitle={designSystemDetail?.title}
         versionId={versionId}
         pageId={pageId}
         pageTitle={pageTitle}

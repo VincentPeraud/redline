@@ -48,8 +48,24 @@ function AgentPill({ project, running }: { project: Project | null; running: num
   );
 }
 
+/** What a page belongs to: a project, or a design system for its own pages. */
+interface PageOwner {
+  id: string;
+  title: string;
+  kind: "project" | "designSystem";
+}
+
+const OWNER_LABELS = {
+  project: { pages: "Pages du projet", overview: "Vue du projet" },
+  designSystem: { pages: "Pages du design system", overview: "Vue du design system" },
+} as const;
+
+function ownerHref(owner: PageOwner): string {
+  return owner.kind === "project" ? routeHref({ name: "project", projectId: owner.id }) : routeHref({ name: "designSystem", designSystemId: owner.id });
+}
+
 interface PageMenuProps {
-  project: Project | null;
+  owner: PageOwner | null;
   pageId: string;
   pageTitle: string;
   artboardOrigin: string;
@@ -62,7 +78,7 @@ interface PageMenuProps {
   archived?: boolean;
 }
 
-function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBack, onRenamePage, previewOf, archived = false }: PageMenuProps) {
+function PageMenu({ owner, pageId, pageTitle, artboardOrigin, deleted, onPutBack, onRenamePage, previewOf, archived = false }: PageMenuProps) {
   const who = useWho();
   const [open, setOpen] = useState(false);
   const [deletedOpen, setDeletedOpen] = useState(false);
@@ -71,11 +87,11 @@ function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBa
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!open || !project) return;
+    if (!open || !owner) return;
     let cancelled = false;
     // The pages show at once; each open thread count joins when it comes, and one that fails leaves its page without a count.
     void (async () => {
-      const response = await fetch(`/api/projects/${project.id}/pages`).catch(() => undefined);
+      const response = await fetch(`/api/projects/${owner.id}/pages`).catch(() => undefined);
       const list = response?.ok ? ((await response.json().catch(() => undefined)) as Page[] | undefined) : undefined;
       if (!list || cancelled) return;
       setPages(list.map((page) => ({ page, openThreads: 0 })));
@@ -93,7 +109,7 @@ function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBa
     return () => {
       cancelled = true;
     };
-  }, [open, project]);
+  }, [open, owner?.id]);
 
   useEffect(() => {
     if (!open) return;
@@ -112,16 +128,16 @@ function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBa
   }, [open]);
 
   useEffect(() => {
-    if (!project) return;
+    if (!owner) return;
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        window.location.hash = routeHref({ name: "project", projectId: project.id });
+        window.location.hash = ownerHref(owner);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [project]);
+  }, [owner?.id, owner?.kind]);
 
   if (renaming) {
     return (
@@ -162,9 +178,9 @@ function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBa
           onClose={() => setDeletedOpen(false)}
         />
       )}
-      {open && project && (
-        <div role="menu" aria-label={`Pages du projet ${project.title}`} className={styles.menu}>
-          <div className={styles.menuTitle}>Pages du projet</div>
+      {open && owner && (
+        <div role="menu" aria-label={`${OWNER_LABELS[owner.kind].pages} ${owner.title}`} className={styles.menu}>
+          <div className={styles.menuTitle}>{OWNER_LABELS[owner.kind].pages}</div>
           {pages.map(({ page, openThreads }) => (
             <a
               key={page.id}
@@ -195,8 +211,8 @@ function PageMenu({ project, pageId, pageTitle, artboardOrigin, deleted, onPutBa
               <span className={styles.menuMuted}>{deleted.length}</span>
             </button>
           )}
-          <a role="menuitem" href={routeHref({ name: "project", projectId: project.id })} className={cx(styles.menuItem, styles.menuItemPlain)}>
-            Vue du projet
+          <a role="menuitem" href={ownerHref(owner)} className={cx(styles.menuItem, styles.menuItemPlain)}>
+            {OWNER_LABELS[owner.kind].overview}
             <span className={styles.spacer} />
             <span className={styles.menuKey}>⌘K</span>
           </a>
@@ -211,6 +227,8 @@ interface Props {
   /** The project id; `DiffuseButton` shows only when it is a design system with pending changes. */
   /** Set on a design system's own page only. */
   designSystemId?: string;
+  /** The design system's title, on its own pages: the breadcrumb and the page menu name it. */
+  designSystemTitle?: string;
   versionId: string;
   pageId: string;
   pageTitle: string;
@@ -240,28 +258,33 @@ interface Props {
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, designSystemId, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf, archived = false }: Props) {
+export function CanvasHeader({ project, designSystemId, designSystemTitle, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf, archived = false }: Props) {
   const me = useMe();
+  const owner: PageOwner | null = project
+    ? { id: project.id, title: project.title, kind: "project" }
+    : designSystemId && designSystemTitle
+      ? { id: designSystemId, title: designSystemTitle, kind: "designSystem" }
+      : null;
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
         <Logo />
       </a>
       <nav aria-label="Fil d'Ariane" className={styles.crumbs}>
-        {project && (
+        {owner && (
           <>
             {previewOf === undefined ? (
-              <a href={routeHref({ name: "project", projectId: project.id })} className={styles.crumbLink}>
-                {project.title}
+              <a href={ownerHref(owner)} className={styles.crumbLink}>
+                {owner.title}
               </a>
             ) : (
-              <span>{project.title}</span>
+              <span>{owner.title}</span>
             )}
             <span aria-hidden="true">/</span>
           </>
         )}
         <PageMenu
-          project={project}
+          owner={owner}
           pageId={pageId}
           pageTitle={pageTitle}
           artboardOrigin={artboardOrigin}

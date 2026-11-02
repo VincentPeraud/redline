@@ -74,3 +74,17 @@ it("opens a single server events stream per tab, so the browser's six connection
 
   expect(streams).toHaveLength(1);
 }, 60_000);
+
+it("lists a design system's pages from one of its pages and goes back to the design system", async () => {
+  const ds = (await (await server.post("/api/design-systems", { title: "Lumora" })).json()) as { id: string; pageId: string };
+  await server.post(`/api/projects/${ds.id}/pages`, { title: "Actions", files });
+
+  const tab = await context.newPage();
+  await tab.goto(`${server.url}/#/pages/${ds.pageId}`);
+  await expect.poll(() => tab.getByRole("navigation", { name: "Fil d'Ariane" }).getByRole("link", { name: "Lumora" }).count()).toBe(1);
+  await tab.getByRole("navigation", { name: "Fil d'Ariane" }).getByRole("button").first().click();
+
+  const menu = tab.getByRole("menu", { name: "Pages du design system Lumora" });
+  await expect.poll(() => menu.getByRole("menuitem").allInnerTexts()).toEqual(expect.arrayContaining([expect.stringMatching(/^Actions/)]));
+  await expect.poll(() => menu.getByRole("menuitem", { name: /Vue du design system/ }).getAttribute("href")).toBe(`#/design-systems/${ds.id}`);
+}, 60_000);
