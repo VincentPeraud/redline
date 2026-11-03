@@ -2,6 +2,8 @@ import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply,
 import { tweakGridError, type TweakGridDeclaration } from "./tweakGrid.js";
 import type { Gap } from "./gaps.js";
 import type { Person } from "./people.js";
+import type { InstanceState } from "./instanceState.js";
+import type { ThreadRequest } from "./request.js";
 
 export * from "./work.js";
 export * from "./sessions.js";
@@ -295,6 +297,7 @@ export type ThreadTarget =
       yPct: number;
       rendering?: ThreadRendering;
       cell?: TweakValues;
+      instanceState?: InstanceState[];
     }
   | { kind: "artboard"; artboard: string }
   | { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind; /** What the element shows now (`canvasElementSummary`); what it showed when the user commented it once the element is removed. */ elementSummary?: string };
@@ -341,6 +344,8 @@ export interface Thread {
   rendering?: ThreadRendering;
   /** Tweak grid cell the thread was pinned in: the values of the grid's tweaks (tweak id to value); absent on other artboards. */
   cell?: TweakValues;
+  /** Component instances that were in a state of their own (an open modal) when the thread was written; clicking the thread replays it. */
+  instanceState?: InstanceState[];
   /** First line of the comment, kept visible when the thread is resolved. */
   title: string;
   body: string;
@@ -348,6 +353,8 @@ export interface Thread {
   person?: Person;
   /** Opened by Redline itself (signed "Redline"), for example when a diffusion removes something a page uses; no person wrote it. */
   automatic?: true;
+  /** Set on a request to the design system (a thread on a component's artboard, opened by a project's session). */
+  request?: ThreadRequest;
   status: ThreadStatus;
   /** Derived, never stored: a canvas-element thread whose element is absent from the page's current manifest. */
   removed?: true;
@@ -381,6 +388,8 @@ export interface CreateElementThreadRequest extends CreateThreadCommon {
   rendering?: ThreadRendering;
   /** Tweak grid cell the comment was pinned in (tweak id to value). */
   cell?: TweakValues;
+  /** Instances that were in a state of their own when the comment was written (the bridge reports them with the pick). */
+  instanceState?: InstanceState[];
 }
 
 /** A comment on a whole artboard: no element, no pin, no rendering. The artboard must be on the page. */
@@ -1342,6 +1351,7 @@ export * from "./components.js";
 export * from "./componentDefinition.js";
 export * from "./instanceUses.js";
 export * from "./instanceAnchor.js";
+export * from "./instanceState.js";
 export * from "./diffusion.js";
 export * from "./projectDesignSystem.js";
 export * from "./gaps.js";
@@ -1349,3 +1359,4 @@ export * from "./canvasAnchors.js";
 export * from "./columnShift.js";
 export * from "./arrowGeometry.js";
 export * from "./layoutIssues.js";
+export * from "./request.js";

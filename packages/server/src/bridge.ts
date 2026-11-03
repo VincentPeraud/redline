@@ -1,21 +1,22 @@
-import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokensUrlPath, projectComponentsUrlPath, projectStyleUrlPath, GAP_OUTLINE_CSS, HOVER_FINISH, INSTANCE_ANCHOR_SEPARATOR, MARK_FINISH, hoverLabelCss, hoverOutlineCss, instanceLabelCss, instanceOutlineCss, markBadgeCss } from "@redline/shared";
+import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokensUrlPath, projectComponentsUrlPath, projectStyleUrlPath, GAP_OUTLINE_CSS, HOVER_FINISH, INSTANCE_ANCHOR_SEPARATOR, INSTANCE_FINISH, MARK_FINISH, hoverLabelCss, hoverOutlineCss, instanceLabelCss, instanceOutlineCss, markBadgeCss } from "@redline/shared";
 
 /**
  * Script injected into every served artboard HTML. Artboards run in a sandboxed iframe with an
  * opaque origin, so the web UI cannot touch their DOM: it talks to this bridge by postMessage.
  *
  * Parent -> artboard: { type: "redline:set-mode", picking: boolean, selecting: boolean, alt: boolean }  (selecting: the conversation's selection mode, which hovers and picks like comment mode; alt: the Alt key is held in the parent page, where keyboard focus usually is)
- *                     { type: "redline:set-pins", pins: [{ id, selector, xPct, yPct }] }  (a selector "<instance> >>> <path>" anchors inside a component instance, see INSTANCE_ANCHOR_SEPARATOR)
+ *                     { type: "redline:set-pins", pins: [{ id, selector, xPct, yPct, instanceState? }] }  (a selector "<instance> >>> <path>" anchors inside a component instance, see INSTANCE_ANCHOR_SEPARATOR; instanceState: the state the thread was written in)
+ *                     { type: "redline:replay-state", id }  (sets the remembered instance state of the pin with that id, then reports the pins again)
  *                     { type: "redline:set-marks", marks: [{ number, selector }] }  (numbered selection marks, drawn whenever there are some)
  *                     { type: "redline:set-gap", selector: string | null }  (outlines the element a design system gap points at, and answers redline:gap-rect when it exists)
  *                     { type: "redline:set-links", selectors: string[] | null }  (play mode: clicks on a match are reported, not performed)
  *                     { type: "redline:set-tweaks", values: { [tweakId]: string | number | boolean } }  (full set; applied as --tweak-<id> CSS variables, data-tweak-<id> attributes on <html>, window.redlineTweaks and a "redline:tweaks" window event)
  *                     (comment mode, and Alt held in interactive mode, draw the hover outline and label in an overlay of the artboard document)
  * Artboard -> parent: { type: "redline:ready" }
- *                     { type: "redline:picked", selector, elementName, xPct, yPct }  (elementName: role + short visible text, e.g. bouton « Continuer »)
+ *                     { type: "redline:picked", selector, elementName, xPct, yPct, instanceState? }  (elementName: role + short visible text, e.g. bouton « Continuer »; instanceState: [{ selector, attributes }] of the instances that left their state at load, e.g. { open: "" })
  *                     { type: "redline:escape" }  (Escape pressed in selection mode: the iframe holds the keyboard focus, so the parent cannot hear it)
  *                     { type: "redline:key", key: "ArrowLeft" | "ArrowRight" }  (arrow pressed with no modifier outside a text field: the iframe holds the keyboard focus, so play mode cannot hear it)
- *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched, elementGone? }] }  (elementGone: the element inside the instance no longer exists, the pin sits on the instance)
+ *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched, elementGone?, hidden?, missingState? }] }  (elementGone: the element inside the instance no longer exists, the pin sits on the instance; hidden: the pin's remembered state does not hold now; missingState: indexes of the state entries that cannot be replayed any more)
  *                     { type: "redline:link", selector }
  *                     { type: "redline:gap-rect", x, y, width, height }  (box of the element outlined by redline:set-gap, in page pixels)
  *                     { type: "redline:doc-height", height }  (height of the whole page in pixels; sent on load and whenever it changes)
@@ -304,19 +305,92 @@ export const BRIDGE_SOURCE = `(function () {
     window.parent.postMessage(message, "*");
   }
 
+  // Remembered state: the attributes an instance can be in (open, selected, its settings) that differ from what it had at load.
+  var STATE_ATTRIBUTES = ["open", "selected"];
+  var initialStates = [];
+
+  function instances() {
+    return Array.prototype.filter.call(document.querySelectorAll("*"), function (el) { return !!el.__redlineInstance; });
+  }
+
+  function attributesOf(host) {
+    var names = STATE_ATTRIBUTES.concat(host.__redlineInstance.definition.settings.map(function (s) { return s.name; }));
+    var attributes = {};
+    names.forEach(function (name) {
+      if (host.hasAttribute(name)) attributes[name] = host.getAttribute(name);
+    });
+    return attributes;
+  }
+
+  window.addEventListener("load", function () {
+    initialStates = instances().map(function (host) { return { host: host, attributes: attributesOf(host) }; });
+  });
+
+  function currentState() {
+    var state = [];
+    instances().forEach(function (host) {
+      var now = attributesOf(host);
+      var initial = initialStates.filter(function (s) { return s.host === host; })[0];
+      var before = initial ? initial.attributes : {};
+      var changed = {};
+      var any = false;
+      Object.keys(now).forEach(function (name) {
+        if (before[name] !== now[name]) { changed[name] = now[name]; any = true; }
+      });
+      if (any) state.push({ selector: selectorFor(host), attributes: changed });
+    });
+    return state;
+  }
+
+  // The instance of a state entry when it can still be put in that state: it exists, and each setting is still defined with that value.
+  function replayable(entry) {
+    var found = resolve(entry.selector);
+    var host = found.el;
+    if (!host || found.gone || !host.__redlineInstance) return null;
+    var settings = host.__redlineInstance.definition.settings;
+    var ok = Object.keys(entry.attributes).every(function (name) {
+      if (STATE_ATTRIBUTES.indexOf(name) !== -1) return true;
+      var setting = settings.filter(function (s) { return s.name === name; })[0];
+      return !!setting && (!setting.options || setting.options.indexOf(entry.attributes[name]) !== -1);
+    });
+    return ok ? host : null;
+  }
+
+  function stateHolds(entry, host) {
+    return Object.keys(entry.attributes).every(function (name) { return host.getAttribute(name) === entry.attributes[name]; });
+  }
+
+  function replayState(pin) {
+    (pin.instanceState || []).forEach(function (entry) {
+      var host = replayable(entry);
+      if (host) Object.keys(entry.attributes).forEach(function (name) { host.setAttribute(name, entry.attributes[name]); });
+    });
+  }
+
   function locate(pin) {
+    var missing = [];
+    var holds = true;
+    (pin.instanceState || []).forEach(function (entry, index) {
+      var host = replayable(entry);
+      if (!host) missing.push(index);
+      else if (!stateHolds(entry, host)) holds = false;
+    });
     var found = resolve(pin.selector);
     var el = found.el;
-    if (!el) return { id: pin.id, xPct: pin.xPct, yPct: pin.yPct, matched: false };
-    var rect = el.getBoundingClientRect();
-    var size = docSize();
-    var position = {
-      id: pin.id,
-      xPct: 100,
-      yPct: pct(rect.top + rect.height / 2 + (window.scrollY || 0), size.h),
-      matched: true
-    };
-    if (found.gone) position.elementGone = true;
+    if (!holds) return { id: pin.id, xPct: pin.xPct, yPct: pin.yPct, matched: !!el, hidden: true, missingState: missing };
+    var position = { id: pin.id, xPct: pin.xPct, yPct: pin.yPct, matched: false };
+    if (el) {
+      var rect = el.getBoundingClientRect();
+      var size = docSize();
+      position = {
+        id: pin.id,
+        xPct: 100,
+        yPct: pct(rect.top + rect.height / 2 + (window.scrollY || 0), size.h),
+        matched: true
+      };
+      if (found.gone) position.elementGone = true;
+    }
+    if (missing.length > 0) position.missingState = missing;
     return position;
   }
 
@@ -381,6 +455,8 @@ export const BRIDGE_SOURCE = `(function () {
 
   var INSTANCE_OUTLINE_CSS = ${JSON.stringify(instanceOutlineCss())};
   var INSTANCE_LABEL_CSS = ${JSON.stringify(instanceLabelCss())};
+  var INSTANCE_LABEL_OFFSET_X = ${INSTANCE_FINISH.labelOffsetX};
+  var INSTANCE_LABEL_OFFSET_Y = ${INSTANCE_FINISH.labelOffsetY};
   var instanceRoot = null;
 
   function instanceParts() {
@@ -427,7 +503,7 @@ export const BRIDGE_SOURCE = `(function () {
     root.style.display = "";
     root.firstChild.style.cssText = "position: fixed; left: " + rect.left + "px; top: " + rect.top + "px; width: " + rect.width + "px; height: " + rect.height + "px; border-radius: " + (window.getComputedStyle(host).borderRadius || "0") + "; " + INSTANCE_OUTLINE_CSS;
     root.lastChild.textContent = instanceLabelOf(host);
-    root.lastChild.style.cssText = "position: fixed; left: " + (rect.right - LABEL_OFFSET_X) + "px; top: " + Math.max(1, rect.top + LABEL_OFFSET_Y) + "px; transform: translateX(-100%); " + INSTANCE_LABEL_CSS;
+    root.lastChild.style.cssText = "position: fixed; left: " + Math.max(1, rect.left + INSTANCE_LABEL_OFFSET_X) + "px; top: " + Math.max(1, rect.top + INSTANCE_LABEL_OFFSET_Y) + "px; " + INSTANCE_LABEL_CSS;
   }
 
   function drawHover() {
@@ -554,13 +630,16 @@ export const BRIDGE_SOURCE = `(function () {
     event.preventDefault();
     event.stopPropagation();
     var size = docSize();
-    send({
+    var picked = {
       type: "redline:picked",
       selector: selectorFor(event.target),
       elementName: nameOf(event.target),
       xPct: pct(event.clientX + (window.scrollX || 0), size.w),
       yPct: pct(event.clientY + (window.scrollY || 0), size.h)
-    });
+    };
+    var state = currentState();
+    if (state.length > 0) picked.instanceState = state;
+    send(picked);
   }, true);
 
   window.addEventListener("message", function (event) {
@@ -585,6 +664,9 @@ export const BRIDGE_SOURCE = `(function () {
       if (gapBox) send({ type: "redline:gap-rect", x: gapBox.left + (window.scrollX || 0), y: gapBox.top + (window.scrollY || 0), width: gapBox.width, height: gapBox.height });
     } else if (event.data.type === "redline:set-pins") {
       pins = event.data.pins || [];
+      reportPins();
+    } else if (event.data.type === "redline:replay-state") {
+      pins.filter(function (pin) { return pin.id === event.data.id; }).forEach(replayState);
       reportPins();
     }
   });
@@ -639,6 +721,15 @@ export const BRIDGE_SOURCE = `(function () {
     reportHeight();
   });
   window.addEventListener("load", reportHeight);
+  // A pin with a remembered state shows and hides as the instances enter and leave that state.
+  if (typeof MutationObserver === "function") {
+    var statePending = false;
+    new MutationObserver(function () {
+      if (statePending || !pins.some(function (pin) { return pin.instanceState; })) return;
+      statePending = true;
+      setTimeout(function () { statePending = false; reportPins(); }, 0);
+    }).observe(document, { attributes: true, subtree: true });
+  }
   if (typeof ResizeObserver === "function") {
     var observer = new ResizeObserver(reportHeight);
     observer.observe(document.documentElement);

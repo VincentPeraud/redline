@@ -18,6 +18,7 @@ import {
   type TerminalWaitingPage,
   type MoveArtboardRequest,
   type RenamePageRequest,
+  type SendRequestRequest,
   type DesignMdAuthor,
   starterDesignSystemFiles,
   starterPageFiles,
@@ -26,6 +27,7 @@ import {
 import { manifestTitleError, mergeOntoCurrent } from "./publish.js";
 import { agentGaps } from "./gaps.js";
 import { moveArtboard } from "./move-artboard.js";
+import { sendRequest } from "./requests.js";
 import { ARCHIVED_PAGE_ERROR, archivableExists, archivePage, archiveProject, archivedError, projectOrDesignSystem } from "./archive.js";
 import { tokensEqual } from "./request-hardening.js";
 import { versionComponentsError } from "./components.js";
@@ -312,6 +314,17 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         }
         const { status, body } = archivePage(store, pageLock, page);
         return reply.code(status).send(body);
+      });
+
+      // A project's session asks its design system for something a component lacks (agent sessions and terminal mode alike).
+      api.post<{ Params: { pageId: string }; Body: Partial<SendRequestRequest> }>("/pages/:pageId/requests", async (req, reply) => {
+        const workId = req.body?.workId;
+        const workPage = typeof workId === "string" ? pageLock.itemOf(workId)?.pageId : undefined;
+        if (workId !== undefined && store.getPage(workPage ?? "")?.projectId !== store.getPage(req.params.pageId)?.projectId) {
+          return reply.code(403).send({ error: "This session cannot send a request for that page: it belongs to another project, or the run is over." });
+        }
+        const outcome = sendRequest(store, pageLock, terminalSessions, req.params.pageId, req.body);
+        return reply.code(outcome.status).send(outcome.body);
       });
 
       api.post<{ Params: { pageId: string }; Body: Partial<MoveArtboardRequest> }>("/pages/:pageId/move-artboard", async (req, reply) => {

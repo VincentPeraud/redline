@@ -104,6 +104,10 @@ export function createThreadRequestError(request: unknown): string | null {
     const invalidCell = threadCellError(pin.cell);
     if (invalidCell) return invalidCell;
   }
+  if (pin.instanceState !== undefined) {
+    const invalidState = instanceStateError(pin.instanceState);
+    if (invalidState) return invalidState;
+  }
   return modelChoiceError(pin);
 }
 
@@ -220,6 +224,23 @@ export function threadRenderingError(rendering: unknown): string | null {
   const { format, width } = (rendering ?? {}) as { format?: unknown; width?: unknown };
   const valid = typeof format === "string" && Object.hasOwn(RESPONSIVE_FORMATS, format) && typeof width === "number" && Number.isFinite(width) && width > 0;
   return valid ? null : "rendering must be { format: a responsive format, width: a positive number }";
+}
+
+/** Error message when the remembered state of a thread's component instances is malformed, else null. */
+export function instanceStateError(state: unknown): string | null {
+  const valid =
+    Array.isArray(state) &&
+    state.length > 0 &&
+    state.every(
+      (entry) =>
+        isObject(entry) &&
+        requiredString(entry.selector) &&
+        isObject(entry.attributes) &&
+        !Array.isArray(entry.attributes) &&
+        Object.keys(entry.attributes).length > 0 &&
+        Object.values(entry.attributes).every((v) => typeof v === "string"),
+    );
+  return valid ? null : "instanceState must list instances ({ selector, attributes }) with string attributes";
 }
 
 /** Error message when a thread's tweak grid cell (tweak id to value) is malformed, else null. */

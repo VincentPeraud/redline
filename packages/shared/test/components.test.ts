@@ -77,6 +77,12 @@ describe("assembleComponents", () => {
     expect(indexes.p2).toBe("- badge\n  variants: tone (Tone: ok, warn)\n");
   });
 
+  it("tells how to write an instance of a component that has a template, with its slots", () => {
+    const html = component(".card{}", '<template data-component><div class="card"><h2><slot name="title"></slot></h2><slot></slot></div></template>');
+    const { indexes } = assembleComponents([{ id: "p", title: "P", files: { "manifest.json": manifest([board("components/card.html", 0)], { tweaks: [{ id: "tone", label: "Tone", type: "choice", options: ["a", "b"], artboard: "components/card.html" }] }), "components/card.html": html } }]);
+    expect(indexes.p).toBe("- card\n  instance: <ui-card>, slots: title, default\n  variants: tone (Tone: a, b)\n");
+  });
+
   it("reports a name used twice, naming both files", () => {
     const dup: ComponentPage[] = [
       { id: "p1", title: "Forms", files: { "manifest.json": manifest([board("components/button.html", 0)]), "components/button.html": component("a{}") } },

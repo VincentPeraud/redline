@@ -170,7 +170,7 @@ function pageComponents(page: ComponentPage): ComponentInfo[] {
 
 const variantLine = (tweak: ManifestTweak) => `${tweak.id} (${tweak.label}${tweak.type === "choice" && tweak.options ? `: ${tweak.options.join(", ")}` : ""})`;
 
-function indexText(components: ComponentInfo[]): string {
+function indexText(components: ComponentInfo[], files: Record<string, string>): string {
   const sections: string[] = [];
   const groups: (string | null)[] = [];
   for (const component of components) if (!groups.includes(component.groupTitle)) groups.push(component.groupTitle);
@@ -179,6 +179,8 @@ function indexText(components: ComponentInfo[]): string {
     for (const component of components.filter((c) => c.groupTitle === group)) {
       lines.push(`- ${component.name}${component.description ? `: ${component.description}` : ""}`);
       if (component.usage) lines.push(`  usage: ${component.usage}`);
+      const definition = componentDefinitionOf(component.name, files[component.file] ?? "", component.variants);
+      if (definition) lines.push(`  instance: <${definition.tag}>${definition.slots.length > 0 ? `, slots: ${definition.slots.map((slot) => slot || "default").join(", ")}` : ""}`);
       if (component.variants.length > 0) lines.push(`  variants: ${component.variants.map(variantLine).join(", ")}`);
     }
     sections.push(lines.join("\n") + "\n");
@@ -214,7 +216,7 @@ export function assembleComponents(pages: ComponentPage[]): ComponentAssembly {
       seen.set(component.name, component);
     }
   }
-  const indexes = Object.fromEntries(perPage.map(({ page, components: own }) => [page.id, indexText(own)]));
+  const indexes = Object.fromEntries(perPage.map(({ page, components: own }) => [page.id, indexText(own, page.files)]));
   const definitions = definitionsOf(components, (component) => pages.find((p) => p.id === component.page.id)!.files[component.file]);
   return { css, components, definitions, indexes, duplicates, cycles: cyclesOf(definitions) };
 }

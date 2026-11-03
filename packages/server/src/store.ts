@@ -24,8 +24,12 @@ import {
   parseTokens,
   setToken,
   PROJECT_STYLE_PATH,
+  instanceTagOf,
+  requestIsOpen,
+  requestOriginLabel,
   NEUTRAL_TOKENS_PAGE_HTML,
   type DesignSystem,
+  type InstanceState,
   type DesignMdAuthor,
   type DesignMdVersion,
   type ProjectAsset,
@@ -39,6 +43,9 @@ import type {
   Conversation,
   ConversationMessage,
   CreateThreadRequest,
+  DesignSystemRequestItem,
+  ThreadRequest,
+  RequestOrigin,
   ThreadRendering,
   TweakValues,
   ThreadTarget,
@@ -272,6 +279,8 @@ export class Store {
     addColumn("conversation_messages", "person_id", "TEXT");
     // On a design system's page: the project the thread or conversation was started from, whose agent runs its work.
     addColumn("threads", "via_project_id", "TEXT");
+    // A request to the design system: JSON of the kind, state, component and origins (their titles are read when the thread is).
+    addColumn("threads", "request", "TEXT");
     addColumn("conversations", "via_project_id", "TEXT");
     // Same for what a person (or Claude, for the requesting person) did: page versions, DESIGN.md / tokens versions and pages.
     addColumn("versions", "person_id", "TEXT");
@@ -303,6 +312,7 @@ export class Store {
     addColumn("threads", "element_name", "TEXT");
     addColumn("threads", "rendering", "TEXT");
     addColumn("threads", "cell", "TEXT");
+    addColumn("threads", "instance_state", "TEXT");
     addColumn("threads", "target_kind", "TEXT NOT NULL DEFAULT 'element'");
     addColumn("threads", "element_id", "TEXT");
     addColumn("threads", "element_kind", "TEXT");
@@ -1280,7 +1290,7 @@ export class Store {
   }
 
   /** `automatic`: opened by Redline itself (signed "Redline"), not written by a person. */
-  createThread(pageId: string, request: CreateThreadRequest, person?: Person, automatic = false): Thread {
+  createThread(pageId: string, request: CreateThreadRequest, person?: Person, automatic = false, designSystemRequest?: StoredRequest): Thread {
     const id = randomUUID();
     const { next } = this.db
       .prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?")
@@ -1290,7 +1300,7 @@ export class Store {
     const placement =
       "target" in request
         ? request.target.kind === "artboard"
-          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, cell: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
+          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, cell: null, instanceState: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
           : this.canvasElementPlacement(pageId, request.target.elementId)
         : {
             kind: "element",
@@ -1299,6 +1309,7 @@ export class Store {
             elementName: request.elementName ?? null,
             rendering: request.rendering ? JSON.stringify({ format: request.rendering.format, width: request.rendering.width }) : null,
             cell: request.cell ? JSON.stringify(request.cell) : null,
+            instanceState: request.instanceState ? JSON.stringify(request.instanceState) : null,
             xPct: request.xPct,
             yPct: request.yPct,
             elementId: null,
@@ -1307,10 +1318,10 @@ export class Store {
           };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, instance_state, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0);
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null);
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -1324,6 +1335,7 @@ export class Store {
       elementName: null,
       rendering: null,
       cell: null,
+      instanceState: null,
       xPct: 0,
       yPct: 0,
       elementId,
@@ -1347,7 +1359,32 @@ export class Store {
 
   private withPerson(thread: Thread, personId: string | null): Thread {
     const person = this.getPerson(personId);
-    return person ? { ...thread, person } : thread;
+    const named = this.withOriginTitles(thread);
+    return person ? { ...named, person } : named;
+  }
+
+  /** A request's origins carry the project and page titles as they are now (stored: ids only). */
+  private withOriginTitles(thread: Thread): Thread {
+    if (!thread.request) return thread;
+    const origins = thread.request.origins.map((origin) => ({
+      ...origin,
+      projectTitle: this.getProject(origin.projectId)?.title ?? "",
+      pageTitle: this.getPage(origin.pageId)?.title ?? "",
+    }));
+    return { ...thread, request: { ...thread.request, origins } };
+  }
+
+  /** The open requests of a design system's pages, newest first. */
+  listDesignSystemRequests(designSystemId: string): DesignSystemRequestItem[] {
+    const rows = this.db
+      .prepare("SELECT id, created_at AS createdAt FROM threads WHERE request IS NOT NULL AND page_id IN (SELECT id FROM pages WHERE project_id = ?) ORDER BY created_at DESC, rowid DESC")
+      .all(designSystemId) as { id: string; createdAt: string }[];
+    return rows.flatMap(({ id, createdAt }) => {
+      const thread = this.getThread(id)!;
+      const request = thread.request!;
+      if (!requestIsOpen(request)) return [];
+      return [{ threadId: id, pageId: thread.pageId, artboard: thread.artboard, tag: instanceTagOf(request.component), title: thread.title, origin: requestOriginLabel(request.origins[0]!), createdAt }];
+    });
   }
 
   private canvasElementsById(pageId: string): Map<string, ManifestElement> {
@@ -1360,7 +1397,7 @@ export class Store {
   listHeldThreads(pageId: string): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.instance_state, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id
          FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId) as ThreadRow[];
@@ -1971,7 +2008,7 @@ function toDesignSystem({ archivedAt, ...designSystem }: DesignSystemRow): Desig
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, instance_state, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -1982,6 +2019,7 @@ interface ThreadRow {
   element_name: string | null;
   rendering: string | null;
   cell: string | null;
+  instance_state: string | null;
   target_kind: ThreadTarget["kind"];
   element_id: string | null;
   element_kind: ManifestElementKind | null;
@@ -1995,6 +2033,7 @@ interface ThreadRow {
   new_session: "summarizing" | "ready" | null;
   person_id: string | null;
   automatic: number;
+  request: string | null;
 }
 
 function targetOf(row: ThreadRow): ThreadTarget {
@@ -2014,6 +2053,7 @@ function targetOf(row: ThreadRow): ThreadTarget {
     yPct: row.y_pct,
     ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
     ...(row.cell ? { cell: JSON.parse(row.cell) as TweakValues } : {}),
+    ...(row.instance_state ? { instanceState: JSON.parse(row.instance_state) as InstanceState[] } : {}),
   };
 }
 
@@ -2038,6 +2078,7 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     elementName: row.element_name,
     ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
     ...(row.cell ? { cell: JSON.parse(row.cell) as TweakValues } : {}),
+    ...(row.instance_state ? { instanceState: JSON.parse(row.instance_state) as InstanceState[] } : {}),
     xPct: row.x_pct,
     yPct: row.y_pct,
     title: row.title,
@@ -2047,6 +2088,7 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     ...(row.context ? { context: JSON.parse(row.context) as ThreadContext } : {}),
     ...(row.new_session ? { newSession: row.new_session } : {}),
     ...(row.automatic ? { automatic: true as const } : {}),
+    ...(row.request ? { request: JSON.parse(row.request) as ThreadRequest } : {}),
   };
 }
 
@@ -2076,6 +2118,11 @@ interface RawManifest {
   artboards?: ({ file: string } & Record<string, unknown>)[];
   elements?: Record<string, unknown>[];
   [key: string]: unknown;
+}
+
+/** A request as stored: the origins keep ids only, their titles are read with the thread. */
+export interface StoredRequest extends Omit<ThreadRequest, "origins"> {
+  origins: Omit<RequestOrigin, "projectTitle" | "pageTitle">[];
 }
 
 export interface OriginRef {

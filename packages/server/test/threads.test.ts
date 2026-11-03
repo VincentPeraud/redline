@@ -73,6 +73,24 @@ describe("pinned threads over the server HTTP API", () => {
     expect(held.cell).toEqual(cell);
   });
 
+  it("stores the state of the component instances a thread was written with, keeps it after a reload and on a held comment", async () => {
+    const instanceState = [{ selector: "main > ui-modal#confirm", attributes: { open: "" } }];
+    const thread = await createThread("Round cross", { selector: "main > ui-modal#confirm >>> div > button", instanceState });
+    expect(thread.instanceState).toEqual(instanceState);
+    expect(thread.target).toMatchObject({ kind: "element", instanceState });
+    const [listed] = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+    expect(listed.instanceState).toEqual(instanceState);
+    expect((await createThread("No state")).instanceState).toBeUndefined();
+    await createThread("Later", { held: true, instanceState });
+    const [held] = (await (await server.get(`/api/pages/${page.id}/held`)).json()) as Thread[];
+    expect(held.instanceState).toEqual(instanceState);
+  });
+
+  it.each([["open"], [[]], [[{ selector: "", attributes: { open: "" } }]], [[{ selector: "ui-modal", attributes: { open: 1 } }]], [[{ selector: "ui-modal", attributes: {} }]]])("refuses the instance state %j", async (instanceState) => {
+    const res = await server.post(`/api/pages/${page.id}/threads`, pin("Bad", { instanceState }));
+    expect(res.status).toBe(400);
+  });
+
   it.each([[[]], ["Hover"], [{ state: { a: 1 } }], [{}], [{ state: null }]])("refuses the cell %j", async (cell) => {
     const res = await server.post(`/api/pages/${page.id}/threads`, pin("Bad", { cell }));
     expect(res.status).toBe(400);

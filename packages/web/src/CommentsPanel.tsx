@@ -6,8 +6,9 @@ import { RemovedTag } from "./RemovedTag.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
 import { MessageAuthor } from "./MessageAuthor.js";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
-import { InstanceGoneNote } from "./InstanceThreads.js";
+import { InstanceThreadInfo } from "./InstanceThreads.js";
 import { RenderingChip } from "./RenderingChip.js";
+import { DESIGN_SYSTEM_CLAUDE, RequestOrigins, RequestStatePill, RequestTag, requestAskerName } from "./RequestThreads.js";
 import { queueLabel } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
@@ -61,9 +62,16 @@ function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNo
         <RenderingChip thread={thread} />
         <span className={styles.spacer} />
         {thread.removed && <RemovedTag />}
+        {thread.request && <RequestTag />}
         {children}
       </div>
-      <InstanceGoneNote thread={thread} />
+      {thread.request && (
+        <>
+          <RequestStatePill request={thread.request} />
+          <RequestOrigins request={thread.request} />
+        </>
+      )}
+      <InstanceThreadInfo thread={thread} />
     </>
   );
 }
@@ -94,13 +102,13 @@ function ThreadMessages({ thread }: { thread: Thread }) {
   return (
     <>
       <div className={styles.message}>
-        <MessageAuthor person={thread.person} />
+        <MessageAuthor person={thread.person} claude={requestAskerName(thread)} />
         {thread.body}
       </div>
       {thread.replies.map((reply) => (
         <Fragment key={reply.id}>
           <div data-testid="reply" className={cx(styles.message, reply.author === "claude" && styles.claudeReply)}>
-            {reply.author === "user" ? <MessageAuthor person={reply.person} /> : <MessageAuthor claude />}
+            {reply.author === "user" ? <MessageAuthor person={reply.person} /> : <MessageAuthor claude={thread.request ? DESIGN_SYSTEM_CLAUDE : true} />}
             {reply.body}
           </div>
           <CreatedPageCards pages={reply.createdPages} />
@@ -132,6 +140,7 @@ function ResolvedThreadCard({ thread, session, readOnly, open, onOpen }: { threa
             <span className={styles.where}>{threadWhere(thread)}</span>
             <RenderingChip thread={thread} />
           </div>
+          <InstanceThreadInfo thread={thread} />
           <ThreadMessages thread={thread} />
           <div className={styles.footer}>
             <SessionMeta session={session} />
@@ -187,6 +196,7 @@ function ThreadCard({
             Échec
           </span>
         </div>
+        <InstanceThreadInfo thread={thread} />
         {run && <RunProgress run={run} />}
       </article>
     );
@@ -219,9 +229,11 @@ function ThreadCard({
               <Button size="sm" aria-expanded={replying} onClick={() => setReplying(!replying)}>
                 Répondre
               </Button>
-              <Button size="sm" variant="primary" onClick={onResolve}>
-                Résoudre
-              </Button>
+              {!thread.request && (
+                <Button size="sm" variant="primary" onClick={onResolve}>
+                  Résoudre
+                </Button>
+              )}
             </div>
           )}
         </div>

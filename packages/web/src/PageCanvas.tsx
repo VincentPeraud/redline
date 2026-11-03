@@ -19,6 +19,7 @@ import {
   type CreateThreadRequest,
   type Gap,
   canvasElementSummary,
+  requestIsOpen,
   threadTargetLabel,
   type Manifest,
   type ManifestElementKind,
@@ -66,7 +67,7 @@ import { elementBox, responsiveFrameLayout, renderingSlots, type Box } from "./c
 import { ResponsiveFrame } from "./ResponsiveFrame.js";
 import { TweakGridFrame } from "./TweakGridFrame.js";
 import { RenderingChips, RenderingsMenu } from "./RenderingControls.js";
-import { MissingInstanceElementsContext, ReportMissingInstanceElementsContext } from "./InstanceThreads.js";
+import { MissingInstanceElementsContext, ReplayRequestContext, ReportMissingInstanceElementsContext, ReportUnavailableStatesContext, UnavailableStatesContext, type ReplayRequest } from "./InstanceThreads.js";
 import { PageTweaksContext } from "./RenderingChip.js";
 import { hiddenRenderingKeys, hiddenThreadCounts, setFormatShown, toggleRendering } from "./viewSettings.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
@@ -261,6 +262,21 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     [],
   );
   const missingInstanceElements = useMemo(() => new Set(Object.values(missingByFrame).flat()), [missingByFrame]);
+  /** Remembered instance states that can no longer be replayed (indexes by thread id), by iframe. */
+  const [unavailableByFrame, setUnavailableByFrame] = useState<Record<string, Record<string, number[]>>>({});
+  const reportUnavailable = useCallback(
+    (frameId: string, unavailable: Record<string, number[]>) =>
+      setUnavailableByFrame((current) => {
+        if (JSON.stringify(current[frameId] ?? {}) === JSON.stringify(unavailable)) return current;
+        const { [frameId]: _dropped, ...others } = current;
+        return Object.keys(unavailable).length === 0 ? others : { ...others, [frameId]: unavailable };
+      }),
+    [],
+  );
+  const unavailableStates = useMemo(() => new Map(Object.values(unavailableByFrame).flatMap((byThread) => Object.entries(byThread))), [unavailableByFrame]);
+  const [replay, setReplay] = useState<ReplayRequest | null>(null);
+  /** The thread whose state was just replayed, whose pin `showThread` is waiting for. */
+  const replayedFor = useRef<string | null>(null);
   /** Last growth of each fit artboard: a page that grows by the same step again is growing with its own viewport (min-height: 100vh plus a margin), and is left at its size. */
   const fitGrowth = useRef(new Map<string, number>());
   const [viewSettings, setViewSettings] = useState<PageViewSettings>(savedViewSettings ?? EMPTY_VIEW_SETTINGS);
@@ -268,6 +284,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const gapReport = allGaps && { ...allGaps, gaps: allGaps.gaps.filter((gap) => !viewSettings.gapExceptions.includes(gap.key)) };
   const gapExceptionCount = allGaps ? allGaps.gaps.length - gapReport!.gaps.length : 0;
   const gapsOf = (file: string) => (gapReport?.gaps ?? []).filter((gap) => gap.file === file).length;
+  /** Requests to the design system still open on a component's artboard (threads of this page, so the design system's own page). */
+  const openRequestsOn = (file: string) => threads.filter((thread) => thread.request && requestIsOpen(thread.request) && thread.artboard === file).length;
   const [renderingsMenuOpen, setRenderingsMenuOpen] = useState(false);
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   /** Frame request of the running glide, stopped as soon as the user pans or zooms. */
@@ -716,6 +734,14 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     if (!thread) return;
     const pin = document.querySelector<HTMLElement>(`[data-pin-thread="${CSS.escape(threadId)}"]`);
     const stage = viewport.current?.getBoundingClientRect();
+    // The pin waits hidden for the instances to take the state the thread was written in; show it once they have.
+    if (!pin && thread.instanceState && replayedFor.current !== threadId) {
+      replayedFor.current = threadId;
+      setReplay({ threadId, nonce: Date.now() });
+      setShowAfterRender(threadId);
+      return;
+    }
+    replayedFor.current = null;
     if (!pin || !stage) {
       if (thread.artboard) centerOnArtboard(thread.artboard);
       return;
@@ -774,6 +800,9 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     <SeenGapContext.Provider value={{ seen: seenGap, onRect: centerOnSeenGap }}>
     <ReportMissingInstanceElementsContext.Provider value={reportMissing}>
     <MissingInstanceElementsContext.Provider value={missingInstanceElements}>
+    <ReportUnavailableStatesContext.Provider value={reportUnavailable}>
+    <UnavailableStatesContext.Provider value={unavailableStates}>
+    <ReplayRequestContext.Provider value={replay}>
     <PinClickContext.Provider value={previewing ? undefined : openPinThread}>
     <div className={styles.page}>
       {previewOf !== undefined && <PreviewBanner designSystemId={previewOf} onLeave={() => navigateTo({ name: "page", pageId })} />}
@@ -919,6 +948,11 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                     {componentChange(artboard.file) && (
                       <span data-testid="component-change" className={cx(styles.changePill, componentChange(artboard.file) === "nouveau" ? styles.newPill : styles.modifiedPill)}>
                         {componentChange(artboard.file)}
+                      </span>
+                    )}
+                    {openRequestsOn(artboard.file) > 0 && (
+                      <span data-testid="artboard-requests" className={cx(styles.changePill, styles.requestsPill)}>
+                        {counted(openRequestsOn(artboard.file), "demande", "demandes")}
                       </span>
                     )}
                     {gapsOf(artboard.file) > 0 && (
@@ -1305,6 +1339,9 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
       </div>
     </div>
     </PinClickContext.Provider>
+    </ReplayRequestContext.Provider>
+    </UnavailableStatesContext.Provider>
+    </ReportUnavailableStatesContext.Provider>
     </MissingInstanceElementsContext.Provider>
     </ReportMissingInstanceElementsContext.Provider>
     </SeenGapContext.Provider>

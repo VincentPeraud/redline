@@ -55,9 +55,12 @@ export const GAP_OUTLINE_CSS = "outline: 2px dashed #EA580C; outline-offset: 3px
  * chrome colour, so it reads apart from the red outline of the element itself.
  */
 export const INSTANCE_FINISH = {
-  color: "#27272a",
-  outlineWidth: 2,
-  outlineOffset: 2,
+  color: "#18181B",
+  outlineWidth: 1.5,
+  outlineOffset: 4,
+  /** Label offset from the instance's top-left corner (border box): above the outline, no halo. */
+  labelOffsetX: -6,
+  labelOffsetY: -30,
 } as const;
 
 /** Style of the instance outline; the caller adds position, size and border-radius. */
@@ -68,5 +71,5 @@ export function instanceOutlineCss(): string {
 
 /** Style of the instance label ("ui-modal · confirm"); the caller adds the position. */
 export function instanceLabelCss(): string {
-  return `${hoverLabelCss()}; background: ${INSTANCE_FINISH.color}`;
+  return `${hoverLabelCss()}; background: ${INSTANCE_FINISH.color}; box-shadow: none`;
 }
