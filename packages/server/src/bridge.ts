@@ -8,6 +8,7 @@ import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokens
  *                     { type: "redline:set-pins", pins: [{ id, selector, xPct, yPct, instanceState? }] }  (a selector "<instance> >>> <path>" anchors inside a component instance, see INSTANCE_ANCHOR_SEPARATOR; instanceState: the state the thread was written in)
  *                     { type: "redline:replay-state", id }  (sets the remembered instance state of the pin with that id, then reports the pins again)
  *                     { type: "redline:set-marks", marks: [{ number, selector }] }  (numbered selection marks, drawn whenever there are some)
+ *                     { type: "redline:set-compare-markers", visible: boolean, markers: [{ number, selector }] }  (before / after view: numbered dashed markers on the touched zones)
  *                     { type: "redline:set-gap", selector: string | null }  (outlines the element a design system gap points at, and answers redline:gap-rect when it exists)
  *                     { type: "redline:set-links", selectors: string[] | null }  (play mode: clicks on a match are reported, not performed)
  *                     { type: "redline:set-tweaks", values: { [tweakId]: string | number | boolean } }  (full set; applied as --tweak-<id> CSS variables, data-tweak-<id> attributes on <html>, window.redlineTweaks and a "redline:tweaks" window event)
@@ -559,6 +560,44 @@ export const BRIDGE_SOURCE = `(function () {
     });
   }
 
+  // Before / after view: numbered dashed markers on the zones a change touches, in document coordinates so they scroll with the page.
+  var COMPARE_COLOR = ${JSON.stringify(HOVER_FINISH.color)};
+  var compareMarkers = [];
+  var compareVisible = false;
+
+  function markerRadius(el, rect) {
+    var raw = window.getComputedStyle(el).borderTopLeftRadius || "0";
+    if (raw.indexOf("%") !== -1) return raw;
+    var px = parseFloat(raw) || 0;
+    return (px > 0 ? px + 3 : 6) + "px";
+  }
+
+  function drawCompare() {
+    var root = document.getElementById("__redline-compare");
+    if (root) root.remove();
+    if (!compareVisible || compareMarkers.length === 0) return;
+    root = document.createElement("div");
+    root.id = "__redline-compare";
+    root.style.cssText = "position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 2147483646; pointer-events: none";
+    var sx = window.scrollX || 0;
+    var sy = window.scrollY || 0;
+    compareMarkers.forEach(function (marker) {
+      var found = resolve(marker.selector);
+      if (!found.el || found.gone) return;
+      var rect = found.el.getBoundingClientRect();
+      var outline = document.createElement("div");
+      outline.setAttribute("data-part", "outline");
+      outline.style.cssText = "position: absolute; box-sizing: border-box; left: " + (rect.left + sx - 5) + "px; top: " + (rect.top + sy - 5) + "px; width: " + (rect.width + 10) + "px; height: " + (rect.height + 10) + "px; border: 2px dashed " + COMPARE_COLOR + "; border-radius: " + markerRadius(found.el, rect);
+      var badge = document.createElement("div");
+      badge.setAttribute("data-part", "badge");
+      badge.textContent = String(marker.number);
+      badge.style.cssText = "position: absolute; left: " + (rect.right + sx - 6) + "px; top: " + (rect.top + sy - 14) + "px; width: 20px; height: 20px; border-radius: 50%; background: " + COMPARE_COLOR + "; color: #FFFFFF; font: 600 11px/20px Inter, system-ui, sans-serif; text-align: center";
+      root.appendChild(outline);
+      root.appendChild(badge);
+    });
+    document.documentElement.appendChild(root);
+  }
+
   var GAP_CSS = ${JSON.stringify(GAP_OUTLINE_CSS)};
   var gapSelector = null;
   var gapOutline = null;
@@ -658,6 +697,10 @@ export const BRIDGE_SOURCE = `(function () {
     } else if (event.data.type === "redline:set-marks") {
       marks = event.data.marks || [];
       drawMarks();
+    } else if (event.data.type === "redline:set-compare-markers") {
+      compareMarkers = event.data.markers || [];
+      compareVisible = !!event.data.visible;
+      drawCompare();
     } else if (event.data.type === "redline:set-gap") {
       gapSelector = typeof event.data.selector === "string" ? event.data.selector : null;
       var gapBox = drawGap();
@@ -716,11 +759,12 @@ export const BRIDGE_SOURCE = `(function () {
   window.addEventListener("resize", function () {
     drawHover();
     drawMarks();
+    drawCompare();
     drawGap();
     reportPins();
     reportHeight();
   });
-  window.addEventListener("load", reportHeight);
+  window.addEventListener("load", function () { reportHeight(); drawCompare(); });
   // A pin with a remembered state shows and hides as the instances enter and leave that state.
   if (typeof MutationObserver === "function") {
     var statePending = false;

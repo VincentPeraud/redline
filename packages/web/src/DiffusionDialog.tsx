@@ -203,7 +203,7 @@ export function DiffusionDialog({ designSystemId, onClose, onDiffused, onOpenPre
           </div>
         </div>
 
-        <DiffusionReviewCards review={review} detail={detail} onRefused={() => void load()} />
+        <DiffusionReviewCards review={review} detail={detail} onRefused={() => void load()} onNavigate={close} />
         <div className={styles.note}>
           Refuser un changement le défait dans le brouillon et prévient le projet qui l'a demandé. Les demandes diffusées se ferment, et leur fil se rouvre sur la maquette d'origine.
           {undoing > 0 && " Diffuser reste indisponible tant que l'annulation d'un changement refusé n'est pas faite dans le brouillon."}

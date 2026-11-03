@@ -55,6 +55,7 @@ import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
 import { removalsError, rollbackImpact } from "./removals.js";
 import { diffusionReview, reviewLineCount } from "./diffusion-review.js";
+import { componentComparison } from "./component-comparison.js";
 import { brokenPagesAtDiffusion, instanceChangesError, rollbackInstancesError } from "./instance-guards.js";
 import { refuseChange, refuseRequest } from "./refusals.js";
 import { closeDiffusedRequests, requestsClosedBy, returnPendingOn } from "./diffusion-returns.js";
@@ -320,6 +321,13 @@ export async function buildMainApp(
   app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/review", async (req, reply): Promise<DiffusionReview | undefined> => {
     if (!store.getDesignSystem(req.params.designSystemId)) return void reply.code(404).send({ error: "design system not found" });
     return diffusionReview(store, req.params.designSystemId);
+  });
+
+  // The before / after view of one component (the diffused and the draft artboard, numbered markers).
+  app.get<{ Params: { designSystemId: string; name: string } }>("/api/design-systems/:designSystemId/components/:name/comparison", async (req, reply) => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
+    const comparison = componentComparison(store, req.params.designSystemId, req.params.name);
+    return comparison ?? reply.code(404).send({ error: "component has no pending change" });
   });
 
   // "Refuser" is a user action of the web UI: on a change born of a request, or on a whole request.
@@ -749,9 +757,18 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
   );
 
   // `?preview=draft`: the viewer's preview of a project with the design system draft; it is the same call without a diffusion number.
-  app.get<{ Params: { pageId: string; "*": string }; Querystring: { preview?: string } }>("/pages/:pageId/*", async (req, reply) =>
-    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readPageFile(req.params.pageId, req.params["*"]), undefined, req.query.preview === "draft"),
-  );
+  // `?diffusion=n` on a design system page's component file: the file as that diffusion froze it (the "before" of the before / after view).
+  app.get<{ Params: { pageId: string; "*": string }; Querystring: { preview?: string; diffusion?: string } }>("/pages/:pageId/*", async (req, reply) => {
+    const { pageId } = req.params;
+    const path = req.params["*"];
+    if (req.query.diffusion === undefined) return serveArtboardFile(pageId, path, reply, store.readPageFile(pageId, path), undefined, req.query.preview === "draft");
+    const designSystemId = store.isDesignSystemPage(pageId) ? store.getPage(pageId)?.projectId : undefined;
+    if (designSystemId === undefined || !/^\d+$/.test(req.query.diffusion)) return reply.code(404).send("not found");
+    const number = Number(req.query.diffusion);
+    const frozen = store.diffusionComponentFiles(designSystemId, number)[path];
+    if (frozen === undefined) return reply.code(404).send("not found");
+    return serveArtboardFile(pageId, path, reply, Buffer.from(frozen), undefined, false, number);
+  });
 
   /** The page's project when it has a project style (every project but a design system's own). */
   function projectStyleProjectOf(pageId: string): string | undefined {
@@ -767,14 +784,14 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
     return designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId)?.number;
   }
 
-  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, versionId?: string, draftPreview = false) {
+  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, versionId?: string, draftPreview = false, frozenDiffusion?: number) {
     const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, pageId, path.slice("assets/".length)) : undefined);
     if (!asset) return reply.code(404).send("not found");
     // Artboards are opaque-origin, so fonts of the project assets need CORS to load.
     if (!pageFile) reply.header("access-control-allow-origin", "*");
     const isHtml = extname(path) === ".html";
     if (!isHtml) return reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[extname(path)] ?? "application/octet-stream").send(asset);
-    const diffusion = draftPreview ? undefined : diffusionOf(pageId, versionId);
+    const diffusion = frozenDiffusion ?? (draftPreview ? undefined : diffusionOf(pageId, versionId));
     const withDesignSystem = injectDesignSystem(asset.toString("utf8"), store.sharedDesignSystemIdOfPage(pageId, versionId), projectStyleProjectOf(pageId), diffusion);
     return reply
       .header("content-security-policy", "sandbox allow-scripts")

@@ -224,7 +224,7 @@ export function injectInstances(html: string, layers: InstanceLayers): string {
 export function instanceLayersOf(store: Store, pageId: string, diffusion: number | undefined, versionId?: string): InstanceLayers {
   const page = store.getPage(pageId);
   if (!page) return { designSystem: [], project: [] };
-  if (store.isDesignSystemPage(pageId)) return { designSystem: projectComponents(store, page.projectId).definitions, project: [] };
+  if (store.isDesignSystemPage(pageId)) return { designSystem: diffusion === undefined ? projectComponents(store, page.projectId).definitions : store.diffusionDefinitions(page.projectId, diffusion), project: [] };
   const designSystemId = store.sharedDesignSystemIdOfPage(pageId, versionId);
   const designSystem =
     designSystemId === undefined ? [] : diffusion === undefined ? projectComponents(store, designSystemId).definitions : store.diffusionDefinitions(designSystemId, diffusion);

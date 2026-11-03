@@ -1365,3 +1365,4 @@ export * from "./layoutIssues.js";
 export * from "./request.js";
 export * from "./changeRecord.js";
 export * from "./diffusionReview.js";
+export * from "./componentComparison.js";

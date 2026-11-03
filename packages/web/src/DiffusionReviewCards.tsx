@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { isColorValue, type DesignSystemDetail, type DiffusionReview, type ReviewChange, type ReviewComponent, type ReviewToken } from "@redline/shared";
-import { routeHref } from "./router.js";
+import { routeHref, type Route } from "./router.js";
 import { agree } from "./plural.js";
 import { componentsHeading, keptByText, originText, tokensWhereText, whereSummary } from "./reviewLabels.js";
 import { cx } from "./ui/index.js";
@@ -102,13 +102,31 @@ function WhereLine({ title, children, aside }: { title: string; children: ReactN
 
 const KIND_PILL = { changed: ["modifié", styles.pillChanged], added: ["nouveau", styles.pillAdded], removed: ["supprimé", styles.pillRemoved] } as const;
 
-function ComponentCard({ component, designSystemId, onRefused }: { component: ReviewComponent; designSystemId: string; onRefused: () => void }) {
+/** A link of a card header; it leaves the dialog behind (`onNavigate`) when it goes to another screen of the same tab. */
+function CardLink({ route, onNavigate, children }: { route: Route; onNavigate: () => void; children: ReactNode }) {
+  return (
+    <a href={routeHref(route)} className={styles.link} onClick={onNavigate}>
+      {children}
+    </a>
+  );
+}
+
+function ComponentCard({ component, designSystemId, onRefused, onNavigate }: { component: ReviewComponent; designSystemId: string; onRefused: () => void; onNavigate: () => void }) {
   const [open, setOpen] = useState(false);
   const { where } = component;
   const [pillText, pillClass] = KIND_PILL[component.kind];
   return (
     <div data-testid="diffusion-component" data-component={component.name}>
-      <ReviewCard title={`ui-${component.name}`} mono pill={<span className={cx(styles.pill, pillClass)}>{pillText}</span>}>
+      <ReviewCard
+        title={`ui-${component.name}`}
+        mono
+        pill={<span className={cx(styles.pill, pillClass)}>{pillText}</span>}
+        action={
+          <CardLink route={{ name: "beforeAfter", designSystemId, component: component.name }} onNavigate={onNavigate}>
+            {component.kind === "added" ? "Voir le composant ↗" : "Avant / après ↗"}
+          </CardLink>
+        }
+      >
         <ChangesList>
           {component.changes.map((change) => <ChangeLine key={change.changeId ?? change.label} change={change} onRefused={onRefused} />)}
         </ChangesList>
@@ -151,13 +169,14 @@ function ComponentCard({ component, designSystemId, onRefused }: { component: Re
 }
 
 /** The cards of the Diffuse dialog: tokens and DESIGN.md first, then one card per component whose definition differs. */
-export function DiffusionReviewCards({ review, detail, onRefused }: { review: DiffusionReview; detail: DesignSystemDetail; /** A change was refused: the review has to be read again. */ onRefused: () => void }) {
+export function DiffusionReviewCards({ review, detail, onRefused, onNavigate }: { review: DiffusionReview; detail: DesignSystemDetail; /** A change was refused: the review has to be read again. */ onRefused: () => void; /** A card link opens another screen: the dialog has to close. */ onNavigate: () => void }) {
+  const designMdRoute: Route = { name: "designMd", projectId: detail.id };
   const hasTokenCards = review.tokens.length > 0 || review.designMdChanged;
   return (
     <section className={styles.section}>
       {hasTokenCards && <h3 className={styles.sectionTitle}>Tokens et DESIGN.md</h3>}
       {review.tokens.length > 0 && (
-        <ReviewCard title="Tokens">
+        <ReviewCard title="Tokens" action={<CardLink route={designMdRoute} onNavigate={onNavigate}>Avant / après ↗</CardLink>}>
           <ChangesList>
             {review.tokens.map((token) => (
               <ChangeRow key={token.name} origin={originText({ kind: "direct" })}>
@@ -192,7 +211,7 @@ export function DiffusionReviewCards({ review, detail, onRefused }: { review: Di
         </ReviewCard>
       )}
       {review.designMdChanged && (
-        <ReviewCard title="DESIGN.md">
+        <ReviewCard title="DESIGN.md" action={<CardLink route={designMdRoute} onNavigate={onNavigate}>Voir le texte ↗</CardLink>}>
           <ChangesList>
             <ChangeRow origin={originText({ kind: "direct" })}>
               <span className={styles.label}>DESIGN.md modifié</span>
@@ -204,7 +223,7 @@ export function DiffusionReviewCards({ review, detail, onRefused }: { review: Di
         </ReviewCard>
       )}
       {review.components.length > 0 && <h3 className={cx(styles.sectionTitle, hasTokenCards && styles.afterCards)}>{componentsHeading(review.components.length)}</h3>}
-      {review.components.map((component) => <ComponentCard key={component.name} component={component} designSystemId={detail.id} onRefused={onRefused} />)}
+      {review.components.map((component) => <ComponentCard key={component.name} component={component} designSystemId={detail.id} onRefused={onRefused} onNavigate={onNavigate} />)}
     </section>
   );
 }

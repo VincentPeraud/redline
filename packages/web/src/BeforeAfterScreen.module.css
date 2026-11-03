@@ -1,0 +1,335 @@
+.screen {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: calc(100vh - var(--banner-height, 0px));
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.topbar {
+  height: 56px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 0 var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.logoLink {
+  display: flex;
+  color: inherit;
+  text-decoration: none;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
+  color: var(--color-text-muted);
+}
+
+.breadcrumb a {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  transition: color 120ms ease;
+}
+
+.breadcrumb a:hover {
+  color: var(--color-text);
+}
+
+.current {
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.grow {
+  flex-grow: 1;
+}
+
+.back {
+  height: 36px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 120ms ease;
+}
+
+.back:hover {
+  background: var(--color-surface-muted);
+}
+
+.main {
+  flex-grow: 1;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: var(--space-5) var(--space-6) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  background: var(--color-bg);
+  overflow: auto;
+}
+
+.empty {
+  font-size: var(--font-size-md);
+  color: var(--color-text-muted);
+}
+
+.changesSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.changesHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.changesTitle {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.changesHint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.markers {
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.markers:hover {
+  background: var(--color-surface-muted);
+}
+
+.markersOn {
+  border-color: var(--color-text);
+  background: var(--color-text);
+  color: var(--color-text-inverse);
+}
+
+.markersOn:hover {
+  background: var(--color-neutral-strong);
+}
+
+.markersDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+/* Each row draws its own bottom border and the list leaves its own open, so the last row closes the box. */
+.changes {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-bottom: none;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.change {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 41px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+}
+
+.number {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.label {
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.origin {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.small {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.small:hover {
+  background: var(--color-surface-muted);
+}
+
+.undoing {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.sides {
+  flex: 1 1 0;
+  min-height: 360px;
+  display: flex;
+  gap: var(--space-6);
+}
+
+.side {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sideHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+}
+
+.sideTitle {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.sideHint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.zoomButton {
+  height: 30px;
+  min-width: 30px;
+  padding: 0 var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.zoomButton:hover {
+  background: var(--color-surface-muted);
+}
+
+.percent {
+  min-width: 48px;
+  text-align: center;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.zoomSeparator {
+  width: 1px;
+  height: 18px;
+  background: var(--color-border);
+}
+
+.canvas {
+  flex-grow: 1;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: var(--space-6);
+  display: flex;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-surface-muted);
+  background-image: radial-gradient(#d6d4cd 1px, transparent 1px);
+  background-size: 20px 20px;
+  overflow: auto;
+}
+
+.scaled {
+  flex-shrink: 0;
+  margin: 0 auto;
+}
+
+.frame {
+  display: block;
+  border: none;
+  background: var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-border);
+  transform-origin: top left;
+}

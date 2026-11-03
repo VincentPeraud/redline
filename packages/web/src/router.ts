@@ -10,6 +10,7 @@ export type Route =
   | { name: "sessions" }
   | { name: "designSystems" }
   | { name: "designSystem"; designSystemId: string; viaProjectId?: string; review?: true }
+  | { name: "beforeAfter"; designSystemId: string; component: string }
   | { name: "project"; projectId: string }
   | { name: "designMd"; projectId: string }
   | { name: "projectDesignSystem"; projectId: string }
@@ -36,7 +37,7 @@ const REVIEW_PARAM = "relire";
 
 export function parseRoute(hash: string): Route {
   const [path = "", query = ""] = hash.split("?", 2);
-  const [, section, id, sub, subId] = path.split("/").map(decodeURIComponent);
+  const [, section, id, sub, subId, leaf] = path.split("/").map(decodeURIComponent);
   const via = new URLSearchParams(query).get(VIA_PARAM);
   const viaProject = via === null ? {} : { viaProjectId: via };
   if (section === "agents") return { name: "agents" };
@@ -44,6 +45,7 @@ export function parseRoute(hash: string): Route {
   if (section === "projects" && !id) return { name: "projects" };
   if (section === "archived-projects") return { name: "archivedProjects" };
   if (section === "archived-design-systems") return { name: "archivedDesignSystems" };
+  if (section === "design-systems" && id && sub === "components" && subId && leaf === "before-after") return { name: "beforeAfter", designSystemId: id, component: subId };
   if (section === "design-systems" && id) return { name: "designSystem", designSystemId: id, ...viaProject, ...(new URLSearchParams(query).has(REVIEW_PARAM) ? { review: true as const } : {}) };
   if (section === "design-systems") return { name: "designSystems" };
   if (section === "projects" && id && sub === "design-md") return { name: "designMd", projectId: id };
@@ -83,6 +85,8 @@ export function routeHref(route: Route): string {
       if (route.review) query.set(REVIEW_PARAM, "1");
       return `#/design-systems/${encodeURIComponent(route.designSystemId)}${query.size === 0 ? "" : `?${query}`}`;
     }
+    case "beforeAfter":
+      return `#/design-systems/${encodeURIComponent(route.designSystemId)}/components/${encodeURIComponent(route.component)}/before-after`;
     case "project":
       return `#/projects/${encodeURIComponent(route.projectId)}`;
     case "designMd":
