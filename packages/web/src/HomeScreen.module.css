@@ -175,3 +175,10 @@
   flex-direction: column;
   gap: 2px;
 }
+
+.dsPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--space-1);
+}

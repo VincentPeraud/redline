@@ -67,22 +67,26 @@
   justify-content: space-between;
 }
 
-.pendingPill {
+.alertsRow {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-pill);
-  background: var(--color-warning-bg);
-  color: var(--color-warning-text);
-  font-size: var(--font-size-xs);
+  gap: var(--space-2);
 }
 
-.pendingDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-override-ring);
+.review {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-accent);
+  text-decoration: underline;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.review:hover {
+  color: var(--color-accent-hover);
 }
 
 .name {

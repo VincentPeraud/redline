@@ -9,7 +9,8 @@ import { ArchiveIcon, archivedOnLabel } from "./ArchiveControls.js";
 import { Button, Dialog, DialogActions, Field, PageContent, PageHeader, Select, Textarea, TextInput } from "./ui/index.js";
 import { usedByLabel } from "./designSystemLabel.js";
 import { componentCountLabel, pageCountLabel } from "./diffusionLabels.js";
-import { routeHref } from "./router.js";
+import { navigateTo, routeHref } from "./router.js";
+import { PendingPill, RequestsPill } from "./DesignSystemAlerts.js";
 import styles from "./DesignSystemsScreen.module.css";
 
 function NewDesignSystemDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (designSystem: DesignSystem) => void }) {
@@ -140,14 +141,27 @@ export function DesignSystemsScreen() {
             <div className={styles.body}>
               <div className={styles.nameRow}>
                 <div className={styles.name}>{ds.title}</div>
-                {ds.pendingChanges > 0 && (
-                  <span data-testid="pending-pill" className={styles.pendingPill}>
-                    <span aria-hidden="true" className={styles.pendingDot} />
-                    non diffusé
-                  </span>
-                )}
+                {ds.pendingChanges > 0 && <PendingPill changes={ds.pendingChanges} />}
               </div>
               <div className={styles.usedBy}>{usedByLabel(ds)}</div>
+              {(ds.requests > 0 || ds.pendingChanges > 0) && (
+                <div className={styles.alertsRow}>
+                  {ds.requests > 0 && <RequestsPill count={ds.requests} suffix=" des projets" />}
+                  {ds.pendingChanges > 0 && (
+                    <button
+                      type="button"
+                      data-testid="review-and-diffuse"
+                      className={styles.review}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        navigateTo({ name: "designSystem", designSystemId: ds.id, review: true });
+                      }}
+                    >
+                      Relire et diffuser
+                    </button>
+                  )}
+                </div>
+              )}
               <div data-testid="design-system-stats" className={styles.stats}>
                 {pageCountLabel(ds.pageCount)} · {componentCountLabel(ds.componentCount)} · diffusion {ds.diffusion}
               </div>

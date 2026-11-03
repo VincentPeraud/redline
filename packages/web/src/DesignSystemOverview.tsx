@@ -148,7 +148,7 @@ function DiffusionRow({ diffusion, isCurrent, isFirst, canRollBack, onRollBack }
 }
 
 /** `viaProjectId`: the project the design system was opened from; its pages open with it, so that project's agent runs their work. */
-export function DesignSystemOverview({ designSystemId, viaProjectId }: { designSystemId: string; viaProjectId?: string }) {
+export function DesignSystemOverview({ designSystemId, viaProjectId, review }: { designSystemId: string; viaProjectId?: string; review?: boolean }) {
   const [reloads, setReloads] = useState(0);
   const detail = useDesignSystemDetail(designSystemId, String(reloads));
   const openDiffusion = useOpenDiffusionDialog();
@@ -171,6 +171,13 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
   }, [designSystemId]);
 
   useDocumentTitle(detail?.title);
+
+  // "Relire et diffuser" lands here with `?relire=1`: open the review once, then drop the flag so closing it does not reopen it.
+  useEffect(() => {
+    if (!review) return;
+    openDiffusion(designSystemId);
+    navigateTo({ name: "designSystem", designSystemId, ...(viaProjectId === undefined ? {} : { viaProjectId }) }, "replace");
+  }, [review]);
 
   if (!detail) return <main className={styles.screen}>Chargement…</main>;
 
@@ -200,7 +207,7 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
         <div className={styles.grow} />
         {pendingCount > 0 && (
           <button type="button" className={styles.diffuse} onClick={() => openDiffusion(detail.id)}>
-            Diffuser aux projets <span className={styles.diffuseCount}>{pendingCount}</span>
+            Diffuser aux projets <span className={styles.diffuseCount}>{detail.reviewLines}</span>
           </button>
         )}
         {!readOnly && (

@@ -38,6 +38,11 @@ function whereOf(name: string, sites: UseSite[], keptBy: string[]): ReviewWhere 
   return { instances: list.reduce((total, page) => total + page.instances, 0), pages: list, keptBy };
 }
 
+/** Number of lines the review lists: what the alerts count. */
+export function reviewLineCount(review: DiffusionReview): number {
+  return review.tokens.length + (review.designMdChanged ? 1 : 0) + review.components.reduce((sum, card) => sum + card.changes.length, 0);
+}
+
 /** Everything changed since the current diffusion of a design system, for the Diffuse dialog. */
 export function diffusionReview(store: Store, designSystemId: string): DiffusionReview {
   const { pending } = store.pendingDiffusion(designSystemId);

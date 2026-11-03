@@ -62,4 +62,6 @@ export interface HomeOverview {
   work: WorkOverview[];
   /** Threads in waiting work items, all projects. */
   waitingThreads: number;
+  /** Design systems (not archived) with changes not diffused. */
+  designSystemsToDiffuse: number;
 }
