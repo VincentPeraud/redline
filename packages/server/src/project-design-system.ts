@@ -8,6 +8,7 @@ import {
   NEUTRAL_TOKENS_PAGE_HTML,
   PROJECT_STYLE_PATH,
   componentNameOf,
+  instanceUsesIn,
   defaultManifest,
   parseManifest,
   parseTokens,
@@ -25,7 +26,7 @@ import {
   type SetProjectTokenRequest,
   type SetProjectDesignSystemRequest,
 } from "@redline/shared";
-import { componentFilesOf, projectComponents } from "./components.js";
+import { componentFilesOf, componentPages, projectComponents } from "./components.js";
 import { personRef, editorAuthor } from "./identity.js";
 import type { OriginRef, Store } from "./store.js";
 import { titleError } from "./validation.js";
@@ -61,11 +62,17 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
     };
   });
 
-  const diffusedComponents = new Set(
-    (shared && diffusion ? store.diffusionComponents(shared.id, diffusion.number) : []).map((c) => c.name),
+  const usesByPage = componentPages(store, projectId).map((page) =>
+    Object.entries(page.files).flatMap(([path, content]) => (path.endsWith(".html") && componentNameOf(path) === null ? instanceUsesIn(content).map((use) => use.name) : [])),
   );
   const components = projectComponents(store, projectId).components.map(
-    (c): ProjectComponentInfo => ({ name: c.name, file: c.file, page: c.page, status: diffusedComponents.has(c.name) ? "override" : "new" }),
+    (c): ProjectComponentInfo => ({
+      name: c.name,
+      file: c.file,
+      page: c.page,
+      instances: usesByPage.reduce((sum, names) => sum + names.filter((name) => name === c.name).length, 0),
+      pages: usesByPage.filter((names) => names.includes(c.name)).length,
+    }),
   );
 
   const last = store.listDesignMdVersions(projectId, PROJECT_STYLE_PATH)[0];

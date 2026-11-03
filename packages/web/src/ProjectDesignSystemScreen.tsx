@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { instanceTagOf } from "@redline/shared";
 import type { DesignMdVersion, DesignSystemSummary, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
 import { dayLabel, designMdStatus, metaLine, originLabel } from "./historyLabels.js";
 import { useWho } from "./useMe.js";
-import { agree } from "./plural.js";
+import { agree, counted } from "./plural.js";
 import { pickerHex } from "./projectDesignSystemLabels.js";
 import { relativeTime } from "./relativeTime.js";
 import { routeHref } from "./router.js";
@@ -119,18 +120,17 @@ function TokenRow({
 }
 
 function ComponentCard({ component, swatch }: { component: ProjectComponentInfo; swatch: { background: string; shape: string } }) {
-  const overrides = component.status === "override";
   return (
-    <a href={routeHref({ name: "page", pageId: component.page.id, artboard: component.file })} className={styles.component}>
+    <div className={styles.component} data-testid={`component-${component.name}`}>
       <div aria-hidden="true" className={styles.componentThumb} style={{ background: swatch.background }}>
         <div className={styles.componentShape} style={{ background: swatch.shape }} />
       </div>
       <div className={styles.componentText}>
-        <span className={styles.mono}>{component.name}</span>
-        <span className={styles.componentPage}>page {component.page.title}</span>
+        <span className={styles.mono}>{instanceTagOf(component.name)}</span>
+        <span className={styles.componentPage}>{`${counted(component.instances, "instance", "instances")} · ${counted(component.pages, "page", "pages")}`}</span>
       </div>
-      <span className={overrides ? styles.overriddenPill : styles.newPill}>{overrides ? "surchargé" : "nouveau"}</span>
-    </a>
+      <span className={styles.ownPill}>propre au projet</span>
+    </div>
   );
 }
 
@@ -397,7 +397,8 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
           <section className={styles.sideSection}>
             <h2 className={styles.sideTitle}>Composants du projet · {detail.components.length}</h2>
             <div className={styles.sideText}>
-              Fichiers <span className={styles.inlineMono}>components/</span> des pages du projet. Ils servent dans toutes les pages du projet.
+              {shared ? `Créés par les sessions du projet quand ${shared.title} n'avait rien d'approchant. ` : "Créés par les sessions du projet. "}
+              Ils s'utilisent en instance dans toutes les pages du projet.
             </div>
             {detail.components.map((component) => (
               <ComponentCard key={component.file} component={component} swatch={thumb} />

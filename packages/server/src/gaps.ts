@@ -41,7 +41,7 @@ function gapsOfFiles(store: Store, pageId: string, files: Record<string, string>
   const artboards = (manifestText === undefined ? defaultManifest(Object.keys(files)) : parseManifest(manifestText)).artboards;
   const context = gapContext(store, designSystemId, page.projectId);
   const gaps = artboards
-    .filter((a) => files[a.file] !== undefined && componentNameOf(a.file) === null)
+    .filter((a) => files[a.file] !== undefined)
     .flatMap((a) => analyseGaps(a.file, files[a.file], context));
   return { designSystemTitle, gaps };
 }

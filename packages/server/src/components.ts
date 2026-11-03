@@ -34,7 +34,10 @@ export function versionComponentsError(store: Store, pageId: string, files: Reco
   if (invalid) return invalid;
   const designSystemId = store.sharedDesignSystemIdForManifest(pageId, files[MANIFEST_PATH]);
   if (store.isDesignSystemPage(pageId)) return instanceUsageError(files, [], assembly.definitions, new Map());
-  const classes = classesByTag(store, designSystemId, componentPages(store, page.projectId, { pageId, files }));
+  const pagesAfter = componentPages(store, page.projectId, { pageId, files });
+  const taken = takenNameError(store, designSystemId, componentPages(store, page.projectId), pagesAfter);
+  if (taken) return taken;
+  const classes = classesByTag(store, designSystemId, pagesAfter);
   return instanceUsageError(files, designSystemDefinitions(store, designSystemId), assembly.definitions, classes);
 }
 
@@ -44,8 +47,38 @@ export function newPageComponentsError(store: Store, projectId: string, title: s
   const invalid = componentsError(assembly);
   if (invalid) return invalid;
   const designSystemId = designSystemOfNewPage(store, projectId, files[MANIFEST_PATH]);
-  const classes = classesByTag(store, designSystemId, [...componentPages(store, projectId), { id: "", title, files }]);
+  const pagesAfter = [...componentPages(store, projectId), { id: "", title, files }];
+  const taken = takenNameError(store, designSystemId, componentPages(store, projectId), pagesAfter);
+  if (taken) return taken;
+  const classes = classesByTag(store, designSystemId, pagesAfter);
   return instanceUsageError(files, designSystemDefinitions(store, designSystemId), assembly.definitions, classes);
+}
+
+const contentsByName = (pages: ComponentPage[]) =>
+  new Map(
+    pages.flatMap((page) =>
+      Object.entries(page.files).flatMap(([path, content]) => {
+        const name = componentNameOf(path);
+        return name === null ? [] : [[name, content] as const];
+      }),
+    ),
+  );
+
+/**
+ * Error message when a project component takes the name of a component of its design system's current diffusion, else null. A component
+ * the project already had, unchanged, is left alone (the design system added the name later and the project keeps its own); touching it is refused.
+ */
+function takenNameError(store: Store, designSystemId: string | undefined, before: ComponentPage[], after: ComponentPage[]): string | null {
+  const current = designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId);
+  if (designSystemId === undefined || !current) return null;
+  const shared = new Set(Object.keys(store.diffusionComponentFiles(designSystemId, current.number)).map((path) => componentNameOf(path)));
+  const previous = contentsByName(before);
+  for (const [name, content] of contentsByName(after)) {
+    if (shared.has(name) && previous.get(name) !== content) {
+      return `Component "${name}" already exists in the design system: use <${instanceTagOf(name)}>, or ask the user for a new setting or slot. A project component cannot take the name of a design system component.`;
+    }
+  }
+  return null;
 }
 
 /** Definitions of the current diffusion of a design system, none when there is no shared one. */

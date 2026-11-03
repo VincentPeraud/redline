@@ -258,11 +258,6 @@
   font-size: var(--font-size-xs);
 }
 
-.inlineMono {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-2xs);
-}
-
 .deprecated {
   font-size: 10px;
   color: var(--color-warning-text);
@@ -415,18 +410,12 @@
 }
 
 .component {
-  text-decoration: none;
-  color: inherit;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: 10px var(--space-3);
   display: flex;
   align-items: center;
   gap: var(--space-3);
-}
-
-.component:hover {
-  border-color: var(--color-border-strong);
 }
 
 .componentThumb {
@@ -464,9 +453,14 @@
   color: var(--color-text-muted);
 }
 
-.component > .overriddenPill,
-.component > .newPill {
+.ownPill {
   margin-left: auto;
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-secondary);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  white-space: nowrap;
 }
 
 .designMd {
