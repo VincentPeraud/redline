@@ -72,7 +72,8 @@ describe("refusing a change or a request", () => {
     expect((await changes()).map((c) => [c.label, c.state])).toEqual([["Taille 720 px", "refused"], ["Croix ronde", "pending"]]);
     const thread = await threadOf(ds.pageId, request);
     expect(thread.request!.state).toBe("done_in_draft");
-    expect(thread.replies.at(-1)).toMatchObject({ author: "user" });
+    // Without an answer nothing is posted in the user's name: Redline signs the line.
+    expect(thread.replies.at(-1)).toMatchObject({ author: "redline" });
     expect(thread.replies.at(-1)!.body).toContain("Taille 720 px");
     const told = await threadOf(planning.id, origin.id);
     expect(told.replies.at(-1)).toMatchObject({ author: "redline" });
@@ -100,6 +101,19 @@ describe("refusing a change or a request", () => {
     expect(bodies).toHaveLength(2);
     expect(bodies[0]).toContain("Taille 720 px");
     expect(bodies[1]).toContain("Croix ronde");
+  });
+
+  it("posts the user's answer in the request thread and passes it to the origin", async () => {
+    const origin = await comment();
+    const request = await ask(origin.id);
+    await publish([size(request), cross(request)]);
+
+    const res = await server.post(`/api/changes/${(await changes())[0]!.id}/refuse`, { answer: "Trop large pour mobile" });
+
+    expect(res.status).toBe(200);
+    expect((await threadOf(ds.pageId, request)).replies.at(-1)).toMatchObject({ author: "user", body: "Trop large pour mobile" });
+    expect((await threadOf(planning.id, origin.id)).replies.at(-1)!.body).toContain("Trop large pour mobile");
+    expect((await server.post(`/api/threads/${request}/refuse`, { answer: 3 })).status).toBe(400);
   });
 
   it("creates a thread on the instance when the request had no origin thread", async () => {

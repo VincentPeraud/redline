@@ -332,12 +332,12 @@ export async function buildMainApp(
   });
 
   // "Refuser" is a user action of the web UI: on a change born of a request, or on a whole request.
-  app.post<{ Params: { changeId: string } }>("/api/changes/:changeId/refuse", async (req, reply) => {
-    const outcome = refuseChange(store, pageLock, terminalSessions, req.params.changeId);
+  app.post<{ Params: { changeId: string }; Body: { answer?: unknown } | undefined }>("/api/changes/:changeId/refuse", async (req, reply) => {
+    const outcome = refuseChange(store, pageLock, terminalSessions, req.params.changeId, req.body?.answer);
     return reply.code(outcome.status).send(outcome.body);
   });
-  app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/refuse", async (req, reply) => {
-    const outcome = refuseRequest(store, pageLock, terminalSessions, req.params.threadId);
+  app.post<{ Params: { threadId: string }; Body: { answer?: unknown } | undefined }>("/api/threads/:threadId/refuse", async (req, reply) => {
+    const outcome = refuseRequest(store, pageLock, terminalSessions, req.params.threadId, req.body?.answer);
     return reply.code(outcome.status).send(outcome.body);
   });
 
