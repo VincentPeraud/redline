@@ -129,6 +129,51 @@ describe("instances displayed from their component's definition", () => {
     expect(window.document.querySelector("ui-modal .body ui-button .btn")!.textContent).toBe("Yes");
   });
 
+  const componentFile = (template: string) => `<!doctype html><html><body><template data-component>${template}</template></body></html>`;
+  const BUTTON = componentFile(`<button class="btn"><slot></slot></button>`);
+
+  it("renders a nested instance in a template with its own settings and slots", async () => {
+    const ds = await createDesignSystem({
+      "manifest.json": manifestOf(["components/modal.html", "components/button.html"], [{ id: "tone", type: "choice", label: "Tone", options: ["plain", "danger"], default: "plain", artboard: "components/button.html" }]),
+      "components/modal.html": modalFile(`<div class="modal"><div class="body"><slot></slot></div><footer><ui-button tone="danger">Delete</ui-button><ui-button>Cancel</ui-button></footer></div>`),
+      "components/button.html": BUTTON,
+    });
+    const { page } = await followingProject(ds, `<ui-modal><p>Really</p></ui-modal>`);
+    const window = await open(`/pages/${page.id}/a.html`);
+    const buttons = [...window.document.querySelectorAll("ui-modal footer ui-button")];
+    expect(buttons.map((b) => b.querySelector(".btn")!.textContent)).toEqual(["Delete", "Cancel"]);
+    expect(buttons.map((b) => b.getAttribute("tone"))).toEqual(["danger", "plain"]);
+    expect(window.document.querySelector("ui-modal .body")!.innerHTML).toBe("<p>Really</p>");
+  });
+
+  it("resolves tags of a design system template to the design system, and tags of the project's pages to the project", async () => {
+    const ds = await createDesignSystem({
+      "manifest.json": manifestOf(["components/modal.html", "components/button.html"]),
+      "components/modal.html": modalFile(`<div class="modal"><ui-button>Ok</ui-button></div>`),
+      "components/button.html": BUTTON,
+    });
+    const project = await createProject();
+    await addPage(project, "Components", { "manifest.json": manifestOf(["components/button.html"], [], ds.id), "components/button.html": componentFile(`<a class="own-btn"><slot></slot></a>`) });
+    const page = await addPage(project, "Flow", { "manifest.json": manifestOf(["a.html"], [], ds.id), "a.html": mockup(`<ui-modal></ui-modal><ui-button id="own">Go</ui-button>`) });
+    const window = await open(`/pages/${page.id}/a.html`);
+    expect(window.document.querySelector("ui-modal .btn")!.textContent).toBe("Ok");
+    expect(window.document.querySelector("ui-modal .own-btn")).toBeNull();
+    expect(window.document.querySelector("#own .own-btn")!.textContent).toBe("Go");
+  });
+
+  it("stops a runaway nesting at the depth limit instead of looping", async () => {
+    // Design system creation does not run the publish check, so a self-containing component can exist here.
+    const ds = await createDesignSystem({
+      "manifest.json": manifestOf(["components/loop.html"]),
+      "components/loop.html": componentFile(`<div class="loop"><ui-loop></ui-loop></div>`),
+    });
+    const { page } = await followingProject(ds, `<ui-loop></ui-loop>`);
+    const window = await open(`/pages/${page.id}/a.html`);
+    const depth = window.document.querySelectorAll("ui-loop").length;
+    expect(depth).toBeGreaterThan(1);
+    expect(depth).toBeLessThanOrEqual(12);
+  });
+
   it("shows the draft on a design system page and on the preview of a pending diffusion", async () => {
     const ds = await designSystemWithModal();
     const dsPage = await addPage(ds.id, "Mock", { "manifest.json": manifestOf(["demo.html"]), "demo.html": mockup(`<ui-modal><p>Body</p></ui-modal>`) });
@@ -213,5 +258,99 @@ describe("instances displayed from their component's definition", () => {
       const { errors } = await openReporting(`/pages/${page.id}/a.html`);
       expect(errors()).toEqual([]);
     });
+  });
+});
+
+describe("interactive instances", () => {
+  let server: TestServer;
+  const windows: JSDOM["window"][] = [];
+
+  beforeEach(async () => {
+    server = await startTestServer();
+  });
+  afterEach(async () => {
+    for (const window of windows.splice(0)) window.close();
+    await server.stop();
+  });
+
+  const OPEN_TWEAK = { id: "open", type: "toggle", label: "Open", default: false, artboard: "components/modal.html" };
+  const SCRIPT = `
+    function sync() {
+      var panel = host.querySelector(".panel");
+      panel.hidden = !host.hasAttribute("open");
+      host.dispatchEvent(new CustomEvent("modal-state", { bubbles: true, detail: { open: host.hasAttribute("open") } }));
+    }
+    new MutationObserver(sync).observe(host, { attributes: true, attributeFilter: ["open"] });
+    host.querySelector(".close").addEventListener("click", function () { host.removeAttribute("open"); });
+    sync();`;
+  const modalWithScript = `<!doctype html><html><head></head><body><template data-component><div class="panel"><slot></slot><button class="close">x</button></div></template><script data-component>${SCRIPT}</script></body></html>`;
+
+  async function pageWith(body: string, component = modalWithScript) {
+    const ds = (await (await server.post("/api/design-systems", { title: "Acme DS", files: { "tokens.css": tokensCss, "manifest.json": modalManifest([OPEN_TWEAK]), "components/modal.html": component } })).json()) as DesignSystem;
+    const project = ((await (await server.post("/api/projects", { title: "Acme" })).json()) as { id: string }).id;
+    const page = (await (await server.post(`/api/projects/${project}/pages`, { title: "Flow", files: { "manifest.json": manifestOf(["a.html"], [], ds.id), "a.html": mockup(body) } })).json()) as Page;
+    const dom = await JSDOM.fromURL(`${server.artboardOrigin}/pages/${page.id}/a.html`, { runScripts: "dangerously", resources: "usable", pretendToBeVisual: true });
+    windows.push(dom.window);
+    await new Promise<void>((resolve) => (dom.window.document.readyState === "complete" ? resolve() : dom.window.addEventListener("load", () => resolve())));
+    const window = dom.window;
+    const click = (id: string | Element) => (typeof id === "string" ? window.document.getElementById(id)! : id).dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    return { window, click, settle };
+  }
+
+  const page = `<button id="o" opens="m"><span id="inner">Open</span></button><button id="c" closes="m">Close</button><button id="t" toggles="m">Toggle</button><ui-modal id="m"><p>Hi</p></ui-modal>`;
+
+  it("lets a component's script react to its open attribute and close itself", async () => {
+    const { window, click, settle } = await pageWith(page);
+    const modal = window.document.getElementById("m")!;
+    const panel = modal.querySelector<HTMLElement>(".panel")!;
+    expect(panel.hidden).toBe(true);
+    modal.setAttribute("open", "");
+    await settle();
+    expect(panel.hidden).toBe(false);
+    click(modal.querySelector(".close")!);
+    await settle();
+    expect(modal.hasAttribute("open")).toBe(false);
+    expect(panel.hidden).toBe(true);
+  });
+
+  it("opens, closes and toggles an instance from any element pointing at its id", async () => {
+    const { window, click } = await pageWith(page);
+    const modal = window.document.getElementById("m")!;
+    click("inner");
+    expect(modal.hasAttribute("open")).toBe(true);
+    click("c");
+    expect(modal.hasAttribute("open")).toBe(false);
+    click("t");
+    expect(modal.hasAttribute("open")).toBe(true);
+    click("t");
+    expect(modal.hasAttribute("open")).toBe(false);
+  });
+
+  it("ignores wiring that points at no element", async () => {
+    const { window, click } = await pageWith(`<button id="o" opens="nope">Open</button><ui-modal id="m"></ui-modal>`);
+    click("o");
+    expect(window.document.getElementById("m")!.hasAttribute("open")).toBe(false);
+  });
+
+  it("lets a page script set an instance attribute and listen to the event the component dispatches", async () => {
+    const { window, settle } = await pageWith(`<ui-modal id="m"><p>Hi</p></ui-modal><script>var states = []; document.addEventListener("modal-state", function (e) { states.push(e.detail.open); }); window.addEventListener("load", function () { document.getElementById("m").setAttribute("open", ""); });</script>`);
+    await settle();
+    expect((window as unknown as { states: boolean[] }).states).toEqual([false, true]);
+  });
+
+  it("wires clicks in play mode, where only links are reported", async () => {
+    const { window, click } = await pageWith(page);
+    window.dispatchEvent(new window.MessageEvent("message", { data: { type: "redline:set-links", selectors: ["#o"] }, source: window }));
+    click("t");
+    expect(window.document.getElementById("m")!.hasAttribute("open")).toBe(true);
+  });
+
+  it("runs component scripts in the artboard sandbox only", async () => {
+    const response = await fetch(`${server.artboardOrigin}/__redline/instances.js`);
+    expect(response.headers.get("content-security-policy")).toBe("sandbox allow-scripts");
+    const { window } = await pageWith(`<ui-modal id="m"></ui-modal>`);
+    expect(window.location.origin).toBe(server.artboardOrigin);
+    expect(window.location.origin).not.toBe(server.origin);
   });
 });

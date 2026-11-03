@@ -103,4 +103,37 @@ describe("components of design systems and projects", () => {
     expect(((await res.json()) as { error: string }).error).toContain("sticker");
     expect(((await (await server.get(`/api/pages/${stories.id}/versions`)).json()) as unknown[]).length).toBe(2);
   });
+
+  describe("component cycles", () => {
+    const template = (inner: string) => `<!doctype html><html><body><template data-component>${inner}</template></body></html>`;
+    const cycleError = async (res: Response) => ((await res.json()) as { error: string }).error;
+
+    it("refuses publishing a component that contains itself", async () => {
+      const ds = await createDesignSystem({ "manifest.json": manifestOf(["components/card.html"]), "components/card.html": template("<div><slot></slot></div>") });
+      const [first] = (await (await server.get(`/api/projects/${ds.id}/pages`)).json()) as Page[];
+      const res = await publish(first!, { "manifest.json": manifestOf(["components/card.html"]), "components/card.html": template("<div><ui-card></ui-card></div>") });
+      expect(res.status).toBe(400);
+      expect(await cycleError(res)).toBe("Components form a cycle: ui-card > ui-card");
+    });
+
+    it("refuses an indirect cycle across pages, naming it, and keeps the stored version", async () => {
+      const project = await createProject();
+      await addPage(project, "A", { "manifest.json": manifestOf(["components/a.html"]), "components/a.html": template("<ui-b></ui-b>") });
+      const pageB = (await (await addPage(project, "B", { "manifest.json": manifestOf(["components/b.html"]), "components/b.html": template("<i>b</i>") })).json()) as Page;
+      const res = await publish(pageB, { "manifest.json": manifestOf(["components/b.html"]), "components/b.html": template("<ui-a></ui-a>") });
+      expect(res.status).toBe(400);
+      expect(await cycleError(res)).toBe("Components form a cycle: ui-a > ui-b > ui-a");
+      expect(((await (await server.get(`/api/pages/${pageB.id}/versions`)).json()) as unknown[]).length).toBe(1);
+    });
+
+    it("refuses a new page whose component closes a cycle, and accepts a nesting without cycle", async () => {
+      const project = await createProject();
+      await addPage(project, "A", { "manifest.json": manifestOf(["components/a.html"]), "components/a.html": template("<ui-b></ui-b>") });
+      const ok = await addPage(project, "C", { "manifest.json": manifestOf(["components/c.html"]), "components/c.html": template("<ui-a></ui-a>") });
+      expect(ok.status).toBe(201);
+      const res = await addPage(project, "B", { "manifest.json": manifestOf(["components/b.html"]), "components/b.html": template("<ui-c></ui-c>") });
+      expect(res.status).toBe(400);
+      expect(await cycleError(res)).toContain("Components form a cycle: ui-");
+    });
+  });
 });
