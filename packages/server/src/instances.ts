@@ -13,7 +13,12 @@ import type { Store } from "./store.js";
  *   - rendering moves the authored children into the template's slots (`slot="x"` to `<slot name="x">`, the rest into the
  *     default slot; an empty slot keeps its fallback content), replaces the `<slot>` elements and sets the result as the
  *     instance's children. The authored nodes are the same nodes at every render;
- *   - a change to a setting attribute renders again;
+ *   - a change to a setting attribute renders again, except the state attributes `open` and `selected`, which only the
+ *     component's script reacts to (rendering again would drop what the script set up);
+ *   - the component's behaviour script runs once per instance after its first render, as the body of a function that
+ *     receives the instance as `host` (it reacts to attributes such as `open` and dispatches events);
+ *   - a click on an element with `opens`, `closes` or `toggles` set to an instance id sets, removes or toggles that
+ *     instance's `open` attribute (the component's script may handle it its own way);
  *   - a tag written in the page resolves to the project's definition, then the design system's; a tag inside a design
  *     system template resolves to the design system's definition only. Nesting stops at MAX_DEPTH.
  *
@@ -25,6 +30,7 @@ export const INSTANCES_DATA_ID = "redline-components";
 
 export const INSTANCES_SOURCE = `(function () {
   var MAX_DEPTH = 10;
+  var STATE_ATTRIBUTES = ["open", "selected"];
   var SCOPE_PAGE = "page";
   var SCOPE_DESIGN_SYSTEM = "designSystem";
   var data = document.getElementById("${INSTANCES_DATA_ID}");
@@ -99,7 +105,7 @@ export const INSTANCES_SOURCE = `(function () {
     var observed = [];
     [layers.project, layers.designSystem].forEach(function (list) {
       var definition = definitionIn(list, tag);
-      if (definition) definition.settings.forEach(function (setting) { if (observed.indexOf(setting.name) === -1) observed.push(setting.name); });
+      if (definition) definition.settings.forEach(function (setting) { if (STATE_ATTRIBUTES.indexOf(setting.name) === -1 && observed.indexOf(setting.name) === -1) observed.push(setting.name); });
     });
     customElements.define(tag, class extends HTMLElement {
       static get observedAttributes() { return observed; }
@@ -112,12 +118,27 @@ export const INSTANCES_SOURCE = `(function () {
         applyDefaults(this, resolved.definition);
         render(this, resolved);
         this.__rendered = true;
+        if (resolved.definition.script) new Function("host", resolved.definition.script)(this);
       }
       attributeChangedCallback() {
         if (this.__rendered) render(this, this.__redlineInstance);
       }
     });
   }
+
+  var WIRING = [["opens", "set"], ["closes", "remove"], ["toggles", "toggle"]];
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (!target || !target.closest) return;
+    WIRING.forEach(function (wiring) {
+      var source = target.closest("[" + wiring[0] + "]");
+      var instance = source && document.getElementById(source.getAttribute(wiring[0]));
+      if (!instance) return;
+      if (wiring[1] === "set") instance.setAttribute("open", "");
+      else if (wiring[1] === "remove") instance.removeAttribute("open");
+      else instance.toggleAttribute("open");
+    });
+  });
 
   var tags = [];
   [layers.project, layers.designSystem].forEach(function (list) {
