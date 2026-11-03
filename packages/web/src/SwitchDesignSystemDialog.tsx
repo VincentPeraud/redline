@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { DesignSystemSwitchPreview, SwitchComponent } from "@redline/shared";
 import { counted } from "./plural.js";
+import { switchMatchLabel } from "./projectDesignSystemLabels.js";
 import { Button, DIALOG_EXIT_MS, Dialog, DialogActions, cx } from "./ui/index.js";
 import styles from "./SwitchDesignSystemDialog.module.css";
 
@@ -52,7 +53,7 @@ export function SwitchDesignSystemDialog({
                 <input type="checkbox" className={styles.checkbox} checked={!absent && ticked.has(component.tag)} disabled={absent} onChange={() => toggle(component.tag)} />
                 <span className={styles.tag}>{component.tag}</span>
                 <span className={styles.uses}>{usesOf(component)}</span>
-                <span className={cx(styles.pill, styles[component.match])}>{component.label}</span>
+                <span className={cx(styles.pill, styles[component.match])}>{switchMatchLabel(component, preview.to.title)}</span>
               </label>
             );
           })}

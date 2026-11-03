@@ -95,9 +95,12 @@ export interface SwitchComponent {
   /** Title of the page when only one page uses it. */
   page: string;
   match: SwitchMatch;
-  /** The match pill: "même nom, mêmes réglages", "même nom, variante pills absente", "absent de <design system>". */
-  label: string;
+  /** What differs when `match` is "different"; the web words the pill ("même nom, variante pills absente"). */
+  difference?: SwitchDifference;
 }
+
+/** Why a same-named component differs in the target design system: a setting value it lacks, a setting it lacks, or other settings. */
+export type SwitchDifference = { kind: "value"; value: string } | { kind: "setting"; name: string } | { kind: "settings" };
 
 /** `GET /api/projects/:id/design-system/switch?to=<design system id>`: what the switch dialog shows. */
 export interface DesignSystemSwitchPreview {

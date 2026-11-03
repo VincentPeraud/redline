@@ -15,7 +15,10 @@ export interface ReviewToken {
 
 /** One line of a card's "Ce qui change". */
 export interface ReviewChange {
+  /** Empty for an `undescribed` line. */
   label: string;
+  /** A component that changed with no recorded change and no default change: the web words the line ("Modification sans description"). */
+  undescribed?: true;
   origin: ReviewOrigin;
   /** The recorded change this line shows; absent for a derived line ("Modification sans description", a default value). */
   changeId?: string;

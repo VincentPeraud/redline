@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { isColorValue, type DesignSystemDetail, type DiffusionReview, type ReviewChange, type ReviewComponent, type ReviewToken } from "@redline/shared";
 import { routeHref, type Route } from "./router.js";
 import { agree } from "./plural.js";
-import { componentsHeading, keptByText, movedUpText, originText, tokensWhereText, whereSummary } from "./reviewLabels.js";
+import { changeLabel, componentsHeading, keptByText, movedUpText, originText, tokensWhereText, whereSummary } from "./reviewLabels.js";
 import { cx } from "./ui/index.js";
 import styles from "./DiffusionReviewCards.module.css";
 
@@ -84,7 +84,7 @@ function ChangeLine({ change, onRefused }: { change: ReviewChange; onRefused: ()
         ) : undefined
       }
     >
-      <span className={styles.label}>{change.label}</span>
+      <span className={styles.label}>{changeLabel(change)}</span>
     </ChangeRow>
   );
 }

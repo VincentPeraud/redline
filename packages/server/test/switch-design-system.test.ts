@@ -71,11 +71,11 @@ describe("switching a project's design system", () => {
     const { projectId, to } = await scenario();
     const preview = await previewOf(projectId, to.id);
     expect(preview.to).toEqual({ id: to.id, title: "Réseaux sociaux" });
-    expect(preview.components.map((c) => [c.tag, c.instances, c.pages, c.match, c.label])).toEqual([
-      ["ui-button", 2, 1, "same", "même nom, mêmes réglages"],
-      ["ui-card", 1, 1, "different", "même nom, réglages différents"],
-      ["ui-tabs", 1, 1, "different", "même nom, variante pills absente"],
-      ["ui-modal", 1, 1, "absent", "absent de Réseaux sociaux"],
+    expect(preview.components.map((c) => [c.tag, c.instances, c.pages, c.match, c.difference])).toEqual([
+      ["ui-button", 2, 1, "same", undefined],
+      ["ui-card", 1, 1, "different", { kind: "settings" }],
+      ["ui-tabs", 1, 1, "different", { kind: "value", value: "pills" }],
+      ["ui-modal", 1, 1, "absent", undefined],
     ]);
     expect(preview.components.map((c) => c.page)).toEqual(["Flow", "Flow", "Flow", "Flow"]);
   });

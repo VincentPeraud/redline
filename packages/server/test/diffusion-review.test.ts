@@ -106,7 +106,7 @@ describe("the diffusion review", () => {
   it("says a component changed without any record is a change without description", async () => {
     await publish({ "components/button.html": BUTTON.replace("<button>", "<button class=\"b\">") });
     const button = (await review()).components.find((c) => c.name === "button")!;
-    expect(button.changes).toEqual([{ label: "Modification sans description", origin: { kind: "direct" }, refusable: false, undoing: false }]);
+    expect(button.changes).toEqual([{ label: "", undescribed: true, origin: { kind: "direct" }, refusable: false, undoing: false }]);
     expect(button.where).toEqual({ instances: 0, pages: [], keptBy: [], movedUp: [] });
   });
 

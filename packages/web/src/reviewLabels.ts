@@ -1,4 +1,4 @@
-import type { ReviewOrigin } from "@redline/shared";
+import type { ReviewChange, ReviewOrigin } from "@redline/shared";
 import { agree, counted } from "./plural.js";
 
 const list = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}` : (items[0] ?? ""));
@@ -33,3 +33,6 @@ export function movedUpText(moved: { project: string; instances: number }[]): st
 }
 
 export const componentsHeading = (count: number): string => `${counted(count, "composant", "composants")} ${agree(count, "change", "changent")}`;
+
+/** A line of "Ce qui change": its recorded label, or the wording of a component changed with no description. */
+export const changeLabel = (change: ReviewChange): string => (change.undescribed ? "Modification sans description" : change.label);

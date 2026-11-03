@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ComparisonSide, ComponentComparison } from "@redline/shared";
 import { useDesignSystemDetail } from "./DiffusionDialog.js";
 import { useDocumentTitle } from "./documentTitle.js";
-import { originText } from "./reviewLabels.js";
+import { changeLabel, originText } from "./reviewLabels.js";
 import { routeHref } from "./router.js";
 import { Logo, cx } from "./ui/index.js";
 import styles from "./BeforeAfterScreen.module.css";
@@ -121,7 +121,7 @@ function ChangeList({ comparison, onRefused }: { comparison: ComponentComparison
           <span aria-hidden="true" className={styles.number}>
             {index + 1}
           </span>
-          <span className={styles.label}>{change.label}</span>
+          <span className={styles.label}>{changeLabel(change)}</span>
           <span className={styles.origin}>{originText(change.origin)}</span>
           <span className={styles.grow} />
           {change.undoing ? (

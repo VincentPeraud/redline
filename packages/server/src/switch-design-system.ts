@@ -7,6 +7,7 @@ import {
   type ExcludedComponent,
   type Person,
   type SwitchComponent,
+  type SwitchDifference,
   type SwitchMatch,
   type VersionOrigin,
 } from "@redline/shared";
@@ -45,17 +46,17 @@ function usageOf(store: Store, projectId: string): Map<string, Usage> {
   return usage;
 }
 
-function differenceLabel(source: ComponentDefinition | undefined, target: ComponentDefinition, usage: Usage): string {
+function differenceOf(source: ComponentDefinition | undefined, target: ComponentDefinition, usage: Usage): SwitchDifference {
   for (const setting of target.settings) {
     if (!setting.options) continue;
     const missing = usage.attributes.map((attributes) => attributes[setting.name]).find((value) => value !== undefined && !setting.options!.includes(value));
-    if (missing !== undefined) return `même nom, variante ${missing} absente`;
+    if (missing !== undefined) return { kind: "value", value: missing };
   }
   for (const attributes of usage.attributes) {
     const unknown = Object.keys(attributes).find((name) => source?.settings.some((s) => s.name === name) && !target.settings.some((s) => s.name === name));
-    if (unknown) return `même nom, réglage ${unknown} absent`;
+    if (unknown) return { kind: "setting", name: unknown };
   }
-  return "même nom, réglages différents";
+  return { kind: "settings" };
 }
 
 /** What the switch dialog shows: each design system component the pages use, compared with the target's current diffusion. */
@@ -80,7 +81,7 @@ export function switchPreview(store: Store, projectId: string, targetId: string)
       pages: usage.pages.size,
       page: [...usage.pages][0],
       match,
-      label: match === "same" ? "même nom, mêmes réglages" : match === "absent" ? `absent de ${target.title}` : differenceLabel(before, wanted!, usage),
+      ...(match === "different" ? { difference: differenceOf(before, wanted!, usage) } : {}),
     });
   }
   return { from: source ? { id: source.id, title: source.title } : null, to: { id: target.id, title: target.title }, components, own: [...own].map(instanceTagOf) };

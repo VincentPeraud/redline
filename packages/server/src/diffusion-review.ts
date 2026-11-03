@@ -74,7 +74,7 @@ export function diffusionReview(store: Store, designSystemId: string): Diffusion
     for (const change of defaults.filter((d) => d.component === name)) {
       changes.push({ label: defaultChangeLabel(change.setting, change.from, change.to), origin: DIRECT, refusable: false, undoing: false });
     }
-    if (changes.length === 0) changes.push({ label: "Modification sans description", origin: DIRECT, refusable: false, undoing: false });
+    if (changes.length === 0) changes.push({ label: "", undescribed: true, origin: DIRECT, refusable: false, undoing: false });
     const movedHere = (project: (typeof ownNames)[number]) => project.moved[name]?.designSystemId === designSystemId;
     const keptBy = ownNames.filter((project) => project.names.has(name) && !movedHere(project)).map((project) => project.title);
     const movedUp = ownNames.filter(movedHere).map((project) => ({ project: project.title, instances: project.uses.reduce((sum, names) => sum + names.filter((n) => n === name).length, 0) }));
