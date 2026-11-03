@@ -65,8 +65,8 @@ it("shows the diffuse button while changes are pending, lists them with the over
   expect(await tokenRow.locator('span[aria-hidden="true"][style]').count()).toBe(2);
   const cards = await dialog.getByTestId("diffusion-component").allTextContents();
   expect(cards.map((card) => card.replace(/Où ça change.*$/, ""))).toEqual([
-    "ui-cardmodifiéCe qui changeModification sans descriptionfait directement dans le design system",
-    "ui-badgenouveauCe qui changeModification sans descriptionfait directement dans le design system",
+    "ui-cardmodifiéAvant / après ↗Ce qui changeModification sans descriptionfait directement dans le design system",
+    "ui-badgenouveauVoir le composant ↗Ce qui changeModification sans descriptionfait directement dans le design system",
   ]);
   expect(await dialog.getByText("Nulle part pour l'instant").count()).toBe(2);
   expect(await dialog.getByTestId("diffusion-override").textContent()).toContain("Semaine Halloween surcharge --color-primary : ce changement y sera sans effet.");
