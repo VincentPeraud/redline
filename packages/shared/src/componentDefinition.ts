@@ -44,6 +44,14 @@ export interface ComponentDefinition {
 export interface InstanceLayers {
   designSystem: ComponentDefinition[];
   project: ComponentDefinition[];
+  /** Tags a design system switch left out: written in a page, they render broken even if a definition exists. */
+  excluded?: ExcludedInstance[];
+}
+
+export interface ExcludedInstance {
+  tag: string;
+  /** Title of the design system the component was not taken from. */
+  from: string;
 }
 
 export const instanceTagOf = (name: string) => `${INSTANCE_TAG_PREFIX}${name}`;

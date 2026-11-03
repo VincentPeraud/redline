@@ -414,8 +414,27 @@
   border-radius: var(--radius-lg);
   padding: 10px var(--space-3);
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.componentRow {
+  display: flex;
   align-items: center;
   gap: var(--space-3);
+}
+
+.collisionPill {
+  align-self: flex-start;
+  font-size: var(--font-size-2xs);
+  color: var(--color-warning-text);
+  background: var(--color-warning-bg);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+}
+
+.takeButton {
+  align-self: flex-start;
 }
 
 .componentThumb {

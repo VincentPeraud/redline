@@ -8,10 +8,16 @@ export interface DialogProps {
   children: ReactNode;
   /** Width in px of the panel (580 for creation forms, 520 for short ones). */
   width?: number;
+  /** Gap in px between the title row and the content blocks (18 by default). */
+  gap?: number;
+  /** Plays the exit animation; the caller unmounts the dialog once it is over (`DIALOG_EXIT_MS`). */
+  closing?: boolean;
 }
 
+export const DIALOG_EXIT_MS = 140;
+
 /** Modal: dimmed overlay, white 16px-radius panel, title row with a close button. Escape and a click on the overlay close it. */
-export function Dialog({ title, onClose, children, width = 580 }: DialogProps) {
+export function Dialog({ title, onClose, children, width = 580, gap, closing = false }: DialogProps) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -21,13 +27,13 @@ export function Dialog({ title, onClose, children, width = 580 }: DialogProps) {
   }, [onClose]);
 
   return (
-    <div className={styles.overlay} onClick={onClose}>
+    <div className={styles.overlay} data-closing={closing || undefined} onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
         className={styles.panel}
-        style={{ width }}
+        style={{ width, ...(gap !== undefined && { gap }) }}
         onClick={(event) => event.stopPropagation()}
       >
         <div className={styles.titleRow}>

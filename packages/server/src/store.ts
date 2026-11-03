@@ -262,6 +262,8 @@ export class Store {
     addColumn("design_system_diffusions", "component_files_hash", "TEXT");
     addColumn("design_system_diffusions", "component_definitions_hash", "TEXT");
     addColumn("design_system_diffusions", "rolled_back_to", "INTEGER");
+    // Design system components a switch left out, as JSON { name: id of the design system it was not taken from }.
+    addColumn("projects", "excluded_components", "TEXT");
     addColumn("pages", "created_by", "TEXT NOT NULL DEFAULT 'user'");
     // The signed-in person who wrote a human message or started a conversation; NULL before the SSO and without it.
     addColumn("threads", "person_id", "TEXT");
@@ -882,6 +884,16 @@ export class Store {
       else manifest.designSystem = designSystem;
       this.addVersion(page.id, { ...files, [MANIFEST_PATH]: `${JSON.stringify(manifest, null, 2)}\n` }, designSystem === null ? "No shared design system" : "Design system changed", origin, person && { person });
     }
+  }
+
+  /** Components a design system switch left out of the project: their instances render broken, by component name, with the design system they were not taken from. */
+  excludedComponents(projectId: string): Record<string, string> {
+    const row = this.db.prepare("SELECT excluded_components AS json FROM projects WHERE id = ?").get(projectId) as { json: string | null } | undefined;
+    return row?.json ? (JSON.parse(row.json) as Record<string, string>) : {};
+  }
+
+  setExcludedComponents(projectId: string, excluded: Record<string, string>): void {
+    this.db.prepare("UPDATE projects SET excluded_components = ? WHERE id = ?").run(Object.keys(excluded).length === 0 ? null : JSON.stringify(excluded), projectId);
   }
 
   /** The project style after leaving `fromDesignSystem`: its current diffusion's tokens with the project's overrides on top; undefined (the overrides stay alone) when it has no diffusion. */

@@ -6,6 +6,50 @@
   align-items: center;
   justify-content: center;
   background: var(--color-overlay);
+  animation: overlay-in 140ms ease-out;
+}
+
+.overlay[data-closing] {
+  animation: overlay-out 140ms ease-in forwards;
+}
+
+.overlay[data-closing] .panel {
+  animation: panel-out 140ms ease-in forwards;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes overlay-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes panel-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay,
+  .overlay[data-closing],
+  .overlay[data-closing] .panel,
+  .panel {
+    animation-duration: 1ms;
+  }
 }
 
 .panel {
@@ -19,6 +63,7 @@
   background: var(--color-surface);
   border-radius: var(--radius-2xl);
   box-shadow: var(--shadow-modal);
+  animation: panel-in 160ms ease-out;
 }
 
 .titleRow {

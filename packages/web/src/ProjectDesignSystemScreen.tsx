@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { instanceTagOf } from "@redline/shared";
-import type { DesignMdVersion, DesignSystemSummary, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
+import type { DesignMdVersion, DesignSystemSummary, DesignSystemSwitchPreview, ExcludedComponent, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
 import { dayLabel, designMdStatus, metaLine, originLabel } from "./historyLabels.js";
 import { useWho } from "./useMe.js";
 import { agree, counted } from "./plural.js";
@@ -10,6 +10,7 @@ import { routeHref } from "./router.js";
 import { Button, Dialog, DialogActions, Field, Logo, TextInput, Tooltip, cx } from "./ui/index.js";
 import styles from "./ProjectDesignSystemScreen.module.css";
 import { useDocumentTitle } from "./documentTitle.js";
+import { SwitchDesignSystemDialog } from "./SwitchDesignSystemDialog.js";
 
 const CHEVRON = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={styles.chevron}>
@@ -122,14 +123,33 @@ function TokenRow({
 function ComponentCard({ component, swatch }: { component: ProjectComponentInfo; swatch: { background: string; shape: string } }) {
   return (
     <div className={styles.component} data-testid={`component-${component.name}`}>
-      <div aria-hidden="true" className={styles.componentThumb} style={{ background: swatch.background }}>
-        <div className={styles.componentShape} style={{ background: swatch.shape }} />
+      <div className={styles.componentRow}>
+        <div aria-hidden="true" className={styles.componentThumb} style={{ background: swatch.background }}>
+          <div className={styles.componentShape} style={{ background: swatch.shape }} />
+        </div>
+        <div className={styles.componentText}>
+          <span className={styles.mono}>{instanceTagOf(component.name)}</span>
+          <span className={styles.componentPage}>{`${counted(component.instances, "instance", "instances")} · ${counted(component.pages, "page", "pages")}`}</span>
+        </div>
+        <span className={styles.ownPill}>propre au projet</span>
       </div>
+      {component.inDesignSystem && <span className={styles.collisionPill}>existe aussi dans le design system</span>}
+    </div>
+  );
+}
+
+function ExcludedCard({ component, onTake }: { component: ExcludedComponent; onTake: (name: string) => void }) {
+  return (
+    <div className={styles.component} data-testid={`excluded-${component.name}`}>
       <div className={styles.componentText}>
-        <span className={styles.mono}>{instanceTagOf(component.name)}</span>
-        <span className={styles.componentPage}>{`${counted(component.instances, "instance", "instances")} · ${counted(component.pages, "page", "pages")}`}</span>
+        <span className={styles.mono}>{component.tag}</span>
+        <span className={styles.componentPage}>{component.available ? `non repris de ${component.from}` : `absent de ${component.from}`}</span>
       </div>
-      <span className={styles.ownPill}>propre au projet</span>
+      {component.available && (
+        <Button size="sm" className={styles.takeButton} onClick={() => onTake(component.name)}>
+          Prendre celui de {component.from}
+        </Button>
+      )}
     </div>
   );
 }
@@ -198,6 +218,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   const [versions, setVersions] = useState<DesignMdVersion[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [promoteOpen, setPromoteOpen] = useState(false);
+  const [switching, setSwitching] = useState<DesignSystemSwitchPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadVersions = useCallback(
@@ -251,10 +272,22 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const resetToken = useCallback((name: string) => change(fetch(tokenUrl(name), { method: "DELETE" })), [change, projectId]);
 
-  function changeDesignSystem(id: string) {
-    const body: SetProjectDesignSystemRequest = { designSystem: id === "none" ? null : id };
-    void change(fetch(`/api/projects/${projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+  async function changeDesignSystem(id: string) {
+    if (detail?.designSystem && id !== "none" && id !== detail.designSystem.id) {
+      const res = await fetch(`/api/projects/${projectId}/design-system/switch?to=${encodeURIComponent(id)}`);
+      if (!res.ok) return setError(((await res.json()) as { error: string }).error);
+      const preview = (await res.json()) as DesignSystemSwitchPreview;
+      if (preview.components.length > 0) return setSwitching(preview);
+    }
+    await applyDesignSystem(id);
   }
+
+  async function applyDesignSystem(id: string, ticked?: string[]) {
+    const body: SetProjectDesignSystemRequest = { designSystem: id === "none" ? null : id, ...(ticked && { ticked }) };
+    await change(fetch(`/api/projects/${projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+  }
+
+  const takeComponent = (name: string) => change(fetch(`/api/projects/${projectId}/design-system/components/${encodeURIComponent(name)}/take`, { method: "POST" }));
 
   async function promote(title: string) {
     const body: PromoteProjectStyleRequest = { title };
@@ -283,7 +316,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   const latest = detail.lastModified;
   const colour = (name: string, fallback: string) => detail.tokens.find((t) => t.name === name && t.isColor)?.value ?? fallback;
   const thumb = { background: colour("--color-background", "transparent"), shape: colour("--color-primary", "transparent") };
-  const selectedId = shared?.id ?? "none";
+  const selectedId = switching?.to.id ?? shared?.id ?? "none";
   const overridden = detail.overrideCount;
   const fresh = !shared && !detail.styleDefinesTokens;
 
@@ -321,7 +354,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
               Design system
             </label>
             <span className={styles.selectWrap}>
-              <select id="ds-select" className={styles.select} value={selectedId} onChange={(event) => changeDesignSystem(event.target.value)}>
+              <select id="ds-select" className={styles.select} value={selectedId} onChange={(event) => void changeDesignSystem(event.target.value)}>
                 {designSystems.map((system) => (
                   <option key={system.id} value={system.id}>
                     {system.title}
@@ -405,6 +438,16 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
             ))}
           </section>
 
+          {detail.excluded.length > 0 && (
+            <section className={styles.sideSection} data-testid="excluded-components">
+              <h2 className={styles.sideTitle}>Composants non repris · {detail.excluded.length}</h2>
+              <div className={styles.sideText}>Laissés de côté au changement de design system : leurs instances s'affichent en erreur dans les pages, jusqu'à ce que tu les prennes ici ou que les pages soient converties.</div>
+              {detail.excluded.map((component) => (
+                <ExcludedCard key={component.name} component={component} onTake={(name) => void takeComponent(name)} />
+              ))}
+            </section>
+          )}
+
           <section className={styles.designMd}>
             <div className={styles.designMdHeading}>
               <h2 className={styles.designMdTitle}>DESIGN.md</h2>
@@ -416,6 +459,18 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
         </aside>
       </div>
 
+      {switching && (
+        <SwitchDesignSystemDialog
+          projectTitle={project.title}
+          fromTitle={shared!.title}
+          preview={switching}
+          onClose={() => setSwitching(null)}
+          onConfirm={async (ticked) => {
+            setSwitching(null);
+            await applyDesignSystem(switching.to.id, ticked);
+          }}
+        />
+      )}
       {promoteOpen && <PromoteDialog initialTitle={project.title} onSubmit={promote} onClose={() => setPromoteOpen(false)} />}
       {historyOpen && <HistoryDialog versions={versions} onRestore={restore} onClose={() => setHistoryOpen(false)} />}
     </div>

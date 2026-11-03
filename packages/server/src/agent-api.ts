@@ -35,6 +35,7 @@ import { crossPageReferencesError } from "./cross-page-references.js";
 import { MAX_TERMINAL_TEXT_LENGTH, isTerminalSessionId, requiredString, titleError, tokensError, versionRequestError } from "./validation.js";
 import { projectContext, putProjectAsset } from "./project-files.js";
 import { designSystemChangeError } from "./project-design-system.js";
+import { switchDesignSystem } from "./switch-design-system.js";
 import type { PageLock } from "./page-lock.js";
 import type { TerminalSessions } from "./terminal-sessions.js";
 import type { OriginRef, Store } from "./store.js";
@@ -135,7 +136,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (store.getDesignSystem(req.params.projectId) || !store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
         const invalid = designSystemChangeError(store, designSystem);
         if (invalid) return reply.code(400).send({ error: invalid });
-        store.setProjectDesignSystem(req.params.projectId, designSystem as string | null, "terminal");
+        switchDesignSystem(store, req.params.projectId, designSystem as string | null, "terminal");
         return store.getProject(req.params.projectId);
       });
 

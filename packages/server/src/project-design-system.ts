@@ -28,6 +28,7 @@ import {
 } from "@redline/shared";
 import { componentFilesOf, componentPages, projectComponents } from "./components.js";
 import { personRef, editorAuthor } from "./identity.js";
+import { currentDefinitions, excludedComponents, switchDesignSystem, switchPreview } from "./switch-design-system.js";
 import type { OriginRef, Store } from "./store.js";
 import { titleError } from "./validation.js";
 
@@ -65,6 +66,7 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
   const usesByPage = componentPages(store, projectId).map((page) =>
     Object.entries(page.files).flatMap(([path, content]) => (path.endsWith(".html") && componentNameOf(path) === null ? instanceUsesIn(content).map((use) => use.name) : [])),
   );
+  const sharedNames = new Set(currentDefinitions(store, sharedId).map((d) => d.name));
   const components = projectComponents(store, projectId).components.map(
     (c): ProjectComponentInfo => ({
       name: c.name,
@@ -72,6 +74,7 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
       page: c.page,
       instances: usesByPage.reduce((sum, names) => sum + names.filter((name) => name === c.name).length, 0),
       pages: usesByPage.filter((names) => names.includes(c.name)).length,
+      inDesignSystem: sharedNames.has(c.name),
     }),
   );
 
@@ -82,6 +85,7 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
     tokens,
     styleDefinesTokens: styleDefinesTokens(store.readProjectText(projectId, PROJECT_STYLE_PATH)),
     components,
+    excluded: excludedComponents(store, projectId),
     overrideCount: tokens.filter((t) => t.status === "overridden").length,
     lastModified: last ? { createdAt: last.createdAt, origin: last.origin, ...(last.originId ? { originId: last.originId } : {}), ...(last.originLabel ? { originLabel: last.originLabel } : {}), ...(last.person ? { person: last.person } : {}) } : null,
   };
@@ -176,7 +180,28 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     const designSystem = req.body?.designSystem ?? null;
     const invalid = designSystemChangeError(store, designSystem);
     if (invalid) return reply.code(400).send({ error: invalid });
-    store.setProjectDesignSystem(projectId, designSystem, "user", req.person);
+    switchDesignSystem(store, projectId, designSystem, "user", req.person, req.body?.ticked);
+    return projectDesignSystem(store, projectId);
+  });
+
+  // The switch dialog: the design system components the pages use, compared with the target's current diffusion.
+  app.get<{ Params: { projectId: string }; Querystring: { to?: string } }>("/api/projects/:projectId/design-system/switch", async (req, reply) => {
+    const { projectId } = req.params;
+    if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
+    const invalid = designSystemChangeError(store, req.query.to ?? null);
+    if (invalid || !req.query.to) return reply.code(400).send({ error: invalid ?? "to is required" });
+    return switchPreview(store, projectId, req.query.to);
+  });
+
+  // Takes a component left out at a switch: its instances render from the design system again.
+  app.post<{ Params: { projectId: string; name: string } }>("/api/projects/:projectId/design-system/components/:name/take", async (req, reply) => {
+    const { projectId, name } = req.params;
+    if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
+    const left = excludedComponents(store, projectId).find((c) => c.name === name);
+    if (!left) return reply.code(404).send({ error: "this component was not left out" });
+    if (!left.available) return reply.code(400).send({ error: `${left.from} has no component named ${name}` });
+    const { [name]: _taken, ...rest } = store.excludedComponents(projectId);
+    store.setExcludedComponents(projectId, rest);
     return projectDesignSystem(store, projectId);
   });
 
@@ -198,7 +223,7 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     });
     for (const [name, asset] of Object.entries(assetsUsedBy(store, projectId, components))) store.setProjectFile(designSystem.id, `${ASSETS_DIR}/${name}`, asset);
     save(req, projectId, "");
-    store.setProjectDesignSystem(projectId, designSystem.id, "user", req.person);
+    switchDesignSystem(store, projectId, designSystem.id, "user", req.person);
     removeComponentCopies(store, projectId, personRef(req));
     return reply.code(201).send(designSystem);
   });

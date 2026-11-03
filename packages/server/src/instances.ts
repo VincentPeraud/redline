@@ -1,4 +1,4 @@
-import { INSTANCE_TAG_PREFIX, type InstanceLayers } from "@redline/shared";
+import { INSTANCE_TAG_PREFIX, instanceTagOf, type InstanceLayers } from "@redline/shared";
 import { projectComponents } from "./components.js";
 import type { Store } from "./store.js";
 
@@ -44,8 +44,17 @@ export const INSTANCES_SOURCE = `(function () {
     return null;
   }
 
+  // A tag a design system switch left out, written in a page that has no project component of that name: broken whatever the design system has.
+  function leftOutFrom(tag, scope) {
+    if (scope !== SCOPE_PAGE || definitionIn(layers.project, tag)) return null;
+    var list = layers.excluded || [];
+    for (var i = 0; i < list.length; i++) if (list[i].tag === tag) return list[i].from;
+    return null;
+  }
+
   // Returns { definition, scope } where scope is the one the definition's own template tags resolve with.
   function resolve(tag, scope) {
+    if (leftOutFrom(tag, scope) !== null) return null;
     if (scope === SCOPE_PAGE) {
       var own = definitionIn(layers.project, tag);
       if (own) return { definition: own, scope: SCOPE_PAGE };
@@ -74,18 +83,21 @@ export const INSTANCES_SOURCE = `(function () {
     return fixed;
   }
 
-  // A tag no layer defines: a placeholder naming it, and an error.
+  // A tag no layer defines, or one a design system switch left out: a placeholder naming it, and an error.
   function markUnknown(root) {
     Array.prototype.slice.call(root.querySelectorAll("*")).forEach(function (element) {
       var tag = element.localName;
-      if (tag.indexOf("${INSTANCE_TAG_PREFIX}") !== 0 || tags.indexOf(tag) !== -1 || element.hasAttribute("data-redline-unknown")) return;
+      if (tag.indexOf("${INSTANCE_TAG_PREFIX}") !== 0 || element.hasAttribute("data-redline-unknown")) return;
+      var from = leftOutFrom(tag, designSystemScoped.has(element) ? SCOPE_DESIGN_SYSTEM : SCOPE_PAGE);
+      if (from === null && tags.indexOf(tag) !== -1) return;
+      var message = from === null ? tag + " : composant introuvable" : tag + " non repris de " + from;
       element.setAttribute("data-redline-unknown", "");
       var placeholder = document.createElement("span");
       placeholder.setAttribute("data-redline-missing", "");
       placeholder.setAttribute("style", "display:inline-block;padding:2px 6px;border:1px dashed #c0392b;border-radius:4px;background:#fdecea;color:#c0392b;font:12px/1.4 monospace");
-      placeholder.textContent = tag + " : composant introuvable";
+      placeholder.textContent = message;
       element.insertBefore(placeholder, element.firstChild);
-      report(tag + " : composant introuvable");
+      report(message);
     });
   }
 
@@ -193,7 +205,7 @@ export const INSTANCES_SOURCE = `(function () {
 })();
 `;
 
-const noDefinitions = (layers: InstanceLayers) => layers.designSystem.length === 0 && layers.project.length === 0;
+const noDefinitions = (layers: InstanceLayers) => layers.designSystem.length === 0 && layers.project.length === 0 && !layers.excluded?.length;
 
 /** Adds the definitions and the runtime at the end of an artboard's body (before the bridge, which injects itself after); nothing when there are no definitions. */
 export function injectInstances(html: string, layers: InstanceLayers): string {
@@ -216,5 +228,9 @@ export function instanceLayersOf(store: Store, pageId: string, diffusion: number
   const designSystemId = store.sharedDesignSystemIdOfPage(pageId, versionId);
   const designSystem =
     designSystemId === undefined ? [] : diffusion === undefined ? projectComponents(store, designSystemId).definitions : store.diffusionDefinitions(designSystemId, diffusion);
-  return { designSystem, project: projectComponents(store, page.projectId).definitions };
+  const from = designSystemId === undefined ? undefined : store.getDesignSystem(designSystemId)?.title;
+  const excluded = Object.entries(store.excludedComponents(page.projectId))
+    .filter(([, left]) => left === designSystemId && from !== undefined)
+    .map(([name]) => ({ tag: instanceTagOf(name), from: from! }));
+  return { designSystem, project: projectComponents(store, page.projectId).definitions, ...(excluded.length > 0 && { excluded }) };
 }
