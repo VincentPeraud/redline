@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { presentationOf } from "../src/playFrames.js";
+import { presentationOf, statusBarInk } from "../src/playFrames.js";
 
 const board = (over: { width: number; height: number; frame?: "phone" | "tablet" | "browser" | "paper"; expand?: "fill" }) => ({
   file: "a.html",
@@ -37,8 +37,8 @@ describe("presentationOf", () => {
   });
 
   it("puts a phone's page under its status bar, as Safari does, and adds nothing when the frame is off", () => {
-    expect(presentationOf(board({ width: 390, height: 844, frame: "phone" })).frameHeight).toBe(54);
-    expect(presentationOf(board({ width: 3000, height: 1000 }), true, 1440, { format: "mobile", width: 414, height: 896 }).frameHeight).toBe(54);
+    expect(presentationOf(board({ width: 390, height: 844, frame: "phone" })).frameHeight).toBe(59);
+    expect(presentationOf(board({ width: 3000, height: 1000 }), true, 1440, { format: "mobile", width: 414, height: 896 }).frameHeight).toBe(59);
     expect(presentationOf(board({ width: 390, height: 844, frame: "phone" }), false).frameHeight).toBe(0);
   });
 
@@ -95,5 +95,14 @@ describe("presentationOf for a responsive rendering", () => {
 
   it("shows the whole window for Aucun", () => {
     expect(presentationOf(group, true, 1440, null)).toMatchObject({ frame: "none", fill: "both", framable: false, mobileBar: false });
+  });
+});
+
+describe("statusBarInk", () => {
+  it("writes the status bar in white over a dark page top and in black over a light one", () => {
+    expect(statusBarInk("rgb(11, 74, 69)")).toBe("light");
+    expect(statusBarInk("rgb(34, 40, 48)")).toBe("light");
+    expect(statusBarInk("rgb(248, 247, 244)")).toBe("dark");
+    expect(statusBarInk("rgba(255, 255, 255, 0.9)")).toBe("dark");
   });
 });

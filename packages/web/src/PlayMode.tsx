@@ -75,6 +75,8 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   const [menuOpen, setMenuOpen] = useState(false);
   const [deadLink, setDeadLink] = useState<string | null>(null);
   const [bridgeEpoch, setBridgeEpoch] = useState(0);
+  /** Background at the top of the shown page: the phone's status bar takes it, as Safari does. */
+  const [topColour, setTopColour] = useState<string | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const stage = useRef<HTMLElement>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
@@ -121,6 +123,7 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   }, []);
 
   useEffect(() => setDeadLink(null), [pageId, current]);
+  useEffect(() => setTopColour(null), [pageId, current]);
 
   useEffect(() => {
     const onResize = () => setWindowWidth(window.innerWidth);
@@ -136,7 +139,7 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   useEffect(() => {
     function onMessage(event: MessageEvent) {
       if (event.source !== frame.current?.contentWindow) return;
-      const data = event.data as { type?: string; selector?: string; key?: string };
+      const data = event.data as { type?: string; selector?: string; key?: string; colour?: string };
       if (data.type === "redline:ready") {
         const selectors = manifest.links.filter((l) => l.from === current).map((l) => l.selector);
         frame.current?.contentWindow?.postMessage({ type: "redline:set-links", selectors }, "*");
@@ -146,6 +149,8 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
         if (target === null) return;
         if (target.page === null) showArtboard(target.file, "push");
         else followOtherPage(target.page, target.file);
+      } else if (data.type === "redline:top-colour" && typeof data.colour === "string") {
+        setTopColour(data.colour);
       } else if (data.type === "redline:key" && (data.key === "ArrowLeft" || data.key === "ArrowRight")) {
         goBy(data.key === "ArrowLeft" ? -1 : 1);
       }
@@ -275,7 +280,7 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
       <div className={styles.body}>
         <main ref={stage} data-frame={presentation?.frame} data-fill={presentation?.fill === "none" ? undefined : presentation?.fill} className={styles.stage}>
           {artboard && presentation && fitted ? (
-            <PlayFrame frame={presentation.frame} url={artboard.url}>
+            <PlayFrame frame={presentation.frame} url={artboard.url} statusColour={topColour ?? undefined}>
               <div className={styles.viewport} style={{ width: fitted.viewport.width * fitted.scale, height: fitted.viewport.height * fitted.scale }}>
                 <iframe
                   key={artboard.file}

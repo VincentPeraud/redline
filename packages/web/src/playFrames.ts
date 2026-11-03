@@ -3,7 +3,7 @@ import type { ArtboardFrame, ArtboardRendering, ManifestArtboard, ResponsiveForm
 /** A phone artboard plays in a real phone viewport, so responsive designs reflow. */
 const PHONE_VIEWPORT = { width: 390, height: 760 };
 /** Height of the decorative strip over a phone page (iPhone status bar holding the Dynamic Island: Safari starts the page below it), under a tablet screen (home indicator) and over a browser page (browser bar). */
-const PHONE_STATUS_BAR_HEIGHT = 54;
+const PHONE_STATUS_BAR_HEIGHT = 59;
 const TABLET_STRIP_HEIGHT = 22;
 const BROWSER_BAR_HEIGHT = 36;
 
@@ -62,4 +62,15 @@ export function presentationOf(
     framable,
     mobileBar: narrow && declared === "phone",
   };
+}
+
+/** Ink of the phone's status bar over `colour` (an `rgb()`/`rgba()` string), as iOS picks it: white on a dark background, black otherwise. */
+export function statusBarInk(colour: string): "light" | "dark" {
+  const [r = 255, g = 255, b = 255] = (/rgba?\(([^)]*)\)/.exec(colour)?.[1] ?? "").split(/[\s,/]+/).filter(Boolean).map(Number);
+  const linear = (c: number) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+  return luminance < 0.4 ? "light" : "dark";
 }

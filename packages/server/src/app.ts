@@ -620,10 +620,10 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
   registerProxySecretCheck(app, proxySecrets, { artboards: true });
 
   app.get(BRIDGE_PATH, async (_req, reply) =>
-    reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(BRIDGE_SOURCE),
+    reply.header("content-security-policy", "sandbox allow-scripts").header("cache-control", "no-cache").type(MIME[".js"]).send(BRIDGE_SOURCE),
   );
   app.get(ERRORS_PATH, async (_req, reply) =>
-    reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(ERRORS_SOURCE),
+    reply.header("content-security-policy", "sandbox allow-scripts").header("cache-control", "no-cache").type(MIME[".js"]).send(ERRORS_SOURCE),
   );
 
   const sendStylesheet = (reply: FastifyReply, css: string | Buffer, cacheControl = "no-cache") =>

@@ -20,24 +20,32 @@
   border-radius: 0 0 44px 44px;
 }
 
-/* iPhone status bar: Safari starts the page under it, so the Dynamic Island never covers the design. */
+/* iPhone status bar: Safari starts the page under it, so the Dynamic Island never covers the design, and tints it with
+   the background at the top of the page (white until the page reports it). The time and the icons sit centred in the
+   two "ears" on each side of the island. */
 .statusBar {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  height: 54px;
+  height: 59px;
   flex-shrink: 0;
-  box-sizing: border-box;
-  padding: 0 26px;
   border-radius: 44px 44px 0 0;
-  background: var(--color-surface);
-  color: var(--color-text);
+  background: #ffffff;
+  color: #000000;
+  font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.statusBar[data-ink="light"] {
+  color: #ffffff;
 }
 
 .statusTime {
   justify-self: center;
-  font-size: 15px;
-  font-weight: var(--font-weight-semibold);
+  padding-left: 6px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -45,7 +53,8 @@
   display: flex;
   align-items: center;
   justify-self: center;
-  gap: 5px;
+  gap: 6px;
+  padding-right: 6px;
 }
 
 .statusIcons svg {
@@ -54,10 +63,10 @@
 }
 
 .camera {
-  width: 112px;
-  height: 30px;
+  width: 126px;
+  height: 37px;
   border-radius: var(--radius-pill);
-  background: var(--play-bg);
+  background: #000000;
 }
 
 .phoneIndicator {

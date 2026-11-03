@@ -53,7 +53,7 @@ describe("errors reported by the artboard", () => {
   it("puts the catcher after the doctype of a document without a head, and never inside a <header>", async () => {
     const { injectBridge } = await import("../src/bridge.js");
     const served = injectBridge("<!doctype html><header><script>boot()</script></header><body></body>");
-    expect(served.startsWith('<!doctype html><script src="/__redline/errors.js"></script><header>')).toBe(true);
+    expect(served).toMatch(/^<!doctype html><script src="\/__redline\/errors\.js\?v=[0-9a-f]+"><\/script><header>/);
   });
 
   it("reports a script error of the page with its line, even one raised before the bridge loaded", async () => {

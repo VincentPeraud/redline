@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokensUrlPath, projectComponentsUrlPath, projectStyleUrlPath, GAP_OUTLINE_CSS, HOVER_FINISH, MARK_FINISH, hoverLabelCss, hoverOutlineCss, markBadgeCss } from "@redline/shared";
 
 /**
@@ -19,6 +20,7 @@ import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokens
  *                     { type: "redline:link", selector }
  *                     { type: "redline:gap-rect", x, y, width, height }  (box of the element outlined by redline:set-gap, in page pixels)
  *                     { type: "redline:doc-height", height }  (height of the whole page in pixels; sent on load and whenever it changes)
+ *                     { type: "redline:top-colour", colour }  (background drawn at the top of the viewport, as Safari on iOS 26 tints its status bar with it; sent on load and whenever it changes, scrolling included)
  *                     { type: "redline:errors", errors: string[] }  (sent by the errors catcher, see ERRORS_SOURCE)
  *
  * Plain ES5 on purpose: it is served as-is to the browser.
@@ -104,6 +106,48 @@ export const BRIDGE_SOURCE = `(function () {
     if (height > 0 && height !== lastHeight) {
       lastHeight = height;
       send({ type: "redline:doc-height", height: height });
+    }
+    reportTopColour();
+  }
+
+  var lastTopColour = "";
+
+  // A colour with real opacity (a faint overlay does not set the tone), else null.
+  function opaque(colour) {
+    var m = /rgba?\\(([^)]*)\\)/.exec(colour || "");
+    if (!m) return null;
+    var parts = m[1].split(/[\\s,\\/]+/).filter(Boolean);
+    var alpha = parts.length > 3 ? parseFloat(parts[3]) : 1;
+    return alpha >= 0.5 ? m[0] : null;
+  }
+
+  // Background of an element: its colour, else the first colour of its gradient.
+  function backgroundOf(el) {
+    var style = window.getComputedStyle(el);
+    return opaque(style.backgroundColor) || opaque(style.backgroundImage);
+  }
+
+  // What is drawn at the top centre of the viewport, front first, decorative layers with pointer-events: none included
+  // (a header band is often one): hit testing skips them, so they are made hittable for the time of the lookup.
+  function elementsAtTop() {
+    if (typeof document.elementsFromPoint !== "function") return [];
+    var hittable = document.createElement("style");
+    hittable.textContent = "* { pointer-events: auto !important; }";
+    (document.head || document.documentElement).appendChild(hittable);
+    var found = document.elementsFromPoint(window.innerWidth / 2, 1);
+    hittable.parentNode.removeChild(hittable);
+    return found;
+  }
+
+  function reportTopColour() {
+    var stack = elementsAtTop();
+    var colour = null;
+    for (var i = 0; !colour && i < stack.length; i++) colour = backgroundOf(stack[i]);
+    if (!colour && document.body) colour = backgroundOf(document.body);
+    if (!colour) colour = backgroundOf(document.documentElement) || "rgb(255, 255, 255)";
+    if (colour !== lastTopColour) {
+      lastTopColour = colour;
+      send({ type: "redline:top-colour", colour: colour });
     }
   }
 
@@ -444,6 +488,7 @@ export const BRIDGE_SOURCE = `(function () {
   window.addEventListener("scroll", function () {
     drawHover();
     drawMarks();
+    reportTopColour();
   }, true);
 
   document.addEventListener("click", function (event) {
@@ -567,10 +612,18 @@ function insertAtHeadStart(html: string, tag: string): string {
   return html.slice(0, at) + tag + html.slice(at);
 }
 
+/** Short fingerprint of a script's source: its URL changes with it, so no cache (a CDN in front of a shared Redline) serves an old copy. */
+function versionOf(source: string): string {
+  return createHash("sha256").update(source).digest("hex").slice(0, 10);
+}
+
+const ERRORS_URL = `${ERRORS_PATH}?v=${versionOf(ERRORS_SOURCE)}`;
+const BRIDGE_URL = `${BRIDGE_PATH}?v=${versionOf(BRIDGE_SOURCE)}`;
+
 /** Adds the errors catcher at the start of an artboard HTML document's head, before any of its scripts, and the bridge at the end of its body. */
 export function injectBridge(html: string): string {
-  const withCatcher = insertAtHeadStart(html, `<script src="${ERRORS_PATH}"></script>`);
-  const tag = `<script src="${BRIDGE_PATH}"></script>`;
+  const withCatcher = insertAtHeadStart(html, `<script src="${ERRORS_URL}"></script>`);
+  const tag = `<script src="${BRIDGE_URL}"></script>`;
   const end = withCatcher.lastIndexOf("</body>");
   return end === -1 ? withCatcher + tag : withCatcher.slice(0, end) + tag + withCatcher.slice(end);
 }

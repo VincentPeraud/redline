@@ -168,7 +168,9 @@ it("fills the window with a fluid artboard, ignores fill on a phone, and toggles
 
   await openArtboard(play, "phone.html");
   await expect.poll(() => play.locator("main").getAttribute("data-frame")).toBe("phone");
-  expect((await frame.boundingBox())!.width).toBeCloseTo(390, 0);
+  const phone = (await frame.boundingBox())!;
+  expect(phone.width / phone.height).toBeCloseTo(390 / 760, 2);
+  expect(phone.width).toBeLessThan((await stage.boundingBox())!.width);
   await tab.close();
 }, 60_000);
 

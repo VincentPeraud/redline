@@ -40,7 +40,7 @@ describe("element name computed by the artboard bridge", () => {
       await server.post(`/api/projects/${project.id}/pages`, { title: "Landing", files: { "home.html": ARTBOARD } })
     ).json()) as Page;
     const html = await (await fetch(`${server.artboardOrigin}/pages/${page.id}/home.html`)).text();
-    const src = /<script src="([^"]+bridge\.js)"><\/script>/.exec(html)![1]!;
+    const src = /<script src="([^"]+bridge\.js[^"]*)"><\/script>/.exec(html)![1]!;
     bridgeSource = await (await fetch(new URL(src, server.artboardOrigin))).text();
   });
   afterEach(async () => {
