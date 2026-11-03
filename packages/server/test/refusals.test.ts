@@ -145,6 +145,7 @@ describe("refusing a change or a request", () => {
     expect((await publish([{ component: "modal", label: "Taille retirée", kind: "modified", threadId: request }])).status).toBe(201);
 
     expect((await changes()).map((c) => [c.label, c.state])).toEqual([["Croix ronde", "pending"]]);
+    expect((await threadOf(ds.pageId, request)).replies.at(-1)).toMatchObject({ author: "redline", body: "Annulé dans le brouillon : Taille 720 px." });
     expect((await diffuse()).status).toBe(201);
   });
 
@@ -161,6 +162,7 @@ describe("refusing a change or a request", () => {
 
     expect((await changes()).map((c) => c.state)).not.toContain("refused");
     expect((await review()).undoing).toBe(0);
+    expect((await threadOf(ds.pageId, request)).replies.at(-1)).toMatchObject({ author: "redline", body: "Annulé dans le brouillon : Taille 720 px." });
   });
 
   it("refuses the whole request from its card: every change and the request", async () => {

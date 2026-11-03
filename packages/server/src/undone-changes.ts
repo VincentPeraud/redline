@@ -32,5 +32,5 @@ export function settleUndoneChanges(store: Store, pageId: string): void {
     const atChange = hashIn(store, recorded.pageId, change.versionId, change.component);
     return atChange !== before && now === before;
   });
-  if (undone.length > 0) store.deleteChanges(undone.map((change) => change.id));
+  if (undone.length > 0) store.deleteChanges(undone);
 }

@@ -1503,8 +1503,7 @@ export class Store {
         // those changes go away. A change for a request already refused is itself a change to undo.
         const awaitingUndo = answered ? this.refusedChangesOf(designSystemId, answered).filter((change) => change.component === record.component) : [];
         if (awaitingUndo.length > 0) {
-          const remove = this.db.prepare("DELETE FROM component_changes WHERE id = ?");
-          for (const change of awaitingUndo) remove.run(change.id);
+          this.deleteChanges(awaitingUndo);
           continue;
         }
         const refusedRequest = !!answered && this.getThread(answered)?.request?.state === "refused";
@@ -1542,10 +1541,18 @@ export class Store {
     this.db.transaction(() => ids.forEach((id) => update.run(id)))();
   }
 
-  /** Drops change records (a refused change whose undo was recognised). */
-  deleteChanges(ids: string[]): void {
+  /**
+   * Drops refused changes whose undo was recognised, and says so in the request thread each answered
+   * ("Annulé dans le brouillon : Taille 720 px."), so the thread shows the refusal was applied.
+   */
+  deleteChanges(changes: ChangeRecord[]): void {
     const remove = this.db.prepare("DELETE FROM component_changes WHERE id = ?");
-    this.db.transaction(() => ids.forEach((id) => remove.run(id)))();
+    this.db.transaction(() => {
+      for (const change of changes) {
+        remove.run(change.id);
+        if (change.threadId) this.addReply(this.keptRequestId(change.threadId), `Annulé dans le brouillon : ${change.label}.`, "redline");
+      }
+    })();
   }
 
   /** The page a version belongs to and the version that came right before it on that page. */
