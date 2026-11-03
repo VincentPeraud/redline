@@ -1,14 +1,13 @@
-import { parseManifest, type ChangeRecord, type ComparisonMarker, type ComparisonSide, type ComponentComparison, type ComponentInfo } from "@redline/shared";
+import { type ChangeRecord, type ComparisonMarker, type ComparisonSide, type ComponentComparison, type ComponentInfo } from "@redline/shared";
 import { diffusionReview } from "./diffusion-review.js";
 import type { Store } from "./store.js";
 
 const DEFAULT_SIZE = { width: 800, height: 600 };
 
-function sideOf(store: Store, component: ComponentInfo, diffusion: number | undefined, markers: ComparisonMarker[]): ComparisonSide {
-  const manifest = store.readPageFile(component.page.id, "manifest.json")?.toString("utf8");
-  const artboard = manifest === undefined ? undefined : parseManifest(manifest).artboards.find((candidate) => candidate.file === component.file);
+function sideOf(component: ComponentInfo, diffusion: number | undefined, markers: ComparisonMarker[]): ComparisonSide {
   const path = `/pages/${component.page.id}/${component.file}`;
-  return { url: diffusion === undefined ? path : `${path}?diffusion=${diffusion}`, width: artboard?.width ?? DEFAULT_SIZE.width, height: artboard?.height ?? DEFAULT_SIZE.height, markers };
+  const { width, height } = component.size ?? DEFAULT_SIZE;
+  return { url: diffusion === undefined ? path : `${path}?diffusion=${diffusion}`, width, height, markers };
 }
 
 /** Markers by side: an added zone shows on the draft, a removed one on the diffused version, a modified one on both. */
@@ -38,7 +37,7 @@ export function componentComparison(store: Store, designSystemId: string, name: 
     kind: card.kind,
     diffusion: current,
     changes: card.changes,
-    ...(inDiffusion && card.kind !== "added" && { diffused: sideOf(store, inDiffusion, current, markers.diffused) }),
-    ...(inDraft && card.kind !== "removed" && { draft: sideOf(store, inDraft, undefined, markers.draft) }),
+    ...(inDiffusion && card.kind !== "added" && { diffused: sideOf(inDiffusion, current, markers.diffused) }),
+    ...(inDraft && card.kind !== "removed" && { draft: sideOf(inDraft, undefined, markers.draft) }),
   };
 }

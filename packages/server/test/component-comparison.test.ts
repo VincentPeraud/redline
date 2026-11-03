@@ -85,6 +85,20 @@ describe("the before / after comparison of a component", () => {
     expect(removed.diffused).toBeDefined();
   });
 
+  it("sizes the diffused side from what the diffusion froze, not from the current draft", async () => {
+    const resized = JSON.stringify({ artboards: [{ file: "components/modal.html", x: 0, y: 0, width: 300, height: 200 }] });
+    await publish({ "components/modal.html": MODAL_V2, "manifest.json": resized });
+    const { draft, diffused } = await comparison("modal");
+    expect(draft).toMatchObject({ width: 300, height: 200 });
+    expect(diffused).toMatchObject({ width: 560, height: 400 });
+  });
+
+  it("serves a diffused component file only through the page that holds it", async () => {
+    const other = (await (await server.post(`/api/projects/${ds.id}/pages`, { title: "Other", files: { "manifest.json": manifestOf(["x.html"]), "x.html": "<p>x</p>" } })).json()) as { id: string };
+    expect((await fetch(`${server.artboardOrigin}/pages/${ds.pageId}/components/modal.html?diffusion=1`)).status).toBe(200);
+    expect((await fetch(`${server.artboardOrigin}/pages/${other.id}/components/modal.html?diffusion=1`)).status).toBe(404);
+  });
+
   it("answers 404 for a component that did not change", async () => {
     expect((await server.get(`/api/design-systems/${ds.id}/components/modal/comparison`)).status).toBe(404);
     expect((await server.get(`/api/design-systems/nope/components/modal/comparison`)).status).toBe(404);

@@ -755,7 +755,7 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
 
   // A page as it was in one version (history preview): same sandbox and injections as the live artboards, read-only.
   app.get<{ Params: { pageId: string; versionId: string; "*": string } }>("/page-versions/:pageId/:versionId/*", async (req, reply) =>
-    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"]), req.params.versionId),
+    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"]), { versionId: req.params.versionId }),
   );
 
   // `?preview=draft`: the viewer's preview of a project with the design system draft; it is the same call without a diffusion number.
@@ -763,13 +763,15 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
   app.get<{ Params: { pageId: string; "*": string }; Querystring: { preview?: string; diffusion?: string } }>("/pages/:pageId/*", async (req, reply) => {
     const { pageId } = req.params;
     const path = req.params["*"];
-    if (req.query.diffusion === undefined) return serveArtboardFile(pageId, path, reply, store.readPageFile(pageId, path), undefined, req.query.preview === "draft");
+    if (req.query.diffusion === undefined) return serveArtboardFile(pageId, path, reply, store.readPageFile(pageId, path), { draftPreview: req.query.preview === "draft" });
     const designSystemId = store.isDesignSystemPage(pageId) ? store.getPage(pageId)?.projectId : undefined;
     if (designSystemId === undefined || !/^\d+$/.test(req.query.diffusion)) return reply.code(404).send("not found");
     const number = Number(req.query.diffusion);
     const frozen = store.diffusionComponentFiles(designSystemId, number)[path];
-    if (frozen === undefined) return reply.code(404).send("not found");
-    return serveArtboardFile(pageId, path, reply, Buffer.from(frozen), undefined, false, number);
+    // Only through the page that held the component in that diffusion.
+    const heldBy = store.diffusionComponents(designSystemId, number).find((component) => component.file === path)?.page.id;
+    if (frozen === undefined || heldBy !== pageId) return reply.code(404).send("not found");
+    return serveArtboardFile(pageId, path, reply, Buffer.from(frozen), { frozenDiffusion: number });
   });
 
   /** The page's project when it has a project style (every project but a design system's own). */
@@ -786,7 +788,7 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
     return designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId)?.number;
   }
 
-  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, versionId?: string, draftPreview = false, frozenDiffusion?: number) {
+  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, { versionId, draftPreview = false, frozenDiffusion }: { versionId?: string; draftPreview?: boolean; frozenDiffusion?: number } = {}) {
     const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, pageId, path.slice("assets/".length)) : undefined);
     if (!asset) return reply.code(404).send("not found");
     // Artboards are opaque-origin, so fonts of the project assets need CORS to load.

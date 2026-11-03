@@ -39,6 +39,8 @@ export interface ComponentInfo {
   usage: string;
   /** The tweaks declared for the component's artboard. */
   variants: ManifestTweak[];
+  /** Size of the component's artboard when the diffusion froze it; absent from diffusions made before it was kept. */
+  size?: { width: number; height: number };
   hash: string;
 }
 
@@ -153,6 +155,7 @@ function pageComponents(page: ComponentPage): ComponentInfo[] {
     const html = page.files[file];
     if (name === null || html === undefined) return [];
     const variants = manifest.tweaks.filter((tweak) => tweak.artboard === file);
+    const artboard = manifest.artboards.find((candidate) => candidate.file === file);
     return [
       {
         name,
@@ -162,6 +165,7 @@ function pageComponents(page: ComponentPage): ComponentInfo[] {
         description: descriptionOf(html),
         usage: usageOf(html),
         variants,
+        ...(artboard ? { size: { width: artboard.width, height: artboard.height } } : {}),
         hash: hashOf(variants.length > 0 ? `${html}\n${JSON.stringify(variants)}` : html),
       },
     ];
