@@ -159,4 +159,59 @@ describe("instances displayed from their component's definition", () => {
     const stored = await (await server.get(`/api/pages/${page.id}/files/a.html`)).text();
     expect(stored).toBe(mockup(body));
   });
+  describe("broken instances", () => {
+    /** Opens an artboard and returns what its errors catcher reported to the parent (the "Erreurs des artboards" list). */
+    async function openReporting(path: string) {
+      let reported: string[] = [];
+      const dom = await JSDOM.fromURL(`${server.artboardOrigin}${path}`, {
+        runScripts: "dangerously",
+        resources: "usable",
+        pretendToBeVisual: true,
+        beforeParse(window) {
+          window.addEventListener("message", (event: MessageEvent) => {
+            if (event.data?.type === "redline:errors") reported = event.data.errors;
+          });
+        },
+      });
+      windows.push(dom.window);
+      await new Promise<void>((resolve) => (dom.window.document.readyState === "complete" ? resolve() : dom.window.addEventListener("load", () => resolve())));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { window: dom.window, errors: () => reported };
+    }
+
+    it("renders an unknown setting value with the default and reports it", async () => {
+      const ds = await designSystemWithModal();
+      const { page } = await followingProject(ds, `<ui-modal size="xl"><p>Body</p></ui-modal>`);
+      const { window, errors } = await openReporting(`/pages/${page.id}/a.html`);
+      const modal = window.document.querySelector("ui-modal")!;
+      expect(modal.getAttribute("size")).toBe("md");
+      expect(modal.querySelector(".body")!.textContent).toBe("Body");
+      expect(errors()).toEqual(["ui-modal : la valeur xl du r\u00e9glage size n'existe plus, affich\u00e9e en md"]);
+    });
+
+    it("drops the content of a slot the component no longer has and reports it", async () => {
+      const ds = await designSystemWithModal();
+      const { page } = await followingProject(ds, `<ui-modal><span slot="footer">Bye</span><p>Body</p></ui-modal>`);
+      const { window, errors } = await openReporting(`/pages/${page.id}/a.html`);
+      const modal = window.document.querySelector("ui-modal")!;
+      expect(modal.textContent).toBe("Body");
+      expect(errors()).toEqual(["ui-modal : l'emplacement footer n'existe plus"]);
+    });
+
+    it("shows a placeholder for an unknown tag and reports it", async () => {
+      const ds = await designSystemWithModal();
+      const { page } = await followingProject(ds, `<ui-ghost><p>Body</p></ui-ghost>`);
+      const { window, errors } = await openReporting(`/pages/${page.id}/a.html`);
+      const placeholder = window.document.querySelector("ui-ghost [data-redline-missing]")!;
+      expect(placeholder.textContent).toContain("ui-ghost");
+      expect(errors()).toEqual(["ui-ghost : composant introuvable"]);
+    });
+
+    it("reports nothing for a healthy instance", async () => {
+      const ds = await designSystemWithModal();
+      const { page } = await followingProject(ds, `<ui-modal size="sm"><span slot="title">T</span><p>Body</p></ui-modal>`);
+      const { errors } = await openReporting(`/pages/${page.id}/a.html`);
+      expect(errors()).toEqual([]);
+    });
+  });
 });

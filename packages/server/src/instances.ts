@@ -1,4 +1,4 @@
-import type { InstanceLayers } from "@redline/shared";
+import { INSTANCE_TAG_PREFIX, type InstanceLayers } from "@redline/shared";
 import { projectComponents } from "./components.js";
 import type { Store } from "./store.js";
 
@@ -31,6 +31,7 @@ export const INSTANCES_SOURCE = `(function () {
   if (!data || typeof customElements === "undefined") return;
   var layers = JSON.parse(data.textContent || "{}");
   var designSystemScoped = new WeakSet();
+  var tags = [];
 
   function definitionIn(list, tag) {
     for (var i = 0; i < (list || []).length; i++) if (list[i].tag === tag) return list[i];
@@ -45,6 +46,41 @@ export const INSTANCES_SOURCE = `(function () {
     }
     var shared = definitionIn(layers.designSystem, tag);
     return shared ? { definition: shared, scope: SCOPE_DESIGN_SYSTEM } : null;
+  }
+
+  // Broken instances go through the errors catcher (bridge.ts), which lists them in "Erreurs des artboards".
+  function report(message) {
+    if (window.__redlineErrors) window.__redlineErrors.add(message);
+  }
+
+  // A choice whose value is not among the options takes the default; returns true when it changed the attribute.
+  function fixUnknownValues(host, tag, definition) {
+    var fixed = false;
+    definition.settings.forEach(function (setting) {
+      if (setting.type === "toggle" || !setting.options || !host.hasAttribute(setting.name)) return;
+      var value = host.getAttribute(setting.name);
+      if (setting.options.indexOf(value) !== -1) return;
+      var fallback = setting.default === undefined ? setting.options[0] : String(setting.default);
+      report(tag + " : la valeur " + value + " du réglage " + setting.name + " n'existe plus, affichée en " + fallback);
+      host.setAttribute(setting.name, fallback);
+      fixed = true;
+    });
+    return fixed;
+  }
+
+  // A tag no layer defines: a placeholder naming it, and an error.
+  function markUnknown(root) {
+    Array.prototype.slice.call(root.querySelectorAll("*")).forEach(function (element) {
+      var tag = element.localName;
+      if (tag.indexOf("${INSTANCE_TAG_PREFIX}") !== 0 || tags.indexOf(tag) !== -1 || element.hasAttribute("data-redline-unknown")) return;
+      element.setAttribute("data-redline-unknown", "");
+      var placeholder = document.createElement("span");
+      placeholder.setAttribute("data-redline-missing", "");
+      placeholder.setAttribute("style", "display:inline-block;padding:2px 6px;border:1px dashed #c0392b;border-radius:4px;background:#fdecea;color:#c0392b;font:12px/1.4 monospace");
+      placeholder.textContent = tag + " : composant introuvable";
+      element.insertBefore(placeholder, element.firstChild);
+      report(tag + " : composant introuvable");
+    });
   }
 
   function depthOf(element) {
@@ -83,7 +119,12 @@ export const INSTANCES_SOURCE = `(function () {
       var name = slotOf(node);
       (bySlot[name] = bySlot[name] || []).push(node);
     });
-    Array.prototype.slice.call(fragment.querySelectorAll("slot")).forEach(function (slot) {
+    var slots = Array.prototype.slice.call(fragment.querySelectorAll("slot"));
+    var slotNames = slots.map(function (slot) { return slot.getAttribute("name") || ""; });
+    Object.keys(bySlot).forEach(function (name) {
+      if (slotNames.indexOf(name) === -1 && hasContent(bySlot[name])) report(host.localName + " : l'emplacement " + (name || "par défaut") + " n'existe plus");
+    });
+    slots.forEach(function (slot) {
       var nodes = bySlot[slot.getAttribute("name") || ""];
       slot.replaceWith.apply(slot, nodes && hasContent(nodes) ? nodes : Array.prototype.slice.call(slot.childNodes));
     });
@@ -92,6 +133,7 @@ export const INSTANCES_SOURCE = `(function () {
         if (element.localName.indexOf("ui-") === 0) designSystemScoped.add(element);
       });
     }
+    markUnknown(fragment);
     host.replaceChildren(fragment);
   }
 
@@ -110,20 +152,22 @@ export const INSTANCES_SOURCE = `(function () {
         this.__redlineInstance = resolved;
         this.__authored = Array.prototype.slice.call(this.childNodes);
         applyDefaults(this, resolved.definition);
+        fixUnknownValues(this, tag, resolved.definition);
         render(this, resolved);
         this.__rendered = true;
       }
       attributeChangedCallback() {
-        if (this.__rendered) render(this, this.__redlineInstance);
+        if (!this.__rendered || fixUnknownValues(this, tag, this.__redlineInstance.definition)) return;
+        render(this, this.__redlineInstance);
       }
     });
   }
 
-  var tags = [];
   [layers.project, layers.designSystem].forEach(function (list) {
     (list || []).forEach(function (definition) { if (tags.indexOf(definition.tag) === -1) tags.push(definition.tag); });
   });
   tags.forEach(function (tag) { if (!customElements.get(tag)) define(tag); });
+  markUnknown(document);
 })();
 `;
 
