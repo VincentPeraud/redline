@@ -118,6 +118,7 @@ it("compares the diffused and the draft artboard, with independent zooms, marker
   const rows = tab.getByTestId("before-after-change");
   expect(await rows.getByRole("button", { name: "Refuser" }).count()).toBe(2);
   await rows.filter({ hasText: "Taille 720 px" }).getByRole("button", { name: "Refuser" }).click();
+  await tab.getByRole("dialog", { name: /^Refuser/ }).getByTestId("refuse-confirm").click();
   await tab.getByTestId("change-undoing").waitFor();
 
   // Back to the review.

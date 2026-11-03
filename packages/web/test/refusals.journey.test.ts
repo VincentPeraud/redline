@@ -68,6 +68,7 @@ it("refuses a change from the review: annulation en cours blocks Diffuser until 
   expect(await dialog.textContent()).toContain("Refuser un changement le défait dans le brouillon et prévient le projet qui l'a demandé.");
 
   await rows.filter({ hasText: "Taille 720 px" }).getByRole("button", { name: "Refuser" }).click();
+  await tab.getByRole("dialog", { name: /^Refuser/ }).getByTestId("refuse-confirm").click();
   await dialog.getByTestId("change-undoing").waitFor();
   expect(await dialog.getByTestId("change-undoing").textContent()).toBe("annulation en cours");
   expect(await rows.getByRole("button", { name: "Refuser" }).count()).toBe(1);
@@ -92,6 +93,9 @@ it("refuses a request from its card", async () => {
   await card.waitFor();
   if (captures) await card.screenshot({ path: join(captures, "14-app-request-card.png") });
   await card.getByRole("button", { name: "Refuser" }).click();
+  await tab.getByRole("dialog", { name: /^Refuser la demande/ }).getByTestId("refuse-answer").fill("Pas pour ce lot");
+  if (captures) await tab.screenshot({ path: join(captures, "fix-refuse-dialog.png") });
+  await tab.getByRole("dialog", { name: /^Refuser la demande/ }).getByTestId("refuse-confirm").click();
 
   await expect.poll(async () => ((await (await server.get(`/api/pages/${ds.pageId}/threads`)).json()) as Thread[]).find((t) => t.id === request)!.request!.state).toBe("refused");
   await expect.poll(async () => tab.locator(`[data-thread="${request}"]`).getByRole("button", { name: "Refuser" }).count()).toBe(0);

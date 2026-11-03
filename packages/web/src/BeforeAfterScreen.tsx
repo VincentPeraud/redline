@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ComparisonSide, ComponentComparison } from "@redline/shared";
+import type { ComparisonSide, ComponentComparison, ReviewChange } from "@redline/shared";
 import { useDesignSystemDetail } from "./DiffusionDialog.js";
 import { useDocumentTitle } from "./documentTitle.js";
+import { RefuseDialog, refuseChangeTarget } from "./RefuseDialog.js";
 import { changeLabel, originText } from "./reviewLabels.js";
 import { routeHref } from "./router.js";
 import { Logo, cx } from "./ui/index.js";
@@ -107,13 +108,7 @@ function Panel({ label, hint, side, artboardOrigin, markersVisible, reloadKey }:
 }
 
 function ChangeList({ comparison, onRefused }: { comparison: ComponentComparison; onRefused: () => void }) {
-  const [busy, setBusy] = useState<string | null>(null);
-  const refuse = async (changeId: string) => {
-    setBusy(changeId);
-    await fetch(`/api/changes/${changeId}/refuse`, { method: "POST" });
-    setBusy(null);
-    onRefused();
-  };
+  const [refusing, setRefusing] = useState<ReviewChange | null>(null);
   return (
     <div className={styles.changes}>
       {comparison.changes.map((change, index) => (
@@ -129,12 +124,13 @@ function ChangeList({ comparison, onRefused }: { comparison: ComponentComparison
               annulation en cours
             </span>
           ) : change.refusable && change.changeId ? (
-            <button type="button" className={styles.small} disabled={busy === change.changeId} onClick={() => void refuse(change.changeId!)}>
+            <button type="button" className={styles.small} onClick={() => setRefusing(change)}>
               Refuser
             </button>
           ) : null}
         </div>
       ))}
+      {refusing && <RefuseDialog target={refuseChangeTarget(refusing.changeId!, changeLabel(refusing))} onClose={() => setRefusing(null)} onRefused={onRefused} />}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { isColorValue, type DesignSystemDetail, type DiffusionReview, type ReviewChange, type ReviewComponent, type ReviewToken } from "@redline/shared";
 import { routeHref, type Route } from "./router.js";
 import { agree } from "./plural.js";
+import { RefuseDialog, refuseChangeTarget } from "./RefuseDialog.js";
 import { changeLabel, componentsHeading, keptByText, movedUpText, originText, tokensWhereText, whereSummary } from "./reviewLabels.js";
 import { cx } from "./ui/index.js";
 import styles from "./DiffusionReviewCards.module.css";
@@ -64,21 +65,16 @@ function ChangesList({ children }: { children: ReactNode }) {
 }
 
 function ChangeLine({ change, onRefused }: { change: ReviewChange; onRefused: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const refuse = async () => {
-    setBusy(true);
-    await fetch(`/api/changes/${change.changeId}/refuse`, { method: "POST" });
-    setBusy(false);
-    onRefused();
-  };
+  const [refusing, setRefusing] = useState(false);
   return (
+    <>
     <ChangeRow
       origin={originText(change.origin)}
       action={
         change.undoing ? (
           <span className={styles.undoing} data-testid="change-undoing">annulation en cours</span>
         ) : change.refusable && change.changeId ? (
-          <button type="button" className={styles.small} disabled={busy} onClick={() => void refuse()}>
+          <button type="button" className={styles.small} onClick={() => setRefusing(true)}>
             Refuser
           </button>
         ) : undefined
@@ -86,6 +82,8 @@ function ChangeLine({ change, onRefused }: { change: ReviewChange; onRefused: ()
     >
       <span className={styles.label}>{changeLabel(change)}</span>
     </ChangeRow>
+    {refusing && <RefuseDialog target={refuseChangeTarget(change.changeId!, changeLabel(change))} onClose={() => setRefusing(false)} onRefused={onRefused} />}
+    </>
   );
 }
 

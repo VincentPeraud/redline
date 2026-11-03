@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import { requestIsOpen, type QueueEntry, type SessionRow, type Thread, type ThreadRun } from "@redline/shared";
+import { INSTANCE_TAG_PREFIX, requestIsOpen, type QueueEntry, type SessionRow, type Thread, type ThreadRun } from "@redline/shared";
 import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
 import { RemovedTag } from "./RemovedTag.js";
@@ -15,6 +15,7 @@ import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
 import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
 import { useStickToBottom } from "./useStickToBottom.js";
+import { RefuseDialog, refuseRequestTarget } from "./RefuseDialog.js";
 import { ThreadReplyForm } from "./ThreadReplyForm.js";
 import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./Thread.module.css";
@@ -185,6 +186,7 @@ function ThreadCard({
   readOnly: boolean;
 }) {
   const [replying, setReplying] = useState(false);
+  const [refusing, setRefusing] = useState(false);
   const active = !queued && run !== undefined && run.status !== "answered" && run.status !== "failed";
   const failed = !queued && run?.status === "failed";
 
@@ -237,7 +239,7 @@ function ThreadCard({
                 Répondre
               </Button>
               {thread.request && requestIsOpen(thread.request) && (
-                <Button size="sm" onClick={() => void fetch(`/api/threads/${thread.id}/refuse`, { method: "POST" })}>
+                <Button size="sm" onClick={() => setRefusing(true)}>
                   Refuser
                 </Button>
               )}
@@ -252,6 +254,7 @@ function ThreadCard({
       )}
       {replying && !active && <ThreadReplyForm threadId={thread.id} choice={choice} onDone={() => setReplying(false)} />}
       <ContextLine thread={thread} />
+      {refusing && thread.request && <RefuseDialog target={refuseRequestTarget(thread.id, `${INSTANCE_TAG_PREFIX}${thread.request.component}`)} onClose={() => setRefusing(false)} onRefused={() => undefined} />}
     </article>
   );
 }
