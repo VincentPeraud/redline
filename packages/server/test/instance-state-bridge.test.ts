@@ -49,6 +49,11 @@ describe("remembered instance state (artboard bridge)", () => {
     window.addEventListener("message", (e) => sent.push(e.data as Sent));
     const post = (data: Sent) => window.dispatchEvent(new window.MessageEvent("message", { data, source: window }));
     const flush = () => new Promise((resolve) => setTimeout(resolve, 20));
+    /** Waits for the bridge to answer instead of guessing how long it takes under load. */
+    const until = async (condition: () => boolean) => {
+      for (let i = 0; i < 100 && !condition(); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(condition()).toBe(true);
+    };
     const pick = async () => {
       post({ type: "redline:set-mode", picking: true });
       window.document.querySelector(".ok")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
@@ -56,7 +61,7 @@ describe("remembered instance state (artboard bridge)", () => {
       return sent.filter((m) => m.type === "redline:picked").pop()!;
     };
     const lastPositions = () => (sent.filter((m) => m.type === "redline:pin-positions").pop()?.positions ?? []) as Sent[];
-    return { window, sent, post, flush, pick, lastPositions };
+    return { window, sent, post, flush, until, pick, lastPositions };
   }
 
   const PAGE = `<main><ui-modal id="confirm"><p>Really?</p></ui-modal></main>`;
@@ -73,20 +78,19 @@ describe("remembered instance state (artboard bridge)", () => {
 
   it("keeps the pin hidden until the state is replayed, then sets the state and shows it", async () => {
     const page = await setUp(PAGE);
-    const { window, post, flush, lastPositions } = await open(page.id);
+    const { window, post, until, lastPositions } = await open(page.id);
     const state = [{ selector: "ui-modal#confirm", attributes: { open: "" } }];
     post({ type: "redline:set-pins", pins: [{ id: "t1", selector: "ui-modal#confirm >>> div > button", xPct: 5, yPct: 6, instanceState: state }] });
-    await flush();
+    await until(() => lastPositions()[0]?.hidden === true);
     expect(lastPositions()[0]).toMatchObject({ id: "t1", hidden: true });
 
     post({ type: "redline:replay-state", id: "t1" });
-    await flush();
+    await until(() => lastPositions()[0]?.matched === true && !lastPositions()[0]!.hidden);
     expect(window.document.getElementById("confirm")!.hasAttribute("open")).toBe(true);
     expect(lastPositions()[0]).toMatchObject({ id: "t1", matched: true });
-    expect(lastPositions()[0]!.hidden).toBeFalsy();
 
     window.document.getElementById("confirm")!.removeAttribute("open");
-    await flush();
+    await until(() => lastPositions()[0]?.hidden === true);
     expect(lastPositions()[0]).toMatchObject({ id: "t1", hidden: true });
   });
 
