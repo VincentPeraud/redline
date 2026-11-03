@@ -78,7 +78,7 @@ export const ERRORS_SOURCE = `(function () {
     add("Promesse rejet\u00e9e : " + describe(event.reason));
   });
 
-  window.__redlineErrors = { report: report };
+  window.__redlineErrors = { report: report, add: add };
 })();
 `;
 

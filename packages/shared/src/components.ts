@@ -2,7 +2,7 @@
 // system or of a project; this pure module assembles them.
 
 import { MANIFEST_PATH, parseManifest, type Manifest, type ManifestTweak } from "./index.js";
-import { componentDefinitionOf, type ComponentDefinition } from "./componentDefinition.js";
+import { componentDefinitionOf, instanceTagOf, type ComponentDefinition } from "./componentDefinition.js";
 import { groupTitlesOf, readingOrder } from "./readingOrder.js";
 
 export const COMPONENTS_DIR = "components";
@@ -53,6 +53,26 @@ export interface ComponentAssembly {
   indexes: Record<string, string>;
   /** One message per component name defined twice, naming both files. */
   duplicates: string[];
+  /** One message per cycle of components containing each other, naming it ("Components form a cycle: ui-a > ui-b > ui-a"). */
+  cycles: string[];
+}
+
+function cyclesOf(definitions: ComponentDefinition[]): string[] {
+  const byName = new Map(definitions.map((definition) => [definition.name, definition]));
+  const cycles: string[] = [];
+  const done = new Set<string>();
+  const visit = (name: string, path: string[]) => {
+    const at = path.indexOf(name);
+    if (at !== -1) {
+      cycles.push(`Components form a cycle: ${[...path.slice(at), name].map(instanceTagOf).join(" > ")}`);
+      return;
+    }
+    if (done.has(name)) return;
+    for (const inner of byName.get(name)?.contains ?? []) if (byName.has(inner)) visit(inner, [...path, name]);
+    done.add(name);
+  };
+  for (const definition of definitions) visit(definition.name, []);
+  return cycles;
 }
 
 function hashOf(text: string): string {
@@ -194,5 +214,6 @@ export function assembleComponents(pages: ComponentPage[]): ComponentAssembly {
     }
   }
   const indexes = Object.fromEntries(perPage.map(({ page, components: own }) => [page.id, indexText(own)]));
-  return { css, components, definitions: definitionsOf(components, (component) => pages.find((p) => p.id === component.page.id)!.files[component.file]), indexes, duplicates };
+  const definitions = definitionsOf(components, (component) => pages.find((p) => p.id === component.page.id)!.files[component.file]);
+  return { css, components, definitions, indexes, duplicates, cycles: cyclesOf(definitions) };
 }
