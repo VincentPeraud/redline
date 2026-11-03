@@ -40,6 +40,7 @@ export function removeComponentCopies(store: Store, projectId: string, ref?: Ori
     if (removed.length === 0) continue;
     const kept = Object.fromEntries(Object.entries(files).filter(([path]) => !removed.includes(path)));
     if (kept[MANIFEST_PATH] !== undefined) {
+      // Raw document on purpose: `manifestWithoutArtboard` works on the stored JSON (the parsed form turns `below`/`rightOf` into `anchor`).
       let manifest = JSON.parse(kept[MANIFEST_PATH]) as { artboards?: { file: string }[]; elements?: Record<string, unknown>[]; tweaks?: { artboard?: string }[]; links?: { from: string; to: string }[] };
       for (const file of removed) manifest = manifestWithoutArtboard(manifest, file);
       if (manifest.tweaks) manifest.tweaks = manifest.tweaks.filter((t) => t.artboard === undefined || !removed.includes(t.artboard));
