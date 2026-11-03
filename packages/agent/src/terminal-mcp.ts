@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
+import type { ChangeRecordInput } from "@redline/shared";
 import { z } from "zod";
 import { uploadChangedAssets } from "./assets.js";
 import { readLinkedProjectIds } from "./link.js";
@@ -79,6 +80,7 @@ interface Checkout {
 export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(), runningBuild = buildHash(), installedBuild = buildHash }: { api: ServerApi; folder: string; sessionId?: string; runningBuild?: string; installedBuild?: () => string }): McpServer {
   let current: Checkout | undefined;
   let removalsConfirmed = false;
+  let changes: ChangeRecordInput[] = [];
   const checkedOut = (): Checkout => {
     if (!current) throw new Error("No page checked out. Call checkout_page first.");
     return current;
@@ -116,6 +118,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     },
     ownCreatePage: true,
     onRemovalsConfirmed: () => void (removalsConfirmed = true),
+    onChangeRecorded: (change) => void changes.push(change),
     // The page changed on the server: take its new state as the base of the next publish.
     afterArtboardMoved: async () => {
       const { pageId } = checkedOut();
@@ -330,9 +333,11 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       const version = await api.publish(pageId, files, message, "terminal", versionId, {
         terminalSessionId: sessionId,
         ...(confirmRemovals ? { confirmRemovals: true } : {}),
+        ...(changes.length ? { changes } : {}),
         ...(designMd !== baseDesignMd ? { designMd: { content: designMd, base: baseDesignMd } } : {}),
         ...(projectStyle !== baseStyle ? { projectStyle: { content: projectStyle!, base: baseStyle! } } : {}),
       });
+      changes = [];
       const hintAfter = [hint, gapsNote(version.gaps ?? []), layoutNote(pageFiles)].map((note) => (note ? `\n${note}` : "")).join("");
       if (!version.merged) {
         current = { pageId, dir, files, designMd, projectStyle, designSystemFiles, projectComponents, assets, versionId: version.id };

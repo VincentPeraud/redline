@@ -28,10 +28,15 @@ export interface ThreadRequest {
   detail?: string;
   /** Oldest first; the first one is the author of the request. */
   origins: RequestOrigin[];
+  /** Thread of the request this one was attached to: its origins moved there and this one is closed. */
+  mergedInto?: string;
 }
 
 /** An open request is still waiting for a diffusion or a refusal: it counts on the artboard header and on the overview. */
-export const requestIsOpen = (request: Pick<ThreadRequest, "state">): boolean => request.state === "in_progress" || request.state === "done_in_draft";
+export const requestIsOpen = (request: Pick<ThreadRequest, "state" | "mergedInto">): boolean => !request.mergedInto && (request.state === "in_progress" || request.state === "done_in_draft");
+
+/** "ui-modal" and "modal" are the same component: the name without the prefix, lower-cased. */
+export const requestComponentName = (component: string): string => component.trim().replace(/^ui-/i, "").toLowerCase();
 
 /** "App · Planning". */
 export const requestOriginLabel = (origin: Pick<RequestOrigin, "projectTitle" | "pageTitle">): string => `${origin.projectTitle} · ${origin.pageTitle}`;

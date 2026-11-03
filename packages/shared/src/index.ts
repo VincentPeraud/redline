@@ -4,6 +4,7 @@ import type { Gap } from "./gaps.js";
 import type { Person } from "./people.js";
 import type { InstanceState } from "./instanceState.js";
 import type { ThreadRequest } from "./request.js";
+import type { ChangeRecordInput } from "./changeRecord.js";
 
 export * from "./work.js";
 export * from "./sessions.js";
@@ -128,6 +129,8 @@ export interface CreateVersionRequest {
    * of pages, unless this is true (Claude asks the user first).
    */
   confirmRemovals?: boolean;
+  /** `/agent-api` design system pages only: the changes the session made per component, recorded with the version. */
+  changes?: ChangeRecordInput[];
 }
 
 // Per-artboard history (decision 3 of 2026-10-22). Storage is the page versions; these are derived views.
@@ -1360,3 +1363,4 @@ export * from "./columnShift.js";
 export * from "./arrowGeometry.js";
 export * from "./layoutIssues.js";
 export * from "./request.js";
+export * from "./changeRecord.js";

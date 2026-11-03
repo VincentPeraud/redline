@@ -21,6 +21,7 @@ import {
   tweakValueError,
   type SetTweakRequest,
   type CreateDesignSystemRequest,
+  type ChangeRecord,
   type DesignSystemDetail,
   type DiffusionListItem,
   diffDiffusionStates,
@@ -301,6 +302,12 @@ export async function buildMainApp(
       const before = previous ? store.diffusionState(id, previous.number) : { tokensCss: "", designMd: "", components: [] };
       return { ...diffusion, changes: diffDiffusionStates(before, store.diffusionState(id, diffusion.number)) };
     });
+  });
+
+  // The changes recorded since the current diffusion, for the review (tickets 12 and following).
+  app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/changes", async (req, reply): Promise<ChangeRecord[] | undefined> => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
+    return store.listChanges(req.params.designSystemId);
   });
 
   // User action only: Claude never diffuses (no equivalent in the agent API or the session tools).
