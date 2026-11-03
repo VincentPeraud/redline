@@ -1,5 +1,6 @@
 import { INSTANCE_TAG_PREFIX, instanceTagOf, type InstanceLayers } from "@redline/shared";
 import { projectComponents } from "./components.js";
+import { excludedComponents } from "./switch-design-system.js";
 import type { Store } from "./store.js";
 
 /**
@@ -48,7 +49,7 @@ export const INSTANCES_SOURCE = `(function () {
   function leftOutFrom(tag, scope) {
     if (scope !== SCOPE_PAGE || definitionIn(layers.project, tag)) return null;
     var list = layers.excluded || [];
-    for (var i = 0; i < list.length; i++) if (list[i].tag === tag) return list[i].from;
+    for (var i = 0; i < list.length; i++) if (list[i].tag === tag) return list[i];
     return null;
   }
 
@@ -88,9 +89,9 @@ export const INSTANCES_SOURCE = `(function () {
     Array.prototype.slice.call(root.querySelectorAll("*")).forEach(function (element) {
       var tag = element.localName;
       if (tag.indexOf("${INSTANCE_TAG_PREFIX}") !== 0 || element.hasAttribute("data-redline-unknown")) return;
-      var from = leftOutFrom(tag, designSystemScoped.has(element) ? SCOPE_DESIGN_SYSTEM : SCOPE_PAGE);
-      if (from === null && tags.indexOf(tag) !== -1) return;
-      var message = from === null ? tag + " : composant introuvable" : tag + " non repris de " + from;
+      var left = leftOutFrom(tag, designSystemScoped.has(element) ? SCOPE_DESIGN_SYSTEM : SCOPE_PAGE);
+      if (left === null && tags.indexOf(tag) !== -1) return;
+      var message = left === null ? tag + " : composant introuvable" : tag + (left.available ? " non repris de " : " absent de ") + left.from;
       element.setAttribute("data-redline-unknown", "");
       var placeholder = document.createElement("span");
       placeholder.setAttribute("data-redline-missing", "");
@@ -229,8 +230,6 @@ export function instanceLayersOf(store: Store, pageId: string, diffusion: number
   const designSystem =
     designSystemId === undefined ? [] : diffusion === undefined ? projectComponents(store, designSystemId).definitions : store.diffusionDefinitions(designSystemId, diffusion);
   const from = designSystemId === undefined ? undefined : store.getDesignSystem(designSystemId)?.title;
-  const excluded = Object.entries(store.excludedComponents(page.projectId))
-    .filter(([, left]) => left === designSystemId && from !== undefined)
-    .map(([name]) => ({ tag: instanceTagOf(name), from: from! }));
+  const excluded = designSystemId === undefined ? [] : excludedComponents(store, page.projectId, designSystemId).map(({ tag, from, available }) => ({ tag, from, available }));
   return { designSystem, project: projectComponents(store, page.projectId).definitions, ...(excluded.length > 0 && { excluded }) };
 }

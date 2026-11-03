@@ -52,6 +52,8 @@ export interface ExcludedInstance {
   tag: string;
   /** Title of the design system the component was not taken from. */
   from: string;
+  /** The design system has the component now (so it was left out by choice); false: it lacks it ("absent de"). */
+  available: boolean;
 }
 
 export const instanceTagOf = (name: string) => `${INSTANCE_TAG_PREFIX}${name}`;

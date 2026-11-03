@@ -11,7 +11,7 @@ import {
   type SwitchMatch,
   type VersionOrigin,
 } from "@redline/shared";
-import { currentDefinitions, projectComponents } from "./components.js";
+import { currentDefinitions, instanceNamesByPage, projectComponents } from "./components.js";
 import type { Store } from "./store.js";
 
 /** What makes two components "the same settings": the variants and the content slots (defaults are not compared). */
@@ -103,20 +103,24 @@ export function switchDesignSystem(store: Store, projectId: string, designSystem
   if (target !== undefined) {
     for (const component of switchPreview(store, projectId, target).components) {
       const taken = component.match !== "absent" && (ticked ? ticked.includes(component.tag) : component.match === "same");
-      if (!taken) left[component.name] = target;
+      if (!taken && component.match !== "absent") left[component.name] = target;
     }
   }
   store.setProjectDesignSystem(projectId, designSystem, origin, person);
   store.setExcludedComponents(projectId, left);
 }
 
-/** The left-out components with the design system they were not taken from; only the ones left out of the design system the project follows now. */
-export function excludedComponents(store: Store, projectId: string): ExcludedComponent[] {
-  const followed = store.sharedDesignSystemIdOfProject(projectId);
-  if (followed === undefined) return [];
-  const available = new Set(currentDefinitions(store, followed).map((d) => d.name));
-  const title = store.getDesignSystem(followed)!.title;
-  return Object.entries(store.excludedComponents(projectId))
-    .filter(([, from]) => from === followed)
-    .map(([name]) => ({ name, tag: instanceTagOf(name), from: title, available: available.has(name) }));
+/**
+ * The components a project's pages write that `designSystem` (the one it follows by default) does not give them: the ones left out
+ * by choice at a switch (stored, "non repris de"), and the ones it lacks ("absent de", not stored: they come back by themselves
+ * once the design system's current diffusion has the name).
+ */
+export function excludedComponents(store: Store, projectId: string, designSystem = store.sharedDesignSystemIdOfProject(projectId)): ExcludedComponent[] {
+  if (designSystem === undefined) return [];
+  const defined = new Set(currentDefinitions(store, designSystem).map((d) => d.name));
+  const own = new Set(projectComponents(store, projectId).definitions.map((d) => d.name));
+  const title = store.getDesignSystem(designSystem)!.title;
+  const stored = Object.entries(store.excludedComponents(projectId)).filter(([, from]) => from === designSystem).map(([name]) => name);
+  const absent = [...new Set(instanceNamesByPage(store, projectId).flat())].filter((name) => !defined.has(name) && !own.has(name) && !stored.includes(name));
+  return [...stored, ...absent].map((name) => ({ name, tag: instanceTagOf(name), from: title, available: defined.has(name) }));
 }

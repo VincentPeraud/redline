@@ -263,7 +263,7 @@ describe("instances displayed from their component's definition", () => {
       const { window, errors } = await openReporting(`/pages/${page.id}/a.html`);
       const placeholder = window.document.querySelector("ui-ghost [data-redline-missing]")!;
       expect(placeholder.textContent).toContain("ui-ghost");
-      expect(errors()).toEqual(["ui-ghost : composant introuvable"]);
+      expect(errors()).toEqual(["ui-ghost absent de Acme DS"]);
     });
 
     it("reports nothing for a healthy instance", async () => {

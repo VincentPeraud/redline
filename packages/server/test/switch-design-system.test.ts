@@ -130,8 +130,25 @@ describe("switching a project's design system", () => {
     // unticked, named in the new design system: broken all the same
     expect(document.querySelector("ui-card .card")).toBeNull();
     expect(document.querySelector("ui-card [data-redline-missing]")!.textContent).toContain("ui-card non repris de Réseaux sociaux");
-    expect(document.querySelector("ui-modal [data-redline-missing]")!.textContent).toContain("ui-modal non repris de Réseaux sociaux");
-    expect(window.errors().sort()).toEqual(["ui-card non repris de Réseaux sociaux", "ui-modal non repris de Réseaux sociaux", "ui-tabs non repris de Réseaux sociaux"]);
+    expect(document.querySelector("ui-modal [data-redline-missing]")!.textContent).toContain("ui-modal absent de Réseaux sociaux");
+    expect(window.errors().sort()).toEqual(["ui-card non repris de Réseaux sociaux", "ui-modal absent de Réseaux sociaux", "ui-tabs non repris de Réseaux sociaux"]);
+  });
+
+  it("takes an absent component by itself once the design system diffuses it, and keeps the unticked ones left out", async () => {
+    const { projectId, page, to } = await scenario();
+    await put(`/api/projects/${projectId}/design-system`, { designSystem: to.id, ticked: ["ui-button"] });
+    let window = await openReporting(`/pages/${page.id}/a.html`);
+    expect(window.errors()).toContain("ui-modal absent de Réseaux sociaux");
+
+    const added = await server.post(`/api/pages/${to.pageId}/versions`, { files: designSystemFiles({ ...TO, modal: FROM.modal }), message: "Add modal", origin: "thread" });
+    expect(added.status).toBe(201);
+    expect((await server.post(`/api/design-systems/${to.id}/diffusions`, {})).status).toBe(201);
+
+    const detail = (await (await server.get(`/api/projects/${projectId}/design-system`)).json()) as ProjectDesignSystem;
+    expect(detail.excluded.map((e) => e.tag)).toEqual(["ui-card", "ui-tabs"]);
+    window = await openReporting(`/pages/${page.id}/a.html`);
+    expect(window.window.document.querySelector("ui-modal [data-redline-missing]")).toBeNull();
+    expect(window.errors().sort()).toEqual(["ui-card non repris de Réseaux sociaux", "ui-tabs non repris de Réseaux sociaux"]);
   });
 
   it("clears the broken state when the user takes the component from the project's Design system page", async () => {
@@ -142,7 +159,7 @@ describe("switching a project's design system", () => {
     expect(((await taken.json()) as ProjectDesignSystem).excluded.map((e) => e.tag)).toEqual(["ui-tabs", "ui-modal"]);
     const window = await openReporting(`/pages/${page.id}/a.html`);
     expect(window.window.document.querySelector("ui-card .card")).not.toBeNull();
-    expect(window.errors().sort()).toEqual(["ui-modal non repris de Réseaux sociaux", "ui-tabs non repris de Réseaux sociaux"]);
+    expect(window.errors().sort()).toEqual(["ui-modal absent de Réseaux sociaux", "ui-tabs non repris de Réseaux sociaux"]);
   });
 
   it("refuses to take a component the design system does not have", async () => {
