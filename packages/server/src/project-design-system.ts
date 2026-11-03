@@ -25,10 +25,10 @@ import {
   type SetProjectTokenRequest,
   type SetProjectDesignSystemRequest,
 } from "@redline/shared";
-import { componentFilesOf, instanceNamesByPage, projectComponents } from "./components.js";
+import { componentFilesOf, currentDefinitions, instanceNamesByPage, projectComponents } from "./components.js";
 import { assetsUsedBy, moveUpComponent, removeComponentCopies, useDesignSystemComponent } from "./move-up.js";
 import { personRef, editorAuthor } from "./identity.js";
-import { currentDefinitions, excludedComponents, switchDesignSystem, switchPreview } from "./switch-design-system.js";
+import { excludedComponents, switchDesignSystem, switchPreview } from "./switch-design-system.js";
 import type { OriginRef, Store } from "./store.js";
 import { titleError } from "./validation.js";
 

@@ -7,7 +7,7 @@ import {
   parseManifest,
   type ManifestArtboard,
 } from "@redline/shared";
-import { componentFilesOf, projectComponents, versionComponentsError } from "./components.js";
+import { componentFilesOf, currentComponentFiles, projectComponents, versionComponentsError } from "./components.js";
 import type { OriginRef, Store } from "./store.js";
 
 const ASSET_REFERENCE = /\bassets\/([A-Za-z0-9._\/-]+)/g;
@@ -95,9 +95,8 @@ export function moveUpComponent(store: Store, projectId: string, name: string, p
 /** "Passer à celui du design system": deletes the project's component whose name the design system diffuses; its tags show the design system's. */
 export function useDesignSystemComponent(store: Store, projectId: string, name: string, ref?: OriginRef): MoveResult {
   const designSystemId = store.sharedDesignSystemIdOfProject(projectId);
-  const current = designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId);
   if (!projectComponents(store, projectId).components.some((c) => c.name === name)) return refused(404, "component not found in the project");
-  const shared = designSystemId !== undefined && current !== undefined && Object.keys(store.diffusionComponentFiles(designSystemId, current.number)).some((path) => componentNameOf(path) === name);
+  const shared = Object.keys(currentComponentFiles(store, designSystemId)).some((path) => componentNameOf(path) === name);
   if (!shared) return refused(409, `the design system has no component named ${name}`);
   removeComponentCopies(store, projectId, ref, [name]);
   const { [name]: _gone, ...rest } = store.movedUpComponents(projectId);
@@ -107,9 +106,7 @@ export function useDesignSystemComponent(store: Store, projectId: string, name: 
 
 /** After a diffusion: the projects that moved a component up lose their copy once the design system diffuses that name. */
 export function settleMovedUp(store: Store, designSystemId: string): void {
-  const current = store.currentDiffusion(designSystemId);
-  if (!current) return;
-  const diffused = new Set(Object.keys(store.diffusionComponentFiles(designSystemId, current.number)).map((path) => componentNameOf(path)));
+  const diffused = new Set(Object.keys(currentComponentFiles(store, designSystemId)).map((path) => componentNameOf(path)));
   for (const project of store.projectsUsingDesignSystem(designSystemId)) {
     const moved = store.movedUpComponents(project.id);
     const settled = Object.entries(moved).filter(([name, mark]) => mark.designSystemId === designSystemId && diffused.has(name)).map(([name]) => name);

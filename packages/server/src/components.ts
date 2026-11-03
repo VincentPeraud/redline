@@ -33,32 +33,31 @@ export function instanceNamesByPage(store: Store, projectId: string): string[][]
 
 const componentsError =(assembly: ComponentAssembly) => assembly.duplicates[0] ?? assembly.cycles[0] ?? null;
 
+/** The checks every set of project pages goes through: duplicate names and loops, a project component taking a design system name, then the instances `files` write. */
+function pagesComponentsError(store: Store, designSystemId: string | undefined, before: ComponentPage[], after: ComponentPage[], files: Record<string, string>): string | null {
+  const assembly = assembleComponents(after);
+  const invalid = componentsError(assembly);
+  if (invalid) return invalid;
+  const taken = takenNameError(store, designSystemId, before, after);
+  if (taken) return taken;
+  return instanceUsageError(files, currentDefinitions(store, designSystemId), assembly.definitions, classesByTag(store, designSystemId, after));
+}
+
 /** Error message when publishing `files` on `pageId` would define a component name twice in its project or make components contain each other in a loop, else null. */
 export function versionComponentsError(store: Store, pageId: string, files: Record<string, string>): string | null {
   const page = store.getPage(pageId)!;
-  const assembly = assembleComponents(componentPages(store, page.projectId, { pageId, files }));
-  const invalid = componentsError(assembly);
-  if (invalid) return invalid;
-  const designSystemId = store.sharedDesignSystemIdForManifest(pageId, files[MANIFEST_PATH]);
-  if (store.isDesignSystemPage(pageId)) return instanceUsageError(files, [], assembly.definitions, new Map());
-  const pagesAfter = componentPages(store, page.projectId, { pageId, files });
-  const taken = takenNameError(store, designSystemId, componentPages(store, page.projectId), pagesAfter);
-  if (taken) return taken;
-  const classes = classesByTag(store, designSystemId, pagesAfter);
-  return instanceUsageError(files, designSystemDefinitions(store, designSystemId), assembly.definitions, classes);
+  const after = componentPages(store, page.projectId, { pageId, files });
+  if (store.isDesignSystemPage(pageId)) {
+    const assembly = assembleComponents(after);
+    return componentsError(assembly) ?? instanceUsageError(files, [], assembly.definitions, new Map());
+  }
+  return pagesComponentsError(store, store.sharedDesignSystemIdForManifest(pageId, files[MANIFEST_PATH]), componentPages(store, page.projectId), after, files);
 }
 
 /** Error message when a new page with `files` would define a component name twice in the project, else null. */
 export function newPageComponentsError(store: Store, projectId: string, title: string, files: Record<string, string>): string | null {
-  const assembly = assembleComponents([...componentPages(store, projectId), { id: "", title, files }]);
-  const invalid = componentsError(assembly);
-  if (invalid) return invalid;
-  const designSystemId = designSystemOfNewPage(store, projectId, files[MANIFEST_PATH]);
-  const pagesAfter = [...componentPages(store, projectId), { id: "", title, files }];
-  const taken = takenNameError(store, designSystemId, componentPages(store, projectId), pagesAfter);
-  if (taken) return taken;
-  const classes = classesByTag(store, designSystemId, pagesAfter);
-  return instanceUsageError(files, designSystemDefinitions(store, designSystemId), assembly.definitions, classes);
+  const before = componentPages(store, projectId);
+  return pagesComponentsError(store, designSystemOfNewPage(store, projectId, files[MANIFEST_PATH]), before, [...before, { id: "", title, files }], files);
 }
 
 const contentsByName = (pages: ComponentPage[]) =>
@@ -72,34 +71,36 @@ const contentsByName = (pages: ComponentPage[]) =>
   );
 
 /**
- * Error message when a project component takes the name of a component of its design system's current diffusion, else null. A component
- * the project already had, unchanged, is left alone (the design system added the name later and the project keeps its own); touching it is refused.
+ * Error message when a project creates a component with the name of one in its design system's current diffusion, else null. A
+ * component the project already had keeps working and stays editable (the design system added the name later).
  */
 function takenNameError(store: Store, designSystemId: string | undefined, before: ComponentPage[], after: ComponentPage[]): string | null {
-  const current = designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId);
-  if (designSystemId === undefined || !current) return null;
-  const shared = new Set(Object.keys(store.diffusionComponentFiles(designSystemId, current.number)).map((path) => componentNameOf(path)));
+  const shared = new Set(Object.keys(currentComponentFiles(store, designSystemId)).map((path) => componentNameOf(path)));
   const previous = contentsByName(before);
-  for (const [name, content] of contentsByName(after)) {
-    if (shared.has(name) && previous.get(name) !== content) {
+  for (const name of contentsByName(after).keys()) {
+    if (shared.has(name) && !previous.has(name)) {
       return `Component "${name}" already exists in the design system: use <${instanceTagOf(name)}>, or ask the user for a new setting or slot. A project component cannot take the name of a design system component.`;
     }
   }
   return null;
 }
 
+/** The component files of the current diffusion of a design system, none when there is no shared one. */
+export function currentComponentFiles(store: Store, designSystemId: string | undefined): Record<string, string> {
+  const current = designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId);
+  return designSystemId === undefined || !current ? {} : store.diffusionComponentFiles(designSystemId, current.number);
+}
+
 /** Definitions of the current diffusion of a design system, none when there is no shared one. */
-function designSystemDefinitions(store: Store, designSystemId: string | undefined): ComponentDefinition[] {
+export function currentDefinitions(store: Store, designSystemId: string | undefined): ComponentDefinition[] {
   const current = designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId);
   return designSystemId === undefined || !current ? [] : store.diffusionDefinitions(designSystemId, current.number);
 }
 
 /** The class names each component defines, by tag; a project component wins over a design system one of the same name. */
 function classesByTag(store: Store, designSystemId: string | undefined, projectPages: ComponentPage[]): Map<string, string[]> {
-  const current = designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId);
-  const shared = designSystemId === undefined || !current ? {} : store.diffusionComponentFiles(designSystemId, current.number);
   const classes = new Map<string, string[]>();
-  const files = [...Object.entries(shared), ...projectPages.flatMap((page) => Object.entries(page.files))];
+  const files = [...Object.entries(currentComponentFiles(store, designSystemId)), ...projectPages.flatMap((page) => Object.entries(page.files))];
   for (const [path, content] of files) {
     const name = componentNameOf(path);
     if (name !== null) classes.set(instanceTagOf(name), componentClassesOf(content));

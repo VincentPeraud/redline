@@ -10,14 +10,8 @@ import {
   type SwitchMatch,
   type VersionOrigin,
 } from "@redline/shared";
-import { projectComponents } from "./components.js";
+import { currentDefinitions, projectComponents } from "./components.js";
 import type { Store } from "./store.js";
-
-/** Definitions of a design system's current diffusion; none without one. */
-export function currentDefinitions(store: Store, designSystemId: string | undefined): ComponentDefinition[] {
-  const current = designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId);
-  return designSystemId === undefined || !current ? [] : store.diffusionDefinitions(designSystemId, current.number);
-}
 
 /** What makes two components "the same settings": the variants and the content slots (defaults are not compared). */
 const shapeOf = (definition: ComponentDefinition) =>

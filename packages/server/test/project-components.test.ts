@@ -74,7 +74,7 @@ describe("project components", () => {
     expect(renamed.status).toBe(400);
   });
 
-  it("lets a project keep a component whose name the design system diffuses later, until it is touched", async () => {
+  it("lets a project keep a component whose name the design system diffuses later, and lets it edit that component", async () => {
     const ds = await createDesignSystem();
     const project = await createProject(ds.id);
     const page = await pageOf(project, "Missions", cardPageFiles(ds, `<ui-mission-card>x</ui-mission-card>`));
@@ -88,7 +88,7 @@ describe("project components", () => {
 
     expect((await publish(page.id, cardPageFiles(ds, `<ui-mission-card>y</ui-mission-card>`))).status).toBe(201);
     const touched = await publish(page.id, cardPageFiles(ds, `<ui-mission-card>y</ui-mission-card>`, componentFile(`<article class="mission-card changed"><slot></slot></article>`)));
-    expect(touched.status).toBe(400);
+    expect(touched.status).toBe(201);
   });
 
   it("lists project components as propre au projet, with their instance and page counts, and no override status", async () => {
