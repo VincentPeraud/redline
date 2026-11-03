@@ -14,7 +14,7 @@ import { placeText } from "./removals.js";
 import type { Store } from "./store.js";
 
 /** An instance of a design system component, written in a page of a project following the design system or in a component's template. */
-interface UseSite {
+export interface UseSite {
   use: InstanceUse;
   /** Absent for a component template. */
   place?: UsagePlace;
@@ -28,7 +28,7 @@ interface UseSite {
  * The instances written in the current version of the pages of the projects following `designSystemId` (leaving out the
  * instances of a name the project defines itself) and in the templates of `templates`.
  */
-function useSites(store: Store, designSystemId: string, templates: ComponentDefinition[]): UseSite[] {
+export function useSites(store: Store, designSystemId: string, templates: ComponentDefinition[]): UseSite[] {
   const sites: UseSite[] = [];
   for (const project of store.projectsUsingDesignSystem(designSystemId)) {
     const own = new Set(projectComponents(store, project.id).definitions.map((d) => d.name));

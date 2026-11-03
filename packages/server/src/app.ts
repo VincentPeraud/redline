@@ -24,6 +24,7 @@ import {
   type ChangeRecord,
   type DesignSystemDetail,
   type DiffusionListItem,
+  type DiffusionReview,
   diffDiffusionStates,
   type CreatePageRequest,
   type CreateProjectRequest,
@@ -53,6 +54,7 @@ import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
 import { removalsError, rollbackImpact } from "./removals.js";
+import { diffusionReview } from "./diffusion-review.js";
 import { brokenPagesAtDiffusion, instanceChangesError, rollbackInstancesError } from "./instance-guards.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
@@ -308,6 +310,12 @@ export async function buildMainApp(
   app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/changes", async (req, reply): Promise<ChangeRecord[] | undefined> => {
     if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
     return store.listChanges(req.params.designSystemId);
+  });
+
+  // What the Diffuse dialog reviews: tokens, DESIGN.md and one card per changed component.
+  app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/review", async (req, reply): Promise<DiffusionReview | undefined> => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return void reply.code(404).send({ error: "design system not found" });
+    return diffusionReview(store, req.params.designSystemId);
   });
 
   // User action only: Claude never diffuses (no equivalent in the agent API or the session tools).

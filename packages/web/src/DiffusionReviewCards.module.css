@@ -1,0 +1,218 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.afterCards {
+  margin-top: var(--space-2);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) 14px;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 calc(-1 * var(--space-4));
+  padding: 10px var(--space-4);
+  background: var(--color-surface-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.cardTitle {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.pill {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-2xs);
+}
+
+.pillChanged {
+  color: var(--color-warning-text);
+  background: var(--color-warning-bg);
+}
+
+.pillAdded {
+  color: var(--color-success-text);
+  background: var(--color-success-bg);
+}
+
+.pillRemoved {
+  color: var(--color-danger-text);
+  background: var(--color-danger-bg);
+}
+
+.grow {
+  flex-grow: 1;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.blockTitle {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+/* Each row draws its own bottom border and the list leaves its own open, so the last row closes the box. */
+.rows {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-bottom: none;
+  border-radius: var(--radius-md);
+}
+
+.changeRow,
+.pageRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+}
+
+.changeRow {
+  min-height: 41px;
+}
+
+.pageRow {
+  min-height: 37px;
+}
+
+.pageProject {
+  width: 110px;
+  color: var(--color-text-secondary);
+}
+
+.label {
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.label.mono {
+  font-size: var(--font-size-xs);
+}
+
+.origin {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.values {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+.arrow {
+  font-family: var(--font-sans);
+  color: var(--color-text-muted);
+}
+
+.swatch {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-xs);
+}
+
+.whereLine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.small {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.small:hover {
+  background: var(--color-surface-muted);
+}
+
+.link {
+  font-size: var(--font-size-sm);
+  color: var(--color-accent);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 120ms ease;
+}
+
+.link:hover {
+  color: var(--color-accent-hover);
+}
+
+.warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--color-warning-note-bg);
+  color: var(--color-warning-ink);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+
+.warningIcon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
