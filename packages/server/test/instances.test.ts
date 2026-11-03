@@ -224,9 +224,17 @@ describe("instances displayed from their component's definition", () => {
       return { window: dom.window, errors: () => reported };
     }
 
+    /** Publishing refuses a broken instance, so a page breaks only when a later diffusion changes the component under it. */
+    async function brokenByDiffusion(body: string, designSystemFiles: Record<string, string>, tweaks: object[] = [SIZE_TWEAK]) {
+      const ds = await designSystemWithModal(MODAL, tweaks);
+      const project = await followingProject(ds, body);
+      expect((await publishOnDesignSystem(ds, designSystemFiles)).ok).toBe(true);
+      expect((await server.post(`/api/design-systems/${ds.id}/diffusions`, {})).ok).toBe(true);
+      return project;
+    }
+
     it("renders an unknown setting value with the default and reports it", async () => {
-      const ds = await designSystemWithModal();
-      const { page } = await followingProject(ds, `<ui-modal size="xl"><p>Body</p></ui-modal>`);
+      const { page } = await brokenByDiffusion(`<ui-modal size="xl"><p>Body</p></ui-modal>`, { "manifest.json": modalManifest(), "components/modal.html": MODAL.replace(`class="modal"`, `class="modal v2"`) }, [{ ...SIZE_TWEAK, options: ["sm", "md", "xl"] }]);
       const { window, errors } = await openReporting(`/pages/${page.id}/a.html`);
       const modal = window.document.querySelector("ui-modal")!;
       expect(modal.getAttribute("size")).toBe("md");
@@ -235,8 +243,11 @@ describe("instances displayed from their component's definition", () => {
     });
 
     it("drops the content of a slot the component no longer has and reports it", async () => {
-      const ds = await designSystemWithModal();
+      const withFooter = modalFile(`<div class="modal"><h2><slot name="title"></slot></h2><div class="body"><slot></slot></div><footer><slot name="footer"></slot></footer></div>`);
+      const ds = await designSystemWithModal(withFooter);
       const { page } = await followingProject(ds, `<ui-modal><span slot="footer">Bye</span><p>Body</p></ui-modal>`);
+      expect((await publishOnDesignSystem(ds, { "manifest.json": modalManifest(), "components/modal.html": MODAL })).ok).toBe(true);
+      await server.post(`/api/design-systems/${ds.id}/diffusions`, {});
       const { window, errors } = await openReporting(`/pages/${page.id}/a.html`);
       const modal = window.document.querySelector("ui-modal")!;
       expect(modal.textContent).toBe("Body");
@@ -244,8 +255,11 @@ describe("instances displayed from their component's definition", () => {
     });
 
     it("shows a placeholder for an unknown tag and reports it", async () => {
-      const ds = await designSystemWithModal();
+      const ghost = modalFile(`<div class="ghost"><slot></slot></div>`).replace("ui-modal", "ui-ghost");
+      const ds = await createDesignSystem({ "manifest.json": manifestOf(["components/modal.html", "components/ghost.html"], [SIZE_TWEAK]), "components/modal.html": MODAL, "components/ghost.html": ghost });
       const { page } = await followingProject(ds, `<ui-ghost><p>Body</p></ui-ghost>`);
+      expect((await publishOnDesignSystem(ds, { "manifest.json": modalManifest(), "components/modal.html": MODAL })).ok).toBe(true);
+      await server.post(`/api/design-systems/${ds.id}/diffusions`, {});
       const { window, errors } = await openReporting(`/pages/${page.id}/a.html`);
       const placeholder = window.document.querySelector("ui-ghost [data-redline-missing]")!;
       expect(placeholder.textContent).toContain("ui-ghost");
