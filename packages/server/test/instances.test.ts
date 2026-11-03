@@ -129,6 +129,51 @@ describe("instances displayed from their component's definition", () => {
     expect(window.document.querySelector("ui-modal .body ui-button .btn")!.textContent).toBe("Yes");
   });
 
+  const componentFile = (template: string) => `<!doctype html><html><body><template data-component>${template}</template></body></html>`;
+  const BUTTON = componentFile(`<button class="btn"><slot></slot></button>`);
+
+  it("renders a nested instance in a template with its own settings and slots", async () => {
+    const ds = await createDesignSystem({
+      "manifest.json": manifestOf(["components/modal.html", "components/button.html"], [{ id: "tone", type: "choice", label: "Tone", options: ["plain", "danger"], default: "plain", artboard: "components/button.html" }]),
+      "components/modal.html": modalFile(`<div class="modal"><div class="body"><slot></slot></div><footer><ui-button tone="danger">Delete</ui-button><ui-button>Cancel</ui-button></footer></div>`),
+      "components/button.html": BUTTON,
+    });
+    const { page } = await followingProject(ds, `<ui-modal><p>Really</p></ui-modal>`);
+    const window = await open(`/pages/${page.id}/a.html`);
+    const buttons = [...window.document.querySelectorAll("ui-modal footer ui-button")];
+    expect(buttons.map((b) => b.querySelector(".btn")!.textContent)).toEqual(["Delete", "Cancel"]);
+    expect(buttons.map((b) => b.getAttribute("tone"))).toEqual(["danger", "plain"]);
+    expect(window.document.querySelector("ui-modal .body")!.innerHTML).toBe("<p>Really</p>");
+  });
+
+  it("resolves tags of a design system template to the design system, and tags of the project's pages to the project", async () => {
+    const ds = await createDesignSystem({
+      "manifest.json": manifestOf(["components/modal.html", "components/button.html"]),
+      "components/modal.html": modalFile(`<div class="modal"><ui-button>Ok</ui-button></div>`),
+      "components/button.html": BUTTON,
+    });
+    const project = await createProject();
+    await addPage(project, "Components", { "manifest.json": manifestOf(["components/button.html"], [], ds.id), "components/button.html": componentFile(`<a class="own-btn"><slot></slot></a>`) });
+    const page = await addPage(project, "Flow", { "manifest.json": manifestOf(["a.html"], [], ds.id), "a.html": mockup(`<ui-modal></ui-modal><ui-button id="own">Go</ui-button>`) });
+    const window = await open(`/pages/${page.id}/a.html`);
+    expect(window.document.querySelector("ui-modal .btn")!.textContent).toBe("Ok");
+    expect(window.document.querySelector("ui-modal .own-btn")).toBeNull();
+    expect(window.document.querySelector("#own .own-btn")!.textContent).toBe("Go");
+  });
+
+  it("stops a runaway nesting at the depth limit instead of looping", async () => {
+    // Design system creation does not run the publish check, so a self-containing component can exist here.
+    const ds = await createDesignSystem({
+      "manifest.json": manifestOf(["components/loop.html"]),
+      "components/loop.html": componentFile(`<div class="loop"><ui-loop></ui-loop></div>`),
+    });
+    const { page } = await followingProject(ds, `<ui-loop></ui-loop>`);
+    const window = await open(`/pages/${page.id}/a.html`);
+    const depth = window.document.querySelectorAll("ui-loop").length;
+    expect(depth).toBeGreaterThan(1);
+    expect(depth).toBeLessThanOrEqual(12);
+  });
+
   it("shows the draft on a design system page and on the preview of a pending diffusion", async () => {
     const ds = await designSystemWithModal();
     const dsPage = await addPage(ds.id, "Mock", { "manifest.json": manifestOf(["demo.html"]), "demo.html": mockup(`<ui-modal><p>Body</p></ui-modal>`) });
