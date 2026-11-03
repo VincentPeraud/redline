@@ -94,15 +94,26 @@ describe("requests to the design system", () => {
     expect(received()[0]!.message).toContain("A 720 px size");
   });
 
-  it("refuses a request from a project without a design system, for a component the design system lacks, or from an unknown thread", async () => {
+  it("refuses a request from a project without a design system, or from an unknown thread", async () => {
     const lone = (await (await server.post("/api/projects", { title: "Lone" })).json()) as Project;
     const lonePage = (await (await server.post(`/api/projects/${lone.id}/pages`, { title: "Home", files: { "home.html": "<h1>Hi</h1>" } })).json()) as Page;
     expect((await send({ artboard: "home.html" }, lonePage.id)).status).toBe(409);
-    expect((await send({ component: "ui-carousel" })).status).toBe(404);
     expect((await send({ threadId: "nope" })).status).toBe(400);
     expect((await send({ artboard: "ghost.html" })).status).toBe(400);
     expect((await send({ missing: "" })).status).toBe(400);
     expect(await threadsOf(ds.pageId)).toEqual([]);
+  });
+
+  it("turns a request for a component the design system lacks into a request thread on its main page", async () => {
+    const res = await send({ component: "ui-carousel", missing: "A carousel" });
+    expect(res.status).toBe(201);
+    const { threadId, pageId } = (await res.json()) as SendRequestResponse;
+    expect(pageId).toBe(ds.pageId);
+    const thread = (await threadsOf(ds.pageId)).find((t) => t.id === threadId)!;
+    expect(thread.request).toMatchObject({ kind: "component", component: "carousel", state: "in_progress" });
+    expect(thread.artboard).toBe("components/modal.html");
+    const overview = (await (await server.get(`/api/design-systems/${ds.id}`)).json()) as { requests: { threadId: string }[] };
+    expect(overview.requests.map((r) => r.threadId)).toContain(threadId);
   });
 
   it("cannot be resolved like a comment, while a plain comment on the component can", async () => {

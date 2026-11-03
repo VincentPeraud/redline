@@ -352,7 +352,7 @@ describe("session MCP tools", () => {
       expect(answers[1]).toMatch(/not part of this run/);
     });
 
-    it("says why a request is refused", async () => {
+    it("sends a request for a component the design system lacks", async () => {
       const answers: string[] = [];
       const engine = new FakeEngine(async (run) => {
         answers.push(await run.callTool("send_request", { component: "ui-carousel", missing: "A carousel", artboard: "home.html" }));
@@ -362,7 +362,7 @@ describe("session MCP tools", () => {
       await seam!.pinThread(page.id, "home.html", "Add a carousel");
       await engine.finished(1);
       await seam!.waitForWorkEnd();
-      expect(answers[0]).toMatch(/has no component ui-carousel/);
+      expect(answers[0]).toMatch(/Request sent to the design system/);
     });
   });
 

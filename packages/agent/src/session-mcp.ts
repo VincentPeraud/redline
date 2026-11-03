@@ -212,7 +212,7 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
     SEND_REQUEST_TOOL,
     {
       description:
-        "Ask the design system this project follows for something a component lacks (a missing setting value, slot or look) when the closest instance cannot do it. First use that closest instance in the mock-up so it is never blocked, then send the request: it becomes a thread on the component's artboard in the design system, handled right away in its draft; the user reviews the change before it is diffused, and the thread of the mock-up that asked reopens afterwards. For a user comment you routed as a component change, pass its threadId so the request points back to it. Never copy the component's markup to get the look instead.",
+        "Ask the design system this project follows for something a component lacks (a missing setting value, slot or look) when the closest instance cannot do it. First use that closest instance in the mock-up so it is never blocked, then send the request: it becomes a thread on the component's artboard in the design system (on its main page when the component does not exist there yet, so a whole new component can be requested), handled right away in its draft; the user reviews the change before it is diffused, and the thread of the mock-up that asked reopens afterwards. For a user comment you routed as a component change, pass its threadId so the request points back to it. Never copy the component's markup to get the look instead.",
       inputSchema: {
         component: z.string().describe("The component, e.g. ui-modal"),
         missing: z.string().describe("What is missing and why the mock-up needs it, e.g. \"A 720 px size, for the mission edit form\""),

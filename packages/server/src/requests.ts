@@ -1,4 +1,4 @@
-import { INSTANCE_TAG_PREFIX, requestComponentName, type SendRequestRequest, type SendRequestResponse } from "@redline/shared";
+import { MANIFEST_PATH, parseManifest, requestComponentName, type SendRequestRequest, type SendRequestResponse } from "@redline/shared";
 import { projectComponents } from "./components.js";
 import { modelChoiceOf, requiredString } from "./validation.js";
 import type { PageLock } from "./page-lock.js";
@@ -6,6 +6,11 @@ import type { Store, StoredRequest } from "./store.js";
 import { dispatchThread, type TerminalPresence } from "./work.js";
 
 export type SendRequestOutcome = { status: 201; body: SendRequestResponse } | { status: 400 | 404 | 409; body: { error: string } };
+
+const mainPageArtboard = (store: Store, pageId: string): string | undefined => {
+  const manifest = store.readPageFile(pageId, MANIFEST_PATH)?.toString("utf8");
+  return manifest === undefined ? undefined : parseManifest(manifest).artboards[0]?.file;
+};
 
 /**
  * A project's session asks the design system it follows for something a component lacks: a thread on the component's
@@ -28,7 +33,6 @@ export function sendRequest(store: Store, pageLock: PageLock, terminal: Terminal
 
   const name = requestComponentName(component);
   const info = projectComponents(store, designSystem.id).components.find((candidate) => candidate.name === name);
-  if (!info) return { status: 404, body: { error: `The design system "${designSystem.title}" has no component ${INSTANCE_TAG_PREFIX}${name}. Use the closest instance it offers.` } };
 
   const request: StoredRequest = {
     kind: "component",
@@ -38,7 +42,9 @@ export function sendRequest(store: Store, pageLock: PageLock, terminal: Terminal
     origins: [{ projectId: page.projectId, pageId, artboard, ...(selector ? { selector } : {}), ...(origin ? { threadId: origin.id } : {}) }],
   };
   // The words are the user's when Claude routed their comment: the thread keeps their text and their name.
-  const thread = store.createThread(info.page.id, { target: { kind: "artboard", artboard: info.file }, body: origin?.body ?? missing.trim(), viaProjectId: page.projectId }, origin?.person, false, request);
+  // A component the design system lacks has no artboard: the request sits on the first artboard of its main page.
+  const anchor = info ?? { page: { id: designSystem.pageId }, file: mainPageArtboard(store, designSystem.pageId) ?? `components/${name}.html` };
+  const thread = store.createThread(anchor.page.id, { target: { kind: "artboard", artboard: anchor.file }, body: origin?.body ?? missing.trim(), viaProjectId: page.projectId }, origin?.person, false, request);
   dispatchThread(pageLock, designSystem.id, thread, modelChoiceOf({}), terminal);
   return { status: 201, body: { threadId: thread.id, pageId: thread.pageId, designSystemTitle: designSystem.title } };
 }
