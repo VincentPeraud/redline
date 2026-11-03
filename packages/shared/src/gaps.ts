@@ -1,9 +1,10 @@
 // Gaps (lot E, ticket 21). A gap is an element of an artboard that bypasses the design system; this pure module
 // finds them in an artboard's HTML and CSS against the tokens and components available to its page.
 
+import { instanceTagOf } from "./componentDefinition.js";
 import type { TokenDeclaration } from "./tokens.js";
 
-export const GAP_KINDS = ["color", "font", "control", "deprecated"] as const;
+export const GAP_KINDS = ["color", "font", "control", "deprecated", "instance-style", "instance-rule"] as const;
 export type GapKind = (typeof GAP_KINDS)[number];
 
 /** The marker that takes an element and its descendants out of the analysis. */
@@ -14,7 +15,7 @@ export interface Gap {
   key: string;
   file: string;
   kind: GapKind;
-  /** The hard-coded colour as written, the font family, `<button>`, or the deprecated token name. */
+  /** The hard-coded colour as written, the font family, `<button>`, the deprecated token name, the properties an instance's inline style sets beyond its place, or the page rule's selector. */
   value: string;
   /** Tag name of the element concerned, null when a stylesheet selector matches no element. */
   element: string | null;
@@ -272,6 +273,14 @@ function parseSelector(selector: string): { combinator: " " | ">"; compound: Com
 const matchesCompound = (node: Node, c: Compound) =>
   (c.tag === null || node.tag === c.tag) && (c.id === null || node.attrs.id === c.id) && c.classes.every((name) => classesOfNode(node).includes(name));
 
+/** Whether a selector goes through an instance tag to something inside it (`ui-modal .title`), not the instance itself. */
+function reachesInsideInstance(selector: string, instanceTags: Set<string>): boolean {
+  return splitTopLevel(selector, ",").some((part) => {
+    const chain = parseSelector(part.trim());
+    return chain !== null && chain.slice(0, -1).some(({ compound }) => compound.tag !== null && instanceTags.has(compound.tag));
+  });
+}
+
 function matchesChain(node: Node, chain: { combinator: " " | ">"; compound: Compound }[], index: number): boolean {
   if (!matchesCompound(node, chain[index].compound)) return false;
   if (index === 0) return true;
@@ -347,6 +356,9 @@ const CONTROL_COMPONENT_NAMES: Record<string, RegExp> = {
 
 const isControl = (node: Node) => node.tag in CONTROL_COMPONENT_NAMES && !(node.tag === "input" && node.attrs.type?.toLowerCase() === "hidden");
 
+/** Properties an inline style may set on an instance: its place in the page, not its look. */
+const PLACE_PROPERTY = /^(width|min-width|max-width|margin(-[a-z]+)*|grid-(area|column(-[a-z]+)?|row(-[a-z]+)?)|flex|flex-(grow|shrink|basis)|order|align-self|justify-self|place-self)$/;
+
 // --- Analysis ---
 
 /** The gaps of one artboard, in document order (inline styles first, then stylesheets). */
@@ -366,6 +378,8 @@ export function analyseGaps(file: string, html: string, context: GapContext): Ga
     if (!node || !isControl(node) || classesOfNode(node).some((c) => componentClasses.has(c))) return undefined;
     return context.components.find((c) => CONTROL_COMPONENT_NAMES[node.tag].test(c.name))?.name;
   };
+
+  const instanceTags = new Set(context.components.map((c) => instanceTagOf(c.name)));
 
   const check = (declarations: Declaration[], node: Node | null, where: string) => {
     for (const { property, value } of declarations) {
@@ -392,6 +406,10 @@ export function analyseGaps(file: string, html: string, context: GapContext): Ga
   for (const node of elementsOf(root)) {
     if (isFree(node)) continue;
     if (node.attrs.style) check(declarationsOf(node.attrs.style), node, "style");
+    if (instanceTags.has(node.tag) && node.attrs.style) {
+      const look = [...new Set(declarationsOf(node.attrs.style).map((d) => d.property).filter((p) => !PLACE_PROPERTY.test(p)))];
+      if (look.length > 0) add("instance-style", look.join(", "), node, "instance-style");
+    }
     if (isControl(node)) {
       const component = componentFor(node);
       if (component) add("control", `<${node.tag}>`, node, "control", { component });
@@ -400,6 +418,7 @@ export function analyseGaps(file: string, html: string, context: GapContext): Ga
 
   for (const sheet of [...elementsOf(root)].filter((n) => n.tag === "style")) {
     for (const rule of rulesOf(sheet.text)) {
+      if (reachesInsideInstance(rule.selector, instanceTags) && matchingElements(root, rule.selector).every((n) => !isFree(n))) add("instance-rule", rule.selector, null, `rule:${rule.selector}`);
       const matched = matchingElements(root, rule.selector);
       const target = matched.find((n) => !isFree(n)) ?? null;
       if (matched.length > 0 && target === null) continue;
