@@ -19,7 +19,7 @@ export function PlayFrame({ frame, url, statusColour, children }: Props) {
       return (
         <div className={cx(styles.shell, styles.phone)} data-frame="phone">
           <div aria-hidden="true" className={styles.statusBar} data-ink={statusColour ? statusBarInk(statusColour) : "dark"} style={statusColour ? { background: statusColour } : undefined}>
-            <span className={styles.statusTime}>9:41</span>
+            <span className={styles.statusTime}>09:41</span>
             <span className={styles.camera} />
             <span className={styles.statusIcons}>
               <svg width="18" height="12" viewBox="0 0 18 12">
