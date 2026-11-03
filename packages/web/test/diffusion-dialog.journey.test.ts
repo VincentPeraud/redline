@@ -68,7 +68,9 @@ it("shows the diffuse button while changes are pending, lists them with the over
     "ui-cardmodifiéAvant / après ↗Ce qui changeModification sans descriptionfait directement dans le design system",
     "ui-badgenouveauVoir le composant ↗Ce qui changeModification sans descriptionfait directement dans le design system",
   ]);
-  expect(await dialog.getByText("Nulle part pour l'instant").count()).toBe(2);
+  expect(await dialog.getByText("Nulle part pour l'instant : aucune page n'utilise encore ui-badge").count()).toBe(1);
+  expect(await dialog.getByText("Nulle part pour l'instant : aucune page n'utilise encore ui-card").count()).toBe(1);
+  if (process.env.REDLINE_CAPTURES) await dialog.getByTestId("diffusion-component").first().screenshot({ path: join(process.env.REDLINE_CAPTURES, "fix-diffuse-app-card.png") });
   expect(await dialog.getByTestId("diffusion-override").textContent()).toContain("Semaine Halloween surcharge --color-primary : ce changement y sera sans effet.");
 
   await dialog.getByRole("button", { name: "Annuler" }).click();

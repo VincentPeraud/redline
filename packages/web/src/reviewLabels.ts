@@ -19,6 +19,9 @@ export function tokensWhereText(projects: string[]): string {
 export const whereSummary = (instances: number, pages: number): string =>
   `${counted(instances, "instance", "instances")} dans ${counted(pages, "page", "pages")} de projets`;
 
+/** "Nulle part pour l'instant : aucune page n'utilise encore ui-badge". */
+export const nowhereYetText = (name: string): string => `Nulle part pour l'instant : aucune page n'utilise encore ui-${name}`;
+
 /** "Nulle part : App a déjà son propre ui-slot-picker et le garde". */
 export function keptByText(projects: string[], name: string): string {
   const who = list(projects);
