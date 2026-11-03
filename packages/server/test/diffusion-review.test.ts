@@ -117,6 +117,8 @@ describe("the diffusion review", () => {
     });
     const { components } = await review();
     expect(components.find((c) => c.name === "modal")!.changes).toEqual([{ label: "Valeur par défaut de size : md → lg", origin: { kind: "direct" }, refusable: false, undoing: false }]);
+    // Only the instances that omit the setting change (the guard counts the same ones).
+    expect(components.find((c) => c.name === "modal")!.where.instances).toBe(2);
     const picker = components.find((c) => c.name === "picker")!;
     expect(picker.kind).toBe("added");
     expect(picker.where).toEqual({ instances: 0, pages: [], keptBy: ["Site public"], movedUp: [] });

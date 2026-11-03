@@ -37,9 +37,9 @@ function whereOf(name: string, sites: UseSite[], keptBy: string[], movedUp: Revi
   return { instances: list.reduce((total, page) => total + page.instances, 0), pages: list, keptBy, movedUp };
 }
 
-/** Number of lines the review lists: what the alerts count. */
+/** Number of lines the review lists that can still be diffused: what the alerts count (a refused change awaiting its undo is left out). */
 export function reviewLineCount(review: DiffusionReview): number {
-  return review.tokens.length + (review.designMdChanged ? 1 : 0) + review.components.reduce((sum, card) => sum + card.changes.length, 0);
+  return review.tokens.length + (review.designMdChanged ? 1 : 0) + review.components.reduce((sum, card) => sum + card.changes.filter((change) => !change.undoing).length, 0);
 }
 
 /** Everything changed since the current diffusion of a design system, for the Diffuse dialog. */
@@ -78,7 +78,11 @@ export function diffusionReview(store: Store, designSystemId: string): Diffusion
     const movedHere = (project: (typeof ownNames)[number]) => project.moved[name]?.designSystemId === designSystemId;
     const keptBy = ownNames.filter((project) => project.names.has(name) && !movedHere(project)).map((project) => project.title);
     const movedUp = ownNames.filter(movedHere).map((project) => ({ project: project.title, instances: project.uses.reduce((sum, names) => sum + names.filter((n) => n === name).length, 0) }));
-    return { name, kind, changes, where: whereOf(name, sites, keptBy, movedUp) };
+    // A card that only changes defaults reaches the instances that omit the setting, like the guard at publish.
+    const changedDefaults = defaults.filter((d) => d.component === name);
+    const defaultsOnly = changedDefaults.length > 0 && !recorded.some((change) => change.component === name);
+    const reached = defaultsOnly ? sites.filter((site) => site.use.name !== name || changedDefaults.some((d) => site.use.attributes[d.setting] === undefined)) : sites;
+    return { name, kind, changes, where: whereOf(name, reached, keptBy, movedUp) };
   };
 
   const { changed, added, removed } = pending.components;

@@ -80,6 +80,8 @@ describe("refusing a change or a request", () => {
     const lines = (await review()).components[0]!.changes;
     expect(lines.map((l) => [l.label, l.undoing, l.refusable])).toEqual([["Taille 720 px", true, false], ["Croix ronde", false, true]]);
     expect((await review()).undoing).toBe(1);
+    // A change awaiting its undo is no longer something to diffuse: the counts leave it out.
+    expect(((await (await server.get(`/api/design-systems/${ds.id}`)).json()) as { reviewLines: number }).reviewLines).toBe(1);
     expect((await diffuse()).status).toBe(409);
   });
 
