@@ -37,7 +37,7 @@ export function designSystemHint(pageFiles: Record<string, string>, designSystem
   return `Hint: ${free.join(", ")} use${free.length === 1 ? "s" : ""} no component class of the design system, which has components (see .design-system/index.md). Reuse them where they fit, or ignore this if the artboard is deliberately free.`;
 }
 
-const GAP_KIND_LABEL: Record<GapKind, string> = { color: "colour", font: "font", control: "control", deprecated: "deprecated token" };
+const GAP_KIND_LABEL: Record<GapKind, string> = { color: "colour", font: "font", control: "control", deprecated: "deprecated token", "instance-style": "instance styled beyond its place", "instance-rule": "page rule reaching inside an instance" };
 
 /**
  * What a session is told about the design system gaps of its artboards (the "écarts" the user sees), grouped by value;

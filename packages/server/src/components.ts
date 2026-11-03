@@ -1,4 +1,4 @@
-import { assembleComponents, componentNameOf, INSTANCE_TAG_PREFIX, MANIFEST_PATH, parseManifest, type ComponentAssembly, type ComponentDefinition, type ComponentPage } from "@redline/shared";
+import { assembleComponents, componentClassesOf, componentNameOf, DS_FREE_ATTRIBUTE, instanceTagOf, INSTANCE_TAG_PREFIX, MANIFEST_PATH, parseManifest, type ComponentAssembly, type ComponentDefinition, type ComponentPage } from "@redline/shared";
 import type { Store } from "./store.js";
 
 /** The pages of a project (a design system is one) as the component assembly takes them, `replacing` the files of one page. */
@@ -33,7 +33,9 @@ export function versionComponentsError(store: Store, pageId: string, files: Reco
   const invalid = componentsError(assembly);
   if (invalid) return invalid;
   const designSystemId = store.sharedDesignSystemIdForManifest(pageId, files[MANIFEST_PATH]);
-  return instanceUsageError(files, store.isDesignSystemPage(pageId) ? [] : designSystemDefinitions(store, designSystemId), assembly.definitions);
+  if (store.isDesignSystemPage(pageId)) return instanceUsageError(files, [], assembly.definitions, new Map());
+  const classes = classesByTag(store, designSystemId, componentPages(store, page.projectId, { pageId, files }));
+  return instanceUsageError(files, designSystemDefinitions(store, designSystemId), assembly.definitions, classes);
 }
 
 /** Error message when a new page with `files` would define a component name twice in the project, else null. */
@@ -41,13 +43,28 @@ export function newPageComponentsError(store: Store, projectId: string, title: s
   const assembly = assembleComponents([...componentPages(store, projectId), { id: "", title, files }]);
   const invalid = componentsError(assembly);
   if (invalid) return invalid;
-  return instanceUsageError(files, designSystemDefinitions(store, designSystemOfNewPage(store, projectId, files[MANIFEST_PATH])), assembly.definitions);
+  const designSystemId = designSystemOfNewPage(store, projectId, files[MANIFEST_PATH]);
+  const classes = classesByTag(store, designSystemId, [...componentPages(store, projectId), { id: "", title, files }]);
+  return instanceUsageError(files, designSystemDefinitions(store, designSystemId), assembly.definitions, classes);
 }
 
 /** Definitions of the current diffusion of a design system, none when there is no shared one. */
 function designSystemDefinitions(store: Store, designSystemId: string | undefined): ComponentDefinition[] {
   const current = designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId);
   return designSystemId === undefined || !current ? [] : store.diffusionDefinitions(designSystemId, current.number);
+}
+
+/** The class names each component defines, by tag; a project component wins over a design system one of the same name. */
+function classesByTag(store: Store, designSystemId: string | undefined, projectPages: ComponentPage[]): Map<string, string[]> {
+  const current = designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId);
+  const shared = designSystemId === undefined || !current ? {} : store.diffusionComponentFiles(designSystemId, current.number);
+  const classes = new Map<string, string[]>();
+  const files = [...Object.entries(shared), ...projectPages.flatMap((page) => Object.entries(page.files))];
+  for (const [path, content] of files) {
+    const name = componentNameOf(path);
+    if (name !== null) classes.set(instanceTagOf(name), componentClassesOf(content));
+  }
+  return classes;
 }
 
 function designSystemOfNewPage(store: Store, projectId: string, manifestText: string | undefined): string | undefined {
@@ -77,24 +94,38 @@ const slotText = (slot: string) => (slot === "" ? "(default)" : slot);
 /**
  * Error message when an HTML file of `files` uses a `ui-` tag no component defines, a value a choice setting does not offer, or a slot
  * the component lacks; it lists what exists. `designSystem` are the definitions of the current diffusion (none on a design system's own
- * page, whose `assembled` definitions are the draft), `assembled` those of the project's pages, which win on a name clash.
+ * page, whose `assembled` definitions are the draft), `assembled` those of the project's pages, which win on a name clash. It also
+ * refuses the classes of a component with a template used outside an instance (`classesOf`, by tag), except inside `data-ds-libre`.
  */
-function instanceUsageError(files: Record<string, string>, designSystem: ComponentDefinition[], assembled: ComponentDefinition[]): string | null {
+function instanceUsageError(files: Record<string, string>, designSystem: ComponentDefinition[], assembled: ComponentDefinition[], classesOf: Map<string, string[]>): string | null {
   const definitions = new Map<string, ComponentDefinition>();
   for (const definition of [...designSystem, ...assembled]) definitions.set(definition.tag, definition);
   const tags = [...definitions.keys()].sort();
   const available = tags.length === 0 ? "no component exists" : `available tags: ${tags.map((t) => `<${t}>`).join(", ")}`;
+  const ownerOfClass = new Map<string, ComponentDefinition>();
+  for (const [tag, classes] of classesOf) {
+    const definition = definitions.get(tag);
+    if (definition) for (const name of classes) ownerOfClass.set(name, definition);
+  }
   for (const [path, content] of Object.entries(files)) {
     if (!path.endsWith(".html") || componentNameOf(path) !== null) continue;
     const open: string[] = [];
+    let freeAt: number | null = null;
     for (const [, closing, tag, attributes] of withoutOpaqueBlocks(content).matchAll(TAG)) {
       const name = tag.toLowerCase();
       if (closing) {
         const index = open.lastIndexOf(name);
         if (index >= 0) open.length = index;
+        if (freeAt !== null && open.length <= freeAt) freeAt = null;
         continue;
       }
       const attribute = (wanted: string) => attributeOf(attributes, wanted);
+      const free = freeAt !== null || attribute(DS_FREE_ATTRIBUTE) !== null;
+      const copied = free ? undefined : (attribute("class") ?? "").split(/\s+/).map((name) => [name, ownerOfClass.get(name)] as const).find(([, owner]) => owner);
+      if (copied?.[1]) {
+        const settings = copied[1].settings.map((s) => s.name);
+        return `${path}: class "${copied[0]}" belongs to <${copied[1].tag}>, so its markup must not be copied. Use <${copied[1].tag}> instead (${settings.length === 0 ? "no settings" : `settings: ${settings.join(", ")}`}), or ask the user for a new setting.`;
+      }
       if (name.startsWith(INSTANCE_TAG_PREFIX)) {
         const definition = definitions.get(name);
         if (!definition) return `${path}: <${name}> is not a component (${available}). Use one of them, or ask the user for a new component.`;
@@ -108,7 +139,10 @@ function instanceUsageError(files: Record<string, string>, designSystem: Compone
       const owner = slot !== null && open.length > 0 ? definitions.get(open[open.length - 1]) : undefined;
       if (owner && slot !== null && !owner.slots.includes(slot))
         return `${path}: <${owner.tag}> has no slot="${slot}" (slots: ${owner.slots.map(slotText).join(", ")}). Use one of them, or ask the user for a new slot.`;
-      if (!VOID_ELEMENTS.has(name) && !attributes.endsWith("/")) open.push(name);
+      if (!VOID_ELEMENTS.has(name) && !attributes.endsWith("/")) {
+        open.push(name);
+        if (freeAt === null && free) freeAt = open.length - 1;
+      }
     }
   }
   return null;

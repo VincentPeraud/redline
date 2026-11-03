@@ -38,6 +38,10 @@ export function gapSummary(gap: Gap): Piece[] {
       return [`${CONTROL_LABEL[gap.value] ?? "Contrôle"} sans composant du design system`];
     case "deprecated":
       return ["Utilise ", { code: gap.value, large: true }];
+    case "instance-style":
+      return ["Style hors emplacement sur une instance : ", { code: gap.value, large: true }];
+    case "instance-rule":
+      return ["Règle de la page qui atteint l'intérieur d'une instance : ", { code: gap.value, large: true }];
   }
 }
 
@@ -58,6 +62,10 @@ export function gapSuggestion(gap: Gap): Piece[] | null {
       return component ? ["Un ", { code: component }, " existe pour ce cas"] : null;
     case "deprecated":
       return token ? ["Renommé en ", { code: token }, ". L'ancien nom marche encore ; il sera supprimé quand plus aucune page ne l'utilisera."] : null;
+    case "instance-style":
+      return ["Une instance garde l'apparence de son composant : seules sa place et sa taille se règlent dans la page, le reste passe par un réglage ou une demande de nouveau réglage."];
+    case "instance-rule":
+      return ["L'intérieur d'une instance vient du composant : passe par un réglage ou une demande de nouveau réglage au lieu de le restyler."];
   }
 }
 

@@ -5,6 +5,7 @@ import { startTestServer, type TestServer } from "@redline/server/test-harness";
 const tokensCss = `:root {\n${CORE_TOKENS.map((t) => `  ${t}: #000;`).join("\n")}\n}\n`;
 
 const componentFile = (template: string) => `<!doctype html><html><head></head><body><template data-component>${template}</template></body></html>`;
+const STYLED_MODAL = `<!doctype html><html><head><style data-component>ui-modal{display:block}.modal{padding:8px}.modal-body{color:red}</style></head><body><template data-component><div class="modal"><h2><slot name="title"></slot></h2><slot></slot></div></template></body></html>`;
 const MODAL = componentFile(`<div><h2><slot name="title"></slot></h2><slot></slot></div>`);
 const SIZE_TWEAK = { id: "size", type: "choice", label: "Size", options: ["sm", "md"], default: "md", artboard: "components/modal.html" };
 
@@ -75,5 +76,55 @@ describe("publish checks on instances", () => {
     const card = componentFile(`<div><slot></slot></div>`);
     const files = { ...pageFiles(ds, `<ui-card>x</ui-card>`), "components/card.html": card, "manifest.json": manifestOf(["a.html", "components/card.html"], [], ds.id) };
     expect((await createPage(await project(), files)).status).toBe(201);
+  });
+
+  describe("copied component markup", () => {
+    const styledDesignSystem = async () =>
+      (await (await server.post("/api/design-systems", { title: "Acme DS", files: { "tokens.css": tokensCss, "manifest.json": manifestOf(["components/modal.html"], [SIZE_TWEAK]), "components/modal.html": STYLED_MODAL } })).json()) as DesignSystem;
+
+    it("refuses a project page using a component's classes, naming the tag and its settings", async () => {
+      const ds = await styledDesignSystem();
+      const response = await createPage(await project(), pageFiles(ds, `<div class="modal"><p>Copied</p></div>`));
+      expect(response.status).toBe(400);
+      const { error } = (await response.json()) as { error: string };
+      expect(error).toContain("a.html");
+      expect(error).toContain("<ui-modal>");
+      expect(error).toContain("size");
+    });
+
+    it("refuses the same copy in a new version, and accepts the instance", async () => {
+      const ds = await styledDesignSystem();
+      const page = (await (await createPage(await project(), pageFiles(ds, `<ui-modal size="sm">x</ui-modal>`))).json()) as Page;
+      expect((await publish(page.id, pageFiles(ds, `<section class="modal-body">x</section>`))).status).toBe(400);
+      expect((await publish(page.id, pageFiles(ds, `<ui-modal>x</ui-modal>`))).status).toBe(201);
+    });
+
+    it("refuses classes of a project component as well", async () => {
+      const ds = await styledDesignSystem();
+      const card = `<!doctype html><html><head><style data-component>.card{padding:4px}</style></head><body><template data-component><div class="card"><slot></slot></div></template></body></html>`;
+      const files = { ...pageFiles(ds, `<div class="card">x</div>`), "components/card.html": card, "manifest.json": manifestOf(["a.html", "components/card.html"], [], ds.id) };
+      const response = await createPage(await project(), files);
+      expect(response.status).toBe(400);
+      expect(((await response.json()) as { error: string }).error).toContain("<ui-card>");
+    });
+
+    it("exempts a component's own file with a demo grid of self-instances", async () => {
+      const ds = await styledDesignSystem();
+      const files = { ...pageFiles(ds, `<ui-modal>x</ui-modal>`), "components/modal.html": STYLED_MODAL.replace("</body>", `<ui-modal size="sm">a</ui-modal><ui-modal size="md">b</ui-modal></body>`), "manifest.json": manifestOf(["a.html", "components/modal.html"], [SIZE_TWEAK], ds.id) };
+      expect((await createPage(await project(), files)).status).toBe(201);
+      const draft = { "tokens.css": tokensCss, "manifest.json": manifestOf(["components/modal.html"], [SIZE_TWEAK]), "components/modal.html": files["components/modal.html"] };
+      expect((await publish(ds.pageId, draft)).status).toBe(201);
+    });
+
+    it("ignores content marked data-ds-libre", async () => {
+      const ds = await styledDesignSystem();
+      const response = await createPage(await project(), pageFiles(ds, `<div data-ds-libre><div class="modal">free</div></div><ui-modal>x</ui-modal>`));
+      expect(response.status).toBe(201);
+    });
+
+    it("does not refuse classes of a component that has no instance template", async () => {
+      const ds = (await (await server.post("/api/design-systems", { title: "Old DS", files: { "tokens.css": tokensCss, "manifest.json": manifestOf(["components/cta.html"]), "components/cta.html": `<!doctype html><html><head><style data-component>.cta{color:red}</style></head><body></body></html>` } })).json()) as DesignSystem;
+      expect((await createPage(await project(), pageFiles(ds, `<a class="cta">Go</a>`))).status).toBe(201);
+    });
   });
 });
