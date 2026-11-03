@@ -45,9 +45,9 @@ async function seed() {
   await server.post(`/api/projects/${project.id}/pages`, {
     title: "Stories",
     files: {
-      "manifest.json": manifestOf(["components/sticker-citrouille.html", "components/post-cta.html"]),
-      "components/sticker-citrouille.html": component(".s{}"),
-      "components/post-cta.html": component(".cta{color:purple}"),
+      "manifest.json": manifestOf(["components/sticker-citrouille.html", "a.html"]),
+      "components/sticker-citrouille.html": `<!doctype html><html><head><style data-component>.s{}</style></head><body><template data-component><span class="s"><slot></slot></span></template></body></html>`,
+      "a.html": `<!doctype html><html><head></head><body><ui-sticker-citrouille>1</ui-sticker-citrouille><ui-sticker-citrouille>2</ui-sticker-citrouille></body></html>`,
     },
   });
   return { ds, project };
@@ -81,10 +81,13 @@ it("overrides a token with a text field and the colour picker, resets it, and li
   await expect.poll(async () => (await detail(project)).tokens.find((t) => t.name === "--color-primary")?.projectValue).toBe("#8b5cf6");
   await tab.getByText("2 surchargées").waitFor();
 
-  // Components with their badges.
-  expect(await tab.getByText("Composants du projet · 2").count()).toBe(1);
-  expect(await tab.getByRole("link", { name: /sticker-citrouille/ }).textContent()).toContain("nouveau");
-  expect(await tab.getByRole("link", { name: /post-cta/ }).textContent()).toContain("surchargé");
+  // Project components with their counts; no override badge.
+  expect(await tab.getByText("Composants du projet · 1").count()).toBe(1);
+  const card = await tab.getByTestId("component-sticker-citrouille").textContent();
+  expect(card).toContain("ui-sticker-citrouille");
+  expect(card).toContain("2 instances · 1 page");
+  expect(card).toContain("propre au projet");
+  expect(card).not.toContain("surchargé");
 
   // Reset with the arrow.
   await row("--radius").getByRole("button", { name: "Revenir à la valeur de Lumora pour --radius" }).click();
@@ -107,11 +110,11 @@ it("shows the counts in the overview box and links to the page", async () => {
   });
   const tab = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
   await tab.goto(`${server.url}/#/projects/${project.id}`);
-  const box = tab.getByRole("link", { name: /Lumora/ }).filter({ hasText: "composants du projet" });
+  const box = tab.getByRole("link", { name: /Lumora/ }).filter({ hasText: "composant du projet" });
   await box.waitFor();
   expect(await box.textContent()).toContain("diffusion 1");
   expect(await box.textContent()).toContain("1 variable surchargée");
-  expect(await box.textContent()).toContain("2 composants du projet");
+  expect(await box.textContent()).toContain("1 composant du projet");
   await tab.getByRole("link", { name: "Modifier" }).first().click();
   await tab.getByRole("heading", { name: "Variables" }).waitFor();
   await tab.close();

@@ -147,13 +147,13 @@ describe("instances displayed from their component's definition", () => {
   });
 
   it("resolves tags of a design system template to the design system, and tags of the project's pages to the project", async () => {
-    const ds = await createDesignSystem({
-      "manifest.json": manifestOf(["components/modal.html", "components/button.html"]),
-      "components/modal.html": modalFile(`<div class="modal"><ui-button>Ok</ui-button></div>`),
-      "components/button.html": BUTTON,
-    });
+    // The project's component is older than the design system's of the same name (a clash created by the design system is tolerated).
+    const modalWithButton = modalFile(`<div class="modal"><ui-button>Ok</ui-button></div>`);
+    const ds = await createDesignSystem({ "manifest.json": manifestOf(["components/modal.html"]), "components/modal.html": modalWithButton });
     const project = await createProject();
     await addPage(project, "Components", { "manifest.json": manifestOf(["components/button.html"], [], ds.id), "components/button.html": componentFile(`<a class="own-btn"><slot></slot></a>`) });
+    await publishOnDesignSystem(ds, { "manifest.json": manifestOf(["components/modal.html", "components/button.html"]), "components/modal.html": modalWithButton, "components/button.html": BUTTON });
+    await server.post(`/api/design-systems/${ds.id}/diffusions`, {});
     const page = await addPage(project, "Flow", { "manifest.json": manifestOf(["a.html"], [], ds.id), "a.html": mockup(`<ui-modal></ui-modal><ui-button id="own">Go</ui-button>`) });
     const window = await open(`/pages/${page.id}/a.html`);
     expect(window.document.querySelector("ui-modal .btn")!.textContent).toBe("Ok");

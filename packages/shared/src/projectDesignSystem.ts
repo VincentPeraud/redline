@@ -27,8 +27,10 @@ export interface ProjectComponentInfo {
   name: string;
   file: string;
   page: { id: string; title: string };
-  /** `override`: the current diffusion has a component of that name. */
-  status: "new" | "override";
+  /** Instances of the component (`<ui-name>`) in the project's pages. */
+  instances: number;
+  /** Pages of the project with at least one instance. */
+  pages: number;
 }
 
 /** `GET /api/projects/:id/design-system`. */

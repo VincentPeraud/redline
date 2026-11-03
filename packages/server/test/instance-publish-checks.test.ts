@@ -110,9 +110,11 @@ describe("publish checks on instances", () => {
 
     it("exempts a component's own file with a demo grid of self-instances", async () => {
       const ds = await styledDesignSystem();
-      const files = { ...pageFiles(ds, `<ui-modal>x</ui-modal>`), "components/modal.html": STYLED_MODAL.replace("</body>", `<ui-modal size="sm">a</ui-modal><ui-modal size="md">b</ui-modal></body>`), "manifest.json": manifestOf(["a.html", "components/modal.html"], [SIZE_TWEAK], ds.id) };
+      const banner = STYLED_MODAL.replace(/modal/g, "banner").replace("</body>", `<ui-banner size="sm">a</ui-banner><ui-banner size="md">b</ui-banner></body>`);
+      const files = { ...pageFiles(ds, `<ui-modal>x</ui-modal>`), "components/banner.html": banner, "manifest.json": manifestOf(["a.html", "components/banner.html"], [{ ...SIZE_TWEAK, artboard: "components/banner.html" }], ds.id) };
       expect((await createPage(await project(), files)).status).toBe(201);
-      const draft = { "tokens.css": tokensCss, "manifest.json": manifestOf(["components/modal.html"], [SIZE_TWEAK]), "components/modal.html": files["components/modal.html"] };
+      const modal = STYLED_MODAL.replace("</body>", `<ui-modal size="sm">a</ui-modal><ui-modal size="md">b</ui-modal></body>`);
+      const draft ={ "tokens.css": tokensCss, "manifest.json": manifestOf(["components/modal.html"], [SIZE_TWEAK]), "components/modal.html": modal };
       expect((await publish(ds.pageId, draft)).status).toBe(201);
     });
 
