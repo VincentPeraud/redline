@@ -97,6 +97,9 @@ it("signals what Claude left undiffused: the card under its answer, the pill on 
 
   // "Relire et diffuser" opens the review.
   await screen.goto(`${seam.server.url}/#/design-systems`);
+  // Valid HTML: the card's link does not contain the button.
+  expect(await screen.locator("a button, a a").count()).toBe(0);
+  if (process.env.REDLINE_CAPTURES) await screen.getByTestId("design-system").first().screenshot({ path: join(process.env.REDLINE_CAPTURES, "fix-alerts-list-app-card.png") });
   await screen.getByTestId("review-and-diffuse").click();
   await screen.getByRole("dialog").waitFor();
   expect(screen.url()).toContain("/#/design-systems/");

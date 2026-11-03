@@ -136,11 +136,15 @@ export function DesignSystemsScreen() {
       />
       <div className={styles.grid} data-testid="design-systems">
         {designSystems?.map((ds) => (
-          <a key={ds.id} className={styles.card} data-testid="design-system" href={routeHref({ name: "designSystem", designSystemId: ds.id })}>
+          <div key={ds.id} className={styles.card} data-testid="design-system">
             <PreviewSwatches palette={ds.palette} />
             <div className={styles.body}>
               <div className={styles.nameRow}>
-                <div className={styles.name}>{ds.title}</div>
+                <div className={styles.name}>
+                  <a className={styles.cardLink} href={routeHref({ name: "designSystem", designSystemId: ds.id })}>
+                    {ds.title}
+                  </a>
+                </div>
                 {ds.pendingChanges > 0 && <PendingPill changes={ds.pendingChanges} />}
               </div>
               <div className={styles.usedBy}>{usedByLabel(ds)}</div>
@@ -152,10 +156,7 @@ export function DesignSystemsScreen() {
                       type="button"
                       data-testid="review-and-diffuse"
                       className={styles.review}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        navigateTo({ name: "designSystem", designSystemId: ds.id, review: true });
-                      }}
+                      onClick={() => navigateTo({ name: "designSystem", designSystemId: ds.id, review: true })}
                     >
                       Relire et diffuser
                     </button>
@@ -166,7 +167,7 @@ export function DesignSystemsScreen() {
                 {pageCountLabel(ds.pageCount)} · {componentCountLabel(ds.componentCount)} · diffusion {ds.diffusion}
               </div>
             </div>
-          </a>
+          </div>
         ))}
         <button type="button" className={styles.add} onClick={() => setCreating(true)}>
           <span className={styles.plus} aria-hidden="true">
