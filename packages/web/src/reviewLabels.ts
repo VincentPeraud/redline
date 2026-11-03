@@ -25,4 +25,11 @@ export function keptByText(projects: string[], name: string): string {
   return `Nulle part : ${who} ${agree(projects.length, "a déjà son propre", "ont déjà leur propre")} ui-${name} et ${agree(projects.length, "le garde", "le gardent")}`;
 }
 
+/** "remonté depuis App : ses 8 instances passeront à celui-ci". */
+export function movedUpText(moved: { project: string; instances: number }[]): string {
+  return moved
+    .map(({ project, instances }) => `remonté depuis ${project} : ${agree(instances, "son instance passera", `ses ${instances} instances passeront`)} à celui-ci`)
+    .join(" ; ");
+}
+
 export const componentsHeading = (count: number): string => `${counted(count, "composant", "composants")} ${agree(count, "change", "changent")}`;

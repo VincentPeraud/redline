@@ -56,6 +56,7 @@ import { PageLock } from "./page-lock.js";
 import { removalsError, rollbackImpact } from "./removals.js";
 import { diffusionReview } from "./diffusion-review.js";
 import { brokenPagesAtDiffusion, instanceChangesError, rollbackInstancesError } from "./instance-guards.js";
+import { settleMovedUp } from "./move-up.js";
 import { closeDiffusedRequests, requestsClosedBy, returnPendingOn } from "./diffusion-returns.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
@@ -328,6 +329,7 @@ export async function buildMainApp(
     const closing = requestsClosedBy(store, designSystem.id);
     const created = store.createDiffusion(designSystem.id, "user");
     closeDiffusedRequests(store, pageLock, terminalSessions, closing, created.number);
+    settleMovedUp(store, designSystem.id);
     announceDiffusion(store, designSystem.id);
     // A removal the user confirmed breaks instances: each affected page gets a thread signed Redline, routed like any thread.
     for (const { pageId, artboard, breaks } of broken) {

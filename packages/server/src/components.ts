@@ -1,4 +1,4 @@
-import { assembleComponents, componentClassesOf, componentNameOf, DS_FREE_ATTRIBUTE, instanceTagOf, INSTANCE_TAG_PREFIX, MANIFEST_PATH, parseManifest, type ComponentAssembly, type ComponentDefinition, type ComponentPage } from "@redline/shared";
+import { assembleComponents, componentClassesOf, componentNameOf, DS_FREE_ATTRIBUTE, instanceTagOf, instanceUsesIn, INSTANCE_TAG_PREFIX, MANIFEST_PATH, parseManifest, type ComponentAssembly, type ComponentDefinition, type ComponentPage } from "@redline/shared";
 import type { Store } from "./store.js";
 
 /** The pages of a project (a design system is one) as the component assembly takes them, `replacing` the files of one page. */
@@ -24,7 +24,14 @@ export function componentFilesOf(store: Store, projectId: string): Record<string
   return files;
 }
 
-const componentsError = (assembly: ComponentAssembly) => assembly.duplicates[0] ?? assembly.cycles[0] ?? null;
+/** The `ui-` names each page of a project writes as instances (one entry per instance), leaving out the component files themselves. */
+export function instanceNamesByPage(store: Store, projectId: string): string[][] {
+  return componentPages(store, projectId).map((page) =>
+    Object.entries(page.files).flatMap(([path, content]) => (path.endsWith(".html") && componentNameOf(path) === null ? instanceUsesIn(content).map((use) => use.name) : [])),
+  );
+}
+
+const componentsError =(assembly: ComponentAssembly) => assembly.duplicates[0] ?? assembly.cycles[0] ?? null;
 
 /** Error message when publishing `files` on `pageId` would define a component name twice in its project or make components contain each other in a loop, else null. */
 export function versionComponentsError(store: Store, pageId: string, files: Record<string, string>): string | null {

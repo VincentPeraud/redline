@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { instanceTagOf } from "@redline/shared";
 import type { DesignMdVersion, DesignSystemSummary, DesignSystemSwitchPreview, ExcludedComponent, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
+import type { MoveUpComponentRequest } from "@redline/shared";
 import { dayLabel, designMdStatus, metaLine, originLabel } from "./historyLabels.js";
 import { useWho } from "./useMe.js";
 import { agree, counted } from "./plural.js";
 import { pickerHex } from "./projectDesignSystemLabels.js";
 import { relativeTime } from "./relativeTime.js";
 import { routeHref } from "./router.js";
-import { Button, Dialog, DialogActions, Field, Logo, TextInput, Tooltip, cx } from "./ui/index.js";
+import { Button, DIALOG_EXIT_MS, Dialog, DialogActions, Field, Logo, Select, TextInput, Tooltip, cx } from "./ui/index.js";
 import styles from "./ProjectDesignSystemScreen.module.css";
 import { useDocumentTitle } from "./documentTitle.js";
 import { SwitchDesignSystemDialog } from "./SwitchDesignSystemDialog.js";
@@ -120,7 +121,24 @@ function TokenRow({
   );
 }
 
-function ComponentCard({ component, swatch }: { component: ProjectComponentInfo; swatch: { background: string; shape: string } }) {
+const elided = (title: string) => (/^[aeiouyhàâéèêëîïôû]/i.test(title) ? `d'${title}` : `de ${title}`);
+
+function ComponentCard({
+  component,
+  swatch,
+  designSystemTitle,
+  projectTitle,
+  onMoveUp,
+  onUseDesignSystem,
+}: {
+  component: ProjectComponentInfo;
+  swatch: { background: string; shape: string };
+  designSystemTitle: string | null;
+  projectTitle: string;
+  onMoveUp: (component: ProjectComponentInfo) => void;
+  onUseDesignSystem: (name: string) => void;
+}) {
+  const tag = instanceTagOf(component.name);
   return (
     <div className={styles.component} data-testid={`component-${component.name}`}>
       <div className={styles.componentRow}>
@@ -128,13 +146,80 @@ function ComponentCard({ component, swatch }: { component: ProjectComponentInfo;
           <div className={styles.componentShape} style={{ background: swatch.shape }} />
         </div>
         <div className={styles.componentText}>
-          <span className={styles.mono}>{instanceTagOf(component.name)}</span>
+          <span className={styles.mono}>{tag}</span>
           <span className={styles.componentPage}>{`${counted(component.instances, "instance", "instances")} · ${counted(component.pages, "page", "pages")}`}</span>
         </div>
         <span className={styles.ownPill}>propre au projet</span>
       </div>
-      {component.inDesignSystem && <span className={styles.collisionPill}>existe aussi dans le design system</span>}
+      {component.inDesignSystem && (
+        <div className={styles.collision}>
+          <span className={styles.collisionPill}>existe aussi dans le design system</span>
+          <span className={styles.sideText}>{`${designSystemTitle} diffuse son propre ${tag} depuis la diffusion ${component.diffusedSince}. ${projectTitle} garde le sien tant que tu ne changes pas.`}</span>
+        </div>
+      )}
+      {component.inDesignSystem ? (
+        <Button size="sm" className={styles.cardButton} onClick={() => onUseDesignSystem(component.name)}>
+          Passer à celui du design system
+        </Button>
+      ) : component.movedUp ? (
+        <span className={styles.sideText}>{`Remonté : il passera dans ${designSystemTitle} à la prochaine diffusion. ${projectTitle} garde le sien d'ici là.`}</span>
+      ) : designSystemTitle !== null ? (
+        <Button size="sm" className={styles.cardButton} onClick={() => onMoveUp(component)}>
+          Remonter au design system
+        </Button>
+      ) : null}
     </div>
+  );
+}
+
+function instancesSentence(instances: number, projectTitle: string, designSystemTitle: string): string {
+  if (instances === 0) return `Aucune instance ${elided(projectTitle)} n'est concernée.`;
+  if (instances === 1) return `L'instance ${elided(projectTitle)} ne change pas et suit désormais ${designSystemTitle}.`;
+  return `Les ${instances} instances ${elided(projectTitle)} ne changent pas et suivent désormais ${designSystemTitle}.`;
+}
+
+function MoveUpDialog({
+  component,
+  designSystemTitle,
+  projectTitle,
+  pages,
+  closing,
+  onSubmit,
+  onClose,
+}: {
+  component: ProjectComponentInfo;
+  designSystemTitle: string;
+  projectTitle: string;
+  pages: { id: string; title: string }[];
+  closing: boolean;
+  onSubmit: (pageId: string) => void;
+  onClose: () => void;
+}) {
+  const [pageId, setPageId] = useState(pages[0]?.id ?? "");
+  const tag = instanceTagOf(component.name);
+  return (
+    <Dialog title={`Remonter ${tag}`} onClose={onClose} width={520} closing={closing}>
+      <div className={styles.dialogText}>
+        {`Le composant passe dans le brouillon de ${designSystemTitle}. ${instancesSentence(component.instances, projectTitle, designSystemTitle)} Les autres projets pourront l'utiliser après la prochaine diffusion.`}
+      </div>
+      <Field label="Page du design system">
+        <Select size="lg" className={styles.moveUpSelect} value={pageId} onChange={(event) => setPageId(event.target.value)}>
+          {pages.map((page) => (
+            <option key={page.id} value={page.id}>
+              {page.title}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <DialogActions>
+        <Button size="lg" onClick={onClose}>
+          Annuler
+        </Button>
+        <Button variant="accent" size="lg" disabled={pageId === ""} onClick={() => onSubmit(pageId)}>
+          Remonter
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
@@ -219,6 +304,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [promoteOpen, setPromoteOpen] = useState(false);
   const [switching, setSwitching] = useState<DesignSystemSwitchPreview | null>(null);
+  const [movingUp, setMovingUp] = useState<{ component: ProjectComponentInfo; closing: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadVersions = useCallback(
@@ -288,6 +374,20 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   }
 
   const takeComponent = (name: string) => change(fetch(`/api/projects/${projectId}/design-system/components/${encodeURIComponent(name)}/take`, { method: "POST" }));
+
+  const componentUrl = (name: string, action: string) => `/api/projects/${projectId}/design-system/components/${encodeURIComponent(name)}/${action}`;
+  const useDesignSystemComponent = (name: string) => change(fetch(componentUrl(name, "use-design-system"), { method: "POST" }));
+
+  function closeMoveUp() {
+    setMovingUp((current) => current && { ...current, closing: true });
+    window.setTimeout(() => setMovingUp(null), DIALOG_EXIT_MS);
+  }
+
+  async function moveUp(name: string, pageId: string) {
+    closeMoveUp();
+    const body: MoveUpComponentRequest = { pageId };
+    await change(fetch(componentUrl(name, "move-up"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+  }
 
   async function promote(title: string) {
     const body: PromoteProjectStyleRequest = { title };
@@ -432,9 +532,18 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
             <div className={styles.sideText}>
               {shared ? `Créés par les sessions du projet quand ${shared.title} n'avait rien d'approchant. ` : "Créés par les sessions du projet. "}
               Ils s'utilisent en instance dans toutes les pages du projet.
+              {shared && " Les remonter les rend disponibles pour tous les projets."}
             </div>
             {detail.components.map((component) => (
-              <ComponentCard key={component.file} component={component} swatch={thumb} />
+              <ComponentCard
+                key={component.file}
+                component={component}
+                swatch={thumb}
+                designSystemTitle={title}
+                projectTitle={project.title}
+                onMoveUp={(target) => setMovingUp({ component: target, closing: false })}
+                onUseDesignSystem={(name) => void useDesignSystemComponent(name)}
+              />
             ))}
           </section>
 
@@ -469,6 +578,17 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
             setSwitching(null);
             await applyDesignSystem(switching.to.id, ticked);
           }}
+        />
+      )}
+      {movingUp && shared && (
+        <MoveUpDialog
+          component={movingUp.component}
+          designSystemTitle={shared.title}
+          projectTitle={project.title}
+          pages={detail.designSystemPages}
+          closing={movingUp.closing}
+          onSubmit={(pageId) => void moveUp(movingUp.component.name, pageId)}
+          onClose={closeMoveUp}
         />
       )}
       {promoteOpen && <PromoteDialog initialTitle={project.title} onSubmit={promote} onClose={() => setPromoteOpen(false)} />}

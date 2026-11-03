@@ -99,6 +99,7 @@ describe("the diffusion review", () => {
         expect.objectContaining({ projectTitle: "Site public", pageTitle: "Inscription", instances: 1 }),
       ],
       keptBy: [],
+      movedUp: [],
     });
   });
 
@@ -106,7 +107,7 @@ describe("the diffusion review", () => {
     await publish({ "components/button.html": BUTTON.replace("<button>", "<button class=\"b\">") });
     const button = (await review()).components.find((c) => c.name === "button")!;
     expect(button.changes).toEqual([{ label: "Modification sans description", origin: { kind: "direct" }, refusable: false }]);
-    expect(button.where).toEqual({ instances: 0, pages: [], keptBy: [] });
+    expect(button.where).toEqual({ instances: 0, pages: [], keptBy: [], movedUp: [] });
   });
 
   it("shows a confirmed default change as a line, and marks a new component a project already has as kept by it", async () => {
@@ -118,7 +119,7 @@ describe("the diffusion review", () => {
     expect(components.find((c) => c.name === "modal")!.changes).toEqual([{ label: "Valeur par défaut de size : md → lg", origin: { kind: "direct" }, refusable: false }]);
     const picker = components.find((c) => c.name === "picker")!;
     expect(picker.kind).toBe("added");
-    expect(picker.where).toEqual({ instances: 0, pages: [], keptBy: ["Site public"] });
+    expect(picker.where).toEqual({ instances: 0, pages: [], keptBy: ["Site public"], movedUp: [] });
   });
 
   it("shows the user's comment as the origin when the request was routed from one", async () => {
