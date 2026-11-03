@@ -1,7 +1,6 @@
-import { requestComponentName, requestIsOpen, type ChangeRecordInput } from "@redline/shared";
+import { CHANGE_KINDS, requestComponentName, requestIsOpen, type ChangeRecordInput } from "@redline/shared";
 import type { Store } from "./store.js";
 
-const KINDS = ["added", "removed", "modified"];
 const MAX_LABEL = 120;
 
 /** What is wrong with the changes a design system's session sent with its publish, or null. Checked before anything is published. */
@@ -15,7 +14,7 @@ export function changesError(store: Store, pageId: string, changes: unknown): st
     if (typeof change !== "object" || change === null) return "each change must be an object";
     if (!text(change.component) || !text(change.label)) return "Each change needs a component and a label.";
     if (change.label!.trim().length > MAX_LABEL) return `A change label is ${MAX_LABEL} characters at most.`;
-    if (!KINDS.includes(change.kind as string)) return `A change kind is one of ${KINDS.join(", ")}.`;
+    if (!(CHANGE_KINDS as readonly unknown[]).includes(change.kind)) return `A change kind is one of ${CHANGE_KINDS.join(", ")}.`;
     if (change.threadId !== undefined) {
       const thread = typeof change.threadId === "string" ? store.getThread(change.threadId) : undefined;
       if (!thread || store.getPage(thread.pageId)?.projectId !== designSystemId) return `Thread ${String(change.threadId)} is not a thread of this design system.`;

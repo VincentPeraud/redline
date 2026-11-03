@@ -1,6 +1,7 @@
 // Change records (instances lot, ticket 11): what the design system's session says it changed, per component, when it publishes.
 
-export type ChangeKind = "added" | "removed" | "modified";
+export const CHANGE_KINDS = ["added", "removed", "modified"] as const;
+export type ChangeKind = (typeof CHANGE_KINDS)[number];
 
 /** `pending` until the next diffusion; `refused` by the user (until the draft is undone); `diffused` once frozen in a diffusion. */
 export type ChangeState = "pending" | "refused" | "diffused";

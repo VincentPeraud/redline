@@ -919,22 +919,30 @@ export class Store {
 
   /** Components a design system switch left out of the project: their instances render broken, by component name, with the design system they were not taken from. */
   excludedComponents(projectId: string): Record<string, string> {
-    const row = this.db.prepare("SELECT excluded_components AS json FROM projects WHERE id = ?").get(projectId) as { json: string | null } | undefined;
-    return row?.json ? (JSON.parse(row.json) as Record<string, string>) : {};
+    return this.projectRecord<string>(projectId, "excluded_components");
   }
 
   setExcludedComponents(projectId: string, excluded: Record<string, string>): void {
-    this.db.prepare("UPDATE projects SET excluded_components = ? WHERE id = ?").run(Object.keys(excluded).length === 0 ? null : JSON.stringify(excluded), projectId);
+    this.setProjectRecord(projectId, "excluded_components", excluded);
+  }
+
+  /** A project column holding a JSON object by component name; empty when unset. `column` is one of ours, never user input. */
+  private projectRecord<T>(projectId: string, column: "excluded_components" | "moved_up_components"): Record<string, T> {
+    const row = this.db.prepare(`SELECT ${column} AS json FROM projects WHERE id = ?`).get(projectId) as { json: string | null } | undefined;
+    return row?.json ? (JSON.parse(row.json) as Record<string, T>) : {};
+  }
+
+  private setProjectRecord(projectId: string, column: "excluded_components" | "moved_up_components", record: Record<string, unknown>): void {
+    this.db.prepare(`UPDATE projects SET ${column} = ? WHERE id = ?`).run(Object.keys(record).length === 0 ? null : JSON.stringify(record), projectId);
   }
 
   /** Project components moved up to a design system's draft and still the project's own until it diffuses them, by component name. */
   movedUpComponents(projectId: string): Record<string, MovedUpComponent> {
-    const row = this.db.prepare("SELECT moved_up_components AS json FROM projects WHERE id = ?").get(projectId) as { json: string | null } | undefined;
-    return row?.json ? (JSON.parse(row.json) as Record<string, MovedUpComponent>) : {};
+    return this.projectRecord<MovedUpComponent>(projectId, "moved_up_components");
   }
 
   setMovedUpComponents(projectId: string, moved: Record<string, MovedUpComponent>): void {
-    this.db.prepare("UPDATE projects SET moved_up_components = ? WHERE id = ?").run(Object.keys(moved).length === 0 ? null : JSON.stringify(moved), projectId);
+    this.setProjectRecord(projectId, "moved_up_components", moved);
   }
 
   /** The project style after leaving `fromDesignSystem`: its current diffusion's tokens with the project's overrides on top; undefined (the overrides stay alone) when it has no diffusion. */

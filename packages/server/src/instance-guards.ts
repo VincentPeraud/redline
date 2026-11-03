@@ -2,6 +2,7 @@ import {
   assembleComponents,
   breaksOf,
   defaultChangesOf,
+  instanceTagOf,
   instanceUsesIn,
   type ComponentDefinition,
   type DefaultChange,
@@ -50,10 +51,10 @@ const unique = (texts: string[]) => [...new Set(texts)];
 
 function breakText(item: InstanceBreak): string {
   switch (item.kind) {
-    case "component": return `component ui-${item.component}`;
-    case "setting": return `setting ${item.setting} of ui-${item.component}`;
-    case "value": return `${item.setting}="${item.value}" of ui-${item.component}`;
-    case "slot": return `slot "${item.slot}" of ui-${item.component}`;
+    case "component": return `component ${instanceTagOf(item.component)}`;
+    case "setting": return `setting ${item.setting} of ${instanceTagOf(item.component)}`;
+    case "value": return `${item.setting}="${item.value}" of ${instanceTagOf(item.component)}`;
+    case "slot": return `slot "${item.slot}" of ${instanceTagOf(item.component)}`;
   }
 }
 
@@ -88,7 +89,7 @@ function defaultLine(change: DefaultChange, sites: UseSite[]): string | null {
   const templates = unique(omitting.filter((s) => s.template !== undefined).map(siteText));
   const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
   const where = [...pages, ...templates].join(", ");
-  return `default of ${change.setting} on ui-${change.component} goes from ${change.from} to ${change.to}: ${count(omitting.length, "instance")} without ${change.setting} in ${count(pages.length, "page")}${templates.length > 0 ? ` and ${count(templates.length, "component template")}` : ""} (${where})`;
+  return `default of ${change.setting} on ${instanceTagOf(change.component)} goes from ${change.from} to ${change.to}: ${count(omitting.length, "instance")} without ${change.setting} in ${count(pages.length, "page")}${templates.length > 0 ? ` and ${count(templates.length, "component template")}` : ""} (${where})`;
 }
 
 /**

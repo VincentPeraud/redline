@@ -61,6 +61,12 @@ export function workOrigin(store: Store, pageLock: PageLock, workId: unknown, pa
 
 /** HTTP API for agents and their sessions' MCP tools, guarded by the agent token (see `AGENT_API_PREFIX`). */
 export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock, terminalSessions: TerminalSessions): Promise<void> {
+  /** A running work item (`workId`) that does not belong to `projectId`, or whose run is over: its session may not act there. */
+  const workOutsideProject = (workId: unknown, projectId: string | undefined): boolean => {
+    if (workId === undefined) return false;
+    const workPage = typeof workId === "string" ? pageLock.itemOf(workId)?.pageId : undefined;
+    return workPage === undefined || store.getPage(workPage)?.projectId !== projectId;
+  };
   await app.register(
     async (api) => {
       // onRequest, not preHandler: a wrong token is refused before its body (up to 20 MB for assets) is read.
@@ -324,9 +330,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
 
       // A project's session asks its design system for something a component lacks (agent sessions and terminal mode alike).
       api.post<{ Params: { pageId: string }; Body: Partial<SendRequestRequest> }>("/pages/:pageId/requests", async (req, reply) => {
-        const workId = req.body?.workId;
-        const workPage = typeof workId === "string" ? pageLock.itemOf(workId)?.pageId : undefined;
-        if (workId !== undefined && store.getPage(workPage ?? "")?.projectId !== store.getPage(req.params.pageId)?.projectId) {
+        if (workOutsideProject(req.body?.workId, store.getPage(req.params.pageId)?.projectId)) {
           return reply.code(403).send({ error: "This session cannot send a request for that page: it belongs to another project, or the run is over." });
         }
         const outcome = sendRequest(store, pageLock, terminalSessions, req.params.pageId, req.body);
@@ -335,10 +339,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
 
       // The design system's session attaches a request to an existing one.
       api.post<{ Params: { threadId: string }; Body: Partial<MergeRequestRequest> }>("/requests/:threadId/merge", async (req, reply) => {
-        const workId = req.body?.workId;
-        const workPage = typeof workId === "string" ? pageLock.itemOf(workId)?.pageId : undefined;
-        const threadPage = store.getThread(req.params.threadId)?.pageId;
-        if (workId !== undefined && (workPage === undefined || store.getPage(workPage)?.projectId !== store.getPage(threadPage ?? "")?.projectId)) {
+        if (workOutsideProject(req.body?.workId, store.getPage(store.getThread(req.params.threadId)?.pageId ?? "")?.projectId)) {
           return reply.code(403).send({ error: "This session cannot merge that request: it belongs to another project, or the run is over." });
         }
         const outcome = mergeRequests(store, req.params.threadId, req.body?.into);

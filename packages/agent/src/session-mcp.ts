@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { ARTBOARD_FRAMES, type ChangeRecordInput, ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, isSafePath, parseManifest, type ArtboardFrame, type ManifestArtboard } from "@redline/shared";
+import { ARTBOARD_FRAMES, CHANGE_KINDS, type ChangeRecordInput, ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, isSafePath, parseManifest, type ArtboardFrame, type ManifestArtboard } from "@redline/shared";
 import { gapsNote, layoutNote } from "./design-system-note.js";
 import { REDLINE_GUIDE } from "./guide.js";
 import { pathInside, readWorkingCopy } from "./working-copy.js";
@@ -239,7 +239,7 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
       inputSchema: {
         component: z.string().describe("The component, e.g. ui-modal"),
         label: z.string().describe("What changed, in a few words, e.g. \"Taille 720 px\""),
-        kind: z.enum(["added", "removed", "modified"]).describe("added: something new (a size, a slot); removed: something taken away; modified: something that changed"),
+        kind: z.enum(CHANGE_KINDS).describe("added: something new (a size, a slot); removed: something taken away; modified: something that changed"),
         threadId: z.string().optional().describe("The request (or comment) thread this change answers"),
         draftAnchor: z.string().optional().describe("Selector of the touched element in the draft's artboard"),
         diffusedAnchor: z.string().optional().describe("Selector of the touched element in the current diffusion's artboard"),
