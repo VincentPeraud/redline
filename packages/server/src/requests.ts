@@ -1,4 +1,4 @@
-import { INSTANCE_TAG_PREFIX, type SendRequestRequest, type SendRequestResponse } from "@redline/shared";
+import { INSTANCE_TAG_PREFIX, requestComponentName, type SendRequestRequest, type SendRequestResponse } from "@redline/shared";
 import { projectComponents } from "./components.js";
 import { modelChoiceOf, requiredString } from "./validation.js";
 import type { PageLock } from "./page-lock.js";
@@ -6,9 +6,6 @@ import type { Store, StoredRequest } from "./store.js";
 import { dispatchThread, type TerminalPresence } from "./work.js";
 
 export type SendRequestOutcome = { status: 201; body: SendRequestResponse } | { status: 400 | 404 | 409; body: { error: string } };
-
-/** "ui-modal" and "modal" are the same component. */
-const componentNameOf = (component: string) => component.trim().replace(new RegExp(`^${INSTANCE_TAG_PREFIX}`, "i"), "").toLowerCase();
 
 /**
  * A project's session asks the design system it follows for something a component lacks: a thread on the component's
@@ -29,7 +26,7 @@ export function sendRequest(store: Store, pageLock: PageLock, terminal: Terminal
   if (!designSystem || store.isDesignSystemProject(page.projectId)) return { status: 409, body: { error: "This project does not follow a design system, so there is nothing to ask. Make the change in the mock-up, or create a project component." } };
   if (designSystem.archivedAt) return { status: 409, body: { error: "The design system is archived: it cannot receive requests." } };
 
-  const name = componentNameOf(component);
+  const name = requestComponentName(component);
   const info = projectComponents(store, designSystem.id).components.find((candidate) => candidate.name === name);
   if (!info) return { status: 404, body: { error: `The design system "${designSystem.title}" has no component ${INSTANCE_TAG_PREFIX}${name}. Use the closest instance it offers.` } };
 

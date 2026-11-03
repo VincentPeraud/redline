@@ -26,6 +26,7 @@ import {
   PROJECT_STYLE_PATH,
   instanceTagOf,
   requestIsOpen,
+  requestComponentName,
   requestOriginLabel,
   NEUTRAL_TOKENS_PAGE_HTML,
   type DesignSystem,
@@ -44,6 +45,12 @@ import type {
   CreateThreadRequest,
   DesignSystemRequestItem,
   ThreadRequest,
+  RequestState,
+  ChangeAnchor,
+  ChangeKind,
+  ChangeRecord,
+  ChangeRecordInput,
+  ChangeState,
   RequestOrigin,
   ThreadRendering,
   TweakValues,
@@ -172,6 +179,18 @@ export class Store {
         component_files_hash TEXT,
         component_definitions_hash TEXT,
         PRIMARY KEY (design_system_id, number)
+      );
+      CREATE TABLE IF NOT EXISTS component_changes (
+        id TEXT PRIMARY KEY,
+        design_system_id TEXT NOT NULL REFERENCES design_systems(project_id),
+        component TEXT NOT NULL,
+        label TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        state TEXT NOT NULL,
+        thread_id TEXT,
+        anchor TEXT,
+        version_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS design_system_diffusion_undos (
         design_system_id TEXT NOT NULL REFERENCES design_systems(project_id),
@@ -460,6 +479,7 @@ export class Store {
         blob(JSON.stringify(draft.assembly.components)), blob(JSON.stringify(draft.assembly.indexes)), blob(JSON.stringify(draft.componentFiles)), blob(JSON.stringify(draft.assembly.definitions)),
       );
     this.db.prepare("UPDATE design_systems SET current_diffusion = ? WHERE project_id = ?").run(number, designSystemId);
+    this.db.prepare("UPDATE component_changes SET state = 'diffused' WHERE design_system_id = ? AND state = 'pending'").run(designSystemId);
     return { number, createdAt, origin, summary: text, undone: false };
   }
 
@@ -1017,6 +1037,7 @@ export class Store {
     this.db.transaction(() => {
       for (const sql of [
         ...pageRowDeletes(pages),
+        "DELETE FROM component_changes WHERE design_system_id = ?",
         "DELETE FROM design_system_diffusion_undos WHERE design_system_id = ?",
         "DELETE FROM design_system_diffusions WHERE design_system_id = ?",
         "DELETE FROM design_systems WHERE project_id = ?",
@@ -1356,6 +1377,81 @@ export class Store {
       pageTitle: this.getPage(origin.pageId)?.title ?? "",
     }));
     return { ...thread, request: { ...thread.request, origins } };
+  }
+
+  /** Rewrites the stored request of a thread; undefined when the thread is not a request. */
+  private updateRequest(threadId: string, change: (request: StoredRequest) => StoredRequest): Thread | undefined {
+    const row = this.db.prepare("SELECT request FROM threads WHERE id = ?").get(threadId) as { request: string | null } | undefined;
+    if (!row?.request) return undefined;
+    this.db.prepare("UPDATE threads SET request = ? WHERE id = ?").run(JSON.stringify(change(JSON.parse(row.request) as StoredRequest)), threadId);
+    const thread = this.getThread(threadId)!;
+    this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
+    return thread;
+  }
+
+  setRequestState(threadId: string, state: RequestState): Thread | undefined {
+    return this.updateRequest(threadId, (request) => ({ ...request, state }));
+  }
+
+  /**
+   * Attaches the request `threadId` to the request `into`: its origins move there and it closes (its thread is resolved).
+   * The caller checked that both are open requests for the same component.
+   */
+  mergeRequest(threadId: string, into: string): void {
+    const merged = this.getThread(threadId)?.request;
+    if (!merged) return;
+    this.updateRequest(into, (request) => ({ ...request, origins: [...request.origins, ...withoutTitles(merged.origins)] }));
+    this.updateRequest(threadId, (request) => ({ ...request, mergedInto: into }));
+    this.resolveThread(threadId);
+  }
+
+  /**
+   * Records what a design system's session changed in the version it published. A change linked to a request that is still
+   * `in_progress` turns it to `done_in_draft`; a refused or closed request keeps its state.
+   */
+  recordChanges(designSystemId: string, versionId: string, changes: ChangeRecordInput[]): ChangeRecord[] {
+    const createdAt = now();
+    const records = changes.map((change): ChangeRecord => ({
+      id: randomUUID(),
+      designSystemId,
+      component: requestComponentName(change.component),
+      label: change.label.trim(),
+      kind: change.kind,
+      state: "pending",
+      ...(change.threadId ? { threadId: change.threadId } : {}),
+      ...(change.anchor ? { anchor: change.anchor } : {}),
+      versionId,
+      createdAt,
+    }));
+    this.db.transaction(() => {
+      const insert = this.db.prepare("INSERT INTO component_changes (id, design_system_id, component, label, kind, state, thread_id, anchor, version_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      for (const record of records) {
+        insert.run(record.id, designSystemId, record.component, record.label, record.kind, record.state, record.threadId ?? null, record.anchor ? JSON.stringify(record.anchor) : null, versionId, createdAt);
+        // A change linked to a request merged into another answers the one that stayed open.
+        const answered = record.threadId && (this.getThread(record.threadId)?.request?.mergedInto ?? record.threadId);
+        if (answered) this.updateRequest(answered, (request) => (request.state === "in_progress" ? { ...request, state: "done_in_draft" } : request));
+      }
+    })();
+    return records;
+  }
+
+  /** The changes recorded since the current diffusion (pending), and the refused ones not yet undone, oldest first. */
+  listChanges(designSystemId: string): ChangeRecord[] {
+    const rows = this.db
+      .prepare("SELECT id, component, label, kind, state, thread_id, anchor, version_id, created_at FROM component_changes WHERE design_system_id = ? AND state != 'diffused' ORDER BY created_at, rowid")
+      .all(designSystemId) as { id: string; component: string; label: string; kind: ChangeKind; state: ChangeState; thread_id: string | null; anchor: string | null; version_id: string; created_at: string }[];
+    return rows.map((row) => ({
+      id: row.id,
+      designSystemId,
+      component: row.component,
+      label: row.label,
+      kind: row.kind,
+      state: row.state,
+      ...(row.thread_id ? { threadId: row.thread_id } : {}),
+      ...(row.anchor ? { anchor: JSON.parse(row.anchor) as ChangeAnchor } : {}),
+      versionId: row.version_id,
+      createdAt: row.created_at,
+    }));
   }
 
   /** The open requests of a design system's pages, newest first. */
@@ -2100,6 +2196,8 @@ interface RawManifest {
   elements?: Record<string, unknown>[];
   [key: string]: unknown;
 }
+
+const withoutTitles = (origins: RequestOrigin[]): StoredRequest["origins"] => origins.map(({ projectTitle: _project, pageTitle: _page, ...ids }) => ids);
 
 /** A request as stored: the origins keep ids only, their titles are read with the thread. */
 export interface StoredRequest extends Omit<ThreadRequest, "origins"> {
