@@ -25,7 +25,7 @@ export function askToUndoRefused(store: Store, pageLock: PageLock, terminal: Ter
   const labelsByRequest = new Map<string, string[]>();
   for (const change of recorded) {
     if (change.state !== "refused" || !change.threadId) continue;
-    const threadId = store.getThread(change.threadId)?.request?.mergedInto ?? change.threadId;
+    const threadId = store.keptRequestId(change.threadId);
     labelsByRequest.set(threadId, [...(labelsByRequest.get(threadId) ?? []), change.label]);
   }
   for (const [threadId, labels] of labelsByRequest) askToUndo(store, pageLock, terminal, threadId, labels);
@@ -47,7 +47,7 @@ function refuse(store: Store, pageLock: PageLock, terminal: TerminalPresence, th
 /** The request a refusable change answers (the kept one when it was merged), if it is still open. */
 function openRequestOf(store: Store, change: ChangeRecord): string | undefined {
   if (!change.threadId) return undefined;
-  const threadId = store.getThread(change.threadId)?.request?.mergedInto ?? change.threadId;
+  const threadId = store.keptRequestId(change.threadId);
   const request = store.getThread(threadId)?.request;
   return request && requestIsOpen(request) ? threadId : undefined;
 }

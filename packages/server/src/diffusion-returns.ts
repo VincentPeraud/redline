@@ -20,7 +20,7 @@ export function requestsClosedBy(store: Store, designSystemId: string): ClosingR
   for (const change of store.listChanges(designSystemId)) {
     if (change.state !== "pending" || !change.threadId) continue;
     // A change linked to a request merged into another answers the one that stayed open.
-    const threadId = store.getThread(change.threadId)?.request?.mergedInto ?? change.threadId;
+    const threadId = store.keptRequestId(change.threadId);
     const request = store.getThread(threadId)?.request;
     if (!request || !requestIsOpen(request)) continue;
     const entry = closing.get(threadId) ?? { threadId, component: request.component, labels: [], refused: request.refusedLabels ?? [] };

@@ -18,8 +18,7 @@ const DIRECT: ReviewOrigin = { kind: "direct" };
 
 /** Where a recorded change comes from: the request it answers (the kept one when it was merged), else the design system's own work. */
 function originOf(store: Store, change: ChangeRecord): { origin: ReviewOrigin; refusable: boolean } {
-  let thread = change.threadId ? store.getThread(change.threadId) : undefined;
-  if (thread?.request?.mergedInto) thread = store.getThread(thread.request.mergedInto) ?? thread;
+  const thread = change.threadId ? store.getThread(store.keptRequestId(change.threadId)) : undefined;
   if (!thread?.request) return { origin: DIRECT, refusable: false };
   const { origins } = thread.request;
   const comment = origins.length > 0 && origins.every((o) => o.threadId !== undefined);

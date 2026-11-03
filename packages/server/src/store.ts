@@ -1416,6 +1416,11 @@ export class Store {
     return thread;
   }
 
+  /** The request that answers `threadId`: itself, or the one it was merged into. */
+  keptRequestId(threadId: string): string {
+    return this.getThread(threadId)?.request?.mergedInto ?? threadId;
+  }
+
   setRequestState(threadId: string, state: RequestState): Thread | undefined {
     return this.updateRequest(threadId, (request) => ({ ...request, state }));
   }
@@ -1473,7 +1478,7 @@ export class Store {
       const insert = this.db.prepare("INSERT INTO component_changes (id, design_system_id, component, label, kind, state, thread_id, anchor, version_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       for (const record of records) {
         // A change linked to a request merged into another answers the one that stayed open.
-        const answered = record.threadId && (this.getThread(record.threadId)?.request?.mergedInto ?? record.threadId);
+        const answered = record.threadId && (this.keptRequestId(record.threadId));
         // A refusal is final. What the session publishes for a request holding refused changes of that component is the undo:
         // those changes go away. A change for a request already refused is itself a change to undo.
         const awaitingUndo = answered ? this.refusedChangesOf(designSystemId, answered).filter((change) => change.component === record.component) : [];
@@ -1503,7 +1508,7 @@ export class Store {
   }
 
   private changesOf(designSystemId: string, threadId: string, state: ChangeState): ChangeRecord[] {
-    return this.listChanges(designSystemId).filter((change) => change.state === state && change.threadId !== undefined && (this.getThread(change.threadId)?.request?.mergedInto ?? change.threadId) === threadId);
+    return this.listChanges(designSystemId).filter((change) => change.state === state && change.threadId !== undefined && this.keptRequestId(change.threadId) === threadId);
   }
 
   getChange(id: string): ChangeRecord | undefined {
