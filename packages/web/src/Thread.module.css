@@ -449,3 +449,46 @@
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
 }
+
+/* A request to the design system. */
+
+.requestTag {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  font-size: var(--font-size-2xs);
+}
+
+.requestState {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.requestStateDone {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.origins {
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.origins b {
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.originLink {
+  white-space: nowrap;
+}

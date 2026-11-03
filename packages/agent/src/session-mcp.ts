@@ -15,6 +15,7 @@ export const REPLY_IN_THREAD_TOOL = "reply_in_thread";
 export const ADD_ARTBOARD_TOOL = "add_artboard";
 export const CREATE_PAGE_TOOL = "create_page";
 export const MOVE_ARTBOARD_TOOL = "move_artboard";
+export const SEND_REQUEST_TOOL = "send_request";
 export const RENAME_PAGE_TOOL = "rename_page";
 export const ARCHIVE_PAGE_TOOL = "archive_page";
 export const CONFIRM_REMOVALS_TOOL = "confirm_removals";
@@ -198,6 +199,29 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
       try {
         const page = await api.archivePage(pageId, context.workId);
         return text(`Page archived "${page.title}" (id ${page.id}).`);
+      } catch (error) {
+        return text((error as Error).message, true);
+      }
+    },
+  );
+  server.registerTool(
+    SEND_REQUEST_TOOL,
+    {
+      description:
+        "Ask the design system this project follows for something a component lacks (a missing setting value, slot or look) when the closest instance cannot do it. First use that closest instance in the mock-up so it is never blocked, then send the request: it becomes a thread on the component's artboard in the design system, handled right away in its draft; the user reviews the change before it is diffused, and the thread of the mock-up that asked reopens afterwards. For a user comment you routed as a component change, pass its threadId so the request points back to it. Never copy the component's markup to get the look instead.",
+      inputSchema: {
+        component: z.string().describe("The component, e.g. ui-modal"),
+        missing: z.string().describe("What is missing and why the mock-up needs it, e.g. \"A 720 px size, for the mission edit form\""),
+        artboard: z.string().describe("Artboard file of this page where the closest instance is, e.g. planning.html"),
+        selector: z.string().optional().describe("CSS selector of that instance on the artboard, e.g. #edit"),
+        threadId: z.string().optional().describe("The user's comment this request answers, as given in your message"),
+      },
+    },
+    async ({ component, missing, artboard, selector, threadId }) => {
+      if (threadId !== undefined && allowedThreadIds && !allowedThreadIds.includes(threadId)) return text(`Thread ${threadId} is not part of this run.`, true);
+      try {
+        const sent = await api.sendRequest(context.pageId, { component, missing, artboard, ...(selector ? { selector } : {}), ...(threadId ? { threadId } : {}), ...(context.workId ? { workId: context.workId } : {}) });
+        return text(`Request sent to the design system "${sent.designSystemTitle}" (thread ${sent.threadId}). It is handled in the design system's draft and the user reviews it before diffusing. Keep the closest instance for now${threadId ? "; tell the user in their thread that the request was sent" : ""}.`);
       } catch (error) {
         return text((error as Error).message, true);
       }

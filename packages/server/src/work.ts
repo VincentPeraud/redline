@@ -7,12 +7,26 @@ import type { Store } from "./store.js";
 import { canvasElementTail } from "./canvas-element-text.js";
 import { definedChoice } from "./validation.js";
 
+/** A request to the design system says where it comes from and what to do with it, before the comment itself. */
+function requestPreface(thread: Thread): string[] {
+  const origin = thread.request?.origins[0];
+  if (!thread.request || !origin) return [];
+  const lines = [
+    `This is a request from the project ${origin.projectTitle} (page ${origin.pageTitle}, artboard ${origin.artboard}${origin.selector ? `, instance \`${origin.selector}\`` : ""}) for the component ui-${thread.request.component}.`,
+    "Make the change in the design system's draft (the component's artboard); the user reviews it before diffusing it. No one has to accept the request first.",
+    "",
+  ];
+  return lines;
+}
+
 /** The message Claude receives for one thread: the comment with its thread id, artboard, element and position. */
 export function threadMessage(thread: Thread): string {
   return [
+    ...requestPreface(thread),
     `Comment ${thread.number} (thread id: ${thread.id}) ${threadSubject(thread)}:`,
     "",
     thread.body,
+    ...(thread.request?.detail ? ["", `What the project's session needs: ${thread.request.detail}`] : []),
     "",
     thread.target.kind === "canvas-element"
       ? `${canvasElementTail(thread.target)} Then answer in the thread with the reply_in_thread tool (threadId ${thread.id}).`

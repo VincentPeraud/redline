@@ -2,6 +2,7 @@ import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply,
 import { tweakGridError, type TweakGridDeclaration } from "./tweakGrid.js";
 import type { Gap } from "./gaps.js";
 import type { Person } from "./people.js";
+import type { ThreadRequest } from "./request.js";
 
 export * from "./work.js";
 export * from "./sessions.js";
@@ -348,6 +349,8 @@ export interface Thread {
   person?: Person;
   /** Opened by Redline itself (signed "Redline"), for example when a diffusion removes something a page uses; no person wrote it. */
   automatic?: true;
+  /** Set on a request to the design system (a thread on a component's artboard, opened by a project's session). */
+  request?: ThreadRequest;
   status: ThreadStatus;
   /** Derived, never stored: a canvas-element thread whose element is absent from the page's current manifest. */
   removed?: true;
@@ -1349,3 +1352,4 @@ export * from "./canvasAnchors.js";
 export * from "./columnShift.js";
 export * from "./arrowGeometry.js";
 export * from "./layoutIssues.js";
+export * from "./request.js";
