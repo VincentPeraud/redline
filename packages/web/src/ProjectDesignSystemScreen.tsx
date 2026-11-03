@@ -146,7 +146,9 @@ function ComponentCard({
           <div className={styles.componentShape} style={{ background: swatch.shape }} />
         </div>
         <div className={styles.componentText}>
-          <span className={styles.mono}>{tag}</span>
+          <a href={routeHref({ name: "page", pageId: component.page.id, artboard: component.file })} className={cx(styles.mono, styles.componentLink)}>
+            {tag}
+          </a>
           <span className={styles.componentPage}>{`${counted(component.instances, "instance", "instances")} · ${counted(component.pages, "page", "pages")}`}</span>
         </div>
         <span className={styles.ownPill}>propre au projet</span>

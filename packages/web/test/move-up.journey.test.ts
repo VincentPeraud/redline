@@ -64,6 +64,10 @@ it("moves a component up through the dialog, then the diffusion takes the projec
   await card.waitFor();
   expect(await tab.locator("aside").textContent()).toContain("Les remonter les rend disponibles pour tous les projets.");
 
+  // The card links to the component's artboard; its buttons are not inside the link.
+  expect(await card.locator("a").getAttribute("href")).toContain("components%2Fmission-card.html");
+  expect(await card.locator("a button").count()).toBe(0);
+
   await card.getByRole("button", { name: "Remonter au design system" }).click();
   const dialog = tab.getByRole("dialog", { name: "Remonter ui-mission-card" });
   await dialog.waitFor();
