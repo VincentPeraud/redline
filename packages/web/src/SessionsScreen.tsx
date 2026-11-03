@@ -248,7 +248,7 @@ export function SessionsScreen() {
           <SidePanelBody>
             {detail.messages.map((m, i) => (
               <div key={i} data-testid="session-message" className={cx(styles.message, m.author === "user" ? styles.fromUser : styles.fromClaude)}>
-                {m.author === "user" ? <MessageAuthor person={m.person} /> : <MessageAuthor claude />}
+                {m.author === "user" ? <MessageAuthor person={m.person} /> : m.author === "redline" ? <MessageAuthor redline /> : <MessageAuthor claude />}
                 {m.body}
               </div>
             ))}

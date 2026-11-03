@@ -56,6 +56,7 @@ import { PageLock } from "./page-lock.js";
 import { removalsError, rollbackImpact } from "./removals.js";
 import { diffusionReview } from "./diffusion-review.js";
 import { brokenPagesAtDiffusion, instanceChangesError, rollbackInstancesError } from "./instance-guards.js";
+import { closeDiffusedRequests, requestsClosedBy, returnPendingOn } from "./diffusion-returns.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
 import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
@@ -157,7 +158,7 @@ export async function buildMainApp(
   registerDesignSystemReload(app, store);
   const runs = registerRunRoutes(app, store);
   registerHomeRoutes(app, store, pageLock);
-  registerArchiveRoutes(app, store, pageLock);
+  registerArchiveRoutes(app, store, pageLock, (pageIds) => returnPendingOn(store, pageLock, terminalSessions, pageIds));
   const knownWindows = new Map<string, number>();
   registerContextTracking(app, store, pageLock, knownWindows);
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
@@ -324,7 +325,9 @@ export async function buildMainApp(
     if (!designSystem) return reply.code(404).send({ error: "design system not found" });
     if (store.pendingDiffusion(designSystem.id).pending.count === 0) return reply.code(409).send({ error: "nothing to diffuse" });
     const broken = brokenPagesAtDiffusion(store, designSystem.id);
+    const closing = requestsClosedBy(store, designSystem.id);
     const created = store.createDiffusion(designSystem.id, "user");
+    closeDiffusedRequests(store, pageLock, terminalSessions, closing, created.number);
     announceDiffusion(store, designSystem.id);
     // A removal the user confirmed breaks instances: each affected page gets a thread signed Redline, routed like any thread.
     for (const { pageId, artboard, breaks } of broken) {

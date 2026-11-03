@@ -112,7 +112,7 @@ export function archiveProject(store: Store, pageLock: PageLock, id: string): { 
  * Archiving, unarchiving and deleting projects and design systems from the web UI (terminal mode archives through `archiveProject`).
  * A design system's id is its project's, so the same routes serve both.
  */
-export function registerArchiveRoutes(app: FastifyInstance, store: Store, pageLock: PageLock): void {
+export function registerArchiveRoutes(app: FastifyInstance, store: Store, pageLock: PageLock, pagesBack: (pageIds: ReadonlySet<string>) => void): void {
   const exists = (id: string) => archivableExists(store, id);
   const busy = (id: string) => projectBusy(store, pageLock, id);
   const current = (id: string) => projectOrDesignSystem(store, id);
@@ -138,6 +138,7 @@ export function registerArchiveRoutes(app: FastifyInstance, store: Store, pageLo
     const id = req.params.projectId;
     if (!exists(id)) return reply.code(404).send({ error: "project not found" });
     store.setArchived(id, false);
+    pagesBack(new Set(store.listPages(id).map((page) => page.id)));
     pageLock.reconsider();
     return current(id);
   });
@@ -180,6 +181,7 @@ export function registerArchiveRoutes(app: FastifyInstance, store: Store, pageLo
     if (!page) return reply.code(404).send({ error: "page not found" });
     if (store.isArchived(page.projectId)) return reply.code(409).send({ error: archivedError(store, page.projectId) });
     store.setPageArchived(page.id, false);
+    pagesBack(new Set([page.id]));
     pageLock.reconsider();
     return store.getPage(page.id);
   });

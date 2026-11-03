@@ -63,6 +63,7 @@ function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNo
         <span className={styles.spacer} />
         {thread.removed && <RemovedTag />}
         {thread.request && <RequestTag />}
+        {thread.status === "open" && thread.replies.at(-1)?.author === "redline" && <span data-testid="reopened" className={styles.reopened}>rouvert</span>}
         {children}
       </div>
       {thread.request && (
@@ -102,13 +103,19 @@ function ThreadMessages({ thread }: { thread: Thread }) {
   return (
     <>
       <div className={styles.message}>
-        <MessageAuthor person={thread.person} claude={requestAskerName(thread)} />
+        <MessageAuthor person={thread.person} claude={requestAskerName(thread)} redline={thread.automatic} />
         {thread.body}
       </div>
       {thread.replies.map((reply) => (
         <Fragment key={reply.id}>
-          <div data-testid="reply" className={cx(styles.message, reply.author === "claude" && styles.claudeReply)}>
-            {reply.author === "user" ? <MessageAuthor person={reply.person} /> : <MessageAuthor claude={thread.request ? DESIGN_SYSTEM_CLAUDE : true} />}
+          <div data-testid="reply" className={cx(styles.message, reply.author === "claude" && styles.claudeReply, reply.author === "redline" && styles.redlineReply)}>
+            {reply.author === "user" ? (
+              <MessageAuthor person={reply.person} />
+            ) : reply.author === "redline" ? (
+              <MessageAuthor redline />
+            ) : (
+              <MessageAuthor claude={thread.request ? DESIGN_SYSTEM_CLAUDE : true} />
+            )}
             {reply.body}
           </div>
           <CreatedPageCards pages={reply.createdPages} />

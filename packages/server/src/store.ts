@@ -1409,6 +1409,24 @@ export class Store {
     return this.updateRequest(threadId, (request) => ({ ...request, state }));
   }
 
+  /** Keeps (or, with undefined, clears) the message an origin of a request has not received yet because its page is archived. */
+  setPendingReturn(threadId: string, originIndex: number, message: string | undefined): void {
+    this.updateRequest(threadId, (request) => ({
+      ...request,
+      origins: request.origins.map(({ pendingReturn: _kept, ...origin }, index) => (index === originIndex && message !== undefined ? { ...origin, pendingReturn: message } : origin)),
+    }));
+  }
+
+  /** The origins, on any request, that wait for a message and sit on one of `pageIds`. */
+  pendingReturnsOn(pageIds: ReadonlySet<string>): { threadId: string; originIndex: number; origin: RequestOrigin; message: string }[] {
+    const rows = this.db.prepare("SELECT id FROM threads WHERE request LIKE '%\"pendingReturn\"%'").all() as { id: string }[];
+    return rows.flatMap(({ id }) =>
+      this.getThread(id)!.request!.origins.flatMap((origin, originIndex) =>
+        origin.pendingReturn !== undefined && pageIds.has(origin.pageId) ? [{ threadId: id, originIndex, origin, message: origin.pendingReturn }] : [],
+      ),
+    );
+  }
+
   /**
    * Attaches the request `threadId` to the request `into`: its origins move there and it closes (its thread is resolved).
    * The caller checked that both are open requests for the same component.

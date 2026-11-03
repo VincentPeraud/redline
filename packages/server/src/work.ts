@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { type ModelChoice, type Person, Thread, WorkItem, WorkThread } from "@redline/shared";
 import { seededMessage } from "./context.js";
-import { threadSubject } from "./thread-subject.js";
+import { replyLine, threadSubject } from "./thread-subject.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 import { canvasElementTail } from "./canvas-element-text.js";
@@ -35,9 +35,9 @@ export function threadMessage(thread: Thread): string {
 }
 
 /** The message Claude receives for a user's reply in a thread whose session it resumes. */
-export function replyMessage(thread: Thread, body: string): string {
+export function replyMessage(thread: Thread, body: string, sender = "the user"): string {
   return [
-    `Reply from the user in comment ${thread.number} (thread id: ${thread.id}):`,
+    `Reply from ${sender} in comment ${thread.number} (thread id: ${thread.id}):`,
     "",
     body,
     "",
@@ -47,7 +47,7 @@ export function replyMessage(thread: Thread, body: string): string {
 
 /** The message for a new session the global agent starts in place of the agent that opened the thread: the conversation so far, then the user's reply. */
 export function takeoverMessage(thread: Thread, body: string): string {
-  const history = thread.replies.map((r) => `${r.author === "user" ? "User" : "Claude"}: ${r.body}`);
+  const history = thread.replies.map(replyLine);
   return [
     threadMessage(thread),
     "",
@@ -78,7 +78,7 @@ export function dispatchThread(lock: PageLock, projectId: string, thread: Thread
 /** The message of a thread an agent takes over with no session to resume (a terminal session left): the comment, then the conversation so far, if any. */
 export function freshSessionMessage(thread: Thread): string {
   if (thread.replies.length === 0) return threadMessage(thread);
-  const history = thread.replies.map((r) => `${r.author === "user" ? "User" : "Claude"}: ${r.body}`);
+  const history = thread.replies.map(replyLine);
   return [
     threadMessage(thread),
     "",
@@ -130,8 +130,9 @@ export function dispatchReply(
   body: string,
   choice: ModelChoice = {},
   terminal?: TerminalPresence,
+  sender?: string,
 ): void {
-  const reply = replyMessage(thread, body);
+  const reply = replyMessage(thread, body, sender);
   const join = (item: WorkItem): WorkItem => ({
     ...item,
     threads: item.threads.some((t) => t.threadId === thread.id) ? item.threads : [...item.threads, workThread(thread)],
@@ -154,7 +155,8 @@ export function dispatchReply(
   const session = store.getThreadSession(thread.id);
   if (!session) {
     // Answered by a terminal session that let go of its page since: an agent starts afresh from the thread's history.
-    if (thread.replies.some((r) => r.author === "claude")) lock.submit({ projectId }, takeover);
+    // A message from Redline reaches a thread nobody answers now (the user's reply on an unanswered thread would only duplicate it).
+    if (sender !== undefined || thread.replies.some((r) => r.author === "claude")) lock.submit({ projectId }, takeover);
     return;
   }
   // A seeded item (new session from a summary) is not a resume, but still belongs to the session.

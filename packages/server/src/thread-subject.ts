@@ -1,6 +1,10 @@
 import { cellText, instanceStateLabel, renderingLabel, type InstanceState, type Thread, type ThreadRendering, type TweakValues } from "@redline/shared";
 import { canvasElementText } from "./canvas-element-text.js";
 
+/** A line of the conversation so far, for a session that starts afresh: "User: …", "Redline: …" or "Claude: …". */
+export const replyLine = (reply: { author: "claude" | "user" | "redline"; body: string }): string =>
+  `${reply.author === "user" ? "User" : reply.author === "redline" ? "Redline" : "Claude"}: ${reply.body}`;
+
 /** "element `selector` (named « bouton « Continuer » »)": the exact selector, plus the readable name when the bridge computed one. */
 export function elementText(target: { selector: string; elementName?: string | null }): string {
   return `element \`${target.selector}\`${target.elementName ? ` (named « ${target.elementName} »)` : ""}`;
