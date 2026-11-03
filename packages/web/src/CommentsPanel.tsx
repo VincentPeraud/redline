@@ -6,7 +6,7 @@ import { RemovedTag } from "./RemovedTag.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
 import { MessageAuthor } from "./MessageAuthor.js";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
-import { InstanceGoneNote } from "./InstanceThreads.js";
+import { InstanceThreadInfo } from "./InstanceThreads.js";
 import { RenderingChip } from "./RenderingChip.js";
 import { queueLabel } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
@@ -63,7 +63,7 @@ function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNo
         {thread.removed && <RemovedTag />}
         {children}
       </div>
-      <InstanceGoneNote thread={thread} />
+      <InstanceThreadInfo thread={thread} />
     </>
   );
 }
@@ -132,6 +132,7 @@ function ResolvedThreadCard({ thread, session, readOnly, open, onOpen }: { threa
             <span className={styles.where}>{threadWhere(thread)}</span>
             <RenderingChip thread={thread} />
           </div>
+          <InstanceThreadInfo thread={thread} />
           <ThreadMessages thread={thread} />
           <div className={styles.footer}>
             <SessionMeta session={session} />
@@ -187,6 +188,7 @@ function ThreadCard({
             Échec
           </span>
         </div>
+        <InstanceThreadInfo thread={thread} />
         {run && <RunProgress run={run} />}
       </article>
     );
