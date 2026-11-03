@@ -24,11 +24,14 @@ export function componentFilesOf(store: Store, projectId: string): Record<string
   return files;
 }
 
-/** Error message when publishing `files` on `pageId` would define a component name twice in its project, else null. */
+const componentsError = (assembly: ComponentAssembly) => assembly.duplicates[0] ?? assembly.cycles[0] ?? null;
+
+/** Error message when publishing `files` on `pageId` would define a component name twice in its project or make components contain each other in a loop, else null. */
 export function versionComponentsError(store: Store, pageId: string, files: Record<string, string>): string | null {
   const page = store.getPage(pageId)!;
   const assembly = assembleComponents(componentPages(store, page.projectId, { pageId, files }));
-  if (assembly.duplicates[0]) return assembly.duplicates[0];
+  const invalid = componentsError(assembly);
+  if (invalid) return invalid;
   const designSystemId = store.sharedDesignSystemIdForManifest(pageId, files[MANIFEST_PATH]);
   return instanceUsageError(files, store.isDesignSystemPage(pageId) ? [] : designSystemDefinitions(store, designSystemId), assembly.definitions);
 }
@@ -36,7 +39,8 @@ export function versionComponentsError(store: Store, pageId: string, files: Reco
 /** Error message when a new page with `files` would define a component name twice in the project, else null. */
 export function newPageComponentsError(store: Store, projectId: string, title: string, files: Record<string, string>): string | null {
   const assembly = assembleComponents([...componentPages(store, projectId), { id: "", title, files }]);
-  if (assembly.duplicates[0]) return assembly.duplicates[0];
+  const invalid = componentsError(assembly);
+  if (invalid) return invalid;
   return instanceUsageError(files, designSystemDefinitions(store, designSystemOfNewPage(store, projectId, files[MANIFEST_PATH])), assembly.definitions);
 }
 
