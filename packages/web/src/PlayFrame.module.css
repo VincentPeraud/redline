@@ -16,20 +16,48 @@
   box-shadow: 0 0 0 10px var(--play-border);
 }
 
-.phone > div {
-  border-radius: 44px;
+.phone > div:not(.statusBar) {
+  border-radius: 0 0 44px 44px;
+}
+
+/* iPhone status bar: Safari starts the page under it, so the Dynamic Island never covers the design. */
+.statusBar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  height: 54px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 0 26px;
+  border-radius: 44px 44px 0 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.statusTime {
+  justify-self: center;
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.statusIcons {
+  display: flex;
+  align-items: center;
+  justify-self: center;
+  gap: 5px;
+}
+
+.statusIcons svg {
+  display: block;
+  fill: currentColor;
 }
 
 .camera {
-  position: absolute;
-  top: 12px;
-  left: 50%;
   width: 112px;
   height: 30px;
-  margin-left: -56px;
   border-radius: var(--radius-pill);
   background: var(--play-bg);
-  pointer-events: none;
 }
 
 .phoneIndicator {

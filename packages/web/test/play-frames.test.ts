@@ -36,6 +36,12 @@ describe("presentationOf", () => {
     expect(presentationOf(board({ width: 1440, height: 900, frame: "browser" })).fill).toBe("none");
   });
 
+  it("puts a phone's page under its status bar, as Safari does, and adds nothing when the frame is off", () => {
+    expect(presentationOf(board({ width: 390, height: 844, frame: "phone" })).frameHeight).toBe(54);
+    expect(presentationOf(board({ width: 3000, height: 1000 }), true, 1440, { format: "mobile", width: 414, height: 896 }).frameHeight).toBe(54);
+    expect(presentationOf(board({ width: 390, height: 844, frame: "phone" }), false).frameHeight).toBe(0);
+  });
+
   it("offers no Habillage for an artboard without a frame", () => {
     const plain = presentationOf(board({ width: 800, height: 500 }));
     expect([plain.framable, plain.fill]).toEqual([false, "none"]);

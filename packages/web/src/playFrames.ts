@@ -2,7 +2,8 @@ import type { ArtboardFrame, ArtboardRendering, ManifestArtboard, ResponsiveForm
 
 /** A phone artboard plays in a real phone viewport, so responsive designs reflow. */
 const PHONE_VIEWPORT = { width: 390, height: 760 };
-/** Height of the decorative strip under a tablet screen (home indicator) and over a browser page (browser bar). */
+/** Height of the decorative strip over a phone page (iPhone status bar holding the Dynamic Island: Safari starts the page below it), under a tablet screen (home indicator) and over a browser page (browser bar). */
+const PHONE_STATUS_BAR_HEIGHT = 54;
 const TABLET_STRIP_HEIGHT = 22;
 const BROWSER_BAR_HEIGHT = 36;
 
@@ -55,7 +56,7 @@ export function presentationOf(
   return {
     frame,
     viewport,
-    frameHeight: frame === "tablet" ? TABLET_STRIP_HEIGHT : frame === "browser" ? BROWSER_BAR_HEIGHT : 0,
+    frameHeight: frame === "phone" ? PHONE_STATUS_BAR_HEIGHT : frame === "tablet" ? TABLET_STRIP_HEIGHT : frame === "browser" ? BROWSER_BAR_HEIGHT : 0,
     stagePadding: fill !== "none" ? 0 : frame === "paper" ? 14 : frame === "browser" ? 44 : 32,
     fill,
     framable,
