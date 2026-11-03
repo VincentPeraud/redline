@@ -16,8 +16,8 @@ export interface RequestOrigin {
   selector?: string;
   /** The user's comment the request was routed from; absent when the project's session asked on its own. */
   threadId?: string;
-  /** Redline's message waiting for the page to be unarchived: the diffusion closed the request but the page could not be told yet. */
-  pendingReturn?: string;
+  /** Redline's messages waiting for the page to be unarchived (a refusal, a diffusion), oldest first: the page could not be told yet. */
+  pendingReturns?: string[];
 }
 
 export interface ThreadRequest {

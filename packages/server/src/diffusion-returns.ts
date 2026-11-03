@@ -84,15 +84,15 @@ export function closeDiffusedRequests(store: Store, pageLock: PageLock, terminal
 export function tellOrigins(store: Store, pageLock: PageLock, terminal: TerminalPresence, threadId: string, message: string): void {
   store.getThread(threadId)!.request!.origins.forEach((origin, index) => {
     if (returnToOrigin(store, pageLock, terminal, origin, message)) return;
-    store.setPendingReturn(threadId, index, message);
+    store.addPendingReturn(threadId, index, message);
     store.addReply(threadId, `Pas de fil de retour pour ${origin.projectTitle} · ${origin.pageTitle} : page archivée. Il s'ouvrira si la page est désarchivée.`, "redline");
   });
 }
 
 /** The pages are back: the messages their origins were waiting for are delivered. */
 export function returnPendingOn(store: Store, pageLock: PageLock, terminal: TerminalPresence, pageIds: ReadonlySet<string>): void {
-  for (const { threadId, originIndex, origin, message } of store.pendingReturnsOn(pageIds)) {
-    if (!returnToOrigin(store, pageLock, terminal, origin, message)) continue;
-    store.setPendingReturn(threadId, originIndex, undefined);
+  for (const { threadId, originIndex, origin, messages } of store.pendingReturnsOn(pageIds)) {
+    if (!messages.every((message) => returnToOrigin(store, pageLock, terminal, origin, message))) continue;
+    store.clearPendingReturns(threadId, originIndex);
   }
 }

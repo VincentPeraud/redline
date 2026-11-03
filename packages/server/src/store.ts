@@ -1425,20 +1425,32 @@ export class Store {
     return this.updateRequest(threadId, (request) => ({ ...request, state }));
   }
 
-  /** Keeps (or, with undefined, clears) the message an origin of a request has not received yet because its page is archived. */
-  setPendingReturn(threadId: string, originIndex: number, message: string | undefined): void {
+  /** Keeps one more message an origin of a request has not received yet because its page is archived. */
+  addPendingReturn(threadId: string, originIndex: number, message: string): void {
     this.updateRequest(threadId, (request) => ({
       ...request,
-      origins: request.origins.map(({ pendingReturn: _kept, ...origin }, index) => (index === originIndex && message !== undefined ? { ...origin, pendingReturn: message } : origin)),
+      origins: request.origins.map((origin, index) => (index === originIndex ? { ...origin, pendingReturns: [...(origin.pendingReturns ?? []), message] } : origin)),
     }));
   }
 
-  /** The origins, on any request, that wait for a message and sit on one of `pageIds`. */
-  pendingReturnsOn(pageIds: ReadonlySet<string>): { threadId: string; originIndex: number; origin: RequestOrigin; message: string }[] {
-    const rows = this.db.prepare("SELECT id FROM threads WHERE request LIKE '%\"pendingReturn\"%'").all() as { id: string }[];
+  /** The origin received its waiting messages. */
+  clearPendingReturns(threadId: string, originIndex: number): void {
+    this.updateRequest(threadId, (request) => ({
+      ...request,
+      origins: request.origins.map((origin, index) => {
+        if (index !== originIndex) return origin;
+        const { pendingReturns: _delivered, ...rest } = origin;
+        return rest;
+      }),
+    }));
+  }
+
+  /** The origins, on any request, that wait for messages and sit on one of `pageIds`. */
+  pendingReturnsOn(pageIds: ReadonlySet<string>): { threadId: string; originIndex: number; origin: RequestOrigin; messages: string[] }[] {
+    const rows = this.db.prepare("SELECT id FROM threads WHERE request LIKE '%\"pendingReturns\"%'").all() as { id: string }[];
     return rows.flatMap(({ id }) =>
       this.getThread(id)!.request!.origins.flatMap((origin, originIndex) =>
-        origin.pendingReturn !== undefined && pageIds.has(origin.pageId) ? [{ threadId: id, originIndex, origin, message: origin.pendingReturn }] : [],
+        origin.pendingReturns !== undefined && pageIds.has(origin.pageId) ? [{ threadId: id, originIndex, origin, messages: origin.pendingReturns }] : [],
       ),
     );
   }

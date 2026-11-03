@@ -83,6 +83,23 @@ describe("refusing a change or a request", () => {
     expect((await diffuse()).status).toBe(409);
   });
 
+  it("keeps every message for an archived origin, a refusal then a diffusion, and delivers them all on unarchive", async () => {
+    const origin = await comment();
+    const request = await ask(origin.id);
+    await publish([size(request), cross(request)]);
+    await server.post(`/api/pages/${planning.id}/archive`, {});
+    await server.post(`/api/changes/${(await changes())[0]!.id}/refuse`, {});
+    await publish([{ component: "modal", label: "Taille retirée", kind: "modified", threadId: request }]);
+    expect((await diffuse()).status).toBe(201);
+
+    await server.post(`/api/pages/${planning.id}/unarchive`, {});
+
+    const bodies = (await threadOf(planning.id, origin.id)).replies.map((r) => r.body);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toContain("Taille 720 px");
+    expect(bodies[1]).toContain("Croix ronde");
+  });
+
   it("creates a thread on the instance when the request had no origin thread", async () => {
     const request = await ask();
     await publish([size(request)]);
