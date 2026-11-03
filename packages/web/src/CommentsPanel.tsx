@@ -1,18 +1,21 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import type { QueueEntry, SessionRow, Thread, ThreadRun } from "@redline/shared";
+import { INSTANCE_TAG_PREFIX, requestIsOpen, type QueueEntry, type SessionRow, type Thread, type ThreadRun } from "@redline/shared";
 import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
 import { RemovedTag } from "./RemovedTag.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
 import { MessageAuthor } from "./MessageAuthor.js";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
+import { InstanceThreadInfo } from "./InstanceThreads.js";
 import { RenderingChip } from "./RenderingChip.js";
+import { DESIGN_SYSTEM_CLAUDE, RequestOrigins, RequestStatePill, RequestTag, requestAskerName } from "./RequestThreads.js";
 import { queueLabel } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
 import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
 import { useStickToBottom } from "./useStickToBottom.js";
+import { RefuseDialog, refuseRequestTarget } from "./RefuseDialog.js";
 import { ThreadReplyForm } from "./ThreadReplyForm.js";
 import { Button, Textarea, cx } from "./ui/index.js";
 import styles from "./Thread.module.css";
@@ -53,14 +56,25 @@ const GROUP_ORDER: Record<Thread["status"], number> = { held: 0, open: 1, resolv
 
 function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNode }) {
   return (
-    <div className={styles.head}>
-      <span className={cx(styles.badge, thread.removed && styles.badgeRemoved)}>{thread.number}</span>
-      <span className={styles.where}>{threadWhere(thread)}</span>
-      <RenderingChip thread={thread} />
-      <span className={styles.spacer} />
-      {thread.removed && <RemovedTag />}
-      {children}
-    </div>
+    <>
+      <div className={styles.head}>
+        <span className={cx(styles.badge, thread.removed && styles.badgeRemoved)}>{thread.number}</span>
+        <span className={styles.where}>{threadWhere(thread)}</span>
+        <RenderingChip thread={thread} />
+        <span className={styles.spacer} />
+        {thread.removed && <RemovedTag />}
+        {thread.request && <RequestTag />}
+        {thread.status === "open" && thread.replies.at(-1)?.author === "redline" && <span data-testid="reopened" className={styles.reopened}>rouvert</span>}
+        {children}
+      </div>
+      {thread.request && (
+        <>
+          <RequestStatePill request={thread.request} />
+          <RequestOrigins request={thread.request} />
+        </>
+      )}
+      <InstanceThreadInfo thread={thread} />
+    </>
   );
 }
 
@@ -90,13 +104,19 @@ function ThreadMessages({ thread }: { thread: Thread }) {
   return (
     <>
       <div className={styles.message}>
-        <MessageAuthor person={thread.person} />
+        <MessageAuthor person={thread.person} claude={requestAskerName(thread)} redline={thread.automatic} />
         {thread.body}
       </div>
       {thread.replies.map((reply) => (
         <Fragment key={reply.id}>
-          <div data-testid="reply" className={cx(styles.message, reply.author === "claude" && styles.claudeReply)}>
-            {reply.author === "user" ? <MessageAuthor person={reply.person} /> : <MessageAuthor claude />}
+          <div data-testid="reply" className={cx(styles.message, reply.author === "claude" && styles.claudeReply, reply.author === "redline" && styles.redlineReply)}>
+            {reply.author === "user" ? (
+              <MessageAuthor person={reply.person} />
+            ) : reply.author === "redline" ? (
+              <MessageAuthor redline />
+            ) : (
+              <MessageAuthor claude={thread.request ? DESIGN_SYSTEM_CLAUDE : true} />
+            )}
             {reply.body}
           </div>
           <CreatedPageCards pages={reply.createdPages} />
@@ -128,6 +148,7 @@ function ResolvedThreadCard({ thread, session, readOnly, open, onOpen }: { threa
             <span className={styles.where}>{threadWhere(thread)}</span>
             <RenderingChip thread={thread} />
           </div>
+          <InstanceThreadInfo thread={thread} />
           <ThreadMessages thread={thread} />
           <div className={styles.footer}>
             <SessionMeta session={session} />
@@ -165,6 +186,7 @@ function ThreadCard({
   readOnly: boolean;
 }) {
   const [replying, setReplying] = useState(false);
+  const [refusing, setRefusing] = useState(false);
   const active = !queued && run !== undefined && run.status !== "answered" && run.status !== "failed";
   const failed = !queued && run?.status === "failed";
 
@@ -183,6 +205,7 @@ function ThreadCard({
             Échec
           </span>
         </div>
+        <InstanceThreadInfo thread={thread} />
         {run && <RunProgress run={run} />}
       </article>
     );
@@ -215,15 +238,23 @@ function ThreadCard({
               <Button size="sm" aria-expanded={replying} onClick={() => setReplying(!replying)}>
                 Répondre
               </Button>
-              <Button size="sm" variant="primary" onClick={onResolve}>
-                Résoudre
-              </Button>
+              {thread.request && requestIsOpen(thread.request) && (
+                <Button size="sm" onClick={() => setRefusing(true)}>
+                  Refuser
+                </Button>
+              )}
+              {!thread.request && (
+                <Button size="sm" variant="primary" onClick={onResolve}>
+                  Résoudre
+                </Button>
+              )}
             </div>
           )}
         </div>
       )}
       {replying && !active && <ThreadReplyForm threadId={thread.id} choice={choice} onDone={() => setReplying(false)} />}
       <ContextLine thread={thread} />
+      {refusing && thread.request && <RefuseDialog target={refuseRequestTarget(thread.id, `${INSTANCE_TAG_PREFIX}${thread.request.component}`)} onClose={() => setRefusing(false)} onRefused={() => undefined} />}
     </article>
   );
 }

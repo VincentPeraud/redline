@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { ARTBOARD_FRAMES, ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, isSafePath, parseManifest, type ArtboardFrame, type ManifestArtboard } from "@redline/shared";
+import { ARTBOARD_FRAMES, CHANGE_KINDS, type ChangeRecordInput, ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, isSafePath, parseManifest, type ArtboardFrame, type ManifestArtboard } from "@redline/shared";
 import { gapsNote, layoutNote } from "./design-system-note.js";
 import { REDLINE_GUIDE } from "./guide.js";
 import { pathInside, readWorkingCopy } from "./working-copy.js";
@@ -15,6 +15,9 @@ export const REPLY_IN_THREAD_TOOL = "reply_in_thread";
 export const ADD_ARTBOARD_TOOL = "add_artboard";
 export const CREATE_PAGE_TOOL = "create_page";
 export const MOVE_ARTBOARD_TOOL = "move_artboard";
+export const SEND_REQUEST_TOOL = "send_request";
+export const RECORD_CHANGE_TOOL = "record_change";
+export const MERGE_REQUEST_TOOL = "merge_request";
 export const RENAME_PAGE_TOOL = "rename_page";
 export const ARCHIVE_PAGE_TOOL = "archive_page";
 export const CONFIRM_REMOVALS_TOOL = "confirm_removals";
@@ -38,6 +41,8 @@ export interface RedlineToolsContext {
   afterArtboardMoved?: (file: string) => Promise<void>;
   /** Called when Claude confirms, after the user agreed, that a design system publish may remove tokens or components pages still use. */
   onRemovalsConfirmed?: () => void;
+  /** Called when the design system's session records a change: the caller sends it with the next publish. */
+  onChangeRecorded?: (change: ChangeRecordInput) => void;
   /** Applied to the result of every tool registered on the server (terminal mode adds its update notice there). */
   decorateResult?: (result: ToolResult) => ToolResult | Promise<ToolResult>;
   /** Checked before every tool runs: a result returned here is the answer and the tool does not run (terminal mode pauses a stale MCP). */
@@ -198,6 +203,68 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
       try {
         const page = await api.archivePage(pageId, context.workId);
         return text(`Page archived "${page.title}" (id ${page.id}).`);
+      } catch (error) {
+        return text((error as Error).message, true);
+      }
+    },
+  );
+  server.registerTool(
+    SEND_REQUEST_TOOL,
+    {
+      description:
+        "Ask the design system this project follows for something a component lacks (a missing setting value, slot or look) when the closest instance cannot do it. First use that closest instance in the mock-up so it is never blocked, then send the request: it becomes a thread on the component's artboard in the design system (on its main page when the component does not exist there yet, so a whole new component can be requested), handled right away in its draft; the user reviews the change before it is diffused, and the thread of the mock-up that asked reopens afterwards. For a user comment you routed as a component change, pass its threadId so the request points back to it. Never copy the component's markup to get the look instead.",
+      inputSchema: {
+        component: z.string().describe("The component, e.g. ui-modal"),
+        missing: z.string().describe("What is missing and why the mock-up needs it, e.g. \"A 720 px size, for the mission edit form\""),
+        artboard: z.string().describe("Artboard file of this page where the closest instance is, e.g. planning.html"),
+        selector: z.string().optional().describe("CSS selector of that instance on the artboard, e.g. #edit"),
+        threadId: z.string().optional().describe("The user's comment this request answers, as given in your message"),
+      },
+    },
+    async ({ component, missing, artboard, selector, threadId }) => {
+      if (threadId !== undefined && allowedThreadIds && !allowedThreadIds.includes(threadId)) return text(`Thread ${threadId} is not part of this run.`, true);
+      try {
+        const sent = await api.sendRequest(context.pageId, { component, missing, artboard, ...(selector ? { selector } : {}), ...(threadId ? { threadId } : {}), ...(context.workId ? { workId: context.workId } : {}) });
+        return text(`Request sent to the design system "${sent.designSystemTitle}" (thread ${sent.threadId}). It is handled in the design system's draft and the user reviews it before diffusing. Keep the closest instance for now${threadId ? "; tell the user in their thread that the request was sent" : ""}.`);
+      } catch (error) {
+        return text((error as Error).message, true);
+      }
+    },
+  );
+  server.registerTool(
+    RECORD_CHANGE_TOOL,
+    {
+      description:
+        "Design system pages only. Record one change you made to a component, to send with your next publish_page (or with the end of your run): call it once per component you changed, with a short label (\"Taille 720 px\"), the kind, the request or comment thread it answers (threadId, as given in your message) and optionally the element it touches, as a CSS selector in the component's artboard in the draft (draftAnchor, for an added or modified element) and in the current diffusion (diffusedAnchor, for a removed or modified element). The user reviews these changes before diffusing, and a request turns \"Faite dans le brouillon\" once a change linked to it is published. Record a change even when it answers no request.",
+      inputSchema: {
+        component: z.string().describe("The component, e.g. ui-modal"),
+        label: z.string().describe("What changed, in a few words, e.g. \"Taille 720 px\""),
+        kind: z.enum(CHANGE_KINDS).describe("added: something new (a size, a slot); removed: something taken away; modified: something that changed"),
+        threadId: z.string().optional().describe("The request (or comment) thread this change answers"),
+        draftAnchor: z.string().optional().describe("Selector of the touched element in the draft's artboard"),
+        diffusedAnchor: z.string().optional().describe("Selector of the touched element in the current diffusion's artboard"),
+      },
+    },
+    async ({ component, label, kind, threadId, draftAnchor, diffusedAnchor }) => {
+      const anchor = draftAnchor || diffusedAnchor ? { ...(draftAnchor ? { draft: draftAnchor } : {}), ...(diffusedAnchor ? { diffused: diffusedAnchor } : {}) } : undefined;
+      context.onChangeRecorded?.({ component, label, kind, ...(threadId ? { threadId } : {}), ...(anchor ? { anchor } : {}) });
+      return text(`Change recorded for ${component}: it is sent with the next publish${threadId ? ", and the request it answers turns \"Faite dans le brouillon\"" : ""}.`);
+    },
+  );
+  server.registerTool(
+    MERGE_REQUEST_TOOL,
+    {
+      description:
+        "Design system pages only. Attach a request to another request about the same component when they ask for the same thing (two near-identical sizes, say): the first one's origins join the second, which shows \"Aussi demandé par ...\", and only the second stays open. Answer the merged request's thread afterwards to say what you did, then record your change against the one that stays.",
+      inputSchema: {
+        threadId: z.string().describe("The request to attach (it closes)"),
+        into: z.string().describe("The existing request that stays open"),
+      },
+    },
+    async ({ threadId, into }) => {
+      try {
+        await api.mergeRequest(threadId, into, context.workId);
+        return text(`Request ${threadId} merged into ${into}: its origins now show on that request, which stays the only open one. Link your change to ${into}.`);
       } catch (error) {
         return text((error as Error).message, true);
       }

@@ -26,6 +26,9 @@ import {
   type ThreadReply,
   type VersionOrigin,
   type RenamePageRequest,
+  type MergeRequestRequest,
+  type SendRequestRequest,
+  type SendRequestResponse,
   cliUpdateCommand,
 } from "@redline/shared";
 import { buildHash as ownBuildHash } from "./build-hash.js";
@@ -63,7 +66,7 @@ export class ServerApi {
     message: string,
     origin: VersionOrigin,
     baseVersionId: string,
-    extra: Pick<CreateVersionRequest, "workId" | "designMd" | "projectStyle" | "confirmRemovals" | "terminalSessionId"> = {},
+    extra: Pick<CreateVersionRequest, "workId" | "designMd" | "projectStyle" | "confirmRemovals" | "terminalSessionId" | "changes"> = {},
   ): Promise<PageVersionSummary> {
     const body: CreateVersionRequest = { files, message, origin, baseVersionId, ...extra };
     return this.request("POST", `/pages/${pageId}/versions`, body);
@@ -127,6 +130,17 @@ export class ServerApi {
   /** Archives `pageId` (read-only, out of the page lists); `workId` keeps a session to the pages of its own project. */
   archivePage(pageId: string, workId?: string): Promise<Page> {
     return this.request("POST", `/pages/${pageId}/archive`, workId ? { workId } : {});
+  }
+
+  /** Asks the design system `pageId`'s project follows for something a component lacks; `workId` keeps a session to its own project. */
+  sendRequest(pageId: string, request: SendRequestRequest): Promise<SendRequestResponse> {
+    return this.request("POST", `/pages/${pageId}/requests`, request);
+  }
+
+  /** Attaches the request thread `threadId` to the request `into` (design system sessions); `workId` keeps a session to its own project. */
+  async mergeRequest(threadId: string, into: string, workId?: string): Promise<void> {
+    const body: MergeRequestRequest = { into, ...(workId ? { workId } : {}) };
+    await this.request("POST", `/requests/${encodeURIComponent(threadId)}/merge`, body);
   }
 
   /** Moves an artboard of `pageId` to another page of its project (`targetPageId`), or to a new page (`newPageTitle`). */

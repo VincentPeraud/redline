@@ -2,6 +2,7 @@
 // use; this pure module compares two assembled states of a design system.
 
 import { parseTokens } from "./tokens.js";
+import type { DesignSystemRequestItem } from "./request.js";
 
 /** What a diffusion (or the draft) holds, reduced to what the diff compares. */
 export interface DiffusionState {
@@ -132,6 +133,10 @@ export interface DesignSystemDetail {
   overrides: { id: string; title: string; tokens: string[] }[];
   /** Draft compared with the current diffusion; `count` 0 = nothing pending. */
   pending: DiffusionDiff;
+  /** Lines of the review before diffusing: what "Diffuser aux projets" counts. */
+  reviewLines: number;
+  /** Open requests of the projects, newest first ("Demandes des projets"). */
+  requests: DesignSystemRequestItem[];
 }
 
 /** Path on the artboard origin serving a file of one diffusion (immutable, so cacheable forever). */

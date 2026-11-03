@@ -60,21 +60,26 @@ it("shows the diffuse button while changes are pending, lists them with the over
   await button.click();
   const dialog = tab.getByRole("dialog", { name: "Diffuser la version 2 de Lumora" });
   await dialog.waitFor();
-  expect(await dialog.getByTestId("diffusion-token").textContent()).toContain("--color-primary#111111→#222222");
+  const tokenRow = dialog.getByTestId("review-change").first();
+  expect(await tokenRow.textContent()).toContain("--color-primary#111111→#222222fait directement dans le design system");
+  expect(await tokenRow.locator('span[aria-hidden="true"][style]').count()).toBe(2);
   const cards = await dialog.getByTestId("diffusion-component").allTextContents();
-  expect(cards).toEqual(["cardmodifié→", "badgenouveau"]);
-  expect(await dialog.getByRole("img", { name: "Avant" }).count()).toBe(1);
-  expect(await dialog.getByRole("img", { name: "Après" }).count()).toBe(2);
-  expect(await dialog.textContent()).toContain("Projets concernés · 2");
+  expect(cards.map((card) => card.replace(/Où ça change.*$/, ""))).toEqual([
+    "ui-cardmodifiéAvant / après ↗Ce qui changeModification sans descriptionfait directement dans le design system",
+    "ui-badgenouveauVoir le composant ↗Ce qui changeModification sans descriptionfait directement dans le design system",
+  ]);
+  expect(await dialog.getByText("Nulle part pour l'instant : aucune page n'utilise encore ui-badge").count()).toBe(1);
+  expect(await dialog.getByText("Nulle part pour l'instant : aucune page n'utilise encore ui-card").count()).toBe(1);
+  if (process.env.REDLINE_CAPTURES) await dialog.getByTestId("diffusion-component").first().screenshot({ path: join(process.env.REDLINE_CAPTURES, "fix-diffuse-app-card.png") });
   expect(await dialog.getByTestId("diffusion-override").textContent()).toContain("Semaine Halloween surcharge --color-primary : ce changement y sera sans effet.");
 
   await dialog.getByRole("button", { name: "Annuler" }).click();
-  expect(await tab.getByRole("dialog").count()).toBe(0);
+  await expect.poll(async () => tab.getByRole("dialog").count()).toBe(0);
 
   await button.click();
   await tab.getByRole("button", { name: "Diffuser", exact: true }).click();
   await expect.poll(async () => tab.getByTestId("diffusion-toast").textContent()).toBe("Diffusion 2 envoyée à 2 projetsAnnuler");
-  expect(await tab.getByRole("dialog").count()).toBe(0);
+  await expect.poll(async () => tab.getByRole("dialog").count()).toBe(0);
   await expect.poll(async () => tab.getByRole("button", { name: /Diffuser aux projets/ }).count()).toBe(0);
   expect(((await (await server.get(`/api/design-systems/${ds.id}`)).json()) as DesignSystemDetail).current.number).toBe(2);
 
@@ -83,5 +88,40 @@ it("shows the diffuse button while changes are pending, lists them with the over
   await tab.goto(`${server.url}/#/pages/${projectPage.id}`);
   await expect.poll(async () => tab.getByTestId("canvas").count()).toBe(1);
   expect(await tab.getByRole("button", { name: /Diffuser aux projets/ }).count()).toBe(0);
+  await tab.close();
+}, 30_000);
+
+it("counts the instances of a changed component, folds the pages behind Voir les pages and links each to its preview", async () => {
+  const modal = (template: string) => `<!doctype html><html><head><style data-component>ui-modal{display:block}</style></head><body><template data-component>${template}</template></body></html>`;
+  const ds = (await (await server.post("/api/design-systems", {
+    title: "Lumora",
+    files: { "tokens.css": tokensCss("#111111"), "manifest.json": manifestOf(["components/modal.html"]), "components/modal.html": modal('<div class="m"><slot></slot></div>') },
+  })).json()) as DesignSystem;
+  const app = (await (await server.post("/api/projects", { title: "App", designSystem: ds.id })).json()) as { id: string };
+  const planning = (await (await server.post(`/api/projects/${app.id}/pages`, {
+    title: "Planning",
+    files: { "index.html": "<!doctype html><html><head></head><body><ui-modal></ui-modal><ui-modal></ui-modal></body></html>", "manifest.json": manifestOf(["index.html"], ds.id) },
+  })).json()) as Page;
+  const dsPage = ((await (await server.get(`/api/projects/${ds.id}/pages`)).json()) as Page[])[0]!;
+  await server.post(`/api/pages/${dsPage.id}/versions`, {
+    files: { "tokens.css": tokensCss("#111111"), "manifest.json": manifestOf(["components/modal.html"]), "components/modal.html": modal('<div class="m wide"><slot></slot></div>') },
+    message: "Edit",
+    origin: "thread",
+  });
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await tab.goto(`${server.url}/#/design-systems/${ds.id}`);
+  await tab.getByRole("button", { name: "Diffuser…" }).click();
+  const card = tab.getByTestId("diffusion-component");
+  await card.waitFor();
+  expect(await card.textContent()).toContain("2 instances dans 1 page de projets");
+  expect(await tab.getByTestId("review-page").count()).toBe(0);
+
+  await card.getByRole("button", { name: "Voir les pages" }).click();
+  const row = tab.getByTestId("review-page");
+  expect(await row.textContent()).toContain("AppPlanning2 instances");
+  expect(await row.getByRole("link", { name: /Aperçu/ }).getAttribute("href")).toContain(`#/pages/${planning.id}?apercu=${ds.id}`);
+  await card.getByRole("button", { name: "Masquer les pages" }).click();
+  expect(await tab.getByTestId("review-page").count()).toBe(0);
   await tab.close();
 }, 30_000);

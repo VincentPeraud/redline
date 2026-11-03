@@ -2,6 +2,7 @@
 // system or of a project; this pure module assembles them.
 
 import { MANIFEST_PATH, parseManifest, type Manifest, type ManifestTweak } from "./index.js";
+import { componentDefinitionOf, instanceTagOf, type ComponentDefinition } from "./componentDefinition.js";
 import { groupTitlesOf, readingOrder } from "./readingOrder.js";
 
 export const COMPONENTS_DIR = "components";
@@ -38,6 +39,8 @@ export interface ComponentInfo {
   usage: string;
   /** The tweaks declared for the component's artboard. */
   variants: ManifestTweak[];
+  /** Size of the component's artboard when the diffusion froze it; absent from diffusions made before it was kept. */
+  size?: { width: number; height: number };
   hash: string;
 }
 
@@ -46,10 +49,32 @@ export interface ComponentAssembly {
   css: string;
   /** Page then reading order. */
   components: ComponentInfo[];
+  /** What instances render from, one per component that has a `<template data-component>`. */
+  definitions: ComponentDefinition[];
   /** Index text given to sessions, per page id. */
   indexes: Record<string, string>;
   /** One message per component name defined twice, naming both files. */
   duplicates: string[];
+  /** One message per cycle of components containing each other, naming it ("Components form a cycle: ui-a > ui-b > ui-a"). */
+  cycles: string[];
+}
+
+function cyclesOf(definitions: ComponentDefinition[]): string[] {
+  const byName = new Map(definitions.map((definition) => [definition.name, definition]));
+  const cycles: string[] = [];
+  const done = new Set<string>();
+  const visit = (name: string, path: string[]) => {
+    const at = path.indexOf(name);
+    if (at !== -1) {
+      cycles.push(`Components form a cycle: ${[...path.slice(at), name].map(instanceTagOf).join(" > ")}`);
+      return;
+    }
+    if (done.has(name)) return;
+    for (const inner of byName.get(name)?.contains ?? []) if (byName.has(inner)) visit(inner, [...path, name]);
+    done.add(name);
+  };
+  for (const definition of definitions) visit(definition.name, []);
+  return cycles;
 }
 
 function hashOf(text: string): string {
@@ -129,6 +154,8 @@ function pageComponents(page: ComponentPage): ComponentInfo[] {
     const name = componentNameOf(file);
     const html = page.files[file];
     if (name === null || html === undefined) return [];
+    const variants = manifest.tweaks.filter((tweak) => tweak.artboard === file);
+    const artboard = manifest.artboards.find((candidate) => candidate.file === file);
     return [
       {
         name,
@@ -137,8 +164,9 @@ function pageComponents(page: ComponentPage): ComponentInfo[] {
         groupTitle,
         description: descriptionOf(html),
         usage: usageOf(html),
-        variants: manifest.tweaks.filter((tweak) => tweak.artboard === file),
-        hash: hashOf(html),
+        variants,
+        ...(artboard ? { size: { width: artboard.width, height: artboard.height } } : {}),
+        hash: hashOf(variants.length > 0 ? `${html}\n${JSON.stringify(variants)}` : html),
       },
     ];
   });
@@ -146,7 +174,7 @@ function pageComponents(page: ComponentPage): ComponentInfo[] {
 
 const variantLine = (tweak: ManifestTweak) => `${tweak.id} (${tweak.label}${tweak.type === "choice" && tweak.options ? `: ${tweak.options.join(", ")}` : ""})`;
 
-function indexText(components: ComponentInfo[]): string {
+function indexText(components: ComponentInfo[], files: Record<string, string>): string {
   const sections: string[] = [];
   const groups: (string | null)[] = [];
   for (const component of components) if (!groups.includes(component.groupTitle)) groups.push(component.groupTitle);
@@ -155,11 +183,23 @@ function indexText(components: ComponentInfo[]): string {
     for (const component of components.filter((c) => c.groupTitle === group)) {
       lines.push(`- ${component.name}${component.description ? `: ${component.description}` : ""}`);
       if (component.usage) lines.push(`  usage: ${component.usage}`);
+      const definition = componentDefinitionOf(component.name, files[component.file] ?? "", component.variants);
+      if (definition) lines.push(`  instance: <${definition.tag}>${definition.slots.length > 0 ? `, slots: ${definition.slots.map((slot) => slot || "default").join(", ")}` : ""}`);
       if (component.variants.length > 0) lines.push(`  variants: ${component.variants.map(variantLine).join(", ")}`);
     }
     sections.push(lines.join("\n") + "\n");
   }
   return sections.join("\n");
+}
+
+/** Definitions of the components that have a template, in the order of `components`; the first of a duplicated name wins. */
+export function definitionsOf(components: ComponentInfo[], fileOf: (component: ComponentInfo) => string): ComponentDefinition[] {
+  const definitions = new Map<string, ComponentDefinition>();
+  for (const component of components) {
+    const definition = definitions.has(component.name) ? null : componentDefinitionOf(component.name, fileOf(component), component.variants);
+    if (definition) definitions.set(component.name, definition);
+  }
+  return [...definitions.values()];
 }
 
 /** Assembles the components of the pages of one design system or one project, pages given in their order. */
@@ -180,6 +220,7 @@ export function assembleComponents(pages: ComponentPage[]): ComponentAssembly {
       seen.set(component.name, component);
     }
   }
-  const indexes = Object.fromEntries(perPage.map(({ page, components: own }) => [page.id, indexText(own)]));
-  return { css, components, indexes, duplicates };
+  const indexes = Object.fromEntries(perPage.map(({ page, components: own }) => [page.id, indexText(own, page.files)]));
+  const definitions = definitionsOf(components, (component) => pages.find((p) => p.id === component.page.id)!.files[component.file]);
+  return { css, components, definitions, indexes, duplicates, cycles: cyclesOf(definitions) };
 }

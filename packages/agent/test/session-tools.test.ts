@@ -26,7 +26,7 @@ describe("session MCP tools", () => {
   it("offers add_artboard, create_page, check_page and read_guide", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing" }]);
     await runOnce(engine);
-    expect(engine.runs[0].mcpTools).toEqual(expect.arrayContaining(["add_artboard", "create_page", "move_artboard", "rename_page", "archive_page", "check_page", "read_guide"]));
+    expect(engine.runs[0].mcpTools).toEqual(expect.arrayContaining(["add_artboard", "create_page", "move_artboard", "rename_page", "archive_page", "send_request", "check_page", "read_guide"]));
     expect(engine.runs[0].mcpTools).not.toContain("rename_project");
     expect(engine.runs[0].mcpTools).not.toContain("archive_project");
   });
@@ -291,6 +291,79 @@ describe("session MCP tools", () => {
     expect(await archivedAt(page.id)).toBeUndefined();
     expect(answers[2]).toMatch(/cannot archive/);
     expect(await archivedAt(foreign.id)).toBeUndefined();
+  });
+
+  describe("send_request", () => {
+    const MODAL = `<!doctype html><html><head><style data-component>ui-modal{display:block}</style></head><body><template data-component><div><slot></slot></div></template></body></html>`;
+    const designSystemFiles = {
+      "tokens.css": `:root {\n${CORE_TOKENS.map((t) => `  ${t}: #000;`).join("\n")}\n}\n`,
+      "manifest.json": JSON.stringify({ artboards: [{ file: "components/modal.html", x: 0, y: 0, width: 200, height: 100 }] }),
+      "components/modal.html": MODAL,
+    };
+
+    /** The seam's project follows a design system with a modal. The request is also work for that design system, which the same agent then runs: only the first run acts. */
+    async function followingProject(engine: FakeEngine) {
+      seam = await startSeam2(engine);
+      const ds = (await (await seam.server.post("/api/design-systems", { title: "Lumora", files: designSystemFiles })).json()) as { id: string; pageId: string };
+      await fetch(`${seam.server.url}/api/projects/${seam.project.id}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ designSystem: ds.id }) });
+      const page = await seam.createPage({ ...PAGE_FILES, "manifest.json": JSON.stringify({ designSystem: ds.id, artboards: [{ file: "home.html", width: 400, height: 300, x: 0, y: 0 }] }) }, "Planning");
+      return { ds, page };
+    }
+
+    it("sends a request to the design system, naming the component, what is missing and the instance, and tells who it went to", async () => {
+      const answers: string[] = [];
+      let ran = false;
+      const engine = new FakeEngine(async (run) => {
+        if (ran) return [{ type: "result", summary: "Done" }];
+        ran = true;
+        answers.push(await run.callTool("send_request", { component: "ui-modal", missing: "A 720 px size", artboard: "home.html", selector: "#edit" }));
+        return [{ type: "result", summary: "Asked" }];
+      });
+      const { ds, page } = await followingProject(engine);
+      await seam!.pinThread(page.id, "home.html", "The edit modal is too narrow");
+      await engine.finished(1);
+      await seam!.waitForWorkEnd();
+
+      const threads = (await (await seam!.server.get(`/api/pages/${ds.pageId}/threads`)).json()) as { body: string; request: { origins: { selector: string; threadId?: string }[] } }[];
+      expect(threads).toHaveLength(1);
+      expect(threads[0]).toMatchObject({ body: "A 720 px size", request: { origins: [{ selector: "#edit" }] } });
+      expect(answers[0]).toMatch(/Request sent to the design system "Lumora"/);
+    });
+
+    it("links the request to the user's comment when it is given, and only for a thread of the run", async () => {
+      const answers: string[] = [];
+      let thread = "";
+      let ran = false;
+      const engine = new FakeEngine(async (run) => {
+        if (ran) return [{ type: "result", summary: "Done" }];
+        ran = true;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        answers.push(await run.callTool("send_request", { component: "modal", missing: "Round cross", artboard: "home.html", threadId: thread }));
+        answers.push(await run.callTool("send_request", { component: "modal", missing: "Round cross", artboard: "home.html", threadId: "someone-elses" }));
+        return [{ type: "result", summary: "Asked" }];
+      });
+      const { ds, page } = await followingProject(engine);
+      thread = (await seam!.pinThread(page.id, "home.html", "The cross must be round")).id;
+      await engine.finished(1);
+      await seam!.waitForWorkEnd();
+
+      const threads = (await (await seam!.server.get(`/api/pages/${ds.pageId}/threads`)).json()) as { request: { origins: { threadId?: string }[] } }[];
+      expect(threads.map((t) => t.request.origins[0]!.threadId)).toEqual([thread]);
+      expect(answers[1]).toMatch(/not part of this run/);
+    });
+
+    it("sends a request for a component the design system lacks", async () => {
+      const answers: string[] = [];
+      const engine = new FakeEngine(async (run) => {
+        answers.push(await run.callTool("send_request", { component: "ui-carousel", missing: "A carousel", artboard: "home.html" }));
+        return [{ type: "result", summary: "Asked" }];
+      });
+      const { page } = await followingProject(engine);
+      await seam!.pinThread(page.id, "home.html", "Add a carousel");
+      await engine.finished(1);
+      await seam!.waitForWorkEnd();
+      expect(answers[0]).toMatch(/Request sent to the design system/);
+    });
   });
 
   it("read_guide returns the manifest, tweaks, assets and design system rules", async () => {

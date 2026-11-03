@@ -90,4 +90,29 @@ describe("design system gaps of a page over the server HTTP API", () => {
     expect(await gapsOf(dsPage)).toEqual([]);
     expect((await server.get("/api/pages/nope/gaps")).status).toBe(404);
   });
+
+  describe("instances", () => {
+    const withInstance = async (body: string, extraStyle = "") => {
+      const modal = `<!doctype html><html><head><style data-component>ui-modal{display:block}</style></head><body><template data-component><div><slot></slot></div></template></body></html>`;
+      const system = (await (await server.post("/api/design-systems", { title: "Inst DS", files: { "tokens.css": tokensCss(), "manifest.json": manifestOf(["components/modal.html"]), "components/modal.html": modal } })).json()) as DesignSystem;
+      const html = `<!doctype html><html><head><style>${extraStyle}</style></head><body>${body}</body></html>`;
+      return gapsOf(await createPage(await createProject(system.id), { "a.html": html, "manifest.json": manifestOf(["a.html"], system.id) }));
+    };
+
+    it("takes place-only inline styles on an instance as no gap, and other properties as a gap", async () => {
+      expect(await withInstance(`<ui-modal style="width:320px;margin-top:8px;grid-column:1 / 3;align-self:end">x</ui-modal>`)).toEqual([]);
+      const gaps = await withInstance(`<ui-modal style="background:red;padding:4px;width:10px">x</ui-modal>`);
+      expect(gaps.map((g) => [g.kind, g.value, g.element])).toEqual([["instance-style", "background, padding", "ui-modal"]]);
+    });
+
+    it("takes a page rule that reaches inside an instance as a gap, not a rule on the instance itself", async () => {
+      expect(await withInstance(`<ui-modal>x</ui-modal>`, `ui-modal{margin:8px}`)).toEqual([]);
+      const gaps = await withInstance(`<ui-modal><p>x</p></ui-modal>`, `ui-modal p{color:var(--color-primary)}`);
+      expect(gaps.map((g) => [g.kind, g.value])).toEqual([["instance-rule", "ui-modal p"]]);
+    });
+
+    it("ignores data-ds-libre content", async () => {
+      expect(await withInstance(`<div data-ds-libre><ui-modal style="background:red">x</ui-modal></div>`)).toEqual([]);
+    });
+  });
 });

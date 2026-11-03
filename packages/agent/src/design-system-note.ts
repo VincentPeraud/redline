@@ -17,6 +17,7 @@ export function designSystemNote({ designSystem, editsDesignSystem, projectCompo
   return [
     `Design system: ${designSystem.title} (diffusion ${designSystem.diffusion}), read-only in .design-system/ (start with index.md; never edit it, propose changes to the user).`,
     `Pages of the design system: ${designSystem.pages.map((page) => `${page.title} (${plural(page.components, "component")})`).join(", ") || "none"}.`,
+    "Use its components as instances (<ui-name>, settings as attributes, content in slots), never copy their markup or classes; if none does what you need, use the closest and call send_request (see the guide).",
     used.length > 0 ? `Ce projet utilise : ${used.join(", ")}.` : "Ce projet n'utilise aucun composant du design system.",
   ].join("\n") + projectNote;
 }
@@ -37,7 +38,7 @@ export function designSystemHint(pageFiles: Record<string, string>, designSystem
   return `Hint: ${free.join(", ")} use${free.length === 1 ? "s" : ""} no component class of the design system, which has components (see .design-system/index.md). Reuse them where they fit, or ignore this if the artboard is deliberately free.`;
 }
 
-const GAP_KIND_LABEL: Record<GapKind, string> = { color: "colour", font: "font", control: "control", deprecated: "deprecated token" };
+const GAP_KIND_LABEL: Record<GapKind, string> = { color: "colour", font: "font", control: "control", deprecated: "deprecated token", "instance-style": "instance styled beyond its place", "instance-rule": "page rule reaching inside an instance" };
 
 /**
  * What a session is told about the design system gaps of its artboards (the "écarts" the user sees), grouped by value;

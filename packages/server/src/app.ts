@@ -21,8 +21,10 @@ import {
   tweakValueError,
   type SetTweakRequest,
   type CreateDesignSystemRequest,
+  type ChangeRecord,
   type DesignSystemDetail,
   type DiffusionListItem,
+  type DiffusionReview,
   diffDiffusionStates,
   type CreatePageRequest,
   type CreateProjectRequest,
@@ -41,6 +43,7 @@ import {
   CLI_TARBALL_PATH,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
+import { INSTANCES_PATH, INSTANCES_SOURCE, injectInstances, instanceLayersOf } from "./instances.js";
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
@@ -51,6 +54,13 @@ import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
 import { removalsError, rollbackImpact } from "./removals.js";
+import { diffusionReview, reviewLineCount } from "./diffusion-review.js";
+import { componentComparison } from "./component-comparison.js";
+import { brokenPagesAtDiffusion, instanceChangesError, rollbackInstancesError } from "./instance-guards.js";
+import { settleMovedUp } from "./move-up.js";
+import { refuseChange, refuseRequest, relaunchUndo } from "./refusals.js";
+import { settleUndoneChanges } from "./undone-changes.js";
+import { closeDiffusedRequests, requestsClosedBy, returnPendingOn } from "./diffusion-returns.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
 import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
@@ -152,7 +162,7 @@ export async function buildMainApp(
   registerDesignSystemReload(app, store);
   const runs = registerRunRoutes(app, store);
   registerHomeRoutes(app, store, pageLock);
-  registerArchiveRoutes(app, store, pageLock);
+  registerArchiveRoutes(app, store, pageLock, (pageIds) => returnPendingOn(store, pageLock, terminalSessions, pageIds));
   const knownWindows = new Map<string, number>();
   registerContextTracking(app, store, pageLock, knownWindows);
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
@@ -241,12 +251,13 @@ export async function buildMainApp(
 
   app.get<{ Querystring: { archived?: string } }>("/api/design-systems", async (req) =>
     (req.query.archived ? store.listArchivedDesignSystems() : store.listChoosableDesignSystems()).map((designSystem) => {
-      const { draft, pending } = store.pendingDiffusion(designSystem.id);
+      const { draft } = store.pendingDiffusion(designSystem.id);
       return {
         ...designSystem,
         usedBy: store.projectsUsingDesignSystem(designSystem.id),
         updatedAt: store.listVersions(designSystem.pageId)[0]?.createdAt,
-        pendingChanges: pending.count,
+        pendingChanges: reviewLineCount(diffusionReview(store, designSystem.id)),
+        requests: store.listDesignSystemRequests(designSystem.id).length,
         pageCount: store.listPages(designSystem.id).length,
         componentCount: draft.assembly.components.length,
         diffusion: store.currentDiffusion(designSystem.id)!.number,
@@ -286,6 +297,8 @@ export async function buildMainApp(
       current,
       overrides,
       pending,
+      reviewLines: reviewLineCount(diffusionReview(store, designSystem.id)),
+      requests: store.listDesignSystemRequests(designSystem.id),
     };
   });
 
@@ -300,13 +313,57 @@ export async function buildMainApp(
     });
   });
 
+  // The changes recorded since the current diffusion, for the review (tickets 12 and following).
+  app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/changes", async (req, reply): Promise<ChangeRecord[] | undefined> => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
+    return store.listChanges(req.params.designSystemId);
+  });
+
+  // What the Diffuse dialog reviews: tokens, DESIGN.md and one card per changed component.
+  app.get<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/review", async (req, reply): Promise<DiffusionReview | undefined> => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return void reply.code(404).send({ error: "design system not found" });
+    return diffusionReview(store, req.params.designSystemId);
+  });
+
+  // The before / after view of one component (the diffused and the draft artboard, numbered markers).
+  app.get<{ Params: { designSystemId: string; name: string } }>("/api/design-systems/:designSystemId/components/:name/comparison", async (req, reply) => {
+    if (!store.getDesignSystem(req.params.designSystemId)) return reply.code(404).send({ error: "design system not found" });
+    const comparison = componentComparison(store, req.params.designSystemId, req.params.name);
+    return comparison ?? reply.code(404).send({ error: "component has no pending change" });
+  });
+
+  // "Refuser" is a user action of the web UI: on a change born of a request, or on a whole request.
+  app.post<{ Params: { changeId: string }; Body: { answer?: unknown } | undefined }>("/api/changes/:changeId/refuse", async (req, reply) => {
+    const outcome = refuseChange(store, pageLock, terminalSessions, req.params.changeId, req.body?.answer);
+    return reply.code(outcome.status).send(outcome.body);
+  });
+  app.post<{ Params: { changeId: string } }>("/api/changes/:changeId/relaunch", async (req, reply) => {
+    const outcome = relaunchUndo(store, pageLock, terminalSessions, req.params.changeId);
+    return reply.code(outcome.status).send(outcome.body);
+  });
+  app.post<{ Params: { threadId: string }; Body: { answer?: unknown } | undefined }>("/api/threads/:threadId/refuse", async (req, reply) => {
+    const outcome = refuseRequest(store, pageLock, terminalSessions, req.params.threadId, req.body?.answer);
+    return reply.code(outcome.status).send(outcome.body);
+  });
+
   // User action only: Claude never diffuses (no equivalent in the agent API or the session tools).
   app.post<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/diffusions", async (req, reply) => {
     const designSystem = store.getDesignSystem(req.params.designSystemId);
     if (!designSystem) return reply.code(404).send({ error: "design system not found" });
     if (store.pendingDiffusion(designSystem.id).pending.count === 0) return reply.code(409).send({ error: "nothing to diffuse" });
+    if (store.listChanges(designSystem.id).some((change) => change.state === "refused")) return reply.code(409).send({ error: "A refused change is not undone in the draft yet." });
+    const broken = brokenPagesAtDiffusion(store, designSystem.id);
+    const closing = requestsClosedBy(store, designSystem.id);
     const created = store.createDiffusion(designSystem.id, "user");
+    closeDiffusedRequests(store, pageLock, terminalSessions, closing, created.number);
+    settleMovedUp(store, designSystem.id);
     announceDiffusion(store, designSystem.id);
+    // A removal the user confirmed breaks instances: each affected page gets a thread signed Redline, routed like any thread.
+    for (const { pageId, artboard, breaks } of broken) {
+      const body = `Le design system « ${designSystem.title} » a retiré ce que cette page utilise : ${breaks.join(", ")}. Mets à jour les instances concernées.`;
+      const thread = store.createThread(pageId, { target: { kind: "artboard", artboard }, title: "Retrait dans le design system", body }, undefined, true);
+      dispatchThread(pageLock, store.getPage(pageId)!.projectId, thread, modelChoiceOf({}), terminalSessions);
+    }
     return reply.code(201).send(created);
   });
 
@@ -336,6 +393,8 @@ export async function buildMainApp(
   app.post<{ Params: { designSystemId: string; number: string } }>("/api/design-systems/:designSystemId/diffusions/:number/rollback", async (req, reply) => {
     const found = rollbackTarget(req.params.designSystemId, req.params.number);
     if ("error" in found) return reply.code(found.status).send({ error: found.error });
+    const lacking = rollbackInstancesError(store, req.params.designSystemId, found.target);
+    if (lacking) return reply.code(409).send({ error: lacking });
     const created = store.rollbackDiffusion(req.params.designSystemId, found.target);
     announceDiffusion(store, req.params.designSystemId);
     return reply.code(201).send(created);
@@ -528,6 +587,8 @@ export async function buildMainApp(
 
   // The only way to resolve a thread: a user action of the web UI. Agents get no such route.
   app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/resolve", async (req, reply) => {
+    // A request closes by a diffusion or a refusal, never by "Résoudre".
+    if (store.getThread(req.params.threadId)?.request) return reply.code(409).send({ error: "a request to the design system cannot be resolved" });
     const thread = store.resolveThread(req.params.threadId);
     return thread ?? reply.code(404).send({ error: "thread not found" });
   });
@@ -549,10 +610,12 @@ export async function buildMainApp(
     "/api/pages/:pageId/versions",
     async (req, reply) => {
       if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-      const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files) ?? removalsError(store, req.params.pageId, req.body.files, req.body.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true);
+      const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files) ?? removalsError(store, req.params.pageId, req.body.files, req.body.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true) ?? instanceChangesError(store, req.params.pageId, req.body.files, req.body.confirmRemovals === true);
       if (invalid) return reply.code(400).send({ error: invalid });
       const { files, message, origin } = req.body;
-      return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin, personRef(req)));
+      const version = store.addVersion(req.params.pageId, files, message, origin, personRef(req));
+      settleUndoneChanges(store, req.params.pageId);
+      return reply.code(201).send(version);
     },
   );
 
@@ -579,9 +642,10 @@ export async function buildMainApp(
       if (!validTimeZone(timeZone)) return reply.code(400).send({ error: "invalid timeZone" });
       const files = store.readVersionFiles(req.params.pageId, req.params.versionId);
       // Restoring publishes the old files again: the same checks as a publish apply.
-      const invalid = files && (versionComponentsError(store, req.params.pageId, files) ?? removalsError(store, req.params.pageId, files, undefined, false));
+      const invalid = files && (versionComponentsError(store, req.params.pageId, files) ?? removalsError(store, req.params.pageId, files, undefined, false) ?? instanceChangesError(store, req.params.pageId, files, false));
       if (invalid) return reply.code(400).send({ error: invalid });
       const restored = store.restoreVersion(req.params.pageId, req.params.versionId, personRef(req), timeZone);
+      if (restored) settleUndoneChanges(store, req.params.pageId);
       return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });
     },
   );
@@ -622,6 +686,10 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
   app.get(BRIDGE_PATH, async (_req, reply) =>
     reply.header("content-security-policy", "sandbox allow-scripts").header("cache-control", "no-cache").type(MIME[".js"]).send(BRIDGE_SOURCE),
   );
+  app.get(INSTANCES_PATH, async (_req, reply) =>
+    reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(INSTANCES_SOURCE),
+  );
+
   app.get(ERRORS_PATH, async (_req, reply) =>
     reply.header("content-security-policy", "sandbox allow-scripts").header("cache-control", "no-cache").type(MIME[".js"]).send(ERRORS_SOURCE),
   );
@@ -695,13 +763,24 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
 
   // A page as it was in one version (history preview): same sandbox and injections as the live artboards, read-only.
   app.get<{ Params: { pageId: string; versionId: string; "*": string } }>("/page-versions/:pageId/:versionId/*", async (req, reply) =>
-    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"]), req.params.versionId),
+    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"]), { versionId: req.params.versionId }),
   );
 
   // `?preview=draft`: the viewer's preview of a project with the design system draft; it is the same call without a diffusion number.
-  app.get<{ Params: { pageId: string; "*": string }; Querystring: { preview?: string } }>("/pages/:pageId/*", async (req, reply) =>
-    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readPageFile(req.params.pageId, req.params["*"]), undefined, req.query.preview === "draft"),
-  );
+  // `?diffusion=n` on a design system page's component file: the file as that diffusion froze it (the "before" of the before / after view).
+  app.get<{ Params: { pageId: string; "*": string }; Querystring: { preview?: string; diffusion?: string } }>("/pages/:pageId/*", async (req, reply) => {
+    const { pageId } = req.params;
+    const path = req.params["*"];
+    if (req.query.diffusion === undefined) return serveArtboardFile(pageId, path, reply, store.readPageFile(pageId, path), { draftPreview: req.query.preview === "draft" });
+    const designSystemId = store.isDesignSystemPage(pageId) ? store.getPage(pageId)?.projectId : undefined;
+    if (designSystemId === undefined || !/^\d+$/.test(req.query.diffusion)) return reply.code(404).send("not found");
+    const number = Number(req.query.diffusion);
+    const frozen = store.diffusionComponentFiles(designSystemId, number)[path];
+    // Only through the page that held the component in that diffusion.
+    const heldBy = store.diffusionComponents(designSystemId, number).find((component) => component.file === path)?.page.id;
+    if (frozen === undefined || heldBy !== pageId) return reply.code(404).send("not found");
+    return serveArtboardFile(pageId, path, reply, Buffer.from(frozen), { frozenDiffusion: number });
+  });
 
   /** The page's project when it has a project style (every project but a design system's own). */
   function projectStyleProjectOf(pageId: string): string | undefined {
@@ -717,16 +796,19 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
     return designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId)?.number;
   }
 
-  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, versionId?: string, draftPreview = false) {
+  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, { versionId, draftPreview = false, frozenDiffusion }: { versionId?: string; draftPreview?: boolean; frozenDiffusion?: number } = {}) {
     const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, pageId, path.slice("assets/".length)) : undefined);
     if (!asset) return reply.code(404).send("not found");
     // Artboards are opaque-origin, so fonts of the project assets need CORS to load.
     if (!pageFile) reply.header("access-control-allow-origin", "*");
     const isHtml = extname(path) === ".html";
+    if (!isHtml) return reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[extname(path)] ?? "application/octet-stream").send(asset);
+    const diffusion = frozenDiffusion ?? (draftPreview ? undefined : diffusionOf(pageId, versionId));
+    const withDesignSystem = injectDesignSystem(asset.toString("utf8"), store.sharedDesignSystemIdOfPage(pageId, versionId), projectStyleProjectOf(pageId), diffusion);
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
-      .type(MIME[extname(path)] ?? "application/octet-stream")
-      .send(isHtml ? injectBridge(injectDesignSystem(asset.toString("utf8"), store.sharedDesignSystemIdOfPage(pageId, versionId), projectStyleProjectOf(pageId), draftPreview ? undefined : diffusionOf(pageId, versionId))) : asset);
+      .type(MIME[".html"])
+      .send(injectBridge(injectInstances(withDesignSystem, instanceLayersOf(store, pageId, diffusion, versionId))));
   }
 
   return app;

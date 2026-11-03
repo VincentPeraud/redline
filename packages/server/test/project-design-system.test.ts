@@ -109,19 +109,15 @@ describe("project Design system page and overview box", () => {
     expect(d.overrideCount).toBe(2);
   });
 
-  it("lists project components as new or overriding a design system component", async () => {
+  it("lists the project's own components with their page", async () => {
     const ds = await createDesignSystem();
     const project = await createProject(ds.id);
     await createPage(project, {
-      "manifest.json": manifestOf(["components/sticker.html", "components/post-cta.html"]),
+      "manifest.json": manifestOf(["components/sticker.html"]),
       "components/sticker.html": component(".s{}"),
-      "components/post-cta.html": component(".cta{color:purple}"),
     });
     const d = await detail(project);
-    expect(d.components.map((c) => [c.name, c.status, c.page.title, c.file])).toEqual([
-      ["sticker", "new", "Stories", "components/sticker.html"],
-      ["post-cta", "override", "Stories", "components/post-cta.html"],
-    ]);
+    expect(d.components.map((c) => [c.name, c.page.title, c.file])).toEqual([["sticker", "Stories", "components/sticker.html"]]);
   });
 
   it("serves a project without a shared design system as its own style", async () => {

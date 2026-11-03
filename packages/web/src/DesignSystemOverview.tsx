@@ -7,6 +7,7 @@ import { ArchiveFooter, ArchivedBanner, DeleteSection } from "./ArchiveControls.
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { navigateTo, routeHref } from "./router.js";
+import { relativeTime } from "./relativeTime.js";
 import { Button, Dialog, DialogActions, Logo, cx } from "./ui/index.js";
 import styles from "./DesignSystemOverview.module.css";
 import { useDocumentTitle } from "./documentTitle.js";
@@ -147,7 +148,7 @@ function DiffusionRow({ diffusion, isCurrent, isFirst, canRollBack, onRollBack }
 }
 
 /** `viaProjectId`: the project the design system was opened from; its pages open with it, so that project's agent runs their work. */
-export function DesignSystemOverview({ designSystemId, viaProjectId }: { designSystemId: string; viaProjectId?: string }) {
+export function DesignSystemOverview({ designSystemId, viaProjectId, review }: { designSystemId: string; viaProjectId?: string; review?: boolean }) {
   const [reloads, setReloads] = useState(0);
   const detail = useDesignSystemDetail(designSystemId, String(reloads));
   const openDiffusion = useOpenDiffusionDialog();
@@ -170,6 +171,13 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
   }, [designSystemId]);
 
   useDocumentTitle(detail?.title);
+
+  // "Relire et diffuser" lands here with `?relire=1`: open the review once, then drop the flag so closing it does not reopen it.
+  useEffect(() => {
+    if (!review) return;
+    openDiffusion(designSystemId);
+    navigateTo({ name: "designSystem", designSystemId, ...(viaProjectId === undefined ? {} : { viaProjectId }) }, "replace");
+  }, [review]);
 
   if (!detail) return <main className={styles.screen}>Chargement…</main>;
 
@@ -199,7 +207,7 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
         <div className={styles.grow} />
         {pendingCount > 0 && (
           <button type="button" className={styles.diffuse} onClick={() => openDiffusion(detail.id)}>
-            Diffuser aux projets <span className={styles.diffuseCount}>{pendingCount}</span>
+            Diffuser aux projets <span className={styles.diffuseCount}>{detail.reviewLines}</span>
           </button>
         )}
         {!readOnly && (
@@ -232,6 +240,25 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
                 Diffuser…
               </button>
             </div>
+          )}
+
+          {!readOnly && detail.requests.length > 0 && (
+            <section data-testid="ds-requests" className={styles.section}>
+              <div className={styles.sectionHeading}>
+                <h2 className={styles.sectionTitle}>Demandes des projets · {detail.requests.length}</h2>
+                <span className={styles.sectionNote}>Variantes ou changements demandés depuis les maquettes des projets. Chaque demande est un fil sur le composant.</span>
+              </div>
+              <div className={styles.requests}>
+                {detail.requests.map((request) => (
+                  <a key={request.threadId} href={routeHref({ name: "page", pageId: request.pageId, artboard: request.artboard, viaProjectId })} data-testid="ds-request" className={styles.requestRow}>
+                    <span className={styles.requestTag}>{request.tag}</span>
+                    <span className={styles.requestTitle}>{request.title}</span>
+                    <span className={styles.requestOrigin}>{request.origin}</span>
+                    <span className={styles.requestTime}>{relativeTime(request.createdAt)}</span>
+                  </a>
+                ))}
+              </div>
+            </section>
           )}
 
           <section className={styles.section}>

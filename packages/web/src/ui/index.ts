@@ -3,7 +3,7 @@ export type { ButtonProps, ButtonSize, ButtonVariant } from "./Button.js";
 export { Card, CardHeader } from "./Card.js";
 export type { CardProps } from "./Card.js";
 export { cx } from "./cx.js";
-export { Dialog, DialogActions } from "./Dialog.js";
+export { DIALOG_EXIT_MS, Dialog, DialogActions } from "./Dialog.js";
 export type { DialogProps } from "./Dialog.js";
 export { Field, Select, TextInput, Textarea } from "./fields.js";
 export type { FieldProps, SelectProps, TextInputProps } from "./fields.js";

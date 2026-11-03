@@ -9,7 +9,8 @@ export type Route =
   | { name: "agents" }
   | { name: "sessions" }
   | { name: "designSystems" }
-  | { name: "designSystem"; designSystemId: string; viaProjectId?: string }
+  | { name: "designSystem"; designSystemId: string; viaProjectId?: string; review?: true }
+  | { name: "beforeAfter"; designSystemId: string; component: string }
   | { name: "project"; projectId: string }
   | { name: "designMd"; projectId: string }
   | { name: "projectDesignSystem"; projectId: string }
@@ -31,9 +32,12 @@ const PREVIEW_PARAM = "apercu";
 /** `?projet=<project id>` on a design system page's address: the project it was opened from, whose agent runs its work. */
 const VIA_PARAM = "projet";
 
+/** `?relire=1` on a design system address: opens the review before diffusing. */
+const REVIEW_PARAM = "relire";
+
 export function parseRoute(hash: string): Route {
   const [path = "", query = ""] = hash.split("?", 2);
-  const [, section, id, sub, subId] = path.split("/").map(decodeURIComponent);
+  const [, section, id, sub, subId, leaf] = path.split("/").map(decodeURIComponent);
   const via = new URLSearchParams(query).get(VIA_PARAM);
   const viaProject = via === null ? {} : { viaProjectId: via };
   if (section === "agents") return { name: "agents" };
@@ -41,7 +45,8 @@ export function parseRoute(hash: string): Route {
   if (section === "projects" && !id) return { name: "projects" };
   if (section === "archived-projects") return { name: "archivedProjects" };
   if (section === "archived-design-systems") return { name: "archivedDesignSystems" };
-  if (section === "design-systems" && id) return { name: "designSystem", designSystemId: id, ...viaProject };
+  if (section === "design-systems" && id && sub === "components" && subId && leaf === "before-after") return { name: "beforeAfter", designSystemId: id, component: subId };
+  if (section === "design-systems" && id) return { name: "designSystem", designSystemId: id, ...viaProject, ...(new URLSearchParams(query).has(REVIEW_PARAM) ? { review: true as const } : {}) };
   if (section === "design-systems") return { name: "designSystems" };
   if (section === "projects" && id && sub === "design-md") return { name: "designMd", projectId: id };
   if (section === "projects" && id && sub === "design-system") return { name: "projectDesignSystem", projectId: id };
@@ -74,8 +79,14 @@ export function routeHref(route: Route): string {
       return "#/sessions";
     case "designSystems":
       return "#/design-systems";
-    case "designSystem":
-      return `#/design-systems/${encodeURIComponent(route.designSystemId)}${route.viaProjectId === undefined ? "" : `?${VIA_PARAM}=${encodeURIComponent(route.viaProjectId)}`}`;
+    case "designSystem": {
+      const query = new URLSearchParams();
+      if (route.viaProjectId !== undefined) query.set(VIA_PARAM, route.viaProjectId);
+      if (route.review) query.set(REVIEW_PARAM, "1");
+      return `#/design-systems/${encodeURIComponent(route.designSystemId)}${query.size === 0 ? "" : `?${query}`}`;
+    }
+    case "beforeAfter":
+      return `#/design-systems/${encodeURIComponent(route.designSystemId)}/components/${encodeURIComponent(route.component)}/before-after`;
     case "project":
       return `#/projects/${encodeURIComponent(route.projectId)}`;
     case "designMd":

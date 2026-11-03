@@ -58,7 +58,7 @@ export interface SessionRow extends ModelChoice {
 }
 
 export interface SessionMessage {
-  author: "user" | "claude";
+  author: "user" | "claude" | "redline";
   /** The person who wrote a user message; absent when none is known. */
   person?: Person;
   body: string;

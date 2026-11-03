@@ -149,10 +149,9 @@ it("marks only component artboards with a ◆ and the component name on the stri
   await tab.locator('[data-artboard="components/button.html"]').waitFor();
 
   const component = tab.locator('[data-strip="components/button.html"]');
-  await component.getByRole("img", { name: "Composant" }).waitFor();
-  expect(await component.getByTestId("component-name").textContent()).toBe("button");
-  expect(await component.getByTestId("component-name").evaluate((el) => getComputedStyle(el).fontFamily)).toContain("JetBrains Mono");
-  expect(await tab.locator('[data-strip="home.html"]').getByRole("img", { name: "Composant" }).count()).toBe(0);
+  await component.getByTestId("component-name").waitFor();
+  expect(await component.getByTestId("component-name").textContent()).toBe("Primary button · components/button.html");
+  expect(await tab.locator('[data-strip="home.html"]').getByTestId("component-name").count()).toBe(0);
   expect(await tab.locator('[data-strip="home.html"]').textContent()).toContain("Home");
   await tab.close();
 }, 60_000);

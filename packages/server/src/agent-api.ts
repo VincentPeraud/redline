@@ -18,6 +18,8 @@ import {
   type TerminalWaitingPage,
   type MoveArtboardRequest,
   type RenamePageRequest,
+  type MergeRequestRequest,
+  type SendRequestRequest,
   type DesignMdAuthor,
   starterDesignSystemFiles,
   starterPageFiles,
@@ -26,14 +28,20 @@ import {
 import { manifestTitleError, mergeOntoCurrent } from "./publish.js";
 import { agentGaps } from "./gaps.js";
 import { moveArtboard } from "./move-artboard.js";
+import { sendRequest } from "./requests.js";
+import { askToUndoRefused } from "./refusals.js";
+import { settleUndoneChanges } from "./undone-changes.js";
+import { changesError, mergeRequests } from "./change-records.js";
 import { ARCHIVED_PAGE_ERROR, archivableExists, archivePage, archiveProject, archivedError, projectOrDesignSystem } from "./archive.js";
 import { tokensEqual } from "./request-hardening.js";
 import { versionComponentsError } from "./components.js";
 import { removalsError } from "./removals.js";
+import { instanceChangesError } from "./instance-guards.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
 import { MAX_TERMINAL_TEXT_LENGTH, isTerminalSessionId, requiredString, titleError, tokensError, versionRequestError } from "./validation.js";
 import { projectContext, putProjectAsset } from "./project-files.js";
 import { designSystemChangeError } from "./project-design-system.js";
+import { switchDesignSystem } from "./switch-design-system.js";
 import type { PageLock } from "./page-lock.js";
 import type { TerminalSessions } from "./terminal-sessions.js";
 import type { OriginRef, Store } from "./store.js";
@@ -54,6 +62,12 @@ export function workOrigin(store: Store, pageLock: PageLock, workId: unknown, pa
 
 /** HTTP API for agents and their sessions' MCP tools, guarded by the agent token (see `AGENT_API_PREFIX`). */
 export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock, terminalSessions: TerminalSessions): Promise<void> {
+  /** A running work item (`workId`) that does not belong to `projectId`, or whose run is over: its session may not act there. */
+  const workOutsideProject = (workId: unknown, projectId: string | undefined): boolean => {
+    if (workId === undefined) return false;
+    const workPage = typeof workId === "string" ? pageLock.itemOf(workId)?.pageId : undefined;
+    return workPage === undefined || store.getPage(workPage)?.projectId !== projectId;
+  };
   await app.register(
     async (api) => {
       // onRequest, not preHandler: a wrong token is refused before its body (up to 20 MB for assets) is read.
@@ -134,7 +148,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (store.getDesignSystem(req.params.projectId) || !store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
         const invalid = designSystemChangeError(store, designSystem);
         if (invalid) return reply.code(400).send({ error: invalid });
-        store.setProjectDesignSystem(req.params.projectId, designSystem as string | null, "terminal");
+        switchDesignSystem(store, req.params.projectId, designSystem as string | null, "terminal");
         return store.getProject(req.params.projectId);
       });
 
@@ -187,7 +201,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
         const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId), true) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files);
         if (invalid) return reply.code(400).send({ error: invalid });
-        const { files, message, origin, baseVersionId, workId, designMd, projectStyle } = req.body;
+        const invalidChanges = changesError(store, req.params.pageId, req.body.changes);
+        if (invalidChanges) return reply.code(400).send({ error: invalidChanges });
+        const { files, message, origin, baseVersionId, workId, designMd, projectStyle, changes } = req.body;
         // A session works inside its own project: its work never publishes to the pages of another one (a shared design system's, say).
         const workPage = typeof workId === "string" ? pageLock.itemOf(workId)?.pageId : undefined;
         if (workPage !== undefined && store.getPage(workPage)?.projectId !== store.getPage(req.params.pageId)!.projectId) {
@@ -222,12 +238,14 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           // On a design system's own project this file is the design system's tokens: the core tokens must stay.
           const invalidStyle = styleChanged && store.isDesignSystemProject(projectId) ? tokensError(projectStyle.content) : null;
           if (invalidStyle) return reply.code(400).send({ error: invalidStyle });
-          const invalidRemoval = removalsError(store, req.params.pageId, result.files, styleChanged && store.isDesignSystemProject(projectId) ? projectStyle.content : result.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true);
+          const invalidRemoval = removalsError(store, req.params.pageId, result.files, styleChanged && store.isDesignSystemProject(projectId) ? projectStyle.content : result.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true) ?? instanceChangesError(store, req.params.pageId, result.files, req.body.confirmRemovals === true);
           if (invalidRemoval) return reply.code(400).send({ error: invalidRemoval });
           const from = workOrigin(store, pageLock, workId, req.params.pageId);
           const ref: OriginRef | undefined = from && { originId: from.originId, originLabel: from.originLabel, person: from.person };
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
+          if (changes?.length) askToUndoRefused(store, pageLock, terminalSessions, store.recordChanges(projectId, version.id, changes));
+          settleUndoneChanges(store, req.params.pageId);
           // The terminal session that publishes a page holds it, replacing the previous holder.
           if (origin === "terminal" && req.body.terminalSessionId !== undefined) store.holdPage(req.params.pageId, req.body.terminalSessionId);
           if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());
@@ -310,6 +328,24 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         }
         const { status, body } = archivePage(store, pageLock, page);
         return reply.code(status).send(body);
+      });
+
+      // A project's session asks its design system for something a component lacks (agent sessions and terminal mode alike).
+      api.post<{ Params: { pageId: string }; Body: Partial<SendRequestRequest> }>("/pages/:pageId/requests", async (req, reply) => {
+        if (workOutsideProject(req.body?.workId, store.getPage(req.params.pageId)?.projectId)) {
+          return reply.code(403).send({ error: "This session cannot send a request for that page: it belongs to another project, or the run is over." });
+        }
+        const outcome = sendRequest(store, pageLock, terminalSessions, req.params.pageId, req.body);
+        return reply.code(outcome.status).send(outcome.body);
+      });
+
+      // The design system's session attaches a request to an existing one.
+      api.post<{ Params: { threadId: string }; Body: Partial<MergeRequestRequest> }>("/requests/:threadId/merge", async (req, reply) => {
+        if (workOutsideProject(req.body?.workId, store.getPage(store.getThread(req.params.threadId)?.pageId ?? "")?.projectId)) {
+          return reply.code(403).send({ error: "This session cannot merge that request: it belongs to another project, or the run is over." });
+        }
+        const outcome = mergeRequests(store, req.params.threadId, req.body?.into);
+        return reply.code(outcome.status).send(outcome.body);
       });
 
       api.post<{ Params: { pageId: string }; Body: Partial<MoveArtboardRequest> }>("/pages/:pageId/move-artboard", async (req, reply) => {

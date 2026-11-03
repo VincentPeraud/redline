@@ -8,6 +8,7 @@ import {
   EMPTY_VIEW_SETTINGS,
   initialsOf,
   diffDiffusionStates,
+  definitionsOf,
   diffusionSummary,
   DESIGN_MD_PATH,
   DESIGN_SYSTEM_TOKENS_PATH,
@@ -23,8 +24,13 @@ import {
   parseTokens,
   setToken,
   PROJECT_STYLE_PATH,
+  instanceTagOf,
+  requestIsOpen,
+  requestComponentName,
+  requestOriginLabel,
   NEUTRAL_TOKENS_PAGE_HTML,
   type DesignSystem,
+  type InstanceState,
   type DesignMdAuthor,
   type DesignMdVersion,
   type ProjectAsset,
@@ -32,11 +38,21 @@ import {
 import type {
   Person,
   ComponentInfo,
+  ComponentDefinition,
   DiffusionInfo,
   DiffusionState,
   Conversation,
   ConversationMessage,
   CreateThreadRequest,
+  DesignSystemRequestItem,
+  ThreadRequest,
+  RequestState,
+  ChangeAnchor,
+  ChangeKind,
+  ChangeRecord,
+  ChangeRecordInput,
+  ChangeState,
+  RequestOrigin,
   ThreadRendering,
   TweakValues,
   ThreadTarget,
@@ -162,7 +178,20 @@ export class Store {
         component_list_hash TEXT NOT NULL,
         index_hash TEXT NOT NULL,
         component_files_hash TEXT,
+        component_definitions_hash TEXT,
         PRIMARY KEY (design_system_id, number)
+      );
+      CREATE TABLE IF NOT EXISTS component_changes (
+        id TEXT PRIMARY KEY,
+        design_system_id TEXT NOT NULL REFERENCES design_systems(project_id),
+        component TEXT NOT NULL,
+        label TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        state TEXT NOT NULL,
+        thread_id TEXT,
+        anchor TEXT,
+        version_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS design_system_diffusion_undos (
         design_system_id TEXT NOT NULL REFERENCES design_systems(project_id),
@@ -257,7 +286,11 @@ export class Store {
     addColumn("work_queue", "handed_over_by", "TEXT");
     addColumn("design_systems", "current_diffusion", "INTEGER");
     addColumn("design_system_diffusions", "component_files_hash", "TEXT");
+    addColumn("design_system_diffusions", "component_definitions_hash", "TEXT");
     addColumn("design_system_diffusions", "rolled_back_to", "INTEGER");
+    // Design system components a switch left out, as JSON { name: id of the design system it was not taken from }.
+    addColumn("projects", "excluded_components", "TEXT");
+    addColumn("projects", "moved_up_components", "TEXT");
     addColumn("pages", "created_by", "TEXT NOT NULL DEFAULT 'user'");
     // The signed-in person who wrote a human message or started a conversation; NULL before the SSO and without it.
     addColumn("threads", "person_id", "TEXT");
@@ -266,6 +299,8 @@ export class Store {
     addColumn("conversation_messages", "person_id", "TEXT");
     // On a design system's page: the project the thread or conversation was started from, whose agent runs its work.
     addColumn("threads", "via_project_id", "TEXT");
+    // A request to the design system: JSON of the kind, state, component and origins (their titles are read when the thread is).
+    addColumn("threads", "request", "TEXT");
     addColumn("conversations", "via_project_id", "TEXT");
     // Same for what a person (or Claude, for the requesting person) did: page versions, DESIGN.md / tokens versions and pages.
     addColumn("versions", "person_id", "TEXT");
@@ -297,6 +332,7 @@ export class Store {
     addColumn("threads", "element_name", "TEXT");
     addColumn("threads", "rendering", "TEXT");
     addColumn("threads", "cell", "TEXT");
+    addColumn("threads", "instance_state", "TEXT");
     addColumn("threads", "target_kind", "TEXT NOT NULL DEFAULT 'element'");
     addColumn("threads", "element_id", "TEXT");
     addColumn("threads", "element_kind", "TEXT");
@@ -311,6 +347,7 @@ export class Store {
     const threadColumns = this.db.prepare("PRAGMA table_info(threads)").all() as { name: string }[];
     if (!threadColumns.some((c) => c.name === "session_id")) this.db.exec("ALTER TABLE threads ADD COLUMN session_id TEXT");
     if (!threadColumns.some((c) => c.name === "agent_id")) this.db.exec("ALTER TABLE threads ADD COLUMN agent_id TEXT");
+    if (!threadColumns.some((c) => c.name === "automatic")) this.db.exec("ALTER TABLE threads ADD COLUMN automatic INTEGER NOT NULL DEFAULT 0");
     for (const column of ["context", "new_session", "session_seed", "terminal_session_id", "terminal_pick_run"]) {
       if (!threadColumns.some((c) => c.name === column)) this.db.exec(`ALTER TABLE threads ADD COLUMN ${column} TEXT`);
     }
@@ -438,15 +475,16 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO design_system_diffusions
-         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, component_definitions_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         designSystemId, number, createdAt, origin, text,
         blob(draft.state.tokensCss), blob(draft.componentsCss), blob(draft.state.designMd),
-        blob(JSON.stringify(draft.assembly.components)), blob(JSON.stringify(draft.assembly.indexes)), blob(JSON.stringify(draft.componentFiles)),
+        blob(JSON.stringify(draft.assembly.components)), blob(JSON.stringify(draft.assembly.indexes)), blob(JSON.stringify(draft.componentFiles)), blob(JSON.stringify(draft.assembly.definitions)),
       );
     this.db.prepare("UPDATE design_systems SET current_diffusion = ? WHERE project_id = ?").run(number, designSystemId);
+    this.db.prepare("UPDATE component_changes SET state = 'diffused' WHERE design_system_id = ? AND state = 'pending'").run(designSystemId);
     return { number, createdAt, origin, summary: text, undone: false };
   }
 
@@ -472,8 +510,8 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO design_system_diffusions
-         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, rolled_back_to)
-         SELECT design_system_id, ?, ?, 'rollback', ?, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, ?
+         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, component_definitions_hash, rolled_back_to)
+         SELECT design_system_id, ?, ?, 'rollback', ?, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, component_definitions_hash, ?
          FROM design_system_diffusions WHERE design_system_id = ? AND number = ?`,
       )
       .run(number, createdAt, summary, target, designSystemId, target);
@@ -500,9 +538,9 @@ export class Store {
     return rows.map(({ rolledBackTo, undone, ...rest }) => ({ ...rest, undone: undone === 1, ...(rolledBackTo !== null && { rolledBackTo }) }));
   }
 
-  /** One file of a diffusion (`tokens.css`, `components.css`, `DESIGN.md`, `components.json` the component list, `index.json` the per-page index, `component-files.json` the component files by path). */
-  readDiffusionFile(designSystemId: string, number: number, file: "tokens.css" | "components.css" | "DESIGN.md" | "components.json" | "index.json" | "component-files.json"): string | undefined {
-    const column = { "tokens.css": "tokens_hash", "components.css": "components_hash", "DESIGN.md": "design_md_hash", "components.json": "component_list_hash", "index.json": "index_hash", "component-files.json": "component_files_hash" }[file];
+  /** One file of a diffusion (`tokens.css`, `components.css`, `DESIGN.md`, `components.json` the component list, `index.json` the per-page index, `component-files.json` the component files by path, `component-definitions.json` the instance definitions). */
+  readDiffusionFile(designSystemId: string, number: number, file: "tokens.css" | "components.css" | "DESIGN.md" | "components.json" | "index.json" | "component-files.json" | "component-definitions.json"): string | undefined {
+    const column = { "tokens.css": "tokens_hash", "components.css": "components_hash", "DESIGN.md": "design_md_hash", "components.json": "component_list_hash", "index.json": "index_hash", "component-files.json": "component_files_hash", "component-definitions.json": "component_definitions_hash" }[file];
     const row = this.db.prepare(`SELECT ${column} AS hash FROM design_system_diffusions WHERE design_system_id = ? AND number = ?`).get(designSystemId, number) as { hash: string | null } | undefined;
     return row?.hash ? readFileSync(join(this.blobDir, row.hash), "utf8") : undefined;
   }
@@ -515,6 +553,17 @@ export class Store {
   /** The component files of a diffusion by path (`component-files.json`). */
   diffusionComponentFiles(designSystemId: string, number: number): Record<string, string> {
     return JSON.parse(this.readDiffusionFile(designSystemId, number, "component-files.json") ?? "{}") as Record<string, string>;
+  }
+
+  /**
+   * The component definitions a diffusion froze (`component-definitions.json`). A diffusion made before definitions
+   * existed has none stored: they are derived from its component files and list.
+   */
+  diffusionDefinitions(designSystemId: string, number: number): ComponentDefinition[] {
+    const stored = this.readDiffusionFile(designSystemId, number, "component-definitions.json");
+    if (stored !== undefined) return JSON.parse(stored) as ComponentDefinition[];
+    const files = this.diffusionComponentFiles(designSystemId, number);
+    return definitionsOf(this.diffusionComponents(designSystemId, number), (component) => files[component.file] ?? "");
   }
 
   /** The per-page component index text of a diffusion, by page id (`index.json`). */
@@ -868,6 +917,34 @@ export class Store {
     }
   }
 
+  /** Components a design system switch left out of the project: their instances render broken, by component name, with the design system they were not taken from. */
+  excludedComponents(projectId: string): Record<string, string> {
+    return this.projectRecord<string>(projectId, "excluded_components");
+  }
+
+  setExcludedComponents(projectId: string, excluded: Record<string, string>): void {
+    this.setProjectRecord(projectId, "excluded_components", excluded);
+  }
+
+  /** A project column holding a JSON object by component name; empty when unset. `column` is one of ours, never user input. */
+  private projectRecord<T>(projectId: string, column: "excluded_components" | "moved_up_components"): Record<string, T> {
+    const row = this.db.prepare(`SELECT ${column} AS json FROM projects WHERE id = ?`).get(projectId) as { json: string | null } | undefined;
+    return row?.json ? (JSON.parse(row.json) as Record<string, T>) : {};
+  }
+
+  private setProjectRecord(projectId: string, column: "excluded_components" | "moved_up_components", record: Record<string, unknown>): void {
+    this.db.prepare(`UPDATE projects SET ${column} = ? WHERE id = ?`).run(Object.keys(record).length === 0 ? null : JSON.stringify(record), projectId);
+  }
+
+  /** Project components moved up to a design system's draft and still the project's own until it diffuses them, by component name. */
+  movedUpComponents(projectId: string): Record<string, MovedUpComponent> {
+    return this.projectRecord<MovedUpComponent>(projectId, "moved_up_components");
+  }
+
+  setMovedUpComponents(projectId: string, moved: Record<string, MovedUpComponent>): void {
+    this.setProjectRecord(projectId, "moved_up_components", moved);
+  }
+
   /** The project style after leaving `fromDesignSystem`: its current diffusion's tokens with the project's overrides on top; undefined (the overrides stay alone) when it has no diffusion. */
   private startingStyle(projectId: string, fromDesignSystem: string): string | undefined {
     const diffusion = this.currentDiffusion(fromDesignSystem);
@@ -993,6 +1070,7 @@ export class Store {
     this.db.transaction(() => {
       for (const sql of [
         ...pageRowDeletes(pages),
+        "DELETE FROM component_changes WHERE design_system_id = ?",
         "DELETE FROM design_system_diffusion_undos WHERE design_system_id = ?",
         "DELETE FROM design_system_diffusions WHERE design_system_id = ?",
         "DELETE FROM design_systems WHERE project_id = ?",
@@ -1251,7 +1329,8 @@ export class Store {
     return parsed.artboards.some((a) => a.file === file);
   }
 
-  createThread(pageId: string, request: CreateThreadRequest, person?: Person): Thread {
+  /** `automatic`: opened by Redline itself (signed "Redline"), not written by a person. */
+  createThread(pageId: string, request: CreateThreadRequest, person?: Person, automatic = false, designSystemRequest?: StoredRequest): Thread {
     const id = randomUUID();
     const { next } = this.db
       .prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?")
@@ -1261,7 +1340,7 @@ export class Store {
     const placement =
       "target" in request
         ? request.target.kind === "artboard"
-          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, cell: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
+          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, cell: null, instanceState: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
           : this.canvasElementPlacement(pageId, request.target.elementId)
         : {
             kind: "element",
@@ -1270,6 +1349,7 @@ export class Store {
             elementName: request.elementName ?? null,
             rendering: request.rendering ? JSON.stringify({ format: request.rendering.format, width: request.rendering.width }) : null,
             cell: request.cell ? JSON.stringify(request.cell) : null,
+            instanceState: request.instanceState ? JSON.stringify(request.instanceState) : null,
             xPct: request.xPct,
             yPct: request.yPct,
             elementId: null,
@@ -1278,10 +1358,10 @@ export class Store {
           };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, instance_state, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId));
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null);
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -1295,6 +1375,7 @@ export class Store {
       elementName: null,
       rendering: null,
       cell: null,
+      instanceState: null,
       xPct: 0,
       yPct: 0,
       elementId,
@@ -1318,7 +1399,205 @@ export class Store {
 
   private withPerson(thread: Thread, personId: string | null): Thread {
     const person = this.getPerson(personId);
-    return person ? { ...thread, person } : thread;
+    const named = this.withOriginTitles(thread);
+    return person ? { ...named, person } : named;
+  }
+
+  /** A request's origins carry the project and page titles as they are now (stored: ids only). */
+  private withOriginTitles(thread: Thread): Thread {
+    if (!thread.request) return thread;
+    const origins = thread.request.origins.map((origin) => ({
+      ...origin,
+      projectTitle: this.getProject(origin.projectId)?.title ?? "",
+      pageTitle: this.getPage(origin.pageId)?.title ?? "",
+    }));
+    return { ...thread, request: { ...thread.request, origins } };
+  }
+
+  /** Rewrites the stored request of a thread; undefined when the thread is not a request. */
+  private updateRequest(threadId: string, change: (request: StoredRequest) => StoredRequest): Thread | undefined {
+    const row = this.db.prepare("SELECT request FROM threads WHERE id = ?").get(threadId) as { request: string | null } | undefined;
+    if (!row?.request) return undefined;
+    this.db.prepare("UPDATE threads SET request = ? WHERE id = ?").run(JSON.stringify(change(JSON.parse(row.request) as StoredRequest)), threadId);
+    const thread = this.getThread(threadId)!;
+    this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
+    return thread;
+  }
+
+  /** The request that answers `threadId`: itself, or the one it was merged into. */
+  keptRequestId(threadId: string): string {
+    return this.getThread(threadId)?.request?.mergedInto ?? threadId;
+  }
+
+  setRequestState(threadId: string, state: RequestState): Thread | undefined {
+    return this.updateRequest(threadId, (request) => ({ ...request, state }));
+  }
+
+  /** Keeps one more message an origin of a request has not received yet because its page is archived. */
+  addPendingReturn(threadId: string, originIndex: number, message: string): void {
+    this.updateRequest(threadId, (request) => ({
+      ...request,
+      origins: request.origins.map((origin, index) => (index === originIndex ? { ...origin, pendingReturns: [...(origin.pendingReturns ?? []), message] } : origin)),
+    }));
+  }
+
+  /** The origin received its waiting messages. */
+  clearPendingReturns(threadId: string, originIndex: number): void {
+    this.updateRequest(threadId, (request) => ({
+      ...request,
+      origins: request.origins.map((origin, index) => {
+        if (index !== originIndex) return origin;
+        const { pendingReturns: _delivered, ...rest } = origin;
+        return rest;
+      }),
+    }));
+  }
+
+  /** The origins, on any request, that wait for messages and sit on one of `pageIds`. */
+  pendingReturnsOn(pageIds: ReadonlySet<string>): { threadId: string; originIndex: number; origin: RequestOrigin; messages: string[] }[] {
+    const rows = this.db.prepare("SELECT id FROM threads WHERE request LIKE '%\"pendingReturns\"%'").all() as { id: string }[];
+    return rows.flatMap(({ id }) =>
+      this.getThread(id)!.request!.origins.flatMap((origin, originIndex) =>
+        origin.pendingReturns !== undefined && pageIds.has(origin.pageId) ? [{ threadId: id, originIndex, origin, messages: origin.pendingReturns }] : [],
+      ),
+    );
+  }
+
+  /**
+   * Attaches the request `threadId` to the request `into`: its origins move there and it closes (its thread is resolved).
+   * The caller checked that both are open requests for the same component.
+   */
+  mergeRequest(threadId: string, into: string): void {
+    const merged = this.getThread(threadId)?.request;
+    if (!merged) return;
+    this.updateRequest(into, (request) => ({ ...request, origins: [...request.origins, ...withoutTitles(merged.origins)] }));
+    this.updateRequest(threadId, (request) => ({ ...request, mergedInto: into }));
+    this.resolveThread(threadId);
+  }
+
+  /**
+   * Records what a design system's session changed in the version it published. A change linked to a request that is still
+   * `in_progress` turns it to `done_in_draft`; a refused or closed request keeps its state.
+   */
+  recordChanges(designSystemId: string, versionId: string, changes: ChangeRecordInput[]): ChangeRecord[] {
+    const createdAt = now();
+    const records = changes.map((change): ChangeRecord => ({
+      id: randomUUID(),
+      designSystemId,
+      component: requestComponentName(change.component),
+      label: change.label.trim(),
+      kind: change.kind,
+      state: "pending",
+      ...(change.threadId ? { threadId: change.threadId } : {}),
+      ...(change.anchor ? { anchor: change.anchor } : {}),
+      versionId,
+      createdAt,
+    }));
+    const kept: ChangeRecord[] = [];
+    this.db.transaction(() => {
+      const insert = this.db.prepare("INSERT INTO component_changes (id, design_system_id, component, label, kind, state, thread_id, anchor, version_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      for (const record of records) {
+        // A change linked to a request merged into another answers the one that stayed open.
+        const answered = record.threadId && (this.keptRequestId(record.threadId));
+        // A refusal is final. What the session publishes for a request holding refused changes of that component is the undo:
+        // those changes go away. A change for a request already refused is itself a change to undo.
+        const awaitingUndo = answered ? this.refusedChangesOf(designSystemId, answered).filter((change) => change.component === record.component) : [];
+        if (awaitingUndo.length > 0) {
+          const remove = this.db.prepare("DELETE FROM component_changes WHERE id = ?");
+          for (const change of awaitingUndo) remove.run(change.id);
+          continue;
+        }
+        const refusedRequest = !!answered && this.getThread(answered)?.request?.state === "refused";
+        if (refusedRequest) record.state = "refused";
+        insert.run(record.id, designSystemId, record.component, record.label, record.kind, record.state, record.threadId ?? null, record.anchor ? JSON.stringify(record.anchor) : null, versionId, createdAt);
+        kept.push(record);
+        if (answered && !refusedRequest) this.updateRequest(answered, (request) => (request.state === "in_progress" ? { ...request, state: "done_in_draft" } : request));
+      }
+    })();
+    return kept;
+  }
+
+  /** The refused changes, not undone yet, that answer the request `threadId` (changes linked to a merged request answer the kept one). */
+  refusedChangesOf(designSystemId: string, threadId: string): ChangeRecord[] {
+    return this.changesOf(designSystemId, threadId, "refused");
+  }
+
+  /** The pending changes that answer the request `threadId`. */
+  pendingChangesOf(designSystemId: string, threadId: string): ChangeRecord[] {
+    return this.changesOf(designSystemId, threadId, "pending");
+  }
+
+  private changesOf(designSystemId: string, threadId: string, state: ChangeState): ChangeRecord[] {
+    return this.listChanges(designSystemId).filter((change) => change.state === state && change.threadId !== undefined && this.keptRequestId(change.threadId) === threadId);
+  }
+
+  getChange(id: string): ChangeRecord | undefined {
+    const row = this.db.prepare("SELECT design_system_id AS designSystemId FROM component_changes WHERE id = ?").get(id) as { designSystemId: string } | undefined;
+    return row && this.listChanges(row.designSystemId).find((change) => change.id === id);
+  }
+
+  /** Marks pending changes refused: they stay listed ("annulation en cours") until the session's undo publish removes them. */
+  refuseChanges(ids: string[]): void {
+    const update = this.db.prepare("UPDATE component_changes SET state = 'refused' WHERE id = ? AND state = 'pending'");
+    this.db.transaction(() => ids.forEach((id) => update.run(id)))();
+  }
+
+  /** Drops change records (a refused change whose undo was recognised). */
+  deleteChanges(ids: string[]): void {
+    const remove = this.db.prepare("DELETE FROM component_changes WHERE id = ?");
+    this.db.transaction(() => ids.forEach((id) => remove.run(id)))();
+  }
+
+  /** The page a version belongs to and the version that came right before it on that page. */
+  versionContext(versionId: string): { pageId: string; previousId?: string } | undefined {
+    const row = this.db.prepare("SELECT page_id AS pageId, created_at AS createdAt, rowid FROM versions WHERE id = ?").get(versionId) as { pageId: string; createdAt: string; rowid: number } | undefined;
+    if (!row) return undefined;
+    const previous = this.db
+      .prepare("SELECT id FROM versions WHERE page_id = ? AND (created_at < ? OR (created_at = ? AND rowid < ?)) ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(row.pageId, row.createdAt, row.createdAt, row.rowid) as { id: string } | undefined;
+    return { pageId: row.pageId, ...(previous ? { previousId: previous.id } : {}) };
+  }
+
+  /** Keeps the user's answer to a refusal, to say it again when the session is asked to retry the undo. */
+  setRefusalAnswer(threadId: string, answer: string | undefined): void {
+    this.updateRequest(threadId, ({ refusalAnswer: _old, ...request }) => (answer ? { ...request, refusalAnswer: answer } : request));
+  }
+
+  /** Remembers the labels of changes refused on a request that stays open: the return at diffusion recalls them. */
+  addRefusedLabels(threadId: string, labels: string[]): void {
+    this.updateRequest(threadId, (request) => ({ ...request, refusedLabels: [...(request.refusedLabels ?? []), ...labels] }));
+  }
+
+  /** The changes recorded since the current diffusion (pending), and the refused ones not yet undone, oldest first. */
+  listChanges(designSystemId: string): ChangeRecord[] {
+    const rows = this.db
+      .prepare("SELECT id, component, label, kind, state, thread_id, anchor, version_id, created_at FROM component_changes WHERE design_system_id = ? AND state != 'diffused' ORDER BY created_at, rowid")
+      .all(designSystemId) as { id: string; component: string; label: string; kind: ChangeKind; state: ChangeState; thread_id: string | null; anchor: string | null; version_id: string; created_at: string }[];
+    return rows.map((row) => ({
+      id: row.id,
+      designSystemId,
+      component: row.component,
+      label: row.label,
+      kind: row.kind,
+      state: row.state,
+      ...(row.thread_id ? { threadId: row.thread_id } : {}),
+      ...(row.anchor ? { anchor: JSON.parse(row.anchor) as ChangeAnchor } : {}),
+      versionId: row.version_id,
+      createdAt: row.created_at,
+    }));
+  }
+
+  /** The open requests of a design system's pages, newest first. */
+  listDesignSystemRequests(designSystemId: string): DesignSystemRequestItem[] {
+    const rows = this.db
+      .prepare("SELECT id, created_at AS createdAt FROM threads WHERE request IS NOT NULL AND page_id IN (SELECT id FROM pages WHERE project_id = ?) ORDER BY created_at DESC, rowid DESC")
+      .all(designSystemId) as { id: string; createdAt: string }[];
+    return rows.flatMap(({ id, createdAt }) => {
+      const thread = this.getThread(id)!;
+      const request = thread.request!;
+      if (!requestIsOpen(request)) return [];
+      return [{ threadId: id, pageId: thread.pageId, artboard: thread.artboard, tag: instanceTagOf(request.component), title: thread.title, origin: requestOriginLabel(request.origins[0]!), createdAt }];
+    });
   }
 
   private canvasElementsById(pageId: string): Map<string, ManifestElement> {
@@ -1331,7 +1610,7 @@ export class Store {
   listHeldThreads(pageId: string): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.instance_state, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id
          FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId) as ThreadRow[];
@@ -1870,6 +2149,11 @@ export class Store {
 }
 
 /** A work item as the page lock keeps it between restarts. */
+/** A project component moved up ("Remonter"): the design system draft page that received the copy. */
+export interface MovedUpComponent {
+  designSystemId: string;
+}
+
 export interface PersistedWork {
   /** "active" ran on an agent when the server stopped; "retrying" waits for `retryAt`; "failed" waits for the user's "Relancer". */
   state: "active" | "queued" | "retrying" | "failed";
@@ -1921,7 +2205,7 @@ const pageRowDeletes = (pages: string) => [
 const BLOB_HASH_COLUMNS = [
   { table: "project_files", column: "hash", owner: "project_id" },
   { table: "design_md_versions", column: "hash", owner: "project_id" },
-  ...["tokens_hash", "components_hash", "design_md_hash", "component_list_hash", "index_hash", "component_files_hash"].map((column) => ({
+  ...["tokens_hash", "components_hash", "design_md_hash", "component_list_hash", "index_hash", "component_files_hash", "component_definitions_hash"].map((column) => ({
     table: "design_system_diffusions",
     column,
     owner: "design_system_id",
@@ -1942,7 +2226,7 @@ function toDesignSystem({ archivedAt, ...designSystem }: DesignSystemRow): Desig
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, instance_state, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -1953,6 +2237,7 @@ interface ThreadRow {
   element_name: string | null;
   rendering: string | null;
   cell: string | null;
+  instance_state: string | null;
   target_kind: ThreadTarget["kind"];
   element_id: string | null;
   element_kind: ManifestElementKind | null;
@@ -1965,6 +2250,8 @@ interface ThreadRow {
   context: string | null;
   new_session: "summarizing" | "ready" | null;
   person_id: string | null;
+  automatic: number;
+  request: string | null;
 }
 
 function targetOf(row: ThreadRow): ThreadTarget {
@@ -1984,6 +2271,7 @@ function targetOf(row: ThreadRow): ThreadTarget {
     yPct: row.y_pct,
     ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
     ...(row.cell ? { cell: JSON.parse(row.cell) as TweakValues } : {}),
+    ...(row.instance_state ? { instanceState: JSON.parse(row.instance_state) as InstanceState[] } : {}),
   };
 }
 
@@ -2008,6 +2296,7 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     elementName: row.element_name,
     ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
     ...(row.cell ? { cell: JSON.parse(row.cell) as TweakValues } : {}),
+    ...(row.instance_state ? { instanceState: JSON.parse(row.instance_state) as InstanceState[] } : {}),
     xPct: row.x_pct,
     yPct: row.y_pct,
     title: row.title,
@@ -2016,6 +2305,8 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     replies,
     ...(row.context ? { context: JSON.parse(row.context) as ThreadContext } : {}),
     ...(row.new_session ? { newSession: row.new_session } : {}),
+    ...(row.automatic ? { automatic: true as const } : {}),
+    ...(row.request ? { request: JSON.parse(row.request) as ThreadRequest } : {}),
   };
 }
 
@@ -2045,6 +2336,13 @@ interface RawManifest {
   artboards?: ({ file: string } & Record<string, unknown>)[];
   elements?: Record<string, unknown>[];
   [key: string]: unknown;
+}
+
+const withoutTitles = (origins: RequestOrigin[]): StoredRequest["origins"] => origins.map(({ projectTitle: _project, pageTitle: _page, ...ids }) => ids);
+
+/** A request as stored: the origins keep ids only, their titles are read with the thread. */
+export interface StoredRequest extends Omit<ThreadRequest, "origins"> {
+  origins: Omit<RequestOrigin, "projectTitle" | "pageTitle">[];
 }
 
 export interface OriginRef {

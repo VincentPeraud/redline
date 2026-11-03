@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
-import type { ArtboardGuides as Guides, Thread, TweakValues } from "@redline/shared";
+import type { ArtboardGuides as Guides, InstanceState, Thread, TweakValues } from "@redline/shared";
 import { ArtboardErrorsContext } from "./ArtboardErrors.js";
 import { ArtboardGuides } from "./ArtboardGuides.js";
 import { SeenGapContext } from "./GapsReport.js";
+import { ReplayRequestContext, ReportMissingInstanceElementsContext, ReportUnavailableStatesContext } from "./InstanceThreads.js";
 import { threadWhere } from "./threadLabel.js";
 import { cx } from "./ui/index.js";
 import styles from "./ArtboardFrame.module.css";
@@ -13,6 +14,8 @@ export interface Pick {
   elementName?: string;
   xPct: number;
   yPct: number;
+  /** Component instances that were in a state of their own when the pick was made. */
+  instanceState?: InstanceState[];
 }
 
 interface ForwardedWheel {
@@ -33,6 +36,12 @@ interface PinPosition {
   xPct: number;
   yPct: number;
   matched: boolean;
+  /** The element inside a component instance is gone: the pin sits on the instance. */
+  elementGone?: boolean;
+  /** The thread's remembered instance state does not hold now: the pin waits hidden until it is replayed. */
+  hidden?: boolean;
+  /** Indexes of the thread's remembered states that can no longer be replayed. */
+  missingState?: number[];
 }
 
 interface Props {
@@ -87,6 +96,13 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
   const reportErrors = useContext(ArtboardErrorsContext);
   const reportErrorsRef = useRef(reportErrors);
   reportErrorsRef.current = reportErrors;
+  const reportMissing = useContext(ReportMissingInstanceElementsContext);
+  const reportMissingRef = useRef(reportMissing);
+  reportMissingRef.current = reportMissing;
+  const reportUnavailable = useContext(ReportUnavailableStatesContext);
+  const reportUnavailableRef = useRef(reportUnavailable);
+  reportUnavailableRef.current = reportUnavailable;
+  const replay = useContext(ReplayRequestContext);
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -95,7 +111,12 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
       if (data.type === "redline:ready") setBridgeEpoch((n) => n + 1);
       else if (data.type === "redline:picked") onPickRef.current(data as Pick);
       else if (data.type === "redline:escape") onEscapeRef.current?.();
-      else if (data.type === "redline:pin-positions") setPositions(data.positions ?? []);
+      else if (data.type === "redline:pin-positions") {
+        const reported = data.positions ?? [];
+        setPositions(reported);
+        reportMissingRef.current(frameId, reported.filter((p) => p.elementGone).map((p) => p.id));
+        reportUnavailableRef.current(frameId, Object.fromEntries(reported.flatMap((p) => (p.missingState ? [[p.id, p.missingState]] : []))));
+      }
       else if (data.type === "redline:doc-height") onDocHeightRef.current?.((data as unknown as { height: number }).height);
       else if (data.type === "redline:errors") reportErrorsRef.current(frameId, (data as unknown as { errors: string[] }).errors);
       else if (data.type === "redline:gap-rect") onRectRef.current(data as unknown as { x: number; y: number; width: number; height: number });
@@ -126,6 +147,8 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
     return () => {
       window.removeEventListener("message", onMessage);
       reportErrorsRef.current(frameId, []);
+      reportMissingRef.current(frameId, []);
+      reportUnavailableRef.current(frameId, {});
     };
   }, [frameId]);
 
@@ -152,13 +175,20 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seenHere?.selector, seenHere?.nonce, bridgeEpoch]);
 
-  const pinsKey = JSON.stringify(pinned.map((t) => [t.id, t.selector, t.xPct, t.yPct]));
+  const pinsKey = JSON.stringify(pinned.map((t) => [t.id, t.selector, t.xPct, t.yPct, t.instanceState]));
   useEffect(() => {
     if (bridgeEpoch === 0) return;
-    const pins = pinned.map((t) => ({ id: t.id, selector: t.selector, xPct: t.xPct, yPct: t.yPct }));
+    const pins = pinned.map((t) => ({ id: t.id, selector: t.selector, xPct: t.xPct, yPct: t.yPct, instanceState: t.instanceState }));
     frame.current?.contentWindow?.postMessage({ type: "redline:set-pins", pins }, "*");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinsKey, bridgeEpoch]);
+
+  // A click on a thread card: the instances of this artboard take the state the thread was written in.
+  useEffect(() => {
+    if (bridgeEpoch === 0 || !replay || !pinned.some((t) => t.id === replay.threadId && t.instanceState)) return;
+    frame.current?.contentWindow?.postMessage({ type: "redline:replay-state", id: replay.threadId }, "*");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replay, bridgeEpoch]);
 
   return (
     <div className={styles.frame} style={{ width, height }}>
@@ -167,7 +197,10 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
         {guides && <ArtboardGuides guides={guides} />}
       </div>
       {pinned.map((thread) => {
-        const position = positions.find((p) => p.id === thread.id) ?? thread;
+        const reported = positions.find((p) => p.id === thread.id);
+        // A pin remembering an instance state waits for the bridge: it never points at an element that is not on screen.
+        if (thread.instanceState && (!reported || reported.hidden)) return null;
+        const position = reported ?? thread;
         return (
           <button
             type="button"

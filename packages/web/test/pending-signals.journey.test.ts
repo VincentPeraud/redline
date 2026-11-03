@@ -85,8 +85,28 @@ it("signals what Claude left undiffused: the card under its answer, the pill on 
   // The Design systems screen.
   const screen = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await screen.goto(`${seam.server.url}/#/design-systems`);
-  await expect.poll(() => screen.getByTestId("pending-pill").allTextContents()).toEqual(["non diffusé"]);
+  await expect.poll(() => screen.getByTestId("pending-pill").allTextContents()).toEqual(["non diffusé · 3 changements"]);
   expect(await cardTexts(screen)).toHaveLength(1);
+
+  // The sidebar badge and the home subtitle give the same alert.
+  expect(await screen.getByTestId("sidebar-to-diffuse").textContent()).toBe("1");
+  await screen.goto(`${seam.server.url}/#/`);
+  await expect.poll(() => screen.getByTestId("home-to-diffuse").textContent()).toBe("1 design system à diffuser");
+  expect(await screen.getByTestId("home-design-systems").getByTestId("pending-pill").textContent()).toBe("non diffusé · 3 changements");
+  expect(await screen.getByTestId("sidebar-to-diffuse").textContent()).toBe("1");
+
+  // "Relire et diffuser" opens the review.
+  await screen.goto(`${seam.server.url}/#/design-systems`);
+  // Valid HTML: the card's link does not contain the button.
+  expect(await screen.locator("a button, a a").count()).toBe(0);
+  if (process.env.REDLINE_CAPTURES) await screen.getByTestId("design-system").first().screenshot({ path: join(process.env.REDLINE_CAPTURES, "fix-alerts-list-app-card.png") });
+  await screen.getByTestId("review-and-diffuse").click();
+  await screen.getByRole("dialog").waitFor();
+  expect(screen.url()).toContain("/#/design-systems/");
+  await screen.getByRole("dialog").getByRole("button", { name: "Annuler" }).click();
+  await screen.getByRole("dialog").waitFor({ state: "detached" });
+  await screen.goto(`${seam.server.url}/#/design-systems`);
+  await expect.poll(() => screen.getByTestId("pending-pill").count()).toBe(1);
 
   // Diffusing clears all three signals.
   await card.getByRole("button", { name: "Diffuser…" }).click();

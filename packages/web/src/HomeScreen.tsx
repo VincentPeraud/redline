@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { SESSIONS_PATH, type DesignSystemSummary, type HomeProject, type SessionRow } from "@redline/shared";
+import { PendingPill, RequestsPill } from "./DesignSystemAlerts.js";
 import { DesignSystemThumbnail } from "./HomeThumbnails.js";
 import { ProjectPreview } from "./ProjectPreview.js";
 import { relativeTime } from "./relativeTime.js";
@@ -68,6 +69,14 @@ export function HomeScreen() {
           <span data-testid="home-summary">
             {plural(home.projectCount, "projet", "projets")} · {plural(running, "session en cours", "sessions en cours")} ·{" "}
             {plural(home.waitingThreads, "fil en attente", "fils en attente")}
+            {home.designSystemsToDiffuse > 0 && (
+              <>
+                {" · "}
+                <a data-testid="home-to-diffuse" href={routeHref({ name: "designSystems" })}>
+                  {plural(home.designSystemsToDiffuse, "design system", "design systems")} à diffuser
+                </a>
+              </>
+            )}
           </span>
         }
       />
@@ -135,6 +144,12 @@ export function HomeScreen() {
                 <span className={styles.cardMeta}>
                   {ds.usedBy.length === 0 ? "Utilisé par aucun projet" : `Utilisé par ${plural(ds.usedBy.length, "projet", "projets")}`}
                 </span>
+                {ds.pendingChanges > 0 && (
+                  <span className={styles.dsPills}>
+                    <PendingPill changes={ds.pendingChanges} />
+                    {ds.requests > 0 && <RequestsPill count={ds.requests} />}
+                  </span>
+                )}
               </span>
             </a>
           ))}

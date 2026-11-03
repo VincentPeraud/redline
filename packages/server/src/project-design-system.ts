@@ -4,7 +4,6 @@ import {
   CORE_TOKENS,
   DESIGN_SYSTEM_TOKENS_PATH,
   MANIFEST_PATH,
-  manifestWithoutArtboard,
   NEUTRAL_TOKENS_PAGE_HTML,
   PROJECT_STYLE_PATH,
   componentNameOf,
@@ -18,6 +17,7 @@ import {
   type ManifestArtboard,
   type ManifestTitleElement,
   type ManifestTweak,
+  type MoveUpComponentRequest,
   type ProjectComponentInfo,
   type ProjectDesignSystem,
   type ProjectStyleToken,
@@ -25,8 +25,10 @@ import {
   type SetProjectTokenRequest,
   type SetProjectDesignSystemRequest,
 } from "@redline/shared";
-import { componentFilesOf, projectComponents } from "./components.js";
+import { componentFilesOf, currentDefinitions, instanceNamesByPage, projectComponents } from "./components.js";
+import { assetsUsedBy, moveUpComponent, removeComponentCopies, useDesignSystemComponent } from "./move-up.js";
 import { personRef, editorAuthor } from "./identity.js";
+import { excludedComponents, switchDesignSystem, switchPreview } from "./switch-design-system.js";
 import type { OriginRef, Store } from "./store.js";
 import { titleError } from "./validation.js";
 
@@ -61,11 +63,20 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
     };
   });
 
-  const diffusedComponents = new Set(
-    (shared && diffusion ? store.diffusionComponents(shared.id, diffusion.number) : []).map((c) => c.name),
-  );
+  const usesByPage = instanceNamesByPage(store, projectId);
+  const sharedNames = new Set(currentDefinitions(store, sharedId).map((d) => d.name));
+  const moved = store.movedUpComponents(projectId);
   const components = projectComponents(store, projectId).components.map(
-    (c): ProjectComponentInfo => ({ name: c.name, file: c.file, page: c.page, status: diffusedComponents.has(c.name) ? "override" : "new" }),
+    (c): ProjectComponentInfo => ({
+      name: c.name,
+      file: c.file,
+      page: c.page,
+      instances: usesByPage.reduce((sum, names) => sum + names.filter((name) => name === c.name).length, 0),
+      pages: usesByPage.filter((names) => names.includes(c.name)).length,
+      inDesignSystem: sharedNames.has(c.name),
+      ...(sharedId !== undefined && sharedNames.has(c.name) ? { diffusedSince: diffusedSince(store, sharedId, c.name) } : {}),
+      movedUp: sharedId !== undefined && moved[c.name]?.designSystemId === sharedId,
+    }),
   );
 
   const last = store.listDesignMdVersions(projectId, PROJECT_STYLE_PATH)[0];
@@ -75,14 +86,27 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
     tokens,
     styleDefinesTokens: styleDefinesTokens(store.readProjectText(projectId, PROJECT_STYLE_PATH)),
     components,
+    designSystemPages: shared ? store.listPages(shared.id).map((page) => ({ id: page.id, title: page.title })) : [],
+    excluded: excludedComponents(store, projectId),
     overrideCount: tokens.filter((t) => t.status === "overridden").length,
     lastModified: last ? { createdAt: last.createdAt, origin: last.origin, ...(last.originId ? { originId: last.originId } : {}), ...(last.originLabel ? { originLabel: last.originLabel } : {}), ...(last.person ? { person: last.person } : {}) } : null,
   };
 }
 
+/** The first diffusion of the unbroken run, up to the current one, that has a component of this name. */
+function diffusedSince(store: Store, designSystemId: string, name: string): number {
+  const current = store.currentDiffusion(designSystemId)!;
+  let since = current.number;
+  for (const diffusion of store.listDiffusions(designSystemId)) {
+    if (diffusion.number >= current.number || diffusion.undone) continue;
+    if (!Object.keys(store.diffusionComponentFiles(designSystemId, diffusion.number)).some((path) => componentNameOf(path) === name)) break;
+    since = diffusion.number;
+  }
+  return since;
+}
+
 const PREVIEW_ARTBOARD = { file: "index.html", x: 0, y: 0, width: 280, height: 200 };
 const PAGE_GAP = 100;
-const ASSET_REFERENCE = /\bassets\/([A-Za-z0-9._\/-]+)/g;
 
 /**
  * The manifest of a design system made from a project's components: each component keeps its artboard entry, its tweaks (the variants)
@@ -114,18 +138,6 @@ function promotedManifest(store: Store, projectId: string): { artboards: Manifes
   return { artboards, elements, tweaks };
 }
 
-/** Project assets the given component files reference, by asset name. */
-function assetsUsedBy(store: Store, projectId: string, components: Record<string, string>): Record<string, Buffer> {
-  const assets: Record<string, Buffer> = {};
-  for (const content of Object.values(components)) {
-    for (const [, name] of content.matchAll(ASSET_REFERENCE)) {
-      const asset = store.readProjectFile(projectId, `${ASSETS_DIR}/${name}`);
-      if (asset) assets[name] = asset;
-    }
-  }
-  return assets;
-}
-
 /** Error message when `designSystem` is not a valid change for the project (shared by `/api` and `/agent-api`), else null. */
 export function designSystemChangeError(store: Store, designSystem: unknown): string | null {
   if (designSystem !== null && (typeof designSystem !== "string" || !store.getDesignSystem(designSystem))) {
@@ -133,24 +145,6 @@ export function designSystemChangeError(store: Store, designSystem: unknown): st
   }
   if (designSystem !== null && store.isArchived(designSystem)) return "This design system is archived: choose another one.";
   return null;
-}
-
-/** After a promotion the design system is the only source of the components: remove the project's copies from its pages, one user version per page. */
-function removeComponentCopies(store: Store, projectId: string, ref?: OriginRef): void {
-  for (const page of store.listPages(projectId, "active")) {
-    const files = store.readPageFiles(page.id)?.files ?? {};
-    const removed = Object.keys(files).filter((path) => componentNameOf(path) !== null);
-    if (removed.length === 0) continue;
-    const kept = Object.fromEntries(Object.entries(files).filter(([path]) => !removed.includes(path)));
-    if (kept[MANIFEST_PATH] !== undefined) {
-      let manifest = JSON.parse(kept[MANIFEST_PATH]) as { artboards?: { file: string }[]; elements?: Record<string, unknown>[]; tweaks?: { artboard?: string }[]; links?: { from: string; to: string }[] };
-      for (const file of removed) manifest = manifestWithoutArtboard(manifest, file);
-      if (manifest.tweaks) manifest.tweaks = manifest.tweaks.filter((t) => t.artboard === undefined || !removed.includes(t.artboard));
-      if (manifest.links) manifest.links = manifest.links.filter((l) => !removed.includes(l.from) && !removed.includes(l.to));
-      kept[MANIFEST_PATH] = `${JSON.stringify(manifest, null, 2)}\n`;
-    }
-    store.addVersion(page.id, kept, "Components moved to the design system", "user", ref);
-  }
 }
 
 export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: Store): void {
@@ -169,7 +163,46 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     const designSystem = req.body?.designSystem ?? null;
     const invalid = designSystemChangeError(store, designSystem);
     if (invalid) return reply.code(400).send({ error: invalid });
-    store.setProjectDesignSystem(projectId, designSystem, "user", req.person);
+    switchDesignSystem(store, projectId, designSystem, "user", req.person, req.body?.ticked);
+    return projectDesignSystem(store, projectId);
+  });
+
+  // The switch dialog: the design system components the pages use, compared with the target's current diffusion.
+  app.get<{ Params: { projectId: string }; Querystring: { to?: string } }>("/api/projects/:projectId/design-system/switch", async (req, reply) => {
+    const { projectId } = req.params;
+    if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
+    const invalid = designSystemChangeError(store, req.query.to ?? null);
+    if (invalid || !req.query.to) return reply.code(400).send({ error: invalid ?? "to is required" });
+    return switchPreview(store, projectId, req.query.to);
+  });
+
+  // Takes a component left out at a switch: its instances render from the design system again.
+  app.post<{ Params: { projectId: string; name: string } }>("/api/projects/:projectId/design-system/components/:name/take", async (req, reply) => {
+    const { projectId, name } = req.params;
+    if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
+    const left = excludedComponents(store, projectId).find((c) => c.name === name);
+    if (!left) return reply.code(404).send({ error: "this component was not left out" });
+    if (!left.available) return reply.code(400).send({ error: `${left.from} has no component named ${name}` });
+    const { [name]: _taken, ...rest } = store.excludedComponents(projectId);
+    store.setExcludedComponents(projectId, rest);
+    return projectDesignSystem(store, projectId);
+  });
+
+  // "Remonter au design system": copies the component into a page of the design system's draft.
+  app.post<{ Params: { projectId: string; name: string }; Body: MoveUpComponentRequest }>("/api/projects/:projectId/design-system/components/:name/move-up", async (req, reply) => {
+    const { projectId, name } = req.params;
+    if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
+    const result = moveUpComponent(store, projectId, name, req.body?.pageId, personRef(req));
+    if (!result.ok) return reply.code(result.status).send({ error: result.error });
+    return projectDesignSystem(store, projectId);
+  });
+
+  // "Passer à celui du design system": deletes the project's component whose name the design system diffuses.
+  app.post<{ Params: { projectId: string; name: string } }>("/api/projects/:projectId/design-system/components/:name/use-design-system", async (req, reply) => {
+    const { projectId, name } = req.params;
+    if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
+    const result = useDesignSystemComponent(store, projectId, name, personRef(req));
+    if (!result.ok) return reply.code(result.status).send({ error: result.error });
     return projectDesignSystem(store, projectId);
   });
 
@@ -191,7 +224,7 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     });
     for (const [name, asset] of Object.entries(assetsUsedBy(store, projectId, components))) store.setProjectFile(designSystem.id, `${ASSETS_DIR}/${name}`, asset);
     save(req, projectId, "");
-    store.setProjectDesignSystem(projectId, designSystem.id, "user", req.person);
+    switchDesignSystem(store, projectId, designSystem.id, "user", req.person);
     removeComponentCopies(store, projectId, personRef(req));
     return reply.code(201).send(designSystem);
   });

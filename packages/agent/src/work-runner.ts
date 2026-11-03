@@ -1,4 +1,4 @@
-import { MANIFEST_PATH, defaultManifest, parseManifest, type AgentWorkMessage, type EngineEvent, type WorkItem } from "@redline/shared";
+import { MANIFEST_PATH, defaultManifest, parseManifest, type AgentWorkMessage, type ChangeRecordInput, type EngineEvent, type WorkItem } from "@redline/shared";
 import type { ArtboardChanges, ReportActivity } from "./activity.js";
 import { uploadChangedAssets } from "./assets.js";
 import type { Engine } from "./engine.js";
@@ -88,6 +88,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send, r
     // Replies are held back until the run succeeded: a retried run must not leave the first attempt's answers in the threads.
     const replies = new Map<string, string[]>();
     let removalsConfirmed = false;
+    const changes: ChangeRecordInput[] = [];
     const mcp = await startSessionMcp({
       api,
       allowedThreadIds: item.threads.map((t) => t.threadId),
@@ -95,6 +96,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send, r
       workingCopyDir: dir,
       workId: item.id,
       onRemovalsConfirmed: () => void (removalsConfirmed = true),
+      onChangeRecorded: (change) => void changes.push(change),
       // The page changed under the run: what it publishes is measured against the page as it is now.
       afterArtboardMoved: async () => void (checkout = await api.checkout(item.pageId)),
       postReply: async (threadId, text) => void replies.set(threadId, [...(replies.get(threadId) ?? []), text]),
@@ -145,6 +147,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send, r
     const version = await api.publish(item.pageId, files, versionMessage(item, result.summary), item.kind === "conversation" ? "conversation" : "thread", checkout.versionId, {
       workId: item.id,
       ...(removalsConfirmed ? { confirmRemovals: true } : {}),
+      ...(changes.length ? { changes } : {}),
       ...(designMdChanged ? { designMd: { content: designMd, base: checkout.project.designMd } } : {}),
       ...(projectStyleChanged && baseStyle !== undefined ? { projectStyle: { content: projectStyle, base: baseStyle } } : {}),
     });

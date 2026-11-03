@@ -1,4 +1,4 @@
-import type { ProjectDesignSystem } from "@redline/shared";
+import type { ProjectDesignSystem, SwitchComponent } from "@redline/shared";
 
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
@@ -26,4 +26,14 @@ export function previewSwatches(detail: ProjectDesignSystem): PreviewSwatch[] {
     const token = detail.tokens.find((t) => t.name === name);
     return token?.isColor ? [{ value: token.value, overridden: token.status === "overridden", bordered: isWhite(token.value) }] : [];
   });
+}
+
+/** The match pill of the switch dialog: same settings, what differs, or absent from the target design system. */
+export function switchMatchLabel(component: SwitchComponent, targetTitle: string): string {
+  if (component.match === "same") return "même nom, mêmes réglages";
+  if (component.match === "absent") return `absent de ${targetTitle}`;
+  const { difference } = component;
+  if (difference?.kind === "value") return `même nom, variante ${difference.value} absente`;
+  if (difference?.kind === "setting") return `même nom, réglage ${difference.name} absent`;
+  return "même nom, réglages différents";
 }

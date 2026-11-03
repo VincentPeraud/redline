@@ -77,6 +77,12 @@ describe("assembleComponents", () => {
     expect(indexes.p2).toBe("- badge\n  variants: tone (Tone: ok, warn)\n");
   });
 
+  it("tells how to write an instance of a component that has a template, with its slots", () => {
+    const html = component(".card{}", '<template data-component><div class="card"><h2><slot name="title"></slot></h2><slot></slot></div></template>');
+    const { indexes } = assembleComponents([{ id: "p", title: "P", files: { "manifest.json": manifest([board("components/card.html", 0)], { tweaks: [{ id: "tone", label: "Tone", type: "choice", options: ["a", "b"], artboard: "components/card.html" }] }), "components/card.html": html } }]);
+    expect(indexes.p).toBe("- card\n  instance: <ui-card>, slots: title, default\n  variants: tone (Tone: a, b)\n");
+  });
+
   it("reports a name used twice, naming both files", () => {
     const dup: ComponentPage[] = [
       { id: "p1", title: "Forms", files: { "manifest.json": manifest([board("components/button.html", 0)]), "components/button.html": component("a{}") } },
@@ -100,5 +106,42 @@ describe("component classes", () => {
   it("reads the class names of class attributes", () => {
     const html = `<button class="btn  btn-primary" data-x='1'>a</button><a class='link'>b</a><p classname="no">c</p>`;
     expect([...classesUsedIn(html)].sort()).toEqual(["btn", "btn-primary", "link"]);
+  });
+});
+
+describe("component definitions", () => {
+  const file = (body: string) => `<!doctype html><html><head><style data-component>.m{}</style></head><body>${body}</body></html>`;
+  const pageWith = (html: string, tweaks: object[] = []): ComponentPage[] => [
+    { id: "p", title: "P", files: { "manifest.json": manifest([board("components/modal.html", 0)], { tweaks }), "components/modal.html": html } },
+  ];
+
+  it("gives a component with a template its tag, template, slots, settings and contained components", () => {
+    const html = file(
+      `<template data-component><div><h2><slot name="title"></slot></h2><slot></slot><footer><ui-button><slot name="actions"></slot></ui-button></footer></div></template>` +
+        `<script data-component>host.dataset.ready = "1";</script>`,
+    );
+    const tweaks = [
+      { id: "size", type: "choice", label: "Size", options: ["sm", "md"], default: "md", artboard: "components/modal.html" },
+      { id: "closable", type: "toggle", label: "Closable", artboard: "components/modal.html" },
+      { id: "other", type: "toggle", label: "Elsewhere", artboard: "components/other.html" },
+    ];
+    expect(assembleComponents(pageWith(html, tweaks)).definitions).toEqual([
+      {
+        name: "modal",
+        tag: "ui-modal",
+        template: `<div><h2><slot name="title"></slot></h2><slot></slot><footer><ui-button><slot name="actions"></slot></ui-button></footer></div>`,
+        slots: ["title", "", "actions"],
+        settings: [
+          { name: "size", type: "choice", options: ["sm", "md"], default: "md" },
+          { name: "closable", type: "toggle", default: false },
+        ],
+        script: 'host.dataset.ready = "1";',
+        contains: ["button"],
+      },
+    ]);
+  });
+
+  it("gives no definition to a component without a template", () => {
+    expect(assembleComponents(pageWith(file(""))).definitions).toEqual([]);
   });
 });

@@ -4,6 +4,7 @@ import "./styles/global.css";
 import { AgentsScreen } from "./AgentsScreen";
 import { AgentUpdateBanner, useOutdatedAgentNames } from "./AgentUpdateBanner.js";
 import { App } from "./App";
+import { BeforeAfterScreen } from "./BeforeAfterScreen";
 import { DesignSystemOverview } from "./DesignSystemOverview";
 import { ArchivedDesignSystemsScreen, DesignSystemsScreen } from "./DesignSystemsScreen";
 import { DesignMdScreen } from "./DesignMdScreen";
@@ -77,7 +78,9 @@ function RouteScreen({ route }: { route: Route }) {
     case "designSystems":
       return <Shell><DesignSystemsScreen /></Shell>;
     case "designSystem":
-      return <DesignSystemOverview key={route.designSystemId} designSystemId={route.designSystemId} viaProjectId={route.viaProjectId} />;
+      return <DesignSystemOverview key={route.designSystemId} designSystemId={route.designSystemId} viaProjectId={route.viaProjectId} review={route.review} />;
+    case "beforeAfter":
+      return <BeforeAfterScreen key={`${route.designSystemId}/${route.component}`} designSystemId={route.designSystemId} component={route.component} />;
     case "projects":
       return <Shell><ProjectsScreen /></Shell>;
     case "archivedProjects":

@@ -55,8 +55,10 @@ export interface DesignSystemSummary extends DesignSystem {
   usedBy: ProjectUsingDesignSystem[];
   /** Time of the last version of the design system's page. */
   updatedAt?: string;
-  /** Changes of the draft not yet diffused (`DiffusionDiff.count`); 0 = nothing pending. */
+  /** Lines of the review before diffusing (tokens, DESIGN.md, one per recorded or undescribed component change); 0 = nothing pending. */
   pendingChanges: number;
+  /** Open requests of the projects. */
+  requests: number;
   pageCount: number;
   /** Components of the draft (the pages as they are now). */
   componentCount: number;

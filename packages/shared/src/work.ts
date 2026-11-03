@@ -107,7 +107,8 @@ export const newSessionPath = (threadId: string) => `/api/threads/${threadId}/ne
 
 export interface ThreadReply {
   id: string;
-  author: "claude" | "user";
+  /** "redline": a message Redline itself wrote (for example after a diffusion); no person wrote it. */
+  author: "claude" | "user" | "redline";
   /** The signed-in person who wrote a user message; absent for Claude's answers, messages from before the SSO and without SSO. */
   person?: Person;
   body: string;
