@@ -7,6 +7,7 @@ import { ArchiveFooter, ArchivedBanner, DeleteSection } from "./ArchiveControls.
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { navigateTo, routeHref } from "./router.js";
+import { relativeTime } from "./relativeTime.js";
 import { Button, Dialog, DialogActions, Logo, cx } from "./ui/index.js";
 import styles from "./DesignSystemOverview.module.css";
 import { useDocumentTitle } from "./documentTitle.js";
@@ -232,6 +233,25 @@ export function DesignSystemOverview({ designSystemId, viaProjectId }: { designS
                 Diffuser…
               </button>
             </div>
+          )}
+
+          {!readOnly && detail.requests.length > 0 && (
+            <section data-testid="ds-requests" className={styles.section}>
+              <div className={styles.sectionHeading}>
+                <h2 className={styles.sectionTitle}>Demandes des projets · {detail.requests.length}</h2>
+                <span className={styles.sectionNote}>Variantes ou changements demandés depuis les maquettes des projets. Chaque demande est un fil sur le composant.</span>
+              </div>
+              <div className={styles.requests}>
+                {detail.requests.map((request) => (
+                  <a key={request.threadId} href={routeHref({ name: "page", pageId: request.pageId, artboard: request.artboard, viaProjectId })} data-testid="ds-request" className={styles.requestRow}>
+                    <span className={styles.requestTag}>{request.tag}</span>
+                    <span className={styles.requestTitle}>{request.title}</span>
+                    <span className={styles.requestOrigin}>{request.origin}</span>
+                    <span className={styles.requestTime}>{relativeTime(request.createdAt)}</span>
+                  </a>
+                ))}
+              </div>
+            </section>
           )}
 
           <section className={styles.section}>

@@ -288,6 +288,7 @@ export async function buildMainApp(
       current,
       overrides,
       pending,
+      requests: store.listDesignSystemRequests(designSystem.id),
     };
   });
 
@@ -539,6 +540,8 @@ export async function buildMainApp(
 
   // The only way to resolve a thread: a user action of the web UI. Agents get no such route.
   app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/resolve", async (req, reply) => {
+    // A request closes by a diffusion or a refusal, never by "Résoudre".
+    if (store.getThread(req.params.threadId)?.request) return reply.code(409).send({ error: "a request to the design system cannot be resolved" });
     const thread = store.resolveThread(req.params.threadId);
     return thread ?? reply.code(404).send({ error: "thread not found" });
   });

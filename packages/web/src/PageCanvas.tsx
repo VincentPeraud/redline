@@ -19,6 +19,7 @@ import {
   type CreateThreadRequest,
   type Gap,
   canvasElementSummary,
+  requestIsOpen,
   threadTargetLabel,
   type Manifest,
   type ManifestElementKind,
@@ -283,6 +284,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const gapReport = allGaps && { ...allGaps, gaps: allGaps.gaps.filter((gap) => !viewSettings.gapExceptions.includes(gap.key)) };
   const gapExceptionCount = allGaps ? allGaps.gaps.length - gapReport!.gaps.length : 0;
   const gapsOf = (file: string) => (gapReport?.gaps ?? []).filter((gap) => gap.file === file).length;
+  /** Requests to the design system still open on a component's artboard (threads of this page, so the design system's own page). */
+  const openRequestsOn = (file: string) => threads.filter((thread) => thread.request && requestIsOpen(thread.request) && thread.artboard === file).length;
   const [renderingsMenuOpen, setRenderingsMenuOpen] = useState(false);
   const [view, setView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
   /** Frame request of the running glide, stopped as soon as the user pans or zooms. */
@@ -945,6 +948,11 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                     {componentChange(artboard.file) && (
                       <span data-testid="component-change" className={cx(styles.changePill, componentChange(artboard.file) === "nouveau" ? styles.newPill : styles.modifiedPill)}>
                         {componentChange(artboard.file)}
+                      </span>
+                    )}
+                    {openRequestsOn(artboard.file) > 0 && (
+                      <span data-testid="artboard-requests" className={cx(styles.changePill, styles.requestsPill)}>
+                        {counted(openRequestsOn(artboard.file), "demande", "demandes")}
                       </span>
                     )}
                     {gapsOf(artboard.file) > 0 && (

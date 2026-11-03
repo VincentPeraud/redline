@@ -178,6 +178,13 @@
   color: var(--color-danger-text);
 }
 
+.requestsPill {
+  border: 1px solid var(--color-warning-border);
+  background: var(--color-warning-soft-bg);
+  color: var(--color-warning-text);
+  font-weight: var(--font-weight-semibold);
+}
+
 .tallerPill {
   border: 1px solid var(--color-border);
   background: var(--color-surface-muted);
