@@ -152,6 +152,7 @@ function pageComponents(page: ComponentPage): ComponentInfo[] {
     const name = componentNameOf(file);
     const html = page.files[file];
     if (name === null || html === undefined) return [];
+    const variants = manifest.tweaks.filter((tweak) => tweak.artboard === file);
     return [
       {
         name,
@@ -160,8 +161,8 @@ function pageComponents(page: ComponentPage): ComponentInfo[] {
         groupTitle,
         description: descriptionOf(html),
         usage: usageOf(html),
-        variants: manifest.tweaks.filter((tweak) => tweak.artboard === file),
-        hash: hashOf(html),
+        variants,
+        hash: hashOf(variants.length > 0 ? `${html}\n${JSON.stringify(variants)}` : html),
       },
     ];
   });
