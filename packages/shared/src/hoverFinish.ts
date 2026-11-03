@@ -49,3 +49,24 @@ export function markBadgeCss(): string {
 
 /** Outline of the element a design system gap points at ("Voir", board DsAudit); the caller adds position, size and border-radius. */
 export const GAP_OUTLINE_CSS = "outline: 2px dashed #EA580C; outline-offset: 3px";
+
+/**
+ * Outline and label of the component instance around the hovered element (board "InstComments"): dashed, in the dark
+ * chrome colour, so it reads apart from the red outline of the element itself.
+ */
+export const INSTANCE_FINISH = {
+  color: "#27272a",
+  outlineWidth: 2,
+  outlineOffset: 2,
+} as const;
+
+/** Style of the instance outline; the caller adds position, size and border-radius. */
+export function instanceOutlineCss(): string {
+  const f = INSTANCE_FINISH;
+  return `outline: ${f.outlineWidth}px dashed ${f.color}; outline-offset: ${f.outlineOffset}px`;
+}
+
+/** Style of the instance label ("ui-modal · confirm"); the caller adds the position. */
+export function instanceLabelCss(): string {
+  return `${hoverLabelCss()}; background: ${INSTANCE_FINISH.color}`;
+}

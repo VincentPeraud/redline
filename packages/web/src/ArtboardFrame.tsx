@@ -3,6 +3,7 @@ import type { ArtboardGuides as Guides, Thread, TweakValues } from "@redline/sha
 import { ArtboardErrorsContext } from "./ArtboardErrors.js";
 import { ArtboardGuides } from "./ArtboardGuides.js";
 import { SeenGapContext } from "./GapsReport.js";
+import { ReportMissingInstanceElementsContext } from "./InstanceThreads.js";
 import { threadWhere } from "./threadLabel.js";
 import { cx } from "./ui/index.js";
 import styles from "./ArtboardFrame.module.css";
@@ -33,6 +34,8 @@ interface PinPosition {
   xPct: number;
   yPct: number;
   matched: boolean;
+  /** The element inside a component instance is gone: the pin sits on the instance. */
+  elementGone?: boolean;
 }
 
 interface Props {
@@ -87,6 +90,9 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
   const reportErrors = useContext(ArtboardErrorsContext);
   const reportErrorsRef = useRef(reportErrors);
   reportErrorsRef.current = reportErrors;
+  const reportMissing = useContext(ReportMissingInstanceElementsContext);
+  const reportMissingRef = useRef(reportMissing);
+  reportMissingRef.current = reportMissing;
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -95,7 +101,11 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
       if (data.type === "redline:ready") setBridgeEpoch((n) => n + 1);
       else if (data.type === "redline:picked") onPickRef.current(data as Pick);
       else if (data.type === "redline:escape") onEscapeRef.current?.();
-      else if (data.type === "redline:pin-positions") setPositions(data.positions ?? []);
+      else if (data.type === "redline:pin-positions") {
+        const reported = data.positions ?? [];
+        setPositions(reported);
+        reportMissingRef.current(frameId, reported.filter((p) => p.elementGone).map((p) => p.id));
+      }
       else if (data.type === "redline:doc-height") onDocHeightRef.current?.((data as unknown as { height: number }).height);
       else if (data.type === "redline:errors") reportErrorsRef.current(frameId, (data as unknown as { errors: string[] }).errors);
       else if (data.type === "redline:gap-rect") onRectRef.current(data as unknown as { x: number; y: number; width: number; height: number });
@@ -126,6 +136,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
     return () => {
       window.removeEventListener("message", onMessage);
       reportErrorsRef.current(frameId, []);
+      reportMissingRef.current(frameId, []);
     };
   }, [frameId]);
 

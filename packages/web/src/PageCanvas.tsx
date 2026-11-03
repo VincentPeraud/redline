@@ -66,6 +66,7 @@ import { elementBox, responsiveFrameLayout, renderingSlots, type Box } from "./c
 import { ResponsiveFrame } from "./ResponsiveFrame.js";
 import { TweakGridFrame } from "./TweakGridFrame.js";
 import { RenderingChips, RenderingsMenu } from "./RenderingControls.js";
+import { MissingInstanceElementsContext, ReportMissingInstanceElementsContext } from "./InstanceThreads.js";
 import { PageTweaksContext } from "./RenderingChip.js";
 import { hiddenRenderingKeys, hiddenThreadCounts, setFormatShown, toggleRendering } from "./viewSettings.js";
 import { CommentsPanel, type Draft } from "./CommentsPanel.js";
@@ -248,6 +249,18 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     }
     return reporter;
   };
+  /** Thread ids found gone from their component instance, by iframe, as the bridges reported them. */
+  const [missingByFrame, setMissingByFrame] = useState<Record<string, string[]>>({});
+  const reportMissing = useCallback(
+    (frameId: string, threadIds: string[]) =>
+      setMissingByFrame((current) => {
+        if ((current[frameId] ?? []).join() === threadIds.join()) return current;
+        const { [frameId]: _dropped, ...others } = current;
+        return threadIds.length === 0 ? others : { ...others, [frameId]: threadIds };
+      }),
+    [],
+  );
+  const missingInstanceElements = useMemo(() => new Set(Object.values(missingByFrame).flat()), [missingByFrame]);
   /** Last growth of each fit artboard: a page that grows by the same step again is growing with its own viewport (min-height: 100vh plus a margin), and is left at its size. */
   const fitGrowth = useRef(new Map<string, number>());
   const [viewSettings, setViewSettings] = useState<PageViewSettings>(savedViewSettings ?? EMPTY_VIEW_SETTINGS);
@@ -759,6 +772,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
 
   return (
     <SeenGapContext.Provider value={{ seen: seenGap, onRect: centerOnSeenGap }}>
+    <ReportMissingInstanceElementsContext.Provider value={reportMissing}>
+    <MissingInstanceElementsContext.Provider value={missingInstanceElements}>
     <PinClickContext.Provider value={previewing ? undefined : openPinThread}>
     <div className={styles.page}>
       {previewOf !== undefined && <PreviewBanner designSystemId={previewOf} onLeave={() => navigateTo({ name: "page", pageId })} />}
@@ -1290,6 +1305,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
       </div>
     </div>
     </PinClickContext.Provider>
+    </MissingInstanceElementsContext.Provider>
+    </ReportMissingInstanceElementsContext.Provider>
     </SeenGapContext.Provider>
   );
 }
