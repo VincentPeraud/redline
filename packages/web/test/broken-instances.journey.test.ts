@@ -36,7 +36,9 @@ afterAll(async () => {
 
 const tokensCss = `:root {\n${CORE_TOKENS.map((t) => `  ${t}: #000;`).join("\n")}\n}\n`;
 const modal = `<!doctype html><html><body><template data-component><div class="modal"><slot></slot></div></template></body></html>`;
+const modalWithFooter = `<!doctype html><html><body><template data-component><div class="modal"><slot></slot><footer><slot name="footer"></slot></footer></div></template></body></html>`;
 const sizeTweak = { id: "size", type: "choice", label: "Size", options: ["sm", "md"], default: "md", artboard: "components/modal.html" };
+const dsManifest = (tweak: object) => JSON.stringify({ artboards: [{ file: "components/modal.html", x: 0, y: 0, width: 200, height: 100 }], tweaks: [tweak] });
 
 it("lists a broken instance in the Erreurs des artboards popover with its reason", async () => {
   const designSystem = (await (
@@ -44,11 +46,11 @@ it("lists a broken instance in the Erreurs des artboards popover with its reason
       title: "Acme DS",
       files: {
         "tokens.css": tokensCss,
-        [MANIFEST_PATH]: JSON.stringify({ artboards: [{ file: "components/modal.html", x: 0, y: 0, width: 200, height: 100 }], tweaks: [sizeTweak] }),
-        "components/modal.html": modal,
+        [MANIFEST_PATH]: dsManifest({ ...sizeTweak, options: ["sm", "md", "xl"] }),
+        "components/modal.html": modalWithFooter,
       },
     })
-  ).json()) as { id: string };
+  ).json()) as { id: string; pageId: string };
   const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as { id: string };
   const body = `<ui-modal size="xl"><span slot="footer">Bye</span><p>Hello</p></ui-modal>`;
   const page = (await (
@@ -60,6 +62,15 @@ it("lists a broken instance in the Erreurs des artboards popover with its reason
       },
     })
   ).json()) as { id: string };
+  // Publishing refuses a broken instance: the page breaks when a later diffusion drops the value and the slot it uses.
+  const removal = await server.post(`/api/pages/${designSystem.pageId}/versions`, {
+    files: { "tokens.css": tokensCss, [MANIFEST_PATH]: dsManifest(sizeTweak), "components/modal.html": modal },
+    message: "Drop xl and footer",
+    origin: "thread",
+    confirmRemovals: true,
+  });
+  expect(removal.ok).toBe(true);
+  expect((await server.post(`/api/design-systems/${designSystem.id}/diffusions`, {})).ok).toBe(true);
 
   const tab = await context.newPage();
   await tab.goto(`${server.url}/#/pages/${page.id}`);
