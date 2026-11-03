@@ -94,7 +94,10 @@ it("refuses a request from its card", async () => {
   if (captures) await card.screenshot({ path: join(captures, "14-app-request-card.png") });
   await card.getByRole("button", { name: "Refuser" }).click();
   await tab.getByRole("dialog", { name: /^Refuser la demande/ }).getByTestId("refuse-answer").fill("Pas pour ce lot");
-  if (captures) await tab.screenshot({ path: join(captures, "fix-refuse-dialog.png") });
+  if (captures) {
+    await tab.waitForTimeout(400);
+    await tab.screenshot({ path: join(captures, "fix-refuse-dialog.png") });
+  }
   await tab.getByRole("dialog", { name: /^Refuser la demande/ }).getByTestId("refuse-confirm").click();
 
   await expect.poll(async () => ((await (await server.get(`/api/pages/${ds.pageId}/threads`)).json()) as Thread[]).find((t) => t.id === request)!.request!.state).toBe("refused");
