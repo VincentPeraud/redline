@@ -14,6 +14,17 @@ export interface ArtboardErrorsEntry {
 /** Receives the error list of one iframe (`frameId`); an empty list clears it. Set per artboard by the canvas, a no-op elsewhere. */
 export const ArtboardErrorsContext = createContext<(frameId: string, errors: string[]) => void>(() => undefined);
 
+/** The code-like words of a message (a ui- tag, a value, a setting, a slot) in monospace; the rest is plain text. */
+const CODE_WORDS = /(ui-[a-z0-9-]+|(?<=la valeur )(?!par défaut)\S+|(?<=du réglage )\S+|(?<=l'emplacement )\S+(?= n'existe)|(?<=par défaut \()[^)]+)/;
+
+function ErrorText({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(CODE_WORDS).map((part, index) => (index % 2 === 1 ? <span key={index} className={styles.code}>{part}</span> : part))}
+    </>
+  );
+}
+
 /** "1 erreur", "3 erreurs". */
 export const errorCountLabel = (count: number): string => counted(count, "erreur", "erreurs");
 
@@ -74,7 +85,7 @@ export function ErrorsButton({ entries, onSee, onAsk }: { entries: readonly Artb
                 </div>
                 {entry.errors.map((error) => (
                   <div key={error} data-error className={styles.message}>
-                    {error}
+                    <ErrorText text={error} />
                   </div>
                 ))}
               </li>

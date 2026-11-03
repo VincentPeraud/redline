@@ -239,7 +239,7 @@ describe("instances displayed from their component's definition", () => {
       const modal = window.document.querySelector("ui-modal")!;
       expect(modal.getAttribute("size")).toBe("md");
       expect(modal.querySelector(".body")!.textContent).toBe("Body");
-      expect(errors()).toEqual(["ui-modal : la valeur xl du r\u00e9glage size n'existe plus, affich\u00e9e en md"]);
+      expect(errors()).toEqual(["ui-modal : la valeur xl du r\u00e9glage size n'existe plus depuis la diffusion 2. Affich\u00e9e avec la valeur par d\u00e9faut (md)."]);
     });
 
     it("drops the content of a slot the component no longer has and reports it", async () => {
@@ -251,7 +251,7 @@ describe("instances displayed from their component's definition", () => {
       const { window, errors } = await openReporting(`/pages/${page.id}/a.html`);
       const modal = window.document.querySelector("ui-modal")!;
       expect(modal.textContent).toBe("Body");
-      expect(errors()).toEqual(["ui-modal : l'emplacement footer n'existe plus"]);
+      expect(errors()).toEqual(["ui-modal : l'emplacement footer n'existe plus. Son contenu n'est pas affich\u00e9."]);
     });
 
     it("shows a placeholder for an unknown tag and reports it", async () => {

@@ -113,10 +113,13 @@
   border-radius: var(--radius-sm);
   background: var(--color-danger-bg);
   color: var(--color-danger-text);
-  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+.code {
+  font-family: var(--font-mono);
 }
 
 .footer {

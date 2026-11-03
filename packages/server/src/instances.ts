@@ -77,7 +77,8 @@ export const INSTANCES_SOURCE = `(function () {
       var value = host.getAttribute(setting.name);
       if (setting.options.indexOf(value) !== -1) return;
       var fallback = setting.default === undefined ? setting.options[0] : String(setting.default);
-      report(tag + " : la valeur " + value + " du réglage " + setting.name + " n'existe plus, affichée en " + fallback);
+      var since = layers.diffusion === undefined ? "" : " depuis la diffusion " + layers.diffusion;
+      report(tag + " : la valeur " + value + " du réglage " + setting.name + " n'existe plus" + since + ". Affichée avec la valeur par défaut (" + fallback + ").");
       host.setAttribute(setting.name, fallback);
       fixed = true;
     });
@@ -95,7 +96,7 @@ export const INSTANCES_SOURCE = `(function () {
       element.setAttribute("data-redline-unknown", "");
       var placeholder = document.createElement("span");
       placeholder.setAttribute("data-redline-missing", "");
-      placeholder.setAttribute("style", "display:inline-block;padding:2px 6px;border:1px dashed #c0392b;border-radius:4px;background:#fdecea;color:#c0392b;font:12px/1.4 monospace");
+      placeholder.setAttribute("style", "display:inline-block;padding:2px 6px;border:1px dashed #F5C2BC;border-radius:4px;background:#FEF3F2;color:#B42318;font:12px/1.4 monospace");
       placeholder.textContent = message;
       element.insertBefore(placeholder, element.firstChild);
       report(message);
@@ -141,7 +142,7 @@ export const INSTANCES_SOURCE = `(function () {
     var slots = Array.prototype.slice.call(fragment.querySelectorAll("slot"));
     var slotNames = slots.map(function (slot) { return slot.getAttribute("name") || ""; });
     Object.keys(bySlot).forEach(function (name) {
-      if (slotNames.indexOf(name) === -1 && hasContent(bySlot[name])) report(host.localName + " : l'emplacement " + (name || "par défaut") + " n'existe plus");
+      if (slotNames.indexOf(name) === -1 && hasContent(bySlot[name])) report(host.localName + " : l'emplacement " + (name || "par défaut") + " n'existe plus. Son contenu n'est pas affiché.");
     });
     slots.forEach(function (slot) {
       var nodes = bySlot[slot.getAttribute("name") || ""];
@@ -231,5 +232,5 @@ export function instanceLayersOf(store: Store, pageId: string, diffusion: number
     designSystemId === undefined ? [] : diffusion === undefined ? projectComponents(store, designSystemId).definitions : store.diffusionDefinitions(designSystemId, diffusion);
   const from = designSystemId === undefined ? undefined : store.getDesignSystem(designSystemId)?.title;
   const excluded = designSystemId === undefined ? [] : excludedComponents(store, page.projectId, designSystemId).map(({ tag, from, available }) => ({ tag, from, available }));
-  return { designSystem, project: projectComponents(store, page.projectId).definitions, ...(excluded.length > 0 && { excluded }) };
+  return { designSystem, project: projectComponents(store, page.projectId).definitions, ...(excluded.length > 0 && { excluded }), ...(diffusion !== undefined && { diffusion }) };
 }

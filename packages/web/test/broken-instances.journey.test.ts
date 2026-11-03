@@ -79,7 +79,8 @@ it("lists a broken instance in the Erreurs des artboards popover with its reason
   await button.click();
   const list = tab.getByRole("dialog", { name: "Erreurs des artboards" });
   await list.waitFor();
+  if (process.env.REDLINE_CAPTURES) await list.screenshot({ path: join(process.env.REDLINE_CAPTURES, "fix-broken-app-popover.png") });
   const row = await list.locator('[data-errors-of="a.html"]').innerText();
-  expect(row).toContain("ui-modal : la valeur xl du réglage size n'existe plus, affichée en md");
-  expect(row).toContain("ui-modal : l'emplacement footer n'existe plus");
+  expect(row).toContain("ui-modal : la valeur xl du réglage size n'existe plus depuis la diffusion 2. Affichée avec la valeur par défaut (md).");
+  expect(row).toContain("ui-modal : l'emplacement footer n'existe plus. Son contenu n'est pas affiché.");
 }, 60_000);
