@@ -17,6 +17,7 @@ export function designSystemNote({ designSystem, editsDesignSystem, projectCompo
   return [
     `Design system: ${designSystem.title} (diffusion ${designSystem.diffusion}), read-only in .design-system/ (start with index.md; never edit it, propose changes to the user).`,
     `Pages of the design system: ${designSystem.pages.map((page) => `${page.title} (${plural(page.components, "component")})`).join(", ") || "none"}.`,
+    "Use its components as instances (<ui-name>, settings as attributes, content in slots), never copy their markup or classes; if none does what you need, use the closest and call send_request (see the guide).",
     used.length > 0 ? `Ce projet utilise : ${used.join(", ")}.` : "Ce projet n'utilise aucun composant du design system.",
   ].join("\n") + projectNote;
 }

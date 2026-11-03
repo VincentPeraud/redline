@@ -30,6 +30,7 @@ import {
   requestOriginLabel,
   NEUTRAL_TOKENS_PAGE_HTML,
   type DesignSystem,
+  type InstanceState,
   type DesignMdAuthor,
   type DesignMdVersion,
   type ProjectAsset,
@@ -328,6 +329,7 @@ export class Store {
     addColumn("threads", "element_name", "TEXT");
     addColumn("threads", "rendering", "TEXT");
     addColumn("threads", "cell", "TEXT");
+    addColumn("threads", "instance_state", "TEXT");
     addColumn("threads", "target_kind", "TEXT NOT NULL DEFAULT 'element'");
     addColumn("threads", "element_id", "TEXT");
     addColumn("threads", "element_kind", "TEXT");
@@ -1307,7 +1309,7 @@ export class Store {
     const placement =
       "target" in request
         ? request.target.kind === "artboard"
-          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, cell: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
+          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, cell: null, instanceState: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
           : this.canvasElementPlacement(pageId, request.target.elementId)
         : {
             kind: "element",
@@ -1316,6 +1318,7 @@ export class Store {
             elementName: request.elementName ?? null,
             rendering: request.rendering ? JSON.stringify({ format: request.rendering.format, width: request.rendering.width }) : null,
             cell: request.cell ? JSON.stringify(request.cell) : null,
+            instanceState: request.instanceState ? JSON.stringify(request.instanceState) : null,
             xPct: request.xPct,
             yPct: request.yPct,
             elementId: null,
@@ -1324,10 +1327,10 @@ export class Store {
           };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, instance_state, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null);
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null);
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -1341,6 +1344,7 @@ export class Store {
       elementName: null,
       rendering: null,
       cell: null,
+      instanceState: null,
       xPct: 0,
       yPct: 0,
       elementId,
@@ -1477,7 +1481,7 @@ export class Store {
   listHeldThreads(pageId: string): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.instance_state, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id
          FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId) as ThreadRow[];
@@ -2088,7 +2092,7 @@ function toDesignSystem({ archivedAt, ...designSystem }: DesignSystemRow): Desig
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, instance_state, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -2099,6 +2103,7 @@ interface ThreadRow {
   element_name: string | null;
   rendering: string | null;
   cell: string | null;
+  instance_state: string | null;
   target_kind: ThreadTarget["kind"];
   element_id: string | null;
   element_kind: ManifestElementKind | null;
@@ -2132,6 +2137,7 @@ function targetOf(row: ThreadRow): ThreadTarget {
     yPct: row.y_pct,
     ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
     ...(row.cell ? { cell: JSON.parse(row.cell) as TweakValues } : {}),
+    ...(row.instance_state ? { instanceState: JSON.parse(row.instance_state) as InstanceState[] } : {}),
   };
 }
 
@@ -2156,6 +2162,7 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     elementName: row.element_name,
     ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
     ...(row.cell ? { cell: JSON.parse(row.cell) as TweakValues } : {}),
+    ...(row.instance_state ? { instanceState: JSON.parse(row.instance_state) as InstanceState[] } : {}),
     xPct: row.x_pct,
     yPct: row.y_pct,
     title: row.title,

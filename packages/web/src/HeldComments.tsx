@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { SendHeldRequest, Thread, UpdateThreadRequest } from "@redline/shared";
 import type { ModelEffortChoice } from "./ModelEffortControls.js";
 import { MessageAuthor } from "./MessageAuthor.js";
+import { InstanceThreadInfo } from "./InstanceThreads.js";
 import { RemovedTag } from "./RemovedTag.js";
 import { RenderingChip } from "./RenderingChip.js";
 import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
@@ -83,6 +84,7 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
           )}
         </span>
       </div>
+      <InstanceThreadInfo thread={thread} />
       {editing ? (
         <>
           <Textarea aria-label="Modifier le commentaire" rows={3} value={text} onChange={(e) => setText(e.target.value)} />

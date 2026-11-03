@@ -432,6 +432,30 @@
   color: var(--color-removed-text);
 }
 
+.instanceChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.instanceChip,
+.stateChip {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-2xs);
+}
+
+.instanceChip {
+  background: var(--color-surface-muted);
+  font-family: var(--font-mono);
+}
+
+.stateChip {
+  padding: 1px 8px;
+  border: 1px solid var(--color-border-strong);
+}
+
 .instanceGone {
   padding: 6px 10px;
   border-radius: var(--radius-md);

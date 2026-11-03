@@ -121,8 +121,12 @@ describe("comments inside component instances (artboard bridge)", () => {
     expect(outline.style.top).toBe("100px");
     expect(outline.style.width).toBe("300px");
     expect(outline.style.height).toBe("200px");
-    expect(outline.getAttribute("style")).toContain("dashed #27272a");
-    expect(part("label").style.backgroundColor).toBe("rgb(39, 39, 42)");
+    expect(outline.getAttribute("style")).toContain("1.5px dashed #18181B");
+    expect(outline.getAttribute("style")).toContain("outline-offset: 4px");
+    expect(part("label").style.backgroundColor).toBe("rgb(24, 24, 27)");
+    // The label sits above the outline's top-left corner, like the board's.
+    expect(part("label").style.left).toBe("14px");
+    expect(part("label").style.top).toBe("70px");
     // The hovered element itself keeps the usual outline.
     expect(window.document.querySelector<HTMLElement>("#__redline-hover [data-part=label]")!.textContent).toBe("Bouton · OK");
   });
