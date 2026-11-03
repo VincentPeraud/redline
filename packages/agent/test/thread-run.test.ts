@@ -80,6 +80,15 @@ describe("running a thread with the fake engine", () => {
     expect(engine.runs[0].message).toContain("vu en Hover · Outlined · icon off");
   });
 
+  it("tells the session the state the component instances were in when the comment was written", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "Round cross", { instanceState: [{ selector: "main > ui-modal#confirm", attributes: { open: "" } }] });
+    await engine.finished(1);
+    expect(engine.runs[0].message).toContain("vu avec confirm ouverte");
+  });
+
   it("does not mention a rendering for a comment on a plain artboard", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
     seam = await startSeam2(engine);
