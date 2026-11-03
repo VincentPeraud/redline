@@ -52,6 +52,11 @@ it("shows requests to the design system as cards without Résoudre, counts them 
   await tab.goto(`${server.url}/#/pages/${ds.pageId}`);
   await tab.getByTestId("artboard-requests").waitFor();
   expect(await tab.getByTestId("artboard-requests").textContent()).toBe("2 demandes");
+  expect((await tab.getByTestId("artboard-requests").boundingBox())!.height).toBe(24);
+  if (process.env.REDLINE_CAPTURES) {
+    const strip = tab.locator('[data-strip="components/modal.html"]');
+    await strip.screenshot({ path: join(process.env.REDLINE_CAPTURES, "fix-request-app-strip.png") });
+  }
 
   await tab.getByRole("tab", { name: /Commentaires/ }).click();
   const ownCard = tab.locator(`[data-thread="${own.threadId}"]`);

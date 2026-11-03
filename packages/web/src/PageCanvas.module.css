@@ -155,8 +155,6 @@
 
 .componentName {
   flex-shrink: 1;
-  font-family: var(--font-mono);
-  color: var(--color-text-secondary);
 }
 
 .changePill {
@@ -179,6 +177,11 @@
 }
 
 .requestsPill {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--font-size-xs);
   border: 1px solid var(--color-warning-border);
   background: var(--color-warning-soft-bg);
   color: var(--color-warning-text);
@@ -194,11 +197,6 @@
 .newPill {
   background: var(--color-success-bg);
   color: var(--color-success-text);
-}
-
-.componentMarker {
-  flex-shrink: 0;
-  color: var(--color-text-secondary);
 }
 
 .responsiveBadge {

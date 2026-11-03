@@ -32,7 +32,6 @@ import {
   type ThreadTarget,
   type TweakValues,
 } from "@redline/shared";
-import { ComponentMarker } from "./ComponentMarker.js";
 import { useDesignSystemDetail } from "./DiffusionDialog.js";
 import { ArtboardFrame, PinClickContext, type Pick } from "./ArtboardFrame.js";
 import { ArtboardHistory } from "./ArtboardHistory.js";
@@ -938,12 +937,11 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                         Lien copié
                       </div>
                     )}
-                    {componentNameOf(artboard.file) !== null && <ComponentMarker />}
                     <span
                       data-testid={componentNameOf(artboard.file) !== null ? "component-name" : undefined}
                       className={cx(styles.labelName, componentNameOf(artboard.file) !== null && styles.componentName, outlined === artboard.file && styles.labelNameOutlined)}
                     >
-                      {componentNameOf(artboard.file) ?? artboard.title ?? artboard.file}
+                      {componentNameOf(artboard.file) !== null ? `${artboard.title ?? componentNameOf(artboard.file)} · ${artboard.file}` : (artboard.title ?? artboard.file)}
                     </span>
                     {componentChange(artboard.file) && (
                       <span data-testid="component-change" className={cx(styles.changePill, componentChange(artboard.file) === "nouveau" ? styles.newPill : styles.modifiedPill)}>
