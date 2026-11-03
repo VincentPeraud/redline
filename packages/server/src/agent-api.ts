@@ -30,6 +30,7 @@ import { agentGaps } from "./gaps.js";
 import { moveArtboard } from "./move-artboard.js";
 import { sendRequest } from "./requests.js";
 import { askToUndoRefused } from "./refusals.js";
+import { settleUndoneChanges } from "./undone-changes.js";
 import { changesError, mergeRequests } from "./change-records.js";
 import { ARCHIVED_PAGE_ERROR, archivableExists, archivePage, archiveProject, archivedError, projectOrDesignSystem } from "./archive.js";
 import { tokensEqual } from "./request-hardening.js";
@@ -244,6 +245,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
           if (changes?.length) askToUndoRefused(store, pageLock, terminalSessions, store.recordChanges(projectId, version.id, changes));
+          settleUndoneChanges(store, req.params.pageId);
           // The terminal session that publishes a page holds it, replacing the previous holder.
           if (origin === "terminal" && req.body.terminalSessionId !== undefined) store.holdPage(req.params.pageId, req.body.terminalSessionId);
           if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { isColorValue, type DesignSystemDetail, type DiffusionReview, type ReviewChange, type ReviewComponent, type ReviewToken } from "@redline/shared";
 import { routeHref, type Route } from "./router.js";
 import { agree } from "./plural.js";
+import { RelaunchClaude } from "./RelaunchClaude.js";
 import { RefuseDialog, refuseChangeTarget } from "./RefuseDialog.js";
 import { changeLabel, componentsHeading, keptByText, movedUpText, nowhereYetText, originText, tokensWhereText, whereSummary } from "./reviewLabels.js";
 import { cx } from "./ui/index.js";
@@ -72,7 +73,10 @@ function ChangeLine({ change, onRefused }: { change: ReviewChange; onRefused: ()
       origin={originText(change.origin)}
       action={
         change.undoing ? (
-          <span className={styles.undoing} data-testid="change-undoing">annulation en cours</span>
+          <span className={styles.undoActions}>
+            <span className={styles.undoing} data-testid="change-undoing">annulation en cours</span>
+            {change.changeId && <RelaunchClaude changeId={change.changeId} />}
+          </span>
         ) : change.refusable && change.changeId ? (
           <button type="button" className={styles.small} onClick={() => setRefusing(true)}>
             Refuser

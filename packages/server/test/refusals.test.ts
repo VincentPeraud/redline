@@ -116,6 +116,18 @@ describe("refusing a change or a request", () => {
     expect((await server.post(`/api/threads/${request}/refuse`, { answer: 3 })).status).toBe(400);
   });
 
+  it("asks the session again to undo a refused change, and only a refused one", async () => {
+    const request = await ask();
+    await publish([size(request), cross(request)]);
+    const [first, second] = await changes();
+    expect((await server.post(`/api/changes/${first!.id}/relaunch`, {})).status).toBe(409);
+    await server.post(`/api/changes/${first!.id}/refuse`, { answer: "Trop large" });
+
+    expect((await server.post(`/api/changes/${first!.id}/relaunch`, {})).status).toBe(200);
+    expect((await server.post(`/api/changes/${second!.id}/relaunch`, {})).status).toBe(409);
+    expect((await server.post(`/api/changes/nope/relaunch`, {})).status).toBe(404);
+  });
+
   it("creates a thread on the instance when the request had no origin thread", async () => {
     const request = await ask();
     await publish([size(request)]);
@@ -134,6 +146,21 @@ describe("refusing a change or a request", () => {
 
     expect((await changes()).map((c) => [c.label, c.state])).toEqual([["Croix ronde", "pending"]]);
     expect((await diffuse()).status).toBe(201);
+  });
+
+  it("sees a refused change as undone when the draft goes back to its state before the change, without any record_change", async () => {
+    const request = await ask();
+    await publish([size(request), cross(request)]);
+    await server.post(`/api/changes/${(await changes())[0]!.id}/refuse`, {});
+    expect((await review()).undoing).toBe(1);
+
+    // The session undoes the work but forgets to record it: the component is back to what it was.
+    const checkout = (await (await agent(`/pages/${ds.pageId}/files`)).json()) as AgentCheckout;
+    const back = await agent(`/pages/${ds.pageId}/versions`, { files: { ...checkout.files, "components/modal.html": MODAL }, message: "Undo", origin: "thread", baseVersionId: checkout.versionId });
+    expect(back.status).toBe(201);
+
+    expect((await changes()).map((c) => c.state)).not.toContain("refused");
+    expect((await review()).undoing).toBe(0);
   });
 
   it("refuses the whole request from its card: every change and the request", async () => {

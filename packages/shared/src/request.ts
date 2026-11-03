@@ -32,6 +32,8 @@ export interface ThreadRequest {
   origins: RequestOrigin[];
   /** Labels of the changes the user refused while the rest of the request stayed open: the return at diffusion recalls them. */
   refusedLabels?: string[];
+  /** What the user answered when refusing, sent again with the undo message when the user asks Claude to retry. */
+  refusalAnswer?: string;
   /** Thread of the request this one was attached to: its origins moved there and this one is closed. */
   mergedInto?: string;
 }

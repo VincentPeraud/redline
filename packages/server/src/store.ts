@@ -1542,6 +1542,27 @@ export class Store {
     this.db.transaction(() => ids.forEach((id) => update.run(id)))();
   }
 
+  /** Drops change records (a refused change whose undo was recognised). */
+  deleteChanges(ids: string[]): void {
+    const remove = this.db.prepare("DELETE FROM component_changes WHERE id = ?");
+    this.db.transaction(() => ids.forEach((id) => remove.run(id)))();
+  }
+
+  /** The page a version belongs to and the version that came right before it on that page. */
+  versionContext(versionId: string): { pageId: string; previousId?: string } | undefined {
+    const row = this.db.prepare("SELECT page_id AS pageId, created_at AS createdAt, rowid FROM versions WHERE id = ?").get(versionId) as { pageId: string; createdAt: string; rowid: number } | undefined;
+    if (!row) return undefined;
+    const previous = this.db
+      .prepare("SELECT id FROM versions WHERE page_id = ? AND (created_at < ? OR (created_at = ? AND rowid < ?)) ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(row.pageId, row.createdAt, row.createdAt, row.rowid) as { id: string } | undefined;
+    return { pageId: row.pageId, ...(previous ? { previousId: previous.id } : {}) };
+  }
+
+  /** Keeps the user's answer to a refusal, to say it again when the session is asked to retry the undo. */
+  setRefusalAnswer(threadId: string, answer: string | undefined): void {
+    this.updateRequest(threadId, ({ refusalAnswer: _old, ...request }) => (answer ? { ...request, refusalAnswer: answer } : request));
+  }
+
   /** Remembers the labels of changes refused on a request that stays open: the return at diffusion recalls them. */
   addRefusedLabels(threadId: string, labels: string[]): void {
     this.updateRequest(threadId, (request) => ({ ...request, refusedLabels: [...(request.refusedLabels ?? []), ...labels] }));

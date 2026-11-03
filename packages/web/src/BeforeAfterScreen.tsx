@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ComparisonSide, ComponentComparison, ReviewChange } from "@redline/shared";
 import { useDesignSystemDetail } from "./DiffusionDialog.js";
 import { useDocumentTitle } from "./documentTitle.js";
+import { RelaunchClaude } from "./RelaunchClaude.js";
 import { RefuseDialog, refuseChangeTarget } from "./RefuseDialog.js";
 import { changeLabel, originText } from "./reviewLabels.js";
 import { routeHref } from "./router.js";
@@ -120,9 +121,12 @@ function ChangeList({ comparison, onRefused }: { comparison: ComponentComparison
           <span className={styles.origin}>{originText(change.origin)}</span>
           <span className={styles.grow} />
           {change.undoing ? (
-            <span className={styles.undoing} data-testid="change-undoing">
-              annulation en cours
-            </span>
+            <>
+              <span className={styles.undoing} data-testid="change-undoing">
+                annulation en cours
+              </span>
+              {change.changeId && <RelaunchClaude changeId={change.changeId} />}
+            </>
           ) : change.refusable && change.changeId ? (
             <button type="button" className={styles.small} onClick={() => setRefusing(change)}>
               Refuser

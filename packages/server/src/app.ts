@@ -58,7 +58,8 @@ import { diffusionReview, reviewLineCount } from "./diffusion-review.js";
 import { componentComparison } from "./component-comparison.js";
 import { brokenPagesAtDiffusion, instanceChangesError, rollbackInstancesError } from "./instance-guards.js";
 import { settleMovedUp } from "./move-up.js";
-import { refuseChange, refuseRequest } from "./refusals.js";
+import { refuseChange, refuseRequest, relaunchUndo } from "./refusals.js";
+import { settleUndoneChanges } from "./undone-changes.js";
 import { closeDiffusedRequests, requestsClosedBy, returnPendingOn } from "./diffusion-returns.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
@@ -336,6 +337,10 @@ export async function buildMainApp(
     const outcome = refuseChange(store, pageLock, terminalSessions, req.params.changeId, req.body?.answer);
     return reply.code(outcome.status).send(outcome.body);
   });
+  app.post<{ Params: { changeId: string } }>("/api/changes/:changeId/relaunch", async (req, reply) => {
+    const outcome = relaunchUndo(store, pageLock, terminalSessions, req.params.changeId);
+    return reply.code(outcome.status).send(outcome.body);
+  });
   app.post<{ Params: { threadId: string }; Body: { answer?: unknown } | undefined }>("/api/threads/:threadId/refuse", async (req, reply) => {
     const outcome = refuseRequest(store, pageLock, terminalSessions, req.params.threadId, req.body?.answer);
     return reply.code(outcome.status).send(outcome.body);
@@ -608,7 +613,9 @@ export async function buildMainApp(
       const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files) ?? removalsError(store, req.params.pageId, req.body.files, req.body.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true) ?? instanceChangesError(store, req.params.pageId, req.body.files, req.body.confirmRemovals === true);
       if (invalid) return reply.code(400).send({ error: invalid });
       const { files, message, origin } = req.body;
-      return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin, personRef(req)));
+      const version = store.addVersion(req.params.pageId, files, message, origin, personRef(req));
+      settleUndoneChanges(store, req.params.pageId);
+      return reply.code(201).send(version);
     },
   );
 
@@ -638,6 +645,7 @@ export async function buildMainApp(
       const invalid = files && (versionComponentsError(store, req.params.pageId, files) ?? removalsError(store, req.params.pageId, files, undefined, false) ?? instanceChangesError(store, req.params.pageId, files, false));
       if (invalid) return reply.code(400).send({ error: invalid });
       const restored = store.restoreVersion(req.params.pageId, req.params.versionId, personRef(req), timeZone);
+      if (restored) settleUndoneChanges(store, req.params.pageId);
       return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });
     },
   );

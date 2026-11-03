@@ -44,6 +44,7 @@ function refuse(store: Store, pageLock: PageLock, terminal: TerminalPresence, th
   const request = store.getThread(threadId)!.request!;
   const tag = `${INSTANCE_TAG_PREFIX}${request.component}`;
   const subject = labels.length > 0 ? labels.join(" ; ") : `la demande sur ${tag}`;
+  store.setRefusalAnswer(threadId, answer);
   if (answer) store.addReply(threadId, answer, "user");
   else store.addReply(threadId, `Refusé : ${subject}.`, "redline");
   const said = answer ? ` Réponse du design system : ${answer}` : "";
@@ -86,4 +87,15 @@ export function refuseRequest(store: Store, pageLock: PageLock, terminal: Termin
   store.refuseChanges(pending.map((change) => change.id));
   refuse(store, pageLock, terminal, threadId, pending.map((change) => change.label), true, answer?.trim());
   return { status: 200, body: { refused: pending.map((change) => change.id) } };
+}
+
+/** "Relancer Claude" on a change awaiting its undo: the session is asked again, with the same message and the user's answer if any. */
+export function relaunchUndo(store: Store, pageLock: PageLock, terminal: TerminalPresence, changeId: string): RefusalOutcome {
+  const change = store.getChange(changeId);
+  if (!change) return { status: 404, body: { error: "change not found" } };
+  const threadId = change.state === "refused" && change.threadId ? store.keptRequestId(change.threadId) : undefined;
+  if (!threadId || !store.getThread(threadId)?.request) return { status: 409, body: { error: "Only a refused change awaiting its undo can be sent again." } };
+  const refused = store.refusedChangesOf(change.designSystemId, threadId);
+  askToUndo(store, pageLock, terminal, threadId, refused.map((item) => item.label), store.getThread(threadId)!.request!.refusalAnswer);
+  return { status: 200, body: { refused: refused.map((item) => item.id) } };
 }
