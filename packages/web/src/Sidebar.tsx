@@ -68,6 +68,7 @@ function AccountBlock() {
 
 function Nav() {
   const route = useRoute();
+  const { home } = useHome();
   return (
     <nav aria-label="Navigation principale" className={styles.nav}>
       <div className={styles.navInner}>
@@ -79,6 +80,11 @@ function Nav() {
           return (
             <a key={item.label} href={routeHref(item.route)} aria-current={current ? "page" : undefined} className={cx(styles.link, current && styles.current)}>
               {item.label}
+              {item.route.name === "designSystems" && home && home.designSystemsToDiffuse > 0 && (
+                <span data-testid="sidebar-to-diffuse" aria-label={`${plural(home.designSystemsToDiffuse, "design system", "design systems")} à diffuser`} className={styles.badge}>
+                  {home.designSystemsToDiffuse}
+                </span>
+              )}
             </a>
           );
         })}

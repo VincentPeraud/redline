@@ -248,7 +248,7 @@ export function DiffuseButton({ designSystemId, refreshKey }: { designSystemId: 
   if (!detail || detail.pending.count === 0) return null;
   return (
     <button type="button" className={styles.headerButton} onClick={() => open(detail.id)}>
-      Diffuser aux projets <span className={styles.headerCount}>{detail.pending.count}</span>
+      Diffuser aux projets <span className={styles.headerCount}>{detail.reviewLines}</span>
     </button>
   );
 }

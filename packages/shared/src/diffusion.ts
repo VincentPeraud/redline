@@ -133,6 +133,8 @@ export interface DesignSystemDetail {
   overrides: { id: string; title: string; tokens: string[] }[];
   /** Draft compared with the current diffusion; `count` 0 = nothing pending. */
   pending: DiffusionDiff;
+  /** Lines of the review before diffusing: what "Diffuser aux projets" counts. */
+  reviewLines: number;
   /** Open requests of the projects, newest first ("Demandes des projets"). */
   requests: DesignSystemRequestItem[];
 }
