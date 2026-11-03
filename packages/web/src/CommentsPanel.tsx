@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import type { QueueEntry, SessionRow, Thread, ThreadRun } from "@redline/shared";
+import { requestIsOpen, type QueueEntry, type SessionRow, type Thread, type ThreadRun } from "@redline/shared";
 import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
 import { RemovedTag } from "./RemovedTag.js";
@@ -236,6 +236,11 @@ function ThreadCard({
               <Button size="sm" aria-expanded={replying} onClick={() => setReplying(!replying)}>
                 Répondre
               </Button>
+              {thread.request && requestIsOpen(thread.request) && (
+                <Button size="sm" onClick={() => void fetch(`/api/threads/${thread.id}/refuse`, { method: "POST" })}>
+                  Refuser
+                </Button>
+              )}
               {!thread.request && (
                 <Button size="sm" variant="primary" onClick={onResolve}>
                   Résoudre

@@ -1457,16 +1457,58 @@ export class Store {
       versionId,
       createdAt,
     }));
+    const kept: ChangeRecord[] = [];
     this.db.transaction(() => {
       const insert = this.db.prepare("INSERT INTO component_changes (id, design_system_id, component, label, kind, state, thread_id, anchor, version_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       for (const record of records) {
-        insert.run(record.id, designSystemId, record.component, record.label, record.kind, record.state, record.threadId ?? null, record.anchor ? JSON.stringify(record.anchor) : null, versionId, createdAt);
         // A change linked to a request merged into another answers the one that stayed open.
         const answered = record.threadId && (this.getThread(record.threadId)?.request?.mergedInto ?? record.threadId);
-        if (answered) this.updateRequest(answered, (request) => (request.state === "in_progress" ? { ...request, state: "done_in_draft" } : request));
+        // A refusal is final. What the session publishes for a request holding refused changes of that component is the undo:
+        // those changes go away. A change for a request already refused is itself a change to undo.
+        const awaitingUndo = answered ? this.refusedChangesOf(designSystemId, answered).filter((change) => change.component === record.component) : [];
+        if (awaitingUndo.length > 0) {
+          const remove = this.db.prepare("DELETE FROM component_changes WHERE id = ?");
+          for (const change of awaitingUndo) remove.run(change.id);
+          continue;
+        }
+        const refusedRequest = !!answered && this.getThread(answered)?.request?.state === "refused";
+        if (refusedRequest) record.state = "refused";
+        insert.run(record.id, designSystemId, record.component, record.label, record.kind, record.state, record.threadId ?? null, record.anchor ? JSON.stringify(record.anchor) : null, versionId, createdAt);
+        kept.push(record);
+        if (answered && !refusedRequest) this.updateRequest(answered, (request) => (request.state === "in_progress" ? { ...request, state: "done_in_draft" } : request));
       }
     })();
-    return records;
+    return kept;
+  }
+
+  /** The refused changes, not undone yet, that answer the request `threadId` (changes linked to a merged request answer the kept one). */
+  refusedChangesOf(designSystemId: string, threadId: string): ChangeRecord[] {
+    return this.changesOf(designSystemId, threadId, "refused");
+  }
+
+  /** The pending changes that answer the request `threadId`. */
+  pendingChangesOf(designSystemId: string, threadId: string): ChangeRecord[] {
+    return this.changesOf(designSystemId, threadId, "pending");
+  }
+
+  private changesOf(designSystemId: string, threadId: string, state: ChangeState): ChangeRecord[] {
+    return this.listChanges(designSystemId).filter((change) => change.state === state && change.threadId !== undefined && (this.getThread(change.threadId)?.request?.mergedInto ?? change.threadId) === threadId);
+  }
+
+  getChange(id: string): ChangeRecord | undefined {
+    const row = this.db.prepare("SELECT design_system_id AS designSystemId FROM component_changes WHERE id = ?").get(id) as { designSystemId: string } | undefined;
+    return row && this.listChanges(row.designSystemId).find((change) => change.id === id);
+  }
+
+  /** Marks pending changes refused: they stay listed ("annulation en cours") until the session's undo publish removes them. */
+  refuseChanges(ids: string[]): void {
+    const update = this.db.prepare("UPDATE component_changes SET state = 'refused' WHERE id = ? AND state = 'pending'");
+    this.db.transaction(() => ids.forEach((id) => update.run(id)))();
+  }
+
+  /** Remembers the labels of changes refused on a request that stays open: the return at diffusion recalls them. */
+  addRefusedLabels(threadId: string, labels: string[]): void {
+    this.updateRequest(threadId, (request) => ({ ...request, refusedLabels: [...(request.refusedLabels ?? []), ...labels] }));
   }
 
   /** The changes recorded since the current diffusion (pending), and the refused ones not yet undone, oldest first. */

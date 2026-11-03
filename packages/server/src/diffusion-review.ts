@@ -43,7 +43,7 @@ export function diffusionReview(store: Store, designSystemId: string): Diffusion
   const { pending } = store.pendingDiffusion(designSystemId);
   const following = store.projectsUsingDesignSystem(designSystemId);
   const sites = useSites(store, designSystemId, []);
-  const recorded = store.listChanges(designSystemId).filter((change) => change.state === "pending");
+  const recorded = store.listChanges(designSystemId);
   const before = store.diffusionDefinitions(designSystemId, store.currentDiffusion(designSystemId)!.number);
   const defaults = defaultChangesOf(before, projectComponents(store, designSystemId).definitions);
   const ownNames = following.map((project) => ({ title: project.title, names: new Set(projectComponents(store, project.id).definitions.map((d) => d.name)) }));
@@ -57,11 +57,15 @@ export function diffusionReview(store: Store, designSystemId: string): Diffusion
   const cardOf = (name: string, kind: ReviewComponent["kind"]): ReviewComponent => {
     const changes: ReviewChange[] = recorded
       .filter((change) => change.component === name)
-      .map((change) => ({ label: change.label, changeId: change.id, ...originOf(store, change) }));
+      .map((change): ReviewChange => {
+        const undoing = change.state === "refused";
+        const { origin, refusable } = originOf(store, change);
+        return { label: change.label, changeId: change.id, origin, refusable: refusable && !undoing, undoing };
+      });
     for (const change of defaults.filter((d) => d.component === name)) {
-      changes.push({ label: defaultChangeLabel(change.setting, change.from, change.to), origin: DIRECT, refusable: false });
+      changes.push({ label: defaultChangeLabel(change.setting, change.from, change.to), origin: DIRECT, refusable: false, undoing: false });
     }
-    if (changes.length === 0) changes.push({ label: "Modification sans description", origin: DIRECT, refusable: false });
+    if (changes.length === 0) changes.push({ label: "Modification sans description", origin: DIRECT, refusable: false, undoing: false });
     const keptBy = ownNames.filter((project) => project.names.has(name)).map((project) => project.title);
     return { name, kind, changes, where: whereOf(name, sites, keptBy) };
   };
@@ -71,6 +75,7 @@ export function diffusionReview(store: Store, designSystemId: string): Diffusion
     tokens,
     designMdChanged: pending.designMdChanged,
     projects: following.filter((project) => !project.archived).map((project) => project.title),
+    undoing: recorded.filter((change) => change.state === "refused").length,
     components: [...changed.map((n) => cardOf(n, "changed")), ...added.map((n) => cardOf(n, "added")), ...removed.map((n) => cardOf(n, "removed"))],
   };
 }

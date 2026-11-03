@@ -8,6 +8,7 @@ import { DIALOG_EXIT_MS } from "./ui/Dialog.js";
 import styles from "./DiffusionDialog.module.css";
 
 const TOAST_MS = 10_000;
+const UNDO_POLL_MS = 3_000;
 
 interface DiffusionControls {
   /** Opens the "Diffuser la version N de <design system>" dialog. */
@@ -123,17 +124,27 @@ export function DiffusionDialog({ designSystemId, onClose, onDiffused, onOpenPre
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    void (async () => {
-      const [loaded, loadedReview] = await Promise.all([
-        fetch(`/api/design-systems/${designSystemId}`).then((res) => res.json() as Promise<DesignSystemDetail>),
-        fetch(`/api/design-systems/${designSystemId}/review`).then((res) => res.json() as Promise<DiffusionReview>),
-      ]);
-      setDetail(loaded);
-      setReview(loadedReview);
-      setPreviewProject((loaded.overrides[0] ?? loaded.usedBy[0])?.id ?? "");
-    })();
+  const load = useCallback(async () => {
+    const [loaded, loadedReview] = await Promise.all([
+      fetch(`/api/design-systems/${designSystemId}`).then((res) => res.json() as Promise<DesignSystemDetail>),
+      fetch(`/api/design-systems/${designSystemId}/review`).then((res) => res.json() as Promise<DiffusionReview>),
+    ]);
+    setDetail(loaded);
+    setReview(loadedReview);
+    return loaded;
   }, [designSystemId]);
+
+  useEffect(() => {
+    void load().then((loaded) => setPreviewProject((loaded.overrides[0] ?? loaded.usedBy[0])?.id ?? ""));
+  }, [load]);
+
+  // A refused change stays "annulation en cours" until the design system's session publishes the undo: read the review again meanwhile.
+  const undoing = review?.undoing ?? 0;
+  useEffect(() => {
+    if (undoing === 0) return;
+    const timer = setInterval(() => void load(), UNDO_POLL_MS);
+    return () => clearInterval(timer);
+  }, [undoing, load]);
 
   useEffect(() => {
     if (previewProject === "") return;
@@ -192,8 +203,11 @@ export function DiffusionDialog({ designSystemId, onClose, onDiffused, onOpenPre
           </div>
         </div>
 
-        <DiffusionReviewCards review={review} detail={detail} />
-        <div className={styles.note}>Les demandes diffusées se ferment, et leur fil se rouvre sur la maquette d'origine.</div>
+        <DiffusionReviewCards review={review} detail={detail} onRefused={() => void load()} />
+        <div className={styles.note}>
+          Refuser un changement le défait dans le brouillon et prévient le projet qui l'a demandé. Les demandes diffusées se ferment, et leur fil se rouvre sur la maquette d'origine.
+          {undoing > 0 && " Diffuser reste indisponible tant que l'annulation d'un changement refusé n'est pas faite dans le brouillon."}
+        </div>
 
         {failed && <div role="alert" className={styles.error}>Rien à diffuser : la version a déjà changé.</div>}
 
@@ -218,7 +232,7 @@ export function DiffusionDialog({ designSystemId, onClose, onDiffused, onOpenPre
           <button type="button" className={styles.secondary} onClick={close}>
             Annuler
           </button>
-          <button type="button" className={styles.primary} disabled={busy || pending.count === 0} onClick={() => void diffuse()}>
+          <button type="button" className={styles.primary} disabled={busy || pending.count === 0 || undoing > 0} onClick={() => void diffuse()}>
             Diffuser
           </button>
         </div>

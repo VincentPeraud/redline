@@ -30,6 +30,8 @@ export interface ThreadRequest {
   detail?: string;
   /** Oldest first; the first one is the author of the request. */
   origins: RequestOrigin[];
+  /** Labels of the changes the user refused while the rest of the request stayed open: the return at diffusion recalls them. */
+  refusedLabels?: string[];
   /** Thread of the request this one was attached to: its origins moved there and this one is closed. */
   mergedInto?: string;
 }

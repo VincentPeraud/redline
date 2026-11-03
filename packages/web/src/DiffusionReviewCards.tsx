@@ -63,9 +63,27 @@ function ChangesList({ children }: { children: ReactNode }) {
   );
 }
 
-function ChangeLine({ change }: { change: ReviewChange }) {
+function ChangeLine({ change, onRefused }: { change: ReviewChange; onRefused: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const refuse = async () => {
+    setBusy(true);
+    await fetch(`/api/changes/${change.changeId}/refuse`, { method: "POST" });
+    setBusy(false);
+    onRefused();
+  };
   return (
-    <ChangeRow origin={originText(change.origin)}>
+    <ChangeRow
+      origin={originText(change.origin)}
+      action={
+        change.undoing ? (
+          <span className={styles.undoing} data-testid="change-undoing">annulation en cours</span>
+        ) : change.refusable && change.changeId ? (
+          <button type="button" className={styles.small} disabled={busy} onClick={() => void refuse()}>
+            Refuser
+          </button>
+        ) : undefined
+      }
+    >
       <span className={styles.label}>{change.label}</span>
     </ChangeRow>
   );
@@ -84,7 +102,7 @@ function WhereLine({ title, children, aside }: { title: string; children: ReactN
 
 const KIND_PILL = { changed: ["modifié", styles.pillChanged], added: ["nouveau", styles.pillAdded], removed: ["supprimé", styles.pillRemoved] } as const;
 
-function ComponentCard({ component, designSystemId }: { component: ReviewComponent; designSystemId: string }) {
+function ComponentCard({ component, designSystemId, onRefused }: { component: ReviewComponent; designSystemId: string; onRefused: () => void }) {
   const [open, setOpen] = useState(false);
   const { where } = component;
   const [pillText, pillClass] = KIND_PILL[component.kind];
@@ -92,7 +110,7 @@ function ComponentCard({ component, designSystemId }: { component: ReviewCompone
     <div data-testid="diffusion-component" data-component={component.name}>
       <ReviewCard title={`ui-${component.name}`} mono pill={<span className={cx(styles.pill, pillClass)}>{pillText}</span>}>
         <ChangesList>
-          {component.changes.map((change) => <ChangeLine key={change.changeId ?? change.label} change={change} />)}
+          {component.changes.map((change) => <ChangeLine key={change.changeId ?? change.label} change={change} onRefused={onRefused} />)}
         </ChangesList>
         <div className={styles.block}>
           {where.pages.length > 0 ? (
@@ -133,7 +151,7 @@ function ComponentCard({ component, designSystemId }: { component: ReviewCompone
 }
 
 /** The cards of the Diffuse dialog: tokens and DESIGN.md first, then one card per component whose definition differs. */
-export function DiffusionReviewCards({ review, detail }: { review: DiffusionReview; detail: DesignSystemDetail }) {
+export function DiffusionReviewCards({ review, detail, onRefused }: { review: DiffusionReview; detail: DesignSystemDetail; /** A change was refused: the review has to be read again. */ onRefused: () => void }) {
   const hasTokenCards = review.tokens.length > 0 || review.designMdChanged;
   return (
     <section className={styles.section}>
@@ -186,7 +204,7 @@ export function DiffusionReviewCards({ review, detail }: { review: DiffusionRevi
         </ReviewCard>
       )}
       {review.components.length > 0 && <h3 className={cx(styles.sectionTitle, hasTokenCards && styles.afterCards)}>{componentsHeading(review.components.length)}</h3>}
-      {review.components.map((component) => <ComponentCard key={component.name} component={component} designSystemId={detail.id} />)}
+      {review.components.map((component) => <ComponentCard key={component.name} component={component} designSystemId={detail.id} onRefused={onRefused} />)}
     </section>
   );
 }

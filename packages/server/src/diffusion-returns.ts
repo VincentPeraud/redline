@@ -10,6 +10,8 @@ export interface ClosingRequest {
   component: string;
   /** The labels of its pending changes. */
   labels: string[];
+  /** The labels of the changes the user refused on it: the return recalls them. */
+  refused: string[];
 }
 
 /** The open requests answered by a change recorded since the current diffusion (read before the diffusion is made). */
@@ -21,7 +23,7 @@ export function requestsClosedBy(store: Store, designSystemId: string): ClosingR
     const threadId = store.getThread(change.threadId)?.request?.mergedInto ?? change.threadId;
     const request = store.getThread(threadId)?.request;
     if (!request || !requestIsOpen(request)) continue;
-    const entry = closing.get(threadId) ?? { threadId, component: request.component, labels: [] };
+    const entry = closing.get(threadId) ?? { threadId, component: request.component, labels: [], refused: request.refusedLabels ?? [] };
     if (!entry.labels.includes(change.label)) entry.labels.push(change.label);
     closing.set(threadId, entry);
   }
@@ -30,7 +32,8 @@ export function requestsClosedBy(store: Store, designSystemId: string): ClosingR
 
 /** What Redline tells the origin thread: what is now available, and what to do with it. */
 export function returnMessage(request: ClosingRequest, diffusionNumber: number): string {
-  return `${request.labels.join(" ; ")} : disponible dans ${INSTANCE_TAG_PREFIX}${request.component} depuis la diffusion ${diffusionNumber}. Mets l'instance à jour.`;
+  const available = `${request.labels.join(" ; ")} : disponible dans ${INSTANCE_TAG_PREFIX}${request.component} depuis la diffusion ${diffusionNumber}. Mets l'instance à jour.`;
+  return request.refused.length > 0 ? `${available} Refusé : ${request.refused.join(" ; ")}.` : available;
 }
 
 const isArchived = (store: Store, pageId: string): boolean => {
@@ -68,15 +71,22 @@ export function returnToOrigin(store: Store, pageLock: PageLock, terminal: Termi
 export function closeDiffusedRequests(store: Store, pageLock: PageLock, terminal: TerminalPresence, closing: ClosingRequest[], diffusionNumber: number): void {
   for (const request of closing) {
     const message = returnMessage(request, diffusionNumber);
-    const origins = store.getThread(request.threadId)!.request!.origins;
     store.setRequestState(request.threadId, "diffused");
     store.resolveThread(request.threadId);
-    origins.forEach((origin, index) => {
-      if (returnToOrigin(store, pageLock, terminal, origin, message)) return;
-      store.setPendingReturn(request.threadId, index, message);
-      store.addReply(request.threadId, `Pas de fil de retour pour ${origin.projectTitle} · ${origin.pageTitle} : page archivée. Il s'ouvrira si la page est désarchivée.`, "redline");
-    });
+    tellOrigins(store, pageLock, terminal, request.threadId, message);
   }
+}
+
+/**
+ * Tells every origin of a request `message` (a diffusion, a refusal). An origin on an archived page keeps its message until
+ * the page is unarchived (`returnPendingOn`); the request's thread says so.
+ */
+export function tellOrigins(store: Store, pageLock: PageLock, terminal: TerminalPresence, threadId: string, message: string): void {
+  store.getThread(threadId)!.request!.origins.forEach((origin, index) => {
+    if (returnToOrigin(store, pageLock, terminal, origin, message)) return;
+    store.setPendingReturn(threadId, index, message);
+    store.addReply(threadId, `Pas de fil de retour pour ${origin.projectTitle} · ${origin.pageTitle} : page archivée. Il s'ouvrira si la page est désarchivée.`, "redline");
+  });
 }
 
 /** The pages are back: the messages their origins were waiting for are delivered. */

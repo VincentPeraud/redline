@@ -19,8 +19,10 @@ export interface ReviewChange {
   origin: ReviewOrigin;
   /** The recorded change this line shows; absent for a derived line ("Modification sans description", a default value). */
   changeId?: string;
-  /** Born of a request, so it can be refused from the review (ticket 14). */
+  /** Born of a request and not refused yet, so it can be refused from the review. */
   refusable: boolean;
+  /** Refused, and the design system's session has not undone it in the draft yet ("annulation en cours"). */
+  undoing: boolean;
 }
 
 /** A page of a following project that writes instances of a component. */
@@ -54,6 +56,8 @@ export interface DiffusionReview {
   /** Titles of the projects following the design system ("Toutes les pages de ..."). */
   projects: string[];
   components: ReviewComponent[];
+  /** Refused changes not undone yet: "Diffuser" is unavailable while there is one. */
+  undoing: number;
 }
 
 /** The change line shown when a default value changed: "Valeur par défaut de size : md → lg". */

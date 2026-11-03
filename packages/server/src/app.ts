@@ -56,6 +56,7 @@ import { PageLock } from "./page-lock.js";
 import { removalsError, rollbackImpact } from "./removals.js";
 import { diffusionReview } from "./diffusion-review.js";
 import { brokenPagesAtDiffusion, instanceChangesError, rollbackInstancesError } from "./instance-guards.js";
+import { refuseChange, refuseRequest } from "./refusals.js";
 import { closeDiffusedRequests, requestsClosedBy, returnPendingOn } from "./diffusion-returns.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
@@ -319,11 +320,22 @@ export async function buildMainApp(
     return diffusionReview(store, req.params.designSystemId);
   });
 
+  // "Refuser" is a user action of the web UI: on a change born of a request, or on a whole request.
+  app.post<{ Params: { changeId: string } }>("/api/changes/:changeId/refuse", async (req, reply) => {
+    const outcome = refuseChange(store, pageLock, terminalSessions, req.params.changeId);
+    return reply.code(outcome.status).send(outcome.body);
+  });
+  app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/refuse", async (req, reply) => {
+    const outcome = refuseRequest(store, pageLock, terminalSessions, req.params.threadId);
+    return reply.code(outcome.status).send(outcome.body);
+  });
+
   // User action only: Claude never diffuses (no equivalent in the agent API or the session tools).
   app.post<{ Params: { designSystemId: string } }>("/api/design-systems/:designSystemId/diffusions", async (req, reply) => {
     const designSystem = store.getDesignSystem(req.params.designSystemId);
     if (!designSystem) return reply.code(404).send({ error: "design system not found" });
     if (store.pendingDiffusion(designSystem.id).pending.count === 0) return reply.code(409).send({ error: "nothing to diffuse" });
+    if (store.listChanges(designSystem.id).some((change) => change.state === "refused")) return reply.code(409).send({ error: "A refused change is not undone in the draft yet." });
     const broken = brokenPagesAtDiffusion(store, designSystem.id);
     const closing = requestsClosedBy(store, designSystem.id);
     const created = store.createDiffusion(designSystem.id, "user");
