@@ -41,6 +41,7 @@ import {
   CLI_TARBALL_PATH,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
+import { INSTANCES_PATH, INSTANCES_SOURCE, injectInstances, instanceLayersOf } from "./instances.js";
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
@@ -622,6 +623,10 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
   app.get(BRIDGE_PATH, async (_req, reply) =>
     reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(BRIDGE_SOURCE),
   );
+  app.get(INSTANCES_PATH, async (_req, reply) =>
+    reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(INSTANCES_SOURCE),
+  );
+
   app.get(ERRORS_PATH, async (_req, reply) =>
     reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(ERRORS_SOURCE),
   );
@@ -723,10 +728,13 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
     // Artboards are opaque-origin, so fonts of the project assets need CORS to load.
     if (!pageFile) reply.header("access-control-allow-origin", "*");
     const isHtml = extname(path) === ".html";
+    if (!isHtml) return reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[extname(path)] ?? "application/octet-stream").send(asset);
+    const diffusion = draftPreview ? undefined : diffusionOf(pageId, versionId);
+    const withDesignSystem = injectDesignSystem(asset.toString("utf8"), store.sharedDesignSystemIdOfPage(pageId, versionId), projectStyleProjectOf(pageId), diffusion);
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
-      .type(MIME[extname(path)] ?? "application/octet-stream")
-      .send(isHtml ? injectBridge(injectDesignSystem(asset.toString("utf8"), store.sharedDesignSystemIdOfPage(pageId, versionId), projectStyleProjectOf(pageId), draftPreview ? undefined : diffusionOf(pageId, versionId))) : asset);
+      .type(MIME[".html"])
+      .send(injectBridge(injectInstances(withDesignSystem, instanceLayersOf(store, pageId, diffusion, versionId))));
   }
 
   return app;

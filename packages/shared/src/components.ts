@@ -2,6 +2,7 @@
 // system or of a project; this pure module assembles them.
 
 import { MANIFEST_PATH, parseManifest, type Manifest, type ManifestTweak } from "./index.js";
+import { componentDefinitionOf, type ComponentDefinition } from "./componentDefinition.js";
 import { groupTitlesOf, readingOrder } from "./readingOrder.js";
 
 export const COMPONENTS_DIR = "components";
@@ -46,6 +47,8 @@ export interface ComponentAssembly {
   css: string;
   /** Page then reading order. */
   components: ComponentInfo[];
+  /** What instances render from, one per component that has a `<template data-component>`. */
+  definitions: ComponentDefinition[];
   /** Index text given to sessions, per page id. */
   indexes: Record<string, string>;
   /** One message per component name defined twice, naming both files. */
@@ -162,6 +165,16 @@ function indexText(components: ComponentInfo[]): string {
   return sections.join("\n");
 }
 
+/** Definitions of the components that have a template, in the order of `components`; the first of a duplicated name wins. */
+export function definitionsOf(components: ComponentInfo[], fileOf: (component: ComponentInfo) => string): ComponentDefinition[] {
+  const definitions = new Map<string, ComponentDefinition>();
+  for (const component of components) {
+    const definition = definitions.has(component.name) ? null : componentDefinitionOf(component.name, fileOf(component), component.variants);
+    if (definition) definitions.set(component.name, definition);
+  }
+  return [...definitions.values()];
+}
+
 /** Assembles the components of the pages of one design system or one project, pages given in their order. */
 export function assembleComponents(pages: ComponentPage[]): ComponentAssembly {
   const perPage = pages.map((page) => ({ page, components: pageComponents(page) }));
@@ -181,5 +194,5 @@ export function assembleComponents(pages: ComponentPage[]): ComponentAssembly {
     }
   }
   const indexes = Object.fromEntries(perPage.map(({ page, components: own }) => [page.id, indexText(own)]));
-  return { css, components, indexes, duplicates };
+  return { css, components, definitions: definitionsOf(components, (component) => pages.find((p) => p.id === component.page.id)!.files[component.file]), indexes, duplicates };
 }

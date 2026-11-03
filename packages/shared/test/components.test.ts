@@ -102,3 +102,40 @@ describe("component classes", () => {
     expect([...classesUsedIn(html)].sort()).toEqual(["btn", "btn-primary", "link"]);
   });
 });
+
+describe("component definitions", () => {
+  const file = (body: string) => `<!doctype html><html><head><style data-component>.m{}</style></head><body>${body}</body></html>`;
+  const pageWith = (html: string, tweaks: object[] = []): ComponentPage[] => [
+    { id: "p", title: "P", files: { "manifest.json": manifest([board("components/modal.html", 0)], { tweaks }), "components/modal.html": html } },
+  ];
+
+  it("gives a component with a template its tag, template, slots, settings and contained components", () => {
+    const html = file(
+      `<template data-component><div><h2><slot name="title"></slot></h2><slot></slot><footer><ui-button><slot name="actions"></slot></ui-button></footer></div></template>` +
+        `<script data-component>host.dataset.ready = "1";</script>`,
+    );
+    const tweaks = [
+      { id: "size", type: "choice", label: "Size", options: ["sm", "md"], default: "md", artboard: "components/modal.html" },
+      { id: "closable", type: "toggle", label: "Closable", artboard: "components/modal.html" },
+      { id: "other", type: "toggle", label: "Elsewhere", artboard: "components/other.html" },
+    ];
+    expect(assembleComponents(pageWith(html, tweaks)).definitions).toEqual([
+      {
+        name: "modal",
+        tag: "ui-modal",
+        template: `<div><h2><slot name="title"></slot></h2><slot></slot><footer><ui-button><slot name="actions"></slot></ui-button></footer></div>`,
+        slots: ["title", "", "actions"],
+        settings: [
+          { name: "size", type: "choice", options: ["sm", "md"], default: "md" },
+          { name: "closable", type: "toggle", default: false },
+        ],
+        script: 'host.dataset.ready = "1";',
+        contains: ["button"],
+      },
+    ]);
+  });
+
+  it("gives no definition to a component without a template", () => {
+    expect(assembleComponents(pageWith(file(""))).definitions).toEqual([]);
+  });
+});

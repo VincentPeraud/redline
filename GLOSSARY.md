@@ -45,6 +45,22 @@ _Avoid_: Customisation, exception
 An artboard file `components/<name>.html` of a page of a design system or of a project; its name is its file name (`[a-z0-9-]`). Its style lives in `<style data-component>` blocks, its description in `<meta name="description">`, its usage in `<template data-usage>`; its variants are the tweaks of its artboard and its states go through `data-state` or modifier classes. Redline assembles the components of a design system, or of a project, into a `components.css` served to artboards; the canvas marks a component with a ◆ and its name on the strip. Two components of one design system or one project cannot share a name.
 _Avoid_: Widget, block, symbol
 
+**Instance**:
+A component placed in a mock-up as its tag `<ui-<name>>` (same prefix for design system and project components), with its content in slots and its settings as attributes. The page file stores only the tag; the artboard expands it at display time, in light DOM, from the component's current definition. There is no detaching.
+_Avoid_: Copy, clone, usage
+
+**Setting**:
+A tweak of a component's artboard seen from an instance: an attribute named after the tweak (a choice takes one of its options, a toggle is a boolean attribute). An omitted attribute takes the tweak's default.
+_Avoid_: Prop, parameter, variant
+
+**Slot**:
+A `<slot>` of a component's template: one default slot and named ones (`<slot name="title">`). An instance's children go to the slot named by their `slot` attribute, the rest to the default slot; an empty slot keeps its fallback content.
+_Avoid_: Placeholder, region
+
+**Component definition**:
+What an instance renders from, produced by the component assembly for each component with a `<template data-component>`: tag, template, slots, settings (values and defaults), behaviour script and the components it contains. A diffusion snapshots the definitions; a project page sees the current diffusion's, a design system page the draft's.
+_Avoid_: Schema, spec
+
 **Gap** (UI word "écart"):
 An element of an artboard that bypasses the design system: a hard-coded colour or font, a `<button>`, `<input>`, `<select>` or `<textarea>` without any component class when components of that kind exist, or the use of a deprecated token. Measured only for pages of a project that follows a shared design system, against its design system (current diffusion) and project style (a project without one has no gaps); listed in the page header with the closest token or the component meant for the case. A gap never blocks a publish; an element carrying `data-ds-libre`, and its descendants, is outside the analysis.
 _Avoid_: Violation, lint error, warning

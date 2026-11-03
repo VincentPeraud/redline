@@ -8,6 +8,7 @@ import {
   EMPTY_VIEW_SETTINGS,
   initialsOf,
   diffDiffusionStates,
+  definitionsOf,
   diffusionSummary,
   DESIGN_MD_PATH,
   DESIGN_SYSTEM_TOKENS_PATH,
@@ -32,6 +33,7 @@ import {
 import type {
   Person,
   ComponentInfo,
+  ComponentDefinition,
   DiffusionInfo,
   DiffusionState,
   Conversation,
@@ -162,6 +164,7 @@ export class Store {
         component_list_hash TEXT NOT NULL,
         index_hash TEXT NOT NULL,
         component_files_hash TEXT,
+        component_definitions_hash TEXT,
         PRIMARY KEY (design_system_id, number)
       );
       CREATE TABLE IF NOT EXISTS design_system_diffusion_undos (
@@ -257,6 +260,7 @@ export class Store {
     addColumn("work_queue", "handed_over_by", "TEXT");
     addColumn("design_systems", "current_diffusion", "INTEGER");
     addColumn("design_system_diffusions", "component_files_hash", "TEXT");
+    addColumn("design_system_diffusions", "component_definitions_hash", "TEXT");
     addColumn("design_system_diffusions", "rolled_back_to", "INTEGER");
     addColumn("pages", "created_by", "TEXT NOT NULL DEFAULT 'user'");
     // The signed-in person who wrote a human message or started a conversation; NULL before the SSO and without it.
@@ -438,13 +442,13 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO design_system_diffusions
-         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, component_definitions_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         designSystemId, number, createdAt, origin, text,
         blob(draft.state.tokensCss), blob(draft.componentsCss), blob(draft.state.designMd),
-        blob(JSON.stringify(draft.assembly.components)), blob(JSON.stringify(draft.assembly.indexes)), blob(JSON.stringify(draft.componentFiles)),
+        blob(JSON.stringify(draft.assembly.components)), blob(JSON.stringify(draft.assembly.indexes)), blob(JSON.stringify(draft.componentFiles)), blob(JSON.stringify(draft.assembly.definitions)),
       );
     this.db.prepare("UPDATE design_systems SET current_diffusion = ? WHERE project_id = ?").run(number, designSystemId);
     return { number, createdAt, origin, summary: text, undone: false };
@@ -472,8 +476,8 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO design_system_diffusions
-         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, rolled_back_to)
-         SELECT design_system_id, ?, ?, 'rollback', ?, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, ?
+         (design_system_id, number, created_at, origin, summary, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, component_definitions_hash, rolled_back_to)
+         SELECT design_system_id, ?, ?, 'rollback', ?, tokens_hash, components_hash, design_md_hash, component_list_hash, index_hash, component_files_hash, component_definitions_hash, ?
          FROM design_system_diffusions WHERE design_system_id = ? AND number = ?`,
       )
       .run(number, createdAt, summary, target, designSystemId, target);
@@ -500,9 +504,9 @@ export class Store {
     return rows.map(({ rolledBackTo, undone, ...rest }) => ({ ...rest, undone: undone === 1, ...(rolledBackTo !== null && { rolledBackTo }) }));
   }
 
-  /** One file of a diffusion (`tokens.css`, `components.css`, `DESIGN.md`, `components.json` the component list, `index.json` the per-page index, `component-files.json` the component files by path). */
-  readDiffusionFile(designSystemId: string, number: number, file: "tokens.css" | "components.css" | "DESIGN.md" | "components.json" | "index.json" | "component-files.json"): string | undefined {
-    const column = { "tokens.css": "tokens_hash", "components.css": "components_hash", "DESIGN.md": "design_md_hash", "components.json": "component_list_hash", "index.json": "index_hash", "component-files.json": "component_files_hash" }[file];
+  /** One file of a diffusion (`tokens.css`, `components.css`, `DESIGN.md`, `components.json` the component list, `index.json` the per-page index, `component-files.json` the component files by path, `component-definitions.json` the instance definitions). */
+  readDiffusionFile(designSystemId: string, number: number, file: "tokens.css" | "components.css" | "DESIGN.md" | "components.json" | "index.json" | "component-files.json" | "component-definitions.json"): string | undefined {
+    const column = { "tokens.css": "tokens_hash", "components.css": "components_hash", "DESIGN.md": "design_md_hash", "components.json": "component_list_hash", "index.json": "index_hash", "component-files.json": "component_files_hash", "component-definitions.json": "component_definitions_hash" }[file];
     const row = this.db.prepare(`SELECT ${column} AS hash FROM design_system_diffusions WHERE design_system_id = ? AND number = ?`).get(designSystemId, number) as { hash: string | null } | undefined;
     return row?.hash ? readFileSync(join(this.blobDir, row.hash), "utf8") : undefined;
   }
@@ -515,6 +519,17 @@ export class Store {
   /** The component files of a diffusion by path (`component-files.json`). */
   diffusionComponentFiles(designSystemId: string, number: number): Record<string, string> {
     return JSON.parse(this.readDiffusionFile(designSystemId, number, "component-files.json") ?? "{}") as Record<string, string>;
+  }
+
+  /**
+   * The component definitions a diffusion froze (`component-definitions.json`). A diffusion made before definitions
+   * existed has none stored: they are derived from its component files and list.
+   */
+  diffusionDefinitions(designSystemId: string, number: number): ComponentDefinition[] {
+    const stored = this.readDiffusionFile(designSystemId, number, "component-definitions.json");
+    if (stored !== undefined) return JSON.parse(stored) as ComponentDefinition[];
+    const files = this.diffusionComponentFiles(designSystemId, number);
+    return definitionsOf(this.diffusionComponents(designSystemId, number), (component) => files[component.file] ?? "");
   }
 
   /** The per-page component index text of a diffusion, by page id (`index.json`). */
@@ -1921,7 +1936,7 @@ const pageRowDeletes = (pages: string) => [
 const BLOB_HASH_COLUMNS = [
   { table: "project_files", column: "hash", owner: "project_id" },
   { table: "design_md_versions", column: "hash", owner: "project_id" },
-  ...["tokens_hash", "components_hash", "design_md_hash", "component_list_hash", "index_hash", "component_files_hash"].map((column) => ({
+  ...["tokens_hash", "components_hash", "design_md_hash", "component_list_hash", "index_hash", "component_files_hash", "component_definitions_hash"].map((column) => ({
     table: "design_system_diffusions",
     column,
     owner: "design_system_id",
