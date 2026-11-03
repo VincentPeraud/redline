@@ -6,6 +6,7 @@ import { RemovedTag } from "./RemovedTag.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
 import { MessageAuthor } from "./MessageAuthor.js";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
+import { InstanceGoneNote } from "./InstanceThreads.js";
 import { RenderingChip } from "./RenderingChip.js";
 import { queueLabel } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
@@ -53,14 +54,17 @@ const GROUP_ORDER: Record<Thread["status"], number> = { held: 0, open: 1, resolv
 
 function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNode }) {
   return (
-    <div className={styles.head}>
-      <span className={cx(styles.badge, thread.removed && styles.badgeRemoved)}>{thread.number}</span>
-      <span className={styles.where}>{threadWhere(thread)}</span>
-      <RenderingChip thread={thread} />
-      <span className={styles.spacer} />
-      {thread.removed && <RemovedTag />}
-      {children}
-    </div>
+    <>
+      <div className={styles.head}>
+        <span className={cx(styles.badge, thread.removed && styles.badgeRemoved)}>{thread.number}</span>
+        <span className={styles.where}>{threadWhere(thread)}</span>
+        <RenderingChip thread={thread} />
+        <span className={styles.spacer} />
+        {thread.removed && <RemovedTag />}
+        {children}
+      </div>
+      <InstanceGoneNote thread={thread} />
+    </>
   );
 }
 

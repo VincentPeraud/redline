@@ -1,11 +1,11 @@
-import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokensUrlPath, projectComponentsUrlPath, projectStyleUrlPath, GAP_OUTLINE_CSS, HOVER_FINISH, MARK_FINISH, hoverLabelCss, hoverOutlineCss, markBadgeCss } from "@redline/shared";
+import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokensUrlPath, projectComponentsUrlPath, projectStyleUrlPath, GAP_OUTLINE_CSS, HOVER_FINISH, INSTANCE_ANCHOR_SEPARATOR, MARK_FINISH, hoverLabelCss, hoverOutlineCss, instanceLabelCss, instanceOutlineCss, markBadgeCss } from "@redline/shared";
 
 /**
  * Script injected into every served artboard HTML. Artboards run in a sandboxed iframe with an
  * opaque origin, so the web UI cannot touch their DOM: it talks to this bridge by postMessage.
  *
  * Parent -> artboard: { type: "redline:set-mode", picking: boolean, selecting: boolean, alt: boolean }  (selecting: the conversation's selection mode, which hovers and picks like comment mode; alt: the Alt key is held in the parent page, where keyboard focus usually is)
- *                     { type: "redline:set-pins", pins: [{ id, selector, xPct, yPct }] }
+ *                     { type: "redline:set-pins", pins: [{ id, selector, xPct, yPct }] }  (a selector "<instance> >>> <path>" anchors inside a component instance, see INSTANCE_ANCHOR_SEPARATOR)
  *                     { type: "redline:set-marks", marks: [{ number, selector }] }  (numbered selection marks, drawn whenever there are some)
  *                     { type: "redline:set-gap", selector: string | null }  (outlines the element a design system gap points at, and answers redline:gap-rect when it exists)
  *                     { type: "redline:set-links", selectors: string[] | null }  (play mode: clicks on a match are reported, not performed)
@@ -15,7 +15,7 @@ import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokens
  *                     { type: "redline:picked", selector, elementName, xPct, yPct }  (elementName: role + short visible text, e.g. bouton « Continuer »)
  *                     { type: "redline:escape" }  (Escape pressed in selection mode: the iframe holds the keyboard focus, so the parent cannot hear it)
  *                     { type: "redline:key", key: "ArrowLeft" | "ArrowRight" }  (arrow pressed with no modifier outside a text field: the iframe holds the keyboard focus, so play mode cannot hear it)
- *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched }] }
+ *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched, elementGone? }] }  (elementGone: the element inside the instance no longer exists, the pin sits on the instance)
  *                     { type: "redline:link", selector }
  *                     { type: "redline:gap-rect", x, y, width, height }  (box of the element outlined by redline:set-gap, in page pixels)
  *                     { type: "redline:doc-height", height }  (height of the whole page in pixels; sent on load and whenever it changes)
@@ -115,11 +115,22 @@ export const BRIDGE_SOURCE = `(function () {
     return value.replace(/[^\\w-]/g, function (c) { return "\\\\" + c; });
   }
 
-  function selectorFor(el) {
+  var SEPARATOR = ${JSON.stringify(INSTANCE_ANCHOR_SEPARATOR)};
+
+  // The outermost component instance containing el (or el itself), else null. The runtime marks instances with __redlineInstance.
+  function instanceHostOf(el) {
+    var host = null;
+    for (var node = el; node && node.nodeType === 1; node = node.parentElement) {
+      if (node.__redlineInstance) host = node;
+    }
+    return host;
+  }
+
+  function plainSelectorFor(el) {
     var parts = [];
     while (el && el.nodeType === 1 && el !== document.documentElement) {
       if (el.id) {
-        parts.unshift("#" + escapeIdent(el.id));
+        parts.unshift((el.__redlineInstance ? el.tagName.toLowerCase() : "") + "#" + escapeIdent(el.id));
         break;
       }
       var part = el.tagName.toLowerCase();
@@ -131,6 +142,39 @@ export const BRIDGE_SOURCE = `(function () {
       el = el.parentElement;
     }
     return parts.join(" > ");
+  }
+
+  // Path from the host's children down to el, without ids: the same template gives the same ids to every instance.
+  function pathWithin(el, host) {
+    var parts = [];
+    for (; el && el !== host; el = el.parentElement) {
+      var part = el.tagName.toLowerCase();
+      var siblings = Array.prototype.filter.call(el.parentElement.children, function (c) { return c.tagName === el.tagName; });
+      if (siblings.length > 1) part += ":nth-of-type(" + (siblings.indexOf(el) + 1) + ")";
+      parts.unshift(part);
+    }
+    return parts.join(" > ");
+  }
+
+  // Inside an instance: the instance's selector, then the path within what it renders.
+  function selectorFor(el) {
+    var host = instanceHostOf(el);
+    if (host && host !== el) return plainSelectorFor(host) + SEPARATOR + pathWithin(el, host);
+    return plainSelectorFor(el);
+  }
+
+  function query(root, selector) {
+    try { return root.querySelector(selector); } catch (e) { return null; }
+  }
+
+  // { el, gone }: gone is true when the element inside an instance no longer exists and el is the instance.
+  function resolve(selector) {
+    var at = selector.indexOf(SEPARATOR);
+    if (at === -1) return { el: query(document, selector), gone: false };
+    var host = query(document, selector.slice(0, at));
+    if (!host) return { el: null, gone: false };
+    var inner = query(host, ":scope > " + selector.slice(at + SEPARATOR.length));
+    return inner ? { el: inner, gone: false } : { el: host, gone: true };
   }
 
   var NAME_MAX = 30;
@@ -261,17 +305,19 @@ export const BRIDGE_SOURCE = `(function () {
   }
 
   function locate(pin) {
-    var el = null;
-    try { el = document.querySelector(pin.selector); } catch (e) { el = null; }
+    var found = resolve(pin.selector);
+    var el = found.el;
     if (!el) return { id: pin.id, xPct: pin.xPct, yPct: pin.yPct, matched: false };
     var rect = el.getBoundingClientRect();
     var size = docSize();
-    return {
+    var position = {
       id: pin.id,
       xPct: 100,
       yPct: pct(rect.top + rect.height / 2 + (window.scrollY || 0), size.h),
       matched: true
     };
+    if (found.gone) position.elementGone = true;
+    return position;
   }
 
   function reportPins() {
@@ -333,8 +379,55 @@ export const BRIDGE_SOURCE = `(function () {
     return (picking || selecting || altHeld) && !linkSelectors;
   }
 
+  var INSTANCE_OUTLINE_CSS = ${JSON.stringify(instanceOutlineCss())};
+  var INSTANCE_LABEL_CSS = ${JSON.stringify(instanceLabelCss())};
+  var instanceRoot = null;
+
+  function instanceParts() {
+    if (instanceRoot && instanceRoot.parentNode) return instanceRoot;
+    instanceRoot = document.createElement("div");
+    instanceRoot.id = "__redline-hover-instance";
+    instanceRoot.style.cssText = "position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 2147483647; pointer-events: none";
+    var outline = document.createElement("div");
+    outline.setAttribute("data-part", "outline");
+    var label = document.createElement("div");
+    label.setAttribute("data-part", "label");
+    instanceRoot.appendChild(outline);
+    instanceRoot.appendChild(label);
+    document.documentElement.appendChild(instanceRoot);
+    return instanceRoot;
+  }
+
+  // "ui-modal \u00b7 confirm": the instance's tag, then its id, else the value of its first setting.
+  function instanceLabelOf(host) {
+    var tag = host.tagName.toLowerCase();
+    if (host.id) return tag + " \u00b7 " + host.id;
+    var settings = host.__redlineInstance.definition.settings;
+    if (settings.length === 0) return tag;
+    var name = settings[0].name;
+    if (!host.hasAttribute(name)) return tag;
+    var value = host.getAttribute(name);
+    return tag + " \u00b7 " + (value === "" ? name : value);
+  }
+
   function hideHover() {
     if (hoverRoot) hoverRoot.style.display = "none";
+    if (instanceRoot) instanceRoot.style.display = "none";
+  }
+
+  // The hovered element sits in a component instance: the instance is outlined too, its label on the top-right corner so it never covers the element's own label.
+  function drawInstanceHover(el) {
+    var host = instanceHostOf(el);
+    if (!host) {
+      if (instanceRoot) instanceRoot.style.display = "none";
+      return;
+    }
+    var rect = host.getBoundingClientRect();
+    var root = instanceParts();
+    root.style.display = "";
+    root.firstChild.style.cssText = "position: fixed; left: " + rect.left + "px; top: " + rect.top + "px; width: " + rect.width + "px; height: " + rect.height + "px; border-radius: " + (window.getComputedStyle(host).borderRadius || "0") + "; " + INSTANCE_OUTLINE_CSS;
+    root.lastChild.textContent = instanceLabelOf(host);
+    root.lastChild.style.cssText = "position: fixed; left: " + (rect.right - LABEL_OFFSET_X) + "px; top: " + Math.max(1, rect.top + LABEL_OFFSET_Y) + "px; transform: translateX(-100%); " + INSTANCE_LABEL_CSS;
   }
 
   function drawHover() {
@@ -354,6 +447,7 @@ export const BRIDGE_SOURCE = `(function () {
     var left = Math.max(1, rect.left + LABEL_OFFSET_X);
     var top = Math.max(1, rect.top + LABEL_OFFSET_Y);
     label.style.cssText = "position: fixed; left: " + left + "px; top: " + top + "px; " + LABEL_CSS;
+    drawInstanceHover(el);
   }
 
   var BADGE_CSS = ${JSON.stringify(markBadgeCss())};
@@ -370,9 +464,9 @@ export const BRIDGE_SOURCE = `(function () {
     }
     marksRoot.innerHTML = "";
     marks.forEach(function (mark) {
-      var el = null;
-      try { el = document.querySelector(mark.selector); } catch (e) { el = null; }
-      if (!el) return;
+      var found = resolve(mark.selector);
+      if (!found.el || found.gone) return;
+      var el = found.el;
       var rect = el.getBoundingClientRect();
       var box = document.createElement("div");
       box.setAttribute("data-mark", String(mark.number));
