@@ -346,6 +346,8 @@ export interface Thread {
   body: string;
   /** The signed-in person who wrote `body` (the thread's first message, or the held comment); absent for comments from before the SSO and without SSO. */
   person?: Person;
+  /** Opened by Redline itself (signed "Redline"), for example when a diffusion removes something a page uses; no person wrote it. */
+  automatic?: true;
   status: ThreadStatus;
   /** Derived, never stored: a canvas-element thread whose element is absent from the page's current manifest. */
   removed?: true;
@@ -1338,6 +1340,8 @@ export * from "./projectFiles.js";
 export * from "./hoverFinish.js";
 export * from "./components.js";
 export * from "./componentDefinition.js";
+export * from "./instanceUses.js";
+export * from "./instanceAnchor.js";
 export * from "./diffusion.js";
 export * from "./projectDesignSystem.js";
 export * from "./gaps.js";

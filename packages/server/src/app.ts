@@ -52,6 +52,7 @@ import { registerEventRoutes } from "./events.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
 import { removalsError, rollbackImpact } from "./removals.js";
+import { brokenPagesAtDiffusion, instanceChangesError, rollbackInstancesError } from "./instance-guards.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
 import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
@@ -306,8 +307,15 @@ export async function buildMainApp(
     const designSystem = store.getDesignSystem(req.params.designSystemId);
     if (!designSystem) return reply.code(404).send({ error: "design system not found" });
     if (store.pendingDiffusion(designSystem.id).pending.count === 0) return reply.code(409).send({ error: "nothing to diffuse" });
+    const broken = brokenPagesAtDiffusion(store, designSystem.id);
     const created = store.createDiffusion(designSystem.id, "user");
     announceDiffusion(store, designSystem.id);
+    // A removal the user confirmed breaks instances: each affected page gets a thread signed Redline, routed like any thread.
+    for (const { pageId, artboard, breaks } of broken) {
+      const body = `Le design system « ${designSystem.title} » a retiré ce que cette page utilise : ${breaks.join(", ")}. Mets à jour les instances concernées.`;
+      const thread = store.createThread(pageId, { target: { kind: "artboard", artboard }, title: "Retrait dans le design system", body }, undefined, true);
+      dispatchThread(pageLock, store.getPage(pageId)!.projectId, thread, modelChoiceOf({}), terminalSessions);
+    }
     return reply.code(201).send(created);
   });
 
@@ -337,6 +345,8 @@ export async function buildMainApp(
   app.post<{ Params: { designSystemId: string; number: string } }>("/api/design-systems/:designSystemId/diffusions/:number/rollback", async (req, reply) => {
     const found = rollbackTarget(req.params.designSystemId, req.params.number);
     if ("error" in found) return reply.code(found.status).send({ error: found.error });
+    const lacking = rollbackInstancesError(store, req.params.designSystemId, found.target);
+    if (lacking) return reply.code(409).send({ error: lacking });
     const created = store.rollbackDiffusion(req.params.designSystemId, found.target);
     announceDiffusion(store, req.params.designSystemId);
     return reply.code(201).send(created);
@@ -550,7 +560,7 @@ export async function buildMainApp(
     "/api/pages/:pageId/versions",
     async (req, reply) => {
       if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-      const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files) ?? removalsError(store, req.params.pageId, req.body.files, req.body.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true);
+      const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files) ?? removalsError(store, req.params.pageId, req.body.files, req.body.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true) ?? instanceChangesError(store, req.params.pageId, req.body.files, req.body.confirmRemovals === true);
       if (invalid) return reply.code(400).send({ error: invalid });
       const { files, message, origin } = req.body;
       return reply.code(201).send(store.addVersion(req.params.pageId, files, message, origin, personRef(req)));
@@ -580,7 +590,7 @@ export async function buildMainApp(
       if (!validTimeZone(timeZone)) return reply.code(400).send({ error: "invalid timeZone" });
       const files = store.readVersionFiles(req.params.pageId, req.params.versionId);
       // Restoring publishes the old files again: the same checks as a publish apply.
-      const invalid = files && (versionComponentsError(store, req.params.pageId, files) ?? removalsError(store, req.params.pageId, files, undefined, false));
+      const invalid = files && (versionComponentsError(store, req.params.pageId, files) ?? removalsError(store, req.params.pageId, files, undefined, false) ?? instanceChangesError(store, req.params.pageId, files, false));
       if (invalid) return reply.code(400).send({ error: invalid });
       const restored = store.restoreVersion(req.params.pageId, req.params.versionId, personRef(req), timeZone);
       return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });
