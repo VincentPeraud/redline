@@ -33,6 +33,10 @@ export interface ProjectComponentInfo {
   pages: number;
   /** The project's design system has a component of the same name (the project's own keeps winning in its pages). */
   inDesignSystem: boolean;
+  /** Diffusion number from which the design system has had that name continuously; with `inDesignSystem`. */
+  diffusedSince?: number;
+  /** Moved up with "Remonter": the project's own until the design system diffuses it. */
+  movedUp: boolean;
 }
 
 /** A design system component the project left out at a switch: its instances stay broken until the user takes it. */
@@ -55,6 +59,8 @@ export interface ProjectDesignSystem {
   /** True when the project style itself declares at least one token (`styleDefinesTokens`). */
   styleDefinesTokens: boolean;
   components: ProjectComponentInfo[];
+  /** Pages of the shared design system a component can be moved up to (its draft). */
+  designSystemPages: { id: string; title: string }[];
   /** Design system components left out at the last switch. */
   excluded: ExcludedComponent[];
   /** Project-style tokens whose names exist in the current diffusion. */
@@ -106,4 +112,9 @@ export interface DesignSystemSwitchPreview {
 /** `POST /api/projects/:id/design-system/promote`: makes the project's own style a shared design system (201 `DesignSystem`). */
 export interface PromoteProjectStyleRequest {
   title: string;
+}
+
+/** `POST /api/projects/:id/design-system/components/:name/move-up`: copies the component into a page of the design system's draft. */
+export interface MoveUpComponentRequest {
+  pageId: string;
 }

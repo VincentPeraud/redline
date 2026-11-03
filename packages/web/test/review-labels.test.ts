@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { componentsHeading, keptByText, originText, tokensWhereText, whereSummary } from "../src/reviewLabels.js";
+import { componentsHeading, keptByText, movedUpText, originText, tokensWhereText, whereSummary } from "../src/reviewLabels.js";
 
 describe("review labels", () => {
   it("tells where a change comes from", () => {
@@ -7,6 +7,11 @@ describe("review labels", () => {
     expect(originText({ kind: "request", from: ["App · Planning"] })).toBe("demandée par App · Planning");
     expect(originText({ kind: "request", from: ["App · Planning", "Site public · Inscription"] })).toBe("demandée par App · Planning et Site public · Inscription");
     expect(originText({ kind: "comment", from: ["App · Planning"] })).toBe("ton commentaire sur App · Planning");
+  });
+
+  it("tells a moved-up component's instances will pass to the design system's", () => {
+    expect(movedUpText([{ project: "App", instances: 8 }])).toBe("remonté depuis App : ses 8 instances passeront à celui-ci");
+    expect(movedUpText([{ project: "App", instances: 1 }])).toBe("remonté depuis App : son instance passera à celui-ci");
   });
 
   it("says which pages a token change reaches, eliding before a vowel", () => {

@@ -10,7 +10,7 @@ import {
   type ReviewPage,
   type ReviewWhere,
 } from "@redline/shared";
-import { projectComponents } from "./components.js";
+import { instanceNamesByPage, projectComponents } from "./components.js";
 import { useSites, type UseSite } from "./instance-guards.js";
 import type { Store } from "./store.js";
 
@@ -26,7 +26,7 @@ function originOf(store: Store, change: ChangeRecord): { origin: ReviewOrigin; r
   return { origin: { kind: comment ? "comment" : "request", from: origins.map(requestOriginLabel) }, refusable: true };
 }
 
-function whereOf(name: string, sites: UseSite[], keptBy: string[]): ReviewWhere {
+function whereOf(name: string, sites: UseSite[], keptBy: string[], movedUp: ReviewWhere["movedUp"]): ReviewWhere {
   const pages = new Map<string, ReviewPage>();
   for (const { use, place, page } of sites) {
     if (use.name !== name || !place || !page) continue;
@@ -35,7 +35,7 @@ function whereOf(name: string, sites: UseSite[], keptBy: string[]): ReviewWhere 
     else pages.set(page.id, { projectTitle: place.project, pageId: page.id, pageTitle: place.page ?? "", instances: 1 });
   }
   const list = [...pages.values()];
-  return { instances: list.reduce((total, page) => total + page.instances, 0), pages: list, keptBy };
+  return { instances: list.reduce((total, page) => total + page.instances, 0), pages: list, keptBy, movedUp };
 }
 
 /** Number of lines the review lists: what the alerts count. */
@@ -51,7 +51,12 @@ export function diffusionReview(store: Store, designSystemId: string): Diffusion
   const recorded = store.listChanges(designSystemId);
   const before = store.diffusionDefinitions(designSystemId, store.currentDiffusion(designSystemId)!.number);
   const defaults = defaultChangesOf(before, projectComponents(store, designSystemId).definitions);
-  const ownNames = following.map((project) => ({ title: project.title, names: new Set(projectComponents(store, project.id).definitions.map((d) => d.name)) }));
+  const ownNames = following.map((project) => ({
+    title: project.title,
+    names: new Set(projectComponents(store, project.id).definitions.map((d) => d.name)),
+    moved: store.movedUpComponents(project.id),
+    uses: instanceNamesByPage(store, project.id),
+  }));
 
   const tokens = [
     ...pending.tokens.changed.map((t) => ({ name: t.name, kind: "changed" as const, from: t.from, to: t.to })),
@@ -71,8 +76,10 @@ export function diffusionReview(store: Store, designSystemId: string): Diffusion
       changes.push({ label: defaultChangeLabel(change.setting, change.from, change.to), origin: DIRECT, refusable: false, undoing: false });
     }
     if (changes.length === 0) changes.push({ label: "Modification sans description", origin: DIRECT, refusable: false, undoing: false });
-    const keptBy = ownNames.filter((project) => project.names.has(name)).map((project) => project.title);
-    return { name, kind, changes, where: whereOf(name, sites, keptBy) };
+    const movedHere = (project: (typeof ownNames)[number]) => project.moved[name]?.designSystemId === designSystemId;
+    const keptBy = ownNames.filter((project) => project.names.has(name) && !movedHere(project)).map((project) => project.title);
+    const movedUp = ownNames.filter(movedHere).map((project) => ({ project: project.title, instances: project.uses.reduce((sum, names) => sum + names.filter((n) => n === name).length, 0) }));
+    return { name, kind, changes, where: whereOf(name, sites, keptBy, movedUp) };
   };
 
   const { changed, added, removed } = pending.components;

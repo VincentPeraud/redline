@@ -290,6 +290,7 @@ export class Store {
     addColumn("design_system_diffusions", "rolled_back_to", "INTEGER");
     // Design system components a switch left out, as JSON { name: id of the design system it was not taken from }.
     addColumn("projects", "excluded_components", "TEXT");
+    addColumn("projects", "moved_up_components", "TEXT");
     addColumn("pages", "created_by", "TEXT NOT NULL DEFAULT 'user'");
     // The signed-in person who wrote a human message or started a conversation; NULL before the SSO and without it.
     addColumn("threads", "person_id", "TEXT");
@@ -924,6 +925,16 @@ export class Store {
 
   setExcludedComponents(projectId: string, excluded: Record<string, string>): void {
     this.db.prepare("UPDATE projects SET excluded_components = ? WHERE id = ?").run(Object.keys(excluded).length === 0 ? null : JSON.stringify(excluded), projectId);
+  }
+
+  /** Project components moved up to a design system's draft and still the project's own until it diffuses them, by component name. */
+  movedUpComponents(projectId: string): Record<string, MovedUpComponent> {
+    const row = this.db.prepare("SELECT moved_up_components AS json FROM projects WHERE id = ?").get(projectId) as { json: string | null } | undefined;
+    return row?.json ? (JSON.parse(row.json) as Record<string, MovedUpComponent>) : {};
+  }
+
+  setMovedUpComponents(projectId: string, moved: Record<string, MovedUpComponent>): void {
+    this.db.prepare("UPDATE projects SET moved_up_components = ? WHERE id = ?").run(Object.keys(moved).length === 0 ? null : JSON.stringify(moved), projectId);
   }
 
   /** The project style after leaving `fromDesignSystem`: its current diffusion's tokens with the project's overrides on top; undefined (the overrides stay alone) when it has no diffusion. */
@@ -2092,6 +2103,11 @@ export class Store {
 }
 
 /** A work item as the page lock keeps it between restarts. */
+/** A project component moved up ("Remonter"): the design system draft page that received the copy. */
+export interface MovedUpComponent {
+  designSystemId: string;
+}
+
 export interface PersistedWork {
   /** "active" ran on an agent when the server stopped; "retrying" waits for `retryAt`; "failed" waits for the user's "Relancer". */
   state: "active" | "queued" | "retrying" | "failed";

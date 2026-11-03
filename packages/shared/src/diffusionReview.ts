@@ -39,6 +39,8 @@ export interface ReviewWhere {
   pages: ReviewPage[];
   /** Titles of the projects that keep their own component of that name (left out of the count). */
   keptBy: string[];
+  /** Projects that moved this component up ("Remonter"), with the instances they write: those pass to the design system's one. */
+  movedUp: { project: string; instances: number }[];
 }
 
 export interface ReviewComponent {

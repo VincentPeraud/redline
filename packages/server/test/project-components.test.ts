@@ -98,7 +98,7 @@ describe("project components", () => {
     await pageOf(project, "Other", { "manifest.json": manifestOf(["b.html"], ds.id), "b.html": mockup(`<ui-mission-card>3</ui-mission-card>`) });
     await pageOf(project, "Unused", { "manifest.json": manifestOf(["c.html"], ds.id), "c.html": mockup(`<p>none</p>`) });
     const { components } = await detail(project);
-    expect(components).toEqual([{ name: "mission-card", file: "components/mission-card.html", page: { id: expect.any(String), title: "Missions" }, instances: 3, pages: 2, inDesignSystem: false }]);
+    expect(components).toEqual([{ name: "mission-card", file: "components/mission-card.html", page: { id: expect.any(String), title: "Missions" }, instances: 3, pages: 2, inDesignSystem: false, movedUp: false }]);
   });
 
   it("measures a project component's gaps like a page, and respects data-ds-libre", async () => {

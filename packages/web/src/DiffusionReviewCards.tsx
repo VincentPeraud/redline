@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { isColorValue, type DesignSystemDetail, type DiffusionReview, type ReviewChange, type ReviewComponent, type ReviewToken } from "@redline/shared";
 import { routeHref, type Route } from "./router.js";
 import { agree } from "./plural.js";
-import { componentsHeading, keptByText, originText, tokensWhereText, whereSummary } from "./reviewLabels.js";
+import { componentsHeading, keptByText, movedUpText, originText, tokensWhereText, whereSummary } from "./reviewLabels.js";
 import { cx } from "./ui/index.js";
 import styles from "./DiffusionReviewCards.module.css";
 
@@ -160,8 +160,11 @@ function ComponentCard({ component, designSystemId, onRefused, onNavigate }: { c
               )}
             </>
           ) : (
-            <WhereLine title="Où ça change">{where.keptBy.length > 0 ? keptByText(where.keptBy, component.name) : "Nulle part pour l'instant"}</WhereLine>
+            <WhereLine title="Où ça change">
+              {where.movedUp.length > 0 ? movedUpText(where.movedUp) : where.keptBy.length > 0 ? keptByText(where.keptBy, component.name) : "Nulle part pour l'instant"}
+            </WhereLine>
           )}
+          {where.pages.length > 0 && where.movedUp.length > 0 && <WhereLine title="Remonté">{movedUpText(where.movedUp)}</WhereLine>}
         </div>
       </ReviewCard>
     </div>
