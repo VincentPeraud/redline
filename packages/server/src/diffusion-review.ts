@@ -38,12 +38,17 @@ function whereOf(name: string, sites: UseSite[], keptBy: string[], movedUp: Revi
   return { instances: list.reduce((total, page) => total + page.instances, 0), pages: list, keptBy, movedUp };
 }
 
+/** Number of lines the review lists: what the alerts count. */
+export function reviewLineCount(review: DiffusionReview): number {
+  return review.tokens.length + (review.designMdChanged ? 1 : 0) + review.components.reduce((sum, card) => sum + card.changes.length, 0);
+}
+
 /** Everything changed since the current diffusion of a design system, for the Diffuse dialog. */
 export function diffusionReview(store: Store, designSystemId: string): DiffusionReview {
   const { pending } = store.pendingDiffusion(designSystemId);
   const following = store.projectsUsingDesignSystem(designSystemId);
   const sites = useSites(store, designSystemId, []);
-  const recorded = store.listChanges(designSystemId).filter((change) => change.state === "pending");
+  const recorded = store.listChanges(designSystemId);
   const before = store.diffusionDefinitions(designSystemId, store.currentDiffusion(designSystemId)!.number);
   const defaults = defaultChangesOf(before, projectComponents(store, designSystemId).definitions);
   const ownNames = following.map((project) => ({
@@ -62,11 +67,15 @@ export function diffusionReview(store: Store, designSystemId: string): Diffusion
   const cardOf = (name: string, kind: ReviewComponent["kind"]): ReviewComponent => {
     const changes: ReviewChange[] = recorded
       .filter((change) => change.component === name)
-      .map((change) => ({ label: change.label, changeId: change.id, ...originOf(store, change) }));
+      .map((change): ReviewChange => {
+        const undoing = change.state === "refused";
+        const { origin, refusable } = originOf(store, change);
+        return { label: change.label, changeId: change.id, origin, refusable: refusable && !undoing, undoing };
+      });
     for (const change of defaults.filter((d) => d.component === name)) {
-      changes.push({ label: defaultChangeLabel(change.setting, change.from, change.to), origin: DIRECT, refusable: false });
+      changes.push({ label: defaultChangeLabel(change.setting, change.from, change.to), origin: DIRECT, refusable: false, undoing: false });
     }
-    if (changes.length === 0) changes.push({ label: "Modification sans description", origin: DIRECT, refusable: false });
+    if (changes.length === 0) changes.push({ label: "Modification sans description", origin: DIRECT, refusable: false, undoing: false });
     const movedHere = (project: (typeof ownNames)[number]) => project.moved[name]?.designSystemId === designSystemId;
     const keptBy = ownNames.filter((project) => project.names.has(name) && !movedHere(project)).map((project) => project.title);
     const movedUp = ownNames.filter(movedHere).map((project) => ({ project: project.title, instances: project.uses.reduce((sum, names) => sum + names.filter((n) => n === name).length, 0) }));
@@ -78,6 +87,7 @@ export function diffusionReview(store: Store, designSystemId: string): Diffusion
     tokens,
     designMdChanged: pending.designMdChanged,
     projects: following.filter((project) => !project.archived).map((project) => project.title),
+    undoing: recorded.filter((change) => change.state === "refused").length,
     components: [...changed.map((n) => cardOf(n, "changed")), ...added.map((n) => cardOf(n, "added")), ...removed.map((n) => cardOf(n, "removed"))],
   };
 }

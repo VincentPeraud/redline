@@ -66,7 +66,7 @@ describe("the diffusion review", () => {
     ((await (await agent(`/pages/${planning.id}/requests`, { component: "ui-modal", missing, artboard: "page.html", selector: "ui-modal" })).json()) as SendRequestResponse).threadId;
 
   it("is empty while nothing is pending", async () => {
-    expect(await review()).toEqual({ tokens: [], designMdChanged: false, projects: ["App", "Site public"], components: [] });
+    expect(await review()).toEqual({ tokens: [], designMdChanged: false, projects: ["App", "Site public"], components: [], undoing: 0 });
   });
 
   it("lists the changed tokens before and after, and a DESIGN.md change", async () => {
@@ -106,7 +106,7 @@ describe("the diffusion review", () => {
   it("says a component changed without any record is a change without description", async () => {
     await publish({ "components/button.html": BUTTON.replace("<button>", "<button class=\"b\">") });
     const button = (await review()).components.find((c) => c.name === "button")!;
-    expect(button.changes).toEqual([{ label: "Modification sans description", origin: { kind: "direct" }, refusable: false }]);
+    expect(button.changes).toEqual([{ label: "Modification sans description", origin: { kind: "direct" }, refusable: false, undoing: false }]);
     expect(button.where).toEqual({ instances: 0, pages: [], keptBy: [], movedUp: [] });
   });
 
@@ -116,7 +116,7 @@ describe("the diffusion review", () => {
       "components/picker.html": PICKER,
     });
     const { components } = await review();
-    expect(components.find((c) => c.name === "modal")!.changes).toEqual([{ label: "Valeur par défaut de size : md → lg", origin: { kind: "direct" }, refusable: false }]);
+    expect(components.find((c) => c.name === "modal")!.changes).toEqual([{ label: "Valeur par défaut de size : md → lg", origin: { kind: "direct" }, refusable: false, undoing: false }]);
     const picker = components.find((c) => c.name === "picker")!;
     expect(picker.kind).toBe("added");
     expect(picker.where).toEqual({ instances: 0, pages: [], keptBy: ["Site public"], movedUp: [] });

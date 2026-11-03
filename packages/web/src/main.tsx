@@ -77,7 +77,7 @@ function RouteScreen({ route }: { route: Route }) {
     case "designSystems":
       return <Shell><DesignSystemsScreen /></Shell>;
     case "designSystem":
-      return <DesignSystemOverview key={route.designSystemId} designSystemId={route.designSystemId} viaProjectId={route.viaProjectId} />;
+      return <DesignSystemOverview key={route.designSystemId} designSystemId={route.designSystemId} viaProjectId={route.viaProjectId} review={route.review} />;
     case "projects":
       return <Shell><ProjectsScreen /></Shell>;
     case "archivedProjects":

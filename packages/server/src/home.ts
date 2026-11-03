@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { HOME_PATH, type AgentOverview, type CoveredProject, type HomeOverview, type HomeProject, type WorkOverview } from "@redline/shared";
 import { chooseAgent } from "./agent-selection.js";
+import { diffusionReview, reviewLineCount } from "./diffusion-review.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -81,6 +82,7 @@ export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock:
       })),
       work,
       waitingThreads: waiting.reduce((sum, w) => sum + w.threadIds.length, 0),
+      designSystemsToDiffuse: store.listChoosableDesignSystems().filter((ds) => reviewLineCount(diffusionReview(store, ds.id)) > 0).length,
     };
   });
 }
