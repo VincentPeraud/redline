@@ -134,3 +134,10 @@ it("tells terminal Claude to call release_page only when asked to let go of a pa
   expect(REDLINE_GUIDE).toContain("release_page {pageId}");
   expect(REDLINE_GUIDE).toContain("Never release a page on your own");
 });
+
+it("tells Claude how to try variants of a design system component's look in a project", () => {
+  expect(REDLINE_GUIDE).toContain("Trying looks of a component");
+  expect(REDLINE_GUIDE).toContain('data-ds-libre="essai"');
+  expect(REDLINE_GUIDE).toContain("send_request with the chosen trial");
+  expect(REDLINE_GUIDE).toContain("never as the page's real component");
+});
