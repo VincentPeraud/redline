@@ -38,6 +38,8 @@ interface PinPosition {
   matched: boolean;
   /** The element inside a component instance is gone: the pin sits on the instance. */
   elementGone?: boolean;
+  /** No element has the thread's element name any more: the pin keeps its stored position. */
+  elementLost?: boolean;
   /** The thread's remembered instance state does not hold now: the pin waits hidden until it is replayed. */
   hidden?: boolean;
   /** Indexes of the thread's remembered states that can no longer be replayed. */
@@ -114,7 +116,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
       else if (data.type === "redline:pin-positions") {
         const reported = data.positions ?? [];
         setPositions(reported);
-        reportMissingRef.current(frameId, reported.filter((p) => p.elementGone).map((p) => p.id));
+        reportMissingRef.current(frameId, reported.filter((p) => p.elementGone || p.elementLost).map((p) => p.id));
         reportUnavailableRef.current(frameId, Object.fromEntries(reported.flatMap((p) => (p.missingState ? [[p.id, p.missingState]] : []))));
       }
       else if (data.type === "redline:doc-height") onDocHeightRef.current?.((data as unknown as { height: number }).height);
@@ -175,10 +177,10 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seenHere?.selector, seenHere?.nonce, bridgeEpoch]);
 
-  const pinsKey = JSON.stringify(pinned.map((t) => [t.id, t.selector, t.xPct, t.yPct, t.instanceState]));
+  const pinsKey = JSON.stringify(pinned.map((t) => [t.id, t.selector, t.elementName, t.xPct, t.yPct, t.instanceState]));
   useEffect(() => {
     if (bridgeEpoch === 0) return;
-    const pins = pinned.map((t) => ({ id: t.id, selector: t.selector, xPct: t.xPct, yPct: t.yPct, instanceState: t.instanceState }));
+    const pins = pinned.map((t) => ({ id: t.id, selector: t.selector, elementName: t.elementName, xPct: t.xPct, yPct: t.yPct, instanceState: t.instanceState }));
     frame.current?.contentWindow?.postMessage({ type: "redline:set-pins", pins }, "*");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinsKey, bridgeEpoch]);
@@ -211,7 +213,12 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
             aria-label={`Ouvrir le commentaire ${thread.number}`}
             disabled={!onPinClick}
             className={cx(styles.pin, thread.status === "held" && styles.pinHeld, thread.status === "resolved" && styles.pinResolved)}
-            style={{ left: `${position.xPct}%`, top: `${position.yPct}%`, transform: `translate(-50%, -50%) scale(${1 / zoom})` }}
+            style={
+              reported?.matched
+                ? // Inside its element's top-right corner, so it never covers the neighbour.
+                  { right: `${100 - reported.xPct}%`, top: `${reported.yPct}%`, transformOrigin: "top right", transform: `scale(${1 / zoom})` }
+                : { left: `${position.xPct}%`, top: `${position.yPct}%`, transform: `translate(-50%, -50%) scale(${1 / zoom})` }
+            }
             onClick={() => onPinClick?.(thread.id)}
           >
             {thread.status === "resolved" ? "✓" : thread.number}

@@ -85,7 +85,7 @@ describe("comments inside component instances (artboard bridge)", () => {
     expect(inner).toBeTruthy();
 
     const position = await pinPosition(page.id, selector, { ".ok": [10, 300, 80, 50] });
-    expect(position).toMatchObject({ id: "t1", xPct: 100, yPct: 16.25, matched: true });
+    expect(position).toMatchObject({ id: "t1", xPct: 9, yPct: 15, matched: true });
     expect(position.elementGone).toBeFalsy();
   });
 
@@ -105,7 +105,7 @@ describe("comments inside component instances (artboard bridge)", () => {
     await server.post(`/api/design-systems/${ds.id}/diffusions`, {});
 
     const position = await pinPosition(page.id, selector, { "ui-modal": [0, 100, 200, 400] });
-    expect(position).toMatchObject({ id: "t1", xPct: 100, yPct: 15, matched: true, elementGone: true });
+    expect(position).toMatchObject({ id: "t1", xPct: 20, yPct: 5, matched: true, elementGone: true });
   });
 
   it("outlines the hovered instance in comment mode with a dashed dark outline and its id as label", async () => {

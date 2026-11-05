@@ -2,7 +2,7 @@ import { createContext, useContext } from "react";
 import { instanceStateLabel, instanceStateText, instanceTagOfAnchor, type Thread } from "@redline/shared";
 import styles from "./Thread.module.css";
 
-/** Ids of the threads whose element inside a component instance no longer exists, as the artboards' bridges reported them. */
+/** Ids of the threads whose element can no longer be found (gone from its component instance, or no element has its name any more), as the artboards' bridges reported them. */
 export const MissingInstanceElementsContext = createContext<ReadonlySet<string>>(new Set());
 
 /** Receives the thread ids one iframe (`frameId`) found gone from their instance; an empty list clears it. Set by the canvas, a no-op elsewhere. */
@@ -48,9 +48,15 @@ export function InstanceNotes({ thread }: { thread: Pick<Thread, "id" | "selecto
   const tag = instanceTagOfAnchor(thread.selector);
   const lost = unavailable?.flatMap((index) => (thread.instanceState?.[index] ? [instanceStateText(thread.instanceState[index])] : [])) ?? [];
   const elementGone = tag && missing.has(thread.id);
-  if (!elementGone && lost.length === 0) return null;
+  const elementLost = !tag && missing.has(thread.id);
+  if (!elementGone && !elementLost && lost.length === 0) return null;
   return (
     <>
+      {elementLost && (
+        <div data-testid="thread-element-lost" className={styles.instanceGone}>
+          élément introuvable
+        </div>
+      )}
       {elementGone && (
         <div data-testid="thread-instance-gone" className={styles.instanceGone}>
           l'élément commenté n'existe plus dans {tag}

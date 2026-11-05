@@ -78,10 +78,11 @@ it("lays artboards out from the manifest, shows titles, and zooms and pans with 
 
   const pin = tab.locator('[data-pin="1"]');
   await pin.waitFor();
+  // A matched pin hangs from its element's top-right corner: that corner follows the artboard.
   const relativePin = async () => {
     const p = await box(pin);
     const f = await box(pay);
-    return { x: (p.x + p.width / 2 - f.x) / f.width, y: (p.y + p.height / 2 - f.y) / f.height };
+    return { x: (p.x + p.width - f.x) / f.width, y: (p.y - f.y) / f.height };
   };
   await expect.poll(async () => Math.round((await relativePin()).x * 100)).toBeGreaterThan(0);
   const before = await relativePin();

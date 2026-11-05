@@ -6,7 +6,7 @@ import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokens
  * opaque origin, so the web UI cannot touch their DOM: it talks to this bridge by postMessage.
  *
  * Parent -> artboard: { type: "redline:set-mode", picking: boolean, selecting: boolean, alt: boolean }  (selecting: the conversation's selection mode, which hovers and picks like comment mode; alt: the Alt key is held in the parent page, where keyboard focus usually is)
- *                     { type: "redline:set-pins", pins: [{ id, selector, xPct, yPct, instanceState? }] }  (a selector "<instance> >>> <path>" anchors inside a component instance, see INSTANCE_ANCHOR_SEPARATOR; instanceState: the state the thread was written in)
+ *                     { type: "redline:set-pins", pins: [{ id, selector, elementName?, xPct, yPct, instanceState? }] }  (a selector "<instance> >>> <path>" anchors inside a component instance, see INSTANCE_ANCHOR_SEPARATOR; instanceState: the state the thread was written in)
  *                     { type: "redline:replay-state", id }  (sets the remembered instance state of the pin with that id, then reports the pins again)
  *                     { type: "redline:set-marks", marks: [{ number, selector }] }  (numbered selection marks, drawn whenever there are some)
  *                     { type: "redline:set-compare-markers", visible: boolean, markers: [{ number, selector }] }  (before / after view: numbered dashed markers on the touched zones)
@@ -18,7 +18,7 @@ import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokens
  *                     { type: "redline:picked", selector, elementName, xPct, yPct, instanceState? }  (elementName: role + short visible text, e.g. bouton « Continuer »; instanceState: [{ selector, attributes }] of the instances that left their state at load, e.g. { open: "" })
  *                     { type: "redline:escape" }  (Escape pressed in selection mode: the iframe holds the keyboard focus, so the parent cannot hear it)
  *                     { type: "redline:key", key: "ArrowLeft" | "ArrowRight" }  (arrow pressed with no modifier outside a text field: the iframe holds the keyboard focus, so play mode cannot hear it)
- *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched, elementGone?, hidden?, missingState? }] }  (elementGone: the element inside the instance no longer exists, the pin sits on the instance; hidden: the pin's remembered state does not hold now; missingState: indexes of the state entries that cannot be replayed any more)
+ *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched, elementGone?, elementLost?, hidden?, missingState? }] }  (a matched pin sits on its element's top-right corner; when the element at the selector no longer has the thread's elementName, the element of that name is used instead; elementLost: none has it, the pin keeps its stored position; elementGone: the element inside the instance no longer exists, the pin sits on the instance; hidden: the pin's remembered state does not hold now; missingState: indexes of the state entries that cannot be replayed any more)
  *                     { type: "redline:link", selector }
  *                     { type: "redline:gap-rect", x, y, width, height }  (box of the element outlined by redline:set-gap, in page pixels)
  *                     { type: "redline:doc-height", height }  (height of the whole page in pixels; sent on load and whenever it changes)
@@ -412,6 +412,42 @@ export const BRIDGE_SOURCE = `(function () {
     });
   }
 
+  // The selector's last tag and its depth from body (null when it does not start at body), to choose between same-named elements.
+  function shapeOf(selector) {
+    var steps = selector.split(">").map(function (step) { return step.trim(); });
+    var tag = /^([a-z][a-z0-9-]*)/i.exec(steps[steps.length - 1] || "");
+    return { tag: tag ? tag[1].toLowerCase() : null, depth: steps[0] === "body" ? steps.length - 1 : null };
+  }
+
+  function depthOf(el) {
+    var depth = 0;
+    for (var node = el; node && node !== document.body; node = node.parentElement) depth++;
+    return depth;
+  }
+
+  // The element named \`name\` (as nameOf names it) closest in shape to the stored selector: same tag first, then the nearest depth, then the deepest.
+  function findByName(name, selector) {
+    var shape = shapeOf(selector);
+    var best = null;
+    var bestScore = null;
+    var all = document.body ? document.body.querySelectorAll("*") : [];
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (el.tagName === "SCRIPT" || el.tagName === "STYLE" || nameOf(el) !== name) continue;
+      var depth = depthOf(el);
+      var score = [
+        shape.tag && el.tagName.toLowerCase() !== shape.tag ? 1 : 0,
+        shape.depth === null ? 0 : Math.abs(depth - shape.depth),
+        -depth
+      ];
+      if (!bestScore || score[0] < bestScore[0] || (score[0] === bestScore[0] && (score[1] < bestScore[1] || (score[1] === bestScore[1] && score[2] < bestScore[2])))) {
+        best = el;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
   function locate(pin) {
     var missing = [];
     var holds = true;
@@ -421,16 +457,24 @@ export const BRIDGE_SOURCE = `(function () {
       else if (!stateHolds(entry, host)) holds = false;
     });
     var found = resolve(pin.selector);
+    var lost = false;
+    if (pin.elementName && pin.selector.indexOf(SEPARATOR) === -1 && (!found.el || nameOf(found.el) !== pin.elementName)) {
+      var byName = findByName(pin.elementName, pin.selector);
+      lost = !byName;
+      found = { el: byName, gone: false };
+    }
     var el = found.el;
     if (!holds) return { id: pin.id, xPct: pin.xPct, yPct: pin.yPct, matched: !!el, hidden: true, missingState: missing };
     var position = { id: pin.id, xPct: pin.xPct, yPct: pin.yPct, matched: false };
+    if (lost) position.elementLost = true;
     if (el) {
+      // On the element's top-right corner, so the pin reads as belonging to it.
       var rect = el.getBoundingClientRect();
       var size = docSize();
       position = {
         id: pin.id,
-        xPct: 100,
-        yPct: pct(rect.top + rect.height / 2 + (window.scrollY || 0), size.h),
+        xPct: pct(rect.left + rect.width + (window.scrollX || 0), size.w),
+        yPct: pct(rect.top + (window.scrollY || 0), size.h),
         matched: true
       };
       if (found.gone) position.elementGone = true;
