@@ -29,9 +29,15 @@ export function isSafePath(path: string): boolean {
 /** `UUID` v1-v8 as produced by `randomUUID()`; page ids are used to build folder names on agents. */
 export const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
+/** Équipe: every member sees the project. Privé: its creator, the admins and the members chosen for it. */
+export type ProjectVisibility = "team" | "private";
+
 export interface Project {
   id: string;
   title: string;
+  visibility: ProjectVisibility;
+  /** Who created the project; absent for a design system's own project and for projects that predate accounts without SSO. */
+  createdBy?: Person;
   /** Brief that becomes the first message of the project's first conversation. */
   instructions: string;
   /** Id of the shared design system the project follows, or null for none (its project style is then its whole style). */
@@ -54,6 +60,28 @@ export interface UpdateProjectRequest {
   title?: string;
   /** true / false overrides the global takeover setting for this project, null goes back to following it. */
   globalTakeoverOverride?: boolean | null;
+  /** Switch between Équipe and Privé: its creator or an admin only. */
+  visibility?: ProjectVisibility;
+}
+
+/** `GET /api/projects/:id/sharing`: who may see the project and whether the viewer may change that. */
+export interface ProjectSharing {
+  visibility: ProjectVisibility;
+  createdBy?: Person;
+  /** True for the project's creator and the admins. */
+  canChange: boolean;
+  /** Active accounts: the "N personnes" of an Équipe project. */
+  accountCount: number;
+  /** The accounts that would no longer see the project if it became Privé: every active member but the creator. Empty when it already is. */
+  wouldLoseAccess: Person[];
+}
+
+/** The `code` of the 403 a person gets on a project they may not see; `creator` names who to ask. */
+export const NO_ACCESS_CODE = "no-access";
+export interface NoAccessResponse {
+  error: string;
+  code: typeof NO_ACCESS_CODE;
+  creator?: Person;
 }
 
 /** `PATCH /api/pages/:id`: rename the page. */
@@ -72,6 +100,8 @@ export interface Settings {
 
 export interface CreateProjectRequest {
   title: string;
+  /** Équipe when absent. */
+  visibility?: ProjectVisibility;
   instructions?: string;
   designSystem?: string | null;
 }

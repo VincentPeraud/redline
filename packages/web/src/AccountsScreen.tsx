@@ -62,7 +62,7 @@ function AccountRow({ account, isMe, soleAdmin, actions }: { account: AccountEnt
   );
 }
 
-function InvitationRow({ invitation, onCancel }: { invitation: InvitationEntry; onCancel: () => void }) {
+function InvitationRow({ invitation, sso, onCancel }: { invitation: InvitationEntry; sso: boolean; onCancel: () => void }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
     await navigator.clipboard.writeText(invitationLink(invitation.token));
@@ -76,7 +76,7 @@ function InvitationRow({ invitation, onCancel }: { invitation: InvitationEntry; 
           <Avatar initials="?" muted />
           <div className={styles.whoText}>
             <strong>{invitation.email}</strong>
-            <span>invité par {invitation.invitedBy} le {dateShort(invitation.createdAt)}</span>
+            <span>{sso ? "ajouté" : "invité"} par {invitation.invitedBy} le {dateShort(invitation.createdAt)}</span>
           </div>
         </div>
       </td>
@@ -85,11 +85,11 @@ function InvitationRow({ invitation, onCancel }: { invitation: InvitationEntry; 
       </td>
       <td className={styles.muted}>jamais</td>
       <td>
-        <StatusBadge tone="warning" inline>Invitation · expire le {dateShort(invitation.expiresAt)}</StatusBadge>
+        <StatusBadge tone="warning" inline>{sso ? "En attente de sa première connexion" : `Invitation · expire le ${dateShort(invitation.expiresAt!)}`}</StatusBadge>
       </td>
       <td>
         <div className={styles.actions}>
-          <Button variant="ghost" size="sm" onClick={() => void copy()}>{copied ? "Lien copié" : "Copier le lien"}</Button>
+          {!sso && <Button variant="ghost" size="sm" onClick={() => void copy()}>{copied ? "Lien copié" : "Copier le lien"}</Button>}
           <Button variant="ghost" size="sm" className={styles.danger} onClick={onCancel}>Annuler</Button>
         </div>
       </td>
@@ -135,10 +135,19 @@ export function AccountsScreen() {
     <PageContent>
       <PageHeader
         title="Comptes"
-        subtitle={`${plural(data.accounts.length, "compte", "comptes")} · ${plural(data.invitations.length, "invitation en attente", "invitations en attente")} · connexion Redline`}
-        actions={<Button variant="accent" size="lg" onClick={() => setInviting(true)}>Inviter quelqu'un</Button>}
+        subtitle={
+          data.sso
+            ? `${plural(data.accounts.length, "compte", "comptes")} · ${plural(data.invitations.length, "ajout en attente", "ajouts en attente")} · connexion par Authelia`
+            : `${plural(data.accounts.length, "compte", "comptes")} · ${plural(data.invitations.length, "invitation en attente", "invitations en attente")} · connexion Redline`
+        }
+        actions={<Button variant="accent" size="lg" onClick={() => setInviting(true)}>{data.sso ? "Ajouter quelqu'un" : "Inviter quelqu'un"}</Button>}
       />
       {notice && <div role="alert" className={styles.notice}>{notice}</div>}
+      {data.sso && (
+        <p className={styles.sso}>
+          Connexion par Authelia : chacun entre avec son compte Authelia, et Redline le reconnaît à son e-mail. Les rôles et l'accès se gèrent ici, les mots de passe dans Authelia. Une personne qui n'est pas dans cette liste n'entre pas.
+        </p>
+      )}
       <table className={styles.table}>
         <thead>
           <tr>
@@ -161,7 +170,7 @@ export function AccountsScreen() {
             />
           ))}
           {data.invitations.map((invitation) => (
-            <InvitationRow key={invitation.id} invitation={invitation} onCancel={() => void cancel(invitation)} />
+            <InvitationRow key={invitation.id} invitation={invitation} sso={data.sso} onCancel={() => void cancel(invitation)} />
           ))}
         </tbody>
       </table>
@@ -186,7 +195,7 @@ export function AccountsScreen() {
         />
       )}
       {passwordLink && <PasswordLinkDialog account={passwordLink.account} link={passwordLink.link} onClose={() => setPasswordLink(undefined)} />}
-      {inviting && <InviteDialog onClose={() => setInviting(false)} onInvited={() => void load()} />}
+      {inviting && <InviteDialog sso={data.sso} onClose={() => setInviting(false)} onInvited={() => void load()} />}
     </PageContent>
   );
 }

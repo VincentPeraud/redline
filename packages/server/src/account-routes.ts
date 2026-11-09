@@ -39,8 +39,28 @@ const STATUS_OF_ERROR: Record<AccountError["code"], number> = {
   "invalid-name": 400,
 };
 
+/** The accounts screen: admins only (a member gets 403, nobody 401 before this runs). */
+const isAdmin = (req: FastifyRequest) => req.viewer.kind === "account" && req.viewer.role === "admin";
+const forbidden = (reply: FastifyReply) => reply.code(403).send({ error: "Only an admin manages accounts." });
+
+/** Runs an account action and turns its refusals into their status; other errors are bugs. */
+async function answering<T>(reply: FastifyReply, action: () => T | Promise<T>, success: (value: T) => unknown = (value) => value) {
+  try {
+    return success(await action());
+  } catch (error) {
+    if (!(error instanceof AccountError)) throw error;
+    return reply.code(STATUS_OF_ERROR[error.code]).send({ error: error.message, code: error.code });
+  }
+}
+
 /** Setup link, invitation, sign-in and sign-out of the built-in accounts, and the accounts screen. The setup, invitation and session paths are open to people who are not signed in. */
-export function registerAccountRoutes(app: FastifyInstance, store: Store): void {
+export function registerAccountRoutes(app: FastifyInstance, store: Store, mode: "local" | "proxy"): void {
+  /** Behind an SSO the same screen adds people by e-mail, with no link and no password: the built-in sign-in routes are not there. */
+  if (mode === "local") registerBuiltInSignIn(app, store);
+  registerAccountManagement(app, store, mode);
+}
+
+function registerBuiltInSignIn(app: FastifyInstance, store: Store): void {
   const throttle = new LoginThrottle();
 
   app.get<{ Querystring: { token?: string } }>(SETUP_PATH, async (req, reply) =>
@@ -75,49 +95,6 @@ export function registerAccountRoutes(app: FastifyInstance, store: Store): void 
       return reply.code(STATUS_OF_ERROR[error.code]).send({ error: error.message, code: error.code });
     }
   });
-
-  /** The accounts screen: admins only (a member gets 403, nobody 401 before this runs). */
-  const isAdmin = (req: FastifyRequest) => req.viewer.kind === "account" && req.viewer.role === "admin";
-  const forbidden = (reply: FastifyReply) => reply.code(403).send({ error: "Only an admin manages accounts." });
-
-  app.get(ACCOUNTS_PATH, async (req, reply) => (isAdmin(req) ? store.accounts.list() : forbidden(reply)));
-
-  app.post<{ Body: { email?: string; role?: string } }>(INVITATIONS_PATH, async (req, reply) => {
-    if (!isAdmin(req)) return forbidden(reply);
-    try {
-      return reply.code(201).send(store.accounts.invite(req.person!.id, { email: req.body?.email ?? "", role: req.body?.role ?? "" }));
-    } catch (error) {
-      if (!(error instanceof AccountError)) throw error;
-      return reply.code(STATUS_OF_ERROR[error.code]).send({ error: error.message, code: error.code });
-    }
-  });
-
-  app.delete<{ Params: { id: string } }>(`${INVITATIONS_PATH}/:id`, async (req, reply) => {
-    if (!isAdmin(req)) return forbidden(reply);
-    return store.accounts.cancelInvitation(req.params.id) ? reply.code(204).send() : reply.code(404).send({ error: "This invitation is unknown or already used." });
-  });
-
-  /** Runs an account action and turns its refusals into their status; other errors are bugs. */
-  async function answering<T>(reply: FastifyReply, action: () => T | Promise<T>, success: (value: T) => unknown = (value) => value) {
-    try {
-      return success(await action());
-    } catch (error) {
-      if (!(error instanceof AccountError)) throw error;
-      return reply.code(STATUS_OF_ERROR[error.code]).send({ error: error.message, code: error.code });
-    }
-  }
-
-  app.patch<{ Params: { id: string }; Body: { role?: string } }>(`${ACCOUNTS_PATH}/:id`, async (req, reply) =>
-    isAdmin(req) ? answering(reply, () => store.accounts.setRole(req.params.id, req.body?.role ?? "")) : forbidden(reply),
-  );
-
-  app.post<{ Params: { id: string } }>(`${ACCOUNTS_PATH}/:id/deactivate`, async (req, reply) =>
-    isAdmin(req) ? answering(reply, () => store.accounts.deactivate(req.person!.id, req.params.id)) : forbidden(reply),
-  );
-
-  app.post<{ Params: { id: string } }>(`${ACCOUNTS_PATH}/:id/reactivate`, async (req, reply) =>
-    isAdmin(req) ? answering(reply, () => store.accounts.reactivate(req.params.id)) : forbidden(reply),
-  );
 
   app.post<{ Params: { id: string } }>(`${ACCOUNTS_PATH}/:id/password-link`, async (req, reply) =>
     isAdmin(req) ? answering(reply, () => store.accounts.issuePasswordLink(req.params.id), (link) => reply.code(201).send(link)) : forbidden(reply),
@@ -161,4 +138,35 @@ export function registerAccountRoutes(app: FastifyInstance, store: Store): void 
     if (token) store.accounts.deleteSession(token);
     return reply.header("set-cookie", sessionCookie(req, "", 0)).code(204).send();
   });
+}
+
+function registerAccountManagement(app: FastifyInstance, store: Store, mode: "local" | "proxy"): void {
+  app.get(ACCOUNTS_PATH, async (req, reply) => (isAdmin(req) ? { ...store.accounts.list(), sso: mode === "proxy" } : forbidden(reply)));
+
+  app.post<{ Body: { email?: string; role?: string } }>(INVITATIONS_PATH, async (req, reply) => {
+    if (!isAdmin(req)) return forbidden(reply);
+    try {
+      return reply.code(201).send(store.accounts.invite(req.person!.id, { email: req.body?.email ?? "", role: req.body?.role ?? "" }, mode === "proxy" ? "never" : "7-days"));
+    } catch (error) {
+      if (!(error instanceof AccountError)) throw error;
+      return reply.code(STATUS_OF_ERROR[error.code]).send({ error: error.message, code: error.code });
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>(`${INVITATIONS_PATH}/:id`, async (req, reply) => {
+    if (!isAdmin(req)) return forbidden(reply);
+    return store.accounts.cancelInvitation(req.params.id) ? reply.code(204).send() : reply.code(404).send({ error: "This invitation is unknown or already used." });
+  });
+
+  app.patch<{ Params: { id: string }; Body: { role?: string } }>(`${ACCOUNTS_PATH}/:id`, async (req, reply) =>
+    isAdmin(req) ? answering(reply, () => store.accounts.setRole(req.params.id, req.body?.role ?? "")) : forbidden(reply),
+  );
+
+  app.post<{ Params: { id: string } }>(`${ACCOUNTS_PATH}/:id/deactivate`, async (req, reply) =>
+    isAdmin(req) ? answering(reply, () => store.accounts.deactivate(req.person!.id, req.params.id)) : forbidden(reply),
+  );
+
+  app.post<{ Params: { id: string } }>(`${ACCOUNTS_PATH}/:id/reactivate`, async (req, reply) =>
+    isAdmin(req) ? answering(reply, () => store.accounts.reactivate(req.params.id)) : forbidden(reply),
+  );
 }

@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AccountEntry, AccountsResponse, InvitationEntry, PasswordLinkEntry, PasswordLinkPreview } from "@redline/shared";
+import type { AccountEntry, AccountsResponse, InvitationEntry, MeResponse, PasswordLinkEntry, PasswordLinkPreview } from "@redline/shared";
+import { PROXY_SECRET_HEADER } from "../src/proxy-secrets.js";
 import { startServer, type RunningServer } from "../src/start.js";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -228,5 +229,35 @@ describe("account management and Mon compte", () => {
       expect((await signIn("vincent@example.com", PASSWORD)).status).toBe(401);
       expect((await signIn("vincent@example.com", NEW_PASSWORD)).status).toBe(200);
     });
+  });
+
+  it("gives a deactivated account the no-access answer when it signs in through the SSO", async () => {
+    const human = "h".repeat(32);
+    const sso = (user: string, email: string, name: string) => ({ [PROXY_SECRET_HEADER]: human, "remote-user": user, "remote-name": name, "remote-email": email });
+    const vincent = sso("vincent", "vincent@example.com", "Vincent Peraud");
+    const ariane = sso("amartin", "ariane@example.com", "Ariane Martin");
+    server = await startServer({
+      dataDir,
+      port: 0,
+      artboardPort: 0,
+      host: "127.0.0.1",
+      authMode: "proxy",
+      proxySecrets: { human, machine: "m".repeat(32) },
+      identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email" },
+    });
+    const call = (method: string, path: string, headers: Record<string, string>, body?: unknown) =>
+      fetch(server!.url + path, { method, headers: { ...headers, ...(body === undefined ? {} : JSON_HEADERS) }, body: body === undefined ? undefined : JSON.stringify(body) });
+    await call("GET", "/api/me", vincent);
+    await call("POST", "/api/accounts/invitations", vincent, { email: "ariane@example.com", role: "member" });
+    expect(((await (await call("GET", "/api/me", ariane)).json()) as NonNullable<MeResponse>).account).toMatchObject({ role: "member" });
+
+    const { accounts } = (await (await call("GET", "/api/accounts", vincent)).json()) as AccountsResponse;
+    const id = accounts.find((a) => a.email === "ariane@example.com")!.id;
+    expect((await call("POST", `/api/accounts/${id}/deactivate`, vincent, {})).status).toBe(200);
+
+    const answer = (await (await call("GET", "/api/me", ariane)).json()) as NonNullable<MeResponse>;
+    expect(answer.account).toBeUndefined();
+    expect(answer.noAccess?.admins).toEqual([{ name: "Vincent Peraud", email: "vincent@example.com" }]);
+    expect((await call("GET", "/api/projects", ariane)).status).toBe(403);
   });
 });

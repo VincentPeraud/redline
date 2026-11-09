@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { InvitationScreen, PasswordLinkScreen, SetupScreen, SignInScreen } from "./AuthScreens.js";
-import { useSession } from "./useMe.js";
+import { InvitationScreen, PasswordLinkScreen, SetupScreen, SignInScreen, UnknownPersonScreen } from "./AuthScreens.js";
+import { useMe, useSession } from "./useMe.js";
 
 const SETUP_HASH = /^#\/setup\/([^/?]+)/;
 const INVITATION_HASH = /^#\/invitation\/([^/?]+)/;
@@ -9,6 +9,7 @@ const PASSWORD_LINK_HASH = /^#\/mot-de-passe\/([^/?]+)/;
 /** The setup, invitation and password links open their own screen; people who are not signed in get the sign-in screen; the app shows only once we know who is there. */
 export function AuthGate({ children }: { children: ReactNode }) {
   const { status } = useSession();
+  const me = useMe();
   const [hash, setHash] = useState(window.location.hash);
   useEffect(() => {
     const onChange = () => setHash(window.location.hash);
@@ -23,5 +24,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (passwordLink && status !== "signedIn") return <PasswordLinkScreen token={decodeURIComponent(passwordLink[1])} />;
   if (status === "loading") return null;
   if (status === "signedOut") return <SignInScreen />;
+  if (status === "noAccess" && me?.noAccess) return <UnknownPersonScreen email={me.email} admins={me.noAccess.admins} logoutUrl={me.logoutUrl} />;
   return <>{children}</>;
 }

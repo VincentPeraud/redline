@@ -298,3 +298,22 @@ export function NoAccessScreen() {
     </AuthCard>
   );
 }
+
+/** The SSO let this person in but Redline's account list does not know them (or has deactivated them): who to ask. */
+export function UnknownPersonScreen({ email, admins, logoutUrl }: { email: string; admins: { name: string; email: string }[]; logoutUrl: string | null }) {
+  useDocumentTitle("Pas d'accès");
+  const names = admins.map((admin) => admin.name || admin.email).join(", ");
+  return (
+    <AuthCard high className={styles.centered}>
+      <h1 className={styles.centeredTitle}>Tu n'as pas accès à Redline</h1>
+      <p className={styles.centeredText}>
+        Ton compte <strong>{email}</strong> n'est pas dans les comptes de cette instance. Demande à un admin de t'ajouter{names ? ` : ${names}` : ""}. Si on t'a envoyé un lien de partage, ouvre-le directement.
+      </p>
+      {logoutUrl && (
+        <Button variant="secondary" size="lg" className={styles.centeredButton} onClick={() => { window.location.href = logoutUrl; }}>
+          Se déconnecter
+        </Button>
+      )}
+    </AuthCard>
+  );
+}

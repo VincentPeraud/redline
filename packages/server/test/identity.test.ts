@@ -43,7 +43,7 @@ describe("signed-in person", () => {
     "remote-email": email,
   });
 
-  it("returns the person with the logout URL, and creates them on the first visit", async () => {
+  it("returns the person with the logout URL, and makes the first one admin", async () => {
     await start({ sso: true, logoutUrl: LOGOUT });
     expect(await me(signedIn("Ariane Martin", "ariane@example.com"))).toEqual({
       id: "amartin",
@@ -51,6 +51,7 @@ describe("signed-in person", () => {
       email: "ariane@example.com",
       initials: "AM",
       logoutUrl: LOGOUT,
+      account: { role: "admin", sso: true },
     });
   });
 
