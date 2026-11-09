@@ -80,6 +80,7 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
           ...(record.originId ? { originId: record.originId } : {}),
           ...(record.originLabel ? { originLabel: record.originLabel } : {}),
           ...(record.person ? { person: record.person } : {}),
+          ...(record.linkAuthor ? { linkAuthor: record.linkAuthor } : {}),
           createdAt: record.createdAt,
           current: record === newest && headHash !== undefined,
           ...(diffusion && { diffusion }),

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { MAX_VISITOR_NAME_LENGTH, type Thread, type ThreadReply } from "@redline/shared";
-import { Button, Field, Textarea, TextInput } from "./ui/index.js";
+import { Button, cx, Field, Textarea, TextInput } from "./ui/index.js";
 import { rememberVisitorName, rememberedVisitorName } from "./visitorName.js";
 import type { VisitorState } from "./visitor.js";
 import styles from "./VisitorComments.module.css";
@@ -17,43 +17,64 @@ function whereLabel(thread: Thread, artboardTitles: Record<string, string>): str
   return `${artboard} · ${thread.elementName ?? thread.selector}`;
 }
 
-function replyAuthor(reply: ThreadReply, mine: (name: string) => boolean): string {
+function replyAuthor(reply: ThreadReply, mine: (name: string) => boolean, writing: boolean): string {
   if (reply.author === "claude") return "Claude";
   if (reply.author === "redline") return "Redline";
-  if (reply.linkAuthor) return mine(reply.linkAuthor.name) ? `Toi (${reply.linkAuthor.name})` : reply.linkAuthor.name;
+  if (reply.linkAuthor) return writing ? `${reply.linkAuthor.name} (lien)` : mine(reply.linkAuthor.name) ? `Toi (${reply.linkAuthor.name})` : reply.linkAuthor.name;
   return reply.person?.name ?? "L'équipe";
 }
 
-/** "Commentaires de ce lien · N": the visitor's own comments and those of the others holding the link. Never the team's. */
-export function VisitorThreadsPanel({ threads, visitor, artboardTitles, onShow }: { threads: Thread[]; visitor: VisitorState; artboardTitles: Record<string, string>; onShow?: (threadId: string) => void }) {
+/** What an Écriture visitor reads under a comment that waits for an agent. */
+export const CLAUDE_UNAVAILABLE_NOTE = "Claude n'est pas disponible pour l'instant : aucun agent ne tourne pour ce projet. Ton commentaire attend, il partira dès qu'un agent sera là.";
+
+/**
+ * "Commentaires de ce lien · N": the visitor's own comments and those of the others holding the link, never the team's.
+ * An Écriture link reads like a member: "Commentaires · N", every thread of the page.
+ */
+export function VisitorThreadsPanel({ threads, visitor, artboardTitles, claudeAvailable, onShow }: { threads: Thread[]; visitor: VisitorState; artboardTitles: Record<string, string>; claudeAvailable?: boolean; onShow?: (threadId: string) => void }) {
+  const writing = visitor.view.level === "write";
   return (
-    <aside aria-label="Commentaires de ce lien" className={styles.panel}>
-      <h2 className={styles.title}>Commentaires de ce lien · {threads.length}</h2>
-      <p className={styles.hint}>Les tiens et ceux des autres personnes de ce lien. Clique sur un élément en mode Commenter pour en poser un : l'équipe les lit avant de les confier à Claude.</p>
-      <VisitorThreadCards threads={threads} visitor={visitor} artboardTitles={artboardTitles} onShow={onShow} />
+    <aside aria-label={writing ? "Commentaires" : "Commentaires de ce lien"} className={cx(styles.panel, writing && styles.panelWide)}>
+      <h2 className={styles.title}>{writing ? "Commentaires" : "Commentaires de ce lien"} · {threads.length}</h2>
+      <p className={styles.hint}>
+        {writing
+          ? "En Écriture, tu vois tous les fils du projet, et tes commentaires partent à Claude comme ceux de l'équipe. Tu peux retoucher et restaurer des versions ; pas de partage, d'archivage, de suppression ni d'agent."
+          : "Les tiens et ceux des autres personnes de ce lien. Clique sur un élément en mode Commenter pour en poser un : l'équipe les lit avant de les confier à Claude."}
+      </p>
+      <VisitorThreadCards threads={threads} visitor={visitor} artboardTitles={artboardTitles} claudeAvailable={claudeAvailable} onShow={onShow} />
     </aside>
   );
 }
 
-export function VisitorThreadCards({ threads, visitor, artboardTitles, onShow }: { threads: Thread[]; visitor: VisitorState; artboardTitles: Record<string, string>; onShow?: (threadId: string) => void }) {
+export function VisitorThreadCards({ threads, visitor, artboardTitles, claudeAvailable, onShow }: { threads: Thread[]; visitor: VisitorState; artboardTitles: Record<string, string>; claudeAvailable?: boolean; onShow?: (threadId: string) => void }) {
   const me = signedName(visitor);
+  const writing = visitor.view.level === "write";
   const mine = (name: string) => name === me;
+  const authorOf = (thread: Thread): string => {
+    if (thread.linkAuthor) return writing ? `${thread.linkAuthor.name} (lien)` : mine(thread.linkAuthor.name) ? `Toi (${thread.linkAuthor.name})` : thread.linkAuthor.name;
+    return writing ? (thread.person?.name ?? "L'équipe") : "L'équipe";
+  };
   return (
     <>
       {threads.map((thread) => (
         <button type="button" key={thread.id} data-testid="visitor-thread" className={styles.card} onClick={() => onShow?.(thread.id)}>
           <span className={styles.where}>
-            <span className={styles.pin}>{thread.number}</span>
+            <span className={cx(styles.pin, writing && styles.pinFilled)}>{thread.number}</span>
             {whereLabel(thread, artboardTitles)}
           </span>
-          <span className={styles.who}>{thread.linkAuthor ? (mine(thread.linkAuthor.name) ? `Toi (${thread.linkAuthor.name})` : thread.linkAuthor.name) : "L'équipe"}</span>
+          <span className={styles.who}>{authorOf(thread)}</span>
           <span>{thread.body}</span>
           {thread.replies.map((reply) => (
             <span key={reply.id} className={styles.reply}>
-              <span className={styles.who}>{replyAuthor(reply, mine)}</span>
+              <span className={styles.who}>{replyAuthor(reply, mine, writing)}</span>
               <span>{reply.body}</span>
             </span>
           ))}
+          {writing && claudeAvailable === false && thread.status === "open" && thread.replies.length === 0 && thread.linkAuthor && mine(thread.linkAuthor.name) && (
+            <span role="status" className={styles.wait}>
+              {CLAUDE_UNAVAILABLE_NOTE}
+            </span>
+          )}
         </button>
       ))}
     </>

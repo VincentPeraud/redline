@@ -110,7 +110,7 @@ function ThreadMessages({ thread }: { thread: Thread }) {
       <div className={styles.message}>
         <MessageAuthor person={thread.person} linkAuthor={thread.linkAuthor} claude={requestAskerName(thread)} redline={thread.automatic} />
         {thread.status === "review" && thread.person && <span className={styles.reviewNote}>membre en Commentaire sur ce projet</span>}
-        {thread.status === "review" && thread.linkAuthor && <span className={styles.reviewNote}>lien en Commentaire</span>}
+        {thread.status === "review" && thread.linkAuthor && <span className={styles.reviewNote}>{thread.linkAuthor.linkName ? `lien « ${thread.linkAuthor.linkName} »` : "lien en Commentaire"}</span>}
         {thread.body}
       </div>
       {thread.replies.map((reply) => (

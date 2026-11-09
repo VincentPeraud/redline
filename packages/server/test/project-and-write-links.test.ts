@@ -37,6 +37,8 @@ describe("project links and Écriture links", () => {
     await instance.ariane.send("POST", `/api/pages/${archived}/archive`);
     const listed = (await (await visit(link, `/api/projects/${project.id}/pages?archived=1`)).json()) as Page[];
     expect(listed.map((p) => p.id)).toEqual([pageId, later]);
+    expect(listed[0]).toMatchObject({ title: "Home", artboardCount: 1 });
+    expect(JSON.stringify(listed)).not.toContain("createdBy");
     expect((await visit(link, `/api/pages/${later}`)).status).toBe(200);
     expect((await visit(link, `/api/pages/${archived}`)).status).toBe(403);
     expect((await visit(link, `/api/pages/${archived}/threads`)).status).toBe(403);
@@ -65,6 +67,8 @@ describe("project links and Écriture links", () => {
     expect(((await restore.json()) as PageVersionSummary).linkAuthor).toEqual({ linkId: link.id, name: "Alix" });
     const asMember = await instance.ariane.json<PageVersionSummary[]>(`/api/pages/${pageId}/versions`);
     expect(asMember[0].linkAuthor?.name).toBe("Alix");
+    const artboardVersions = (await (await visit(link, `/api/pages/${pageId}/artboard-versions?file=home.html`)).json()) as { linkAuthor?: { name: string } }[];
+    expect(artboardVersions[0].linkAuthor?.name).toBe("Alix");
 
     const seen = (await (await visit(link, `/api/pages/${pageId}/threads`)).json()) as Thread[];
     expect(seen.map((t) => t.body)).toEqual(["Team thread"]);
@@ -128,11 +132,11 @@ describe("project links and Écriture links", () => {
     const { project, pageId } = await setup();
     const link = await createLink(`/api/pages/${pageId}/links`, { level: "write" });
     const read = async () => (await (await visit(link, `/api/projects/${project.id}`)).json()) as Record<string, unknown>;
-    expect(await read()).toEqual({ id: project.id, title: project.title, claudeAvailable: false });
+    expect(await read()).toEqual({ id: project.id, title: project.title, claudeAvailable: false, designSystem: project.designSystem });
     const agentToken = (await instance.ariane.json<{ token: string }>("/api/agent-token")).token;
     const agent = await instance.connectAgent(agentToken, { projectId: project.id });
     await agent.hello;
-    expect(await read()).toEqual({ id: project.id, title: project.title, claudeAvailable: true });
+    expect(await read()).toEqual({ id: project.id, title: project.title, claudeAvailable: true, designSystem: project.designSystem });
     agent.close();
   });
 

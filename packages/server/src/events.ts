@@ -24,6 +24,8 @@ export function registerEventRoutes(app: FastifyInstance, store: Store, pageLock
     if (event.type === "agents-updated") return event;
     if (event.type === "design-system-updated") return { ...event, pageIds: event.pageIds.filter(seesPage) };
     if (event.type === "work") return seesPage(pageLock.itemOf(event.message.workId)?.pageId) ? event : undefined;
+    // A project link hears that one of its pages was archived (or put back), though it no longer reaches an archived page: its list changes.
+    if (event.type === "page-archive-changed" && viewer.kind === "link" && viewer.link.scope === "project") return store.getPage(event.pageId)?.projectId === viewer.link.scopeId ? event : undefined;
     return seesPage(event.pageId) ? event : undefined;
   };
 

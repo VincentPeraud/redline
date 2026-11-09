@@ -12,8 +12,8 @@ import styles from "./PageSharing.module.css";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 const DAY_MS = 86_400_000;
-/** The levels a link can be created in; Écriture joins with its own ticket. */
-const OFFERED_LEVELS: AccessLevel[] = ["read", "comment"];
+/** The levels a link can be created in; Écriture is for personal links only. */
+const OFFERED_LEVELS: AccessLevel[] = ["read", "comment", "write"];
 const LEVEL_DESCRIPTION: Record<AccessLevel, string> = {
   read: "Regarde la page, le mode présentation et l'aperçu mobile.",
   comment: "Pose des bulles. Elles arrivent « À relire » : un membre les envoie à Claude.",
@@ -119,7 +119,7 @@ function PageSharingDialog({ pageId, pageTitle, project, links, reload, onClose 
   const author = (link: ShareLink) => (link.createdBy?.id === me?.id ? "toi" : (link.createdBy?.name ?? "un membre"));
 
   if (step.name === "create" || step.name === "edit") {
-    return <LinkFormDialog pageId={pageId} link={step.name === "edit" ? step.link : undefined} onClose={() => setStep({ name: "list" })} onDone={reload} onCloseAll={onClose} />;
+    return <LinkFormDialog pageId={pageId} mayWrite={project?.viewerLevel === undefined || project.viewerLevel === "write"} link={step.name === "edit" ? step.link : undefined} onClose={() => setStep({ name: "list" })} onDone={reload} onCloseAll={onClose} />;
   }
   if (step.name === "disable") {
     const link = step.link;
@@ -269,7 +269,7 @@ function expiryOf(choice: ExpiryChoice, date: string): string | null {
 }
 
 /** "Créer un lien" (and "Modifier"): who it is for, its name, level and expiry; then the address to copy. */
-function LinkFormDialog({ pageId, link, onClose, onDone, onCloseAll }: { pageId: string; link?: ShareLink; onClose: () => void; onDone: () => Promise<void>; onCloseAll: () => void }) {
+function LinkFormDialog({ pageId, mayWrite, link, onClose, onDone, onCloseAll }: { pageId: string; mayWrite: boolean; link?: ShareLink; onClose: () => void; onDone: () => Promise<void>; onCloseAll: () => void }) {
   const editing = link !== undefined;
   const [kind, setKind] = useState<LinkKind>(link?.kind ?? "personal");
   const [name, setName] = useState(link?.name ?? "");
@@ -281,6 +281,8 @@ function LinkFormDialog({ pageId, link, onClose, onDone, onCloseAll }: { pageId:
   const [error, setError] = useState<string | undefined>(undefined);
   const [created, setCreated] = useState<ShareLink | undefined>(undefined);
   const [copied, setCopied] = useState(false);
+  /** Écriture is for a person, and never above the level of whoever creates the link. */
+  const writeOffered = kind === "personal" && (mayWrite || link?.level === "write");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -334,7 +336,16 @@ function LinkFormDialog({ pageId, link, onClose, onDone, onCloseAll }: { pageId:
         {!editing && (
           <fieldset className={invite.fieldset}>
             <legend className={invite.legend}>Pour qui</legend>
-            <SegmentedControl<LinkKind> size="md" ariaLabel="Pour qui" options={KIND_OPTIONS} value={kind} onChange={setKind} />
+            <SegmentedControl<LinkKind>
+              size="md"
+              ariaLabel="Pour qui"
+              options={KIND_OPTIONS}
+              value={kind}
+              onChange={(next) => {
+                setKind(next);
+                if (next === "generic" && level === "write") setLevel("comment");
+              }}
+            />
           </fieldset>
         )}
         <Field
@@ -371,11 +382,11 @@ function LinkFormDialog({ pageId, link, onClose, onDone, onCloseAll }: { pageId:
                   </span>
                 </div>
               ) : (
-                <label key={option} className={cx(invite.role, level === option && invite.roleOn)}>
-                  <input type="radio" name="level" className={invite.radio} checked={level === option} onChange={() => setLevel(option)} />
+                <label key={option} className={cx(invite.role, level === option && invite.roleOn, option === "write" && !writeOffered && styles.levelOff)}>
+                  <input type="radio" name="level" className={invite.radio} checked={level === option} disabled={option === "write" && !writeOffered} onChange={() => setLevel(option)} />
                   <span className={invite.roleText}>
                     <strong>{LEVEL_LABEL[option]}</strong>
-                    <span>{LEVEL_DESCRIPTION[option]}</span>
+                    <span>{option === "write" && kind === "generic" ? "Réservé aux liens pour une personne." : LEVEL_DESCRIPTION[option]}</span>
                   </span>
                 </label>
               ),

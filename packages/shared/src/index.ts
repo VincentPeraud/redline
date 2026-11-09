@@ -226,6 +226,8 @@ export interface ArtboardVersion {
   originId?: string;
   originLabel?: string;
   person?: Person;
+  /** Made through a share link: shown "Alix (lien)". */
+  linkAuthor?: LinkAuthor;
   createdAt: string;
   /** The content the page shows now. At most one entry per artboard is current. */
   current: boolean;

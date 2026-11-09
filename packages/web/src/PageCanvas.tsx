@@ -1046,7 +1046,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       </button>
                     </Tooltip>
                     )}
-                    {!visitor && (
+                    {(!visitor || canWork) && (
                     <ArtboardHistory
                       pageId={pageId}
                       file={artboard.file}
@@ -1079,7 +1079,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                         <FullscreenIcon />
                       </button>
                     </Tooltip>
-                    {!frozen && (
+                    {!frozen && !visitor && (
                     <ArtboardMoreMenu
                       pageId={pageId}
                       file={artboard.file}
@@ -1301,7 +1301,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
 
         {visitor && canComment && (
           <>
-            <VisitorThreadsPanel threads={threads} visitor={visitor} artboardTitles={Object.fromEntries((artboardTitles ?? []).map((a) => [a.file, a.title]))} onShow={showThread} />
+            <VisitorThreadsPanel threads={threads} visitor={visitor} artboardTitles={Object.fromEntries((artboardTitles ?? []).map((a) => [a.file, a.title]))} claudeAvailable={project?.claudeAvailable} onShow={showThread} />
             {draft && (
               <div className={styles.visitorComposer}>
                 <VisitorComposer

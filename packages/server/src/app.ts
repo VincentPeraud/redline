@@ -5,6 +5,7 @@ import fastifyStatic from "@fastify/static";
 import {
   type PageViewSettings,
   type LinkAuthor,
+  type ProjectLinkPage,
   type Thread,
   type TerminalHolder,
   COMPONENTS_CSS_PATH,
@@ -314,8 +315,8 @@ export async function buildMainApp(
     const project = store.getProject(req.params.projectId);
     if (!project) return reply.code(404).send({ error: "project not found" });
     // A link visitor learns the project's name and nothing else: no brief, agent or creator.
-    // In Écriture it also learns whether Claude can answer now, never which agent serves.
-    if (req.viewer.kind === "link") return { id: project.id, title: project.title, ...(req.viewer.link.level === "write" ? { claudeAvailable: withServedBy(store, project).servedBy !== undefined } : { viewerLevel: req.viewer.link.level }) };
+    // In Écriture it also learns whether Claude can answer now (never which agent serves) and the design system new pages start with.
+    if (req.viewer.kind === "link") return { id: project.id, title: project.title, ...(req.viewer.link.level === "write" ? { claudeAvailable: withServedBy(store, project).servedBy !== undefined, designSystem: project.designSystem } : { viewerLevel: req.viewer.link.level }) };
     return withViewerLevel(req.viewer, withServedBy(store, project));
   });
 
@@ -568,7 +569,10 @@ export async function buildMainApp(
   app.get<{ Params: { projectId: string }; Querystring: { archived?: string } }>("/api/projects/:projectId/pages", async (req, reply) => {
     if (req.viewer.kind === "link") {
       if (req.viewer.link.scope !== "project") return reply.code(403).send({ error: "forbidden" });
-      return store.listPages(req.params.projectId, "active").map(({ createdByPerson, ...page }) => page);
+      return store.listPages(req.params.projectId, "active").map((page): ProjectLinkPage => {
+        const manifest = store.readPageFile(page.id, MANIFEST_PATH)?.toString("utf8");
+        return { id: page.id, title: page.title, artboardCount: manifest === undefined ? 0 : parseManifest(manifest).artboards.length, updatedAt: store.listVersions(page.id)[0].createdAt };
+      });
     }
     return store.listPages(req.params.projectId, req.query.archived ? "archived" : "active");
   });

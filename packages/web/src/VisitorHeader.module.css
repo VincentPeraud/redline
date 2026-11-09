@@ -35,6 +35,16 @@
   color: var(--color-text-muted);
 }
 
+.title a {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.title a:hover {
+  color: var(--color-text);
+}
+
 .spacer {
   flex-grow: 1;
 }

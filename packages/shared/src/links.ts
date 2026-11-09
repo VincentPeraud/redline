@@ -97,3 +97,12 @@ export interface MyLink {
   pageId?: string;
   pageTitle?: string;
 }
+
+/** What a project link shows of each page: the card of the list of pages (`GET /api/projects/:projectId/pages` through the link). */
+export interface ProjectLinkPage {
+  id: string;
+  title: string;
+  artboardCount: number;
+  /** ISO time of the page's last version. */
+  updatedAt: string;
+}

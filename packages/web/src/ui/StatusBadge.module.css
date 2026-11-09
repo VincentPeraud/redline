@@ -14,6 +14,11 @@
   padding: 3px 9px;
 }
 
+.accent {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-ink);
+}
+
 .running {
   background: var(--badge-running-bg);
   color: var(--badge-running-text);

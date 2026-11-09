@@ -5,6 +5,7 @@ import { DiffusionProvider } from "./DiffusionDialog.js";
 import { DeadLinkScreen } from "./AuthScreens.js";
 import { LINK_TOKEN } from "./linkAddress.js";
 import { type PageRoute, useRoute } from "./router.js";
+import { VisitorProject } from "./VisitorProject.js";
 
 /** Window width up to which a link visitor is on a phone: the link opens the presentation. */
 export const PHONE_VISITOR_MAX_WIDTH = 700;
@@ -28,15 +29,16 @@ function isDead(body: unknown): boolean {
   return (body as Partial<LinkDeadResponse> | null)?.code === LINK_DEAD_CODE;
 }
 
-/** The page of the link only: the canvas and the presentation of the app, with what the level forbids hidden. */
+/**
+ * The page of a page link, or the list of pages and the pages of a project link: the canvas and the presentation of the app,
+ * with what the level forbids hidden. A page link opens its page whatever the address says.
+ */
 function VisitorPage({ view, token }: { view: ShareLinkView; token: string }) {
   const route = useRoute();
-  const own: PageRoute = route.name === "page" && route.pageId === view.page.id ? route : { name: "page", pageId: view.page.id };
+  const own: PageRoute | null = view.page ? (route.name === "page" && route.pageId === view.page.id ? route : { name: "page", pageId: view.page.id }) : route.name === "page" ? route : null;
   return (
     <VisitorContext.Provider value={{ token, view }}>
-      <DiffusionProvider>
-        <App key={own.pageId} route={own} />
-      </DiffusionProvider>
+      <DiffusionProvider>{own ? <App key={own.pageId} route={own} /> : <VisitorProject visitor={{ token, view }} />}</DiffusionProvider>
     </VisitorContext.Provider>
   );
 }
@@ -53,7 +55,7 @@ export function VisitorApp() {
       if (!response.ok || isDead(body)) return setLoaded({ state: "dead" });
       const view = body as ShareLinkView;
       if (view.memberRedirect) {
-        window.location.replace(`/${window.location.hash === "" ? `#/pages/${view.page.id}` : window.location.hash}`);
+        window.location.replace(`/${window.location.hash === "" ? (view.page ? `#/pages/${view.page.id}` : `#/projects/${view.project.id}`) : window.location.hash}`);
         return;
       }
       setLoaded({ state: "open", view });

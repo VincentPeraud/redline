@@ -18,9 +18,9 @@ import { CopyLinkIcon } from "./CopyLinkIcon.js";
 import { MissingArtboardNotice } from "./MissingArtboardNotice.js";
 import { useCopiedBubble } from "./useCopiedBubble.js";
 import { StatusBadge, Tooltip, cx } from "./ui/index.js";
-import { LEVEL_LABEL } from "./ProjectSharingDialog.js";
 import { PHONE_VISITOR_MAX_WIDTH, useVisitor } from "./visitor.js";
 import { VisitorComposer, VisitorThreadCards } from "./VisitorComments.js";
+import { linkBadgeLabel } from "./VisitorHeader.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import type { Pick } from "./ArtboardFrame.js";
 import styles from "./PlayMode.module.css";
@@ -243,7 +243,7 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
               {pageTitle} · {position + 1} / {tocItems.length}
             </span>
           </div>
-          <StatusBadge tone="neutral">{LEVEL_LABEL[visitor.view.level]}</StatusBadge>
+          <StatusBadge tone={visitor.view.level === "write" ? "accent" : "neutral"}>{linkBadgeLabel(visitor.view)}</StatusBadge>
         </header>
       ) : presentation?.mobileBar ? (
         <header className={styles.mobileBar}>
