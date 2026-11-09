@@ -894,9 +894,9 @@ const ERRORS_URL = `${ERRORS_PATH}?v=${versionOf(ERRORS_SOURCE)}`;
 const BRIDGE_URL = `${BRIDGE_PATH}?v=${versionOf(BRIDGE_SOURCE)}`;
 
 /** Adds the errors catcher at the start of an artboard HTML document's head, before any of its scripts, and the bridge at the end of its body. */
-export function injectBridge(html: string): string {
-  const withCatcher = insertAtHeadStart(html, `<script src="${ERRORS_URL}"></script>`);
-  const tag = `<script src="${BRIDGE_URL}"></script>`;
+export function injectBridge(html: string, base = ""): string {
+  const withCatcher = insertAtHeadStart(html, `<script src="${base}${ERRORS_URL}"></script>`);
+  const tag = `<script src="${base}${BRIDGE_URL}"></script>`;
   const end = withCatcher.lastIndexOf("</body>");
   return end === -1 ? withCatcher + tag : withCatcher.slice(0, end) + tag + withCatcher.slice(end);
 }
@@ -905,8 +905,8 @@ export function injectBridge(html: string): string {
  * Links, at the start of the document head and before the page's own styles: the design system's tokens and components
  * (the files of `diffusion` when given, else the live draft), then, when the project has a style (`projectId`), its tokens and its components (they win over the design system by CSS order).
  */
-export function injectDesignSystem(html: string, designSystemId: string | undefined, projectId?: string, diffusion?: number): string {
-  const link = (href: string) => `<link rel="stylesheet" href="${href}">`;
+export function injectDesignSystem(html: string, designSystemId: string | undefined, projectId?: string, diffusion?: number, base = ""): string {
+  const link = (href: string) => `<link rel="stylesheet" href="${base}${href}">`;
   const tag =
     (designSystemId === undefined
       ? ""

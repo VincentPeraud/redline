@@ -1,3 +1,4 @@
+import { ArtboardIframe } from "./artboardCapability.js";
 import { useEffect, useRef } from "react";
 import { versionPreviewPath, type DeletedArtboard } from "@redline/shared";
 import { designMdAuthor, historyDate, metaLine, originLabel, type Who } from "./historyLabels.js";
@@ -11,7 +12,7 @@ function Thumbnail({ pageId, artboardOrigin, item }: { pageId: string; artboardO
   const scale = Math.min((BOX_WIDTH - 2) / item.width, (BOX_HEIGHT - 2) / item.height);
   return (
     <div className={styles.thumb} aria-hidden="true">
-      <iframe
+      <ArtboardIframe
         sandbox="allow-scripts"
         tabIndex={-1}
         title={`Aperçu de ${item.file}`}

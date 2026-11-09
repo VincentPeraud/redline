@@ -1,3 +1,4 @@
+import { ArtboardIframe } from "./artboardCapability.js";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { RESPONSIVE_FORMATS, renderingKey, renderingLabel, type ArtboardRendering, type Manifest, type TweakValue, type TweakValues } from "@redline/shared";
 import { PlayStepper } from "./PlayStepper.js";
@@ -282,7 +283,7 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
           {artboard && presentation && fitted ? (
             <PlayFrame frame={presentation.frame} url={artboard.url} statusColour={topColour ?? undefined}>
               <div className={styles.viewport} style={{ width: fitted.viewport.width * fitted.scale, height: fitted.viewport.height * fitted.scale }}>
-                <iframe
+                <ArtboardIframe
                   key={artboard.file}
                   ref={frame}
                   title={`Plein écran / ${artboard.file}`}

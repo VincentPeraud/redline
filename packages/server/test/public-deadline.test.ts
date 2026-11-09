@@ -42,7 +42,8 @@ describe("public deadline", () => {
   it("serves a tunnel's host before the deadline", async () => {
     const { url, artboardOrigin } = await start(new Date(Date.now() + 60_000));
     expect(await statusFor(`${url}/api/projects`, TUNNEL)).toBe(200);
-    expect(await statusFor(`${artboardOrigin}/__redline/bridge.js`, TUNNEL)).toBe(200);
+    // 404: the request reaches the router, which has no route without a capability in the path.
+    expect(await statusFor(`${artboardOrigin}/__redline/bridge.js`, TUNNEL)).toBe(404);
   });
 
   it("refuses a tunnel's host after the deadline, on the UI, the API and the artboard origin", async () => {
@@ -57,7 +58,7 @@ describe("public deadline", () => {
     for (const host of ["localhost:3000", "redline.localhost", "127.0.0.1:3000", "[::1]:3000"]) {
       expect(await statusFor(`${url}/api/projects`, host)).toBe(200);
     }
-    expect(await statusFor(`${artboardOrigin}/__redline/bridge.js`, "artboards.redline.localhost")).toBe(200);
+    expect(await statusFor(`${artboardOrigin}/__redline/bridge.js`, "artboards.redline.localhost")).toBe(404);
   });
 
   it("ignores X-Forwarded-Host, which a tunnel's visitor can set", async () => {

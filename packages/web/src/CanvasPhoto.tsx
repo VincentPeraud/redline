@@ -1,3 +1,4 @@
+import { ArtboardIframe } from "./artboardCapability.js";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { renderingSlots, responsiveFrameLayout, tweakGrid, tweakGridLayout, type Manifest, type ManifestElement } from "@redline/shared";
 import { CanvasElements } from "./CanvasElements.js";
@@ -129,7 +130,7 @@ export function CanvasPhoto({
                     shot.width * fit.scale < MIN_SHOT_WIDTH ? (
                       <div key={i} className={styles.blank} style={{ left: shot.x - frame.x, top: shot.y - frame.y, width: shot.width, height: shot.height }} />
                     ) : (
-                      <iframe
+                      <ArtboardIframe
                         key={`${i}@${version}`}
                         sandbox="allow-scripts"
                         loading="lazy"
