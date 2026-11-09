@@ -41,6 +41,7 @@ import {
   type UpdatePageRequest,
   type UpdateProjectRequest,
   type Person,
+  type Project,
   type ProjectSharing,
   type SetMemberLevelRequest,
   isAccessLevel,
@@ -76,7 +77,7 @@ import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
 import { validTimeZone } from "./version-dates.js";
 import { registerGapRoutes } from "./gaps.js";
-import { createAccess, registerAccess, type Access, type AuthMode } from "./access.js";
+import { createAccess, registerAccess, type Access, type AuthMode, type Viewer } from "./access.js";
 import { DEFAULT_IDENTITY, registerIdentity, personRef, type IdentityConfig } from "./identity.js";
 import { type CliBuild } from "./cli-build.js";
 import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
@@ -213,11 +214,16 @@ export async function buildMainApp(
     return reply.code(201).send(store.createProject(title, undefined, instructions, designSystem ?? null, { createdBy: req.person, visibility }));
   });
 
+  const withViewerLevel = (viewer: Viewer, project: Project): Project => {
+    const level = access.levelOf(viewer, { projectId: project.id });
+    return level === "read" || level === "comment" ? { ...project, viewerLevel: level } : project;
+  };
+
   app.get<{ Querystring: { archived?: string } }>("/api/projects", async (req) =>
     store
       .listProjects(req.query.archived ? "archived" : "active")
       .filter((project) => access.may(req.viewer, "read", { projectId: project.id }))
-      .map((project) => withServedBy(store, project)),
+      .map((project) => withViewerLevel(req.viewer, withServedBy(store, project))),
   );
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/sharing", async (req, reply): Promise<ProjectSharing | undefined> => {
@@ -268,7 +274,7 @@ export async function buildMainApp(
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId", async (req, reply) => {
     const project = store.getProject(req.params.projectId);
-    return project ? withServedBy(store, project) : reply.code(404).send({ error: "project not found" });
+    return project ? withViewerLevel(req.viewer, withServedBy(store, project)) : reply.code(404).send({ error: "project not found" });
   });
 
   app.patch<{ Params: { projectId: string }; Body: UpdateProjectRequest }>("/api/projects/:projectId", async (req, reply) => {
@@ -288,7 +294,7 @@ export async function buildMainApp(
       store.setTakeoverOverride(req.params.projectId, globalTakeoverOverride);
       pageLock.reconsider();
     }
-    return withServedBy(store, store.getProject(req.params.projectId)!);
+    return withViewerLevel(req.viewer, withServedBy(store, store.getProject(req.params.projectId)!));
   });
 
   app.get("/api/settings", async (): Promise<Settings> => ({ globalTakeover: store.getGlobalTakeover() }));

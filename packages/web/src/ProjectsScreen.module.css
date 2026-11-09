@@ -4,8 +4,21 @@
   gap: var(--space-4);
 }
 
-.title {
+.heading {
   flex-grow: 1;
+}
+
+.meta {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.header > .title {
+  flex-grow: 1;
+}
+
+.title {
   font-size: var(--font-size-h1);
   font-weight: var(--font-weight-bold);
 }

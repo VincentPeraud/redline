@@ -224,7 +224,14 @@ function ProjectCard({
   );
 }
 
+/** "6 projets · 1 privé": the project list's header line, drawn on the artboard `projet`. */
+export function projectsSummary(projects: Project[]): string {
+  const privateCount = projects.filter((project) => project.visibility === "private").length;
+  return [plural(projects.length, "projet", "projets"), ...(privateCount > 0 ? [plural(privateCount, "privé", "privés")] : [])].join(" · ");
+}
+
 export function ProjectsScreen() {
+  const hasAccounts = useMe()?.account !== undefined;
   const [projects, setProjects] = useState<Project[] | null>(null);
   const { home } = useHome();
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
@@ -250,7 +257,14 @@ export function ProjectsScreen() {
   return (
     <PageContent>
       <div className={styles.header}>
-        <h1 className={styles.title}>Projets</h1>
+        <div className={styles.heading}>
+          <h1 className={styles.title}>Projets</h1>
+          {hasAccounts && projects && (
+            <p className={styles.meta} data-testid="projects-summary">
+              {projectsSummary(projects)}
+            </p>
+          )}
+        </div>
         <TextInput
           type="search"
           size="md"

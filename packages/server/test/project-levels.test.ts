@@ -151,4 +151,13 @@ describe("member levels", () => {
     expect((await thomas.json<ProjectSharing>(`/api/projects/${second.id}/sharing`)).viewerLevel).toBe("write");
     expect((await instance.admin.json<ProjectSharing>(`/api/projects/${first.id}/sharing`)).viewerLevel).toBe("write");
   });
+
+  it("tells a lowered member their level on the project and in the project list, and says nothing at Écriture", async () => {
+    const { ariane, thomas, people } = instance;
+    const project = await instance.createProject(ariane);
+    await setLevel(ariane, project.id, people.thomas.id, "comment");
+    expect((await thomas.json<Project>(`/api/projects/${project.id}`)).viewerLevel).toBe("comment");
+    expect((await thomas.json<Project[]>("/api/projects")).find((p) => p.id === project.id)?.viewerLevel).toBe("comment");
+    expect((await ariane.json<Project>(`/api/projects/${project.id}`)).viewerLevel).toBeUndefined();
+  });
 });

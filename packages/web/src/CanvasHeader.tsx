@@ -244,6 +244,8 @@ interface Props {
   previewOf?: string;
   /** An archived project's (or design system's) page: no comment mode, no agent, no diffusion, nothing to ask Claude. */
   archived?: boolean;
+  /** The viewer's level lets them comment but not work: the header keeps the comment mode and drops the agent controls (with `archived`). */
+  commentOnly?: boolean;
   /** Design system gaps of the page; the button shows only when there are some. */
   gaps: PageGaps | null;
   gapExceptionCount: number;
@@ -258,7 +260,7 @@ interface Props {
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, designSystemId, designSystemTitle, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf, archived = false }: Props) {
+export function CanvasHeader({ project, designSystemId, designSystemTitle, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf, archived = false, commentOnly = false }: Props) {
   const me = useMe();
   const owner: PageOwner | null = project
     ? { id: project.id, title: project.title, kind: "project" }
@@ -309,11 +311,11 @@ export function CanvasHeader({ project, designSystemId, designSystemTitle, versi
       <div className={styles.spacer} />
       {previewOf !== undefined ? (
         <div className={styles.previewNote}>Commentaires et conversations désactivés pendant l'aperçu</div>
-      ) : archived ? null : (
+      ) : archived && !commentOnly ? null : (
         <>
-          <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />
-          <TerminalPill pageId={pageId} />
-          <AgentPill project={project} running={runningCount} />
+          {!archived && <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />}
+          {!archived && <TerminalPill pageId={pageId} />}
+          {!archived && <AgentPill project={project} running={runningCount} />}
           <div role="group" aria-label="Mode du canvas" className={styles.modes}>
             <button type="button" aria-pressed={!picking} className={cx(styles.mode, !picking && styles.modeInteract)} onClick={() => onPickingChange(false)}>
               Interagir (P)

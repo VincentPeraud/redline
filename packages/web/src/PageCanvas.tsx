@@ -80,6 +80,7 @@ import { subscribeServerEvents } from "./serverEvents.js";
 import { Tooltip, cx } from "./ui/index.js";
 import { usePageSessions } from "./usePageSessions.js";
 import { useRuns } from "./useRuns.js";
+import { LEVEL_LABEL } from "./ProjectSharingDialog.js";
 import { useTweaks } from "./useTweaks.js";
 import { viaProjectField } from "./viaProject.js";
 import styles from "./PageCanvas.module.css";
@@ -171,8 +172,14 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   /** Previewed with a design system's draft: read-only, nothing here comments, converses, saves or publishes. */
   const previewing = previewOf !== undefined;
   /** Previewed, or archived: nothing comments, saves or publishes (an archived page still shows its threads and conversations). */
-  const readOnly = previewing || archived !== undefined;
-  const archivedLabel = archived?.kind === "page" ? "Page archivée" : "Projet archivé";
+  /** The viewer's level (a design system's page has no project: everyone works there). Lecture only reads, Commentaire also comments. */
+  const level = project?.viewerLevel ?? "write";
+  const canComment = level !== "read";
+  const canWork = level === "write";
+  const readOnly = previewing || archived !== undefined || !canComment;
+  /** Archived, or below Écriture: no edit, tweak, restore, move, rename or message to Claude. */
+  const frozen = archived !== undefined || !canWork;
+  const archivedLabel = archived?.kind === "page" ? "Page archivée" : archived ? "Projet archivé" : `Niveau ${LEVEL_LABEL[level]}`;
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [pickingRequested, setPicking] = useState(false);
@@ -547,7 +554,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   /** View settings are per page and live on the server; they are not a version and no session hears of them. */
   function changeViewSettings(next: PageViewSettings) {
     setViewSettings(next);
-    if (readOnly) return;
+    if (readOnly || frozen) return;
     void fetch(`/api/pages/${pageId}/view-settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(next) });
   }
 
@@ -820,7 +827,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         }}
         runningCount={runningCount}
         artboardOrigin={artboardOrigin}
-        deleted={readOnly ? [] : deleted}
+        deleted={readOnly || frozen ? [] : deleted}
         onPutBack={(item) => restore(item.file, item.lastVersionId)}
         onRenamePage={renamePage}
         toc={{ items: tocItems, currentFile: currentTocFile, onSelect: centerOnArtboard }}
@@ -833,7 +840,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         errors={errorEntries}
         onSeeErrors={centerOnArtboard}
         onAskFixErrors={() => void askClaudeToFixErrors()}
-        archived={archived !== undefined}
+        archived={frozen}
+        commentOnly={archived === undefined && !canWork && canComment}
       />
       {archived && (
         <ArchivedBanner
@@ -998,7 +1006,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       </button>
                     )}
                     <span className={styles.spacer} />
-                    {!readOnly && artboardTweaks(artboard.file).length > 0 && (
+                    {!readOnly && !frozen && artboardTweaks(artboard.file).length > 0 && (
                       <button
                         type="button"
                         aria-label={`Tweaks · ${artboardTweaks(artboard.file).length}`}
@@ -1012,7 +1020,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                     )}
                     {!previewing && (
                     <>
-                    {!archived && (
+                    {!readOnly && (
                     <Tooltip label="Commenter l'artboard entier">
                       <button
                         type="button"
@@ -1036,7 +1044,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       previewVersionId={preview?.file === artboard.file ? preview.versionId : null}
                       onPreview={(previewId) => setPreview(previewId ? { file: artboard.file, versionId: previewId } : null)}
                       onRestore={(restoreId) => restore(artboard.file, restoreId)}
-                      readOnly={archived !== undefined}
+                      readOnly={frozen}
                     />
                     <Tooltip label={`Copier le lien de ${artboard.file}`}>
                       <button
@@ -1058,7 +1066,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                         <FullscreenIcon />
                       </button>
                     </Tooltip>
-                    {!archived && (
+                    {!frozen && (
                     <ArtboardMoreMenu
                       pageId={pageId}
                       file={artboard.file}
@@ -1298,7 +1306,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
               onSelectingChange={changeSelecting}
               onRemoveChip={(index) => setChips((current) => removeChip(current, index))}
               onChipsSent={() => setChips([])}
-              readOnly={archived !== undefined}
+              readOnly={frozen}
               archivedLabel={archivedLabel}
             />
           ) : tab === "toc" ? (
@@ -1324,7 +1332,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                   setDraft(null);
                   setText("");
                 }}
-                readOnly={archived !== undefined}
+                readOnly={readOnly}
+                commentOnly={archived === undefined && !canWork}
                 archivedLabel={archivedLabel}
                 unfolded={unfoldedResolved}
                 onUnfold={unfoldResolved}

@@ -45,6 +45,8 @@ interface Props {
   readOnly?: boolean;
   /** What is archived, opening the read-only note: "Projet archivé" (default) or "Page archivée". */
   archivedLabel?: string;
+  /** The viewer comments but does not work (Commentaire level): no "Tout envoyer" bar, which is Écriture. */
+  commentOnly?: boolean;
   /** Resolved threads unfolded in the list: their pins show again on the canvas. */
   unfolded: ReadonlySet<string>;
   onUnfold: (threadId: string, open: boolean) => void;
@@ -260,7 +262,7 @@ function ThreadCard({
 }
 
 /** The "Commentaires" tab: held bar, thread cards and the composer of a new pinned comment. */
-export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, archivedLabel = "Projet archivé", unfolded, onUnfold, onShowThread }: Props) {
+export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, commentOnly = false, archivedLabel = "Projet archivé", unfolded, onUnfold, onShowThread }: Props) {
   const ordered = [...threads].sort((a, b) => GROUP_ORDER[a.status] - GROUP_ORDER[b.status] || a.number - b.number);
   const heldCount = threads.filter((t) => t.status === "held").length;
   const listRef = useStickToBottom<HTMLDivElement>();
@@ -283,7 +285,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
           if (threadId) onShowThread?.(threadId);
         }}
       >
-        {!readOnly && <HeldBar pageId={pageId} count={heldCount} choice={choice} />}
+        {!readOnly && !commentOnly && <HeldBar pageId={pageId} count={heldCount} choice={choice} />}
         {ordered.map((thread) => {
           if (thread.status === "held") return <HeldThreadCard key={thread.id} thread={thread} />;
           if (thread.status === "resolved") return <ResolvedThreadCard key={thread.id} thread={thread} session={sessions.get(thread.id)} readOnly={readOnly} open={unfolded.has(thread.id)} onOpen={(open) => onUnfold(thread.id, open)} />;

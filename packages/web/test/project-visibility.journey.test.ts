@@ -116,5 +116,7 @@ it("switches an Équipe project to Privé after listing who loses access, and ba
   await expect.poll(() => ariane.getByTestId("visibility-badge").innerText()).toBe("Équipe");
   await thomas.reload();
   await thomas.getByRole("heading", { name: "Agora" }).waitFor();
-  expect(await thomas.getByRole("button", { name: "Partager", exact: true }).count()).toBe(0);
+  // A member in Écriture reads the dialog, without being able to change it.
+  await thomas.getByRole("button", { name: "Partager", exact: true }).click();
+  await thomas.getByRole("dialog", { name: "Partager le projet Agora" }).getByText("Seuls Ariane Martin (créateur) et les admins changent").waitFor();
 }, 60_000);

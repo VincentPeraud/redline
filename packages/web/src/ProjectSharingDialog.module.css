@@ -77,3 +77,36 @@
   width: 16px;
   height: 16px;
 }
+
+.levelSelect.levelSelect {
+  width: 140px;
+  font-size: var(--font-size-sm);
+}
+
+.memberSelect.memberSelect {
+  width: 220px;
+  font-size: var(--font-size-sm);
+}
+
+.add {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.alone {
+  align-self: flex-start;
+}
+
+.undimmed,
+.dimmed {
+  display: inline-flex;
+}
+
+.dimmed {
+  opacity: 0.5;
+}
+
+.remove.remove {
+  color: var(--color-text);
+}

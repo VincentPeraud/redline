@@ -52,6 +52,8 @@ export interface Project {
   servedBy?: { id: string; machine: string; folder: string; kind: AgentKind; takeover: boolean };
   /** When the project was archived (ISO time): it is then read-only, hidden from sessions, and only it can be deleted. */
   archivedAt?: string;
+  /** The viewer's level when it is below Écriture (absent means Écriture: admin, creator, or no accounts). */
+  viewerLevel?: AccessLevel;
 }
 
 /** `PATCH /api/projects/:id`: any field may be sent alone. */
