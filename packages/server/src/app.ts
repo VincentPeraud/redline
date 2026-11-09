@@ -220,8 +220,9 @@ export async function buildMainApp(
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/sharing", async (req, reply): Promise<ProjectSharing | undefined> => {
     const project = store.getProject(req.params.projectId);
     if (!project) return void reply.code(404).send({ error: "project not found" });
-    const wouldLoseAccess = project.visibility === "private" ? [] : store.accounts.activeAccounts().filter((a) => a.role !== "admin" && a.id !== project.createdBy?.id).map(({ role: _role, ...person }) => person);
-    return { visibility: project.visibility, ...(project.createdBy ? { createdBy: project.createdBy } : {}), canChange: access.manages(req.viewer, project.id), wouldLoseAccess };
+    const accounts = store.accounts.activeAccounts();
+    const wouldLoseAccess = project.visibility === "private" ? [] : accounts.filter((a) => a.role !== "admin" && a.id !== project.createdBy?.id).map(({ role: _role, ...person }) => person);
+    return { visibility: project.visibility, accountCount: accounts.length, ...(project.createdBy ? { createdBy: project.createdBy } : {}), canChange: access.manages(req.viewer, project.id), wouldLoseAccess };
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId", async (req, reply) => {

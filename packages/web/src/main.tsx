@@ -16,6 +16,7 @@ import { ArchivedProjectsScreen, ProjectsScreen } from "./ProjectsScreen";
 import { Shell } from "./Sidebar";
 import { AuthGate } from "./AuthGate.js";
 import { installApiCalls } from "./apiCalls.js";
+import { NoAccessGate } from "./NoAccess.js";
 import { MeProvider } from "./useMe.js";
 import { useRoute } from "./router";
 import { SessionsScreen } from "./SessionsScreen";
@@ -97,9 +98,11 @@ function RouteScreen({ route }: { route: Route }) {
 function Root() {
   return (
     <HomeProvider>
-      <WithBanner>
-        <Screen />
-      </WithBanner>
+      <NoAccessGate>
+        <WithBanner>
+          <Screen />
+        </WithBanner>
+      </NoAccessGate>
     </HomeProvider>
   );
 }

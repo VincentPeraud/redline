@@ -12,7 +12,9 @@ import {
 import { AgentPill } from "./AgentPill.js";
 import { ArchiveFooter, ArchiveIcon, ArchivedBanner, DeleteSection, PageArchiveButton, pageArchivedOnLabel } from "./ArchiveControls.js";
 import { dayLabel, designMdStatus } from "./historyLabels.js";
-import { useWho } from "./useMe.js";
+import { useMe, useWho } from "./useMe.js";
+import { ShareProjectButton } from "./ProjectSharingDialog.js";
+import { VisibilityBadge } from "./VisibilityBadge.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
@@ -201,6 +203,7 @@ function groupAssets(assets: ProjectAsset[]): AssetEntry[] {
 
 export function ProjectOverview({ projectId }: { projectId: string }) {
   const who = useWho();
+  const hasAccounts = useMe()?.account !== undefined;
   const [project, setProject] = useState<Project | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
   const [archivedPages, setArchivedPages] = useState<Page[]>([]);
@@ -326,6 +329,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
         {!readOnly && (
           <>
             <AgentPill project={project} onProjectChange={setProject} />
+            {hasAccounts && <ShareProjectButton project={project} onChanged={setProject} />}
             <Button variant="accent" onClick={() => setCreating(true)}>
               Nouvelle page
             </Button>
@@ -352,6 +356,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
           ) : (
             <div className={cx(styles.titleRow, renameHost)}>
               <h1 className={styles.title}>{project.title}</h1>
+              {hasAccounts && <VisibilityBadge visibility={project.visibility} />}
               {!readOnly && <RenamePencil label="Renommer le projet" size="project" onClick={() => setRenamingProject(true)} />}
             </div>
           )}

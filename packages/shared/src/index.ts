@@ -70,6 +70,8 @@ export interface ProjectSharing {
   createdBy?: Person;
   /** True for the project's creator and the admins. */
   canChange: boolean;
+  /** Active accounts: the "N personnes" of an Équipe project. */
+  accountCount: number;
   /** The accounts that would no longer see the project if it became Privé: every active member but the creator. Empty when it already is. */
   wouldLoseAccess: Person[];
 }

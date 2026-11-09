@@ -1,4 +1,5 @@
 import { REDLINE_HEADER } from "@redline/shared";
+import { isNoAccess, reportNoAccess } from "./NoAccess.js";
 
 export const UNAUTHORIZED_EVENT = "redline:unauthorized";
 
@@ -20,6 +21,10 @@ export function installApiCalls(): void {
     const response = await send(input, { ...init, headers });
     const own = url.pathname === "/api/session" || url.pathname === "/api/me" || url.pathname === "/api/setup";
     if (response.status === 401 && !own) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    if (response.status === 403 && response.headers.get("content-type")?.includes("json")) {
+      const refusal: unknown = await response.clone().json();
+      if (isNoAccess(refusal)) reportNoAccess(refusal);
+    }
     return response;
   };
 }
