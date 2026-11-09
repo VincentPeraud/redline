@@ -1,5 +1,7 @@
 # No login in Redline: forwardAuth of an existing SSO plus two proxy secrets
 
+Status: superseded by ADR 0005 (Redline now has its own accounts). The two proxy secrets and the forwardAuth integration described here still apply in proxy mode.
+
 Redline has no accounts, sessions or passwords. A deployment sits behind Traefik, which asks the installer's existing SSO (Authelia, Authentik, Keycloak through oauth2-proxy...) through a `forwardAuth` middleware, then forwards the signed-in person in identity headers whose names are configured in `.env`. Redline trusts those headers only on requests carrying a **proxy secret**, a random value Traefik adds and Redline checks, so another container on the shared Traefik network cannot reach Redline or forge a person.
 
 There are two secrets: the human one (UI, API, artboards, behind the SSO) and the machine one (`/agent`, `/agent-api/*`, `/cli/*`, without SSO, guarded by the agents' token and rate limited). A request through the machine router can therefore never be taken for a person: the machine secret is accepted on the machine paths only and never makes identity headers readable. Each secret exists twice (a file read by Redline and a `.env` line read by the Traefik labels), written together by a generator that never overwrites.

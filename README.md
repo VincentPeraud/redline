@@ -16,6 +16,8 @@ Environment variables (all optional):
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `REDLINE_AUTH_MODE` | `local` | How people sign in: `local`, `proxy` or `none`, see "Sign-in modes" |
+| `REDLINE_PUBLIC_URL` | `http://localhost:$REDLINE_PORT` | Address people open; used in the setup link and by `reset-admin` |
 | `REDLINE_BIND` | `127.0.0.1` | Host address the two ports are published on |
 | `REDLINE_PORT` | `3000` | Host port of the web UI and API |
 | `REDLINE_ARTBOARD_PORT` | `3001` | Host port of the artboard origin |
@@ -29,11 +31,33 @@ Environment variables (all optional):
 
 ### Exposing the server
 
-Redline has no login, and `GET /api/agent-token` hands out the agents' token to whoever reaches the API. That is why `docker-compose.yml` publishes both ports on `127.0.0.1` by default. To use Redline from other machines, keep the default and put a reverse proxy on the same host (it reaches `127.0.0.1:3000` and `127.0.0.1:3001`) that authenticates users. Set `REDLINE_BIND=0.0.0.0` only on a network where everyone who can connect may administer Redline.
+In `none` mode Redline has no login, and anyone who reaches the API can administer it. In the default `local` mode people sign in with an account, but `docker-compose.yml` still publishes both ports on `127.0.0.1` by default. To use Redline from other machines, keep the default and put a reverse proxy on the same host (it reaches `127.0.0.1:3000` and `127.0.0.1:3001`) that authenticates users. Set `REDLINE_BIND=0.0.0.0` only on a network you trust, and set `REDLINE_PUBLIC_URL` to the address people open.
+
+### Sign-in modes
+
+`REDLINE_AUTH_MODE` selects one of three modes (without it, Redline runs in `proxy` when the proxy secrets are set, otherwise in `local`):
+
+| Mode | Who signs people in | Use |
+| --- | --- | --- |
+| `local` | Redline: e-mail and password, invitation links | Default of `docker-compose.yml` |
+| `proxy` | Your SSO through the reverse proxy; Redline keeps its own list of accounts | Server install (`docker-compose.production.yml` sets it) |
+| `none` | Nobody: no identity, everything allowed | Development and tests only |
+
+**Setup link (`local`).** While no account exists, the container logs write `No account yet. Open this link to create the first admin: <REDLINE_PUBLIC_URL>/#/setup/<token>`. Read it with `docker compose logs redline`, open it and choose a name, e-mail and password. Set `REDLINE_PUBLIC_URL` to the address people really open, otherwise the link names `localhost`. Admins then invite members from "Comptes" (a link to copy, no e-mail is sent).
+
+**Lost password (`local`).** `docker compose exec redline redline-server reset-admin` writes a single-use password link (valid 24 hours) for the oldest active admin to its output.
+
+**First admin (`proxy`).** There is no setup link: the first person who signs in through the SSO on an instance with no account becomes admin, and receives the existing projects if there are any. People seen before the update get the no-access screen until an admin adds them in "Comptes". `reset-admin` is a `local` command.
+
+**Moving from `local` to `proxy`.** Set `REDLINE_AUTH_MODE=proxy` (and the proxy secrets, see below). At their first SSO sign-in, accounts are matched by e-mail and keep their role, projects, links and agent token, so the SSO must send the same e-mails the accounts use. Accounts not matched yet stay listed; admins deactivate the ones that left.
+
+**Share links.** A share link (`/s/<token>`) is for someone with no account. In `proxy` mode your proxy must not ask the SSO for `/s/*` (nor for `/assets/`, the app bundle the link loads); Redline only serves such a request its link's scope. The artboard origin needs no SSO either: each artboard URL carries a signed viewing capability (`/c/<capability>/...`) valid 10 minutes, and its key is kept in the data folder (`artboard-capability.key`). `docker-compose.production.yml` configures both routers.
+
+**Stored tokens.** Share link tokens and agent tokens are stored readable in the SQLite database (so a link can be copied again), and so are in its backups. The database, the data volume and its backups are the trust boundary: keep them as private as the server.
 
 ### Behind a reverse proxy
 
-Redline has no login of its own. The proxy must protect everything (web UI, API, artboard origin) except the agent endpoints `/agent` (a WebSocket on the main port) and `/agent-api/*`, which are guarded by the agents' token. The proxy must forward the original `Host` header (or `X-Forwarded-Host`): state-changing API calls are refused when their `Origin` header names another host. Serve the artboard port on its own host name (a different origin from the UI) and set `REDLINE_ARTBOARD_ORIGIN` to it. Agents upload project assets of up to 20 MB through `/agent-api/*`: raise the proxy's body size limit for that path (nginx allows 1 MB by default, `client_max_body_size`).
+In `proxy` mode the SSO must protect the web UI and API. It must not protect the agent endpoints `/agent` (a WebSocket on the main port) and `/agent-api/*`, which are guarded by the agents' token, nor the share links and artboard origin described above. The proxy must forward the original `Host` header (or `X-Forwarded-Host`): state-changing API calls are refused when their `Origin` header names another host. Serve the artboard port on its own host name (a different origin from the UI) and set `REDLINE_ARTBOARD_ORIGIN` to it. Agents upload project assets of up to 20 MB through `/agent-api/*`: raise the proxy's body size limit for that path (nginx allows 1 MB by default, `client_max_body_size`).
 
 ### Proxy secrets
 
@@ -50,7 +74,7 @@ The proxy adds the secret in the `X-Redline-Proxy-Secret` request header (its hu
 
 ### Signed-in person (SSO)
 
-When the proxy secrets are set, Redline reads who is signed in from the identity headers your SSO adds, on `/api` requests carrying the human secret only (never on the machine paths, never when no proxy secrets are set: without them anyone could forge the headers, so there is then no identity, no account block and no menu). A person is created on their first visit, and their name and e-mail follow the SSO. `GET /api/me` answers the person and the logout URL, or `null`.
+When the proxy secrets are set, Redline reads who is signed in from the identity headers your SSO adds, on `/api` requests carrying the human secret only (never on the machine paths, never when no proxy secrets are set: without them anyone could forge the headers, so there is then no identity, no account block and no menu). A person who is on the accounts list (or the first to arrive) signs in with it, and their name and e-mail follow the SSO. `GET /api/me` answers the person and the logout URL, or `null`.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -91,7 +115,7 @@ redline setup http://redline.localhost --token <token>
 
 ## Install on a server
 
-Redline runs on a host that already has Traefik and an SSO (Authelia, Authentik, Keycloak through oauth2-proxy...). Redline has no login: Traefik asks your SSO first, then adds a secret header that Redline requires. Only the agents' paths (`/agent`, `/agent-api/*`) and the CLI download (`/cli/*`) skip the SSO; they are guarded by the agents' token and carry a second secret.
+Redline runs on a host that already has Traefik and an SSO (Authelia, Authentik, Keycloak through oauth2-proxy...). Redline runs in `proxy` mode: Traefik asks your SSO first, then adds a secret header that Redline requires, and Redline keeps its own list of accounts (the first person to sign in becomes admin). Three groups of paths skip the SSO: the agents' paths (`/agent`, `/agent-api/*`) and the CLI download (`/cli/*`), guarded by the agents' token with a second secret; share links (`/s/*`, plus the app bundle under `/assets/`), served only their link's scope; and the artboard origin, guarded by the viewing capability in each URL. The last two carry the human secret.
 
 ### Preflight
 
@@ -117,19 +141,19 @@ Agent sessions connect through `https://<UI host>` (`npm i -g https://<UI host>/
 
 ### Plug your SSO
 
-The SSO middleware named in `REDLINE_AUTH_MIDDLEWARE` must protect both host names, and must not apply to the machine paths (Redline's machine router never uses it).
+The SSO middleware named in `REDLINE_AUTH_MIDDLEWARE` protects the UI host only. Redline's machine, share and artboard routers never use it. Reset a lost admin with the SSO itself: there is no password in `proxy` mode.
 
-- **Authelia**: a `forwardAuth` middleware (`authelia@docker`, or the name you gave it). Add an access rule for both hosts and a group:
+- **Authelia**: a `forwardAuth` middleware (`authelia@docker`, or the name you gave it). Add an access rule for the UI host and a group:
 
   ```yaml
   access_control:
     rules:
-      - domain: ["redline.example.com", "artboards.redline.example.com"]
+      - domain: ["redline.example.com"]
         policy: one_factor
         subject: ["group:redline"]
   ```
 
-- **Authentik**: create a proxy provider in forward-auth (domain level) mode for both hosts, attach it to the embedded outpost, and use the `forwardAuth` middleware pointing at the outpost (`/outpost.goauthentik.io/auth/traefik`) with `authResponseHeaders` listing the headers below.
+- **Authentik**: create a proxy provider in forward-auth (domain level) mode for the UI host, attach it to the embedded outpost, and use the `forwardAuth` middleware pointing at the outpost (`/outpost.goauthentik.io/auth/traefik`) with `authResponseHeaders` listing the headers below.
 - **Keycloak**: Keycloak does not do forward auth by itself: run oauth2-proxy (`--reverse-proxy --set-xauthrequest --upstream=static://202`) with your Keycloak client, expose it as a `forwardAuth` middleware on `/oauth2/auth`, and list the headers below in `authResponseHeaders`.
 
 ### Identity headers

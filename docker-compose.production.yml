@@ -23,6 +23,8 @@ services:
         max-file: "3"
     environment:
       TZ: ${TZ:-Europe/Paris}
+      REDLINE_AUTH_MODE: proxy
+      REDLINE_PUBLIC_URL: https://${REDLINE_UI_HOST:?Set REDLINE_UI_HOST in .env}
       REDLINE_ARTBOARD_ORIGIN: https://${REDLINE_ARTBOARD_HOST:?Set REDLINE_ARTBOARD_HOST in .env}
       REDLINE_PROXY_SECRET_HUMAN_FILE: /run/secrets/redline_proxy_secret_human
       REDLINE_PROXY_SECRET_MACHINE_FILE: /run/secrets/redline_proxy_secret_machine
@@ -68,13 +70,21 @@ services:
       - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-ui.service=${REDLINE_TRAEFIK_PREFIX:-redline}-ui
       - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-ui.middlewares=${REDLINE_TRAEFIK_PREFIX:-redline}-headers,${REDLINE_TRAEFIK_PREFIX:-redline}-strip-identity,${REDLINE_AUTH_MIDDLEWARE:?Set REDLINE_AUTH_MIDDLEWARE in .env},${REDLINE_TRAEFIK_PREFIX:-redline}-body,${REDLINE_TRAEFIK_PREFIX:-redline}-secret-human
 
-      # Human artboard origin (behind the SSO)
+      # Link visitors (`/s/<token>`) and the app bundle they load: no SSO, they have no account. Redline serves a link only its own scope.
+      - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-share.rule=Host(`${REDLINE_UI_HOST}`) && (PathPrefix(`/s/`) || PathPrefix(`/assets/`))
+      - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-share.priority=100
+      - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-share.entrypoints=${REDLINE_ENTRYPOINT_HTTPS:-websecure}
+      - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-share.tls.certresolver=${REDLINE_CERT_RESOLVER:-letsencrypt}
+      - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-share.service=${REDLINE_TRAEFIK_PREFIX:-redline}-ui
+      - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-share.middlewares=${REDLINE_TRAEFIK_PREFIX:-redline}-headers,${REDLINE_TRAEFIK_PREFIX:-redline}-strip-identity,${REDLINE_TRAEFIK_PREFIX:-redline}-body,${REDLINE_TRAEFIK_PREFIX:-redline}-ratelimit,${REDLINE_TRAEFIK_PREFIX:-redline}-secret-human
+
+      # Artboard origin: no SSO either, the viewing capability in each URL guards it
       - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-artboards.rule=Host(`${REDLINE_ARTBOARD_HOST}`)
       - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-artboards.priority=10
       - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-artboards.entrypoints=${REDLINE_ENTRYPOINT_HTTPS:-websecure}
       - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-artboards.tls.certresolver=${REDLINE_CERT_RESOLVER:-letsencrypt}
       - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-artboards.service=${REDLINE_TRAEFIK_PREFIX:-redline}-artboards
-      - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-artboards.middlewares=${REDLINE_TRAEFIK_PREFIX:-redline}-headers,${REDLINE_TRAEFIK_PREFIX:-redline}-strip-identity,${REDLINE_AUTH_MIDDLEWARE},${REDLINE_TRAEFIK_PREFIX:-redline}-body,${REDLINE_TRAEFIK_PREFIX:-redline}-secret-human
+      - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-artboards.middlewares=${REDLINE_TRAEFIK_PREFIX:-redline}-headers,${REDLINE_TRAEFIK_PREFIX:-redline}-strip-identity,${REDLINE_TRAEFIK_PREFIX:-redline}-body,${REDLINE_TRAEFIK_PREFIX:-redline}-secret-human
 
       # Machine paths (agents and CLI download): no SSO, guarded by the agents' token
       - traefik.http.routers.${REDLINE_TRAEFIK_PREFIX:-redline}-machine.rule=Host(`${REDLINE_UI_HOST}`) && (Path(`/agent`) || PathPrefix(`/agent-api/`) || PathPrefix(`/cli/`))

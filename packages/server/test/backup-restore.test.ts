@@ -52,7 +52,7 @@ describe.skipIf(!process.env.REDLINE_DOCKER_TEST)("backup and restore", () => {
 
   it("backs up a running server and the restore test finds the data", async () => {
     docker("build", "-t", name, repoRoot);
-    docker("run", "-d", "--name", name, "--user", "1000:1000", "-v", `${name}:/data`, "-p", `${port}:3000`, name);
+    docker("run", "-d", "--name", name, "--user", "1000:1000", "-e", "REDLINE_AUTH_MODE=none", "-v", `${name}:/data`, "-p", `${port}:3000`, name);
     await waitForApi();
     for (const title of ["First", "Second"]) {
       const created = await fetch(`http://localhost:${port}/api/projects`, {
