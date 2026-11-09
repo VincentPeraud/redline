@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { ME_PATH, type DesignMdAuthor, type MeResponse, type Person } from "@redline/shared";
 import type { AuthMode } from "./access.js";
-import type { OriginRef } from "./store.js";
+import type { OriginRef, Store } from "./store.js";
 
 export interface IdentityConfig {
   /** Names of the request headers the SSO puts the signed-in person in (Authelia's by default). */
@@ -34,11 +34,17 @@ export function editorAuthor(req: FastifyRequest): DesignMdAuthor {
 }
 
 /** Serves `/api/me`: who the viewer is, with the SSO's logout page. The viewer itself is resolved by the access module. */
-export function registerIdentity(app: FastifyInstance, config: IdentityConfig = DEFAULT_IDENTITY, mode: AuthMode = "none"): void {
+export function registerIdentity(app: FastifyInstance, store: Store, config: IdentityConfig = DEFAULT_IDENTITY, mode: AuthMode = "none"): void {
   app.get(ME_PATH, async (req, reply) => {
     if (mode === "local" && req.viewer.kind !== "account") return reply.code(401).send({ error: "sign-in required" });
     const role = req.viewer.kind === "account" ? req.viewer.role : undefined;
-    const me: MeResponse = req.person ? { ...req.person, logoutUrl: config.logoutUrl ?? null, ...(role ? { account: { role } } : {}) } : null;
+    const logoutUrl = config.logoutUrl ?? null;
+    const outsider = req.viewer.kind === "nobody" ? req.viewer.ssoPerson : undefined;
+    const me: MeResponse = req.person
+      ? { ...req.person, logoutUrl, ...(role ? { account: mode === "proxy" ? { role, sso: true as const } : { role } } : {}) }
+      : outsider
+        ? { ...outsider, logoutUrl, noAccess: { admins: store.accounts.activeAdmins() } }
+        : null;
     return reply.type("application/json").send(JSON.stringify(me));
   });
 }

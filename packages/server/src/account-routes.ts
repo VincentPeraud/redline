@@ -35,7 +35,13 @@ const STATUS_OF_ERROR: Record<AccountError["code"], number> = {
 };
 
 /** Setup link, invitation, sign-in and sign-out of the built-in accounts, and the accounts screen. The setup, invitation and session paths are open to people who are not signed in. */
-export function registerAccountRoutes(app: FastifyInstance, store: Store): void {
+export function registerAccountRoutes(app: FastifyInstance, store: Store, mode: "local" | "proxy"): void {
+  /** Behind an SSO the same screen adds people by e-mail, with no link and no password: the built-in sign-in routes are not there. */
+  if (mode === "local") registerBuiltInSignIn(app, store);
+  registerAccountManagement(app, store, mode);
+}
+
+function registerBuiltInSignIn(app: FastifyInstance, store: Store): void {
   const throttle = new LoginThrottle();
 
   app.get<{ Querystring: { token?: string } }>(SETUP_PATH, async (req, reply) =>
@@ -71,27 +77,6 @@ export function registerAccountRoutes(app: FastifyInstance, store: Store): void 
     }
   });
 
-  /** The accounts screen: admins only (a member gets 403, nobody 401 before this runs). */
-  const isAdmin = (req: FastifyRequest) => req.viewer.kind === "account" && req.viewer.role === "admin";
-  const forbidden = (reply: FastifyReply) => reply.code(403).send({ error: "Only an admin manages accounts." });
-
-  app.get(ACCOUNTS_PATH, async (req, reply) => (isAdmin(req) ? store.accounts.list() : forbidden(reply)));
-
-  app.post<{ Body: { email?: string; role?: string } }>(INVITATIONS_PATH, async (req, reply) => {
-    if (!isAdmin(req)) return forbidden(reply);
-    try {
-      return reply.code(201).send(store.accounts.invite(req.person!.id, { email: req.body?.email ?? "", role: req.body?.role ?? "" }));
-    } catch (error) {
-      if (!(error instanceof AccountError)) throw error;
-      return reply.code(STATUS_OF_ERROR[error.code]).send({ error: error.message, code: error.code });
-    }
-  });
-
-  app.delete<{ Params: { id: string } }>(`${INVITATIONS_PATH}/:id`, async (req, reply) => {
-    if (!isAdmin(req)) return forbidden(reply);
-    return store.accounts.cancelInvitation(req.params.id) ? reply.code(204).send() : reply.code(404).send({ error: "This invitation is unknown or already used." });
-  });
-
   app.post<{ Body: { email?: string; password?: string } }>(SESSION_PATH, async (req, reply) => {
     const { email = "", password = "" } = req.body ?? {};
     const ip = clientIp(req);
@@ -111,5 +96,28 @@ export function registerAccountRoutes(app: FastifyInstance, store: Store): void 
     const token = cookieOf(req, SESSION_COOKIE);
     if (token) store.accounts.deleteSession(token);
     return reply.header("set-cookie", sessionCookie(req, "", 0)).code(204).send();
+  });
+}
+
+function registerAccountManagement(app: FastifyInstance, store: Store, mode: "local" | "proxy"): void {
+  /** The accounts screen: admins only (a member gets 403, nobody 401 before this runs). */
+  const isAdmin = (req: FastifyRequest) => req.viewer.kind === "account" && req.viewer.role === "admin";
+  const forbidden = (reply: FastifyReply) => reply.code(403).send({ error: "Only an admin manages accounts." });
+
+  app.get(ACCOUNTS_PATH, async (req, reply) => (isAdmin(req) ? { ...store.accounts.list(), sso: mode === "proxy" } : forbidden(reply)));
+
+  app.post<{ Body: { email?: string; role?: string } }>(INVITATIONS_PATH, async (req, reply) => {
+    if (!isAdmin(req)) return forbidden(reply);
+    try {
+      return reply.code(201).send(store.accounts.invite(req.person!.id, { email: req.body?.email ?? "", role: req.body?.role ?? "" }, mode === "proxy" ? "never" : "7-days"));
+    } catch (error) {
+      if (!(error instanceof AccountError)) throw error;
+      return reply.code(STATUS_OF_ERROR[error.code]).send({ error: error.message, code: error.code });
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>(`${INVITATIONS_PATH}/:id`, async (req, reply) => {
+    if (!isAdmin(req)) return forbidden(reply);
+    return store.accounts.cancelInvitation(req.params.id) ? reply.code(204).send() : reply.code(404).send({ error: "This invitation is unknown or already used." });
   });
 }

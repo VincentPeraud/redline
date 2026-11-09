@@ -19,8 +19,8 @@ export function invitationLink(token: string): string {
   return `${window.location.origin}${window.location.pathname}#/invitation/${token}`;
 }
 
-/** "Inviter quelqu'un": e-mail and role, then the link to copy (no e-mail is sent). */
-export function InviteDialog({ onClose, onInvited }: { onClose: () => void; onInvited: () => void }) {
+/** "Inviter quelqu'un": e-mail and role, then the link to copy (no e-mail is sent). Behind an SSO it is "Ajouter quelqu'un": the person signs in through the SSO, so there is no link. */
+export function InviteDialog({ sso, onClose, onInvited }: { sso: boolean; onClose: () => void; onInvited: () => void }) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<AccountRole>("member");
   const [error, setError] = useState<string | undefined>(undefined);
@@ -37,8 +37,9 @@ export function InviteDialog({ onClose, onInvited }: { onClose: () => void; onIn
       const body = (await res.json()) as { code?: string };
       return setError(ERRORS[body.code ?? ""] ?? "L'invitation n'a pas pu être créée.");
     }
-    setCreated((await res.json()) as InvitationEntry);
     onInvited();
+    if (sso) return onClose();
+    setCreated((await res.json()) as InvitationEntry);
   }
 
   async function copy(link: string) {
@@ -49,7 +50,7 @@ export function InviteDialog({ onClose, onInvited }: { onClose: () => void; onIn
 
   if (created) {
     const link = invitationLink(created.token);
-    const until = new Date(created.expiresAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+    const until = new Date(created.expiresAt!).toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
     return (
       <Dialog title="Inviter quelqu'un" onClose={onClose} width={480}>
         <div role="status" className={styles.ok}>
@@ -70,9 +71,13 @@ export function InviteDialog({ onClose, onInvited }: { onClose: () => void; onIn
   }
 
   return (
-    <Dialog title="Inviter quelqu'un" onClose={onClose} width={480}>
+    <Dialog title={sso ? "Ajouter quelqu'un" : "Inviter quelqu'un"} onClose={onClose} width={480}>
       <form className={styles.form} onSubmit={submit}>
-        <p className={styles.intro}>Redline n'envoie pas d'email : il crée un lien d'invitation que tu envoies toi-même (Mattermost, SMS…).</p>
+        <p className={styles.intro}>
+          {sso
+            ? "La personne entre avec son compte Authelia : crée-le d'abord s'il n'existe pas. Redline la reconnaît à cet e-mail, à sa première connexion."
+            : "Redline n'envoie pas d'email : il crée un lien d'invitation que tu envoies toi-même (Mattermost, SMS…)."}
+        </p>
         <Field label="Email" hint={error} className={styles.field}>
           <TextInput type="email" name="email" value={email} required aria-invalid={error !== undefined} onChange={(e) => { setEmail(e.target.value); setError(undefined); }} />
         </Field>
@@ -93,7 +98,7 @@ export function InviteDialog({ onClose, onInvited }: { onClose: () => void; onIn
         <p className={styles.hint}>Pour un client ou un freelance, pas de compte : partage-lui une page ou un projet par lien.</p>
         <DialogActions>
           <Button size="lg" onClick={onClose}>Annuler</Button>
-          <Button type="submit" variant="accent" size="lg" disabled={busy}>Créer le lien d'invitation</Button>
+          <Button type="submit" variant="accent" size="lg" disabled={busy}>{sso ? "Ajouter" : "Créer le lien d'invitation"}</Button>
         </DialogActions>
       </form>
     </Dialog>

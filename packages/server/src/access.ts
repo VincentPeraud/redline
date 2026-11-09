@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { INVITATION_PATH, NO_ACCESS_CODE, SESSION_PATH, SETUP_PATH, type AccountRole, type NoAccessResponse, type Person } from "@redline/shared";
+import { INVITATION_PATH, NO_ACCESS_CODE, initialsOf, SESSION_PATH, SETUP_PATH, type AccountRole, type NoAccessResponse, type Person } from "@redline/shared";
 import { HEALTH_PATH, hasHumanSecret, isMachinePath, type ProxySecrets } from "./proxy-secrets.js";
 import { isLocalHost } from "./public-deadline.js";
 import type { Store } from "./store.js";
@@ -11,7 +11,7 @@ export type Viewer =
   | { kind: "account"; person: Person; role?: AccountRole }
   | { kind: "link"; token: string }
   | { kind: "agent" }
-  | { kind: "nobody" };
+  | { kind: "nobody"; /** In proxy mode, the SSO person Redline has no account for: they are told whom to ask. */ ssoPerson?: Person };
 
 export type Action = "read" | "write";
 
@@ -79,7 +79,13 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
     if (isMachinePath(req.url)) return { kind: "agent" };
     if (mode === "proxy" && secrets && req.url.startsWith("/api/") && hasHumanSecret(req, secrets)) {
       const id = headerText(req, identity.userHeader);
-      if (id !== "") return { kind: "account", person: store.savePerson(id, headerText(req, identity.nameHeader), headerText(req, identity.emailHeader)) };
+      if (id !== "") {
+        const name = headerText(req, identity.nameHeader);
+        const email = headerText(req, identity.emailHeader);
+        const account = store.accounts.signInThroughSso({ id, name, email });
+        if (!account) return { kind: "nobody", ssoPerson: { id, name, email, initials: initialsOf(name, id) } };
+        return { kind: "account", person: { id: account.id, name: account.name, email: account.email, initials: account.initials }, role: account.role };
+      }
     }
     if (mode === "local" && req.url.startsWith("/api/")) {
       const session = cookieOf(req, SESSION_COOKIE);
@@ -100,8 +106,8 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
     return !ownership || ownership.visibility === "team" || ownership.createdBy === viewer.person.id;
   };
   const may = (viewer: Viewer, _action: Action, resource: Resource): boolean => {
-    // `none` and `proxy` allow everything today; `local` decides by role and visibility (levels come with member levels).
-    if (mode !== "local") return true;
+    // `none` allows everything; `local` and `proxy` decide by role and visibility (levels come with member levels).
+    if (mode === "none") return true;
     // Machine paths check the agent token themselves.
     if (viewer.kind === "agent") return true;
     if (viewer.kind !== "account") return false;
@@ -109,7 +115,7 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
     return projectId === undefined || sees(viewer, projectId);
   };
   const manages = (viewer: Viewer, projectId: string): boolean => {
-    if (mode !== "local") return true;
+    if (mode === "none") return true;
     return viewer.kind === "account" && (viewer.role === "admin" || store.projectOwnership(projectId)?.createdBy === viewer.person.id);
   };
   const creatorOf = (resource: Resource): Person | undefined => {

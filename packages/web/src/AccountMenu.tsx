@@ -89,10 +89,10 @@ export function AccountMenu({ me, placement, trigger }: Props) {
             <span className={styles.name}>{displayName(me)}</span>
             <span className={styles.email}>{me.email}</span>
           </div>
-          {(me.logoutUrl !== null || me.account) && (
+          {(me.logoutUrl !== null || (me.account && !me.account.sso)) && (
             <>
               <div className={styles.divider} />
-              {me.account ? (
+              {me.account && !me.account.sso ? (
                 <button type="button" role="menuitem" className={styles.item} onClick={() => void signOut()}>
                   {signOutIcon}
                   Se déconnecter

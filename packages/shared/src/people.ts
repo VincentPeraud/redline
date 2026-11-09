@@ -13,7 +13,12 @@ export type AccountRole = "admin" | "member";
  * `GET /api/me`: the viewing person and where "Se déconnecter" leads (null when none is set); the body is `null` without SSO.
  * `account` is set for a built-in account (signed in with e-mail and password): it holds their role, and sign-out is `DELETE SESSION_PATH`.
  */
-export type MeResponse = (Person & { logoutUrl: string | null; account?: { role: AccountRole } }) | null;
+export type MeResponse = (Person & { logoutUrl: string | null; account?: { role: AccountRole; sso?: true }; noAccess?: NoAccess }) | null;
+
+/** Set on `GET /api/me` for someone the SSO let in but whom Redline's account list does not know (or has deactivated): they get the no-access screen. */
+export interface NoAccess {
+  admins: { name: string; email: string }[];
+}
 
 export const SESSION_PATH = "/api/session";
 export const SETUP_PATH = "/api/setup";
@@ -40,12 +45,15 @@ export interface InvitationEntry {
   /** Name of the admin who invited. */
   invitedBy: string;
   createdAt: string;
-  expiresAt: string;
-  /** The secret part of the link: `#/invitation/<token>`. A pending invitation can be copied again. */
+  /** Null for an entry added in proxy mode: it waits for the person's first SSO sign-in and does not expire. */
+  expiresAt: string | null;
+  /** The secret part of the link: `#/invitation/<token>`. A pending invitation can be copied again; empty in proxy mode (no link). */
   token: string;
 }
 
 export interface AccountsResponse {
+  /** True in proxy mode: people sign in through the SSO, pending entries are "ajouts", and there are no password actions. */
+  sso: boolean;
   accounts: AccountEntry[];
   invitations: InvitationEntry[];
 }
