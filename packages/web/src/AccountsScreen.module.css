@@ -82,3 +82,15 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
 }
+
+.role {
+  width: 120px;
+}
+
+.notice {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  font-size: var(--font-size-sm);
+}
