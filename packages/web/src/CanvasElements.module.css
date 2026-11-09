@@ -171,6 +171,13 @@
   background: var(--color-online);
 }
 
+.pinReview {
+  border: 2px solid var(--color-warning-strong);
+  background: var(--color-surface);
+  color: var(--color-warning-strong);
+  line-height: 20px;
+}
+
 .pinHeld {
   border: 2px dashed var(--color-warning-strong);
   background: var(--color-surface);

@@ -4,6 +4,7 @@ import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
 import { RemovedTag } from "./RemovedTag.js";
 import { HeldBar, HeldThreadCard } from "./HeldComments.js";
+import { ReviewBar, sendToClaude } from "./ReviewComments.js";
 import { MessageAuthor } from "./MessageAuthor.js";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
 import { InstanceThreadInfo } from "./InstanceThreads.js";
@@ -17,7 +18,7 @@ import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
 import { useStickToBottom } from "./useStickToBottom.js";
 import { RefuseDialog, refuseRequestTarget } from "./RefuseDialog.js";
 import { ThreadReplyForm } from "./ThreadReplyForm.js";
-import { Button, Textarea, cx } from "./ui/index.js";
+import { Button, StatusBadge, Textarea, cx } from "./ui/index.js";
 import styles from "./Thread.module.css";
 import panel from "./CommentsPanel.module.css";
 
@@ -54,18 +55,19 @@ interface Props {
   onShowThread?: (threadId: string) => void;
 }
 
-const GROUP_ORDER: Record<Thread["status"], number> = { held: 0, open: 1, resolved: 2 };
+const GROUP_ORDER: Record<Thread["status"], number> = { held: 0, review: 1, open: 2, resolved: 3 };
 
 function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNode }) {
   return (
     <>
       <div className={styles.head}>
-        <span className={cx(styles.badge, thread.removed && styles.badgeRemoved)}>{thread.number}</span>
+        <span className={cx(styles.badge, thread.status === "review" && styles.badgeReview, thread.removed && styles.badgeRemoved)}>{thread.number}</span>
         <span className={styles.where}>{threadWhere(thread)}</span>
         <RenderingChip thread={thread} />
         <span className={styles.spacer} />
         {thread.removed && <RemovedTag />}
         {thread.request && <RequestTag />}
+        {thread.status === "review" && <StatusBadge tone="warning" size="sm">À relire</StatusBadge>}
         {thread.status === "open" && thread.replies.at(-1)?.author === "redline" && <span data-testid="reopened" className={styles.reopened}>rouvert</span>}
         {children}
       </div>
@@ -107,6 +109,7 @@ function ThreadMessages({ thread }: { thread: Thread }) {
     <>
       <div className={styles.message}>
         <MessageAuthor person={thread.person} claude={requestAskerName(thread)} redline={thread.automatic} />
+        {thread.status === "review" && thread.person && <span className={styles.reviewNote}>membre en Commentaire sur ce projet</span>}
         {thread.body}
       </div>
       {thread.replies.map((reply) => (
@@ -176,6 +179,7 @@ function ThreadCard({
   session,
   choice,
   onResolve,
+  onSend,
   readOnly,
 }: {
   thread: Thread;
@@ -185,6 +189,8 @@ function ThreadCard({
   session: SessionRow | undefined;
   choice: ModelEffortChoice;
   onResolve: () => void;
+  /** "Envoyer à Claude", for an "À relire" thread: absent where the viewer does not work (Commentaire). */
+  onSend?: () => void;
   readOnly: boolean;
 }) {
   const [replying, setReplying] = useState(false);
@@ -214,7 +220,7 @@ function ThreadCard({
   }
 
   return (
-    <article data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running, thread.removed && styles.removed)}>
+    <article data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running, thread.status === "review" && styles.review, thread.removed && styles.removed)}>
       <ThreadHeader thread={thread}>
         {queued && (
           <span data-testid="queued" className={styles.queued}>
@@ -228,13 +234,18 @@ function ThreadCard({
         sessionLabel(session) && <span className={styles.sessionMeta}>{sessionLabel(session)}</span>
       ) : (
         <div className={cx(styles.footer, waitingForTerminal && styles.footerStacked)}>
-          <SessionMeta session={session} />
-          {!waitingForTerminal && <span className={styles.spacer} />}
+          {thread.status !== "review" && <SessionMeta session={session} />}
+          {!waitingForTerminal && thread.status !== "review" && <span className={styles.spacer} />}
           {!readOnly && (
             <div className={styles.footerActions}>
               {waitingForTerminal && (
                 <Button size="sm" onClick={() => void fetch(`/api/threads/${thread.id}/hand-over`, { method: "POST" })}>
                   Confier à l'agent
+                </Button>
+              )}
+              {thread.status === "review" && onSend && (
+                <Button size="sm" variant="primary" onClick={onSend}>
+                  Envoyer à Claude
                 </Button>
               )}
               <Button size="sm" aria-expanded={replying} onClick={() => setReplying(!replying)}>
@@ -246,7 +257,7 @@ function ThreadCard({
                 </Button>
               )}
               {!thread.request && (
-                <Button size="sm" variant="primary" onClick={onResolve}>
+                <Button size="sm" variant={thread.status === "review" ? "ghost" : "primary"} onClick={onResolve}>
                   Résoudre
                 </Button>
               )}
@@ -265,6 +276,7 @@ function ThreadCard({
 export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, commentOnly = false, archivedLabel = "Projet archivé", unfolded, onUnfold, onShowThread }: Props) {
   const ordered = [...threads].sort((a, b) => GROUP_ORDER[a.status] - GROUP_ORDER[b.status] || a.number - b.number);
   const heldCount = threads.filter((t) => t.status === "held").length;
+  const reviewCount = threads.filter((t) => t.status === "review").length;
   const listRef = useStickToBottom<HTMLDivElement>();
 
   // Picking an element (or the whole artboard) starts a draft: type right away.
@@ -286,6 +298,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
         }}
       >
         {!readOnly && !commentOnly && <HeldBar pageId={pageId} count={heldCount} choice={choice} />}
+        {!readOnly && <ReviewBar pageId={pageId} count={reviewCount} choice={choice} canSend={!commentOnly} />}
         {ordered.map((thread) => {
           if (thread.status === "held") return <HeldThreadCard key={thread.id} thread={thread} />;
           if (thread.status === "resolved") return <ResolvedThreadCard key={thread.id} thread={thread} session={sessions.get(thread.id)} readOnly={readOnly} open={unfolded.has(thread.id)} onOpen={(open) => onUnfold(thread.id, open)} />;
@@ -299,6 +312,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
               session={sessions.get(thread.id)}
               choice={choice}
               onResolve={() => void fetch(`/api/threads/${thread.id}/resolve`, { method: "POST" })}
+              onSend={commentOnly ? undefined : () => void sendToClaude(pageId, choice, [thread.id])}
               readOnly={readOnly}
             />
           );
@@ -343,9 +357,11 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
               }}
             />
             <div className={panel.actions}>
-              <Button className={panel.action} aria-disabled={text.trim() === ""} title="Garde ce commentaire pour l'envoyer avec les autres (⌘ Entrée)" onClick={() => onSend(true)}>
-                Plus tard
-              </Button>
+              {!commentOnly && (
+                <Button className={panel.action} aria-disabled={text.trim() === ""} title="Garde ce commentaire pour l'envoyer avec les autres (⌘ Entrée)" onClick={() => onSend(true)}>
+                  Plus tard
+                </Button>
+              )}
               <Button className={panel.action} variant="primary" aria-disabled={text.trim() === ""} title="Envoie ce commentaire tout de suite, seul (Entrée)" onClick={() => onSend(false)}>
                 Envoyer
               </Button>

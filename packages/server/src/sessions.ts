@@ -46,7 +46,7 @@ export function registerSessionRoutes(
       const idleStatus: SessionStatus =
         thread.status === "resolved"
           ? "resolved"
-          : thread.status === "held"
+          : thread.status === "held" || thread.status === "review"
             ? "held"
             : thread.replies.some((r) => r.author === "claude")
               ? "answered"

@@ -491,7 +491,7 @@ export function CanvasElements({
           title={`${thread.title} · ${threadWhere(thread)}`}
           aria-label={`Ouvrir le commentaire ${thread.number}`}
           disabled={!onPinClick}
-          className={cx(styles.pin, thread.status === "held" && styles.pinHeld, thread.status === "resolved" && styles.pinResolved)}
+          className={cx(styles.pin, thread.status === "held" && styles.pinHeld, thread.status === "review" && styles.pinReview, thread.status === "resolved" && styles.pinResolved)}
           style={{ left: spot.x, top: spot.y, transform: `translate(calc(-50% - ${spot.inset ? PIN_INSET / zoom : 0}px), calc(-50% + ${spot.inset ? PIN_INSET / zoom : 0}px)) scale(${1 / zoom})` }}
           onClick={() => onPinClick?.(thread.id)}
         >

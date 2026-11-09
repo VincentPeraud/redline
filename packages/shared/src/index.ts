@@ -363,7 +363,8 @@ export interface ArtboardCapability {
 }
 
 /** `held`: a finished comment kept back ("Plus tard") until "Tout envoyer"; not yet sent to any session. */
-export type ThreadStatus = "held" | "open" | "resolved";
+/** "review" is "À relire": posted at Commentaire level, not sent to Claude until a member in Écriture sends it. */
+export type ThreadStatus = "held" | "review" | "open" | "resolved";
 
 /** What a thread is about: an element of an artboard, a whole artboard, or an element of the page canvas. */
 export type ThreadTarget =
@@ -496,6 +497,16 @@ export interface SendHeldRequest extends ModelChoice {
 
 export interface SendHeldResponse {
   /** Held comments sent (0 when the page had none). */
+  threads: number;
+}
+
+/** `POST /api/pages/:pageId/send-review`: sends "À relire" threads of that page to Claude as one message (every one of them when `threadIds` is absent). */
+export interface SendReviewRequest extends ModelChoice {
+  threadIds?: string[];
+}
+
+export interface SendReviewResponse {
+  /** Threads sent (0 when none was À relire). */
   threads: number;
 }
 
