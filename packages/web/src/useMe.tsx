@@ -1,24 +1,65 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { ME_PATH, personLabel, type MeResponse, type Person, type PersonPlace } from "@redline/shared";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { ME_PATH, SESSION_PATH, personLabel, type MeResponse, type Person, type PersonPlace } from "@redline/shared";
 import type { Who } from "./historyLabels.js";
+import { UNAUTHORIZED_EVENT } from "./apiCalls.js";
 
 const MeContext = createContext<MeResponse>(null);
 
-/** Loads `GET /api/me` once: who is signed in, or null without SSO (and while loading). */
+/** Whether the built-in accounts need a sign-in (the API answered 401) and what the person can do about it. */
+export interface SessionState {
+  /** `loading` until `GET /api/me` has answered. */
+  status: "loading" | "signedIn" | "signedOut";
+  /** The sign-in screen says "Tu es déconnecté." after a sign-out of the person's own. */
+  justSignedOut: boolean;
+  /** Reads `GET /api/me` again, after a sign-in or the creation of the first admin. */
+  reload: () => Promise<void>;
+  signOut: () => Promise<void>;
+}
+
+const SessionContext = createContext<SessionState>({ status: "signedIn", justSignedOut: false, reload: async () => {}, signOut: async () => {} });
+
+/** Loads `GET /api/me` once: who is signed in, or null without SSO (and while loading); a 401 means the sign-in screen. */
 export function MeProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<MeResponse>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetch(ME_PATH)
-      .then((res) => res.json() as Promise<MeResponse>)
-      .then((loaded) => {
-        if (!cancelled) setMe(loaded);
-      });
-    return () => {
-      cancelled = true;
-    };
+  const [status, setStatus] = useState<SessionState["status"]>("loading");
+  const [justSignedOut, setJustSignedOut] = useState(false);
+
+  const reload = useCallback(async () => {
+    const res = await fetch(ME_PATH);
+    if (res.status === 401) {
+      setMe(null);
+      setStatus("signedOut");
+      return;
+    }
+    setMe((await res.json()) as MeResponse);
+    setStatus("signedIn");
   }, []);
-  return <MeContext.Provider value={me}>{children}</MeContext.Provider>;
+
+  useEffect(() => {
+    void reload();
+    // A session that ended (expired, signed out elsewhere) shows on the next call of the app.
+    const onUnauthorized = () => setStatus("signedOut");
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, [reload]);
+
+  const signOut = useCallback(async () => {
+    await fetch(SESSION_PATH, { method: "DELETE" });
+    setMe(null);
+    setJustSignedOut(true);
+    setStatus("signedOut");
+  }, []);
+
+  const session = useMemo<SessionState>(() => ({ status, justSignedOut, reload, signOut }), [status, justSignedOut, reload, signOut]);
+  return (
+    <SessionContext.Provider value={session}>
+      <MeContext.Provider value={me}>{children}</MeContext.Provider>
+    </SessionContext.Provider>
+  );
+}
+
+export function useSession(): SessionState {
+  return useContext(SessionContext);
 }
 
 /** The person viewing, or null without SSO: the account block and pill show only when it is set. */

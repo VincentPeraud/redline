@@ -109,6 +109,9 @@ export function registerAccess(app: FastifyInstance, access: Access): void {
   });
   app.addHook("preHandler", async (req, reply) => {
     if (OPEN_PATHS.has(req.url.split("?")[0])) return;
+    // The web app's own files (the static handler and the single-page fallback) are what shows the sign-in screen.
+    const route = req.routeOptions.url;
+    if (route === undefined || route === "/*" || route === "/") return;
     if (!access.may(req.viewer, actionOf(req), resourceOf(req))) {
       return req.viewer.kind === "nobody" && access.mode === "local" ? reply.code(401).send({ error: "sign-in required" }) : reply.code(403).send({ error: "forbidden" });
     }

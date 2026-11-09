@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode 
 import type { MeResponse } from "@redline/shared";
 import { useCloseOnOutsidePointer } from "./useCloseOnOutsidePointer.js";
 import { cx } from "./ui/index.js";
+import { useSession } from "./useMe.js";
 import styles from "./AccountMenu.module.css";
 
 type Me = NonNullable<MeResponse>;
@@ -21,6 +22,14 @@ interface Props {
   trigger: (props: AccountTriggerProps, open: boolean) => ReactNode;
 }
 
+const signOutIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <path d="M16 17l5-5-5-5" />
+    <path d="M21 12H9" />
+  </svg>
+);
+
 export function displayName(me: Me): string {
   return me.name || me.id;
 }
@@ -34,6 +43,7 @@ export function AccountMenu({ me, placement, trigger }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const menuId = useId();
   const close = () => setOpen(false);
+  const { signOut } = useSession();
   useCloseOnOutsidePointer(root, open, close);
 
   const triggerElement = () => root.current?.querySelector<HTMLElement>("[aria-haspopup='menu']");
@@ -79,17 +89,20 @@ export function AccountMenu({ me, placement, trigger }: Props) {
             <span className={styles.name}>{displayName(me)}</span>
             <span className={styles.email}>{me.email}</span>
           </div>
-          {me.logoutUrl !== null && (
+          {(me.logoutUrl !== null || me.account) && (
             <>
               <div className={styles.divider} />
-              <a role="menuitem" href={me.logoutUrl} className={styles.item}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                  <path d="M16 17l5-5-5-5" />
-                  <path d="M21 12H9" />
-                </svg>
-                Se déconnecter
-              </a>
+              {me.account ? (
+                <button type="button" role="menuitem" className={styles.item} onClick={() => void signOut()}>
+                  {signOutIcon}
+                  Se déconnecter
+                </button>
+              ) : (
+                <a role="menuitem" href={me.logoutUrl!} className={styles.item}>
+                  {signOutIcon}
+                  Se déconnecter
+                </a>
+              )}
             </>
           )}
         </div>

@@ -10,12 +10,13 @@ export interface FieldProps {
   hint?: ReactNode;
   /** Wraps the control in a label, so clicking the text focuses it. */
   children: ReactNode;
+  className?: string;
 }
 
 /** Label above a control (13px, medium), with optional marker and hint. */
-export function Field({ label, optional, hint, children }: FieldProps) {
+export function Field({ label, optional, hint, children, className }: FieldProps) {
   return (
-    <label className={styles.field}>
+    <label className={cx(styles.field, className)}>
       <span>
         {label}
         {optional ? <span className={styles.optional}> (facultatif)</span> : null}

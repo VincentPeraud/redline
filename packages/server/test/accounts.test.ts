@@ -134,12 +134,14 @@ describe("built-in accounts", () => {
       const response = await signIn(url, email, password, ip);
       return { status: response.status, error: ((await response.json()) as { error?: string }).error };
     };
-    for (let i = 0; i < 5; i++) expect((await attempt("vincent@example.com", "bad", "9.9.9.9")).status).toBe(401);
+    for (let i = 0; i < 4; i++) expect((await attempt("vincent@example.com", "bad", "9.9.9.9")).status).toBe(401);
+    expect((await attempt("vincent@example.com", "bad", "9.9.9.9")).status).toBe(429);
     const locked = await attempt("vincent@example.com", PASSWORD, "9.9.9.9");
     expect(locked.status).toBe(429);
     expect(locked.error).toMatch(/Trop d'essais/);
 
-    for (let i = 0; i < 5; i++) await attempt("ghost@example.com", "bad", "9.9.9.9");
+    for (let i = 0; i < 4; i++) await attempt("ghost@example.com", "bad", "9.9.9.9");
+    expect(await attempt("ghost@example.com", "bad", "9.9.9.9")).toEqual(locked);
     expect(await attempt("ghost@example.com", "bad", "9.9.9.9")).toEqual(locked);
 
     expect((await attempt("vincent@example.com", PASSWORD, "8.8.8.8")).status).toBe(200);

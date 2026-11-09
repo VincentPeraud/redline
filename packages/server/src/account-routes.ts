@@ -52,6 +52,7 @@ export function registerAccountRoutes(app: FastifyInstance, store: Store): void 
     const person = await store.accounts.authenticate(email, password);
     if (!person) {
       throttle.recordFailure(email, ip);
+      if (throttle.isLocked(email, ip)) return reply.code(429).send({ error: TOO_MANY_ATTEMPTS });
       return reply.code(401).send({ error: WRONG_CREDENTIALS });
     }
     throttle.recordSuccess(email, ip);

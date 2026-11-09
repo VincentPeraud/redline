@@ -14,6 +14,8 @@ import { ProjectDesignSystemScreen } from "./ProjectDesignSystemScreen";
 import { ProjectOverview } from "./ProjectOverview";
 import { ArchivedProjectsScreen, ProjectsScreen } from "./ProjectsScreen";
 import { Shell } from "./Sidebar";
+import { AuthGate } from "./AuthGate.js";
+import { installApiCalls } from "./apiCalls.js";
 import { MeProvider } from "./useMe.js";
 import { useRoute } from "./router";
 import { SessionsScreen } from "./SessionsScreen";
@@ -102,10 +104,14 @@ function Root() {
   );
 }
 
+installApiCalls();
+
 createRoot(document.getElementById("root")!).render(
   <MeProvider>
-    <DiffusionProvider>
-      <Root />
-    </DiffusionProvider>
+    <AuthGate>
+      <DiffusionProvider>
+        <Root />
+      </DiffusionProvider>
+    </AuthGate>
   </MeProvider>,
 );
