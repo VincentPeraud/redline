@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { isAccessLevel, linkPath, type AccessLevel, type CreateLinkRequest, type ShareLink, type ShareLinkView, type UpdateLinkRequest } from "@redline/shared";
-import { cookieOf, type Access } from "./access.js";
+import { MAX_VISITOR_NAME_LENGTH, isAccessLevel, linkPath, type LinkAuthor, type AccessLevel, type CreateLinkRequest, type ShareLink, type ShareLinkView, type UpdateLinkRequest } from "@redline/shared";
+import { cookieOf, type Access, type Viewer } from "./access.js";
 import type { StoredLink } from "./link-store.js";
 import type { Store } from "./store.js";
 
@@ -18,6 +18,19 @@ function linkRequestError(body: Partial<CreateLinkRequest & UpdateLinkRequest>, 
   if (body.expiresAt !== undefined && body.expiresAt !== null && (typeof body.expiresAt !== "string" || Number.isNaN(Date.parse(body.expiresAt)))) return "expiresAt must be an ISO date or null";
   if (body.direct !== undefined && typeof body.direct !== "boolean") return "direct must be a boolean";
   return undefined;
+}
+
+/** Why a comment through a link cannot be signed, or undefined: a generic link needs the name the visitor gave. */
+export function visitorNameError(viewer: Viewer, visitorName: unknown): string | undefined {
+  if (viewer.kind !== "link" || viewer.link.kind === "personal") return undefined;
+  if (typeof visitorName !== "string" || visitorName.trim() === "" || visitorName.trim().length > MAX_VISITOR_NAME_LENGTH) return `visitorName must be 1 to ${MAX_VISITOR_NAME_LENGTH} characters`;
+  return undefined;
+}
+
+/** What a comment through a link is signed with: the name of a personal link, the visitor's name on a generic one. Undefined for members. */
+export function linkAuthorOf(viewer: Viewer, visitorName: unknown): LinkAuthor | undefined {
+  if (viewer.kind !== "link") return undefined;
+  return { linkId: viewer.link.id, name: viewer.link.kind === "personal" ? viewer.link.name : (visitorName as string).trim() };
 }
 
 /**

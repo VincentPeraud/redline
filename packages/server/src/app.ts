@@ -60,7 +60,7 @@ import { TerminalSessions } from "./terminal-sessions.js";
 import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
 import { projectContext, readPageAsset, readProjectAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
-import { registerLinkRoutes } from "./link-routes.js";
+import { linkAuthorOf, registerLinkRoutes, visitorNameError } from "./link-routes.js";
 import { rewriteLinkUrl } from "./link-url.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
@@ -605,13 +605,20 @@ export async function buildMainApp(
     return store.getPage(req.params.pageId);
   });
 
+  /** What a viewer in Commentaire writes waits for someone in Écriture to read it, unless it comes through a link made to go straight to Claude. */
+  const needsReview = (viewer: Viewer, resource: { pageId?: string; threadId?: string }): boolean =>
+    access.levelOf(viewer, resource) === "comment" && !(viewer.kind === "link" && viewer.link.direct);
+
   app.post<{ Params: { pageId: string }; Body: CreateThreadRequest }>(
     "/api/pages/:pageId/threads",
     async (req, reply) => {
       if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
       const invalid = createThreadRequestError(req.body);
       if (invalid) return reply.code(400).send({ error: invalid });
-      const request = req.body;
+      const nameError = visitorNameError(req.viewer, req.body.visitorName);
+      if (nameError) return reply.code(400).send({ error: nameError });
+      // A visitor chooses neither to hold a comment nor the model that answers it.
+      const request = req.viewer.kind === "link" ? { ...req.body, held: false, model: undefined, effort: undefined } : req.body;
       if ("target" in request && request.target.kind === "artboard" && !store.hasArtboard(req.params.pageId, request.target.artboard)) {
         return reply.code(400).send({ error: "artboard is not on the page" });
       }
@@ -619,10 +626,10 @@ export async function buildMainApp(
         return reply.code(400).send({ error: "element is not on the page's canvas" });
       }
       // What a Commentaire member writes waits for someone in Écriture to read it.
-      const toReview = access.levelOf(req.viewer, { pageId: req.params.pageId }) === "comment";
-      const thread = store.createThread(req.params.pageId, request, req.person, false, undefined, toReview);
+      const toReview = needsReview(req.viewer, { pageId: req.params.pageId });
+      const thread = store.createThread(req.params.pageId, request, req.person, false, undefined, toReview, linkAuthorOf(req.viewer, request.visitorName));
       if (thread.status === "held" || thread.status === "review") return reply.code(201).send(thread);
-      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(request), terminalSessions);
+      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, req.viewer.kind === "link" ? {} : modelChoiceOf(request), terminalSessions);
       return reply.code(201).send(thread);
     },
   );
@@ -630,7 +637,10 @@ export async function buildMainApp(
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/threads", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
     // A visitor hears only of threads made through its own link; a Lecture link makes none.
-    if (req.viewer.kind === "link") return [];
+    if (req.viewer.kind === "link") {
+      const linkId = req.viewer.link.id;
+      return store.listThreads(req.params.pageId).filter((thread) => thread.linkAuthor?.linkId === linkId);
+    }
     return store.listThreads(req.params.pageId);
   });
 
@@ -642,14 +652,18 @@ export async function buildMainApp(
     if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
     const invalidChoice = modelChoiceError(req.body);
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
-    const message = store.addReply(thread.id, body, "user", [], req.person)!;
+    // A visitor answers in the threads of its own link only.
+    if (req.viewer.kind === "link" && thread.linkAuthor?.linkId !== req.viewer.link.id) return reply.code(403).send({ error: "forbidden" });
+    const nameError = visitorNameError(req.viewer, req.body.visitorName);
+    if (nameError) return reply.code(400).send({ error: nameError });
+    const message = store.addReply(thread.id, body, "user", [], req.person, linkAuthorOf(req.viewer, req.body.visitorName))!;
     // A thread waiting to be read stays with the readers; a Commentaire reply sends it back to them instead of to Claude.
     if (thread.status === "review") return reply.code(201).send(message);
-    if (access.levelOf(req.viewer, { threadId: thread.id }) === "comment") {
+    if (needsReview(req.viewer, { threadId: thread.id })) {
       store.returnToReview(thread.id);
       return reply.code(201).send(message);
     }
-    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body), terminalSessions);
+    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, req.viewer.kind === "link" ? {} : modelChoiceOf(req.body), terminalSessions);
     return reply.code(201).send(message);
   });
 

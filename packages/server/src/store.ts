@@ -37,6 +37,7 @@ import {
   type DesignMdAuthor,
   type DesignMdVersion,
   type ProjectAsset,
+  type LinkAuthor,
 } from "@redline/shared";
 import type {
   Person,
@@ -307,6 +308,11 @@ export class Store {
     addColumn("pages", "created_by", "TEXT NOT NULL DEFAULT 'user'");
     // The signed-in person who wrote a human message or started a conversation; NULL before the SSO and without it.
     addColumn("threads", "person_id", "TEXT");
+    // A message written through a share link: the link and the name it is signed with (no person).
+    addColumn("threads", "link_id", "TEXT");
+    addColumn("threads", "link_author", "TEXT");
+    addColumn("thread_replies", "link_id", "TEXT");
+    addColumn("thread_replies", "link_author", "TEXT");
     addColumn("thread_replies", "person_id", "TEXT");
     addColumn("conversations", "person_id", "TEXT");
     addColumn("conversation_messages", "person_id", "TEXT");
@@ -1401,7 +1407,7 @@ export class Store {
   }
 
   /** `automatic`: opened by Redline itself (signed "Redline"), not written by a person. */
-  createThread(pageId: string, request: CreateThreadRequest, person?: Person, automatic = false, designSystemRequest?: StoredRequest, toReview = false): Thread {
+  createThread(pageId: string, request: CreateThreadRequest, person?: Person, automatic = false, designSystemRequest?: StoredRequest, toReview = false, linkAuthor?: LinkAuthor): Thread {
     const id = randomUUID();
     const { next } = this.db
       .prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?")
@@ -1429,10 +1435,10 @@ export class Store {
           };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, instance_state, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, instance_state, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request, link_id, link_author)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, toReview ? "review" : request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null);
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, toReview ? "review" : request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null, linkAuthor?.linkId ?? null, linkAuthor?.name ?? null);
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -1829,13 +1835,13 @@ export class Store {
   }
 
   /** Records an answer of Claude or a message of the user in a thread; undefined if the thread does not exist. */
-  addReply(threadId: string, body: string, author: ThreadReply["author"] = "claude", createdPageIds: string[] = [], person?: Person): ThreadReply | undefined {
+  addReply(threadId: string, body: string, author: ThreadReply["author"] = "claude", createdPageIds: string[] = [], person?: Person, linkAuthor?: LinkAuthor): ThreadReply | undefined {
     const thread = this.getThread(threadId);
     if (!thread) return undefined;
     const reply: ThreadReply = { id: randomUUID(), author, body, createdAt: now() };
     this.db
-      .prepare("INSERT INTO thread_replies (id, thread_id, author, body, created_at, created_page_ids, person_id) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(reply.id, threadId, reply.author, body, reply.createdAt, createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null, person?.id ?? null);
+      .prepare("INSERT INTO thread_replies (id, thread_id, author, body, created_at, created_page_ids, person_id, link_id, link_author) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(reply.id, threadId, reply.author, body, reply.createdAt, createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null, person?.id ?? null, linkAuthor?.linkId ?? null, linkAuthor?.name ?? null);
     this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
     return this.repliesOf(threadId).find((r) => r.id === reply.id);
   }
@@ -1982,12 +1988,12 @@ export class Store {
 
   private repliesOf(threadId: string): ThreadReply[] {
     const rows = this.db
-      .prepare("SELECT id, author, body, created_at AS createdAt, created_page_ids AS createdPageIds, person_id AS personId FROM thread_replies WHERE thread_id = ? ORDER BY created_at, rowid")
-      .all(threadId) as (ThreadReply & { createdPageIds: string | null; personId: string | null })[];
-    return rows.map(({ createdPageIds, personId, ...reply }) => {
+      .prepare("SELECT id, author, body, created_at AS createdAt, created_page_ids AS createdPageIds, person_id AS personId, link_id AS linkId, link_author AS linkName FROM thread_replies WHERE thread_id = ? ORDER BY created_at, rowid")
+      .all(threadId) as (ThreadReply & { createdPageIds: string | null; personId: string | null; linkId: string | null; linkName: string | null })[];
+    return rows.map(({ createdPageIds, personId, linkId, linkName, ...reply }) => {
       const createdPages = this.createdPagesOf(createdPageIds);
       const person = this.getPerson(personId);
-      return { ...reply, ...(person ? { person } : {}), ...(createdPages ? { createdPages } : {}) };
+      return { ...reply, ...(person ? { person } : {}), ...(linkId && linkName ? { linkAuthor: { linkId, name: linkName } } : {}), ...(createdPages ? { createdPages } : {}) };
     });
   }
 
@@ -2333,7 +2339,7 @@ function toDesignSystem({ archivedAt, ...designSystem }: DesignSystemRow): Desig
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, instance_state, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, instance_state, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request, link_id, link_author FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -2359,6 +2365,8 @@ interface ThreadRow {
   person_id: string | null;
   automatic: number;
   request: string | null;
+  link_id: string | null;
+  link_author: string | null;
 }
 
 function targetOf(row: ThreadRow): ThreadTarget {
@@ -2412,6 +2420,7 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     replies,
     ...(row.context ? { context: JSON.parse(row.context) as ThreadContext } : {}),
     ...(row.new_session ? { newSession: row.new_session } : {}),
+    ...(row.link_id && row.link_author ? { linkAuthor: { linkId: row.link_id, name: row.link_author } } : {}),
     ...(row.automatic ? { automatic: true as const } : {}),
     ...(row.request ? { request: JSON.parse(row.request) as ThreadRequest } : {}),
   };

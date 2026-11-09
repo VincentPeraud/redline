@@ -32,6 +32,8 @@ export const LINK_ROUTES: Record<string, AccessLevel> = {
   "GET /api/pages/:pageId": "read",
   "GET /api/pages/:pageId/files/*": "read",
   "GET /api/pages/:pageId/threads": "read",
+  "POST /api/pages/:pageId/threads": "comment",
+  "POST /api/threads/:threadId/messages": "comment",
   "GET /api/projects/:projectId": "read",
   "GET /api/projects/:projectId/artboard-capability": "read",
 };

@@ -2,6 +2,7 @@ import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply,
 import { tweakGridError, type TweakGridDeclaration } from "./tweakGrid.js";
 import type { Gap } from "./gaps.js";
 import type { Person } from "./people.js";
+import type { LinkAuthor } from "./links.js";
 import type { InstanceState } from "./instanceState.js";
 import type { ThreadRequest } from "./request.js";
 import type { ChangeRecordInput } from "./changeRecord.js";
@@ -431,6 +432,8 @@ export interface Thread {
   body: string;
   /** The signed-in person who wrote `body` (the thread's first message, or the held comment); absent for comments from before the SSO and without SSO. */
   person?: Person;
+  /** Set instead of `person` when `body` came through a share link. */
+  linkAuthor?: LinkAuthor;
   /** Opened by Redline itself (signed "Redline"), for example when a diffusion removes something a page uses; no person wrote it. */
   automatic?: true;
   /** Set on a request to the design system (a thread on a component's artboard, opened by a project's session). */
@@ -454,6 +457,8 @@ interface CreateThreadCommon extends ModelChoice {
   held?: boolean;
   /** On a design system's page: the project it was opened from, whose agent runs the work (ignored when that project does not use it). */
   viaProjectId?: string;
+  /** Through a generic share link: the name the visitor signs with (a personal link signs with its own name). */
+  visitorName?: string;
 }
 
 /** A comment pinned on an element of an artboard. */

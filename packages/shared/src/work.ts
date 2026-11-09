@@ -2,6 +2,7 @@
 
 import type { CreatedPage, ThreadRendering, ThreadTarget } from "./index.js";
 import type { Person } from "./people.js";
+import type { LinkAuthor } from "./links.js";
 import type { ProjectContext } from "./projectFiles.js";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -111,6 +112,8 @@ export interface ThreadReply {
   author: "claude" | "user" | "redline";
   /** The signed-in person who wrote a user message; absent for Claude's answers, messages from before the SSO and without SSO. */
   person?: Person;
+  /** Set instead of `person` on a message written through a share link. */
+  linkAuthor?: LinkAuthor;
   body: string;
   createdAt: string;
   /** Pages the run that gave this answer created with `create_page` (on the first answer of that run only). */
@@ -119,6 +122,8 @@ export interface ThreadReply {
 
 export interface CreateReplyRequest extends ModelChoice {
   body: string;
+  /** Through a generic share link: the name the visitor signs with. */
+  visitorName?: string;
 }
 
 /** Body of `POST /agent-api/threads/:id/replies`: `workId` is the run posting the answer (to attach the pages it created). */

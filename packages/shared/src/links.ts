@@ -74,3 +74,12 @@ export interface ShareLinkView {
   /** A signed-in member whose own level on the scope is at least the link's: the app sends them to the normal page. */
   memberRedirect: boolean;
 }
+
+/** Who wrote a comment or a reply through a share link: the visitor's name (the link's own for a personal link). Shown "Marc (lien)". */
+export interface LinkAuthor {
+  linkId: string;
+  name: string;
+}
+
+/** Longest name a generic-link visitor may give. */
+export const MAX_VISITOR_NAME_LENGTH = 60;
