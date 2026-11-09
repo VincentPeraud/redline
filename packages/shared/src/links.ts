@@ -83,3 +83,14 @@ export interface LinkAuthor {
 
 /** Longest name a generic-link visitor may give. */
 export const MAX_VISITOR_NAME_LENGTH = 60;
+
+/** Mon compte: `GET` lists the share links the signed-in account created. */
+export const MY_LINKS_PATH = "/api/account/links";
+export interface MyLink {
+  link: ShareLink;
+  projectId: string;
+  projectTitle: string;
+  /** Page links only. */
+  pageId?: string;
+  pageTitle?: string;
+}

@@ -16,7 +16,7 @@ describe("member levels", () => {
     const { ariane, thomas, people } = instance;
     const project = await instance.createProject(ariane);
     const pageId = await instance.createPage(ariane, project.id);
-    expect((await setLevel(ariane, project.id, people.thomas.id, level)).status).toBe(204);
+    expect((await setLevel(ariane, project.id, people.thomas.id, level)).status).toBe(200);
     return { project, pageId, thomas };
   };
 
@@ -95,11 +95,11 @@ describe("member levels", () => {
     const project = await instance.createProject(ariane);
     await setLevel(ariane, project.id, people.thomas.id, "comment");
     const sharing = await ariane.json<ProjectSharing>(`/api/projects/${project.id}/sharing`);
-    expect(sharing.members).toEqual([{ person: people.thomas, level: "comment" }]);
+    expect(sharing.members).toEqual([{ person: people.thomas, level: "comment", aboveLinks: [] }]);
     expect(sharing.candidates.map((p) => p.name)).toEqual(["Marc Petit"]);
     expect((await thomas.json<ProjectSharing>(`/api/projects/${project.id}/sharing`)).candidates).toEqual([]);
     expect((await thomas.json<ProjectSharing>(`/api/projects/${project.id}/sharing`)).members).toHaveLength(1);
-    expect((await ariane.send("DELETE", `/api/projects/${project.id}/members/${people.thomas.id}`)).status).toBe(204);
+    expect((await ariane.send("DELETE", `/api/projects/${project.id}/members/${people.thomas.id}`)).status).toBe(200);
     expect((await thomas.json<ProjectSharing>(`/api/projects/${project.id}/sharing`)).viewerLevel).toBe("write");
     expect((await ariane.json<ProjectSharing>(`/api/projects/${project.id}/sharing`)).members).toEqual([]);
   });
@@ -119,8 +119,8 @@ describe("member levels", () => {
     const project = await instance.createProject(ariane, { visibility: "private" });
     const pageId = await instance.createPage(ariane, project.id);
     expect((await thomas.get(`/api/projects/${project.id}`)).status).toBe(403);
-    expect((await setLevel(ariane, project.id, people.thomas.id, "read")).status).toBe(204);
-    expect((await setLevel(ariane, project.id, people.marc.id, "write")).status).toBe(204);
+    expect((await setLevel(ariane, project.id, people.thomas.id, "read")).status).toBe(200);
+    expect((await setLevel(ariane, project.id, people.marc.id, "write")).status).toBe(200);
     expect((await thomas.get(`/api/pages/${pageId}`)).status).toBe(200);
     expect((await thomas.send("PATCH", `/api/pages/${pageId}`, { title: "No" })).status).toBe(403);
     expect((await marc.send("PATCH", `/api/pages/${pageId}`, { title: "Yes" })).status).toBe(200);
@@ -128,7 +128,7 @@ describe("member levels", () => {
     const sharing = await ariane.json<ProjectSharing>(`/api/projects/${project.id}/sharing`);
     expect(sharing.members.map((m) => [m.person.name, m.level])).toEqual([["Thomas Lefevre", "read"], ["Marc Petit", "write"]]);
     expect(sharing.candidates).toEqual([]);
-    expect((await ariane.send("DELETE", `/api/projects/${project.id}/members/${people.thomas.id}`)).status).toBe(204);
+    expect((await ariane.send("DELETE", `/api/projects/${project.id}/members/${people.thomas.id}`)).status).toBe(200);
     expect((await thomas.get(`/api/pages/${pageId}`)).status).toBe(403);
   });
 

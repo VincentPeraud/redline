@@ -2,7 +2,7 @@ import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply,
 import { tweakGridError, type TweakGridDeclaration } from "./tweakGrid.js";
 import type { Gap } from "./gaps.js";
 import type { Person } from "./people.js";
-import type { LinkAuthor } from "./links.js";
+import type { LinkAuthor, ShareLink } from "./links.js";
 import type { InstanceState } from "./instanceState.js";
 import type { ThreadRequest } from "./request.js";
 import type { ChangeRecordInput } from "./changeRecord.js";
@@ -73,12 +73,16 @@ export interface UpdateProjectRequest {
  */
 export type AccessLevel = "read" | "comment" | "write";
 export const ACCESS_LEVELS: readonly AccessLevel[] = ["read", "comment", "write"];
+/** 0 for Lecture, 1 for Commentaire, 2 for Écriture: compares levels. */
+export const levelRank = (level: AccessLevel): number => ACCESS_LEVELS.indexOf(level);
 export const isAccessLevel = (value: unknown): value is AccessLevel => ACCESS_LEVELS.includes(value as AccessLevel);
 
 /** A member with their own level on a project: lowered below Écriture on an Équipe project, chosen on a Privé one. */
 export interface ProjectMember {
   person: Person;
   level: AccessLevel;
+  /** Their working links on the project above their level: they keep working, and the creator may disable them. Empty for a viewer who cannot change levels. */
+  aboveLinks: ShareLink[];
 }
 
 /** `PUT /api/projects/:id/members/:personId`. */
@@ -102,6 +106,13 @@ export interface ProjectSharing {
   accountCount: number;
   /** The accounts that would no longer see the project if it became Privé: every active member but the creator. Empty when it already is. */
   wouldLoseAccess: Person[];
+  /** The working links on the project made by those accounts: they keep working after the switch, and the creator may disable them. Empty for a viewer who cannot change levels. */
+  lostAccessLinks: ShareLink[];
+}
+
+/** The answer to a member level change or removal: the links of that member now above their level. */
+export interface MemberChangeResponse {
+  links: ShareLink[];
 }
 
 /** The `code` of the 403 a person gets on a project they may not see; `creator` names who to ask. */

@@ -33,7 +33,7 @@ const EXPIRY_CHOICES: { value: ExpiryChoice; label: string }[] = [
   { value: "never", label: "Jamais" },
 ];
 
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+export const shortDate = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
 
 /** The address of a link as it goes in a message: the app's own origin, so it works behind any proxy or tunnel. */
 export function linkUrl(link: ShareLink): string {
@@ -194,6 +194,8 @@ function PageSharingDialog({ pageId, pageTitle, project, links, reload, onClose 
   );
 
   const privateProject = project?.visibility === "private";
+  // On a Privé project only its creator and the admins create links; with no accounts (no `me`) everyone does.
+  const mayCreate = !privateProject || !me || me.account?.role === "admin" || project?.createdBy?.id === me.id;
   return (
     <Dialog title={`Partager « ${pageTitle} »`} width={640} gap={24} onClose={onClose}>
       {project && (
@@ -214,11 +216,14 @@ function PageSharingDialog({ pageId, pageTitle, project, links, reload, onClose 
       <section className={sharing.section}>
         <div className={sharing.sectionHead}>
           <h3 className={sharing.sectionTitle}>Liens de partage</h3>
-          <Button size="sm" variant="primary" onClick={() => setStep({ name: "create" })}>
-            Créer un lien
-          </Button>
+          {mayCreate && (
+            <Button size="sm" variant="primary" onClick={() => setStep({ name: "create" })}>
+              Créer un lien
+            </Button>
+          )}
         </div>
         <p className={sharing.text}>Pour un client ou un freelance, sans compte. Un lien ne donne accès qu'à cette page.</p>
+        {privateProject && <p className={sharing.text}>{mayCreate ? "Sur un projet privé, seuls toi et les admins créez des liens." : "Sur un projet privé, seuls son créateur et les admins créent des liens."}</p>}
         {links.length === 0 ? (
           <div className={styles.empty}>
             Aucun lien sur cette page.

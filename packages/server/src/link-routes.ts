@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { MAX_VISITOR_NAME_LENGTH, isAccessLevel, linkPath, type LinkAuthor, type AccessLevel, type CreateLinkRequest, type ShareLink, type ShareLinkView, type UpdateLinkRequest } from "@redline/shared";
+import { MAX_VISITOR_NAME_LENGTH, MY_LINKS_PATH, isAccessLevel, linkPath, type LinkAuthor, type AccessLevel, type CreateLinkRequest, type MyLink, type ShareLink, type ShareLinkView, type UpdateLinkRequest } from "@redline/shared";
 import { cookieOf, type Access, type Viewer } from "./access.js";
 import type { StoredLink } from "./link-store.js";
 import type { Store } from "./store.js";
@@ -33,20 +33,22 @@ export function linkAuthorOf(viewer: Viewer, visitorName: unknown): LinkAuthor |
   return { linkId: viewer.link.id, name: viewer.link.kind === "personal" ? viewer.link.name : (visitorName as string).trim() };
 }
 
+/** The link as a viewer sees it: with whether they may change it (its author, the creator of the project and the admins). */
+export function linkViews(store: Store, access: Access): (viewer: Viewer, link: StoredLink) => ShareLink {
+  const projectOf = (link: StoredLink): string => (link.scope === "project" ? link.scopeId : (store.projectIdOfPage(link.scopeId) ?? ""));
+  return (viewer, link) => {
+    const canManage = viewer.kind !== "account" ? access.mode === "none" : link.createdBy?.id === viewer.person.id || access.manages(viewer, projectOf(link));
+    return { ...link, canManage };
+  };
+}
+
 /**
  * Share links: members create, list, edit, disable and reactivate them (page links here, project links in their own ticket),
  * and a visitor asks `GET /s/<token>/api/link` what its link opens. Which routes a visitor may call at all is `LINK_ROUTES`.
  */
 export function registerLinkRoutes(app: FastifyInstance, store: Store, access: Access): void {
-  /** The link as the viewer sees it: with whether they may change it. */
-  const viewOf = (req: FastifyRequest, link: StoredLink): ShareLink => ({ ...link, canManage: canManage(req, link) });
-
-  /** Its author, the creator of the project and the admins. */
-  const canManage = (req: FastifyRequest, link: StoredLink): boolean => {
-    if (req.viewer.kind !== "account") return access.mode === "none";
-    return link.createdBy?.id === req.viewer.person.id || access.manages(req.viewer, projectOf(link));
-  };
-  const projectOf = (link: StoredLink): string => (link.scope === "project" ? link.scopeId : (store.projectIdOfPage(link.scopeId) ?? ""));
+  const viewOf = (req: FastifyRequest, link: StoredLink): ShareLink => linkViews(store, access)(req.viewer, link);
+  const canManage = (req: FastifyRequest, link: StoredLink): boolean => viewOf(req, link).canManage;
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/links", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
@@ -60,6 +62,10 @@ export function registerLinkRoutes(app: FastifyInstance, store: Store, access: A
     if (typeof body.name !== "string" || !isAccessLevel(body.level)) return reply.code(400).send({ error: "name and level are required" });
     const invalid = linkRequestError(body, body.kind);
     if (invalid) return reply.code(400).send({ error: invalid });
+    const projectId = store.projectIdOfPage(req.params.pageId)!;
+    if (store.getProject(projectId)?.visibility === "private" && !access.manages(req.viewer, projectId)) return reply.code(403).send({ error: "On a private project only its creator and the admins create links." });
+    const own = access.levelOf(req.viewer, { pageId: req.params.pageId });
+    if (own === undefined || LEVEL_RANK[body.level] > LEVEL_RANK[own]) return reply.code(403).send({ error: "A link cannot give more than your own level." });
     const link = store.links.create({
       scope: "page",
       scopeId: req.params.pageId,
@@ -98,6 +104,17 @@ export function registerLinkRoutes(app: FastifyInstance, store: Store, access: A
   app.post<{ Params: { linkId: string } }>("/api/links/:linkId/reactivate", async (req, reply) => {
     const link = manageable(req, reply);
     return link ? viewOf(req, store.links.setActive(link.id, true)!) : undefined;
+  });
+
+  app.get(MY_LINKS_PATH, async (req): Promise<MyLink[]> => {
+    if (req.viewer.kind !== "account") return [];
+    const views = linkViews(store, access);
+    return store.links.createdBy(req.viewer.person.id).flatMap((stored): MyLink[] => {
+      const page = stored.scope === "page" ? store.getPage(stored.scopeId) : undefined;
+      const project = store.getProject(page ? page.projectId : stored.scopeId);
+      if (!project) return [];
+      return [{ link: views(req.viewer, stored), projectId: project.id, projectTitle: project.title, ...(page ? { pageId: page.id, pageTitle: page.title } : {}) }];
+    });
   });
 
   app.get("/api/link", async (req, reply): Promise<ShareLinkView | undefined> => {

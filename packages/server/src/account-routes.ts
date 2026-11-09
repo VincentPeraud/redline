@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { ACCOUNTS_PATH, INVITATIONS_PATH, INVITATION_PATH, MY_ACCOUNT_PATH, MY_PASSWORD_PATH, PASSWORD_LINK_PATH, SESSION_PATH, SETUP_PATH } from "@redline/shared";
+import { ACCOUNTS_PATH, type DeactivateRequest, INVITATIONS_PATH, INVITATION_PATH, MY_ACCOUNT_PATH, MY_PASSWORD_PATH, PASSWORD_LINK_PATH, SESSION_PATH, SETUP_PATH } from "@redline/shared";
 import { AccountError, SESSION_DAYS } from "./accounts.js";
 import { SESSION_COOKIE, cookieOf } from "./access.js";
 import { LoginThrottle } from "./login-throttle.js";
@@ -162,10 +162,11 @@ function registerAccountManagement(app: FastifyInstance, store: Store, mode: "lo
     isAdmin(req) ? answering(reply, () => store.accounts.setRole(req.params.id, req.body?.role ?? "")) : forbidden(reply),
   );
 
-  app.post<{ Params: { id: string } }>(`${ACCOUNTS_PATH}/:id/deactivate`, async (req, reply) =>
+  app.post<{ Params: { id: string }; Body: DeactivateRequest | undefined }>(`${ACCOUNTS_PATH}/:id/deactivate`, async (req, reply) =>
     isAdmin(req)
       ? answering(reply, () => {
           const entry = store.accounts.deactivate(req.person!.id, req.params.id);
+          if (req.body?.disableLinks === true) store.links.disableCreatedBy(req.params.id, req.person!);
           onDeactivated(req.params.id);
           return entry;
         })

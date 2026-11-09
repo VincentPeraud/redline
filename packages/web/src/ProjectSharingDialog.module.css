@@ -110,3 +110,35 @@
 .remove.remove {
   color: var(--color-text);
 }
+
+.warn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 14px;
+  background: var(--color-warning-note-bg);
+  color: var(--color-warning-ink);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.warn:last-child {
+  border-bottom: none;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.check input {
+  margin: 0;
+  height: 1lh;
+  accent-color: var(--color-accent);
+}

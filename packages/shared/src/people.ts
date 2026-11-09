@@ -46,6 +46,13 @@ export interface AccountEntry extends Person {
   lastSignInAt: string | null;
   /** Titles of the projects the account owns: they pass to the admin who deactivates it. */
   ownedProjects: string[];
+  /** How many share links the account created that work today: "Désactiver aussi ses liens". */
+  linkCount: number;
+}
+
+/** `POST /api/accounts/<id>/deactivate`: with `disableLinks`, the links the account created stop working too. */
+export interface DeactivateRequest {
+  disableLinks?: boolean;
 }
 
 /** `POST /api/accounts/<id>/password-link`: admins only. The link is `#/mot-de-passe/<token>`, single use. */
