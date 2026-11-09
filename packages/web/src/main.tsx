@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles/global.css";
+import { AccountsScreen } from "./AccountsScreen.js";
 import { AgentsScreen } from "./AgentsScreen";
 import { AgentUpdateBanner, useOutdatedAgentNames } from "./AgentUpdateBanner.js";
 import { App } from "./App";
@@ -16,7 +17,8 @@ import { ArchivedProjectsScreen, ProjectsScreen } from "./ProjectsScreen";
 import { Shell } from "./Sidebar";
 import { AuthGate } from "./AuthGate.js";
 import { installApiCalls } from "./apiCalls.js";
-import { MeProvider } from "./useMe.js";
+import { MeProvider, useMe } from "./useMe.js";
+import { NoAccessScreen } from "./AuthScreens.js";
 import { useRoute } from "./router";
 import { SessionsScreen } from "./SessionsScreen";
 import { HomeProvider } from "./useHome.js";
@@ -29,6 +31,7 @@ const SECTION_TITLES: Partial<Record<Route["name"], string>> = {
   home: "Accueil",
   agents: "Agents",
   sessions: "Sessions",
+  accounts: "Comptes",
   projects: "Projets",
   archivedProjects: "Projets archivés",
   designSystems: "Design systems",
@@ -71,6 +74,8 @@ function RouteScreen({ route }: { route: Route }) {
       return <Shell><HomeScreen /></Shell>;
     case "agents":
       return <Shell><AgentsScreen /></Shell>;
+    case "accounts":
+      return <AccountsRoute />;
     case "project":
       return <ProjectOverview key={route.projectId} projectId={route.projectId} />;
     case "designMd":
@@ -92,6 +97,12 @@ function RouteScreen({ route }: { route: Route }) {
     case "sessions":
       return <Shell><SessionsScreen /></Shell>;
   }
+}
+
+/** Comptes is for admins: a member who opens its address gets the no-access screen. */
+function AccountsRoute() {
+  const me = useMe();
+  return me?.account?.role === "admin" ? <Shell><AccountsScreen /></Shell> : <NoAccessScreen />;
 }
 
 function Root() {

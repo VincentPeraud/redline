@@ -1,0 +1,104 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.intro {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.field input[aria-invalid="true"] {
+  border-color: var(--color-danger-text);
+}
+
+.fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.roles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.role {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: var(--space-3) 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.role:hover {
+  background: var(--color-surface-muted);
+}
+
+.roleOn,
+.roleOn:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.radio {
+  margin: 0;
+  height: 1lh;
+  accent-color: var(--color-accent);
+}
+
+.roleText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+
+.roleText strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+.roleText span {
+  color: var(--color-text-muted);
+}
+
+.ok {
+  padding: var(--space-3) 14px;
+  border-radius: var(--radius-md);
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.linkbox {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.linkInput {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  background: var(--color-surface-muted);
+}

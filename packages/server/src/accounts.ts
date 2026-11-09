@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import type Database from "better-sqlite3";
-import { initialsOf, type AccountRole, type Person } from "@redline/shared";
+import { INVITATION_DAYS, initialsOf, type AccountEntry, type AccountRole, type AccountsResponse, type InvitationEntry, type InvitationPreview, type Person } from "@redline/shared";
 
 const scryptAsync = promisify(scrypt) as (password: string, salt: Buffer, keyLength: number) => Promise<Buffer>;
 const KEY_LENGTH = 64;
@@ -9,7 +9,7 @@ export const MIN_PASSWORD_LENGTH = 8;
 export const SESSION_DAYS = 30;
 const DAY_MS = 86_400_000;
 
-export type AccountErrorCode = "invalid-link" | "password-too-short" | "invalid-email";
+export type AccountErrorCode = "invalid-link" | "password-too-short" | "invalid-email" | "invalid-role" | "email-taken" | "invitation-pending";
 
 export class AccountError extends Error {
   constructor(
@@ -23,6 +23,8 @@ export class AccountError extends Error {
 export interface SignedInAccount extends Person {
   role: AccountRole;
 }
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
@@ -48,6 +50,26 @@ interface AccountRow {
   password_hash: string | null;
 }
 
+interface InvitationRow {
+  id: string;
+  token: string;
+  email: string;
+  role: AccountRole;
+  created_at: string;
+  expires_at: string;
+  invited_by: string | null;
+}
+
+const invitationEntry = (row: InvitationRow): InvitationEntry => ({
+  id: row.id,
+  email: row.email,
+  role: row.role,
+  invitedBy: row.invited_by ?? "",
+  createdAt: row.created_at,
+  expiresAt: row.expires_at,
+  token: row.token,
+});
+
 /** Accounts, sessions and single-use setup links, kept in the people table and its neighbours. */
 export class AccountStore {
   /** A hash to check against when the e-mail is unknown, so that a miss takes as long as a wrong password. */
@@ -71,6 +93,15 @@ export class AccountStore {
       CREATE TABLE IF NOT EXISTS sessions (
         token_hash TEXT PRIMARY KEY,
         person_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS invitations (
+        id TEXT PRIMARY KEY,
+        token TEXT NOT NULL UNIQUE,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL,
+        invited_by TEXT NOT NULL,
         created_at TEXT NOT NULL,
         expires_at TEXT NOT NULL
       );
@@ -105,15 +136,15 @@ export class AccountStore {
     const name = input.name.trim();
     const invalidLink = () => new AccountError("invalid-link", "This setup link is used or unknown.");
     if (!this.isSetupTokenValid(token)) throw invalidLink();
-    if (!/^[^\s@]+@[^\s@]+$/.test(email)) throw new AccountError("invalid-email", "Enter a valid e-mail.");
+    if (!EMAIL_PATTERN.test(email)) throw new AccountError("invalid-email", "Enter a valid e-mail.");
     if (input.password.length < MIN_PASSWORD_LENGTH) throw new AccountError("password-too-short", `The password needs ${MIN_PASSWORD_LENGTH} characters at least.`);
     const hash = await hashPassword(input.password);
     const id = randomUUID();
     this.db.transaction(() => {
       if (!this.isSetupTokenValid(token)) throw invalidLink();
       this.db
-        .prepare("INSERT INTO people (id, name, email, created_at, role, status, password_hash, origin) VALUES (?, ?, ?, ?, 'admin', 'active', ?, 'local')")
-        .run(id, name, email, new Date().toISOString(), hash);
+        .prepare("INSERT INTO people (id, name, email, created_at, role, status, password_hash, origin, last_sign_in_at) VALUES (?, ?, ?, ?, 'admin', 'active', ?, 'local', ?)")
+        .run(id, name, email, new Date().toISOString(), hash, new Date().toISOString());
       this.db.prepare("DELETE FROM single_use_links WHERE kind = 'setup'").run();
       this.db.prepare("UPDATE projects SET created_by = ?, visibility = 'team' WHERE created_by IS NULL").run(id);
     })();
@@ -129,6 +160,75 @@ export class AccountStore {
     if (!row || !row.password_hash || !matches) return undefined;
     this.db.prepare("UPDATE people SET last_sign_in_at = ? WHERE id = ?").run(new Date().toISOString(), row.id);
     return { id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id) };
+  }
+
+  /** Every account (people with a role) and the invitations still open, oldest first. */
+  list(): AccountsResponse {
+    const accounts = (
+      this.db.prepare("SELECT id, name, email, role, status, last_sign_in_at FROM people WHERE role IS NOT NULL ORDER BY created_at, rowid").all() as (AccountRow & { status: AccountEntry["status"]; last_sign_in_at: string | null })[]
+    ).map((row) => ({ id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id), role: row.role, status: row.status, lastSignInAt: row.last_sign_in_at }));
+    const invitations = (
+      this.db
+        .prepare("SELECT i.id, i.token, i.email, i.role, i.created_at, i.expires_at, p.name AS invited_by FROM invitations i LEFT JOIN people p ON p.id = i.invited_by WHERE i.expires_at > ? ORDER BY i.created_at, i.rowid")
+        .all(new Date().toISOString()) as InvitationRow[]
+    ).map(invitationEntry);
+    return { accounts, invitations };
+  }
+
+  /** A link to copy, valid 7 days and single use, for someone with this e-mail. */
+  invite(adminId: string, input: { email: string; role: string }): InvitationEntry {
+    const email = input.email.trim();
+    if (!EMAIL_PATTERN.test(email)) throw new AccountError("invalid-email", "Enter a valid e-mail.");
+    if (input.role !== "admin" && input.role !== "member") throw new AccountError("invalid-role", "The role is admin or member.");
+    if (this.db.prepare("SELECT 1 FROM people WHERE role IS NOT NULL AND lower(email) = lower(?)").get(email)) throw new AccountError("email-taken", "This e-mail already has an account.");
+    const now = new Date();
+    if (this.db.prepare("SELECT 1 FROM invitations WHERE lower(email) = lower(?) AND expires_at > ?").get(email, now.toISOString())) {
+      throw new AccountError("invitation-pending", "This e-mail already has a pending invitation: copy it from the list.");
+    }
+    const id = randomUUID();
+    const token = randomBytes(24).toString("base64url");
+    const expiresAt = new Date(now.getTime() + INVITATION_DAYS * DAY_MS).toISOString();
+    this.db
+      .prepare("INSERT INTO invitations (id, token, email, role, invited_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(id, token, email, input.role, adminId, now.toISOString(), expiresAt);
+    return this.list().invitations.find((invitation) => invitation.id === id)!;
+  }
+
+  /** Cancels a pending invitation; false when it is unknown or already used. */
+  cancelInvitation(id: string): boolean {
+    return this.db.prepare("DELETE FROM invitations WHERE id = ?").run(id).changes > 0;
+  }
+
+  private openInvitation(token: string): InvitationRow | undefined {
+    return this.db
+      .prepare("SELECT i.id, i.token, i.email, i.role, i.created_at, i.expires_at, p.name AS invited_by FROM invitations i LEFT JOIN people p ON p.id = i.invited_by WHERE i.token = ? AND i.expires_at > ?")
+      .get(token, new Date().toISOString()) as InvitationRow | undefined;
+  }
+
+  /** What the invitee sees, or undefined when the link is expired, used or cancelled. */
+  previewInvitation(token: string): InvitationPreview | undefined {
+    const row = this.openInvitation(token);
+    return row && { email: row.email, role: row.role, invitedBy: row.invited_by ?? "", expiresAt: row.expires_at };
+  }
+
+  /** Creates the invited account with the invited role and consumes the link, in one transaction. */
+  async acceptInvitation(token: string, input: { name: string; password: string }): Promise<Person> {
+    const invalidLink = () => new AccountError("invalid-link", "This invitation link is expired, used or cancelled.");
+    const invitation = this.openInvitation(token);
+    if (!invitation) throw invalidLink();
+    const name = input.name.trim();
+    if (input.password.length < MIN_PASSWORD_LENGTH) throw new AccountError("password-too-short", `The password needs ${MIN_PASSWORD_LENGTH} characters at least.`);
+    const hash = await hashPassword(input.password);
+    const id = randomUUID();
+    this.db.transaction(() => {
+      if (!this.openInvitation(token)) throw invalidLink();
+      if (this.db.prepare("SELECT 1 FROM people WHERE role IS NOT NULL AND lower(email) = lower(?)").get(invitation.email)) throw new AccountError("email-taken", "This e-mail already has an account.");
+      this.db
+        .prepare("INSERT INTO people (id, name, email, created_at, role, status, password_hash, origin, last_sign_in_at) VALUES (?, ?, ?, ?, ?, 'active', ?, 'local', ?)")
+        .run(id, name, invitation.email, new Date().toISOString(), invitation.role, hash, new Date().toISOString());
+      this.db.prepare("DELETE FROM invitations WHERE id = ?").run(invitation.id);
+    })();
+    return { id, name, email: invitation.email, initials: initialsOf(name, id) };
   }
 
   createSession(personId: string): { token: string; expiresAt: Date } {

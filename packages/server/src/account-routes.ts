@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { SESSION_PATH, SETUP_PATH } from "@redline/shared";
+import { ACCOUNTS_PATH, INVITATIONS_PATH, INVITATION_PATH, SESSION_PATH, SETUP_PATH } from "@redline/shared";
 import { AccountError, SESSION_DAYS } from "./accounts.js";
 import { SESSION_COOKIE, cookieOf } from "./access.js";
 import { LoginThrottle } from "./login-throttle.js";
@@ -25,7 +25,16 @@ function signIn(store: Store, req: FastifyRequest, reply: FastifyReply, personId
   reply.header("set-cookie", sessionCookie(req, token, SESSION_DAYS * 86_400));
 }
 
-/** Setup link, sign-in and sign-out of the built-in accounts. All three paths are open to people who are not signed in. */
+const STATUS_OF_ERROR: Record<AccountError["code"], number> = {
+  "invalid-link": 404,
+  "password-too-short": 400,
+  "invalid-email": 400,
+  "invalid-role": 400,
+  "email-taken": 409,
+  "invitation-pending": 409,
+};
+
+/** Setup link, invitation, sign-in and sign-out of the built-in accounts, and the accounts screen. The setup, invitation and session paths are open to people who are not signed in. */
 export function registerAccountRoutes(app: FastifyInstance, store: Store): void {
   const throttle = new LoginThrottle();
 
@@ -41,8 +50,46 @@ export function registerAccountRoutes(app: FastifyInstance, store: Store): void 
       return reply.code(201).send({ ...person, account: { role: "admin" } });
     } catch (error) {
       if (!(error instanceof AccountError)) throw error;
-      return reply.code(error.code === "invalid-link" ? 404 : 400).send({ error: error.message, code: error.code });
+      return reply.code(STATUS_OF_ERROR[error.code]).send({ error: error.message, code: error.code });
     }
+  });
+
+  app.get<{ Querystring: { token?: string } }>(INVITATION_PATH, async (req, reply) => {
+    const preview = store.accounts.previewInvitation(req.query.token ?? "");
+    return preview ?? reply.code(404).send({ error: "This invitation link is expired, used or cancelled.", code: "invalid-link" });
+  });
+
+  app.post<{ Body: { token?: string; name?: string; password?: string } }>(INVITATION_PATH, async (req, reply) => {
+    const { token = "", name = "", password = "" } = req.body ?? {};
+    try {
+      const person = await store.accounts.acceptInvitation(token, { name, password });
+      signIn(store, req, reply, person.id);
+      return reply.code(201).send(person);
+    } catch (error) {
+      if (!(error instanceof AccountError)) throw error;
+      return reply.code(STATUS_OF_ERROR[error.code]).send({ error: error.message, code: error.code });
+    }
+  });
+
+  /** The accounts screen: admins only (a member gets 403, nobody 401 before this runs). */
+  const isAdmin = (req: FastifyRequest) => req.viewer.kind === "account" && req.viewer.role === "admin";
+  const forbidden = (reply: FastifyReply) => reply.code(403).send({ error: "Only an admin manages accounts." });
+
+  app.get(ACCOUNTS_PATH, async (req, reply) => (isAdmin(req) ? store.accounts.list() : forbidden(reply)));
+
+  app.post<{ Body: { email?: string; role?: string } }>(INVITATIONS_PATH, async (req, reply) => {
+    if (!isAdmin(req)) return forbidden(reply);
+    try {
+      return reply.code(201).send(store.accounts.invite(req.person!.id, { email: req.body?.email ?? "", role: req.body?.role ?? "" }));
+    } catch (error) {
+      if (!(error instanceof AccountError)) throw error;
+      return reply.code(STATUS_OF_ERROR[error.code]).send({ error: error.message, code: error.code });
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>(`${INVITATIONS_PATH}/:id`, async (req, reply) => {
+    if (!isAdmin(req)) return forbidden(reply);
+    return store.accounts.cancelInvitation(req.params.id) ? reply.code(204).send() : reply.code(404).send({ error: "This invitation is unknown or already used." });
   });
 
   app.post<{ Body: { email?: string; password?: string } }>(SESSION_PATH, async (req, reply) => {

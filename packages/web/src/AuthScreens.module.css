@@ -25,6 +25,41 @@
   max-width: 440px;
 }
 
+.invitation {
+  max-width: 420px;
+}
+
+.readonly {
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+}
+
+.pageHigh {
+  padding-top: 120px;
+}
+
+.centered {
+  max-width: 440px;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.centeredTitle {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-bold);
+}
+
+.centeredText {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.centeredButton {
+  height: 40px;
+}
+
 .head {
   display: flex;
   flex-direction: column;
@@ -129,9 +164,14 @@
     padding: var(--space-6) var(--space-5);
   }
 
+  .pageHigh {
+    padding-top: 64px;
+  }
+
   .input,
   .submit,
-  .link {
+  .link,
+  .centeredButton {
     height: 44px;
   }
 }
