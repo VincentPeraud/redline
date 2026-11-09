@@ -1,6 +1,6 @@
 import type { AccessLevel, Person } from "./index.js";
 
-/** What a share link opens: one page or one project (project links come with ticket 13). */
+/** What a share link opens: one page or one project. */
 export type LinkScope = "page" | "project";
 /** A personal link is for one named person; a generic one is for anyone holding it (Lecture and Commentaire only). */
 export type LinkKind = "personal" | "generic";
@@ -69,7 +69,8 @@ export interface ShareLinkView {
   level: AccessLevel;
   /** The name of the link (generic links) or of the person (personal ones). */
   name: string;
-  page: { id: string; title: string };
+  /** Page links only: a project link opens the list of the project's pages. */
+  page: { id: string; title: string } | null;
   project: { id: string; title: string };
   /** A signed-in member whose own level on the scope is at least the link's: the app sends them to the normal page. */
   memberRedirect: boolean;
@@ -79,6 +80,8 @@ export interface ShareLinkView {
 export interface LinkAuthor {
   linkId: string;
   name: string;
+  /** Members only: the name of the link itself ("Client HAIDF"), whatever name the visitor signed with. */
+  linkName?: string;
 }
 
 /** Longest name a generic-link visitor may give. */

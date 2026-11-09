@@ -43,7 +43,7 @@ export function linkViews(store: Store, access: Access): (viewer: Viewer, link: 
 }
 
 /**
- * Share links: members create, list, edit, disable and reactivate them (page links here, project links in their own ticket),
+ * Share links: members create, list, edit, disable and reactivate them (page and project links),
  * and a visitor asks `GET /s/<token>/api/link` what its link opens. Which routes a visitor may call at all is `LINK_ROUTES`.
  */
 export function registerLinkRoutes(app: FastifyInstance, store: Store, access: Access): void {
@@ -55,20 +55,24 @@ export function registerLinkRoutes(app: FastifyInstance, store: Store, access: A
     return store.links.list("page", req.params.pageId).map((link) => viewOf(req, link));
   });
 
-  app.post<{ Params: { pageId: string }; Body: CreateLinkRequest }>("/api/pages/:pageId/links", async (req, reply) => {
-    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/links", async (req, reply) => {
+    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    return store.links.list("project", req.params.projectId).map((link) => viewOf(req, link));
+  });
+
+  /** Creates a link on a scope, under the rules: the kind and level pair, Privé projects, and never above the creator's own level. */
+  const createLink = (req: FastifyRequest<{ Body: CreateLinkRequest }>, reply: FastifyReply, scope: ShareLink["scope"], scopeId: string, projectId: string) => {
     const body = req.body ?? ({} as Partial<CreateLinkRequest>);
     if (body.kind !== "personal" && body.kind !== "generic") return reply.code(400).send({ error: "kind must be personal or generic" });
     if (typeof body.name !== "string" || !isAccessLevel(body.level)) return reply.code(400).send({ error: "name and level are required" });
     const invalid = linkRequestError(body, body.kind);
     if (invalid) return reply.code(400).send({ error: invalid });
-    const projectId = store.projectIdOfPage(req.params.pageId)!;
     if (store.getProject(projectId)?.visibility === "private" && !access.manages(req.viewer, projectId)) return reply.code(403).send({ error: "On a private project only its creator and the admins create links." });
-    const own = access.levelOf(req.viewer, { pageId: req.params.pageId });
+    const own = access.levelOf(req.viewer, scope === "page" ? { pageId: scopeId } : { projectId });
     if (own === undefined || LEVEL_RANK[body.level] > LEVEL_RANK[own]) return reply.code(403).send({ error: "A link cannot give more than your own level." });
     const link = store.links.create({
-      scope: "page",
-      scopeId: req.params.pageId,
+      scope,
+      scopeId,
       kind: body.kind,
       name: body.name.trim(),
       level: body.level,
@@ -77,6 +81,16 @@ export function registerLinkRoutes(app: FastifyInstance, store: Store, access: A
       createdBy: req.person,
     });
     return reply.code(201).send(viewOf(req, link));
+  };
+
+  app.post<{ Params: { pageId: string }; Body: CreateLinkRequest }>("/api/pages/:pageId/links", async (req, reply) => {
+    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+    return createLink(req, reply, "page", req.params.pageId, store.projectIdOfPage(req.params.pageId)!);
+  });
+
+  app.post<{ Params: { projectId: string }; Body: CreateLinkRequest }>("/api/projects/:projectId/links", async (req, reply) => {
+    if (!store.projectExists(req.params.projectId) || store.isDesignSystemProject(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    return createLink(req, reply, "project", req.params.projectId, req.params.projectId);
   });
 
   /** The link a member route is about, when the viewer may change it; answers the refusal itself otherwise. */
@@ -121,9 +135,9 @@ export function registerLinkRoutes(app: FastifyInstance, store: Store, access: A
     const viewer = req.viewer;
     if (viewer.kind !== "link") return void reply.code(404).send({ error: "not found" });
     const { link } = viewer;
-    const page = store.getPage(link.scopeId)!;
-    const project = store.getProject(page.projectId)!;
-    const memberLevel = viewer.member && access.levelOf(viewer.member, { pageId: page.id });
+    const page = link.scope === "page" ? store.getPage(link.scopeId)! : undefined;
+    const project = store.getProject(page ? page.projectId : link.scopeId)!;
+    const memberLevel = viewer.member && access.levelOf(viewer.member, page ? { pageId: page.id } : { projectId: project.id });
     const memberRedirect = memberLevel !== undefined && LEVEL_RANK[memberLevel] >= LEVEL_RANK[link.level];
     if (!memberRedirect) {
       const known = cookieOf(req, LINK_DEVICE_COOKIE);
@@ -134,6 +148,6 @@ export function registerLinkRoutes(app: FastifyInstance, store: Store, access: A
         reply.header("set-cookie", `${LINK_DEVICE_COOKIE}=${device}; Path=${linkPath(viewer.token)}; HttpOnly; SameSite=Lax; Max-Age=${DEVICE_COOKIE_SECONDS}${secure ? "; Secure" : ""}`);
       }
     }
-    return { scope: link.scope, kind: link.kind, level: link.level, name: link.name, page: { id: page.id, title: page.title }, project: { id: project.id, title: project.title }, memberRedirect };
+    return { scope: link.scope, kind: link.kind, level: link.level, name: link.name, page: page ? { id: page.id, title: page.title } : null, project: { id: project.id, title: project.title }, memberRedirect };
   });
 }

@@ -4,6 +4,8 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import fastifyStatic from "@fastify/static";
 import {
   type PageViewSettings,
+  type LinkAuthor,
+  type Thread,
   type TerminalHolder,
   COMPONENTS_CSS_PATH,
   withoutComponentStyles,
@@ -312,7 +314,8 @@ export async function buildMainApp(
     const project = store.getProject(req.params.projectId);
     if (!project) return reply.code(404).send({ error: "project not found" });
     // A link visitor learns the project's name and nothing else: no brief, agent or creator.
-    if (req.viewer.kind === "link") return { id: project.id, title: project.title, ...(req.viewer.link.level === "write" ? {} : { viewerLevel: req.viewer.link.level }) };
+    // In Écriture it also learns whether Claude can answer now, never which agent serves.
+    if (req.viewer.kind === "link") return { id: project.id, title: project.title, ...(req.viewer.link.level === "write" ? { claudeAvailable: withServedBy(store, project).servedBy !== undefined } : { viewerLevel: req.viewer.link.level }) };
     return withViewerLevel(req.viewer, withServedBy(store, project));
   });
 
@@ -357,7 +360,7 @@ export async function buildMainApp(
       const invalidFiles = pageFilesError(files);
       const invalid = invalidFiles ?? newPageComponentsError(store, req.params.projectId, title, files!);
       if (invalid) return reply.code(400).send({ error: invalid });
-      return reply.code(201).send(store.createPage(req.params.projectId, title, files!, "user", req.person));
+      return reply.code(201).send(store.createPage(req.params.projectId, title, files!, "user", req.person, linkAuthorOf(req.viewer, undefined)));
     },
   );
 
@@ -561,9 +564,14 @@ export async function buildMainApp(
   });
 
   // The project's pages; `?archived=1` lists its archived pages instead, the most recently archived first.
-  app.get<{ Params: { projectId: string }; Querystring: { archived?: string } }>("/api/projects/:projectId/pages", async (req) =>
-    store.listPages(req.params.projectId, req.query.archived ? "archived" : "active"),
-  );
+  // A link visitor lists the pages of a project link, never the archived ones.
+  app.get<{ Params: { projectId: string }; Querystring: { archived?: string } }>("/api/projects/:projectId/pages", async (req, reply) => {
+    if (req.viewer.kind === "link") {
+      if (req.viewer.link.scope !== "project") return reply.code(403).send({ error: "forbidden" });
+      return store.listPages(req.params.projectId, "active").map(({ createdByPerson, ...page }) => page);
+    }
+    return store.listPages(req.params.projectId, req.query.archived ? "archived" : "active");
+  });
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId", async (req, reply) => {
     const page = store.getPage(req.params.pageId);
@@ -622,6 +630,16 @@ export async function buildMainApp(
     return store.getPage(req.params.pageId);
   });
 
+  /** Members read a link comment with the name of its link; a visitor never learns it. */
+  const withLinkName = (viewer: Viewer, thread: Thread): Thread => {
+    if (viewer.kind === "link") return thread;
+    const named = <T extends { linkAuthor?: LinkAuthor }>(item: T): T => {
+      const linkName = item.linkAuthor && store.links.get(item.linkAuthor.linkId)?.name;
+      return linkName ? { ...item, linkAuthor: { ...item.linkAuthor!, linkName } } : item;
+    };
+    return { ...named(thread), replies: thread.replies.map(named) };
+  };
+
   /** What a viewer in Commentaire writes waits for someone in Écriture to read it, unless it comes through a link made to go straight to Claude. */
   const needsReview = (viewer: Viewer, resource: { pageId?: string; threadId?: string }): boolean =>
     access.levelOf(viewer, resource) === "comment" && !(viewer.kind === "link" && viewer.link.direct);
@@ -645,20 +663,20 @@ export async function buildMainApp(
       // What a Commentaire member writes waits for someone in Écriture to read it.
       const toReview = needsReview(req.viewer, { pageId: req.params.pageId });
       const thread = store.createThread(req.params.pageId, request, req.person, false, undefined, toReview, linkAuthorOf(req.viewer, request.visitorName));
-      if (thread.status === "held" || thread.status === "review") return reply.code(201).send(thread);
+      if (thread.status === "held" || thread.status === "review") return reply.code(201).send(withLinkName(req.viewer, thread));
       dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, req.viewer.kind === "link" ? {} : modelChoiceOf(request), terminalSessions);
-      return reply.code(201).send(thread);
+      return reply.code(201).send(withLinkName(req.viewer, thread));
     },
   );
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/threads", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-    // A visitor hears only of threads made through its own link; a Lecture link makes none.
-    if (req.viewer.kind === "link") {
+    // A visitor hears only of threads made through its own link (every thread of the page in Écriture); a Lecture link makes none.
+    if (req.viewer.kind === "link" && req.viewer.link.level !== "write") {
       const linkId = req.viewer.link.id;
       return store.listThreads(req.params.pageId).filter((thread) => thread.linkAuthor?.linkId === linkId);
     }
-    return store.listThreads(req.params.pageId);
+    return store.listThreads(req.params.pageId).map((thread) => withLinkName(req.viewer, thread));
   });
 
   // The user's reply in a thread: resumes the thread's session on the agent that opened it.
@@ -670,7 +688,7 @@ export async function buildMainApp(
     const invalidChoice = modelChoiceError(req.body);
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
     // A visitor answers in the threads of its own link only.
-    if (req.viewer.kind === "link" && thread.linkAuthor?.linkId !== req.viewer.link.id) return reply.code(403).send({ error: "forbidden" });
+    if (req.viewer.kind === "link" && req.viewer.link.level !== "write" && thread.linkAuthor?.linkId !== req.viewer.link.id) return reply.code(403).send({ error: "forbidden" });
     const nameError = visitorNameError(req.viewer, req.body.visitorName);
     if (nameError) return reply.code(400).send({ error: nameError });
     const message = store.addReply(thread.id, body, "user", [], req.person, linkAuthorOf(req.viewer, req.body.visitorName))!;

@@ -323,6 +323,8 @@ export class Store {
     addColumn("conversations", "via_project_id", "TEXT");
     // Same for what a person (or Claude, for the requesting person) did: page versions, DESIGN.md / tokens versions and pages.
     addColumn("versions", "person_id", "TEXT");
+    addColumn("versions", "link_id", "TEXT");
+    addColumn("versions", "link_name", "TEXT");
     addColumn("design_md_versions", "person_id", "TEXT");
     addColumn("pages", "person_id", "TEXT");
     // The old per-project boolean (default 0) becomes a nullable override of the global setting: only an explicit "allow" is kept.
@@ -1268,12 +1270,12 @@ export class Store {
     return rows.map((r) => ({ name: r.path.slice(prefix.length), hash: r.hash, size: statSync(join(this.blobDir, r.hash)).size }));
   }
 
-  createPage(projectId: string, title: string, files: Record<string, string>, createdBy: PageCreator = "user", person?: Person): Page {
+  createPage(projectId: string, title: string, files: Record<string, string>, createdBy: PageCreator = "user", person?: Person, link?: LinkAuthor): Page {
     const id = randomUUID();
     this.db
       .prepare("INSERT INTO pages (id, project_id, title, created_by, created_at, person_id) VALUES (?, ?, ?, ?, ?, ?)")
       .run(id, projectId, title, createdBy, now(), person?.id ?? null);
-    this.createVersion(id, files, "Page created", "creation", person && { person });
+    this.createVersion(id, files, "Page created", "creation", person ? { person } : link && { link });
     return this.getPage(id)!;
   }
 
@@ -2054,7 +2056,7 @@ export class Store {
   /** Every version of a page with its file hashes, OLDEST first. */
   listVersionRecords(pageId: string): VersionRecord[] {
     const rows = this.db
-      .prepare("SELECT id, files, message, origin, origin_id, origin_label, person_id, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
+      .prepare("SELECT id, files, message, origin, origin_id, origin_label, person_id, link_id, link_name, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
       .all(pageId) as (VersionRow & { files: string; diffusion: number | null })[];
     return rows.map((row) => ({ ...this.toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1 }));
   }
@@ -2139,7 +2141,7 @@ export class Store {
   listVersions(pageId: string): PageVersionSummary[] {
     const rows = this.db
       .prepare(
-        "SELECT id, message, origin, origin_id, origin_label, person_id, created_at FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC",
+        "SELECT id, message, origin, origin_id, origin_label, person_id, link_id, link_name, created_at FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC",
       )
       .all(pageId) as VersionRow[];
     return rows.map((row) => this.toSummary(row));
@@ -2169,10 +2171,10 @@ export class Store {
   }
 
   private insertVersion(pageId: string, filesJson: string, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
-    const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, person_id: ref?.person?.id ?? null, created_at: now() };
+    const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, person_id: ref?.person?.id ?? null, link_id: ref?.link?.linkId ?? null, link_name: ref?.link?.name ?? null, created_at: now() };
     this.db
-      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, person_id, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, row.person_id, this.diffusionForNewVersion(pageId, filesJson) ?? null);
+      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, person_id, link_id, link_name, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, row.person_id, row.link_id, row.link_name, this.diffusionForNewVersion(pageId, filesJson) ?? null);
     this.emit({ type: "page-updated", pageId, versionId: row.id });
     return this.toSummary(row);
   }
@@ -2186,6 +2188,7 @@ export class Store {
       ...(row.origin_id ? { originId: row.origin_id } : {}),
       ...(row.origin_label ? { originLabel: row.origin_label } : {}),
       ...(person ? { person } : {}),
+      ...(row.link_id && row.link_name ? { linkAuthor: { linkId: row.link_id, name: row.link_name } } : {}),
       createdAt: row.created_at,
     };
   }
@@ -2443,6 +2446,8 @@ interface VersionRow {
   origin_id?: string | null;
   origin_label?: string | null;
   person_id?: string | null;
+  link_id?: string | null;
+  link_name?: string | null;
   created_at: string;
 }
 
@@ -2466,6 +2471,8 @@ export interface OriginRef {
   originLabel?: string;
   /** Who the version is signed with: the person acting, or the requesting person of a Claude run; none for terminal publishes. */
   person?: Person;
+  /** Who the version is signed with when it was made through a share link. */
+  link?: LinkAuthor;
 }
 
 export interface VersionRecord extends PageVersionSummary {

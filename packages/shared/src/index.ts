@@ -49,6 +49,8 @@ export interface Project {
   globalTakeover: boolean;
   /** The project's own choice; null follows the global setting. */
   globalTakeoverOverride: boolean | null;
+  /** Link visitors in Écriture only: whether an agent serves the project now (the agent itself stays unnamed). */
+  claudeAvailable?: boolean;
   /** The online agent that would run the project's work now (`GET /api/projects...`); absent when none can. */
   servedBy?: { id: string; machine: string; folder: string; kind: AgentKind; takeover: boolean };
   /** When the project was archived (ISO time): it is then read-only, hidden from sessions, and only it can be deleted. */
@@ -168,6 +170,8 @@ export interface PageVersionSummary {
   originLabel?: string;
   /** The person who made the version, or whom Claude made it for (the requesting person of its run); absent for terminal publishes, versions from before the SSO and without SSO. */
   person?: Person;
+  /** The link a version was made through, shown "Alix (lien)"; instead of `person`. */
+  linkAuthor?: LinkAuthor;
   createdAt: string;
   /** Only in the answer to an agent's publish: the page had moved since `baseVersionId` and the changes were merged onto its current version. */
   merged?: boolean;

@@ -23,8 +23,9 @@ export function identityFromEnv(env: NodeJS.ProcessEnv): IdentityConfig {
   };
 }
 
-/** The viewer as the signature of a version they make; undefined without SSO. */
+/** The viewer as the signature of a version they make: their link for a visitor ("Alix (lien)"); undefined without SSO. */
 export function personRef(req: FastifyRequest): OriginRef | undefined {
+  if (req.viewer.kind === "link") return { link: { linkId: req.viewer.link.id, name: req.viewer.link.name } };
   return req.person && { person: req.person };
 }
 

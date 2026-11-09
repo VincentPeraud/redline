@@ -36,12 +36,25 @@ export const LINK_ROUTES: Record<string, AccessLevel> = {
   "POST /api/threads/:threadId/messages": "comment",
   "GET /api/projects/:projectId": "read",
   "GET /api/projects/:projectId/artboard-capability": "read",
+  "GET /api/projects/:projectId/pages": "read",
+  // From here on, an Écriture link works like a member on its scope; links, archive, delete and agents stay out.
+  "POST /api/projects/:projectId/pages": "write",
+  "GET /api/pages/:pageId/versions": "write",
+  "POST /api/pages/:pageId/versions/:versionId/restore": "write",
+  "POST /api/pages/:pageId/tweaks": "write",
+  "POST /api/pages/:pageId/view-settings": "write",
+  "POST /api/pages/:pageId/fit-height": "write",
+  "GET /api/pages/:pageId/artboard-versions": "write",
+  "GET /api/pages/:pageId/deleted-artboards": "write",
+  "POST /api/pages/:pageId/artboards/restore": "write",
+  "POST /api/threads/:threadId/resolve": "write",
+  "POST /api/threads/:threadId/reopen": "write",
 };
 /** Calls that name no project or page and tell a visitor nothing beyond its own link. */
 const LINK_OPEN_ROUTES = new Set(["GET /api/link", "GET /api/config", "GET /api/events"]);
 
 /** Reads that stay with members in Écriture: they show what the team shares. */
-const READS_NEEDING_WRITE = new Set(["GET /api/pages/:pageId/links"]);
+const READS_NEEDING_WRITE = new Set(["GET /api/pages/:pageId/links", "GET /api/projects/:projectId/links"]);
 
 /** What an action is about; empty means the instance itself (home, settings, design systems list). */
 export interface Resource {
@@ -167,7 +180,12 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
   /** A link opens its page (and, for the capability and the trimmed project, that page's project): nothing else, whatever its level. */
   const inLinkScope = (link: StoredLink, resource: Resource): boolean => {
     const projectId = projectIdOf(resource);
-    if (link.scope === "project") return projectId === link.scopeId;
+    if (link.scope === "project") {
+      const pageId = resource.pageId ?? (resource.threadId ? store.getThread(resource.threadId)?.pageId : undefined) ?? (resource.conversationId ? store.getConversation(resource.conversationId)?.pageId : undefined);
+      // A project link covers its present and future pages, not the archived ones.
+      if (pageId !== undefined && store.getPage(pageId)?.archivedAt) return false;
+      return projectId === link.scopeId;
+    }
     const pageId = resource.pageId ?? (resource.threadId ? store.getThread(resource.threadId)?.pageId : undefined) ?? (resource.conversationId ? store.getConversation(resource.conversationId)?.pageId : undefined);
     if (pageId !== undefined) return pageId === link.scopeId;
     return projectId !== undefined && projectId === store.projectIdOfPage(link.scopeId);

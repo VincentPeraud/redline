@@ -19,7 +19,8 @@ export function registerEventRoutes(app: FastifyInstance, store: Store, pageLock
   /** What the viewer may be told of an event: the event itself, a reduced one, or nothing. */
   const visibleTo = (viewer: Viewer, event: ServerEvent): ServerEvent | undefined => {
     const seesPage = (pageId: string | undefined) => (pageId === undefined ? viewer.kind !== "link" : access.may(viewer, "read", { pageId }));
-    if (viewer.kind === "link" && !LINK_EVENTS.has(event.type)) return undefined;
+    // An Écriture visitor also hears when agents come and go: it tells whether Claude can answer.
+    if (viewer.kind === "link" && !LINK_EVENTS.has(event.type) && !(event.type === "agents-updated" && viewer.link.level === "write")) return undefined;
     if (event.type === "agents-updated") return event;
     if (event.type === "design-system-updated") return { ...event, pageIds: event.pageIds.filter(seesPage) };
     if (event.type === "work") return seesPage(pageLock.itemOf(event.message.workId)?.pageId) ? event : undefined;
