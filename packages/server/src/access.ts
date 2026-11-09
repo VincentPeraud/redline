@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { INVITATION_PATH, initialsOf, SESSION_PATH, SETUP_PATH, type AccountRole, type Person } from "@redline/shared";
+import { INVITATION_PATH, NO_ACCESS_CODE, initialsOf, SESSION_PATH, SETUP_PATH, type AccountRole, type NoAccessResponse, type Person } from "@redline/shared";
 import { HEALTH_PATH, hasHumanSecret, isMachinePath, type ProxySecrets } from "./proxy-secrets.js";
 import { isLocalHost } from "./public-deadline.js";
 import type { Store } from "./store.js";
@@ -20,6 +20,9 @@ export interface Resource {
   projectId?: string;
   pageId?: string;
   designSystemId?: string;
+  /** A thread or a conversation: it belongs to a page, so to a project. */
+  threadId?: string;
+  conversationId?: string;
 }
 
 /** The only place that knows the authentication mode: callers ask what a viewer may do, never which mode runs. */
@@ -27,6 +30,10 @@ export interface Access {
   readonly mode: AuthMode;
   viewerOf(req: FastifyRequest): Viewer;
   may(viewer: Viewer, action: Action, resource: Resource): boolean;
+  /** Whether the viewer decides who sees the project and at which level: its creator and the admins. */
+  manages(viewer: Viewer, projectId: string): boolean;
+  /** The creator of the project a resource belongs to, to name who to ask when `may` says no. */
+  creatorOf(resource: Resource): Person | undefined;
 }
 
 declare module "fastify" {
@@ -87,13 +94,35 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
     }
     return NOBODY;
   };
-  const may = (viewer: Viewer): boolean => {
-    // `none` allows everything today; `local` and `proxy` will decide by role, visibility and level.
+  const projectIdOf = (resource: Resource): string | undefined => {
+    const pageId = resource.pageId ?? (resource.threadId ? store.getThread(resource.threadId)?.pageId : undefined) ?? (resource.conversationId ? store.getConversation(resource.conversationId)?.pageId : undefined);
+    return resource.projectId ?? (pageId ? store.getPage(pageId)?.projectId : undefined);
+  };
+  /** The admins and the creator see every project; an Équipe project is seen by every account. */
+  const sees = (viewer: Viewer, projectId: string): boolean => {
+    if (viewer.kind !== "account") return true;
+    if (viewer.role === "admin") return true;
+    const ownership = store.projectOwnership(projectId);
+    return !ownership || ownership.visibility === "team" || ownership.createdBy === viewer.person.id;
+  };
+  const may = (viewer: Viewer, _action: Action, resource: Resource): boolean => {
+    // `none` allows everything; `local` and `proxy` decide by role and visibility (levels come with member levels).
     if (mode === "none") return true;
     // Machine paths check the agent token themselves.
-    return viewer.kind === "account" || viewer.kind === "agent";
+    if (viewer.kind === "agent") return true;
+    if (viewer.kind !== "account") return false;
+    const projectId = projectIdOf(resource);
+    return projectId === undefined || sees(viewer, projectId);
   };
-  return { mode, viewerOf, may };
+  const manages = (viewer: Viewer, projectId: string): boolean => {
+    if (mode === "none") return true;
+    return viewer.kind === "account" && (viewer.role === "admin" || store.projectOwnership(projectId)?.createdBy === viewer.person.id);
+  };
+  const creatorOf = (resource: Resource): Person | undefined => {
+    const projectId = projectIdOf(resource);
+    return projectId === undefined ? undefined : store.getProject(projectId)?.createdBy;
+  };
+  return { mode, viewerOf, may, manages, creatorOf };
 }
 
 function actionOf(req: FastifyRequest): Action {
@@ -102,7 +131,7 @@ function actionOf(req: FastifyRequest): Action {
 
 function resourceOf(req: FastifyRequest): Resource {
   const params = (req.params ?? {}) as Record<string, string | undefined>;
-  return { projectId: params.projectId, pageId: params.pageId, designSystemId: params.designSystemId };
+  return { projectId: params.projectId, pageId: params.pageId, designSystemId: params.designSystemId, threadId: params.threadId, conversationId: params.conversationId };
 }
 
 /** Resolves the viewer of every request, then refuses (403) what the viewer may not do, before any route runs. */
@@ -118,8 +147,12 @@ export function registerAccess(app: FastifyInstance, access: Access): void {
     // The web app's own files (the static handler and the single-page fallback) are what shows the sign-in screen.
     const route = req.routeOptions.url;
     if (route === undefined || route === "/*" || route === "/") return;
-    if (!access.may(req.viewer, actionOf(req), resourceOf(req))) {
-      return req.viewer.kind === "nobody" && access.mode === "local" ? reply.code(401).send({ error: "sign-in required" }) : reply.code(403).send({ error: "forbidden" });
+    const resource = resourceOf(req);
+    if (!access.may(req.viewer, actionOf(req), resource)) {
+      if (req.viewer.kind === "nobody" && access.mode === "local") return reply.code(401).send({ error: "sign-in required" });
+      const creator = access.creatorOf(resource);
+      const refusal: NoAccessResponse = { error: "no access to this project", code: NO_ACCESS_CODE, ...(creator ? { creator } : {}) };
+      return reply.code(403).send(req.viewer.kind === "account" ? refusal : { error: "forbidden" });
     }
   });
 }

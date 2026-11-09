@@ -252,3 +252,7 @@ export function threadCellError(cell: unknown): string | null {
     Object.values(cell).every((v) => typeof v === "string" || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v)));
   return valid ? null : "cell must map tweak ids to a string, number or boolean";
 }
+
+export function isVisibility(value: unknown): value is "team" | "private" {
+  return value === "team" || value === "private";
+}

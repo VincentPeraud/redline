@@ -40,6 +40,8 @@ import {
   type MoveArtboardRequest,
   type UpdatePageRequest,
   type UpdateProjectRequest,
+  type ProjectSharing,
+  type ProjectVisibility,
   CLI_TARBALL_PATH,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
@@ -63,7 +65,7 @@ import { settleUndoneChanges } from "./undone-changes.js";
 import { closeDiffusedRequests, requestsClosedBy, returnPendingOn } from "./diffusion-returns.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
-import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
+import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, isVisibility, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
 import { registerContextTracking } from "./context.js";
 import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
@@ -142,8 +144,9 @@ export async function buildMainApp(
   registerProxySecretCheck(app, options.proxySecrets);
   registerHealthRoute(app);
   const identity = options.identity ?? DEFAULT_IDENTITY;
-  registerAccess(app, createAccess({ mode: options.authMode ?? (options.proxySecrets ? "proxy" : "none"), store, secrets: options.proxySecrets, identity }));
   const authMode = options.authMode ?? (options.proxySecrets ? "proxy" : "none");
+  const access = createAccess({ mode: authMode, store, secrets: options.proxySecrets, identity });
+  registerAccess(app, access);
   registerIdentity(app, store, identity, authMode);
   if (authMode === "local" || authMode === "proxy") registerAccountRoutes(app, store, authMode);
   const { cliBuild } = options;
@@ -164,15 +167,15 @@ export async function buildMainApp(
   await registerAgentApi(app, store, pageLock, terminalSessions);
   await registerProjectFileRoutes(app, store);
   registerProjectDesignSystemRoutes(app, store);
-  registerEventRoutes(app, store);
+  registerEventRoutes(app, store, pageLock, access);
   registerDesignSystemReload(app, store);
   const runs = registerRunRoutes(app, store);
-  registerHomeRoutes(app, store, pageLock);
+  registerHomeRoutes(app, store, pageLock, access);
   registerArchiveRoutes(app, store, pageLock, (pageIds) => returnPendingOn(store, pageLock, terminalSessions, pageIds));
   const knownWindows = new Map<string, number>();
   registerContextTracking(app, store, pageLock, knownWindows);
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
-  registerSessionRoutes(app, store, pageLock, runs, lastConversationWork);
+  registerSessionRoutes(app, store, pageLock, runs, lastConversationWork, access);
   registerArtboardHistoryRoutes(app, store);
   registerGapRoutes(app, store);
   pageLock.restore();
@@ -194,8 +197,9 @@ export async function buildMainApp(
   app.get("/api/config", async () => config);
 
   app.post<{ Body: CreateProjectRequest }>("/api/projects", async (req, reply) => {
-    const { title, instructions, designSystem } = req.body ?? ({} as Partial<CreateProjectRequest>);
+    const { title, instructions, designSystem, visibility } = req.body ?? ({} as Partial<CreateProjectRequest>);
     if (!requiredString(title)) return reply.code(400).send({ error: "title is required" });
+    if (visibility !== undefined && !isVisibility(visibility)) return reply.code(400).send({ error: "visibility must be team or private" });
     if (instructions !== undefined && typeof instructions !== "string") {
       return reply.code(400).send({ error: "instructions must be a string" });
     }
@@ -203,12 +207,23 @@ export async function buildMainApp(
       return reply.code(400).send({ error: "designSystem must be a string" });
     }
     if (designSystem && store.isArchived(designSystem)) return reply.code(400).send({ error: "This design system is archived: choose another one." });
-    return reply.code(201).send(store.createProject(title, undefined, instructions, designSystem ?? null));
+    return reply.code(201).send(store.createProject(title, undefined, instructions, designSystem ?? null, { createdBy: req.person, visibility }));
   });
 
   app.get<{ Querystring: { archived?: string } }>("/api/projects", async (req) =>
-    store.listProjects(req.query.archived ? "archived" : "active").map((project) => withServedBy(store, project)),
+    store
+      .listProjects(req.query.archived ? "archived" : "active")
+      .filter((project) => access.may(req.viewer, "read", { projectId: project.id }))
+      .map((project) => withServedBy(store, project)),
   );
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/sharing", async (req, reply): Promise<ProjectSharing | undefined> => {
+    const project = store.getProject(req.params.projectId);
+    if (!project) return void reply.code(404).send({ error: "project not found" });
+    const accounts = store.accounts.activeAccounts();
+    const wouldLoseAccess = project.visibility === "private" ? [] : accounts.filter((a) => a.role !== "admin" && a.id !== project.createdBy?.id).map(({ role: _role, ...person }) => person);
+    return { visibility: project.visibility, accountCount: accounts.length, ...(project.createdBy ? { createdBy: project.createdBy } : {}), canChange: access.manages(req.viewer, project.id), wouldLoseAccess };
+  });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId", async (req, reply) => {
     const project = store.getProject(req.params.projectId);
@@ -217,10 +232,15 @@ export async function buildMainApp(
 
   app.patch<{ Params: { projectId: string }; Body: UpdateProjectRequest }>("/api/projects/:projectId", async (req, reply) => {
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-    const { title, globalTakeoverOverride } = req.body ?? ({} as Partial<UpdateProjectRequest>);
+    const { title, globalTakeoverOverride, visibility } = req.body ?? ({} as Partial<UpdateProjectRequest>);
     if (title !== undefined && titleError(title)) return reply.code(400).send({ error: titleError(title) });
     if (globalTakeoverOverride !== undefined && globalTakeoverOverride !== null && typeof globalTakeoverOverride !== "boolean") {
       return reply.code(400).send({ error: "globalTakeoverOverride must be a boolean or null" });
+    }
+    if (visibility !== undefined) {
+      if (!isVisibility(visibility)) return reply.code(400).send({ error: "visibility must be team or private" });
+      if (!access.manages(req.viewer, req.params.projectId)) return reply.code(403).send({ error: "Only the creator of the project or an admin changes who sees it." });
+      store.setProjectVisibility(req.params.projectId, visibility);
     }
     if (title !== undefined) store.renameProject(req.params.projectId, title.trim());
     if (globalTakeoverOverride !== undefined) {
@@ -260,7 +280,7 @@ export async function buildMainApp(
       const { draft } = store.pendingDiffusion(designSystem.id);
       return {
         ...designSystem,
-        usedBy: store.projectsUsingDesignSystem(designSystem.id),
+        usedBy: store.projectsUsingDesignSystem(designSystem.id).filter((project) => access.may(req.viewer, "read", { projectId: project.id })),
         updatedAt: store.listVersions(designSystem.pageId)[0]?.createdAt,
         pendingChanges: reviewLineCount(diffusionReview(store, designSystem.id)),
         requests: store.listDesignSystemRequests(designSystem.id).length,
@@ -276,7 +296,7 @@ export async function buildMainApp(
     const designSystem = store.getDesignSystem(req.params.designSystemId);
     if (!designSystem) return void reply.code(404).send({ error: "design system not found" });
     const current = store.currentDiffusion(designSystem.id)!;
-    const usedBy = store.projectsUsingDesignSystem(designSystem.id);
+    const usedBy = store.projectsUsingDesignSystem(designSystem.id).filter((project) => access.may(req.viewer, "read", { projectId: project.id }));
     const { draft, pending } = store.pendingDiffusion(designSystem.id);
     const changed = new Set(pending.tokens.changed.map((token) => token.name));
     const overrides = usedBy.flatMap((project) => {
