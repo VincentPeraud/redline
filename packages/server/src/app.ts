@@ -76,6 +76,7 @@ import { DEFAULT_IDENTITY, registerIdentity, personRef, type IdentityConfig } fr
 import { type CliBuild } from "./cli-build.js";
 import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
 import { registerPublicDeadline } from "./public-deadline.js";
+import { registerAccountRoutes } from "./account-routes.js";
 import { registerRequestHardening } from "./request-hardening.js";
 import { announceDiffusion, registerDesignSystemReload } from "./design-system-reload.js";
 import { registerSessionRoutes } from "./sessions.js";
@@ -142,7 +143,9 @@ export async function buildMainApp(
   registerHealthRoute(app);
   const identity = options.identity ?? DEFAULT_IDENTITY;
   registerAccess(app, createAccess({ mode: options.authMode ?? (options.proxySecrets ? "proxy" : "none"), store, secrets: options.proxySecrets, identity }));
-  registerIdentity(app, identity);
+  const authMode = options.authMode ?? (options.proxySecrets ? "proxy" : "none");
+  registerIdentity(app, identity, authMode);
+  if (authMode === "local") registerAccountRoutes(app, store);
   const { cliBuild } = options;
   store.setServerBuildHash(cliBuild?.hash);
   if (cliBuild) {
@@ -150,7 +153,7 @@ export async function buildMainApp(
       reply.type("application/gzip").header("content-disposition", 'attachment; filename="redline-cli.tgz"').send(createReadStream(cliBuild.tarballPath)),
     );
   }
-  registerRequestHardening(app);
+  registerRequestHardening(app, { requireJsonOrHeader: authMode === "local" });
   explainTooLarge(app);
   registerArchivedGuard(app, store);
   const agents = await registerAgentRoutes(app, store);

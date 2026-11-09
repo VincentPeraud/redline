@@ -1,5 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
+import { REDLINE_HEADER } from "@redline/shared";
+import { isMachinePath } from "./proxy-secrets.js";
 
 /** Compares two secrets without leaking, through timing, how much of them matches (both are hashed to the same length first). */
 export function tokensEqual(given: string | undefined, expected: string): boolean {
@@ -30,12 +32,16 @@ function hostOf(origin: string): string | undefined {
  * has its own content type, so it only gets the origin check): a page on another site cannot forge them with a plain form.
  * Responses cannot be framed by another site.
  */
-export function registerRequestHardening(app: FastifyInstance): void {
+export function registerRequestHardening(app: FastifyInstance, options: { requireJsonOrHeader?: boolean } = {}): void {
   app.addHook("onRequest", async (req, reply) => {
     if (SAFE_METHODS.has(req.method) || !req.url.startsWith("/api/")) return;
     const { origin } = req.headers;
     if (origin !== undefined && hostOf(origin) !== requestHost(req.headers)) {
       return reply.code(403).send({ error: "Cross-origin request refused." });
+    }
+    // Built-in accounts: every mutating call says it comes from the UI or a script, by JSON or by the Redline header, body or not.
+    if (options.requireJsonOrHeader && !isMachinePath(req.url) && !/^application\/json\b/i.test(req.headers["content-type"] ?? "") && req.headers[REDLINE_HEADER] === undefined) {
+      if (!(req.method === "PUT" && ASSET_UPLOAD.test(req.url))) return reply.code(415).send({ error: "Send JSON or the x-redline header." });
     }
     const hasBody = Number(req.headers["content-length"] ?? 0) > 0 || req.headers["transfer-encoding"] !== undefined;
     const isJson = /^application\/json\b/i.test(req.headers["content-type"] ?? "");

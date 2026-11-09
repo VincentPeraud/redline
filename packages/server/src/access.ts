@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { Person } from "@redline/shared";
+import { SESSION_PATH, SETUP_PATH, type AccountRole, type Person } from "@redline/shared";
 import { HEALTH_PATH, hasHumanSecret, isMachinePath, type ProxySecrets } from "./proxy-secrets.js";
 import { isLocalHost } from "./public-deadline.js";
 import type { Store } from "./store.js";
@@ -8,7 +8,7 @@ export type AuthMode = "local" | "proxy" | "none";
 
 /** Who made a request: exactly one of these, resolved once per request. */
 export type Viewer =
-  | { kind: "account"; person: Person }
+  | { kind: "account"; person: Person; role?: AccountRole }
   | { kind: "link"; token: string }
   | { kind: "agent" }
   | { kind: "nobody" };
@@ -39,7 +39,18 @@ declare module "fastify" {
 
 const NOBODY: Viewer = { kind: "nobody" };
 /** Paths a viewer may always reach: they say who the viewer is, or answer the container's probe. */
-const OPEN_PATHS = new Set(["/api/me", HEALTH_PATH]);
+const OPEN_PATHS = new Set(["/api/me", HEALTH_PATH, SESSION_PATH, SETUP_PATH]);
+
+export const SESSION_COOKIE = "redline_session";
+
+/** The value of one cookie of the request, if it is there. */
+export function cookieOf(req: FastifyRequest, name: string): string | undefined {
+  for (const part of (req.headers.cookie ?? "").split(";")) {
+    const [key, ...value] = part.trim().split("=");
+    if (key === name) return value.join("=");
+  }
+  return undefined;
+}
 
 export interface AccessOptions {
   mode: AuthMode;
@@ -63,12 +74,18 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
       const id = headerText(req, identity.userHeader);
       if (id !== "") return { kind: "account", person: store.savePerson(id, headerText(req, identity.nameHeader), headerText(req, identity.emailHeader)) };
     }
+    if (mode === "local" && req.url.startsWith("/api/")) {
+      const session = cookieOf(req, SESSION_COOKIE);
+      const account = session && store.accounts.accountOfSession(session);
+      if (account) return { kind: "account", person: { id: account.id, name: account.name, email: account.email, initials: account.initials }, role: account.role };
+    }
     return NOBODY;
   };
   const may = (viewer: Viewer): boolean => {
     // `none` and `proxy` allow everything today; `local` will decide by role, visibility and level.
     if (mode !== "local") return true;
-    return viewer.kind === "account";
+    // Machine paths check the agent token themselves.
+    return viewer.kind === "account" || viewer.kind === "agent";
   };
   return { mode, viewerOf, may };
 }
@@ -92,16 +109,22 @@ export function registerAccess(app: FastifyInstance, access: Access): void {
   });
   app.addHook("preHandler", async (req, reply) => {
     if (OPEN_PATHS.has(req.url.split("?")[0])) return;
-    if (!access.may(req.viewer, actionOf(req), resourceOf(req))) return reply.code(403).send({ error: "forbidden" });
+    if (!access.may(req.viewer, actionOf(req), resourceOf(req))) {
+      return req.viewer.kind === "nobody" && access.mode === "local" ? reply.code(401).send({ error: "sign-in required" }) : reply.code(403).send({ error: "forbidden" });
+    }
   });
 }
 
 export function authModeFromEnv(env: NodeJS.ProcessEnv): AuthMode | undefined {
   const value = env.REDLINE_AUTH_MODE?.trim().toLowerCase();
   if (!value) return undefined;
-  if (value === "local") throw new Error("REDLINE_AUTH_MODE=local is not available yet: use none or proxy.");
-  if (value === "none" || value === "proxy") return value;
+  if (value === "local" || value === "none" || value === "proxy") return value;
   throw new Error(`REDLINE_AUTH_MODE must be local, proxy or none, not "${value}".`);
+}
+
+/** The mode a process runs in: the one named, else `proxy` behind the proxy secrets, else the built-in accounts. */
+export function resolveAuthMode(env: NodeJS.ProcessEnv, proxySecrets: ProxySecrets | undefined): AuthMode {
+  return authModeFromEnv(env) ?? (proxySecrets ? "proxy" : "local");
 }
 
 /** Mode `none` has no login: it refuses to start wherever someone else could reach it. */

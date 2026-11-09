@@ -7,8 +7,18 @@ export interface Person {
   initials: string;
 }
 
-/** `GET /api/me`: the viewing person and where "Se déconnecter" leads (null when none is set); the body is `null` without SSO. */
-export type MeResponse = (Person & { logoutUrl: string | null }) | null;
+export type AccountRole = "admin" | "member";
+
+/**
+ * `GET /api/me`: the viewing person and where "Se déconnecter" leads (null when none is set); the body is `null` without SSO.
+ * `account` is set for a built-in account (signed in with e-mail and password): it holds their role, and sign-out is `DELETE SESSION_PATH`.
+ */
+export type MeResponse = (Person & { logoutUrl: string | null; account?: { role: AccountRole } }) | null;
+
+export const SESSION_PATH = "/api/session";
+export const SETUP_PATH = "/api/setup";
+/** The header the web UI adds to its API calls: with a JSON content type, it is what a mutating call must carry in built-in account mode. */
+export const REDLINE_HEADER = "x-redline";
 
 export const ME_PATH = "/api/me";
 

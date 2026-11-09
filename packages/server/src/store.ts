@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
+import { AccountStore } from "./accounts.js";
 import { componentFilesOf, projectComponents } from "./components.js";
 import { restoredVersionMessage } from "./version-dates.js";
 import {
@@ -90,6 +91,7 @@ export class Store {
   private readonly blobDir: string;
   private readonly listeners = new Set<(event: ServerEvent) => void>();
   private serverBuildHash: string | undefined;
+  readonly accounts: AccountStore;
 
   constructor(dataDir: string) {
     this.blobDir = join(dataDir, "blobs");
@@ -324,6 +326,7 @@ export class Store {
     addColumn("projects", "archived_at", "TEXT");
     // When the page was archived: read-only, out of the page lists and of sessions, deletable.
     addColumn("pages", "archived_at", "TEXT");
+    this.accounts = new AccountStore(this.db);
     addColumn("pages", "held_by", "TEXT");
     addColumn("pages", "held_at", "TEXT");
     addColumn("versions", "origin_id", "TEXT");

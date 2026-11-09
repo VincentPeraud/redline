@@ -16,12 +16,16 @@ export interface StartOptions {
   webDir?: string;
   /** Folder holding `redline-cli.tgz` and `build-hash.txt`; when both exist the tarball is served at `/cli/redline-cli.tgz`. */
   cliDir?: string;
-  /** `none` (no login, local use only), `proxy` (SSO behind the proxy secrets) or `local` (accounts, not selectable yet); defaults to `proxy` when proxy secrets are set, else `none`. */
+  /** `none` (no login, local use only), `proxy` (SSO behind the proxy secrets) or `local` (built-in accounts); defaults to `proxy` when proxy secrets are set, else `none`. */
   authMode?: AuthMode;
   /** When set, both listeners refuse requests that do not carry the proxy secret of their route. */
   proxySecrets?: ProxySecrets;
   /** Names of the SSO identity headers and the logout URL; the headers are read only when proxy secrets are set. */
   identity?: IdentityConfig;
+  /** Public address of the web UI, used in the setup link written to the logs (default: the address the server listens on). */
+  publicUrl?: string;
+  /** Where the setup link is written; default the console. */
+  log?: (line: string) => void;
   /** After this date, requests whose `Host` is not a local name (a tunnel's) are refused. */
   publicUntil?: Date;
   /** Waits before each retry of a failed work item; default 1, 5 and 15 minutes. */
@@ -40,6 +44,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   const authMode = options.authMode ?? (options.proxySecrets ? "proxy" : "none");
   assertModeCanStart(authMode, options);
   if (options.proxySecrets) assertValidProxySecrets(options.proxySecrets);
+  const log = options.log ?? ((line: string) => console.log(line));
   const store = new Store(options.dataDir);
   const artboardApp = await buildArtboardApp(store, options.proxySecrets, options.publicUntil);
   await artboardApp.listen({ port: options.artboardPort, host: options.host });
@@ -55,9 +60,14 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     cliBuild: loadCliBuild(options.cliDir),
   });
   await mainApp.listen({ port: options.port, host: options.host });
+  const url = `http://${options.host}:${portOf(mainApp.server.address())}`;
+  if (authMode === "local") {
+    const setupToken = store.accounts.issueSetupToken();
+    if (setupToken) log(`No account yet. Open this link to create the first admin: ${(options.publicUrl ?? url).replace(/\/$/, "")}/#/setup/${setupToken}`);
+  }
 
   return {
-    url: `http://${options.host}:${portOf(mainApp.server.address())}`,
+    url,
     artboardOrigin,
     async close() {
       await mainApp.close();

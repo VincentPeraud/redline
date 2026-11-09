@@ -84,8 +84,8 @@ describe("authentication modes", () => {
     });
   });
 
-  describe("local (wired, not selectable yet)", () => {
-    it("asks the access module on every route: nobody may do anything", async () => {
+  describe("local", () => {
+    it("asks the access module on every route: nobody may do anything, and is told to sign in", async () => {
       const { url } = await start({ authMode: "local" });
       const json = { "content-type": "application/json" };
       const calls: Array<[string, string]> = [
@@ -100,9 +100,9 @@ describe("authentication modes", () => {
       ];
       for (const [method, path] of calls) {
         const response = await fetch(url + path, { method, headers: json, body: method === "GET" ? undefined : "{}" });
-        expect(response.status, `${method} ${path}`).toBe(403);
+        expect(response.status, `${method} ${path}`).toBe(401);
       }
-      expect(await (await fetch(`${url}/api/me`)).json()).toBeNull();
+      expect((await fetch(`${url}/api/me`)).status).toBe(401);
     });
   });
 });
@@ -114,8 +114,8 @@ describe("authModeFromEnv", () => {
     expect(authModeFromEnv({})).toBeUndefined();
   });
 
-  it("does not let local be selected yet, and rejects unknown values", () => {
-    expect(() => authModeFromEnv({ REDLINE_AUTH_MODE: "local" })).toThrow(/not available yet/);
+  it("reads local, and rejects unknown values", () => {
+    expect(authModeFromEnv({ REDLINE_AUTH_MODE: "local" })).toBe("local");
     expect(() => authModeFromEnv({ REDLINE_AUTH_MODE: "sso" })).toThrow(/REDLINE_AUTH_MODE/);
   });
 });

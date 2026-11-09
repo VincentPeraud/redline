@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { ME_PATH, type DesignMdAuthor, type MeResponse, type Person } from "@redline/shared";
+import type { AuthMode } from "./access.js";
 import type { OriginRef } from "./store.js";
 
 export interface IdentityConfig {
@@ -33,9 +34,11 @@ export function editorAuthor(req: FastifyRequest): DesignMdAuthor {
 }
 
 /** Serves `/api/me`: who the viewer is, with the SSO's logout page. The viewer itself is resolved by the access module. */
-export function registerIdentity(app: FastifyInstance, config: IdentityConfig = DEFAULT_IDENTITY): void {
+export function registerIdentity(app: FastifyInstance, config: IdentityConfig = DEFAULT_IDENTITY, mode: AuthMode = "none"): void {
   app.get(ME_PATH, async (req, reply) => {
-    const me: MeResponse = req.person ? { ...req.person, logoutUrl: config.logoutUrl ?? null } : null;
+    if (mode === "local" && req.viewer.kind !== "account") return reply.code(401).send({ error: "sign-in required" });
+    const role = req.viewer.kind === "account" ? req.viewer.role : undefined;
+    const me: MeResponse = req.person ? { ...req.person, logoutUrl: config.logoutUrl ?? null, ...(role ? { account: { role } } : {}) } : null;
     return reply.type("application/json").send(JSON.stringify(me));
   });
 }
