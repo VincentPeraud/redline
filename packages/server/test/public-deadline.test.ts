@@ -14,7 +14,7 @@ const TUNNEL = "motel-need-handled-proudly.trycloudflare.com";
 /** fetch cannot set `Host`, so the requests go through node:http. */
 function statusFor(url: string, host: string, headers: Record<string, string> = {}): Promise<number> {
   return new Promise((resolve, reject) => {
-    const req = request(url, { headers: { [PROXY_SECRET_HEADER]: SECRETS.human, ...headers, host } }, (res) => {
+    const req = request(url, { headers: { [PROXY_SECRET_HEADER]: SECRETS.human, "remote-user": "amartin", "remote-email": "ariane@example.com", ...headers, host } }, (res) => {
       res.resume();
       resolve(res.statusCode ?? 0);
     });
@@ -42,7 +42,8 @@ describe("public deadline", () => {
   it("serves a tunnel's host before the deadline", async () => {
     const { url, artboardOrigin } = await start(new Date(Date.now() + 60_000));
     expect(await statusFor(`${url}/api/projects`, TUNNEL)).toBe(200);
-    expect(await statusFor(`${artboardOrigin}/__redline/bridge.js`, TUNNEL)).toBe(200);
+    // 404: the request reaches the router, which has no route without a capability in the path.
+    expect(await statusFor(`${artboardOrigin}/__redline/bridge.js`, TUNNEL)).toBe(404);
   });
 
   it("refuses a tunnel's host after the deadline, on the UI, the API and the artboard origin", async () => {
@@ -57,7 +58,7 @@ describe("public deadline", () => {
     for (const host of ["localhost:3000", "redline.localhost", "127.0.0.1:3000", "[::1]:3000"]) {
       expect(await statusFor(`${url}/api/projects`, host)).toBe(200);
     }
-    expect(await statusFor(`${artboardOrigin}/__redline/bridge.js`, "artboards.redline.localhost")).toBe(200);
+    expect(await statusFor(`${artboardOrigin}/__redline/bridge.js`, "artboards.redline.localhost")).toBe(404);
   });
 
   it("ignores X-Forwarded-Host, which a tunnel's visitor can set", async () => {

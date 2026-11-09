@@ -25,6 +25,8 @@ COPY --from=build /app/packages/web/dist packages/web/dist
 COPY --from=build /app/cli cli
 # A fresh named volume copies this ownership, so the production compose can run as uid 1000 (`node`).
 RUN mkdir -p /data && chown node:node /data
+# `docker compose exec redline redline-server reset-admin` writes a password link for the admin to the output.
+RUN printf '#!/bin/sh\nexec node /app/packages/server/dist/main.js "$@"\n' > /usr/local/bin/redline-server && chmod +x /usr/local/bin/redline-server
 VOLUME /data
 EXPOSE 3000 3001
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \

@@ -13,7 +13,12 @@ export type AccountRole = "admin" | "member";
  * `GET /api/me`: the viewing person and where "Se déconnecter" leads (null when none is set); the body is `null` without SSO.
  * `account` is set for a built-in account (signed in with e-mail and password): it holds their role, and sign-out is `DELETE SESSION_PATH`.
  */
-export type MeResponse = (Person & { logoutUrl: string | null; account?: { role: AccountRole } }) | null;
+export type MeResponse = (Person & { logoutUrl: string | null; account?: { role: AccountRole; sso?: true }; noAccess?: NoAccess }) | null;
+
+/** Set on `GET /api/me` for someone the SSO let in but whom Redline's account list does not know (or has deactivated): they get the no-access screen. */
+export interface NoAccess {
+  admins: { name: string; email: string }[];
+}
 
 export const SESSION_PATH = "/api/session";
 export const SETUP_PATH = "/api/setup";
@@ -26,11 +31,32 @@ export const INVITATIONS_PATH = "/api/accounts/invitations";
 
 export const INVITATION_DAYS = 7;
 
+/** Open to people who are not signed in: `GET ?token=` reads a password link, `POST` chooses the new password with it. */
+export const PASSWORD_LINK_PATH = "/api/password-link";
+export const PASSWORD_LINK_HOURS = 24;
+/** Mon compte: `PATCH` changes the name of the signed-in account. */
+export const MY_ACCOUNT_PATH = "/api/account";
+/** Mon compte: `POST { currentPassword, newPassword }` changes the password and signs the other devices out. */
+export const MY_PASSWORD_PATH = "/api/account/password";
+
 export interface AccountEntry extends Person {
   role: AccountRole;
   status: "active" | "deactivated";
   /** ISO time of the last sign-in; null for an account that never signed in. */
   lastSignInAt: string | null;
+  /** Titles of the projects the account owns: they pass to the admin who deactivates it. */
+  ownedProjects: string[];
+}
+
+/** `POST /api/accounts/<id>/password-link`: admins only. The link is `#/mot-de-passe/<token>`, single use. */
+export interface PasswordLinkEntry {
+  token: string;
+  expiresAt: string;
+}
+
+export interface PasswordLinkPreview {
+  email: string;
+  expiresAt: string;
 }
 
 export interface InvitationEntry {
@@ -40,12 +66,15 @@ export interface InvitationEntry {
   /** Name of the admin who invited. */
   invitedBy: string;
   createdAt: string;
-  expiresAt: string;
-  /** The secret part of the link: `#/invitation/<token>`. A pending invitation can be copied again. */
+  /** Null for an entry added in proxy mode: it waits for the person's first SSO sign-in and does not expire. */
+  expiresAt: string | null;
+  /** The secret part of the link: `#/invitation/<token>`. A pending invitation can be copied again; empty in proxy mode (no link). */
   token: string;
 }
 
 export interface AccountsResponse {
+  /** True in proxy mode: people sign in through the SSO, pending entries are "ajouts", and there are no password actions. */
+  sso: boolean;
   accounts: AccountEntry[];
   invitations: InvitationEntry[];
 }

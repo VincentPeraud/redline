@@ -80,7 +80,8 @@ describe("authentication modes", () => {
 
     it("is the mode when proxy secrets are given and none is named", async () => {
       const { url } = await start({ proxySecrets: secrets });
-      expect((await fetch(`${url}/api/projects`, { headers: { [PROXY_SECRET_HEADER]: HUMAN } })).status).toBe(200);
+      const headers = { [PROXY_SECRET_HEADER]: HUMAN, "remote-user": "amartin", "remote-name": "Ariane Martin", "remote-email": "ariane@example.com" };
+      expect((await fetch(`${url}/api/projects`, { headers })).status).toBe(200);
     });
   });
 

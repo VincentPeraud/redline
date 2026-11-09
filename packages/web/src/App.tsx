@@ -1,3 +1,4 @@
+import { useArtboardOrigin } from "./artboardCapability.js";
 import { useEffect, useState } from "react";
 import type { ArchiveStatus, PageViewSettings, Project } from "@redline/shared";
 import { PageCanvas } from "./PageCanvas.js";
@@ -29,14 +30,13 @@ export function App({ route }: { route: PageRoute }) {
   /** When the page's design system is archived (a design system's own page): read-only like an archived project's. */
   const [designSystemArchivedAt, setDesignSystemArchivedAt] = useState<string | undefined>(undefined);
   const [reloads, setReloads] = useState(0);
-  const [artboardOrigin, setArtboardOrigin] = useState("");
+  const artboardOrigin = useArtboardOrigin(page?.projectId);
 
   async function loadPage() {
     setPage(await getJson<Page>(`/api/pages/${pageId}`));
   }
 
   useEffect(() => {
-    getJson<{ artboardOrigin: string }>("/api/config").then((c) => setArtboardOrigin(c.artboardOrigin));
     void loadPage();
   }, [pageId]);
 
@@ -58,7 +58,7 @@ export function App({ route }: { route: PageRoute }) {
   // A design system's own page has no project of the API: its tab shows the page alone.
   useDocumentTitle(page?.title, page?.designSystem ? null : project?.title);
 
-  if (!page) return <main style={{ padding: 24 }}>Chargement…</main>;
+  if (!page || !artboardOrigin) return <main style={{ padding: 24 }}>Chargement…</main>;
 
   // An archived project or design system wins over an archived page: unarchiving the page alone would not make it writable.
   const archivedAt = page.designSystem ? designSystemArchivedAt : project?.archivedAt;

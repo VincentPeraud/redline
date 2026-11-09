@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { SESSION_PATH, SETUP_PATH, INVITATION_PATH, type InvitationPreview } from "@redline/shared";
+import { SESSION_PATH, SETUP_PATH, INVITATION_PATH, PASSWORD_LINK_PATH, type InvitationPreview, type PasswordLinkPreview } from "@redline/shared";
 import { Button, Field, Logo, TextInput, cx } from "./ui/index.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { useSession } from "./useMe.js";
@@ -157,6 +157,22 @@ export function SetupScreen({ token }: { token: string }) {
 
 const dateLong = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
 
+/** What a link of any kind says once it is expired, used or cancelled. */
+function LinkExpired() {
+  const { reload } = useSession();
+  return (
+    <AuthCard className={styles.invitation}>
+      <div className={styles.head}>
+        <h1>Ce lien ne marche plus</h1>
+        <p>Il a expiré, a déjà servi, ou a été annulé. Demande un nouveau lien à la personne qui te l'a envoyé.</p>
+      </div>
+      <Button variant="secondary" size="lg" className={styles.link} onClick={() => { window.location.hash = "#/"; void reload(); }}>
+        Aller à la connexion
+      </Button>
+    </AuthCard>
+  );
+}
+
 /** The page of an invitation link, `#/invitation/<token>`: the invitee chooses a name and a password, or learns the link no longer works. */
 export function InvitationScreen({ token }: { token: string }) {
   useDocumentTitle("Invitation");
@@ -188,19 +204,7 @@ export function InvitationScreen({ token }: { token: string }) {
   }
 
   if (invitation === undefined) return null;
-  if (invitation === null) {
-    return (
-      <AuthCard className={styles.invitation}>
-        <div className={styles.head}>
-          <h1>Ce lien ne marche plus</h1>
-          <p>Il a expiré, a déjà servi, ou a été annulé. Demande un nouveau lien à la personne qui te l'a envoyé.</p>
-        </div>
-        <Button variant="secondary" size="lg" className={styles.link} onClick={() => { window.location.hash = "#/"; void reload(); }}>
-          Aller à la connexion
-        </Button>
-      </AuthCard>
-    );
-  }
+  if (invitation === null) return <LinkExpired />;
   return (
     <AuthCard className={styles.invitation}>
       <div className={styles.head}>
@@ -229,6 +233,58 @@ export function InvitationScreen({ token }: { token: string }) {
   );
 }
 
+/** The page of a password link, `#/mot-de-passe/<token>`: the person chooses a new password and enters, or learns the link no longer works. */
+export function PasswordLinkScreen({ token }: { token: string }) {
+  useDocumentTitle("Nouveau mot de passe");
+  const { reload } = useSession();
+  const [link, setLink] = useState<PasswordLinkPreview | null | undefined>(undefined);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    fetch(`${PASSWORD_LINK_PATH}?token=${encodeURIComponent(token)}`).then(async (res) => setLink(res.ok ? ((await res.json()) as PasswordLinkPreview) : null));
+  }, [token]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (password.length < MIN_PASSWORD_LENGTH) return setError(SETUP_ERRORS["password-too-short"]);
+    setBusy(true);
+    const res = await fetch(PASSWORD_LINK_PATH, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, password }) });
+    if (res.ok) {
+      window.location.hash = "#/";
+      await reload();
+      return;
+    }
+    const body = (await res.json()) as { code?: string };
+    if (body.code === "invalid-link") return setLink(null);
+    setError(SETUP_ERRORS[body.code ?? ""] ?? "Le mot de passe n'a pas pu être changé.");
+    setBusy(false);
+  }
+
+  if (link === undefined) return null;
+  if (link === null) return <LinkExpired />;
+  return (
+    <AuthCard className={styles.invitation}>
+      <div className={styles.head}>
+        <h1>Nouveau mot de passe</h1>
+        <p>
+          Pour le compte <strong>{link.email}</strong>. Une fois enregistré, tes autres sessions ouvertes sont déconnectées.
+        </p>
+      </div>
+      <form className={styles.form} onSubmit={submit}>
+        <Field label="Nouveau mot de passe" hint={error ?? "8 caractères au moins."} className={styles.field}>
+          <TextInput className={styles.input} type="password" name="password" autoComplete="new-password" value={password} required aria-invalid={error !== undefined} onChange={(e) => { setPassword(e.target.value); setError(undefined); }} />
+        </Field>
+        <Button type="submit" variant="accent" size="lg" className={styles.submit} disabled={busy}>
+          Enregistrer et entrer
+        </Button>
+      </form>
+      <p className={styles.hint}>Lien valable 24 heures, une seule fois.</p>
+    </AuthCard>
+  );
+}
+
 /** What a member sees when opening a screen reserved to admins. */
 export function NoAccessScreen() {
   useDocumentTitle("Pas d'accès");
@@ -239,6 +295,25 @@ export function NoAccessScreen() {
       <Button variant="secondary" size="lg" className={styles.centeredButton} onClick={() => { window.location.hash = "#/"; }}>
         Retour à l'accueil
       </Button>
+    </AuthCard>
+  );
+}
+
+/** The SSO let this person in but Redline's account list does not know them (or has deactivated them): who to ask. */
+export function UnknownPersonScreen({ email, admins, logoutUrl }: { email: string; admins: { name: string; email: string }[]; logoutUrl: string | null }) {
+  useDocumentTitle("Pas d'accès");
+  const names = admins.map((admin) => admin.name || admin.email).join(", ");
+  return (
+    <AuthCard high className={styles.centered}>
+      <h1 className={styles.centeredTitle}>Tu n'as pas accès à Redline</h1>
+      <p className={styles.centeredText}>
+        Ton compte <strong>{email}</strong> n'est pas dans les comptes de cette instance. Demande à un admin de t'ajouter{names ? ` : ${names}` : ""}. Si on t'a envoyé un lien de partage, ouvre-le directement.
+      </p>
+      {logoutUrl && (
+        <Button variant="secondary" size="lg" className={styles.centeredButton} onClick={() => { window.location.href = logoutUrl; }}>
+          Se déconnecter
+        </Button>
+      )}
     </AuthCard>
   );
 }

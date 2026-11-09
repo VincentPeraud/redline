@@ -1,3 +1,4 @@
+import { ArtboardIframe } from "./artboardCapability.js";
 import { useEffect, useRef, useState } from "react";
 import type { ManifestArtboard } from "@redline/shared";
 import { usePageManifest } from "./usePageManifest.js";
@@ -60,7 +61,7 @@ export function PageThumbnail({
             className={styles.frame}
             style={{ width: artboard.width * scale, height: artboard.height * scale }}
           >
-            <iframe
+            <ArtboardIframe
               sandbox="allow-scripts"
               tabIndex={-1}
               title={`Aperçu de ${artboard.file}`}

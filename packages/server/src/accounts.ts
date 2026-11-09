@@ -1,15 +1,19 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import type Database from "better-sqlite3";
-import { INVITATION_DAYS, initialsOf, type AccountEntry, type AccountRole, type AccountsResponse, type InvitationEntry, type InvitationPreview, type Person } from "@redline/shared";
+import { INVITATION_DAYS, PASSWORD_LINK_HOURS, initialsOf, type AccountEntry, type AccountRole, type AccountsResponse, type InvitationEntry, type InvitationPreview, type PasswordLinkEntry, type PasswordLinkPreview, type Person } from "@redline/shared";
 
 const scryptAsync = promisify(scrypt) as (password: string, salt: Buffer, keyLength: number) => Promise<Buffer>;
 const KEY_LENGTH = 64;
 export const MIN_PASSWORD_LENGTH = 8;
 export const SESSION_DAYS = 30;
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
+/** The `expires_at` of an entry that never expires (added in proxy mode). */
+const NEVER = "9999-12-31T23:59:59.999Z";
+const SSO_REFRESH_MS = 60_000;
 
-export type AccountErrorCode = "invalid-link" | "password-too-short" | "invalid-email" | "invalid-role" | "email-taken" | "invitation-pending";
+export type AccountErrorCode = "invalid-link" | "password-too-short" | "invalid-email" | "invalid-role" | "email-taken" | "invitation-pending" | "unknown-account" | "last-admin" | "self-deactivation" | "wrong-password" | "invalid-name";
 
 export class AccountError extends Error {
   constructor(
@@ -66,8 +70,8 @@ const invitationEntry = (row: InvitationRow): InvitationEntry => ({
   role: row.role,
   invitedBy: row.invited_by ?? "",
   createdAt: row.created_at,
-  expiresAt: row.expires_at,
-  token: row.token,
+  expiresAt: row.expires_at === NEVER ? null : row.expires_at,
+  token: row.expires_at === NEVER ? "" : row.token,
 });
 
 /** Accounts, sessions and single-use setup links, kept in the people table and its neighbours. */
@@ -86,10 +90,12 @@ export class AccountStore {
     addColumn("people", "password_hash", "TEXT");
     addColumn("people", "origin", "TEXT NOT NULL DEFAULT 'sso'");
     addColumn("people", "last_sign_in_at", "TEXT");
+    addColumn("people", "sso_id", "TEXT");
     addColumn("projects", "created_by", "TEXT");
     addColumn("projects", "visibility", "TEXT NOT NULL DEFAULT 'team'");
     db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS people_account_email ON people (lower(email)) WHERE role IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS people_sso_id ON people (sso_id) WHERE sso_id IS NOT NULL;
       CREATE TABLE IF NOT EXISTS sessions (
         token_hash TEXT PRIMARY KEY,
         person_id TEXT NOT NULL,
@@ -111,6 +117,7 @@ export class AccountStore {
         created_at TEXT NOT NULL
       );
     `);
+    addColumn("single_use_links", "person_id", "TEXT");
   }
 
   /** Every active account with its role, oldest first. */
@@ -170,21 +177,31 @@ export class AccountStore {
     return { id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id) };
   }
 
+  private accountEntries(onlyId?: string): AccountEntry[] {
+    const owned = new Map<string, string[]>();
+    for (const { created_by, title } of this.db.prepare("SELECT created_by, title FROM projects WHERE created_by IS NOT NULL ORDER BY created_at, rowid").all() as { created_by: string; title: string }[]) {
+      owned.set(created_by, [...(owned.get(created_by) ?? []), title]);
+    }
+    return (
+      this.db.prepare("SELECT id, name, email, role, status, last_sign_in_at FROM people WHERE role IS NOT NULL ORDER BY created_at, rowid").all() as (AccountRow & { status: AccountEntry["status"]; last_sign_in_at: string | null })[]
+    )
+      .filter((row) => onlyId === undefined || row.id === onlyId)
+      .map((row) => ({ id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id), role: row.role, status: row.status, lastSignInAt: row.last_sign_in_at, ownedProjects: owned.get(row.id) ?? [] }));
+  }
+
   /** Every account (people with a role) and the invitations still open, oldest first. */
   list(): AccountsResponse {
-    const accounts = (
-      this.db.prepare("SELECT id, name, email, role, status, last_sign_in_at FROM people WHERE role IS NOT NULL ORDER BY created_at, rowid").all() as (AccountRow & { status: AccountEntry["status"]; last_sign_in_at: string | null })[]
-    ).map((row) => ({ id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id), role: row.role, status: row.status, lastSignInAt: row.last_sign_in_at }));
+    const accounts = this.accountEntries();
     const invitations = (
       this.db
         .prepare("SELECT i.id, i.token, i.email, i.role, i.created_at, i.expires_at, p.name AS invited_by FROM invitations i LEFT JOIN people p ON p.id = i.invited_by WHERE i.expires_at > ? ORDER BY i.created_at, i.rowid")
         .all(new Date().toISOString()) as InvitationRow[]
     ).map(invitationEntry);
-    return { accounts, invitations };
+    return { sso: false, accounts, invitations };
   }
 
-  /** A link to copy, valid 7 days and single use, for someone with this e-mail. */
-  invite(adminId: string, input: { email: string; role: string }): InvitationEntry {
+  /** A link to copy, valid 7 days and single use, for someone with this e-mail; `expiry: "never"` is the entry waiting for a first SSO sign-in (proxy mode, no link). */
+  invite(adminId: string, input: { email: string; role: string }, expiry: "7-days" | "never" = "7-days"): InvitationEntry {
     const email = input.email.trim();
     if (!EMAIL_PATTERN.test(email)) throw new AccountError("invalid-email", "Enter a valid e-mail.");
     if (input.role !== "admin" && input.role !== "member") throw new AccountError("invalid-role", "The role is admin or member.");
@@ -195,7 +212,7 @@ export class AccountStore {
     }
     const id = randomUUID();
     const token = randomBytes(24).toString("base64url");
-    const expiresAt = new Date(now.getTime() + INVITATION_DAYS * DAY_MS).toISOString();
+    const expiresAt = expiry === "never" ? NEVER : new Date(now.getTime() + INVITATION_DAYS * DAY_MS).toISOString();
     this.db
       .prepare("INSERT INTO invitations (id, token, email, role, invited_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run(id, token, email, input.role, adminId, now.toISOString(), expiresAt);
@@ -237,6 +254,184 @@ export class AccountStore {
       this.db.prepare("DELETE FROM invitations WHERE id = ?").run(invitation.id);
     })();
     return { id, name, email: invitation.email, initials: initialsOf(name, id) };
+  }
+
+  /** The oldest active admin: the account `reset-admin` writes a password link for. */
+  firstActiveAdmin(): AccountEntry | undefined {
+    return this.accountEntries().find((account) => account.role === "admin" && account.status === "active");
+  }
+
+  private requireAccount(id: string): AccountEntry {
+    const entry = this.accountEntries(id)[0];
+    if (!entry) throw new AccountError("unknown-account", "This account is unknown.");
+    return entry;
+  }
+
+  private activeAdminCount(): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM people WHERE role = 'admin' AND status = 'active'").get() as { n: number }).n;
+  }
+
+  private assertNotLastAdmin(account: AccountEntry): void {
+    if (account.role === "admin" && account.status === "active" && this.activeAdminCount() <= 1) throw new AccountError("last-admin", "Il faut au moins un admin.");
+  }
+
+  /** Makes an account admin or member; the last active admin cannot be lowered. */
+  setRole(id: string, role: string): AccountEntry {
+    if (role !== "admin" && role !== "member") throw new AccountError("invalid-role", "The role is admin or member.");
+    const account = this.requireAccount(id);
+    if (role === "member") this.assertNotLastAdmin(account);
+    this.db.prepare("UPDATE people SET role = ? WHERE id = ?").run(role, id);
+    return this.requireAccount(id);
+  }
+
+  /** Signs the account out everywhere, hands its projects to the admin who deactivates; its name stays on what it signed. */
+  deactivate(adminId: string, id: string): AccountEntry {
+    const account = this.requireAccount(id);
+    this.assertNotLastAdmin(account);
+    if (id === adminId) throw new AccountError("self-deactivation", "You cannot deactivate your own account.");
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE people SET status = 'deactivated' WHERE id = ?").run(id);
+      this.db.prepare("UPDATE projects SET created_by = ? WHERE created_by = ?").run(adminId, id);
+      this.deleteSessionsOf(id);
+      this.db.prepare("DELETE FROM single_use_links WHERE person_id = ?").run(id);
+    })();
+    return this.requireAccount(id);
+  }
+
+  reactivate(id: string): AccountEntry {
+    this.requireAccount(id);
+    this.db.prepare("UPDATE people SET status = 'active' WHERE id = ?").run(id);
+    return this.requireAccount(id);
+  }
+
+  /** A link to copy, valid 24 hours and single use, to choose a new password; it replaces the previous one of that account. */
+  issuePasswordLink(id: string): PasswordLinkEntry {
+    const account = this.requireAccount(id);
+    if (account.status !== "active") throw new AccountError("unknown-account", "This account is deactivated.");
+    const token = randomBytes(24).toString("base64url");
+    const now = new Date();
+    this.db.transaction(() => {
+      this.db.prepare("DELETE FROM single_use_links WHERE kind = 'password' AND person_id = ?").run(id);
+      this.db.prepare("INSERT INTO single_use_links (token_hash, kind, created_at, person_id) VALUES (?, 'password', ?, ?)").run(sha256(token), now.toISOString(), id);
+    })();
+    return { token, expiresAt: new Date(now.getTime() + PASSWORD_LINK_HOURS * HOUR_MS).toISOString() };
+  }
+
+  private openPasswordLink(token: string): (PasswordLinkPreview & { personId: string }) | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT p.id, p.email, l.created_at FROM single_use_links l JOIN people p ON p.id = l.person_id
+         WHERE l.token_hash = ? AND l.kind = 'password' AND p.role IS NOT NULL AND p.status = 'active'`,
+      )
+      .get(sha256(token)) as { id: string; email: string; created_at: string } | undefined;
+    const expiresAt = row && new Date(new Date(row.created_at).getTime() + PASSWORD_LINK_HOURS * HOUR_MS);
+    return row && expiresAt && expiresAt.getTime() > Date.now() ? { personId: row.id, email: row.email, expiresAt: expiresAt.toISOString() } : undefined;
+  }
+
+  previewPasswordLink(token: string): PasswordLinkPreview | undefined {
+    const link = this.openPasswordLink(token);
+    return link && { email: link.email, expiresAt: link.expiresAt };
+  }
+
+  /** Sets the new password, consumes the link and signs every device of the account out, in one transaction. */
+  async choosePassword(token: string, password: string): Promise<Person> {
+    const invalidLink = () => new AccountError("invalid-link", "This password link is expired or used.");
+    const link = this.openPasswordLink(token);
+    if (!link) throw invalidLink();
+    if (password.length < MIN_PASSWORD_LENGTH) throw new AccountError("password-too-short", `The password needs ${MIN_PASSWORD_LENGTH} characters at least.`);
+    const hash = await hashPassword(password);
+    this.db.transaction(() => {
+      if (!this.openPasswordLink(token)) throw invalidLink();
+      this.db.prepare("UPDATE people SET password_hash = ?, last_sign_in_at = ? WHERE id = ?").run(hash, new Date().toISOString(), link.personId);
+      this.db.prepare("DELETE FROM single_use_links WHERE kind = 'password' AND person_id = ?").run(link.personId);
+      this.deleteSessionsOf(link.personId);
+    })();
+    const { name } = this.requireAccount(link.personId);
+    return { id: link.personId, name, email: link.email, initials: initialsOf(name, link.personId) };
+  }
+
+  rename(id: string, name: string): Person {
+    const trimmed = name.trim();
+    if (trimmed === "") throw new AccountError("invalid-name", "Enter a name.");
+    this.db.prepare("UPDATE people SET name = ? WHERE id = ?").run(trimmed, id);
+    const { email } = this.requireAccount(id);
+    return { id, name: trimmed, email, initials: initialsOf(trimmed, id) };
+  }
+
+  /** Changes the password of the signed-in account when the current one is right; every other device is signed out. */
+  async changePassword(id: string, sessionToken: string | undefined, currentPassword: string, newPassword: string): Promise<void> {
+    const row = this.db.prepare("SELECT password_hash FROM people WHERE id = ? AND role IS NOT NULL AND status = 'active'").get(id) as { password_hash: string | null } | undefined;
+    if (!row?.password_hash || !(await passwordMatches(currentPassword, row.password_hash))) throw new AccountError("wrong-password", "Le mot de passe actuel n'est pas le bon.");
+    if (newPassword.length < MIN_PASSWORD_LENGTH) throw new AccountError("password-too-short", `The password needs ${MIN_PASSWORD_LENGTH} characters at least.`);
+    const hash = await hashPassword(newPassword);
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE people SET password_hash = ? WHERE id = ?").run(hash, id);
+      this.deleteSessionsOf(id, sessionToken);
+    })();
+  }
+
+  /** Every session of the account, except the one of `keepToken`. */
+  deleteSessionsOf(personId: string, keepToken?: string): void {
+    this.db.prepare("DELETE FROM sessions WHERE person_id = ? AND token_hash IS NOT ?").run(personId, keepToken === undefined ? null : sha256(keepToken));
+  }
+
+  /** The active admins' names and e-mails: who a person without access is told to ask. */
+  activeAdmins(): { name: string; email: string }[] {
+    return this.db.prepare("SELECT name, email FROM people WHERE role = 'admin' AND status = 'active' ORDER BY created_at, rowid").all() as { name: string; email: string }[];
+  }
+
+  /**
+   * The account of a person the SSO let in, or undefined when Redline does not know them (or has deactivated them).
+   * Found by SSO user id; else bound at their first sign-in to the account of a former local mode or to the entry
+   * an admin added, both matched by e-mail; else, while no account exists at all, the first person becomes admin.
+   * All of it runs in one transaction, so two first visitors cannot both become admin.
+   */
+  signInThroughSso(sso: { id: string; name: string; email: string }): SignedInAccount | undefined {
+    return this.db.transaction((): SignedInAccount | undefined => {
+      const now = new Date();
+      const columns = "id, name, email, role, status, last_sign_in_at";
+      type Found = AccountRow & { status: string; last_sign_in_at: string | null };
+      const touch = (found: Found, name: string, email: string): SignedInAccount | undefined => {
+        if (found.status !== "active") return undefined;
+        const emailTaken = email !== "" && email.toLowerCase() !== found.email.toLowerCase() && this.db.prepare("SELECT 1 FROM people WHERE role IS NOT NULL AND id <> ? AND lower(email) = lower(?)").get(found.id, email);
+        const nextName = name || found.name;
+        const nextEmail = email === "" || emailTaken ? found.email : email;
+        const stale = !found.last_sign_in_at || now.getTime() - Date.parse(found.last_sign_in_at) > SSO_REFRESH_MS;
+        if (nextName !== found.name || nextEmail !== found.email || stale) {
+          this.db.prepare("UPDATE people SET name = ?, email = ?, last_sign_in_at = ? WHERE id = ?").run(nextName, nextEmail, now.toISOString(), found.id);
+        }
+        return { id: found.id, name: nextName, email: nextEmail, initials: initialsOf(nextName, found.id), role: found.role };
+      };
+
+      const bound = this.db.prepare(`SELECT ${columns} FROM people WHERE role IS NOT NULL AND sso_id = ?`).get(sso.id) as Found | undefined;
+      if (bound) return touch(bound, sso.name, sso.email);
+
+      if (sso.email !== "") {
+        const local = this.db.prepare(`SELECT ${columns} FROM people WHERE role IS NOT NULL AND sso_id IS NULL AND lower(email) = lower(?)`).get(sso.email) as Found | undefined;
+        if (local) {
+          this.db.prepare("UPDATE people SET sso_id = ? WHERE id = ?").run(sso.id, local.id);
+          return touch(local, sso.name, sso.email);
+        }
+      }
+
+      const pending = sso.email === "" ? undefined : (this.db.prepare("SELECT id, role FROM invitations WHERE lower(email) = lower(?) AND expires_at > ?").get(sso.email, now.toISOString()) as { id: string; role: AccountRole } | undefined);
+      const role: AccountRole | undefined = pending?.role ?? (this.hasAccount() ? undefined : "admin");
+      if (!role) return undefined;
+      // A person seen before the accounts already has a row under their SSO user id: it becomes the account, so their history follows.
+      const seen = this.db.prepare("SELECT 1 FROM people WHERE id = ?").get(sso.id);
+      if (seen) {
+        this.db
+          .prepare("UPDATE people SET name = ?, email = ?, role = ?, status = 'active', origin = 'sso', sso_id = ?, last_sign_in_at = ? WHERE id = ?")
+          .run(sso.name, sso.email, role, sso.id, now.toISOString(), sso.id);
+      } else {
+        this.db
+          .prepare("INSERT INTO people (id, name, email, created_at, role, status, origin, sso_id, last_sign_in_at) VALUES (?, ?, ?, ?, ?, 'active', 'sso', ?, ?)")
+          .run(sso.id, sso.name, sso.email, now.toISOString(), role, sso.id, now.toISOString());
+      }
+      if (pending) this.db.prepare("DELETE FROM invitations WHERE id = ?").run(pending.id);
+      else this.db.prepare("UPDATE projects SET created_by = ?, visibility = 'team' WHERE created_by IS NULL").run(sso.id);
+      return { id: sso.id, name: sso.name, email: sso.email, initials: initialsOf(sso.name, sso.id), role };
+    })();
   }
 
   createSession(personId: string): { token: string; expiresAt: Date } {

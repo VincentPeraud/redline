@@ -23,7 +23,7 @@ describe("proxy secrets", () => {
   });
 
   const status = async (url: string, secret?: string) =>
-    (await fetch(url, { headers: secret === undefined ? {} : { [PROXY_SECRET_HEADER]: secret } })).status;
+    (await fetch(url, { headers: secret === undefined ? {} : { [PROXY_SECRET_HEADER]: secret, "remote-user": "amartin", "remote-email": "ariane@example.com" } })).status;
   const ui = (path: string) => server.url + path;
   const artboards = (path: string) => server.artboardOrigin + path;
 

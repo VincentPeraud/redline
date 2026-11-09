@@ -82,3 +82,25 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
 }
+
+.role {
+  width: 120px;
+}
+
+.notice {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  font-size: var(--font-size-sm);
+}
+
+.sso {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}

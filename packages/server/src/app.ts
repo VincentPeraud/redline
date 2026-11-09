@@ -1,6 +1,6 @@
 import { createReadStream, existsSync } from "node:fs";
 import { extname } from "node:path";
-import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
   type PageViewSettings,
@@ -47,6 +47,7 @@ import {
   isAccessLevel,
   type ProjectVisibility,
   CLI_TARBALL_PATH,
+  ARTBOARD_CAPABILITY_SEGMENT,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import { INSTANCES_PATH, INSTANCES_SOURCE, injectInstances, instanceLayersOf } from "./instances.js";
@@ -77,6 +78,7 @@ import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
 import { validTimeZone } from "./version-dates.js";
 import { registerGapRoutes } from "./gaps.js";
+import type { ArtboardCapabilities } from "./artboard-capabilities.js";
 import { createAccess, registerAccess, type Access, type AuthMode, type Viewer } from "./access.js";
 import { DEFAULT_IDENTITY, registerIdentity, personRef, type IdentityConfig } from "./identity.js";
 import { type CliBuild } from "./cli-build.js";
@@ -141,7 +143,7 @@ export async function buildMainApp(
   store: Store,
   config: ServerConfig,
   webDir?: string,
-  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; authMode?: AuthMode; cliBuild?: CliBuild; publicUntil?: Date } = {},
+  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; authMode?: AuthMode; cliBuild?: CliBuild; publicUntil?: Date; capabilities?: ArtboardCapabilities } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ bodyLimit: MAX_PAGE_BYTES });
   registerPublicDeadline(app, options.publicUntil);
@@ -151,8 +153,8 @@ export async function buildMainApp(
   const authMode = options.authMode ?? (options.proxySecrets ? "proxy" : "none");
   const access = createAccess({ mode: authMode, store, secrets: options.proxySecrets, identity });
   registerAccess(app, access);
-  registerIdentity(app, identity, authMode);
-  if (authMode === "local") registerAccountRoutes(app, store);
+  registerIdentity(app, store, identity, authMode);
+  if (authMode === "local" || authMode === "proxy") registerAccountRoutes(app, store, authMode);
   const { cliBuild } = options;
   store.setServerBuildHash(cliBuild?.hash);
   if (cliBuild) {
@@ -199,6 +201,13 @@ export async function buildMainApp(
   });
 
   app.get("/api/config", async () => config);
+
+  // The pass the app puts in artboard urls; `registerAccess` has already asked `may` for this project.
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/artboard-capability", async (req, reply) => {
+    if (!options.capabilities) return reply.code(404).send({ error: "artboard capabilities are not available" });
+    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    return options.capabilities.issueFor(access, req.viewer, req.params.projectId) ?? reply.code(403).send({ error: "forbidden" });
+  });
 
   app.post<{ Body: CreateProjectRequest }>("/api/projects", async (req, reply) => {
     const { title, instructions, designSystem, visibility } = req.body ?? ({} as Partial<CreateProjectRequest>);
@@ -751,10 +760,51 @@ export async function buildMainApp(
  * share an origin with the API. The CSP sandbox (without allow-same-origin) also gives
  * the document an opaque origin, even if someone opens the URL directly.
  */
-export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets, publicUntil?: Date): Promise<FastifyInstance> {
-  const app = Fastify();
+export async function buildArtboardApp(
+  store: Store,
+  { proxySecrets, publicUntil, capabilities, authMode }: { proxySecrets?: ProxySecrets; publicUntil?: Date; capabilities: ArtboardCapabilities; authMode: AuthMode },
+): Promise<FastifyInstance> {
+  // A capability is longer than the default 100 characters of a path parameter.
+  const app = Fastify({ routerOptions: { maxParamLength: 500 } });
   registerPublicDeadline(app, publicUntil);
   registerProxySecretCheck(app, proxySecrets, { artboards: true });
+  // Every url carries a capability (`/c/<capability>/pages/...`); mode `none` has no login to protect and also serves the plain urls.
+  await app.register(
+    async (scope) => {
+      if (authMode !== "none") scope.addHook("preHandler", requireCapability(store, capabilities));
+      registerArtboardRoutes(scope, store);
+    },
+    { prefix: `/${ARTBOARD_CAPABILITY_SEGMENT}/:capability` },
+  );
+  if (authMode === "none") await app.register(async (scope) => registerArtboardRoutes(scope, store));
+  return app;
+}
+
+/** Whether `capabilityProject` may be served the files of `requestedId`: itself, or a design system it uses. */
+function coversProject(store: Store, capabilityProject: string, requestedId: string): boolean {
+  if (requestedId === capabilityProject) return true;
+  if (!store.isDesignSystemProject(requestedId)) return false;
+  return store.sharedDesignSystemIdOfProject(capabilityProject) === requestedId || store.listPages(capabilityProject).some((page) => store.sharedDesignSystemIdOfPage(page.id) === requestedId);
+}
+
+/** Refuses (403) a request without a valid capability for the project of what it asks: the page, project or design system named in its path. */
+function requireCapability(store: Store, capabilities: ArtboardCapabilities) {
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const params = req.params as { capability: string; pageId?: string; projectId?: string; designSystemId?: string };
+    const project = capabilities.projectOf(params.capability);
+    if (project === undefined) return reply.code(403).send("capability required");
+    const requested = params.pageId !== undefined ? store.projectIdOfPage(params.pageId) : (params.projectId ?? params.designSystemId);
+    if (params.pageId !== undefined && requested === undefined) return reply.code(404).send("not found");
+    if (requested !== undefined && !coversProject(store, project, requested)) return reply.code(403).send("capability is for another project");
+  };
+}
+
+function registerArtboardRoutes(app: FastifyInstance, store: Store): void {
+  /** The url prefix the request came under, for the links injected into the page. */
+  const baseOf = (req: FastifyRequest) => {
+    const capability = (req.params as { capability?: string }).capability;
+    return capability === undefined ? "" : `/${ARTBOARD_CAPABILITY_SEGMENT}/${capability}`;
+  };
 
   app.get(BRIDGE_PATH, async (_req, reply) =>
     reply.header("content-security-policy", "sandbox allow-scripts").header("cache-control", "no-cache").type(MIME[".js"]).send(BRIDGE_SOURCE),
@@ -805,7 +855,7 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
       .header("cache-control", "no-cache")
       .type(MIME[".html"])
       // The component's own style blocks are what components.css assembles: dropped here so that the chosen diffusion's css decides.
-      .send(injectDesignSystem(withoutComponentStyles(html), designSystemId, undefined, diffusion));
+      .send(injectDesignSystem(withoutComponentStyles(html), designSystemId, undefined, diffusion, baseOf(req)));
   });
 
   app.get<{ Params: { designSystemId: string; "*": string } }>("/design-systems/:designSystemId/*", async (req, reply) => {
@@ -836,7 +886,7 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
 
   // A page as it was in one version (history preview): same sandbox and injections as the live artboards, read-only.
   app.get<{ Params: { pageId: string; versionId: string; "*": string } }>("/page-versions/:pageId/:versionId/*", async (req, reply) =>
-    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"]), { versionId: req.params.versionId }),
+    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"]), { versionId: req.params.versionId, base: baseOf(req) }),
   );
 
   // `?preview=draft`: the viewer's preview of a project with the design system draft; it is the same call without a diffusion number.
@@ -844,7 +894,7 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
   app.get<{ Params: { pageId: string; "*": string }; Querystring: { preview?: string; diffusion?: string } }>("/pages/:pageId/*", async (req, reply) => {
     const { pageId } = req.params;
     const path = req.params["*"];
-    if (req.query.diffusion === undefined) return serveArtboardFile(pageId, path, reply, store.readPageFile(pageId, path), { draftPreview: req.query.preview === "draft" });
+    if (req.query.diffusion === undefined) return serveArtboardFile(pageId, path, reply, store.readPageFile(pageId, path), { draftPreview: req.query.preview === "draft", base: baseOf(req) });
     const designSystemId = store.isDesignSystemPage(pageId) ? store.getPage(pageId)?.projectId : undefined;
     if (designSystemId === undefined || !/^\d+$/.test(req.query.diffusion)) return reply.code(404).send("not found");
     const number = Number(req.query.diffusion);
@@ -852,7 +902,7 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
     // Only through the page that held the component in that diffusion.
     const heldBy = store.diffusionComponents(designSystemId, number).find((component) => component.file === path)?.page.id;
     if (frozen === undefined || heldBy !== pageId) return reply.code(404).send("not found");
-    return serveArtboardFile(pageId, path, reply, Buffer.from(frozen), { frozenDiffusion: number });
+    return serveArtboardFile(pageId, path, reply, Buffer.from(frozen), { frozenDiffusion: number, base: baseOf(req) });
   });
 
   /** The page's project when it has a project style (every project but a design system's own). */
@@ -869,7 +919,7 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
     return designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId)?.number;
   }
 
-  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, { versionId, draftPreview = false, frozenDiffusion }: { versionId?: string; draftPreview?: boolean; frozenDiffusion?: number } = {}) {
+  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, { versionId, draftPreview = false, frozenDiffusion, base = "" }: { versionId?: string; draftPreview?: boolean; frozenDiffusion?: number; base?: string } = {}) {
     const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, pageId, path.slice("assets/".length)) : undefined);
     if (!asset) return reply.code(404).send("not found");
     // Artboards are opaque-origin, so fonts of the project assets need CORS to load.
@@ -877,12 +927,10 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
     const isHtml = extname(path) === ".html";
     if (!isHtml) return reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[extname(path)] ?? "application/octet-stream").send(asset);
     const diffusion = frozenDiffusion ?? (draftPreview ? undefined : diffusionOf(pageId, versionId));
-    const withDesignSystem = injectDesignSystem(asset.toString("utf8"), store.sharedDesignSystemIdOfPage(pageId, versionId), projectStyleProjectOf(pageId), diffusion);
+    const withDesignSystem = injectDesignSystem(asset.toString("utf8"), store.sharedDesignSystemIdOfPage(pageId, versionId), projectStyleProjectOf(pageId), diffusion, base);
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[".html"])
-      .send(injectBridge(injectInstances(withDesignSystem, instanceLayersOf(store, pageId, diffusion, versionId))));
+      .send(injectBridge(injectInstances(withDesignSystem, instanceLayersOf(store, pageId, diffusion, versionId), base), base));
   }
-
-  return app;
 }

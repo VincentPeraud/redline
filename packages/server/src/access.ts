@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { INSUFFICIENT_LEVEL_CODE, INVITATION_PATH, NO_ACCESS_CODE, SESSION_PATH, SETUP_PATH, type AccessLevel, type AccountRole, type InsufficientLevelResponse, type NoAccessResponse, type Person } from "@redline/shared";
+import { INSUFFICIENT_LEVEL_CODE, INVITATION_PATH, NO_ACCESS_CODE, PASSWORD_LINK_PATH, initialsOf, SESSION_PATH, SETUP_PATH, type AccessLevel, type AccountRole, type InsufficientLevelResponse, type NoAccessResponse, type Person } from "@redline/shared";
 import { HEALTH_PATH, hasHumanSecret, isMachinePath, type ProxySecrets } from "./proxy-secrets.js";
 import { isLocalHost } from "./public-deadline.js";
 import type { Store } from "./store.js";
@@ -11,7 +11,7 @@ export type Viewer =
   | { kind: "account"; person: Person; role?: AccountRole }
   | { kind: "link"; token: string }
   | { kind: "agent" }
-  | { kind: "nobody" };
+  | { kind: "nobody"; /** In proxy mode, the SSO person Redline has no account for: they are told whom to ask. */ ssoPerson?: Person };
 
 /** What a request needs: a level of the project (`read` views, `comment` comments, `write` works on pages), or `manage` (creator and admins). */
 export type Action = AccessLevel | "manage";
@@ -55,7 +55,7 @@ declare module "fastify" {
 
 const NOBODY: Viewer = { kind: "nobody" };
 /** Paths a viewer may always reach: they say who the viewer is, or answer the container's probe. */
-const OPEN_PATHS = new Set(["/api/me", HEALTH_PATH, SESSION_PATH, SETUP_PATH, INVITATION_PATH]);
+const OPEN_PATHS = new Set(["/api/me", HEALTH_PATH, SESSION_PATH, SETUP_PATH, INVITATION_PATH, PASSWORD_LINK_PATH]);
 
 export const SESSION_COOKIE = "redline_session";
 
@@ -88,7 +88,13 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
     if (isMachinePath(req.url)) return { kind: "agent" };
     if (mode === "proxy" && secrets && req.url.startsWith("/api/") && hasHumanSecret(req, secrets)) {
       const id = headerText(req, identity.userHeader);
-      if (id !== "") return { kind: "account", person: store.savePerson(id, headerText(req, identity.nameHeader), headerText(req, identity.emailHeader)) };
+      if (id !== "") {
+        const name = headerText(req, identity.nameHeader);
+        const email = headerText(req, identity.emailHeader);
+        const account = store.accounts.signInThroughSso({ id, name, email });
+        if (!account) return { kind: "nobody", ssoPerson: { id, name, email, initials: initialsOf(name, id) } };
+        return { kind: "account", person: { id: account.id, name: account.name, email: account.email, initials: account.initials }, role: account.role };
+      }
     }
     if (mode === "local" && req.url.startsWith("/api/")) {
       const session = cookieOf(req, SESSION_COOKIE);
@@ -103,7 +109,7 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
   };
   /** The effective level: admins and the creator at Écriture; Équipe, the lowered level else Écriture; Privé, the chosen level else none. */
   const levelIn = (viewer: Viewer, projectId: string): AccessLevel | undefined => {
-    if (mode !== "local" || viewer.kind === "agent") return "write";
+    if (mode === "none" || viewer.kind === "agent") return "write";
     if (viewer.kind !== "account") return undefined;
     if (viewer.role === "admin") return "write";
     const ownership = store.projectOwnership(projectId);
@@ -113,13 +119,13 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
     return ownership.visibility === "team" ? (own ?? "write") : own;
   };
   const levelOf = (viewer: Viewer, resource: Resource): AccessLevel | undefined => {
-    if (mode !== "local" || viewer.kind === "agent") return "write";
+    if (mode === "none" || viewer.kind === "agent") return "write";
     if (viewer.kind !== "account") return undefined;
     const projectId = projectIdOf(resource);
     return projectId === undefined ? "write" : levelIn(viewer, projectId);
   };
   const manages = (viewer: Viewer, projectId: string): boolean => {
-    if (mode !== "local") return true;
+    if (mode === "none") return true;
     if (viewer.kind === "agent") return true;
     if (viewer.kind !== "account") return false;
     // A design system is a project row with no creator: any account manages it, as it sees it.

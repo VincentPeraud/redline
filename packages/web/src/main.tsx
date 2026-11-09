@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles/global.css";
 import { AccountsScreen } from "./AccountsScreen.js";
+import { MyAccountScreen } from "./MyAccountScreen.js";
 import { AgentsScreen } from "./AgentsScreen";
 import { AgentUpdateBanner, useOutdatedAgentNames } from "./AgentUpdateBanner.js";
 import { App } from "./App";
@@ -33,6 +34,7 @@ const SECTION_TITLES: Partial<Record<Route["name"], string>> = {
   agents: "Agents",
   sessions: "Sessions",
   accounts: "Comptes",
+  account: "Mon compte",
   projects: "Projets",
   archivedProjects: "Projets archivés",
   designSystems: "Design systems",
@@ -77,6 +79,8 @@ function RouteScreen({ route }: { route: Route }) {
       return <Shell><AgentsScreen /></Shell>;
     case "accounts":
       return <AccountsRoute />;
+    case "account":
+      return <Shell><MyAccountScreen /></Shell>;
     case "project":
       return <ProjectOverview key={route.projectId} projectId={route.projectId} />;
     case "designMd":

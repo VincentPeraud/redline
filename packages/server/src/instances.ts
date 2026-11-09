@@ -210,10 +210,10 @@ export const INSTANCES_SOURCE = `(function () {
 const noDefinitions = (layers: InstanceLayers) => layers.designSystem.length === 0 && layers.project.length === 0 && !layers.excluded?.length;
 
 /** Adds the definitions and the runtime at the end of an artboard's body (before the bridge, which injects itself after); nothing when there are no definitions. */
-export function injectInstances(html: string, layers: InstanceLayers): string {
+export function injectInstances(html: string, layers: InstanceLayers, base = ""): string {
   if (noDefinitions(layers)) return html;
   const json = JSON.stringify(layers).replace(/</g, "\\u003c");
-  const tag = `<script type="application/json" id="${INSTANCES_DATA_ID}">${json}</script><script src="${INSTANCES_PATH}"></script>`;
+  const tag = `<script type="application/json" id="${INSTANCES_DATA_ID}">${json}</script><script src="${base}${INSTANCES_PATH}"></script>`;
   const end = html.lastIndexOf("</body>");
   return end === -1 ? html + tag : html.slice(0, end) + tag + html.slice(end);
 }
