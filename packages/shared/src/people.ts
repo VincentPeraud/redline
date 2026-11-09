@@ -17,6 +17,46 @@ export type MeResponse = (Person & { logoutUrl: string | null; account?: { role:
 
 export const SESSION_PATH = "/api/session";
 export const SETUP_PATH = "/api/setup";
+/** Open to people who are not signed in: `GET ?token=` reads an invitation, `POST` accepts it (creates the account). */
+export const INVITATION_PATH = "/api/invitation";
+/** Admins only: `GET` lists accounts and pending invitations. */
+export const ACCOUNTS_PATH = "/api/accounts";
+/** Admins only: `POST` creates an invitation, `DELETE /<id>` cancels a pending one. */
+export const INVITATIONS_PATH = "/api/accounts/invitations";
+
+export const INVITATION_DAYS = 7;
+
+export interface AccountEntry extends Person {
+  role: AccountRole;
+  status: "active" | "deactivated";
+  /** ISO time of the last sign-in; null for an account that never signed in. */
+  lastSignInAt: string | null;
+}
+
+export interface InvitationEntry {
+  id: string;
+  email: string;
+  role: AccountRole;
+  /** Name of the admin who invited. */
+  invitedBy: string;
+  createdAt: string;
+  expiresAt: string;
+  /** The secret part of the link: `#/invitation/<token>`. A pending invitation can be copied again. */
+  token: string;
+}
+
+export interface AccountsResponse {
+  accounts: AccountEntry[];
+  invitations: InvitationEntry[];
+}
+
+/** What the invitee sees before choosing a name and a password. */
+export interface InvitationPreview {
+  email: string;
+  role: AccountRole;
+  invitedBy: string;
+  expiresAt: string;
+}
 /** The header the web UI adds to its API calls: with a JSON content type, it is what a mutating call must carry in built-in account mode. */
 export const REDLINE_HEADER = "x-redline";
 

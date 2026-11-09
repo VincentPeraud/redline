@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { NO_ACCESS_CODE, SESSION_PATH, SETUP_PATH, type AccountRole, type NoAccessResponse, type Person } from "@redline/shared";
+import { INVITATION_PATH, NO_ACCESS_CODE, SESSION_PATH, SETUP_PATH, type AccountRole, type NoAccessResponse, type Person } from "@redline/shared";
 import { HEALTH_PATH, hasHumanSecret, isMachinePath, type ProxySecrets } from "./proxy-secrets.js";
 import { isLocalHost } from "./public-deadline.js";
 import type { Store } from "./store.js";
@@ -46,7 +46,7 @@ declare module "fastify" {
 
 const NOBODY: Viewer = { kind: "nobody" };
 /** Paths a viewer may always reach: they say who the viewer is, or answer the container's probe. */
-const OPEN_PATHS = new Set(["/api/me", HEALTH_PATH, SESSION_PATH, SETUP_PATH]);
+const OPEN_PATHS = new Set(["/api/me", HEALTH_PATH, SESSION_PATH, SETUP_PATH, INVITATION_PATH]);
 
 export const SESSION_COOKIE = "redline_session";
 

@@ -29,10 +29,10 @@ export function NoAccessGate({ children }: { children: ReactNode }) {
       window.removeEventListener("hashchange", onNavigate);
     };
   }, []);
-  return refusal ? <NoAccessScreen creatorName={refusal.creator?.name} /> : <>{children}</>;
+  return refusal ? <ProjectNoAccessScreen creatorName={refusal.creator?.name} /> : <>{children}</>;
 }
 
-export function NoAccessScreen({ creatorName }: { creatorName?: string }) {
+export function ProjectNoAccessScreen({ creatorName }: { creatorName?: string }) {
   useDocumentTitle("Pas d'accès");
   return (
     <div className={styles.page}>
