@@ -1,5 +1,8 @@
-import { useState, type FormEvent } from "react";
-import { MY_ACCOUNT_PATH, MY_PASSWORD_PATH } from "@redline/shared";
+import { useEffect, useState, type FormEvent } from "react";
+import { MY_ACCOUNT_PATH, MY_LINKS_PATH, MY_PASSWORD_PATH, type MyLink } from "@redline/shared";
+import { shortDate } from "./PageSharing.js";
+import { LEVEL_LABEL } from "./ProjectSharingDialog.js";
+import { routeHref } from "./router.js";
 import { Button, Card, Field, PageContent, PageHeader, TextInput } from "./ui/index.js";
 import { useMe, useSession } from "./useMe.js";
 import styles from "./MyAccountScreen.module.css";
@@ -82,6 +85,49 @@ function PasswordPanel() {
   );
 }
 
+const stateOf = ({ link }: MyLink): string => {
+  if (link.status === "disabled") return "désactivé";
+  if (link.expired) return "expiré";
+  return link.expiresAt ? `expire le ${shortDate(link.expiresAt)}` : "sans expiration";
+};
+
+/** Where a link leads and how: "Radio HAIDF › V1 · Commentaire · expire le 21 nov.". */
+const detailsOf = (mine: MyLink): string => `${mine.pageTitle ? `${mine.projectTitle} › ${mine.pageTitle}` : `${mine.projectTitle} (projet)`} · ${LEVEL_LABEL[mine.link.level]} · ${stateOf(mine)}`;
+
+/** The share links the account created, to find and open the page they lead to. */
+function LinksPanel() {
+  const [links, setLinks] = useState<MyLink[] | undefined>(undefined);
+  useEffect(() => {
+    void fetch(MY_LINKS_PATH).then(async (res) => setLinks(res.ok ? ((await res.json()) as MyLink[]) : []));
+  }, []);
+  if (links === undefined) return null;
+  const active = links.filter(({ link }) => link.status === "active" && !link.expired).length;
+  return (
+    <Card as="section" aria-label="Mes liens de partage" className={styles.panel}>
+      <h2 className={styles.panelTitle}>
+        Mes liens de partage · {active} {active > 1 ? "actifs" : "actif"}
+      </h2>
+      {links.length === 0 ? (
+        <p className={styles.empty}>Tu n'as créé aucun lien de partage.</p>
+      ) : (
+        <div>
+          {links.map((mine) => (
+            <div key={mine.link.id} className={styles.linkRow} data-testid="my-link">
+              <div className={styles.linkText}>
+                <strong>{mine.link.name}</strong>
+                <span>{detailsOf(mine)}</span>
+              </div>
+              <Button size="sm" onClick={() => (window.location.hash = routeHref(mine.pageId ? { name: "page", pageId: mine.pageId } : { name: "project", projectId: mine.projectId }))}>
+                Ouvrir
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 /** "Mon compte" (account menu): the signed-in account changes its name and its password. */
 export function MyAccountScreen() {
   const me = useMe();
@@ -91,6 +137,7 @@ export function MyAccountScreen() {
       <PageHeader title="Mon compte" subtitle={`${me.email} · ${me.account.role === "admin" ? "Admin" : "Membre"}`} />
       <ProfilePanel key={me.name} name={me.name} />
       <PasswordPanel />
+      <LinksPanel />
     </PageContent>
   );
 }

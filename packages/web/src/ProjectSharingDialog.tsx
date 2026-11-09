@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AccessLevel, Person, Project, ProjectMember, ProjectSharing, ProjectVisibility } from "@redline/shared";
+import type { AccessLevel, Person, Project, ProjectMember, ProjectSharing, ProjectVisibility, ShareLink } from "@redline/shared";
 import { Avatar } from "./Avatar.js";
 import { useMe } from "./useMe.js";
 import { VISIBILITY_LABEL } from "./VisibilityBadge.js";
@@ -13,6 +13,21 @@ export const LEVEL_LABEL: Record<AccessLevel, string> = { read: "Lecture", comme
 const LOWERING_LEVELS: AccessLevel[] = ["comment", "read", "write"];
 const CHOOSING_LEVELS: AccessLevel[] = ["write", "comment", "read"];
 const JSON_HEADERS = { "content-type": "application/json" };
+
+const disableLinks = (links: ShareLink[]) => Promise.all(links.map((link) => fetch(`/api/links/${link.id}/disable`, { method: "POST", headers: JSON_HEADERS, body: "{}" })));
+
+/** "Ses 3 liens", "Son lien": a count of links in French. */
+const linksCount = (n: number) => `${n} ${n > 1 ? "liens" : "lien"}`;
+
+/** What the creator reads under a lowered member: their links above their level still work. */
+function aboveLinksText(member: ProjectMember): string {
+  const links = member.aboveLinks;
+  const first = member.person.name.split(" ")[0];
+  const levels = new Set(links.map((link) => link.level));
+  const where = levels.size === 1 ? `en ${LEVEL_LABEL[links[0].level]}` : "au-dessus de son niveau";
+  const names = links.map((link) => `« ${link.name} »`).join(", ");
+  return `${first} a créé ${linksCount(links.length)} ${where} sur ce projet (${names}). ${links.length > 1 ? "Ils continuent" : "Il continue"} de marcher.`;
+}
 
 async function loadSharing(projectId: string): Promise<ProjectSharing> {
   return (await fetch(`/api/projects/${projectId}/sharing`)).json() as Promise<ProjectSharing>;
@@ -56,8 +71,9 @@ function LevelSelect({ label, value, levels, disabled, onChange }: { label: stri
   );
 }
 
-function MemberRow({ member, levels, firstName, editable, onLevel, onRemove }: { member: ProjectMember; levels: AccessLevel[]; firstName: string; editable: boolean; onLevel: (level: AccessLevel) => void; onRemove: () => void }) {
+function MemberRow({ member, levels, firstName, editable, onLevel, onRemove, onDisableLinks }: { member: ProjectMember; levels: AccessLevel[]; firstName: string; editable: boolean; onLevel: (level: AccessLevel) => void; onRemove: () => void; onDisableLinks: () => void }) {
   return (
+    <>
     <div className={styles.row} data-testid="member-row">
       <Avatar initials={member.person.initials} muted />
       <div className={styles.main}>
@@ -69,6 +85,15 @@ function MemberRow({ member, levels, firstName, editable, onLevel, onRemove }: {
         Retirer
       </Button>
     </div>
+    {member.aboveLinks.length > 0 && (
+      <div className={styles.warn} data-testid="member-links-warning">
+        <span>{aboveLinksText(member)}</span>
+        <Button size="sm" onClick={onDisableLinks}>
+          {member.aboveLinks.length > 1 ? "Les désactiver" : "Le désactiver"}
+        </Button>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -105,16 +130,23 @@ function ProjectSharingDialog({ project, sharing, reload, onChanged, onClose }: 
   const me = useMe();
   const [confirming, setConfirming] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [alsoDisableLinks, setAlsoDisableLinks] = useState(false);
 
   async function setVisibility(visibility: ProjectVisibility) {
     const res = await fetch(`/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ visibility }) });
-    if (res.ok) onChanged((await res.json()) as Project);
+    if (res.ok) {
+      if (alsoDisableLinks) await disableLinks(sharing.lostAccessLinks);
+      onChanged((await res.json()) as Project);
+    }
     setConfirming(false);
   }
 
   function choose(visibility: ProjectVisibility) {
     if (visibility === project.visibility) return;
-    if (visibility === "private" && sharing.wouldLoseAccess.length > 0) setConfirming(true);
+    if (visibility === "private" && sharing.wouldLoseAccess.length > 0) {
+      setAlsoDisableLinks(false);
+      setConfirming(true);
+    }
     else if (visibility === "private") void setVisibility("private");
     else void setVisibility("team");
   }
@@ -137,6 +169,15 @@ function ProjectSharingDialog({ project, sharing, reload, onChanged, onClose }: 
             </div>
           ))}
         </div>
+        {sharing.lostAccessLinks.length > 0 && (
+          <>
+            <p className={styles.text}>{sharing.lostAccessLinks.length > 1 ? `Leurs ${sharing.lostAccessLinks.length} liens de partage continuent de marcher.` : "Leur lien de partage continue de marcher."}</p>
+            <label className={styles.check}>
+              <input type="checkbox" checked={alsoDisableLinks} onChange={(e) => setAlsoDisableLinks(e.target.checked)} />
+              Désactiver aussi {sharing.lostAccessLinks.length > 1 ? `ces ${sharing.lostAccessLinks.length} liens` : "ce lien"} de partage
+            </label>
+          </>
+        )}
         <DialogActions>
           <Button size="lg" onClick={() => setConfirming(false)}>
             Annuler
@@ -212,6 +253,7 @@ function ProjectSharingDialog({ project, sharing, reload, onChanged, onClose }: 
               editable={editable}
               onLevel={(level) => void call("PUT", member.person.id, level)}
               onRemove={() => void call("DELETE", member.person.id)}
+              onDisableLinks={() => void disableLinks(member.aboveLinks).then(reload)}
             />
           ))}
         </div>

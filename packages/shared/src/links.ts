@@ -74,3 +74,14 @@ export interface ShareLinkView {
   /** A signed-in member whose own level on the scope is at least the link's: the app sends them to the normal page. */
   memberRedirect: boolean;
 }
+
+/** Mon compte: `GET` lists the share links the signed-in account created. */
+export const MY_LINKS_PATH = "/api/account/links";
+export interface MyLink {
+  link: ShareLink;
+  projectId: string;
+  projectTitle: string;
+  /** Page links only. */
+  pageId?: string;
+  pageTitle?: string;
+}

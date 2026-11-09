@@ -50,6 +50,9 @@ import {
   type ProjectVisibility,
   CLI_TARBALL_PATH,
   ARTBOARD_CAPABILITY_SEGMENT,
+  levelRank,
+  type AccessLevel,
+  type MemberChangeResponse,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import { INSTANCES_PATH, INSTANCES_SOURCE, injectInstances, instanceLayersOf } from "./instances.js";
@@ -60,7 +63,8 @@ import { TerminalSessions } from "./terminal-sessions.js";
 import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
 import { projectContext, readPageAsset, readProjectAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
-import { registerLinkRoutes } from "./link-routes.js";
+import { linkViews, registerLinkRoutes } from "./link-routes.js";
+import { isWorking } from "./link-store.js";
 import { rewriteLinkUrl } from "./link-url.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
@@ -252,12 +256,16 @@ export async function buildMainApp(
     const isOwnerOrAdmin = (a: { id: string; role: string }) => a.role === "admin" || a.id === project.createdBy?.id;
     const person = ({ role: _role, ...rest }: (typeof accounts)[number]): Person => rest;
     const wouldLoseAccess = project.visibility === "private" ? [] : accounts.filter((a) => !isOwnerOrAdmin(a)).map(person);
+    const canChange = access.manages(req.viewer, project.id);
+    const views = linkViews(store, access);
+    const workingLinks = canChange ? store.links.ofProject(project.id).filter(isWorking) : [];
+    const linksOf = (personIds: string[], aboveLevel?: AccessLevel) =>
+      workingLinks.filter((link) => link.createdBy !== undefined && personIds.includes(link.createdBy.id) && (aboveLevel === undefined || levelRank(link.level) > levelRank(aboveLevel))).map((link) => views(req.viewer, link));
     const levels = store.memberLevels(project.id);
     const members = levels.flatMap(({ personId, level }) => {
       const account = accounts.find((a) => a.id === personId);
-      return account ? [{ person: person(account), level }] : [];
+      return account ? [{ person: person(account), level, aboveLinks: linksOf([account.id], level) }] : [];
     });
-    const canChange = access.manages(req.viewer, project.id);
     const candidates = canChange ? accounts.filter((a) => !isOwnerOrAdmin(a) && !levels.some((l) => l.personId === a.id)).map(person) : [];
     return {
       visibility: project.visibility,
@@ -268,6 +276,7 @@ export async function buildMainApp(
       members,
       candidates,
       wouldLoseAccess,
+      lostAccessLinks: linksOf(wouldLoseAccess.map((p) => p.id)),
     };
   });
 
@@ -282,13 +291,21 @@ export async function buildMainApp(
     if (account.role === "admin" || account.id === project.createdBy?.id) return reply.code(400).send({ error: "The creator and the admins are always at Écriture." });
     if (project.visibility === "team" && level === "write") store.removeMemberLevel(project.id, account.id);
     else store.setMemberLevel(project.id, account.id, level);
-    return reply.code(204).send();
+    return linksAbove(req.viewer, project.id, account.id, level);
   });
+
+  /** The working links a member made on the project that their level no longer allows: they keep working, and the dialog offers to disable them. */
+  const linksAbove = (viewer: Viewer, projectId: string, personId: string, level: AccessLevel | undefined): MemberChangeResponse => {
+    const views = linkViews(store, access);
+    return { links: store.links.ofProject(projectId).filter((link) => isWorking(link) && link.createdBy?.id === personId && (level === undefined || levelRank(link.level) > levelRank(level))).map((link) => views(viewer, link)) };
+  };
 
   app.delete<{ Params: { projectId: string; personId: string } }>("/api/projects/:projectId/members/:personId", async (req, reply) => {
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
     store.removeMemberLevel(req.params.projectId, req.params.personId);
-    return reply.code(204).send();
+    const project = store.getProject(req.params.projectId)!;
+    // Back to the default: Écriture on an Équipe project (nothing to warn about), no access on a Privé one.
+    return linksAbove(req.viewer, project.id, req.params.personId, project.visibility === "team" ? "write" : undefined);
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId", async (req, reply) => {

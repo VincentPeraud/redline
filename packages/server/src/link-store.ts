@@ -20,6 +20,9 @@ interface LinkRow {
   last_opened_at: string | null;
 }
 
+/** Active and not expired: a visitor can still use it. */
+export const isWorking = (link: StoredLink): boolean => link.status === "active" && !link.expired;
+
 /** A link as stored: `ShareLink` without what depends on who asks. */
 export type StoredLink = Omit<ShareLink, "canManage">;
 
@@ -111,6 +114,24 @@ export class LinkStore {
   /** The links of a scope, oldest first. */
   list(scope: LinkScope, scopeId: string): StoredLink[] {
     return (this.db.prepare("SELECT * FROM share_links WHERE scope = ? AND scope_id = ? ORDER BY created_at, rowid").all(scope, scopeId) as LinkRow[]).map((row) => this.entry(row));
+  }
+
+  /** The links of a project and of its pages, oldest first. */
+  ofProject(projectId: string): StoredLink[] {
+    const rows = this.db
+      .prepare("SELECT * FROM share_links WHERE (scope = 'project' AND scope_id = ?) OR (scope = 'page' AND scope_id IN (SELECT id FROM pages WHERE project_id = ?)) ORDER BY created_at, rowid")
+      .all(projectId, projectId) as LinkRow[];
+    return rows.map((row) => this.entry(row));
+  }
+
+  /** The links an account created, oldest first. */
+  createdBy(personId: string): StoredLink[] {
+    return (this.db.prepare("SELECT * FROM share_links WHERE created_by = ? ORDER BY created_at, rowid").all(personId) as LinkRow[]).map((row) => this.entry(row));
+  }
+
+  /** Disables the links an account created that still work. */
+  disableCreatedBy(personId: string, by: Person): void {
+    for (const link of this.createdBy(personId)) if (isWorking(link)) this.setActive(link.id, false, by);
   }
 
   /**

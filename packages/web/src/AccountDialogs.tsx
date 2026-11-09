@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ACCOUNTS_PATH, type AccountEntry, type PasswordLinkEntry } from "@redline/shared";
+import { ACCOUNTS_PATH, type AccountEntry, type DeactivateRequest, type PasswordLinkEntry } from "@redline/shared";
 import { Button, Dialog, DialogActions, Field, TextInput } from "./ui/index.js";
 import styles from "./AccountDialogs.module.css";
 
@@ -46,10 +46,12 @@ export function DeactivateDialog({ account, onClose, onDone }: { account: Accoun
   const [error, setError] = useState<string | undefined>(undefined);
   const first = account.name.split(/\s+/)[0] || account.name;
   const projects = projectsLine(account.ownedProjects);
+  const [disableLinks, setDisableLinks] = useState(false);
+  const links = account.linkCount === 1 ? "lien de partage" : "liens de partage";
 
   async function confirm() {
     setBusy(true);
-    const res = await act(account, "/deactivate");
+    const res = await act(account, "/deactivate", "POST", { disableLinks } satisfies DeactivateRequest);
     if (res.ok) return onDone();
     setError(((await res.json()) as { error: string }).error);
     setBusy(false);
@@ -61,7 +63,14 @@ export function DeactivateDialog({ account, onClose, onDone }: { account: Accoun
       <ul className={styles.list}>
         {projects && <li>{projects}</li>}
         <li>Son jeton d'agent est révoqué : son agent est déconnecté.</li>
+        {account.linkCount > 0 && <li>{account.linkCount === 1 ? "Son lien de partage continue" : `Ses ${account.linkCount} liens de partage continuent`} de marcher.</li>}
       </ul>
+      {account.linkCount > 0 && (
+        <label className={styles.check}>
+          <input type="checkbox" checked={disableLinks} onChange={(e) => setDisableLinks(e.target.checked)} />
+          Désactiver aussi {account.linkCount === 1 ? "son" : `ses ${account.linkCount}`} {links}
+        </label>
+      )}
       {error && <p role="alert" className={styles.error}>{error}</p>}
       <DialogActions>
         <Button size="lg" onClick={onClose}>Annuler</Button>
