@@ -833,8 +833,10 @@ function coversProject(store: Store, capabilityProject: string, requestedId: str
 function requireCapability(store: Store, capabilities: ArtboardCapabilities) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const params = req.params as { capability: string; pageId?: string; projectId?: string; designSystemId?: string };
-    const project = capabilities.projectOf(params.capability);
-    if (project === undefined) return reply.code(403).send("capability required");
+    const scope = capabilities.scopeOf(params.capability);
+    if (scope === undefined) return reply.code(403).send("capability required");
+    const project = scope.projectId;
+    if (scope.pageId !== undefined && params.pageId !== undefined && params.pageId !== scope.pageId) return reply.code(403).send("capability is for another page");
     const requested = params.pageId !== undefined ? store.projectIdOfPage(params.pageId) : (params.projectId ?? params.designSystemId);
     if (params.pageId !== undefined && requested === undefined) return reply.code(404).send("not found");
     if (requested !== undefined && !coversProject(store, project, requested)) return reply.code(403).send("capability is for another project");

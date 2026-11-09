@@ -101,6 +101,22 @@ describe("page share links in Lecture", () => {
     expect((await open(`/pages/${otherProjectPage}/home.html`)).status).toBe(403);
   });
 
+  it("scopes the capability of a page link to its page: no other page, nor its versions, of the same project", async () => {
+    const { pageId, otherPageId, project, otherProject } = await setup();
+    const link = await createLink(instance.ariane, pageId);
+    const issued = (await (await visit(link.token, `/api/projects/${project.id}/artboard-capability`)).json()) as ArtboardCapability;
+    const open = (path: string) => fetch(`${instance.server.artboardOrigin}/c/${issued.capability}${path}`);
+    expect((await open(`/pages/${pageId}/home.html`)).status).toBe(200);
+    expect((await open(`/pages/${otherPageId}/home.html`)).status).toBe(403);
+    expect((await open(`/page-versions/${otherPageId}/any/home.html`)).status).toBe(403);
+    expect((await open(`/page-versions/${pageId}/any/home.html`)).status).not.toBe(403);
+    expect((await open(`/project-styles/${project.id}/tokens.css`)).status).not.toBe(403);
+    expect((await open(`/project-styles/${otherProject.id}/tokens.css`)).status).toBe(403);
+    // A member keeps the capability of the whole project.
+    const member = (await instance.ariane.json<ArtboardCapability>(`/api/projects/${project.id}/artboard-capability`)).capability;
+    expect((await fetch(`${instance.server.artboardOrigin}/c/${member}/pages/${otherPageId}/home.html`)).status).toBe(200);
+  });
+
   it("gives every failure the same dead-link answer: unknown, disabled, expired, archived and deleted", async () => {
     const { pageId, project } = await setup();
     const answers: Array<[number, string]> = [];
