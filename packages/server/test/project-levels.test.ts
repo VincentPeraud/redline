@@ -95,7 +95,7 @@ describe("member levels", () => {
     const project = await instance.createProject(ariane);
     await setLevel(ariane, project.id, people.thomas.id, "comment");
     const sharing = await ariane.json<ProjectSharing>(`/api/projects/${project.id}/sharing`);
-    expect(sharing.members).toEqual([{ person: people.thomas, level: "comment" }]);
+    expect(sharing.members).toEqual([{ person: people.thomas, level: "comment", aboveLinks: [] }]);
     expect(sharing.candidates.map((p) => p.name)).toEqual(["Marc Petit"]);
     expect((await thomas.json<ProjectSharing>(`/api/projects/${project.id}/sharing`)).candidates).toEqual([]);
     expect((await thomas.json<ProjectSharing>(`/api/projects/${project.id}/sharing`)).members).toHaveLength(1);
