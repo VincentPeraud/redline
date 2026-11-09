@@ -20,6 +20,10 @@
   border: 1px dashed #d4a28a;
 }
 
+.review {
+  border-color: var(--color-warning-border);
+}
+
 .failed {
   gap: 8px;
   padding: 12px 14px;
@@ -113,6 +117,13 @@
   box-sizing: border-box;
   border: 1.5px dashed var(--color-warning-strong);
   background: transparent;
+  color: var(--color-warning-strong);
+}
+
+.badgeReview {
+  box-sizing: border-box;
+  border: 2px solid var(--color-warning-strong);
+  background: var(--color-surface);
   color: var(--color-warning-strong);
 }
 
@@ -385,6 +396,33 @@
 .heldActions {
   display: flex;
   gap: var(--space-2);
+}
+
+.reviewBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px 8px 14px;
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-warning-note-bg);
+  color: var(--color-warning-ink);
+  font-size: var(--font-size-sm);
+}
+
+.reviewBar span span {
+  color: var(--color-warning-text);
+}
+
+.reviewBar strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+.reviewNote {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }
 
 .queued {

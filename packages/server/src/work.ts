@@ -102,9 +102,28 @@ export function batchMessage(threads: Thread[]): string {
       "",
       thread.body,
       "",
+      ...(thread.replies.length > 0 ? ["Discussion so far:", ...thread.replies.flatMap((r) => ["", replyLine(r)]), ""] : []),
       ...(thread.target.kind === "canvas-element" ? [canvasElementTail(thread.target), ""] : []),
     ]),
   ].join("\n");
+}
+
+/**
+ * Sends "À relire" threads to the agents. A thread Claude already answered resumes its session with the replies written since;
+ * the others leave together as one message (a single one as a plain thread message), with the discussion so far if there is any.
+ */
+export function dispatchReviewed(store: Store, lock: PageLock, projectId: string, threads: Thread[], choice: ModelChoice = {}, terminal?: TerminalPresence): void {
+  const answered = (thread: Thread) => thread.replies.some((r) => r.author === "claude");
+  for (const thread of threads.filter(answered)) {
+    const lastAnswer = thread.replies.map((r) => r.author).lastIndexOf("claude");
+    const since = thread.replies.slice(lastAnswer + 1).filter((r) => r.author === "user").map((r) => r.body);
+    dispatchReply(store, lock, projectId, thread, since.join("\n\n") || thread.body, choice, terminal);
+  }
+  const fresh = threads.filter((thread) => !answered(thread));
+  if (fresh.length === 1) {
+    const forTerminal = terminal?.holdsPage(fresh[0].pageId) ?? false;
+    lock.submit({ projectId, ...(forTerminal ? { forTerminal } : {}) }, { ...threadItem(fresh[0], freshSessionMessage(fresh[0]), randomUUID(), false), ...definedChoice(choice) });
+  } else if (fresh.length > 1) dispatchBatch(lock, projectId, fresh, choice, terminal);
 }
 
 /**

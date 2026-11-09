@@ -1383,7 +1383,7 @@ export class Store {
   }
 
   /** `automatic`: opened by Redline itself (signed "Redline"), not written by a person. */
-  createThread(pageId: string, request: CreateThreadRequest, person?: Person, automatic = false, designSystemRequest?: StoredRequest): Thread {
+  createThread(pageId: string, request: CreateThreadRequest, person?: Person, automatic = false, designSystemRequest?: StoredRequest, toReview = false): Thread {
     const id = randomUUID();
     const { next } = this.db
       .prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?")
@@ -1414,7 +1414,7 @@ export class Store {
         `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, instance_state, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null);
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, toReview ? "review" : request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null);
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -1668,14 +1668,37 @@ export class Store {
 
   /** Held comments of a page, oldest first. */
   listHeldThreads(pageId: string): Thread[] {
+    return this.listThreadsWithStatus(pageId, "held");
+  }
+
+  /** Threads of a page waiting for an Écriture member to read them ("À relire"), oldest first, with their replies. */
+  listReviewThreads(pageId: string): Thread[] {
+    return this.listThreadsWithStatus(pageId, "review", true);
+  }
+
+  private listThreadsWithStatus(pageId: string, status: ThreadStatus, withReplies = false): Thread[] {
     const rows = this.db
       .prepare(
         `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.instance_state, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id
-         FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
+         FROM threads t WHERE t.page_id = ? AND t.status = ? ORDER BY t.created_at, t.rowid`,
       )
-      .all(pageId) as ThreadRow[];
+      .all(pageId, status) as ThreadRow[];
     const elements = this.canvasElementsById(pageId);
-    return rows.map((row) => this.withPerson(withCurrentElement(toThread(row, []), elements), row.person_id));
+    return rows.map((row) => this.withPerson(withCurrentElement(toThread(row, withReplies ? this.repliesOf(row.id) : []), elements), row.person_id));
+  }
+
+  /** An open thread goes back to "À relire" (a Commentaire reply in a thread already sent to Claude). */
+  returnToReview(id: string): void {
+    const { changes } = this.db.prepare("UPDATE threads SET status = 'review' WHERE id = ? AND status = 'open'").run(id);
+    const thread = changes > 0 ? this.getThread(id) : undefined;
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
+  }
+
+  /** An "À relire" thread leaves for Claude: it becomes a regular open thread. */
+  releaseReviewThread(id: string): void {
+    this.db.prepare("UPDATE threads SET status = 'open' WHERE id = ? AND status = 'review'").run(id);
+    const thread = this.getThread(id);
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
   }
 
   /** Edits the text of a held comment; undefined when the thread does not exist or is not held. */
