@@ -82,6 +82,7 @@ import { usePageSessions } from "./usePageSessions.js";
 import { useRuns } from "./useRuns.js";
 import { LEVEL_LABEL } from "./ProjectSharingDialog.js";
 import { PHONE_VISITOR_MAX_WIDTH, useVisitor } from "./visitor.js";
+import { VisitorComposer, VisitorThreadsPanel } from "./VisitorComments.js";
 import { useTweaks } from "./useTweaks.js";
 import { viaProjectField } from "./viaProject.js";
 import styles from "./PageCanvas.module.css";
@@ -541,9 +542,11 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   }, [toggleGuides, toggleOverview, playing, readOnly]);
 
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
-  async function send(held: boolean) {
+  async function send(held: boolean, visitorName?: string) {
     if (!draft || text.trim() === "") return;
-    const request: CreateThreadRequest = { ...threadPlace(draft), body: text, ...(held ? { held } : choice), ...viaProjectField(pageId) };
+    const request: CreateThreadRequest = visitor
+      ? { ...threadPlace(draft), body: text, visitorName }
+      : { ...threadPlace(draft), body: text, ...(held ? { held } : choice), ...viaProjectField(pageId) };
     await fetch(`/api/pages/${pageId}/threads`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1296,6 +1299,26 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
           </div>
         </main>
 
+        {visitor && canComment && (
+          <>
+            <VisitorThreadsPanel threads={threads} visitor={visitor} artboardTitles={Object.fromEntries((artboardTitles ?? []).map((a) => [a.file, a.title]))} onShow={showThread} />
+            {draft && (
+              <div className={styles.visitorComposer}>
+                <VisitorComposer
+                  visitor={visitor}
+                  label={draftLabel(draft)}
+                  text={text}
+                  onText={setText}
+                  onSend={(visitorName) => send(false, visitorName)}
+                  onCancel={() => {
+                    setDraft(null);
+                    setText("");
+                  }}
+                />
+              </div>
+            )}
+          </>
+        )}
         {!previewing && !visitor && (
         <aside aria-label="Commentaires" className={styles.aside}>
           <div role="tablist" aria-label="Panneau latéral" className={styles.tabs}>

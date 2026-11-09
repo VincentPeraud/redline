@@ -12,8 +12,8 @@ import styles from "./PageSharing.module.css";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 const DAY_MS = 86_400_000;
-/** The levels a link can be created in; Commentaire and Écriture join with their own tickets. */
-const OFFERED_LEVELS: AccessLevel[] = ["read"];
+/** The levels a link can be created in; Écriture joins with its own ticket. */
+const OFFERED_LEVELS: AccessLevel[] = ["read", "comment"];
 const LEVEL_DESCRIPTION: Record<AccessLevel, string> = {
   read: "Regarde la page, le mode présentation et l'aperçu mobile.",
   comment: "Pose des bulles. Elles arrivent « À relire » : un membre les envoie à Claude.",
@@ -269,6 +269,7 @@ function LinkFormDialog({ pageId, link, onClose, onDone, onCloseAll }: { pageId:
   const [kind, setKind] = useState<LinkKind>(link?.kind ?? "personal");
   const [name, setName] = useState(link?.name ?? "");
   const [level, setLevel] = useState<AccessLevel>(link?.level ?? "read");
+  const [direct, setDirect] = useState(link?.direct ?? false);
   const [expiry, setExpiry] = useState<ExpiryChoice>(link ? (link.expiresAt ? "date" : "never") : "14");
   const [date, setDate] = useState(link?.expiresAt ? link.expiresAt.slice(0, 10) : new Date(Date.now() + 14 * DAY_MS).toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
@@ -283,8 +284,8 @@ function LinkFormDialog({ pageId, link, onClose, onDone, onCloseAll }: { pageId:
     setBusy(true);
     const expiresAt = expiry === "date" && link?.expiresAt?.slice(0, 10) === date ? link.expiresAt : expiryOf(expiry, date);
     const res = editing
-      ? await fetch(`/api/links/${link.id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ name, level, expiresAt }) })
-      : await fetch(`/api/pages/${pageId}/links`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ kind, name, level, expiresAt } satisfies CreateLinkRequest) });
+      ? await fetch(`/api/links/${link.id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ name, level, direct: level === "comment" && direct, expiresAt }) })
+      : await fetch(`/api/pages/${pageId}/links`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ kind, name, level, direct: level === "comment" && direct, expiresAt } satisfies CreateLinkRequest) });
     setBusy(false);
     if (!res.ok) return setError("Le lien n'a pas pu être enregistré.");
     await onDone();
@@ -341,15 +342,39 @@ function LinkFormDialog({ pageId, link, onClose, onDone, onCloseAll }: { pageId:
         <fieldset className={invite.fieldset}>
           <legend className={invite.legend}>Niveau</legend>
           <div className={invite.roles}>
-            {OFFERED_LEVELS.map((option) => (
-              <label key={option} className={cx(invite.role, level === option && invite.roleOn)}>
-                <input type="radio" name="level" className={invite.radio} checked={level === option} onChange={() => setLevel(option)} />
-                <span className={invite.roleText}>
-                  <strong>{LEVEL_LABEL[option]}</strong>
-                  <span>{LEVEL_DESCRIPTION[option]}</span>
-                </span>
-              </label>
-            ))}
+            {OFFERED_LEVELS.map((option) =>
+              option === "comment" ? (
+                <div key={option} className={cx(invite.role, level === option && invite.roleOn)}>
+                  <input type="radio" name="level" id="link-level-comment" className={invite.radio} checked={level === option} onChange={() => setLevel(option)} />
+                  <span className={invite.roleText}>
+                    <label htmlFor="link-level-comment">
+                      <strong>{LEVEL_LABEL[option]}</strong>
+                    </label>
+                    <span>{LEVEL_DESCRIPTION[option]}</span>
+                    <label className={styles.directOption}>
+                      <input
+                        type="checkbox"
+                        className={invite.radio}
+                        checked={direct}
+                        onChange={(event) => {
+                          setDirect(event.target.checked);
+                          if (event.target.checked) setLevel("comment");
+                        }}
+                      />
+                      Les commentaires de ce lien partent directement à Claude, sans relecture
+                    </label>
+                  </span>
+                </div>
+              ) : (
+                <label key={option} className={cx(invite.role, level === option && invite.roleOn)}>
+                  <input type="radio" name="level" className={invite.radio} checked={level === option} onChange={() => setLevel(option)} />
+                  <span className={invite.roleText}>
+                    <strong>{LEVEL_LABEL[option]}</strong>
+                    <span>{LEVEL_DESCRIPTION[option]}</span>
+                  </span>
+                </label>
+              ),
+            )}
           </div>
         </fieldset>
         <div className={styles.two}>

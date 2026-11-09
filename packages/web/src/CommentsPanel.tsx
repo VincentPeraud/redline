@@ -108,15 +108,16 @@ function ThreadMessages({ thread }: { thread: Thread }) {
   return (
     <>
       <div className={styles.message}>
-        <MessageAuthor person={thread.person} claude={requestAskerName(thread)} redline={thread.automatic} />
+        <MessageAuthor person={thread.person} linkAuthor={thread.linkAuthor} claude={requestAskerName(thread)} redline={thread.automatic} />
         {thread.status === "review" && thread.person && <span className={styles.reviewNote}>membre en Commentaire sur ce projet</span>}
+        {thread.status === "review" && thread.linkAuthor && <span className={styles.reviewNote}>lien en Commentaire</span>}
         {thread.body}
       </div>
       {thread.replies.map((reply) => (
         <Fragment key={reply.id}>
           <div data-testid="reply" className={cx(styles.message, reply.author === "claude" && styles.claudeReply, reply.author === "redline" && styles.redlineReply)}>
             {reply.author === "user" ? (
-              <MessageAuthor person={reply.person} />
+              <MessageAuthor person={reply.person} linkAuthor={reply.linkAuthor} />
             ) : reply.author === "redline" ? (
               <MessageAuthor redline />
             ) : (

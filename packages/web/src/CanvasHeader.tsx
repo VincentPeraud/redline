@@ -271,7 +271,7 @@ export function CanvasHeader({ project, designSystemId, designSystemTitle, versi
     : designSystemId && designSystemTitle
       ? { id: designSystemId, title: designSystemTitle, kind: "designSystem" }
       : null;
-  if (visitor) return <VisitorHeader visitor={visitor} pageId={pageId} firstArtboard={toc.items[0]?.file} />;
+  if (visitor) return <VisitorHeader visitor={visitor} pageId={pageId} firstArtboard={toc.items[0]?.file} picking={picking} onPickingChange={onPickingChange} />;
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">

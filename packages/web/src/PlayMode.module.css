@@ -547,3 +547,93 @@
   opacity: 0.4;
   cursor: default;
 }
+
+.visitorAction {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--play-panel-bg);
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.visitorActionMain {
+  border-color: transparent;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.visitorActionOn {
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+}
+
+.visitorHint {
+  position: absolute;
+  left: var(--space-4);
+  right: var(--space-4);
+  bottom: 88px;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--play-panel-bg);
+  color: var(--play-text);
+  font-size: var(--font-size-sm);
+  text-align: center;
+  pointer-events: none;
+}
+
+/* The composer and the list of the link's comments rise from the bottom of the phone, over the presentation. */
+.sheet {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 10;
+  max-height: 80%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.sheetList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-6);
+  border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.sheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sheetHead h2 {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.sheetClose {
+  width: 44px;
+  height: 44px;
+  margin: -10px;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xl);
+  cursor: pointer;
+}
+
+/* With Commenter and Commentaires on the bar, the arrows shrink to square buttons so both labels fit. */
+.visitorStepNarrow {
+  flex: 0 0 44px;
+}

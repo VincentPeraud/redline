@@ -1,6 +1,6 @@
 import { ArtboardIframe } from "./artboardCapability.js";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RESPONSIVE_FORMATS, renderingKey, renderingLabel, type ArtboardRendering, type Manifest, type TweakValue, type TweakValues } from "@redline/shared";
+import { RESPONSIVE_FORMATS, renderingKey, renderingLabel, type ArtboardRendering, type CreateThreadRequest, type Manifest, type Thread, type TweakValue, type TweakValues } from "@redline/shared";
 import { PlayStepper } from "./PlayStepper.js";
 import type { TocItem } from "./tocItems.js";
 import { TweaksPanel } from "./TweaksPanel.js";
@@ -20,6 +20,9 @@ import { useCopiedBubble } from "./useCopiedBubble.js";
 import { StatusBadge, Tooltip, cx } from "./ui/index.js";
 import { LEVEL_LABEL } from "./ProjectSharingDialog.js";
 import { PHONE_VISITOR_MAX_WIDTH, useVisitor } from "./visitor.js";
+import { VisitorComposer, VisitorThreadCards } from "./VisitorComments.js";
+import { subscribeServerEvents } from "./serverEvents.js";
+import type { Pick } from "./ArtboardFrame.js";
 import styles from "./PlayMode.module.css";
 
 /** Where a link leads: an artboard of this page (`page` null) or of another page (checked against that page when followed). */
@@ -90,6 +93,13 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   const visitor = useVisitor();
   /** A share link on a phone: its own top and bottom bars, with only what the link's level allows. */
   const phoneVisitor = visitor !== null && windowWidth <= PHONE_VISITOR_MAX_WIDTH;
+  /** A Commentaire link on a phone: "Commenter" picks an element of the shown artboard, "Commentaires" lists the link's threads. */
+  const canComment = phoneVisitor && visitor.view.level !== "read";
+  const [commenting, setCommenting] = useState(false);
+  const [picked, setPicked] = useState<Pick | null>(null);
+  const [commentText, setCommentText] = useState("");
+  const [listOpen, setListOpen] = useState(false);
+  const [linkThreads, setLinkThreads] = useState<Thread[]>([]);
   const renderings = artboard?.responsive ?? [];
   const [rendering, selectRendering] = usePlayRendering(renderings, renderingParam);
   const presentation = artboard && presentationOf(artboard, framed, windowWidth, artboard.responsive ? rendering : undefined);
@@ -129,6 +139,29 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   }, []);
 
   useEffect(() => setDeadLink(null), [pageId, current]);
+  useEffect(() => {
+    setCommenting(false);
+    setPicked(null);
+    setCommentText("");
+  }, [pageId, current]);
+  useEffect(() => {
+    if (!canComment) return;
+    const load = () =>
+      void fetch(`/api/pages/${pageId}/threads`)
+        .then((response) => response.json() as Promise<Thread[]>)
+        .then(setLinkThreads);
+    load();
+    return subscribeServerEvents((event) => {
+      if (event.type === "thread-updated" && event.pageId === pageId) load();
+    });
+  }, [canComment, pageId]);
+  // Commenting turns the frame's clicks into picks instead of the manifest's links.
+  useEffect(() => {
+    if (bridgeEpoch === 0 || !canComment) return;
+    const selectors = manifest.links.filter((l) => l.from === current).map((l) => l.selector);
+    frame.current?.contentWindow?.postMessage({ type: "redline:set-links", selectors: commenting ? null : selectors }, "*");
+    frame.current?.contentWindow?.postMessage({ type: "redline:set-mode", picking: commenting, selecting: false, alt: false }, "*");
+  }, [commenting, bridgeEpoch, canComment, manifest, current]);
   useEffect(() => setTopColour(null), [pageId, current]);
 
   useEffect(() => {
@@ -145,7 +178,7 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   useEffect(() => {
     function onMessage(event: MessageEvent) {
       if (event.source !== frame.current?.contentWindow) return;
-      const data = event.data as { type?: string; selector?: string; key?: string; colour?: string };
+      const data = event.data as { type?: string; selector?: string; key?: string; colour?: string } & Partial<Pick>;
       if (data.type === "redline:ready") {
         const selectors = manifest.links.filter((l) => l.from === current).map((l) => l.selector);
         frame.current?.contentWindow?.postMessage({ type: "redline:set-links", selectors }, "*");
@@ -155,6 +188,9 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
         if (target === null) return;
         if (target.page === null) showArtboard(target.file, "push");
         else followOtherPage(target.page, target.file);
+      } else if (data.type === "redline:picked") {
+        setPicked(data as Pick);
+        setCommenting(false);
       } else if (data.type === "redline:top-colour" && typeof data.colour === "string") {
         setTopColour(data.colour);
       } else if (data.type === "redline:key" && (data.key === "ArrowLeft" || data.key === "ArrowRight")) {
@@ -179,6 +215,23 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
 
   /** The shown artboard's tweaks, plus the page tweaks bound to no artboard. */
   const shownTweaks = manifest.tweaks.filter((tweak) => tweak.artboard === undefined || tweak.artboard === current);
+  async function sendComment(visitorName: string) {
+    if (!picked) return;
+    const request: CreateThreadRequest = {
+      artboard: current,
+      selector: picked.selector,
+      xPct: picked.xPct,
+      yPct: picked.yPct,
+      ...(picked.elementName ? { elementName: picked.elementName } : {}),
+      ...(rendering ? { rendering: { format: rendering.format, width: rendering.width } } : {}),
+      ...(picked.instanceState ? { instanceState: picked.instanceState } : {}),
+      body: commentText,
+      visitorName,
+    };
+    await fetch(`/api/pages/${pageId}/threads`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
+    setPicked(null);
+    setCommentText("");
+  }
   const hasTweaks = shownTweaks.length > 0 && !presentation?.mobileBar && !phoneVisitor && (visitor === null || visitor.view.level === "write");
   return (
     <div data-testid="play" className={styles.play}>
@@ -339,12 +392,55 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
           </aside>
         )}
       </div>
+      {canComment && commenting && (
+        <p role="status" className={styles.visitorHint}>
+          Touche l'élément à commenter.
+        </p>
+      )}
+      {canComment && picked && (
+        <div className={styles.sheet}>
+          <VisitorComposer
+            visitor={visitor}
+            label={picked.elementName ?? picked.selector}
+            text={commentText}
+            onText={setCommentText}
+            onSend={sendComment}
+            onCancel={() => {
+              setPicked(null);
+              setCommentText("");
+            }}
+          />
+        </div>
+      )}
+      {canComment && listOpen && (
+        <div className={styles.sheet}>
+          <section aria-label="Commentaires de ce lien" className={styles.sheetList}>
+            <header className={styles.sheetHead}>
+              <h2>Commentaires de ce lien · {linkThreads.length}</h2>
+              <button type="button" aria-label="Fermer" onClick={() => setListOpen(false)} className={styles.sheetClose}>
+                ×
+              </button>
+            </header>
+            <VisitorThreadCards threads={linkThreads} visitor={visitor} artboardTitles={Object.fromEntries(manifest.artboards.map((a) => [a.file, a.title ?? a.file]))} />
+          </section>
+        </div>
+      )}
       {phoneVisitor && (
         <nav aria-label="Artboards" className={styles.visitorBottom}>
-          <button type="button" aria-label="Écran précédent" disabled={position <= 0} onClick={() => goBy(-1)} className={styles.visitorStep}>
+          <button type="button" aria-label="Écran précédent" disabled={position <= 0} onClick={() => goBy(-1)} className={cx(styles.visitorStep, canComment && styles.visitorStepNarrow)}>
             ‹
           </button>
-          <button type="button" aria-label="Écran suivant" disabled={position >= tocItems.length - 1} onClick={() => goBy(1)} className={styles.visitorStep}>
+          {canComment && (
+            <>
+              <button type="button" aria-pressed={commenting} onClick={() => { setCommenting(!commenting); setListOpen(false); }} className={cx(styles.visitorAction, styles.visitorActionMain, commenting && styles.visitorActionOn)}>
+                Commenter
+              </button>
+              <button type="button" onClick={() => { setListOpen(true); setCommenting(false); }} className={styles.visitorAction}>
+                Commentaires · {linkThreads.length}
+              </button>
+            </>
+          )}
+          <button type="button" aria-label="Écran suivant" disabled={position >= tocItems.length - 1} onClick={() => goBy(1)} className={cx(styles.visitorStep, canComment && styles.visitorStepNarrow)}>
             ›
           </button>
         </nav>
