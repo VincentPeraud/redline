@@ -1,4 +1,5 @@
 import type { AddressInfo } from "node:net";
+import { assertModeCanStart, type AuthMode } from "./access.js";
 import { buildArtboardApp, buildMainApp } from "./app.js";
 import type { IdentityConfig } from "./identity.js";
 import { loadCliBuild } from "./cli-build.js";
@@ -15,6 +16,8 @@ export interface StartOptions {
   webDir?: string;
   /** Folder holding `redline-cli.tgz` and `build-hash.txt`; when both exist the tarball is served at `/cli/redline-cli.tgz`. */
   cliDir?: string;
+  /** `none` (no login, local use only), `proxy` (SSO behind the proxy secrets) or `local` (accounts, not selectable yet); defaults to `proxy` when proxy secrets are set, else `none`. */
+  authMode?: AuthMode;
   /** When set, both listeners refuse requests that do not carry the proxy secret of their route. */
   proxySecrets?: ProxySecrets;
   /** Names of the SSO identity headers and the logout URL; the headers are read only when proxy secrets are set. */
@@ -34,6 +37,8 @@ export interface RunningServer {
 }
 
 export async function startServer(options: StartOptions): Promise<RunningServer> {
+  const authMode = options.authMode ?? (options.proxySecrets ? "proxy" : "none");
+  assertModeCanStart(authMode, options);
   if (options.proxySecrets) assertValidProxySecrets(options.proxySecrets);
   const store = new Store(options.dataDir);
   const artboardApp = await buildArtboardApp(store, options.proxySecrets, options.publicUntil);
@@ -45,6 +50,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     terminalPresenceTimeoutMs: options.terminalPresenceTimeoutMs,
     proxySecrets: options.proxySecrets,
     identity: options.identity,
+    authMode,
     publicUntil: options.publicUntil,
     cliBuild: loadCliBuild(options.cliDir),
   });

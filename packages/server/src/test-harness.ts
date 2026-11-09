@@ -51,7 +51,7 @@ async function sturdyFetch(send: () => Promise<Response>): Promise<Response> {
 export async function startTestServer(options: { webDir?: string; cliDir?: string; retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number } = {}): Promise<TestServer> {
   const dataDir = mkdtempSync(join(tmpdir(), "redline-test-"));
   const start = (ports: { port: number; artboardPort: number }) =>
-    startServer({ dataDir, ...ports, host: "127.0.0.1", webDir: options.webDir, cliDir: options.cliDir, retryDelaysMs: options.retryDelaysMs, terminalPresenceTimeoutMs: options.terminalPresenceTimeoutMs });
+    startServer({ dataDir, ...ports, authMode: "none", host: "127.0.0.1", webDir: options.webDir, cliDir: options.cliDir, retryDelaysMs: options.retryDelaysMs, terminalPresenceTimeoutMs: options.terminalPresenceTimeoutMs });
   let server: RunningServer = await start({ port: 0, artboardPort: 0 });
   const ports = { port: Number(new URL(server.url).port), artboardPort: Number(new URL(server.artboardOrigin).port) };
   const sockets: WebSocket[] = [];

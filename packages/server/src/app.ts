@@ -71,7 +71,8 @@ import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
 import { validTimeZone } from "./version-dates.js";
 import { registerGapRoutes } from "./gaps.js";
-import { registerIdentity, personRef, type IdentityConfig } from "./identity.js";
+import { createAccess, registerAccess, type Access, type AuthMode } from "./access.js";
+import { DEFAULT_IDENTITY, registerIdentity, personRef, type IdentityConfig } from "./identity.js";
 import { type CliBuild } from "./cli-build.js";
 import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
 import { registerPublicDeadline } from "./public-deadline.js";
@@ -133,13 +134,15 @@ export async function buildMainApp(
   store: Store,
   config: ServerConfig,
   webDir?: string,
-  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; cliBuild?: CliBuild; publicUntil?: Date } = {},
+  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; authMode?: AuthMode; cliBuild?: CliBuild; publicUntil?: Date } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ bodyLimit: MAX_PAGE_BYTES });
   registerPublicDeadline(app, options.publicUntil);
   registerProxySecretCheck(app, options.proxySecrets);
   registerHealthRoute(app);
-  registerIdentity(app, store, options.proxySecrets, options.identity);
+  const identity = options.identity ?? DEFAULT_IDENTITY;
+  registerAccess(app, createAccess({ mode: options.authMode ?? (options.proxySecrets ? "proxy" : "none"), store, secrets: options.proxySecrets, identity }));
+  registerIdentity(app, identity);
   const { cliBuild } = options;
   store.setServerBuildHash(cliBuild?.hash);
   if (cliBuild) {

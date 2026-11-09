@@ -37,7 +37,7 @@ function pathOf(url: string): string {
   return url.split("?")[0];
 }
 
-function isMachinePath(url: string): boolean {
+export function isMachinePath(url: string): boolean {
   const path = pathOf(url);
   return path === AGENT_ENDPOINT || path.startsWith(`${AGENT_API_PREFIX}/`) || path.startsWith(`${CLI_PREFIX}/`);
 }

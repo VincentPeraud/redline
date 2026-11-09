@@ -5,14 +5,16 @@ import { join } from "node:path";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { isLocalHost, publicDeadlineFromEnv, registerPublicDeadline } from "../src/public-deadline.js";
+import { PROXY_SECRET_HEADER } from "../src/proxy-secrets.js";
 import { startServer, type RunningServer } from "../src/start.js";
 
+const SECRETS = { human: "h".repeat(32), machine: "m".repeat(32) };
 const TUNNEL = "motel-need-handled-proudly.trycloudflare.com";
 
 /** fetch cannot set `Host`, so the requests go through node:http. */
 function statusFor(url: string, host: string, headers: Record<string, string> = {}): Promise<number> {
   return new Promise((resolve, reject) => {
-    const req = request(url, { headers: { ...headers, host } }, (res) => {
+    const req = request(url, { headers: { [PROXY_SECRET_HEADER]: SECRETS.human, ...headers, host } }, (res) => {
       res.resume();
       resolve(res.statusCode ?? 0);
     });
@@ -33,7 +35,7 @@ describe("public deadline", () => {
 
   const start = async (publicUntil: Date) => {
     dataDir = mkdtempSync(join(tmpdir(), "redline-deadline-"));
-    server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", publicUntil });
+    server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", proxySecrets: SECRETS, publicUntil });
     return server;
   };
 
