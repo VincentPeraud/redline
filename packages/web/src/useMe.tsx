@@ -5,10 +5,10 @@ import { UNAUTHORIZED_EVENT } from "./apiCalls.js";
 
 const MeContext = createContext<MeResponse>(null);
 
-/** Whether the built-in accounts need a sign-in (the API answered 401) and what the person can do about it. */
+/** Whether the built-in accounts need a sign-in (the API answered 401), or the SSO let in someone Redline has no account for (`noAccess`). */
 export interface SessionState {
   /** `loading` until `GET /api/me` has answered. */
-  status: "loading" | "signedIn" | "signedOut";
+  status: "loading" | "signedIn" | "signedOut" | "noAccess";
   /** The sign-in screen says "Tu es déconnecté." after a sign-out of the person's own. */
   justSignedOut: boolean;
   /** Reads `GET /api/me` again, after a sign-in or the creation of the first admin. */
@@ -31,8 +31,9 @@ export function MeProvider({ children }: { children: ReactNode }) {
       setStatus("signedOut");
       return;
     }
-    setMe((await res.json()) as MeResponse);
-    setStatus("signedIn");
+    const body = (await res.json()) as MeResponse;
+    setMe(body);
+    setStatus(body?.noAccess ? "noAccess" : "signedIn");
   }, []);
 
   useEffect(() => {
