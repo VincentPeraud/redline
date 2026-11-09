@@ -144,8 +144,8 @@ export async function buildMainApp(
   const identity = options.identity ?? DEFAULT_IDENTITY;
   registerAccess(app, createAccess({ mode: options.authMode ?? (options.proxySecrets ? "proxy" : "none"), store, secrets: options.proxySecrets, identity }));
   const authMode = options.authMode ?? (options.proxySecrets ? "proxy" : "none");
-  registerIdentity(app, identity, authMode);
-  if (authMode === "local") registerAccountRoutes(app, store);
+  registerIdentity(app, store, identity, authMode);
+  if (authMode === "local" || authMode === "proxy") registerAccountRoutes(app, store, authMode);
   const { cliBuild } = options;
   store.setServerBuildHash(cliBuild?.hash);
   if (cliBuild) {
