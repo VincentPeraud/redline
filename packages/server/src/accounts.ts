@@ -1,15 +1,16 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import type Database from "better-sqlite3";
-import { INVITATION_DAYS, initialsOf, type AccountEntry, type AccountRole, type AccountsResponse, type InvitationEntry, type InvitationPreview, type Person } from "@redline/shared";
+import { INVITATION_DAYS, PASSWORD_LINK_HOURS, initialsOf, type AccountEntry, type AccountRole, type AccountsResponse, type InvitationEntry, type InvitationPreview, type PasswordLinkEntry, type PasswordLinkPreview, type Person } from "@redline/shared";
 
 const scryptAsync = promisify(scrypt) as (password: string, salt: Buffer, keyLength: number) => Promise<Buffer>;
 const KEY_LENGTH = 64;
 export const MIN_PASSWORD_LENGTH = 8;
 export const SESSION_DAYS = 30;
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 
-export type AccountErrorCode = "invalid-link" | "password-too-short" | "invalid-email" | "invalid-role" | "email-taken" | "invitation-pending";
+export type AccountErrorCode = "invalid-link" | "password-too-short" | "invalid-email" | "invalid-role" | "email-taken" | "invitation-pending" | "unknown-account" | "last-admin" | "self-deactivation" | "wrong-password" | "invalid-name";
 
 export class AccountError extends Error {
   constructor(
@@ -111,6 +112,7 @@ export class AccountStore {
         created_at TEXT NOT NULL
       );
     `);
+    addColumn("single_use_links", "person_id", "TEXT");
   }
 
   hasAccount(): boolean {
@@ -162,11 +164,21 @@ export class AccountStore {
     return { id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id) };
   }
 
+  private accountEntries(onlyId?: string): AccountEntry[] {
+    const owned = new Map<string, string[]>();
+    for (const { created_by, title } of this.db.prepare("SELECT created_by, title FROM projects WHERE created_by IS NOT NULL ORDER BY created_at, rowid").all() as { created_by: string; title: string }[]) {
+      owned.set(created_by, [...(owned.get(created_by) ?? []), title]);
+    }
+    return (
+      this.db.prepare("SELECT id, name, email, role, status, last_sign_in_at FROM people WHERE role IS NOT NULL ORDER BY created_at, rowid").all() as (AccountRow & { status: AccountEntry["status"]; last_sign_in_at: string | null })[]
+    )
+      .filter((row) => onlyId === undefined || row.id === onlyId)
+      .map((row) => ({ id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id), role: row.role, status: row.status, lastSignInAt: row.last_sign_in_at, ownedProjects: owned.get(row.id) ?? [] }));
+  }
+
   /** Every account (people with a role) and the invitations still open, oldest first. */
   list(): AccountsResponse {
-    const accounts = (
-      this.db.prepare("SELECT id, name, email, role, status, last_sign_in_at FROM people WHERE role IS NOT NULL ORDER BY created_at, rowid").all() as (AccountRow & { status: AccountEntry["status"]; last_sign_in_at: string | null })[]
-    ).map((row) => ({ id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id), role: row.role, status: row.status, lastSignInAt: row.last_sign_in_at }));
+    const accounts = this.accountEntries();
     const invitations = (
       this.db
         .prepare("SELECT i.id, i.token, i.email, i.role, i.created_at, i.expires_at, p.name AS invited_by FROM invitations i LEFT JOIN people p ON p.id = i.invited_by WHERE i.expires_at > ? ORDER BY i.created_at, i.rowid")
@@ -229,6 +241,125 @@ export class AccountStore {
       this.db.prepare("DELETE FROM invitations WHERE id = ?").run(invitation.id);
     })();
     return { id, name, email: invitation.email, initials: initialsOf(name, id) };
+  }
+
+  /** The oldest active admin: the account `reset-admin` writes a password link for. */
+  firstActiveAdmin(): AccountEntry | undefined {
+    return this.accountEntries().find((account) => account.role === "admin" && account.status === "active");
+  }
+
+  private requireAccount(id: string): AccountEntry {
+    const entry = this.accountEntries(id)[0];
+    if (!entry) throw new AccountError("unknown-account", "This account is unknown.");
+    return entry;
+  }
+
+  private activeAdminCount(): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM people WHERE role = 'admin' AND status = 'active'").get() as { n: number }).n;
+  }
+
+  private assertNotLastAdmin(account: AccountEntry): void {
+    if (account.role === "admin" && account.status === "active" && this.activeAdminCount() <= 1) throw new AccountError("last-admin", "Il faut au moins un admin.");
+  }
+
+  /** Makes an account admin or member; the last active admin cannot be lowered. */
+  setRole(id: string, role: string): AccountEntry {
+    if (role !== "admin" && role !== "member") throw new AccountError("invalid-role", "The role is admin or member.");
+    const account = this.requireAccount(id);
+    if (role === "member") this.assertNotLastAdmin(account);
+    this.db.prepare("UPDATE people SET role = ? WHERE id = ?").run(role, id);
+    return this.requireAccount(id);
+  }
+
+  /** Signs the account out everywhere, hands its projects to the admin who deactivates; its name stays on what it signed. */
+  deactivate(adminId: string, id: string): AccountEntry {
+    const account = this.requireAccount(id);
+    this.assertNotLastAdmin(account);
+    if (id === adminId) throw new AccountError("self-deactivation", "You cannot deactivate your own account.");
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE people SET status = 'deactivated' WHERE id = ?").run(id);
+      this.db.prepare("UPDATE projects SET created_by = ? WHERE created_by = ?").run(adminId, id);
+      this.deleteSessionsOf(id);
+      this.db.prepare("DELETE FROM single_use_links WHERE person_id = ?").run(id);
+    })();
+    return this.requireAccount(id);
+  }
+
+  reactivate(id: string): AccountEntry {
+    this.requireAccount(id);
+    this.db.prepare("UPDATE people SET status = 'active' WHERE id = ?").run(id);
+    return this.requireAccount(id);
+  }
+
+  /** A link to copy, valid 24 hours and single use, to choose a new password; it replaces the previous one of that account. */
+  issuePasswordLink(id: string): PasswordLinkEntry {
+    const account = this.requireAccount(id);
+    if (account.status !== "active") throw new AccountError("unknown-account", "This account is deactivated.");
+    const token = randomBytes(24).toString("base64url");
+    const now = new Date();
+    this.db.transaction(() => {
+      this.db.prepare("DELETE FROM single_use_links WHERE kind = 'password' AND person_id = ?").run(id);
+      this.db.prepare("INSERT INTO single_use_links (token_hash, kind, created_at, person_id) VALUES (?, 'password', ?, ?)").run(sha256(token), now.toISOString(), id);
+    })();
+    return { token, expiresAt: new Date(now.getTime() + PASSWORD_LINK_HOURS * HOUR_MS).toISOString() };
+  }
+
+  private openPasswordLink(token: string): (PasswordLinkPreview & { personId: string }) | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT p.id, p.email, l.created_at FROM single_use_links l JOIN people p ON p.id = l.person_id
+         WHERE l.token_hash = ? AND l.kind = 'password' AND p.role IS NOT NULL AND p.status = 'active'`,
+      )
+      .get(sha256(token)) as { id: string; email: string; created_at: string } | undefined;
+    const expiresAt = row && new Date(new Date(row.created_at).getTime() + PASSWORD_LINK_HOURS * HOUR_MS);
+    return row && expiresAt && expiresAt.getTime() > Date.now() ? { personId: row.id, email: row.email, expiresAt: expiresAt.toISOString() } : undefined;
+  }
+
+  previewPasswordLink(token: string): PasswordLinkPreview | undefined {
+    const link = this.openPasswordLink(token);
+    return link && { email: link.email, expiresAt: link.expiresAt };
+  }
+
+  /** Sets the new password, consumes the link and signs every device of the account out, in one transaction. */
+  async choosePassword(token: string, password: string): Promise<Person> {
+    const invalidLink = () => new AccountError("invalid-link", "This password link is expired or used.");
+    const link = this.openPasswordLink(token);
+    if (!link) throw invalidLink();
+    if (password.length < MIN_PASSWORD_LENGTH) throw new AccountError("password-too-short", `The password needs ${MIN_PASSWORD_LENGTH} characters at least.`);
+    const hash = await hashPassword(password);
+    this.db.transaction(() => {
+      if (!this.openPasswordLink(token)) throw invalidLink();
+      this.db.prepare("UPDATE people SET password_hash = ?, last_sign_in_at = ? WHERE id = ?").run(hash, new Date().toISOString(), link.personId);
+      this.db.prepare("DELETE FROM single_use_links WHERE kind = 'password' AND person_id = ?").run(link.personId);
+      this.deleteSessionsOf(link.personId);
+    })();
+    const { name } = this.requireAccount(link.personId);
+    return { id: link.personId, name, email: link.email, initials: initialsOf(name, link.personId) };
+  }
+
+  rename(id: string, name: string): Person {
+    const trimmed = name.trim();
+    if (trimmed === "") throw new AccountError("invalid-name", "Enter a name.");
+    this.db.prepare("UPDATE people SET name = ? WHERE id = ?").run(trimmed, id);
+    const { email } = this.requireAccount(id);
+    return { id, name: trimmed, email, initials: initialsOf(trimmed, id) };
+  }
+
+  /** Changes the password of the signed-in account when the current one is right; every other device is signed out. */
+  async changePassword(id: string, sessionToken: string | undefined, currentPassword: string, newPassword: string): Promise<void> {
+    const row = this.db.prepare("SELECT password_hash FROM people WHERE id = ? AND role IS NOT NULL AND status = 'active'").get(id) as { password_hash: string | null } | undefined;
+    if (!row?.password_hash || !(await passwordMatches(currentPassword, row.password_hash))) throw new AccountError("wrong-password", "Le mot de passe actuel n'est pas le bon.");
+    if (newPassword.length < MIN_PASSWORD_LENGTH) throw new AccountError("password-too-short", `The password needs ${MIN_PASSWORD_LENGTH} characters at least.`);
+    const hash = await hashPassword(newPassword);
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE people SET password_hash = ? WHERE id = ?").run(hash, id);
+      this.deleteSessionsOf(id, sessionToken);
+    })();
+  }
+
+  /** Every session of the account, except the one of `keepToken`. */
+  deleteSessionsOf(personId: string, keepToken?: string): void {
+    this.db.prepare("DELETE FROM sessions WHERE person_id = ? AND token_hash IS NOT ?").run(personId, keepToken === undefined ? null : sha256(keepToken));
   }
 
   createSession(personId: string): { token: string; expiresAt: Date } {

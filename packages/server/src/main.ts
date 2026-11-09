@@ -3,7 +3,12 @@ import { resolveAuthMode } from "./access.js";
 import { identityFromEnv } from "./identity.js";
 import { proxySecretsFromEnv } from "./proxy-secrets.js";
 import { publicDeadlineFromEnv } from "./public-deadline.js";
+import { resetAdmin } from "./reset-admin.js";
 import { startServer } from "./start.js";
+
+if (process.argv[2] === "reset-admin") {
+  process.exit(resetAdmin({ dataDir: process.env.REDLINE_DATA_DIR ?? "./data", publicUrl: process.env.REDLINE_PUBLIC_URL, log: console.log, error: console.error }));
+}
 
 const proxySecrets = proxySecretsFromEnv(process.env);
 const server = await startServer({
