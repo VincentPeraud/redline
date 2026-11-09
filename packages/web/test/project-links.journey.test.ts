@@ -173,3 +173,78 @@ it("offers Écriture for a link made for one person only", async () => {
   await form.getByText(/Lien créé pour Alix, en Écriture/).waitFor();
   await context.close();
 });
+
+it("creates a project link from Partager le projet, with the same dialogs as a page link", async () => {
+  const project = (await (await api("POST", "/api/projects", { title: "Lien projet" })).json()) as Project;
+  await newPage(project.id, "Accueil");
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await context.addCookies([{ name: "redline_session", value: await cookieOf("ariane@example.com"), url: server.url }]);
+  const tab = await context.newPage();
+  tab.setDefaultTimeout(5000);
+  await tab.goto(`${server.url}/#/projects/${project.id}`);
+  await tab.getByRole("button", { name: "Partager", exact: true }).click();
+  const dialog = tab.getByRole("dialog", { name: "Partager le projet Lien projet" });
+  await dialog.getByText("Un lien de projet donne accès à toutes ses pages, présentes et futures (hors pages archivées).").waitFor();
+  await dialog.getByText("Aucun lien sur ce projet.").waitFor();
+  await dialog.getByRole("button", { name: "Créer un lien" }).click();
+  const form = tab.getByRole("dialog", { name: "Créer un lien" });
+  await form.getByRole("radio", { name: "Tout le monde avec le lien" }).click();
+  await form.getByLabel("Nom du lien").fill("Client");
+  await form.getByRole("radio", { name: /^Commentaire/ }).check();
+  await form.getByRole("button", { name: "Créer le lien" }).click();
+  await form.getByText(/Lien créé pour Client, en Commentaire/).waitFor();
+  await form.getByRole("button", { name: "Terminé" }).click();
+  await tab.getByRole("button", { name: "Partager", exact: true }).click();
+  await tab.getByRole("dialog", { name: "Partager le projet Lien projet" }).getByTestId("link-row").getByText("Client").waitFor();
+  await tab.screenshot({ path: join(tmpdir(), "project-share-links.png") });
+  const links = (await (await api("GET", `/api/projects/${project.id}/links`)).json()) as ShareLink[];
+  expect(links).toMatchObject([{ scope: "project", name: "Client", level: "comment" }]);
+
+  // Disabling goes through the same confirmation as a page link.
+  await tab.getByRole("button", { name: "Désactiver", exact: true }).click();
+  await tab.getByRole("alertdialog", { name: "Désactiver « Client » ?" }).getByRole("button", { name: "Désactiver le lien" }).click();
+  await tab.getByText("1 lien désactivé ou expiré").waitFor();
+  await context.close();
+}, 30_000);
+
+it("lists every thread of the project to an Écriture project link, newest first, and a page link only its page", async () => {
+  const project = (await (await api("POST", "/api/projects", { title: "Fils" })).json()) as Project;
+  const first = await newPage(project.id, "Avant");
+  const second = await newPage(project.id, "Après");
+  const thread = (pageId: string, body: string) => api("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body, held: true });
+  await thread(first, "Oldest remark");
+  await thread(first, "Middle remark");
+  await thread(second, "Other page remark");
+  const link = await newLink(`/api/projects/${project.id}/links`, { kind: "personal", name: "Alix", level: "write" });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const tab = await context.newPage();
+  await tab.goto(`${server.url}/s/${link.token}#/pages/${first}`);
+  await tab.getByRole("heading", { name: "Commentaires · 3" }).waitFor();
+  const cards = await tab.getByTestId("visitor-thread").allInnerTexts();
+  expect(cards.map((card) => ["Other page", "Middle", "Oldest"].find((word) => card.includes(word)))).toEqual(["Other page", "Middle", "Oldest"]);
+  await tab.getByText("En Écriture, tu vois tous les fils du projet").waitFor();
+
+  const pageLink = await newLink(`/api/pages/${first}/links`, { kind: "personal", name: "Bea", level: "write" });
+  const single = await context.newPage();
+  await single.goto(`${server.url}/s/${pageLink.token}`);
+  await single.getByRole("heading", { name: "Commentaires · 2" }).waitFor();
+  expect(await single.getByText("Other page remark").count()).toBe(0);
+  await single.getByText("En Écriture, tu vois tous les fils de la page").waitFor();
+  await context.close();
+}, 30_000);
+
+it("tells an Écriture visitor on a phone that Claude is not available, and keeps her comments signed with the link", async () => {
+  const project = (await (await api("POST", "/api/projects", { title: "Mobile" })).json()) as Project;
+  const pageId = await newPage(project.id, "Page");
+  const link = await newLink(`/api/pages/${pageId}/links`, { kind: "personal", name: "Alix", level: "write" });
+  await fetch(`${server.url}/s/${link.token}/api/pages/${pageId}/threads`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ target: { kind: "artboard", artboard: "home.html" }, body: "From the phone" }) });
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const tab = await phone.newPage();
+  await tab.goto(`${server.url}/s/${link.token}`);
+  await tab.getByRole("button", { name: "Commentaires · 1" }).click();
+  const list = tab.getByRole("region", { name: "Commentaires" });
+  await list.getByText("Alix (lien)").waitFor();
+  await list.getByText(/Claude n'est pas disponible pour l'instant/).waitFor();
+  await tab.screenshot({ path: join(tmpdir(), "visitor-write-phone.png") });
+  await phone.close();
+}, 30_000);

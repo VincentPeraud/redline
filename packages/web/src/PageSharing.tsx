@@ -42,13 +42,22 @@ export function linkUrl(link: ShareLink): string {
 
 const isLive = (link: ShareLink) => link.status === "active" && !link.expired;
 
-/** The page's links (`GET /api/pages/:id/links`), loaded once and reloaded after each change. */
-function usePageLinks(pageId: string): { links: ShareLink[]; reload: () => Promise<void> } {
+/** What a link covers: one page, or a whole project. */
+export interface LinkScope {
+  kind: "page" | "project";
+  id: string;
+}
+
+const linksPath = (scope: LinkScope) => `/api/${scope.kind === "page" ? "pages" : "projects"}/${scope.id}/links`;
+
+/** The links of a page or a project (`GET .../links`), loaded once and reloaded after each change. */
+export function useScopeLinks(scope: LinkScope, enabled = true): { links: ShareLink[]; reload: () => Promise<void> } {
   const [links, setLinks] = useState<ShareLink[]>([]);
   const reload = useCallback(async () => {
-    const res = await fetch(`/api/pages/${pageId}/links`);
+    if (!enabled) return;
+    const res = await fetch(linksPath({ kind: scope.kind, id: scope.id }));
     if (res.ok) setLinks((await res.json()) as ShareLink[]);
-  }, [pageId]);
+  }, [scope.kind, scope.id, enabled]);
   useEffect(() => {
     void reload();
   }, [reload]);
@@ -66,7 +75,7 @@ function LinkIcon() {
 
 /** The "Partager" button of the canvas header, with the number of active links; opens the page's links. */
 export function SharePageButton({ pageId, pageTitle, project }: { pageId: string; pageTitle: string; project: Project | null }) {
-  const { links, reload } = usePageLinks(pageId);
+  const { links, reload } = useScopeLinks({ kind: "page", id: pageId });
   const [open, setOpen] = useState(false);
   const active = links.filter(isLive).length;
   return (
@@ -99,13 +108,80 @@ export function SharePageButton({ pageId, pageTitle, project }: { pageId: string
 
 type Step = { name: "list" } | { name: "create" } | { name: "edit"; link: ShareLink } | { name: "disable"; link: ShareLink };
 
+/** Which dialog of the links is open: the list (the host dialog itself) or one of the steps that replace it. */
+export const useLinkStep = () => useState<Step>({ name: "list" });
+type LinkStep = ReturnType<typeof useLinkStep>;
+
 function PageSharingDialog({ pageId, pageTitle, project, links, reload, onClose }: { pageId: string; pageTitle: string; project: Project | null; links: ShareLink[]; reload: () => Promise<void>; onClose: () => void }) {
+  const linkStep = useLinkStep();
+  const scope: LinkScope = { kind: "page", id: pageId };
+  const stepDialog = <LinkStepDialog scope={scope} project={project} linkStep={linkStep} reload={reload} onCloseAll={onClose} />;
+  if (linkStep[0].name !== "list") return stepDialog;
+  const privateProject = project?.visibility === "private";
+  return (
+    <Dialog title={`Partager « ${pageTitle} »`} width={640} gap={24} onClose={onClose}>
+      {project && (
+        <section className={sharing.section}>
+          <div className={sharing.sectionHead}>
+            <h3 className={sharing.sectionTitle}>{privateProject ? "Privé" : "Équipe"}</h3>
+          </div>
+          <p className={sharing.text}>
+            {project.title} est un projet <strong>{privateProject ? "Privé" : "Équipe"}</strong> :{" "}
+            {privateProject ? "seuls son créateur, les admins et les membres ajoutés y ont accès" : "tous les membres y ont accès en Écriture"}. Les droits des membres se règlent sur le projet :{" "}
+            <a className={styles.link} href={routeHref({ name: "project", projectId: project.id })} onClick={onClose}>
+              Partager le projet
+            </a>
+            .
+          </p>
+        </section>
+      )}
+      <LinksSection scope={scope} project={project} links={links} reload={reload} linkStep={linkStep} />
+    </Dialog>
+  );
+}
+
+/** The confirmation to disable a link, or the form to create or change one: they take the place of the dialog that lists the links. */
+export function LinkStepDialog({ scope, project, linkStep: [step, setStep], reload, onCloseAll }: { scope: LinkScope; project: Project | null; linkStep: LinkStep; reload: () => Promise<void>; onCloseAll: () => void }) {
+  if (step.name === "create" || step.name === "edit") {
+    return <LinkFormDialog scope={scope} mayWrite={project?.viewerLevel === undefined || project.viewerLevel === "write"} link={step.name === "edit" ? step.link : undefined} onClose={() => setStep({ name: "list" })} onDone={reload} onCloseAll={onCloseAll} />;
+  }
+  if (step.name !== "disable") return null;
+  const link = step.link;
+  return (
+    <Dialog title={`Désactiver « ${link.name} » ?`} width={460} alert onClose={() => setStep({ name: "list" })}>
+      <p className={styles.text}>
+        {link.deviceCount === 0 ? "Aucun appareil ne l'a ouvert pour l'instant." : `${link.deviceCount > 1 ? `Les ${link.deviceCount} appareils` : "L'appareil"} qui l'${link.deviceCount > 1 ? "ont" : "a"} ouvert perd${link.deviceCount > 1 ? "ent" : ""} l'accès tout de suite : ${link.deviceCount > 1 ? "ils voient" : "il voit"} « Ce lien ne marche plus ».`}
+        {link.level !== "read" && " Leurs commentaires restent sur la page, signés de leur nom."}
+      </p>
+      <p className={styles.text}>Tu pourras le réactiver plus tard : la même adresse remarchera.</p>
+      <DialogActions>
+        <Button size="lg" onClick={() => setStep({ name: "list" })}>
+          Annuler
+        </Button>
+        <Button
+          size="lg"
+          className={styles.dangerFill}
+          onClick={async () => {
+            await fetch(`/api/links/${link.id}/disable`, { method: "POST", headers: JSON_HEADERS, body: "{}" });
+            await reload();
+            setStep({ name: "list" });
+          }}
+        >
+          Désactiver le lien
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/** "Liens de partage": the links of a page or a project, with "Créer un lien", Copier, Modifier, Désactiver and Réactiver. */
+export function LinksSection({ scope, project, links, reload, linkStep: [, setStep] }: { scope: LinkScope; project: Project | null; links: ShareLink[]; reload: () => Promise<void>; linkStep: LinkStep }) {
   const me = useMe();
-  const [step, setStep] = useState<Step>({ name: "list" });
   const [foldedOpen, setFoldedOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | undefined>(undefined);
   const live = links.filter(isLive);
   const folded = links.filter((link) => !isLive(link));
+  const where = scope.kind === "page" ? "cette page" : "ce projet";
 
   async function copy(link: ShareLink) {
     await navigator.clipboard.writeText(linkUrl(link));
@@ -117,38 +193,6 @@ function PageSharingDialog({ pageId, pageTitle, project, links, reload, onClose 
     await reload();
   }
   const author = (link: ShareLink) => (link.createdBy?.id === me?.id ? "toi" : (link.createdBy?.name ?? "un membre"));
-
-  if (step.name === "create" || step.name === "edit") {
-    return <LinkFormDialog pageId={pageId} mayWrite={project?.viewerLevel === undefined || project.viewerLevel === "write"} link={step.name === "edit" ? step.link : undefined} onClose={() => setStep({ name: "list" })} onDone={reload} onCloseAll={onClose} />;
-  }
-  if (step.name === "disable") {
-    const link = step.link;
-    return (
-      <Dialog title={`Désactiver « ${link.name} » ?`} width={460} alert onClose={() => setStep({ name: "list" })}>
-        <p className={styles.text}>
-          {link.deviceCount === 0 ? "Aucun appareil ne l'a ouvert pour l'instant." : `${link.deviceCount > 1 ? `Les ${link.deviceCount} appareils` : "L'appareil"} qui l'${link.deviceCount > 1 ? "ont" : "a"} ouvert perd${link.deviceCount > 1 ? "ent" : ""} l'accès tout de suite : ${link.deviceCount > 1 ? "ils voient" : "il voit"} « Ce lien ne marche plus ».`}
-          {link.level !== "read" && " Leurs commentaires restent sur la page, signés de leur nom."}
-        </p>
-        <p className={styles.text}>Tu pourras le réactiver plus tard : la même adresse remarchera.</p>
-        <DialogActions>
-          <Button size="lg" onClick={() => setStep({ name: "list" })}>
-            Annuler
-          </Button>
-          <Button
-            size="lg"
-            className={styles.dangerFill}
-            onClick={async () => {
-              await fetch(`/api/links/${link.id}/disable`, { method: "POST", headers: JSON_HEADERS, body: "{}" });
-              await reload();
-              setStep({ name: "list" });
-            }}
-          >
-            Désactiver le lien
-          </Button>
-        </DialogActions>
-      </Dialog>
-    );
-  }
 
   const row = (link: ShareLink, dim: boolean) => (
     <div key={link.id} className={sharing.row} data-testid="link-row">
@@ -197,55 +241,42 @@ function PageSharingDialog({ pageId, pageTitle, project, links, reload, onClose 
   // On a Privé project only its creator and the admins create links; with no accounts (no `me`) everyone does.
   const mayCreate = !privateProject || !me || me.account?.role === "admin" || project?.createdBy?.id === me.id;
   return (
-    <Dialog title={`Partager « ${pageTitle} »`} width={640} gap={24} onClose={onClose}>
-      {project && (
-        <section className={sharing.section}>
-          <div className={sharing.sectionHead}>
-            <h3 className={sharing.sectionTitle}>{privateProject ? "Privé" : "Équipe"}</h3>
-          </div>
-          <p className={sharing.text}>
-            {project.title} est un projet <strong>{privateProject ? "Privé" : "Équipe"}</strong> :{" "}
-            {privateProject ? "seuls son créateur, les admins et les membres ajoutés y ont accès" : "tous les membres y ont accès en Écriture"}. Les droits des membres se règlent sur le projet :{" "}
-            <a className={styles.link} href={routeHref({ name: "project", projectId: project.id })} onClick={onClose}>
-              Partager le projet
-            </a>
-            .
-          </p>
-        </section>
-      )}
-      <section className={sharing.section}>
-        <div className={sharing.sectionHead}>
-          <h3 className={sharing.sectionTitle}>Liens de partage</h3>
-          {mayCreate && (
-            <Button size="sm" variant="primary" onClick={() => setStep({ name: "create" })}>
-              Créer un lien
-            </Button>
-          )}
+    <section className={sharing.section}>
+      <div className={sharing.sectionHead}>
+        <h3 className={sharing.sectionTitle}>Liens de partage</h3>
+        {mayCreate && (
+          <Button size="sm" variant="primary" onClick={() => setStep({ name: "create" })}>
+            Créer un lien
+          </Button>
+        )}
+      </div>
+      <p className={sharing.text}>
+        {scope.kind === "page"
+          ? "Pour un client ou un freelance, sans compte. Un lien ne donne accès qu'à cette page."
+          : "Un lien de projet donne accès à toutes ses pages, présentes et futures (hors pages archivées)."}
+      </p>
+      {privateProject && <p className={sharing.text}>{mayCreate ? "Sur un projet privé, seuls toi et les admins créez des liens." : "Sur un projet privé, seuls son créateur et les admins créent des liens."}</p>}
+      {links.length === 0 ? (
+        <div className={styles.empty}>
+          Aucun lien sur {where}.
+          <br />
+          Crée-en un par personne (« pour Alix ») ou un pour tout un groupe (« Client HAIDF »).
         </div>
-        <p className={sharing.text}>Pour un client ou un freelance, sans compte. Un lien ne donne accès qu'à cette page.</p>
-        {privateProject && <p className={sharing.text}>{mayCreate ? "Sur un projet privé, seuls toi et les admins créez des liens." : "Sur un projet privé, seuls son créateur et les admins créent des liens."}</p>}
-        {links.length === 0 ? (
-          <div className={styles.empty}>
-            Aucun lien sur cette page.
-            <br />
-            Crée-en un par personne (« pour Alix ») ou un pour tout un groupe (« Client HAIDF »).
-          </div>
-        ) : (
-          live.length > 0 && <div className={sharing.list}>{live.map((link) => row(link, false))}</div>
-        )}
-        {folded.length > 0 && (
-          <>
-            <button type="button" className={styles.more} aria-expanded={foldedOpen} onClick={() => setFoldedOpen(!foldedOpen)}>
-              {folded.length} {folded.length > 1 ? "liens désactivés ou expirés" : "lien désactivé ou expiré"}
-              <span aria-hidden="true" className={cx(styles.moreChevron, foldedOpen && styles.moreChevronOpen)}>
-                ⌄
-              </span>
-            </button>
-            {foldedOpen && <div className={cx(sharing.list, styles.off)}>{folded.map((link) => row(link, true))}</div>}
-          </>
-        )}
-      </section>
-    </Dialog>
+      ) : (
+        live.length > 0 && <div className={sharing.list}>{live.map((link) => row(link, false))}</div>
+      )}
+      {folded.length > 0 && (
+        <>
+          <button type="button" className={styles.more} aria-expanded={foldedOpen} onClick={() => setFoldedOpen(!foldedOpen)}>
+            {folded.length} {folded.length > 1 ? "liens désactivés ou expirés" : "lien désactivé ou expiré"}
+            <span aria-hidden="true" className={cx(styles.moreChevron, foldedOpen && styles.moreChevronOpen)}>
+              ⌄
+            </span>
+          </button>
+          {foldedOpen && <div className={cx(sharing.list, styles.off)}>{folded.map((link) => row(link, true))}</div>}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -269,7 +300,7 @@ function expiryOf(choice: ExpiryChoice, date: string): string | null {
 }
 
 /** "Créer un lien" (and "Modifier"): who it is for, its name, level and expiry; then the address to copy. */
-function LinkFormDialog({ pageId, mayWrite, link, onClose, onDone, onCloseAll }: { pageId: string; mayWrite: boolean; link?: ShareLink; onClose: () => void; onDone: () => Promise<void>; onCloseAll: () => void }) {
+function LinkFormDialog({ scope, mayWrite, link, onClose, onDone, onCloseAll }: { scope: LinkScope; mayWrite: boolean; link?: ShareLink; onClose: () => void; onDone: () => Promise<void>; onCloseAll: () => void }) {
   const editing = link !== undefined;
   const [kind, setKind] = useState<LinkKind>(link?.kind ?? "personal");
   const [name, setName] = useState(link?.name ?? "");
@@ -292,7 +323,7 @@ function LinkFormDialog({ pageId, mayWrite, link, onClose, onDone, onCloseAll }:
     const expiresAt = expiry === "date" && link?.expiresAt?.slice(0, 10) === date ? link.expiresAt : expiryOf(expiry, date);
     const res = editing
       ? await fetch(`/api/links/${link.id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ name, level, direct: level === "comment" && direct, expiresAt }) })
-      : await fetch(`/api/pages/${pageId}/links`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ kind, name, level, direct: level === "comment" && direct, expiresAt } satisfies CreateLinkRequest) });
+      : await fetch(linksPath(scope), { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ kind, name, level, direct: level === "comment" && direct, expiresAt } satisfies CreateLinkRequest) });
     setBusy(false);
     if (!res.ok) return setError("Le lien n'a pas pu être enregistré.");
     await onDone();

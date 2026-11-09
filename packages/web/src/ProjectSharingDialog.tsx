@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { AccessLevel, Person, Project, ProjectMember, ProjectSharing, ProjectVisibility, ShareLink } from "@redline/shared";
 import { Avatar } from "./Avatar.js";
 import { useMe } from "./useMe.js";
+import { LinkStepDialog, LinksSection, useLinkStep, useScopeLinks, type LinkScope } from "./PageSharing.js";
 import { VISIBILITY_LABEL } from "./VisibilityBadge.js";
 import { Button, Dialog, DialogActions, Select, SegmentedControl, StatusBadge } from "./ui/index.js";
 import styles from "./ProjectSharingDialog.module.css";
@@ -131,6 +132,9 @@ function ProjectSharingDialog({ project, sharing, reload, onChanged, onClose }: 
   const [confirming, setConfirming] = useState(false);
   const [adding, setAdding] = useState(false);
   const [alsoDisableLinks, setAlsoDisableLinks] = useState(false);
+  const linkStep = useLinkStep();
+  const scope: LinkScope = { kind: "project", id: project.id };
+  const { links, reload: reloadLinks } = useScopeLinks(scope);
 
   async function setVisibility(visibility: ProjectVisibility) {
     const res = await fetch(`/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ visibility }) });
@@ -189,6 +193,8 @@ function ProjectSharingDialog({ project, sharing, reload, onChanged, onClose }: 
       </Dialog>
     );
   }
+
+  if (linkStep[0].name !== "list") return <LinkStepDialog scope={scope} project={project} linkStep={linkStep} reload={reloadLinks} onCloseAll={onClose} />;
 
   const isPrivate = project.visibility === "private";
   const creator = sharing.createdBy;
@@ -274,6 +280,7 @@ function ProjectSharingDialog({ project, sharing, reload, onChanged, onClose }: 
           />
         )}
       </section>
+      <LinksSection scope={scope} project={project} links={links} reload={reloadLinks} linkStep={linkStep} />
     </Dialog>
   );
 }

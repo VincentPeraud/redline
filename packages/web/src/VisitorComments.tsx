@@ -11,10 +11,16 @@ export function signedName(visitor: VisitorState): string {
 }
 
 /** Where a thread sits, as a visitor reads it: "Planifier une sortie · bouton « Créer la sortie »". */
-function whereLabel(thread: Thread, artboardTitles: Record<string, string>): string {
+function whereLabel(thread: Thread, artboardTitles: Record<string, string>, otherPages: OtherPages | undefined): string {
   const artboard = artboardTitles[thread.artboard] ?? thread.artboard;
-  if (thread.target.kind === "artboard") return `${artboard} · Artboard entier`;
-  return `${artboard} · ${thread.elementName ?? thread.selector}`;
+  const place = thread.target.kind === "artboard" ? `${artboard} · Artboard entier` : `${artboard} · ${thread.elementName ?? thread.selector}`;
+  return otherPages && thread.pageId !== otherPages.currentPageId ? `${otherPages.titles[thread.pageId] ?? ""} · ${place}` : place;
+}
+
+/** A project link in Écriture lists the threads of every page: the titles of the pages, to tell where a thread sits. */
+export interface OtherPages {
+  currentPageId: string;
+  titles: Record<string, string>;
 }
 
 function replyAuthor(reply: ThreadReply, mine: (name: string) => boolean, writing: boolean): string {
@@ -31,22 +37,22 @@ export const CLAUDE_UNAVAILABLE_NOTE = "Claude n'est pas disponible pour l'insta
  * "Commentaires de ce lien · N": the visitor's own comments and those of the others holding the link, never the team's.
  * An Écriture link reads like a member: "Commentaires · N", every thread of the page.
  */
-export function VisitorThreadsPanel({ threads, visitor, artboardTitles, claudeAvailable, onShow }: { threads: Thread[]; visitor: VisitorState; artboardTitles: Record<string, string>; claudeAvailable?: boolean; onShow?: (threadId: string) => void }) {
+export function VisitorThreadsPanel({ threads, visitor, artboardTitles, otherPages, claudeAvailable, onShow }: { threads: Thread[]; visitor: VisitorState; artboardTitles: Record<string, string>; otherPages?: OtherPages; claudeAvailable?: boolean; onShow?: (threadId: string) => void }) {
   const writing = visitor.view.level === "write";
   return (
     <aside aria-label={writing ? "Commentaires" : "Commentaires de ce lien"} className={cx(styles.panel, writing && styles.panelWide)}>
       <h2 className={styles.title}>{writing ? "Commentaires" : "Commentaires de ce lien"} · {threads.length}</h2>
       <p className={styles.hint}>
         {writing
-          ? "En Écriture, tu vois tous les fils du projet, et tes commentaires partent à Claude comme ceux de l'équipe. Tu peux retoucher et restaurer des versions ; pas de partage, d'archivage, de suppression ni d'agent."
+          ? `En Écriture, tu vois tous les fils ${visitor.view.scope === "project" ? "du projet" : "de la page"}, et tes commentaires partent à Claude comme ceux de l'équipe. Tu peux retoucher et restaurer des versions ; pas de partage, d'archivage, de suppression ni d'agent.`
           : "Les tiens et ceux des autres personnes de ce lien. Clique sur un élément en mode Commenter pour en poser un : l'équipe les lit avant de les confier à Claude."}
       </p>
-      <VisitorThreadCards threads={threads} visitor={visitor} artboardTitles={artboardTitles} claudeAvailable={claudeAvailable} onShow={onShow} />
+      <VisitorThreadCards threads={threads} visitor={visitor} artboardTitles={artboardTitles} otherPages={otherPages} claudeAvailable={claudeAvailable} onShow={onShow} />
     </aside>
   );
 }
 
-export function VisitorThreadCards({ threads, visitor, artboardTitles, claudeAvailable, onShow }: { threads: Thread[]; visitor: VisitorState; artboardTitles: Record<string, string>; claudeAvailable?: boolean; onShow?: (threadId: string) => void }) {
+export function VisitorThreadCards({ threads, visitor, artboardTitles, otherPages, claudeAvailable, onShow }: { threads: Thread[]; visitor: VisitorState; artboardTitles: Record<string, string>; otherPages?: OtherPages; claudeAvailable?: boolean; onShow?: (threadId: string) => void }) {
   const me = signedName(visitor);
   const writing = visitor.view.level === "write";
   const mine = (name: string) => name === me;
@@ -60,7 +66,7 @@ export function VisitorThreadCards({ threads, visitor, artboardTitles, claudeAva
         <button type="button" key={thread.id} data-testid="visitor-thread" className={styles.card} onClick={() => onShow?.(thread.id)}>
           <span className={styles.where}>
             <span className={cx(styles.pin, writing && styles.pinFilled)}>{thread.number}</span>
-            {whereLabel(thread, artboardTitles)}
+            {whereLabel(thread, artboardTitles, otherPages)}
           </span>
           <span className={styles.who}>{authorOf(thread)}</span>
           <span>{thread.body}</span>

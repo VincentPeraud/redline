@@ -82,6 +82,28 @@ describe("project links and Écriture links", () => {
     agent.close();
   });
 
+  it("lists every thread of the project, newest first, to an Écriture project link only", async () => {
+    const { project, pageId } = await setup();
+    const other = await instance.createPage(instance.ariane, project.id, "Other");
+    const gone = await instance.createPage(instance.ariane, project.id, "Gone");
+    const post = (id: string, body: string) => instance.ariane.send("POST", `/api/pages/${id}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body, held: true });
+    await post(pageId, "First");
+    await post(other, "Second");
+    await post(pageId, "Third");
+    await post(gone, "Archived page");
+    await instance.ariane.send("POST", `/api/pages/${gone}/archive`);
+
+    const write = await createLink(`/api/projects/${project.id}/links`, { level: "write" });
+    const listed = (await (await visit(write, `/api/projects/${project.id}/threads`)).json()) as Thread[];
+    expect(listed.map((t) => t.body)).toEqual(["Third", "Second", "First"]);
+    expect(listed.map((t) => t.pageId)).toEqual([pageId, other, pageId]);
+
+    const comment = await createLink(`/api/projects/${project.id}/links`, { level: "comment" });
+    expect((await visit(comment, `/api/projects/${project.id}/threads`)).status).toBe(403);
+    const pageLink = await createLink(`/api/pages/${pageId}/links`, { level: "write" });
+    expect((await visit(pageLink, `/api/projects/${project.id}/threads`)).status).toBe(403);
+  });
+
   it("lets an Écriture project link create a page, and a Commentaire one not", async () => {
     const { project } = await setup();
     const write = await createLink(`/api/projects/${project.id}/links`, { level: "write" });

@@ -1471,6 +1471,18 @@ export class Store {
     return rows.map((row) => this.withPerson(withCurrentElement(toThread(row, this.repliesOf(row.id)), elements), row.person_id));
   }
 
+  /** Every thread of the project's pages, archived ones left out, newest first (a project link in Écriture reads them all). */
+  listProjectThreads(projectId: string): Thread[] {
+    const rows = this.db
+      .prepare(`${THREAD_SELECT} WHERE page_id IN (SELECT id FROM pages WHERE project_id = ? AND archived_at IS NULL) ORDER BY created_at DESC, rowid DESC`)
+      .all(projectId) as ThreadRow[];
+    const elements = new Map<string, ReturnType<Store["canvasElementsById"]>>();
+    return rows.map((row) => {
+      if (!elements.has(row.page_id)) elements.set(row.page_id, this.canvasElementsById(row.page_id));
+      return this.withPerson(withCurrentElement(toThread(row, this.repliesOf(row.id)), elements.get(row.page_id)!), row.person_id);
+    });
+  }
+
   getThread(id: string): Thread | undefined {
     const row = this.db.prepare(`${THREAD_SELECT} WHERE id = ?`).get(id) as ThreadRow | undefined;
     return row && this.withPerson(withCurrentElement(toThread(row, this.repliesOf(id)), this.canvasElementsById(row.page_id)), row.person_id);

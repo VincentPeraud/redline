@@ -451,6 +451,23 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     setThreads((await res.json()) as Thread[]);
   }, [pageId]);
 
+  /** A project link in Écriture reads the threads of every page of the project, newest first. */
+  const projectWide = visitor?.view.level === "write" && visitor.view.scope === "project";
+  const [projectThreads, setProjectThreads] = useState<Thread[]>([]);
+  const [pageTitles, setPageTitles] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!projectWide) return;
+    const load = async () => {
+      const [threadsRes, pagesRes] = await Promise.all([fetch(`/api/projects/${projectId}/threads`), fetch(`/api/projects/${projectId}/pages`)]);
+      setProjectThreads((await threadsRes.json()) as Thread[]);
+      setPageTitles(Object.fromEntries(((await pagesRes.json()) as { id: string; title: string }[]).map((page) => [page.id, page.title])));
+    };
+    void load();
+    return subscribeServerEvents((event) => {
+      if (event.type === "thread-updated") void load();
+    });
+  }, [projectWide, projectId]);
+
   const refreshQueue = useCallback(async () => {
     const res = await fetch(`/api/pages/${pageId}/queue`);
     setQueue((await res.json()) as QueueEntry[]);
@@ -1301,7 +1318,18 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
 
         {visitor && canComment && (
           <>
-            <VisitorThreadsPanel threads={threads} visitor={visitor} artboardTitles={Object.fromEntries((artboardTitles ?? []).map((a) => [a.file, a.title]))} claudeAvailable={project?.claudeAvailable} onShow={showThread} />
+            <VisitorThreadsPanel
+              threads={projectWide ? projectThreads : visitor.view.level === "write" ? [...threads].reverse() : threads}
+              visitor={visitor}
+              artboardTitles={Object.fromEntries((artboardTitles ?? []).map((a) => [a.file, a.title]))}
+              otherPages={projectWide ? { currentPageId: pageId, titles: pageTitles } : undefined}
+              claudeAvailable={project?.claudeAvailable}
+              onShow={(threadId) => {
+                const elsewhere = projectThreads.find((thread) => thread.id === threadId && thread.pageId !== pageId);
+                if (elsewhere) navigateTo({ name: "page", pageId: elsewhere.pageId });
+                else showThread(threadId);
+              }}
+            />
             {draft && (
               <div className={styles.visitorComposer}>
                 <VisitorComposer

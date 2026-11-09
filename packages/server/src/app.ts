@@ -683,6 +683,12 @@ export async function buildMainApp(
     return store.listThreads(req.params.pageId).map((thread) => withLinkName(req.viewer, thread));
   });
 
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/threads", async (req, reply) => {
+    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    if (req.viewer.kind === "link" && req.viewer.link.scope !== "project") return reply.code(403).send({ error: "forbidden" });
+    return store.listProjectThreads(req.params.projectId).map((thread) => withLinkName(req.viewer, thread));
+  });
+
   // The user's reply in a thread: resumes the thread's session on the agent that opened it.
   app.post<{ Params: { threadId: string }; Body: CreateReplyRequest }>("/api/threads/:threadId/messages", async (req, reply) => {
     const thread = store.getThread(req.params.threadId);

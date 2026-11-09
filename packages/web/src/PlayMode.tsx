@@ -1,6 +1,6 @@
 import { ArtboardIframe } from "./artboardCapability.js";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { RESPONSIVE_FORMATS, renderingKey, renderingLabel, type ArtboardRendering, type CreateThreadRequest, type Manifest, type Thread, type TweakValue, type TweakValues } from "@redline/shared";
+import { RESPONSIVE_FORMATS, renderingKey, renderingLabel, type ArtboardRendering, type CreateThreadRequest, type Manifest, type Project, type Thread, type TweakValue, type TweakValues } from "@redline/shared";
 import { PlayStepper } from "./PlayStepper.js";
 import type { TocItem } from "./tocItems.js";
 import { TweaksPanel } from "./TweaksPanel.js";
@@ -100,6 +100,9 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   const [commentText, setCommentText] = useState("");
   const [listOpen, setListOpen] = useState(false);
   const [linkThreads, setLinkThreads] = useState<Thread[]>([]);
+  /** An Écriture link reads like a member ("Commentaires", newest first) and is told when no agent serves the project. */
+  const writing = visitor?.view.level === "write";
+  const [claudeAvailable, setClaudeAvailable] = useState<boolean | undefined>(undefined);
   const renderings = artboard?.responsive ?? [];
   const [rendering, selectRendering] = usePlayRendering(renderings, renderingParam);
   const presentation = artboard && presentationOf(artboard, framed, windowWidth, artboard.responsive ? rendering : undefined);
@@ -155,6 +158,12 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
       if (event.type === "thread-updated" && event.pageId === pageId) load();
     });
   }, [canComment, pageId]);
+  useEffect(() => {
+    if (!canComment || !writing) return;
+    void fetch(`/api/projects/${visitor.view.project.id}`)
+      .then((response) => response.json() as Promise<Project>)
+      .then((project) => setClaudeAvailable(project.claudeAvailable));
+  }, [canComment, writing, visitor]);
   // Commenting turns the frame's clicks into picks instead of the manifest's links.
   useEffect(() => {
     if (bridgeEpoch === 0 || !canComment) return;
@@ -414,14 +423,14 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
       )}
       {canComment && listOpen && (
         <div className={styles.sheet}>
-          <section aria-label="Commentaires de ce lien" className={styles.sheetList}>
+          <section aria-label={writing ? "Commentaires" : "Commentaires de ce lien"} className={styles.sheetList}>
             <header className={styles.sheetHead}>
-              <h2>Commentaires de ce lien · {linkThreads.length}</h2>
+              <h2>{writing ? "Commentaires" : "Commentaires de ce lien"} · {linkThreads.length}</h2>
               <button type="button" aria-label="Fermer" onClick={() => setListOpen(false)} className={styles.sheetClose}>
                 ×
               </button>
             </header>
-            <VisitorThreadCards threads={linkThreads} visitor={visitor} artboardTitles={Object.fromEntries(manifest.artboards.map((a) => [a.file, a.title ?? a.file]))} />
+            <VisitorThreadCards threads={writing ? [...linkThreads].reverse() : linkThreads} visitor={visitor} artboardTitles={Object.fromEntries(manifest.artboards.map((a) => [a.file, a.title ?? a.file]))} claudeAvailable={claudeAvailable} />
           </section>
         </div>
       )}
