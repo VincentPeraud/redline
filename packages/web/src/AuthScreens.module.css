@@ -45,6 +45,21 @@
   text-align: center;
 }
 
+.dead {
+  max-width: 420px;
+  gap: 10px;
+}
+
+@media (max-width: 600px) {
+  .pageHigh {
+    padding-top: 64px;
+  }
+
+  .dead {
+    padding: var(--space-6) var(--space-5);
+  }
+}
+
 .centeredTitle {
   font-size: var(--font-size-h2);
   font-weight: var(--font-weight-bold);

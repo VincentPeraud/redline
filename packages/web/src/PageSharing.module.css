@@ -1,0 +1,113 @@
+.shareButton {
+  gap: var(--space-2);
+}
+
+.shareIcon {
+  display: inline-flex;
+}
+
+.shareIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.text {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.link {
+  color: var(--color-accent);
+}
+
+.rowTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.actions {
+  display: flex;
+  gap: 4px;
+}
+
+.danger.danger {
+  color: var(--color-danger-text);
+}
+
+.dangerFill.dangerFill {
+  background: var(--color-danger-text);
+  border-color: transparent;
+  color: var(--color-text-inverse);
+  font-weight: var(--font-weight-semibold);
+}
+
+.empty {
+  padding: var(--space-5);
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.more {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.more:hover {
+  color: var(--color-text);
+}
+
+.moreChevron {
+  display: inline-block;
+  transition: transform 120ms;
+}
+
+.moreChevronOpen {
+  transform: rotate(180deg);
+}
+
+.off {
+  opacity: 0.7;
+}
+
+.two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger-text);
+}

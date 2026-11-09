@@ -299,6 +299,17 @@ export function NoAccessScreen() {
   );
 }
 
+/** "Ce lien ne marche plus": the single screen of every share link that fails, whatever the reason. */
+export function DeadLinkScreen() {
+  useDocumentTitle("Lien expiré");
+  return (
+    <AuthCard high className={cx(styles.centered, styles.dead)}>
+      <h1 className={styles.centeredTitle}>Ce lien ne marche plus</h1>
+      <p className={styles.centeredText}>Il a expiré ou a été désactivé. Demande un nouveau lien à la personne qui te l'a envoyé.</p>
+    </AuthCard>
+  );
+}
+
 /** The SSO let this person in but Redline's account list does not know them (or has deactivated them): who to ask. */
 export function UnknownPersonScreen({ email, admins, logoutUrl }: { email: string; admins: { name: string; email: string }[]; logoutUrl: string | null }) {
   useDocumentTitle("Pas d'accès");

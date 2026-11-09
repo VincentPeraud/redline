@@ -81,11 +81,13 @@ import { Tooltip, cx } from "./ui/index.js";
 import { usePageSessions } from "./usePageSessions.js";
 import { useRuns } from "./useRuns.js";
 import { LEVEL_LABEL } from "./ProjectSharingDialog.js";
+import { PHONE_VISITOR_MAX_WIDTH, useVisitor } from "./visitor.js";
 import { useTweaks } from "./useTweaks.js";
 import { viaProjectField } from "./viaProject.js";
 import styles from "./PageCanvas.module.css";
 
 const ZOOM_STEP = 1.25;
+
 /** Where the artboards start on screen at the initial view: left margin, and room above for the group title and artboard labels. */
 const START_LEFT = 80;
 const START_TOP = 190;
@@ -173,7 +175,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const previewing = previewOf !== undefined;
   /** Previewed, or archived: nothing comments, saves or publishes (an archived page still shows its threads and conversations). */
   /** The viewer's level (a design system's page has no project: everyone works there). Lecture only reads, Commentaire also comments. */
-  const level = project?.viewerLevel ?? "write";
+  const visitor = useVisitor();
+  const level = visitor?.view.level ?? project?.viewerLevel ?? "write";
   const canComment = level !== "read";
   const canWork = level === "write";
   const readOnly = previewing || archived !== undefined || !canComment;
@@ -684,6 +687,11 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     // eslint-disable-next-line react-hooks/exhaustive-deps -- artboardSrc, heightOf and layoutOf read only these
     [hasContent, placedArtboards, manifest, files, tokensVersion, preview, previewing, artboardOrigin, pageId, docHeights, pageHeights, viewSettings],
   );
+  // A phone opens a share link in the presentation, one artboard at a time.
+  const firstToPlay = tocItems[0]?.file;
+  useEffect(() => {
+    if (visitor && playFile === undefined && firstToPlay !== undefined && window.innerWidth <= PHONE_VISITOR_MAX_WIDTH) navigateTo(playRoute(pageId, firstToPlay), "replace");
+  }, [visitor, playFile, firstToPlay, pageId]);
   if (playing && manifest && playFile !== undefined) {
     return (
       <PlayMode
@@ -1035,6 +1043,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       </button>
                     </Tooltip>
                     )}
+                    {!visitor && (
                     <ArtboardHistory
                       pageId={pageId}
                       file={artboard.file}
@@ -1046,6 +1055,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       onRestore={(restoreId) => restore(artboard.file, restoreId)}
                       readOnly={frozen}
                     />
+                    )}
                     <Tooltip label={`Copier le lien de ${artboard.file}`}>
                       <button
                         type="button"
@@ -1258,7 +1268,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
               </>
             )}
           </div>
-          <div className={cx(styles.hintWrap, (previewing || selecting || missingArtboard !== null) && styles.hintWrapHidden)}>
+          <div className={cx(styles.hintWrap, (previewing || visitor !== null || selecting || missingArtboard !== null) && styles.hintWrapHidden)}>
             <div data-testid="mode-indicator" className={styles.hint}>
               {picking
                 ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier."
@@ -1286,7 +1296,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
           </div>
         </main>
 
-        {!previewing && (
+        {!previewing && !visitor && (
         <aside aria-label="Commentaires" className={styles.aside}>
           <div role="tablist" aria-label="Panneau latéral" className={styles.tabs}>
             <button type="button" role="tab" aria-selected={tab === "conversation"} className={cx(styles.tab, tab === "conversation" && styles.tabActive)} onClick={() => setTab("conversation")}>

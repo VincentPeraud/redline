@@ -26,6 +26,8 @@ import { SessionsScreen } from "./SessionsScreen";
 import { HomeProvider } from "./useHome.js";
 import { notePageRoute } from "./viaProject.js";
 import { useDocumentTitle } from "./documentTitle.js";
+import { LINK_TOKEN } from "./linkAddress.js";
+import { VisitorApp } from "./visitor.js";
 import type { Route } from "./router";
 
 /** Tab titles of the screens that have no name of their own; the others (a page, a project, a design system) set theirs. */
@@ -124,12 +126,17 @@ function Root() {
 
 installApiCalls();
 
+// A share link opens its page for anyone: no sign-in, no sidebar, none of the team's screens.
 createRoot(document.getElementById("root")!).render(
-  <MeProvider>
-    <AuthGate>
-      <DiffusionProvider>
-        <Root />
-      </DiffusionProvider>
-    </AuthGate>
-  </MeProvider>,
+  LINK_TOKEN !== undefined ? (
+    <VisitorApp />
+  ) : (
+    <MeProvider>
+      <AuthGate>
+        <DiffusionProvider>
+          <Root />
+        </DiffusionProvider>
+      </AuthGate>
+    </MeProvider>
+  ),
 );

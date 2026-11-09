@@ -495,3 +495,55 @@
   border-width: 1px 0;
   border-radius: 0;
 }
+
+/* A share link on a phone: title and level on top, previous and next at the bottom, as on the visiteur-page board. */
+.visitorTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-shrink: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--play-text);
+}
+
+.visitorTitle {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+}
+
+.visitorTitle strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+.visitorTitle span {
+  font-size: var(--font-size-xs);
+  color: var(--play-text-muted);
+}
+
+.visitorBottom {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-5);
+  background: var(--play-bg);
+}
+
+.visitorStep {
+  flex: 1;
+  height: 44px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--play-panel-bg);
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-xl);
+  cursor: pointer;
+}
+
+.visitorStep:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

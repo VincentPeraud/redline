@@ -620,6 +620,8 @@ export async function buildMainApp(
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/threads", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+    // A visitor hears only of threads made through its own link; a Lecture link makes none.
+    if (req.viewer.kind === "link") return [];
     return store.listThreads(req.params.pageId);
   });
 

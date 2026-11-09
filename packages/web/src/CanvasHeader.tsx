@@ -14,6 +14,9 @@ import type { Who } from "./historyLabels.js";
 import type { TocItem } from "./tocItems.js";
 import { routeHref } from "./router.js";
 import { Logo, cx } from "./ui/index.js";
+import { VisitorHeader } from "./VisitorHeader.js";
+import { SharePageButton } from "./PageSharing.js";
+import { useVisitor } from "./visitor.js";
 import styles from "./CanvasHeader.module.css";
 
 interface MenuPage {
@@ -262,11 +265,13 @@ interface Props {
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
 export function CanvasHeader({ project, designSystemId, designSystemTitle, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf, archived = false, commentOnly = false }: Props) {
   const me = useMe();
+  const visitor = useVisitor();
   const owner: PageOwner | null = project
     ? { id: project.id, title: project.title, kind: "project" }
     : designSystemId && designSystemTitle
       ? { id: designSystemId, title: designSystemTitle, kind: "designSystem" }
       : null;
+  if (visitor) return <VisitorHeader visitor={visitor} pageId={pageId} firstArtboard={toc.items[0]?.file} />;
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -316,6 +321,7 @@ export function CanvasHeader({ project, designSystemId, designSystemTitle, versi
           {!archived && <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />}
           {!archived && <TerminalPill pageId={pageId} />}
           {!archived && <AgentPill project={project} running={runningCount} />}
+          {!archived && !designSystemId && <SharePageButton pageId={pageId} pageTitle={pageTitle} project={project} />}
           <div role="group" aria-label="Mode du canvas" className={styles.modes}>
             <button type="button" aria-pressed={!picking} className={cx(styles.mode, !picking && styles.modeInteract)} onClick={() => onPickingChange(false)}>
               Interagir (P)

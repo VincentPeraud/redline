@@ -17,7 +17,9 @@ import { copyAddress } from "./copyLink.js";
 import { CopyLinkIcon } from "./CopyLinkIcon.js";
 import { MissingArtboardNotice } from "./MissingArtboardNotice.js";
 import { useCopiedBubble } from "./useCopiedBubble.js";
-import { Tooltip, cx } from "./ui/index.js";
+import { StatusBadge, Tooltip, cx } from "./ui/index.js";
+import { LEVEL_LABEL } from "./ProjectSharingDialog.js";
+import { PHONE_VISITOR_MAX_WIDTH, useVisitor } from "./visitor.js";
 import styles from "./PlayMode.module.css";
 
 /** Where a link leads: an artboard of this page (`page` null) or of another page (checked against that page when followed). */
@@ -85,6 +87,9 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   const [framed, toggleFramed] = useStoredToggle("redline:play-framed", true);
   const [tweaksOpen, toggleTweaks] = useStoredToggle("redline:play-tweaks", true);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const visitor = useVisitor();
+  /** A share link on a phone: its own top and bottom bars, with only what the link's level allows. */
+  const phoneVisitor = visitor !== null && windowWidth <= PHONE_VISITOR_MAX_WIDTH;
   const renderings = artboard?.responsive ?? [];
   const [rendering, selectRendering] = usePlayRendering(renderings, renderingParam);
   const presentation = artboard && presentationOf(artboard, framed, windowWidth, artboard.responsive ? rendering : undefined);
@@ -174,10 +179,20 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
 
   /** The shown artboard's tweaks, plus the page tweaks bound to no artboard. */
   const shownTweaks = manifest.tweaks.filter((tweak) => tweak.artboard === undefined || tweak.artboard === current);
-  const hasTweaks = shownTweaks.length > 0 && !presentation?.mobileBar;
+  const hasTweaks = shownTweaks.length > 0 && !presentation?.mobileBar && !phoneVisitor && (visitor === null || visitor.view.level === "write");
   return (
     <div data-testid="play" className={styles.play}>
-      {presentation?.mobileBar ? (
+      {phoneVisitor ? (
+        <header className={styles.visitorTop}>
+          <div className={styles.visitorTitle}>
+            <strong>{artboard?.title ?? artboard?.file}</strong>
+            <span>
+              {pageTitle} · {position + 1} / {tocItems.length}
+            </span>
+          </div>
+          <StatusBadge tone="neutral">{LEVEL_LABEL[visitor.view.level]}</StatusBadge>
+        </header>
+      ) : presentation?.mobileBar ? (
         <header className={styles.mobileBar}>
           <Tooltip label="Retour au canvas">
             <button type="button" onClick={onExit} aria-label="Retour au canvas" className={styles.mobileBack}>
@@ -324,6 +339,16 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
           </aside>
         )}
       </div>
+      {phoneVisitor && (
+        <nav aria-label="Artboards" className={styles.visitorBottom}>
+          <button type="button" aria-label="Écran précédent" disabled={position <= 0} onClick={() => goBy(-1)} className={styles.visitorStep}>
+            ‹
+          </button>
+          <button type="button" aria-label="Écran suivant" disabled={position >= tocItems.length - 1} onClick={() => goBy(1)} className={styles.visitorStep}>
+            ›
+          </button>
+        </nav>
+      )}
     </div>
   );
 }
