@@ -316,6 +316,17 @@ export interface ServerConfig {
   artboardOrigin: string;
 }
 
+/** Path segment before a capability in an artboard url: `<origin>/c/<capability>/pages/...`. */
+export const ARTBOARD_CAPABILITY_SEGMENT = "c";
+
+/** `GET /api/projects/:projectId/artboard-capability`: a signed viewing capability for the artboards of one project. */
+export interface ArtboardCapability {
+  capability: string;
+  /** The capability stops working after this long; the app asks for a new one after `renewAfterMs`. */
+  lifetimeMs: number;
+  renewAfterMs: number;
+}
+
 /** `held`: a finished comment kept back ("Plus tard") until "Tout envoyer"; not yet sent to any session. */
 export type ThreadStatus = "held" | "open" | "resolved";
 

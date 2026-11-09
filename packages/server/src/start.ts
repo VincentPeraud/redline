@@ -1,5 +1,6 @@
 import type { AddressInfo } from "node:net";
 import { assertModeCanStart, type AuthMode } from "./access.js";
+import { ArtboardCapabilities, loadCapabilityKey } from "./artboard-capabilities.js";
 import { buildArtboardApp, buildMainApp } from "./app.js";
 import type { IdentityConfig } from "./identity.js";
 import { loadCliBuild } from "./cli-build.js";
@@ -28,6 +29,8 @@ export interface StartOptions {
   log?: (line: string) => void;
   /** After this date, requests whose `Host` is not a local name (a tunnel's) are refused. */
   publicUntil?: Date;
+  /** How long an artboard viewing capability lasts; default 10 minutes (the app renews it at half). */
+  artboardCapabilityLifetimeMs?: number;
   /** Waits before each retry of a failed work item; default 1, 5 and 15 minutes. */
   retryDelaysMs?: number[];
   /** How long a terminal session may go without a heartbeat before it counts as gone; default 60 s. */
@@ -46,7 +49,8 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   if (options.proxySecrets) assertValidProxySecrets(options.proxySecrets);
   const log = options.log ?? ((line: string) => console.log(line));
   const store = new Store(options.dataDir);
-  const artboardApp = await buildArtboardApp(store, options.proxySecrets, options.publicUntil);
+  const capabilities = new ArtboardCapabilities(loadCapabilityKey(options.dataDir), options.artboardCapabilityLifetimeMs);
+  const artboardApp = await buildArtboardApp(store, { proxySecrets: options.proxySecrets, publicUntil: options.publicUntil, capabilities, authMode });
   await artboardApp.listen({ port: options.artboardPort, host: options.host });
   const artboardOrigin = options.artboardOrigin ?? `http://${options.host}:${portOf(artboardApp.server.address())}`;
 
@@ -56,6 +60,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     proxySecrets: options.proxySecrets,
     identity: options.identity,
     authMode,
+    capabilities,
     publicUntil: options.publicUntil,
     cliBuild: loadCliBuild(options.cliDir),
   });

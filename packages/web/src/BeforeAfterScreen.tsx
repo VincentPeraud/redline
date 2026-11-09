@@ -1,3 +1,5 @@
+import { useArtboardOrigin } from "./artboardCapability.js";
+import { ArtboardIframe } from "./artboardCapability.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ComparisonSide, ComponentComparison, ReviewChange } from "@redline/shared";
 import { useDesignSystemDetail } from "./DiffusionDialog.js";
@@ -92,7 +94,7 @@ function Panel({ label, hint, side, artboardOrigin, markersVisible, reloadKey }:
       <div ref={body} className={styles.canvas}>
         <div className={styles.scaled} style={{ width: side.width * zoom, height: height * zoom }}>
           {artboardOrigin && (
-            <iframe
+            <ArtboardIframe
               key={reloadKey}
               ref={frame}
               title={label}
@@ -142,7 +144,7 @@ function ChangeList({ comparison, onRefused }: { comparison: ComponentComparison
 export function BeforeAfterScreen({ designSystemId, component }: { designSystemId: string; component: string }) {
   const detail = useDesignSystemDetail(designSystemId);
   const [comparison, setComparison] = useState<ComponentComparison | null | undefined>(undefined);
-  const [artboardOrigin, setArtboardOrigin] = useState("");
+  const artboardOrigin = useArtboardOrigin(designSystemId);
   const [markersVisible, setMarkersVisible] = useState(true);
   const tag = `ui-${component}`;
 
@@ -153,9 +155,6 @@ export function BeforeAfterScreen({ designSystemId, component }: { designSystemI
 
   useEffect(() => {
     void load();
-    void fetch("/api/config")
-      .then((res) => res.json() as Promise<{ artboardOrigin: string }>)
-      .then((config) => setArtboardOrigin(config.artboardOrigin));
   }, [load]);
 
   // A refused change stays "annulation en cours" until the design system's session undoes it in the draft: read it again meanwhile.

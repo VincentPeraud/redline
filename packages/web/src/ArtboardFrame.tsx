@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
 import type { ArtboardGuides as Guides, InstanceState, Thread, TweakValues } from "@redline/shared";
+import { ArtboardIframe, sameArtboard } from "./artboardCapability.js";
 import { ArtboardErrorsContext } from "./ArtboardErrors.js";
 import { ArtboardGuides } from "./ArtboardGuides.js";
 import { SeenGapContext } from "./GapsReport.js";
@@ -93,7 +94,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
   const { seen, onRect } = useContext(SeenGapContext);
   const onRectRef = useRef(onRect);
   onRectRef.current = onRect;
-  const seenHere = seen !== null && seen.src === src ? seen : null;
+  const seenHere = seen !== null && sameArtboard(seen.src, src) ? seen : null;
   const frameId = useId();
   const reportErrors = useContext(ArtboardErrorsContext);
   const reportErrorsRef = useRef(reportErrors);
@@ -195,7 +196,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
   return (
     <div className={styles.frame} style={{ width, height }}>
       <div className={cx(styles.clip, bare && styles.clipBare)} style={{ width, height }}>
-        <iframe ref={frame} title={title} src={src} sandbox="allow-scripts" className={cx(styles.iframe, bare && styles.iframeBare)} style={{ width, height }} />
+        <ArtboardIframe ref={frame} title={title} src={src} sandbox="allow-scripts" className={cx(styles.iframe, bare && styles.iframeBare)} style={{ width, height }} />
         {guides && <ArtboardGuides guides={guides} />}
       </div>
       {pinned.map((thread) => {

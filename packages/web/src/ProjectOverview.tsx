@@ -1,3 +1,4 @@
+import { useArtboardOrigin } from "./artboardCapability.js";
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import {
   type DesignMdInfo,
@@ -209,7 +210,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
   const [archivedPages, setArchivedPages] = useState<Page[]>([]);
   const [showArchivedPages, setShowArchivedPages] = useState(false);
   const [pageStats, setPageStats] = useState<Record<string, PageStats>>({});
-  const [artboardOrigin, setArtboardOrigin] = useState("");
+  const artboardOrigin = useArtboardOrigin(projectId);
   const [designSystem, setDesignSystem] = useState<ProjectDesignSystem | null>(null);
   const [designMd, setDesignMd] = useState<string | null>(null);
   const [designMdInfo, setDesignMdInfo] = useState<DesignMdInfo | null>(null);
@@ -225,9 +226,6 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
       .then(setAssets);
 
   useEffect(() => {
-    fetch("/api/config")
-      .then((res) => res.json() as Promise<{ artboardOrigin: string }>)
-      .then((config) => setArtboardOrigin(config.artboardOrigin));
     fetch(`/api/projects/${projectId}`)
       .then((res) => res.json() as Promise<Project>)
       .then(setProject);
