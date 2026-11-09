@@ -49,7 +49,7 @@ describe("page links in Commentaire", () => {
     // Members see all of them, signed as coming from a link.
     const all = await instance.ariane.json<Thread[]>(`/api/pages/${pageId}/threads`);
     expect(all).toHaveLength(4);
-    expect(all.find((t) => t.body === "Nice title")?.linkAuthor).toEqual({ linkId: link.id, name: "Marc" });
+    expect(all.find((t) => t.body === "Nice title")?.linkAuthor).toEqual({ linkId: link.id, name: "Marc", linkName: "Client" });
   });
 
   it("signs a personal link with its name and asks a generic link for the visitor's name", async () => {
