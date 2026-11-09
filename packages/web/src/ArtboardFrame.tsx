@@ -213,7 +213,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
             title={`${thread.title} · ${threadWhere(thread)}`}
             aria-label={`Ouvrir le commentaire ${thread.number}`}
             disabled={!onPinClick}
-            className={cx(styles.pin, thread.status === "held" && styles.pinHeld, thread.status === "resolved" && styles.pinResolved)}
+            className={cx(styles.pin, thread.status === "held" && styles.pinHeld, thread.status === "review" && styles.pinReview, thread.status === "resolved" && styles.pinResolved)}
             style={
               reported?.matched
                 ? // Inside its element's top-right corner, so it never covers the neighbour.

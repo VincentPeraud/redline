@@ -14,7 +14,8 @@ export type Viewer =
   | AccountViewer
   /** Someone holding a working share link; `member` is the signed-in account that opened it, if any. */
   | { kind: "link"; token: string; link: StoredLink; member?: AccountViewer }
-  | { kind: "agent" }
+  /** A machine caller (agent, CLI, terminal session). With a `person`, its token is that account's and it only works where that person has Écriture. */
+  | { kind: "agent"; person?: Person; role?: AccountRole }
   | { kind: "nobody"; /** In proxy mode, the SSO person Redline has no account for: they are told whom to ask. */ ssoPerson?: Person };
 
 /** What a request needs: a level of the project (`read` views, `comment` comments, `write` works on pages), or `manage` (creator and admins). */
@@ -88,6 +89,16 @@ export function cookieOf(req: FastifyRequest, name: string): string | undefined 
   return undefined;
 }
 
+/** The level an account has on a project: admins and the creator at Écriture; Équipe, the lowered level else Écriture; Privé, the chosen level else none. */
+export function accountLevelIn(store: Store, account: { id: string; role?: AccountRole }, projectId: string): AccessLevel | undefined {
+  if (account.role === "admin") return "write";
+  const ownership = store.projectOwnership(projectId);
+  if (!ownership) return "write";
+  if (ownership.createdBy === account.id) return "write";
+  const own = store.memberLevel(projectId, account.id);
+  return ownership.visibility === "team" ? (own ?? "write") : own;
+}
+
 export interface AccessOptions {
   mode: AuthMode;
   store: Store;
@@ -124,7 +135,11 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
     return NOBODY;
   };
   const viewerOf = (req: FastifyRequest): Viewer => {
-    if (isMachinePath(req.url)) return { kind: "agent" };
+    if (isMachinePath(req.url)) {
+      const given = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice("Bearer ".length) : undefined;
+      const account = store.accounts.agentActorOf(given)?.account;
+      return account ? { kind: "agent", person: { id: account.id, name: account.name, email: account.email, initials: account.initials }, role: account.role } : { kind: "agent" };
+    }
     const token = linkTokenOf(req);
     if (token === undefined) return signedInOf(req);
     const link = store.links.live(token);
@@ -137,16 +152,15 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
     const pageId = resource.pageId ?? (link?.scope === "page" ? link.scopeId : undefined) ?? (resource.threadId ? store.getThread(resource.threadId)?.pageId : undefined) ?? (resource.conversationId ? store.getConversation(resource.conversationId)?.pageId : undefined);
     return resource.projectId ?? (link?.scope === "project" ? link.scopeId : undefined) ?? (pageId ? store.getPage(pageId)?.projectId : undefined);
   };
-  /** The effective level: admins and the creator at Écriture; Équipe, the lowered level else Écriture; Privé, the chosen level else none. */
   const levelIn = (viewer: Viewer, projectId: string): AccessLevel | undefined => {
-    if (mode === "none" || viewer.kind === "agent") return "write";
+    if (mode === "none") return "write";
+    if (viewer.kind === "agent") {
+      // An agent has its person's rights, but only works where that person writes.
+      if (!viewer.person) return "write";
+      return accountLevelIn(store, { id: viewer.person.id, role: viewer.role }, projectId) === "write" ? "write" : undefined;
+    }
     if (viewer.kind !== "account") return undefined;
-    if (viewer.role === "admin") return "write";
-    const ownership = store.projectOwnership(projectId);
-    if (!ownership) return "write";
-    if (ownership.createdBy === viewer.person.id) return "write";
-    const own = store.memberLevel(projectId, viewer.person.id);
-    return ownership.visibility === "team" ? (own ?? "write") : own;
+    return accountLevelIn(store, { id: viewer.person.id, role: viewer.role }, projectId);
   };
   /** A link opens its page (and, for the capability and the trimmed project, that page's project): nothing else, whatever its level. */
   const inLinkScope = (link: StoredLink, resource: Resource): boolean => {
@@ -158,19 +172,19 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
   };
   const levelOf = (viewer: Viewer, resource: Resource): AccessLevel | undefined => {
     if (viewer.kind === "link") return inLinkScope(viewer.link, resource) ? viewer.link.level : undefined;
-    if (mode === "none" || viewer.kind === "agent") return "write";
-    if (viewer.kind !== "account") return undefined;
+    if (mode === "none" || (viewer.kind === "agent" && !viewer.person)) return "write";
+    if (viewer.kind !== "account" && viewer.kind !== "agent") return undefined;
     const projectId = projectIdOf(resource);
     return projectId === undefined ? "write" : levelIn(viewer, projectId);
   };
   const manages = (viewer: Viewer, projectId: string): boolean => {
     if (viewer.kind === "link") return false;
     if (mode === "none") return true;
-    if (viewer.kind === "agent") return true;
-    if (viewer.kind !== "account") return false;
+    if (viewer.kind === "agent" && !viewer.person) return true;
+    if (viewer.kind !== "account" && viewer.kind !== "agent") return false;
     // A design system is a project row with no creator: any account manages it, as it sees it.
     if (viewer.role === "admin" || store.getDesignSystem(projectId) || !store.projectOwnership(projectId)) return true;
-    return store.projectOwnership(projectId)?.createdBy === viewer.person.id;
+    return store.projectOwnership(projectId)?.createdBy === viewer.person!.id;
   };
   const may = (viewer: Viewer, action: Action, resource: Resource): boolean => {
     const level = levelOf(viewer, resource);
@@ -228,6 +242,7 @@ export function registerAccess(app: FastifyInstance, access: Access): void {
     }
     if (!access.may(req.viewer, actionOf(req), resource)) {
       if (req.viewer.kind === "nobody" && access.mode === "local") return reply.code(401).send({ error: "sign-in required" });
+      if (req.viewer.kind === "agent" && req.viewer.person) return reply.code(403).send({ error: "your account does not have Écriture on this project, so your agent cannot work on it" });
       if (req.viewer.kind !== "account") return reply.code(403).send({ error: "forbidden" });
       const creator = access.creatorOf(resource);
       const found = creator ? { creator } : {};

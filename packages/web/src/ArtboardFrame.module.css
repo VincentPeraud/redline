@@ -55,6 +55,13 @@
   color: var(--color-warning-strong);
 }
 
+.pinReview {
+  box-sizing: border-box;
+  border: 2px solid var(--color-warning-strong);
+  background: var(--color-surface);
+  color: var(--color-warning-strong);
+}
+
 .pinResolved {
   background: var(--color-online);
 }

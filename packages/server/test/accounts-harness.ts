@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MANIFEST_PATH, type Person, type Project } from "@redline/shared";
+import WebSocket from "ws";
+import { AGENT_ENDPOINT, MANIFEST_PATH, PROTOCOL_VERSION, type AgentHello, type Person, type Project, type ServerToAgentMessage } from "@redline/shared";
 import { hashPassword } from "../src/accounts.js";
 import { startServer, type RunningServer } from "../src/start.js";
 
@@ -16,6 +17,14 @@ export interface SignedIn {
   send: (method: string, path: string, body?: unknown) => Promise<Response>;
   json: <T>(path: string) => Promise<T>;
   cookie: string;
+}
+
+export interface TestAgent {
+  /** The first message the server answers to the hello. */
+  hello: Promise<ServerToAgentMessage>;
+  messages: ServerToAgentMessage[];
+  closed: Promise<{ code: number }>;
+  close: () => void;
 }
 
 /** A running instance in local mode with an admin (Vincent) and members (Ariane, Thomas, Marc), each signed in. */
@@ -54,6 +63,24 @@ export class AccountsInstance {
     const send = (method: string, path: string, body?: unknown) =>
       fetch(this.server.url + path, { method, headers: { ...JSON_HEADERS, cookie }, body: method === "GET" ? undefined : JSON.stringify(body ?? {}) });
     return { cookie, send, get: (path) => send("GET", path), json: async <T,>(path: string) => (await send("GET", path)).json() as Promise<T> };
+  }
+
+  /** Opens an agent connection with this token and sends its hello. */
+  async connectAgent(token: string, options: Partial<Omit<AgentHello, "type" | "token">> = {}): Promise<TestAgent> {
+    const socket = new WebSocket(this.server.url.replace(/^http/, "ws") + AGENT_ENDPOINT);
+    const messages: ServerToAgentMessage[] = [];
+    let onFirst: (m: ServerToAgentMessage) => void = () => {};
+    const hello = new Promise<ServerToAgentMessage>((resolve) => (onFirst = resolve));
+    const closed = new Promise<{ code: number }>((resolve) => socket.on("close", (code) => resolve({ code })));
+    socket.on("message", (data) => {
+      const message = JSON.parse(String(data)) as ServerToAgentMessage;
+      messages.push(message);
+      if (messages.length === 1) onFirst(message);
+    });
+    await new Promise<void>((resolve, reject) => socket.on("open", () => resolve()).on("error", reject));
+    const message: AgentHello = { type: "hello", token, protocolVersion: PROTOCOL_VERSION, machine: "m", folder: "/f", kind: "project", ...options };
+    socket.send(JSON.stringify(message));
+    return { hello, messages, closed, close: () => socket.close() };
   }
 
   async createProject(who: SignedIn, body: object = {}): Promise<Project> {

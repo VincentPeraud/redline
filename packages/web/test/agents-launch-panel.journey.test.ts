@@ -44,7 +44,7 @@ it("shows one setup command with the token masked, and copies it whole", async (
   expect(shown).toContain("--token abt_•");
   expect(shown).not.toContain(token);
   expect(await panel.getByText("claude mcp add").count()).toBe(0);
-  expect(await panel.getByText("Déjà inclus dans la commande ci-dessus.", { exact: false }).count()).toBe(1);
+  expect(await panel.getByText("Personnel : ne le donne à personne.", { exact: false }).count()).toBe(1);
 
   await panel.getByRole("button", { name: "Copier la commande" }).click();
   expect(await tab.evaluate(() => navigator.clipboard.readText())).toBe(

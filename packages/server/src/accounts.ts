@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
+import { tokensEqual } from "./request-hardening.js";
 import type Database from "better-sqlite3";
 import { INVITATION_DAYS, PASSWORD_LINK_HOURS, initialsOf, type AccountEntry, type AccountRole, type AccountsResponse, type InvitationEntry, type InvitationPreview, type PasswordLinkEntry, type PasswordLinkPreview, type Person } from "@redline/shared";
 
@@ -26,6 +27,11 @@ export class AccountError extends Error {
 
 export interface SignedInAccount extends Person {
   role: AccountRole;
+}
+
+/** Who an agent token stands for: an account, or nobody in particular (the old shared token while no admin exists), which acts as an admin. */
+export interface AgentActor {
+  account?: SignedInAccount;
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
@@ -86,6 +92,7 @@ export class AccountStore {
     };
     // A person with a role is an account; the SSO people seen before accounts keep a NULL role and stay authors only.
     addColumn("people", "role", "TEXT");
+    addColumn("agents", "person_id", "TEXT");
     addColumn("people", "status", "TEXT NOT NULL DEFAULT 'active'");
     addColumn("people", "password_hash", "TEXT");
     addColumn("people", "origin", "TEXT NOT NULL DEFAULT 'sso'");
@@ -110,6 +117,11 @@ export class AccountStore {
         invited_by TEXT NOT NULL,
         created_at TEXT NOT NULL,
         expires_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS agent_tokens (
+        person_id TEXT PRIMARY KEY,
+        token TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE
       );
       CREATE TABLE IF NOT EXISTS single_use_links (
         token_hash TEXT PRIMARY KEY,
@@ -294,6 +306,7 @@ export class AccountStore {
       this.db.prepare("UPDATE projects SET created_by = ? WHERE created_by = ?").run(adminId, id);
       this.deleteSessionsOf(id);
       this.db.prepare("DELETE FROM single_use_links WHERE person_id = ?").run(id);
+      this.db.prepare("DELETE FROM agent_tokens WHERE person_id = ?").run(id);
     })();
     return this.requireAccount(id);
   }
@@ -368,6 +381,63 @@ export class AccountStore {
       this.db.prepare("UPDATE people SET password_hash = ? WHERE id = ?").run(hash, id);
       this.deleteSessionsOf(id, sessionToken);
     })();
+  }
+
+  private firstAdmin(): SignedInAccount | undefined {
+    return this.activeAccounts().find((account) => account.role === "admin");
+  }
+
+  private storeAgentToken(personId: string, token: string): void {
+    this.db
+      .prepare("INSERT INTO agent_tokens (person_id, token, token_hash) VALUES (?, ?, ?) ON CONFLICT(person_id) DO UPDATE SET token = excluded.token, token_hash = excluded.token_hash")
+      .run(personId, token, sha256(token));
+  }
+
+  /** The shared token of before the accounts becomes the first admin's own, at the first use after an admin exists. */
+  private adoptSharedAgentToken(): SignedInAccount | undefined {
+    const shared = this.db.prepare("SELECT value FROM settings WHERE key = 'agent_token'").get() as { value: string } | undefined;
+    const admin = shared && this.firstAdmin();
+    if (!shared || !admin) return undefined;
+    this.db.transaction(() => {
+      if (!this.db.prepare("SELECT 1 FROM agent_tokens WHERE person_id = ?").get(admin.id)) this.storeAgentToken(admin.id, shared.value);
+      this.db.prepare("DELETE FROM settings WHERE key = 'agent_token'").run();
+    })();
+    return admin;
+  }
+
+  /** The account's agent token, generated on first read. */
+  agentTokenOf(personId: string): string {
+    const owned = this.db.prepare("SELECT token FROM agent_tokens WHERE person_id = ?").get(personId) as { token: string } | undefined;
+    if (owned) return owned.token;
+    if (this.firstAdmin()?.id === personId && this.adoptSharedAgentToken()) return this.agentTokenOf(personId);
+    return this.regenerateAgentToken(personId);
+  }
+
+  /** A new token for the account; the previous one stops working. */
+  regenerateAgentToken(personId: string): string {
+    const token = `abt_${randomBytes(24).toString("hex")}`;
+    this.db.transaction(() => {
+      this.storeAgentToken(personId, token);
+      // The shared token was the first admin's: regenerating replaces it, it must not come back.
+      if (this.firstAdmin()?.id === personId) this.db.prepare("DELETE FROM settings WHERE key = 'agent_token'").run();
+    })();
+    return token;
+  }
+
+  /** The actor behind an agent token, or undefined when the token is unknown, revoked or its account deactivated. */
+  agentActorOf(token: string | undefined): AgentActor | undefined {
+    if (token === undefined) return undefined;
+    const row = this.db
+      .prepare(
+        `SELECT p.id, p.name, p.email, p.role FROM agent_tokens t JOIN people p ON p.id = t.person_id
+         WHERE t.token_hash = ? AND p.role IS NOT NULL AND p.status = 'active'`,
+      )
+      .get(sha256(token)) as AccountRow | undefined;
+    if (row) return { account: { id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id), role: row.role } };
+    const shared = this.db.prepare("SELECT value FROM settings WHERE key = 'agent_token'").get() as { value: string } | undefined;
+    if (!shared || !tokensEqual(token, shared.value)) return undefined;
+    const admin = this.adoptSharedAgentToken();
+    return admin ? { account: admin } : {};
   }
 
   /** Every session of the account, except the one of `keepToken`. */

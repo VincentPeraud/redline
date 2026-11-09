@@ -9,6 +9,7 @@ import { restoredVersionMessage } from "./version-dates.js";
 import {
   EMPTY_VIEW_SETTINGS,
   initialsOf,
+  type AccountRole,
   diffDiffusionStates,
   definitionsOf,
   diffusionSummary,
@@ -792,13 +793,13 @@ export class Store {
   }
 
   /** Records an agent as online; one entry per machine and folder. */
-  markAgentOnline({ machine, folder, kind, projectIds = [], model, effort, buildHash }: Omit<AgentIdentity, "projectId"> & Pick<AgentHello, "model" | "effort" | "buildHash">): string {
+  markAgentOnline({ machine, folder, kind, projectIds = [], model, effort, buildHash, personId }: Omit<AgentIdentity, "projectId"> & Pick<AgentHello, "model" | "effort" | "buildHash"> & { personId?: string }): string {
     this.db
       .prepare(
-        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, model, effort, build_hash) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?)
-         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, model = excluded.model, effort = excluded.effort, build_hash = excluded.build_hash`,
+        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, model, effort, build_hash, person_id) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?)
+         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, model = excluded.model, effort = excluded.effort, build_hash = excluded.build_hash, person_id = excluded.person_id`,
       )
-      .run(randomUUID(), machine, folder, kind, now(), model ?? null, effort ?? null, buildHash ?? null);
+      .run(randomUUID(), machine, folder, kind, now(), model ?? null, effort ?? null, buildHash ?? null, personId ?? null);
     this.db.prepare("DELETE FROM refused_agents WHERE machine = ? AND folder = ?").run(machine, folder);
     const id = (this.db.prepare("SELECT id FROM agents WHERE machine = ? AND folder = ?").get(machine, folder) as { id: string }).id;
     // The agent now serves exactly its folder's projects, taking them from any agent that served them before.
@@ -853,12 +854,23 @@ export class Store {
     return this.serverBuildHash !== undefined && buildHash !== this.serverBuildHash;
   }
 
+  /** Who launched the agent (the account of the token it connected with), or undefined for an agent without accounts. */
+  agentOwner(agentId: string): { id: string; role: AccountRole } | undefined {
+    const row = this.db.prepare("SELECT p.id, p.role FROM agents a JOIN people p ON p.id = a.person_id WHERE a.id = ?").get(agentId) as { id: string; role: AccountRole | null } | undefined;
+    return row && { id: row.id, role: row.role ?? "member" };
+  }
+
   listAgents(): AgentInfo[] {
     const rows = this.db
-      .prepare("SELECT id, machine, folder, kind, status, last_seen_at AS lastSeenAt, model, effort, build_hash AS buildHash FROM agents ORDER BY machine, folder")
-      .all() as (Omit<AgentInfo, "model" | "effort" | "outdated" | "updating" | "updateError"> & { model: string | null; effort: Effort | null; buildHash: string | null })[];
-    return rows.map(({ model, effort, buildHash, ...agent }) => ({
+      .prepare(
+        `SELECT a.id, a.machine, a.folder, a.kind, a.status, a.last_seen_at AS lastSeenAt, a.model, a.effort, a.build_hash AS buildHash,
+                p.id AS ownerId, p.name AS ownerName, p.email AS ownerEmail
+         FROM agents a LEFT JOIN people p ON p.id = a.person_id ORDER BY a.machine, a.folder`,
+      )
+      .all() as (Omit<AgentInfo, "model" | "effort" | "outdated" | "updating" | "updateError" | "launchedBy"> & { model: string | null; effort: Effort | null; buildHash: string | null; ownerId: string | null; ownerName: string | null; ownerEmail: string | null })[];
+    return rows.map(({ model, effort, buildHash, ownerId, ownerName, ownerEmail, ...agent }) => ({
       ...agent,
+      ...(ownerId ? { launchedBy: { id: ownerId, name: ownerName ?? "", email: ownerEmail ?? "", initials: initialsOf(ownerName ?? "", ownerId) } } : {}),
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(agent.status === "online" && this.isOutdated(buildHash) ? { outdated: true as const } : {}),
@@ -1169,9 +1181,9 @@ export class Store {
   }
 
   /** Id of an online global agent that is not updating, the most recently seen first. */
-  findOnlineGlobalAgentId(): string | undefined {
+  findOnlineGlobalAgentId(accepts: (agentId: string) => boolean = () => true): string | undefined {
     const rows = this.db.prepare("SELECT id FROM agents WHERE kind = 'global' AND status = 'online' ORDER BY last_seen_at DESC, rowid").all() as { id: string }[];
-    return rows.find((row) => !this.updatingAgents.has(row.id))?.id;
+    return rows.find((row) => !this.updatingAgents.has(row.id) && accepts(row.id))?.id;
   }
 
   getAgent(id: string): AgentInfo | undefined {
@@ -1389,7 +1401,7 @@ export class Store {
   }
 
   /** `automatic`: opened by Redline itself (signed "Redline"), not written by a person. */
-  createThread(pageId: string, request: CreateThreadRequest, person?: Person, automatic = false, designSystemRequest?: StoredRequest): Thread {
+  createThread(pageId: string, request: CreateThreadRequest, person?: Person, automatic = false, designSystemRequest?: StoredRequest, toReview = false): Thread {
     const id = randomUUID();
     const { next } = this.db
       .prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?")
@@ -1420,7 +1432,7 @@ export class Store {
         `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, instance_state, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null);
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, toReview ? "review" : request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null);
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -1674,14 +1686,37 @@ export class Store {
 
   /** Held comments of a page, oldest first. */
   listHeldThreads(pageId: string): Thread[] {
+    return this.listThreadsWithStatus(pageId, "held");
+  }
+
+  /** Threads of a page waiting for an Écriture member to read them ("À relire"), oldest first, with their replies. */
+  listReviewThreads(pageId: string): Thread[] {
+    return this.listThreadsWithStatus(pageId, "review", true);
+  }
+
+  private listThreadsWithStatus(pageId: string, status: ThreadStatus, withReplies = false): Thread[] {
     const rows = this.db
       .prepare(
         `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.instance_state, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id
-         FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
+         FROM threads t WHERE t.page_id = ? AND t.status = ? ORDER BY t.created_at, t.rowid`,
       )
-      .all(pageId) as ThreadRow[];
+      .all(pageId, status) as ThreadRow[];
     const elements = this.canvasElementsById(pageId);
-    return rows.map((row) => this.withPerson(withCurrentElement(toThread(row, []), elements), row.person_id));
+    return rows.map((row) => this.withPerson(withCurrentElement(toThread(row, withReplies ? this.repliesOf(row.id) : []), elements), row.person_id));
+  }
+
+  /** An open thread goes back to "À relire" (a Commentaire reply in a thread already sent to Claude). */
+  returnToReview(id: string): void {
+    const { changes } = this.db.prepare("UPDATE threads SET status = 'review' WHERE id = ? AND status = 'open'").run(id);
+    const thread = changes > 0 ? this.getThread(id) : undefined;
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
+  }
+
+  /** An "À relire" thread leaves for Claude: it becomes a regular open thread. */
+  releaseReviewThread(id: string): void {
+    this.db.prepare("UPDATE threads SET status = 'open' WHERE id = ? AND status = 'review'").run(id);
+    const thread = this.getThread(id);
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
   }
 
   /** Edits the text of a held comment; undefined when the thread does not exist or is not held. */

@@ -33,6 +33,8 @@ import {
   type CreateVersionRequest,
   type SendHeldRequest,
   type SendHeldResponse,
+  type SendReviewRequest,
+  type SendReviewResponse,
   type UpdateThreadRequest,
   type ServerConfig,
   type Settings,
@@ -93,7 +95,7 @@ import { registerSessionRoutes } from "./sessions.js";
 import { registerHomeRoutes } from "./home.js";
 import { archivedError, registerArchiveRoutes, registerArchivedGuard } from "./archive.js";
 import { moveArtboard } from "./move-artboard.js";
-import { dispatchBatch, dispatchReply, dispatchThread, handOverThread } from "./work.js";
+import { dispatchBatch, dispatchReply, dispatchReviewed, dispatchThread, handOverThread } from "./work.js";
 
 const PALETTE_TOKENS = ["--color-primary", "--color-text", "--color-background"];
 
@@ -156,7 +158,8 @@ export async function buildMainApp(
   const access = createAccess({ mode: authMode, store, secrets: options.proxySecrets, identity });
   registerAccess(app, access);
   registerIdentity(app, store, identity, authMode);
-  if (authMode === "local" || authMode === "proxy") registerAccountRoutes(app, store, authMode);
+  const onDeactivated: ((personId: string) => void)[] = [];
+  if (authMode === "local" || authMode === "proxy") registerAccountRoutes(app, store, authMode, (personId) => onDeactivated.forEach((listener) => listener(personId)));
   const { cliBuild } = options;
   store.setServerBuildHash(cliBuild?.hash);
   if (cliBuild) {
@@ -172,7 +175,11 @@ export async function buildMainApp(
   app.addHook("onClose", async () => pageLock.dispose());
   const terminalSessions = new TerminalSessions(store, pageLock, options.terminalPresenceTimeoutMs);
   app.addHook("onClose", async () => terminalSessions.dispose());
-  await registerAgentApi(app, store, pageLock, terminalSessions);
+  onDeactivated.push((personId) => {
+    agents.disconnectPerson(personId);
+    terminalSessions.releaseSessionsOf(personId);
+  });
+  await registerAgentApi(app, store, pageLock, terminalSessions, access);
   await registerProjectFileRoutes(app, store);
   registerProjectDesignSystemRoutes(app, store);
   registerEventRoutes(app, store, pageLock, access);
@@ -611,8 +618,10 @@ export async function buildMainApp(
       if ("target" in request && request.target.kind === "canvas-element" && !store.canvasElement(req.params.pageId, request.target.elementId)) {
         return reply.code(400).send({ error: "element is not on the page's canvas" });
       }
-      const thread = store.createThread(req.params.pageId, request, req.person);
-      if (thread.status === "held") return reply.code(201).send(thread);
+      // What a Commentaire member writes waits for someone in Écriture to read it.
+      const toReview = access.levelOf(req.viewer, { pageId: req.params.pageId }) === "comment";
+      const thread = store.createThread(req.params.pageId, request, req.person, false, undefined, toReview);
+      if (thread.status === "held" || thread.status === "review") return reply.code(201).send(thread);
       dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(request), terminalSessions);
       return reply.code(201).send(thread);
     },
@@ -634,6 +643,12 @@ export async function buildMainApp(
     const invalidChoice = modelChoiceError(req.body);
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
     const message = store.addReply(thread.id, body, "user", [], req.person)!;
+    // A thread waiting to be read stays with the readers; a Commentaire reply sends it back to them instead of to Claude.
+    if (thread.status === "review") return reply.code(201).send(message);
+    if (access.levelOf(req.viewer, { threadId: thread.id }) === "comment") {
+      store.returnToReview(thread.id);
+      return reply.code(201).send(message);
+    }
     dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body), terminalSessions);
     return reply.code(201).send(message);
   });
@@ -674,6 +689,23 @@ export async function buildMainApp(
       dispatchBatch(pageLock, page.projectId, held, modelChoiceOf(req.body ?? {}), terminalSessions);
     }
     const response: SendHeldResponse = { threads: held.length };
+    return response;
+  });
+
+  // "Envoyer à Claude": "À relire" threads of the page leave, together, as one message.
+  app.post<{ Params: { pageId: string }; Body: SendReviewRequest }>("/api/pages/:pageId/send-review", async (req, reply) => {
+    const page = store.getPage(req.params.pageId);
+    if (!page) return reply.code(404).send({ error: "page not found" });
+    const invalidChoice = modelChoiceError(req.body ?? {});
+    if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
+    const ids = req.body?.threadIds;
+    if (ids !== undefined && (!Array.isArray(ids) || ids.some((id) => typeof id !== "string"))) return reply.code(400).send({ error: "threadIds must be a list of thread ids" });
+    const waiting = store.listReviewThreads(page.id).filter((thread) => ids === undefined || ids.includes(thread.id));
+    if (waiting.length > 0) {
+      for (const thread of waiting) store.releaseReviewThread(thread.id);
+      dispatchReviewed(store, pageLock, page.projectId, waiting, modelChoiceOf(req.body ?? {}), terminalSessions);
+    }
+    const response: SendReviewResponse = { threads: waiting.length };
     return response;
   });
 
