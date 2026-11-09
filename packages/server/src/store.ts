@@ -3,6 +3,7 @@ import { mkdirSync, existsSync, readFileSync, statSync, unlinkSync, utimesSync, 
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { AccountStore } from "./accounts.js";
+import { LinkStore } from "./link-store.js";
 import { componentFilesOf, projectComponents } from "./components.js";
 import { restoredVersionMessage } from "./version-dates.js";
 import {
@@ -94,6 +95,7 @@ export class Store {
   private readonly listeners = new Set<(event: ServerEvent) => void>();
   private serverBuildHash: string | undefined;
   readonly accounts: AccountStore;
+  readonly links: LinkStore;
 
   constructor(dataDir: string) {
     this.blobDir = join(dataDir, "blobs");
@@ -335,6 +337,7 @@ export class Store {
     // When the page was archived: read-only, out of the page lists and of sessions, deletable.
     addColumn("pages", "archived_at", "TEXT");
     this.accounts = new AccountStore(this.db);
+    this.links = new LinkStore(this.db);
     addColumn("pages", "held_by", "TEXT");
     addColumn("pages", "held_at", "TEXT");
     addColumn("versions", "origin_id", "TEXT");
@@ -1120,6 +1123,8 @@ export class Store {
       for (const row of this.db.prepare(`SELECT ${column} AS hash FROM ${table} WHERE ${owner} = ?`).all(id) as { hash: string | null }[]) if (row.hash) blobs.push(row.hash);
     }
     this.db.transaction(() => {
+      for (const { id: pageId } of this.db.prepare(pages).all(id) as { id: string }[]) this.links.deleteFor("page", pageId);
+      this.links.deleteFor("project", id);
       for (const sql of [
         ...pageRowDeletes(pages),
         "DELETE FROM component_changes WHERE design_system_id = ?",
@@ -1359,6 +1364,7 @@ export class Store {
       blobs.push(...Object.values(JSON.parse(files) as Record<string, string>));
     }
     this.db.transaction(() => {
+      this.links.deleteFor("page", pageId);
       for (const sql of [...pageRowDeletes("?"), "DELETE FROM pages WHERE id = ?"]) {
         this.db.prepare(sql).run(pageId);
       }

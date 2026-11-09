@@ -1,15 +1,19 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { INSUFFICIENT_LEVEL_CODE, INVITATION_PATH, NO_ACCESS_CODE, PASSWORD_LINK_PATH, initialsOf, SESSION_PATH, SETUP_PATH, type AccessLevel, type AccountRole, type InsufficientLevelResponse, type NoAccessResponse, type Person } from "@redline/shared";
+import { INSUFFICIENT_LEVEL_CODE, INVITATION_PATH, LINK_DEAD_CODE, type LinkDeadResponse, NO_ACCESS_CODE, PASSWORD_LINK_PATH, initialsOf, SESSION_PATH, SETUP_PATH, type AccessLevel, type AccountRole, type InsufficientLevelResponse, type NoAccessResponse, type Person } from "@redline/shared";
 import { HEALTH_PATH, hasHumanSecret, isMachinePath, type ProxySecrets } from "./proxy-secrets.js";
 import { isLocalHost } from "./public-deadline.js";
 import type { Store } from "./store.js";
+import type { StoredLink } from "./link-store.js";
+import { linkTokenOf } from "./link-url.js";
 
 export type AuthMode = "local" | "proxy" | "none";
 
 /** Who made a request: exactly one of these, resolved once per request. */
+export type AccountViewer = { kind: "account"; person: Person; role?: AccountRole };
 export type Viewer =
-  | { kind: "account"; person: Person; role?: AccountRole }
-  | { kind: "link"; token: string }
+  | AccountViewer
+  /** Someone holding a working share link; `member` is the signed-in account that opened it, if any. */
+  | { kind: "link"; token: string; link: StoredLink; member?: AccountViewer }
   | { kind: "agent" }
   | { kind: "nobody"; /** In proxy mode, the SSO person Redline has no account for: they are told whom to ask. */ ssoPerson?: Person };
 
@@ -22,6 +26,20 @@ const COMMENT_ROUTES = new Set(["POST /api/pages/:pageId/threads", "POST /api/th
 /** Writes that stay with the creator of the project and the admins. */
 const MANAGE_ROUTES = new Set(["POST /api/projects/:projectId/archive", "POST /api/projects/:projectId/unarchive", "DELETE /api/projects/:projectId", "PUT /api/projects/:projectId/members/:personId", "DELETE /api/projects/:projectId/members/:personId"]);
 
+/** The calls a link visitor may make, each with the lowest link level that allows it. Tickets for the higher levels add their routes here. */
+export const LINK_ROUTES: Record<string, AccessLevel> = {
+  "GET /api/pages/:pageId": "read",
+  "GET /api/pages/:pageId/files/*": "read",
+  "GET /api/pages/:pageId/threads": "read",
+  "GET /api/projects/:projectId": "read",
+  "GET /api/projects/:projectId/artboard-capability": "read",
+};
+/** Calls that name no project or page and tell a visitor nothing beyond its own link. */
+const LINK_OPEN_ROUTES = new Set(["GET /api/link", "GET /api/config", "GET /api/events"]);
+
+/** Reads that stay with members in Écriture: they show what the team shares. */
+const READS_NEEDING_WRITE = new Set(["GET /api/pages/:pageId/links"]);
+
 /** What an action is about; empty means the instance itself (home, settings, design systems list). */
 export interface Resource {
   projectId?: string;
@@ -30,6 +48,8 @@ export interface Resource {
   /** A thread or a conversation: it belongs to a page, so to a project. */
   threadId?: string;
   conversationId?: string;
+  /** A share link: it belongs to a page or a project, so to a project. */
+  linkId?: string;
 }
 
 /** The only place that knows the authentication mode: callers ask what a viewer may do, never which mode runs. */
@@ -84,8 +104,8 @@ function headerText(req: FastifyRequest, name: string): string {
 }
 
 export function createAccess({ mode, store, secrets, identity }: AccessOptions): Access {
-  const viewerOf = (req: FastifyRequest): Viewer => {
-    if (isMachinePath(req.url)) return { kind: "agent" };
+  /** The signed-in account behind the request, else the SSO person without an account, else nobody. */
+  const signedInOf = (req: FastifyRequest): Viewer => {
     if (mode === "proxy" && secrets && req.url.startsWith("/api/") && hasHumanSecret(req, secrets)) {
       const id = headerText(req, identity.userHeader);
       if (id !== "") {
@@ -103,9 +123,19 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
     }
     return NOBODY;
   };
+  const viewerOf = (req: FastifyRequest): Viewer => {
+    if (isMachinePath(req.url)) return { kind: "agent" };
+    const token = linkTokenOf(req);
+    if (token === undefined) return signedInOf(req);
+    const link = store.links.live(token);
+    if (!link) return NOBODY;
+    const signedIn = signedInOf(req);
+    return { kind: "link", token, link, ...(signedIn.kind === "account" ? { member: signedIn } : {}) };
+  };
   const projectIdOf = (resource: Resource): string | undefined => {
-    const pageId = resource.pageId ?? (resource.threadId ? store.getThread(resource.threadId)?.pageId : undefined) ?? (resource.conversationId ? store.getConversation(resource.conversationId)?.pageId : undefined);
-    return resource.projectId ?? (pageId ? store.getPage(pageId)?.projectId : undefined);
+    const link = resource.linkId ? store.links.get(resource.linkId) : undefined;
+    const pageId = resource.pageId ?? (link?.scope === "page" ? link.scopeId : undefined) ?? (resource.threadId ? store.getThread(resource.threadId)?.pageId : undefined) ?? (resource.conversationId ? store.getConversation(resource.conversationId)?.pageId : undefined);
+    return resource.projectId ?? (link?.scope === "project" ? link.scopeId : undefined) ?? (pageId ? store.getPage(pageId)?.projectId : undefined);
   };
   /** The effective level: admins and the creator at Écriture; Équipe, the lowered level else Écriture; Privé, the chosen level else none. */
   const levelIn = (viewer: Viewer, projectId: string): AccessLevel | undefined => {
@@ -118,13 +148,23 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
     const own = store.memberLevel(projectId, viewer.person.id);
     return ownership.visibility === "team" ? (own ?? "write") : own;
   };
+  /** A link opens its page (and, for the capability and the trimmed project, that page's project): nothing else, whatever its level. */
+  const inLinkScope = (link: StoredLink, resource: Resource): boolean => {
+    const projectId = projectIdOf(resource);
+    if (link.scope === "project") return projectId === link.scopeId;
+    const pageId = resource.pageId ?? (resource.threadId ? store.getThread(resource.threadId)?.pageId : undefined) ?? (resource.conversationId ? store.getConversation(resource.conversationId)?.pageId : undefined);
+    if (pageId !== undefined) return pageId === link.scopeId;
+    return projectId !== undefined && projectId === store.projectIdOfPage(link.scopeId);
+  };
   const levelOf = (viewer: Viewer, resource: Resource): AccessLevel | undefined => {
+    if (viewer.kind === "link") return inLinkScope(viewer.link, resource) ? viewer.link.level : undefined;
     if (mode === "none" || viewer.kind === "agent") return "write";
     if (viewer.kind !== "account") return undefined;
     const projectId = projectIdOf(resource);
     return projectId === undefined ? "write" : levelIn(viewer, projectId);
   };
   const manages = (viewer: Viewer, projectId: string): boolean => {
+    if (viewer.kind === "link") return false;
     if (mode === "none") return true;
     if (viewer.kind === "agent") return true;
     if (viewer.kind !== "account") return false;
@@ -149,23 +189,29 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
 }
 
 function actionOf(req: FastifyRequest): Action {
-  if (req.method === "GET" || req.method === "HEAD") return "read";
   const route = `${req.method} ${req.routeOptions.url}`;
+  if (READS_NEEDING_WRITE.has(route)) return "write";
+  if (req.method === "GET" || req.method === "HEAD") return "read";
   return MANAGE_ROUTES.has(route) ? "manage" : COMMENT_ROUTES.has(route) ? "comment" : "write";
 }
 
 function resourceOf(req: FastifyRequest): Resource {
   const params = (req.params ?? {}) as Record<string, string | undefined>;
-  return { projectId: params.projectId, pageId: params.pageId, designSystemId: params.designSystemId, threadId: params.threadId, conversationId: params.conversationId };
+  return { projectId: params.projectId, pageId: params.pageId, designSystemId: params.designSystemId, threadId: params.threadId, conversationId: params.conversationId, linkId: params.linkId };
 }
 
 /** Resolves the viewer of every request, then refuses (403) what the viewer may not do, before any route runs. */
 export function registerAccess(app: FastifyInstance, access: Access): void {
   app.decorateRequest("viewer", undefined as never);
   app.decorateRequest("person", undefined);
-  app.addHook("onRequest", async (req) => {
+  app.addHook("onRequest", async (req, reply) => {
     req.viewer = access.viewerOf(req);
     if (req.viewer.kind === "account") req.person = req.viewer.person;
+    // One answer for every link that does not work, so a visitor learns nothing about why.
+    if (linkTokenOf(req) !== undefined && req.viewer.kind !== "link") {
+      const dead: LinkDeadResponse = { error: "This link does not work any more.", code: LINK_DEAD_CODE };
+      return reply.code(404).send(dead);
+    }
   });
   app.addHook("preHandler", async (req, reply) => {
     if (OPEN_PATHS.has(req.url.split("?")[0])) return;
@@ -173,6 +219,13 @@ export function registerAccess(app: FastifyInstance, access: Access): void {
     const route = req.routeOptions.url;
     if (route === undefined || route === "/*" || route === "/") return;
     const resource = resourceOf(req);
+    if (req.viewer.kind === "link") {
+      const key = `${req.method} ${route}`;
+      if (LINK_OPEN_ROUTES.has(key)) return;
+      const needed = LINK_ROUTES[key];
+      if (needed === undefined || !access.may(req.viewer, needed, resource)) return reply.code(403).send({ error: "forbidden" });
+      return;
+    }
     if (!access.may(req.viewer, actionOf(req), resource)) {
       if (req.viewer.kind === "nobody" && access.mode === "local") return reply.code(401).send({ error: "sign-in required" });
       if (req.viewer.kind !== "account") return reply.code(403).send({ error: "forbidden" });

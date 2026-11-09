@@ -58,6 +58,8 @@ import { TerminalSessions } from "./terminal-sessions.js";
 import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
 import { projectContext, readPageAsset, readProjectAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
+import { registerLinkRoutes } from "./link-routes.js";
+import { rewriteLinkUrl } from "./link-url.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
 import { removalsError, rollbackImpact } from "./removals.js";
@@ -145,7 +147,7 @@ export async function buildMainApp(
   webDir?: string,
   options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; authMode?: AuthMode; cliBuild?: CliBuild; publicUntil?: Date; capabilities?: ArtboardCapabilities } = {},
 ): Promise<FastifyInstance> {
-  const app = Fastify({ bodyLimit: MAX_PAGE_BYTES });
+  const app = Fastify({ bodyLimit: MAX_PAGE_BYTES, rewriteUrl: rewriteLinkUrl });
   registerPublicDeadline(app, options.publicUntil);
   registerProxySecretCheck(app, options.proxySecrets);
   registerHealthRoute(app);
@@ -174,6 +176,7 @@ export async function buildMainApp(
   await registerProjectFileRoutes(app, store);
   registerProjectDesignSystemRoutes(app, store);
   registerEventRoutes(app, store, pageLock, access);
+  registerLinkRoutes(app, store, access);
   registerDesignSystemReload(app, store);
   const runs = registerRunRoutes(app, store);
   registerHomeRoutes(app, store, pageLock, access);
@@ -283,7 +286,10 @@ export async function buildMainApp(
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId", async (req, reply) => {
     const project = store.getProject(req.params.projectId);
-    return project ? withViewerLevel(req.viewer, withServedBy(store, project)) : reply.code(404).send({ error: "project not found" });
+    if (!project) return reply.code(404).send({ error: "project not found" });
+    // A link visitor learns the project's name and nothing else: no brief, agent or creator.
+    if (req.viewer.kind === "link") return { id: project.id, title: project.title, ...(req.viewer.link.level === "write" ? {} : { viewerLevel: req.viewer.link.level }) };
+    return withViewerLevel(req.viewer, withServedBy(store, project));
   });
 
   app.patch<{ Params: { projectId: string }; Body: UpdateProjectRequest }>("/api/projects/:projectId", async (req, reply) => {
@@ -537,7 +543,9 @@ export async function buildMainApp(
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId", async (req, reply) => {
     const page = store.getPage(req.params.pageId);
-    return page ? { ...page, viewSettings: store.getViewSettings(page.id), designSystem: store.isDesignSystemProject(page.projectId) } : reply.code(404).send({ error: "page not found" });
+    if (!page) return reply.code(404).send({ error: "page not found" });
+    const { createdByPerson, ...withoutAuthor } = page;
+    return { ...(req.viewer.kind === "link" ? withoutAuthor : page), viewSettings: store.getViewSettings(page.id), designSystem: store.isDesignSystemProject(page.projectId) };
   });
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/terminal-holder", async (req, reply): Promise<TerminalHolder | null> => {
