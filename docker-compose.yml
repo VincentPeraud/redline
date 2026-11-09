@@ -3,10 +3,14 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      # Loopback only by default: the API has no login, so only a reverse proxy should reach it (see README).
+      # Loopback only by default: put a reverse proxy in front before exposing it (see README).
       - "${REDLINE_BIND:-127.0.0.1}:${REDLINE_PORT:-3000}:3000"
       - "${REDLINE_BIND:-127.0.0.1}:${REDLINE_ARTBOARD_PORT:-3001}:3001"
     environment:
+      # How people sign in: `local` (accounts kept by Redline, the default), `proxy` (behind an SSO) or `none` (no login, trusted network only).
+      REDLINE_AUTH_MODE: ${REDLINE_AUTH_MODE:-local}
+      # Address people open, used in the setup link written to the logs and by `reset-admin`.
+      REDLINE_PUBLIC_URL: ${REDLINE_PUBLIC_URL:-http://localhost:${REDLINE_PORT:-3000}}
       # Public origin of the artboard port; set it when serving behind a proxy.
       REDLINE_ARTBOARD_ORIGIN: ${REDLINE_ARTBOARD_ORIGIN:-http://localhost:${REDLINE_ARTBOARD_PORT:-3001}}
       # Deadline of a temporary tunnel share (see README); empty means none.

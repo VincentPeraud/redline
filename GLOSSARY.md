@@ -149,5 +149,29 @@ _Avoid_: Owner of a thread, terminal agent
 ### People
 
 **Person**:
-Someone signed in through the SSO, identified by the user-id header value, with a display name and an e-mail refreshed whenever the SSO sends other ones. Redline has no login of its own, and without an SSO there are no people. "Toi" in the UI means the person viewing.
-_Avoid_: User, account, member
+Someone Redline knows, with a display name and an e-mail. In `local` mode a person signs in with e-mail and password. In `proxy` mode a person is identified by the SSO's user-id header value, and their name and e-mail are refreshed whenever the SSO sends other ones. "Toi" in the UI means the person viewing.
+_Avoid_: User, member (for the person; a member is an account role)
+
+**Account**:
+A person's right to use Redline, with a role: **admin** (sees every project, manages accounts) or **member**. There are no guest accounts: someone outside the team uses a **share link**. An account is deactivated, not deleted; its sessions and agent token stop working at once.
+_Avoid_: User, profile, guest
+
+**Visibility**:
+Whether a project is **Équipe** (every member sees it with Écriture, the default) or **Privé** (only its creator, the admins and the members picked explicitly).
+_Avoid_: Privacy, scope
+
+**Access level**:
+What a person or a link may do on a project or page: **Lecture** (view), **Commentaire** (also comment; the comments arrive **À relire**) or **Écriture** (also edit and send to Claude). A member's level on a project can be lowered by its creator or an admin.
+_Avoid_: Role (an account's role is admin or member), permission
+
+**Share link**:
+An address `/s/<token>` that opens one page or one project at a chosen access level to someone with no account, without the SSO. It has a name and an optional expiry, and can be disabled and reactivated. A **personal link** signs the visitor's actions with a name; a **generic link** asks each visitor's name when they post their first comment.
+_Avoid_: Public link, guest link, invitation (an invitation creates an account)
+
+**Link visitor**:
+Someone using a share link. Their calls go through `/s/<token>/api/...` and only reach the link's scope.
+_Avoid_: Guest, anonymous user
+
+**À relire**:
+The review state of a thread posted at Commentaire level (by a link visitor or a member lowered to Commentaire): it is not sent to any agent until a member reads it and sends it to Claude ("Envoyer à Claude"), unless the link was created with "directly to Claude".
+_Avoid_: Pending, moderation
