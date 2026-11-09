@@ -11,6 +11,8 @@ const HOME_PREFIX = /^(?:\/Users\/[^/]+|\/home\/[^/]+|\/root|[A-Za-z]:\\Users\\[
 const homeShortened = (folder: string) => folder.replace(HOME_PREFIX, "~");
 
 interface Presence {
+  /** The account whose token the session uses. */
+  personId?: string;
   folder: string;
   machine: string;
   lastSeen: number;
@@ -53,14 +55,22 @@ export class TerminalSessions implements TerminalPresence {
     for (const { pageId, runId, threadId } of this.store.terminalPicks()) this.lock.showTerminalRun(pageId, runId, threadId);
   }
 
-  heartbeat(sessionId: string, folder: string, machine: string): void {
+  heartbeat(sessionId: string, folder: string, machine: string, personId?: string): void {
     const wasPresent = this.present.has(sessionId);
-    this.present.set(sessionId, { folder, machine, lastSeen: Date.now() });
+    this.present.set(sessionId, { personId, folder, machine, lastSeen: Date.now() });
     if (!wasPresent) this.announceHolds(sessionId);
   }
 
   bye(sessionId: string): void {
     if (this.present.delete(sessionId)) this.releaseSessions((id) => id === sessionId);
+  }
+
+  /** The account was deactivated: its sessions leave, the pages they held and the work waiting for them go to the agents. */
+  releaseSessionsOf(personId: string): void {
+    const leaving = new Set<string>();
+    for (const [sessionId, session] of this.present) if (session.personId === personId) leaving.add(sessionId);
+    for (const sessionId of leaving) this.present.delete(sessionId);
+    if (leaving.size > 0) this.releaseSessions((id) => leaving.has(id));
   }
 
   isPresent(sessionId: string): boolean {

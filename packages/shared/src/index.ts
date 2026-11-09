@@ -1315,6 +1315,8 @@ export interface AgentInfo extends ModelChoice {
   updating?: true;
   /** Why the last update failed; the agent kept running its previous build. */
   updateError?: string;
+  /** The account whose token the agent connected with; its rights are the agent's. Absent without accounts. */
+  launchedBy?: Person;
 }
 
 /** An agent the server refused for its protocol; listed until it connects again. */

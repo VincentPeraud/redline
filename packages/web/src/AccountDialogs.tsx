@@ -58,11 +58,10 @@ export function DeactivateDialog({ account, onClose, onDone }: { account: Accoun
   return (
     <Dialog title={`Désactiver ${account.name} ?`} onClose={onClose} width={480} alert>
       <p className={styles.text}>{first} ne pourra plus se connecter. Son nom reste sur ses messages et ses versions.</p>
-      {projects && (
-        <ul className={styles.list}>
-          <li>{projects}</li>
-        </ul>
-      )}
+      <ul className={styles.list}>
+        {projects && <li>{projects}</li>}
+        <li>Son jeton d'agent est révoqué : son agent est déconnecté.</li>
+      </ul>
       {error && <p role="alert" className={styles.error}>{error}</p>}
       <DialogActions>
         <Button size="lg" onClick={onClose}>Annuler</Button>

@@ -154,7 +154,8 @@ export async function buildMainApp(
   const access = createAccess({ mode: authMode, store, secrets: options.proxySecrets, identity });
   registerAccess(app, access);
   registerIdentity(app, store, identity, authMode);
-  if (authMode === "local" || authMode === "proxy") registerAccountRoutes(app, store, authMode);
+  const onDeactivated: ((personId: string) => void)[] = [];
+  if (authMode === "local" || authMode === "proxy") registerAccountRoutes(app, store, authMode, (personId) => onDeactivated.forEach((listener) => listener(personId)));
   const { cliBuild } = options;
   store.setServerBuildHash(cliBuild?.hash);
   if (cliBuild) {
@@ -170,7 +171,11 @@ export async function buildMainApp(
   app.addHook("onClose", async () => pageLock.dispose());
   const terminalSessions = new TerminalSessions(store, pageLock, options.terminalPresenceTimeoutMs);
   app.addHook("onClose", async () => terminalSessions.dispose());
-  await registerAgentApi(app, store, pageLock, terminalSessions);
+  onDeactivated.push((personId) => {
+    agents.disconnectPerson(personId);
+    terminalSessions.releaseSessionsOf(personId);
+  });
+  await registerAgentApi(app, store, pageLock, terminalSessions, access);
   await registerProjectFileRoutes(app, store);
   registerProjectDesignSystemRoutes(app, store);
   registerEventRoutes(app, store, pageLock, access);

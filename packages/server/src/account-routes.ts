@@ -54,10 +54,10 @@ async function answering<T>(reply: FastifyReply, action: () => T | Promise<T>, s
 }
 
 /** Setup link, invitation, sign-in and sign-out of the built-in accounts, and the accounts screen. The setup, invitation and session paths are open to people who are not signed in. */
-export function registerAccountRoutes(app: FastifyInstance, store: Store, mode: "local" | "proxy"): void {
+export function registerAccountRoutes(app: FastifyInstance, store: Store, mode: "local" | "proxy", onDeactivated: (personId: string) => void): void {
   /** Behind an SSO the same screen adds people by e-mail, with no link and no password: the built-in sign-in routes are not there. */
   if (mode === "local") registerBuiltInSignIn(app, store);
-  registerAccountManagement(app, store, mode);
+  registerAccountManagement(app, store, mode, onDeactivated);
 }
 
 function registerBuiltInSignIn(app: FastifyInstance, store: Store): void {
@@ -140,7 +140,7 @@ function registerBuiltInSignIn(app: FastifyInstance, store: Store): void {
   });
 }
 
-function registerAccountManagement(app: FastifyInstance, store: Store, mode: "local" | "proxy"): void {
+function registerAccountManagement(app: FastifyInstance, store: Store, mode: "local" | "proxy", onDeactivated: (personId: string) => void): void {
   app.get(ACCOUNTS_PATH, async (req, reply) => (isAdmin(req) ? { ...store.accounts.list(), sso: mode === "proxy" } : forbidden(reply)));
 
   app.post<{ Body: { email?: string; role?: string } }>(INVITATIONS_PATH, async (req, reply) => {
@@ -163,7 +163,13 @@ function registerAccountManagement(app: FastifyInstance, store: Store, mode: "lo
   );
 
   app.post<{ Params: { id: string } }>(`${ACCOUNTS_PATH}/:id/deactivate`, async (req, reply) =>
-    isAdmin(req) ? answering(reply, () => store.accounts.deactivate(req.person!.id, req.params.id)) : forbidden(reply),
+    isAdmin(req)
+      ? answering(reply, () => {
+          const entry = store.accounts.deactivate(req.person!.id, req.params.id);
+          onDeactivated(req.params.id);
+          return entry;
+        })
+      : forbidden(reply),
   );
 
   app.post<{ Params: { id: string } }>(`${ACCOUNTS_PATH}/:id/reactivate`, async (req, reply) =>

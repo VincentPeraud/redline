@@ -9,6 +9,8 @@ export interface CoveredProject {
   title: string;
   /** This agent runs the project's new work right now. */
   servedNow: boolean;
+  /** The viewer cannot see this Privé project: it shows as "Projet privé", with no id. */
+  private?: true;
 }
 
 export interface AgentOverview extends AgentInfo {
@@ -36,6 +38,8 @@ export interface WorkOverview {
   reason?: QueueReason;
   threadCount: number;
   agentMachine?: string;
+  /** The viewer cannot see the project: titles read "Projet privé" and the page is not named. */
+  private?: true;
 }
 
 /** A project as the home shows it. */
