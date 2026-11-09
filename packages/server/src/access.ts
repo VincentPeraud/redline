@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { INVITATION_PATH, NO_ACCESS_CODE, SESSION_PATH, SETUP_PATH, type AccountRole, type NoAccessResponse, type Person } from "@redline/shared";
+import { INSUFFICIENT_LEVEL_CODE, INVITATION_PATH, NO_ACCESS_CODE, SESSION_PATH, SETUP_PATH, type AccessLevel, type AccountRole, type InsufficientLevelResponse, type NoAccessResponse, type Person } from "@redline/shared";
 import { HEALTH_PATH, hasHumanSecret, isMachinePath, type ProxySecrets } from "./proxy-secrets.js";
 import { isLocalHost } from "./public-deadline.js";
 import type { Store } from "./store.js";
@@ -13,7 +13,14 @@ export type Viewer =
   | { kind: "agent" }
   | { kind: "nobody" };
 
-export type Action = "read" | "write";
+/** What a request needs: a level of the project (`read` views, `comment` comments, `write` works on pages), or `manage` (creator and admins). */
+export type Action = AccessLevel | "manage";
+
+const LEVEL_RANK: Record<AccessLevel, number> = { read: 0, comment: 1, write: 2 };
+/** Writes a member at Commentaire may make: comment, reply, resolve and reopen. */
+const COMMENT_ROUTES = new Set(["POST /api/pages/:pageId/threads", "POST /api/threads/:threadId/messages", "POST /api/threads/:threadId/resolve", "POST /api/threads/:threadId/reopen"]);
+/** Writes that stay with the creator of the project and the admins. */
+const MANAGE_ROUTES = new Set(["POST /api/projects/:projectId/archive", "POST /api/projects/:projectId/unarchive", "DELETE /api/projects/:projectId", "PUT /api/projects/:projectId/members/:personId", "DELETE /api/projects/:projectId/members/:personId"]);
 
 /** What an action is about; empty means the instance itself (home, settings, design systems list). */
 export interface Resource {
@@ -30,6 +37,8 @@ export interface Access {
   readonly mode: AuthMode;
   viewerOf(req: FastifyRequest): Viewer;
   may(viewer: Viewer, action: Action, resource: Resource): boolean;
+  /** The viewer's effective level on the project a resource belongs to, or undefined without access. Everyone is at Écriture where there is no project (and in modes without accounts). */
+  levelOf(viewer: Viewer, resource: Resource): AccessLevel | undefined;
   /** Whether the viewer decides who sees the project and at which level: its creator and the admins. */
   manages(viewer: Viewer, projectId: string): boolean;
   /** The creator of the project a resource belongs to, to name who to ask when `may` says no. */
@@ -92,35 +101,51 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
     const pageId = resource.pageId ?? (resource.threadId ? store.getThread(resource.threadId)?.pageId : undefined) ?? (resource.conversationId ? store.getConversation(resource.conversationId)?.pageId : undefined);
     return resource.projectId ?? (pageId ? store.getPage(pageId)?.projectId : undefined);
   };
-  /** The admins and the creator see every project; an Équipe project is seen by every account. */
-  const sees = (viewer: Viewer, projectId: string): boolean => {
-    if (viewer.kind !== "account") return true;
-    if (viewer.role === "admin") return true;
+  /** The effective level: admins and the creator at Écriture; Équipe, the lowered level else Écriture; Privé, the chosen level else none. */
+  const levelIn = (viewer: Viewer, projectId: string): AccessLevel | undefined => {
+    if (mode !== "local" || viewer.kind === "agent") return "write";
+    if (viewer.kind !== "account") return undefined;
+    if (viewer.role === "admin") return "write";
     const ownership = store.projectOwnership(projectId);
-    return !ownership || ownership.visibility === "team" || ownership.createdBy === viewer.person.id;
+    if (!ownership) return "write";
+    if (ownership.createdBy === viewer.person.id) return "write";
+    const own = store.memberLevel(projectId, viewer.person.id);
+    return ownership.visibility === "team" ? (own ?? "write") : own;
   };
-  const may = (viewer: Viewer, _action: Action, resource: Resource): boolean => {
-    // `none` and `proxy` allow everything today; `local` decides by role and visibility (levels come with member levels).
-    if (mode !== "local") return true;
-    // Machine paths check the agent token themselves.
-    if (viewer.kind === "agent") return true;
-    if (viewer.kind !== "account") return false;
+  const levelOf = (viewer: Viewer, resource: Resource): AccessLevel | undefined => {
+    if (mode !== "local" || viewer.kind === "agent") return "write";
+    if (viewer.kind !== "account") return undefined;
     const projectId = projectIdOf(resource);
-    return projectId === undefined || sees(viewer, projectId);
+    return projectId === undefined ? "write" : levelIn(viewer, projectId);
   };
   const manages = (viewer: Viewer, projectId: string): boolean => {
     if (mode !== "local") return true;
-    return viewer.kind === "account" && (viewer.role === "admin" || store.projectOwnership(projectId)?.createdBy === viewer.person.id);
+    if (viewer.kind === "agent") return true;
+    if (viewer.kind !== "account") return false;
+    // A design system is a project row with no creator: any account manages it, as it sees it.
+    if (viewer.role === "admin" || store.getDesignSystem(projectId) || !store.projectOwnership(projectId)) return true;
+    return store.projectOwnership(projectId)?.createdBy === viewer.person.id;
+  };
+  const may = (viewer: Viewer, action: Action, resource: Resource): boolean => {
+    const level = levelOf(viewer, resource);
+    if (level === undefined) return false;
+    if (action === "manage") {
+      const projectId = projectIdOf(resource);
+      return projectId === undefined || manages(viewer, projectId);
+    }
+    return LEVEL_RANK[level] >= LEVEL_RANK[action];
   };
   const creatorOf = (resource: Resource): Person | undefined => {
     const projectId = projectIdOf(resource);
     return projectId === undefined ? undefined : store.getProject(projectId)?.createdBy;
   };
-  return { mode, viewerOf, may, manages, creatorOf };
+  return { mode, viewerOf, may, levelOf, manages, creatorOf };
 }
 
 function actionOf(req: FastifyRequest): Action {
-  return req.method === "GET" || req.method === "HEAD" ? "read" : "write";
+  if (req.method === "GET" || req.method === "HEAD") return "read";
+  const route = `${req.method} ${req.routeOptions.url}`;
+  return MANAGE_ROUTES.has(route) ? "manage" : COMMENT_ROUTES.has(route) ? "comment" : "write";
 }
 
 function resourceOf(req: FastifyRequest): Resource {
@@ -144,9 +169,15 @@ export function registerAccess(app: FastifyInstance, access: Access): void {
     const resource = resourceOf(req);
     if (!access.may(req.viewer, actionOf(req), resource)) {
       if (req.viewer.kind === "nobody" && access.mode === "local") return reply.code(401).send({ error: "sign-in required" });
+      if (req.viewer.kind !== "account") return reply.code(403).send({ error: "forbidden" });
       const creator = access.creatorOf(resource);
-      const refusal: NoAccessResponse = { error: "no access to this project", code: NO_ACCESS_CODE, ...(creator ? { creator } : {}) };
-      return reply.code(403).send(req.viewer.kind === "account" ? refusal : { error: "forbidden" });
+      const found = creator ? { creator } : {};
+      if (access.levelOf(req.viewer, resource) === undefined) {
+        const refusal: NoAccessResponse = { error: "no access to this project", code: NO_ACCESS_CODE, ...found };
+        return reply.code(403).send(refusal);
+      }
+      const refusal: InsufficientLevelResponse = { error: "your level on this project does not allow this", code: INSUFFICIENT_LEVEL_CODE, ...found };
+      return reply.code(403).send(refusal);
     }
   });
 }

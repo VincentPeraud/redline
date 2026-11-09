@@ -59,6 +59,7 @@ import type {
   ThreadTarget,
   ManifestElement,
   ManifestElementKind,
+  AccessLevel,
   AgentHello,
   AgentInfo,
   RefusedAgent,
@@ -164,6 +165,12 @@ export class Store {
         status TEXT NOT NULL,
         last_seen_at TEXT NOT NULL,
         UNIQUE (machine, folder)
+      );
+      CREATE TABLE IF NOT EXISTS project_members (
+        project_id TEXT NOT NULL,
+        person_id TEXT NOT NULL,
+        level TEXT NOT NULL,
+        PRIMARY KEY (project_id, person_id)
       );
       CREATE TABLE IF NOT EXISTS design_systems (
         project_id TEXT PRIMARY KEY REFERENCES projects(id),
@@ -890,8 +897,30 @@ export class Store {
     return row && { ...(row.createdBy ? { createdBy: row.createdBy } : {}), visibility: row.visibility };
   }
 
+  /** Switching to Privé drops the lowered levels; back to Équipe, the levels below Écriture stay as lowered levels and the others vanish. */
   setProjectVisibility(id: string, visibility: ProjectVisibility): void {
-    this.db.prepare("UPDATE projects SET visibility = ? WHERE id = ?").run(visibility, id);
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE projects SET visibility = ? WHERE id = ?").run(visibility, id);
+      this.db.prepare(visibility === "private" ? "DELETE FROM project_members WHERE project_id = ?" : "DELETE FROM project_members WHERE project_id = ? AND level = 'write'").run(id);
+    })();
+  }
+
+  /** The level written for one member of a project, if the table has one. */
+  memberLevel(projectId: string, personId: string): AccessLevel | undefined {
+    return (this.db.prepare("SELECT level FROM project_members WHERE project_id = ? AND person_id = ?").get(projectId, personId) as { level: AccessLevel } | undefined)?.level;
+  }
+
+  /** The table of member levels of a project, oldest entry first. */
+  memberLevels(projectId: string): { personId: string; level: AccessLevel }[] {
+    return this.db.prepare("SELECT person_id AS personId, level FROM project_members WHERE project_id = ? ORDER BY rowid").all(projectId) as { personId: string; level: AccessLevel }[];
+  }
+
+  setMemberLevel(projectId: string, personId: string, level: AccessLevel): void {
+    this.db.prepare("INSERT INTO project_members (project_id, person_id, level) VALUES (?, ?, ?) ON CONFLICT (project_id, person_id) DO UPDATE SET level = excluded.level").run(projectId, personId, level);
+  }
+
+  removeMemberLevel(projectId: string, personId: string): void {
+    this.db.prepare("DELETE FROM project_members WHERE project_id = ? AND person_id = ?").run(projectId, personId);
   }
 
   /** A project without a shared design system starts with an empty project style (an empty file: it counts as existing), which Claude fills in. */
@@ -1098,6 +1127,7 @@ export class Store {
         "DELETE FROM design_system_diffusions WHERE design_system_id = ?",
         "DELETE FROM design_systems WHERE project_id = ?",
         "DELETE FROM pages WHERE project_id = ?",
+        "DELETE FROM project_members WHERE project_id = ?",
         "DELETE FROM project_files WHERE project_id = ?",
         "DELETE FROM design_md_versions WHERE project_id = ?",
         "DELETE FROM work_queue WHERE project_id = ?",

@@ -40,7 +40,10 @@ import {
   type MoveArtboardRequest,
   type UpdatePageRequest,
   type UpdateProjectRequest,
+  type Person,
   type ProjectSharing,
+  type SetMemberLevelRequest,
+  isAccessLevel,
   type ProjectVisibility,
   CLI_TARBALL_PATH,
 } from "@redline/shared";
@@ -221,8 +224,46 @@ export async function buildMainApp(
     const project = store.getProject(req.params.projectId);
     if (!project) return void reply.code(404).send({ error: "project not found" });
     const accounts = store.accounts.activeAccounts();
-    const wouldLoseAccess = project.visibility === "private" ? [] : accounts.filter((a) => a.role !== "admin" && a.id !== project.createdBy?.id).map(({ role: _role, ...person }) => person);
-    return { visibility: project.visibility, accountCount: accounts.length, ...(project.createdBy ? { createdBy: project.createdBy } : {}), canChange: access.manages(req.viewer, project.id), wouldLoseAccess };
+    const isOwnerOrAdmin = (a: { id: string; role: string }) => a.role === "admin" || a.id === project.createdBy?.id;
+    const person = ({ role: _role, ...rest }: (typeof accounts)[number]): Person => rest;
+    const wouldLoseAccess = project.visibility === "private" ? [] : accounts.filter((a) => !isOwnerOrAdmin(a)).map(person);
+    const levels = store.memberLevels(project.id);
+    const members = levels.flatMap(({ personId, level }) => {
+      const account = accounts.find((a) => a.id === personId);
+      return account ? [{ person: person(account), level }] : [];
+    });
+    const canChange = access.manages(req.viewer, project.id);
+    const candidates = canChange ? accounts.filter((a) => !isOwnerOrAdmin(a) && !levels.some((l) => l.personId === a.id)).map(person) : [];
+    return {
+      visibility: project.visibility,
+      viewerLevel: access.levelOf(req.viewer, { projectId: project.id }) ?? "read",
+      accountCount: accounts.length,
+      ...(project.createdBy ? { createdBy: project.createdBy } : {}),
+      canChange,
+      members,
+      candidates,
+      wouldLoseAccess,
+    };
+  });
+
+  // Équipe: a level below Écriture lowers the member, Écriture lifts the exception. Privé: the level is the member's entry.
+  app.put<{ Params: { projectId: string; personId: string }; Body: SetMemberLevelRequest }>("/api/projects/:projectId/members/:personId", async (req, reply) => {
+    const project = store.getProject(req.params.projectId);
+    if (!project) return reply.code(404).send({ error: "project not found" });
+    const account = store.accounts.activeAccounts().find((a) => a.id === req.params.personId);
+    if (!account) return reply.code(404).send({ error: "account not found" });
+    const level = req.body?.level;
+    if (!isAccessLevel(level)) return reply.code(400).send({ error: "level must be read, comment or write" });
+    if (account.role === "admin" || account.id === project.createdBy?.id) return reply.code(400).send({ error: "The creator and the admins are always at Écriture." });
+    if (project.visibility === "team" && level === "write") store.removeMemberLevel(project.id, account.id);
+    else store.setMemberLevel(project.id, account.id, level);
+    return reply.code(204).send();
+  });
+
+  app.delete<{ Params: { projectId: string; personId: string } }>("/api/projects/:projectId/members/:personId", async (req, reply) => {
+    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    store.removeMemberLevel(req.params.projectId, req.params.personId);
+    return reply.code(204).send();
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId", async (req, reply) => {

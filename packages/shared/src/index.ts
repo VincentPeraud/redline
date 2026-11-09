@@ -64,9 +64,34 @@ export interface UpdateProjectRequest {
   visibility?: ProjectVisibility;
 }
 
+/**
+ * What a member may do on a project: Lecture views, plays, previews and reads the history; Commentaire also comments;
+ * Écriture does everything on its pages. Administrators and the creator are always at Écriture.
+ */
+export type AccessLevel = "read" | "comment" | "write";
+export const ACCESS_LEVELS: readonly AccessLevel[] = ["read", "comment", "write"];
+export const isAccessLevel = (value: unknown): value is AccessLevel => ACCESS_LEVELS.includes(value as AccessLevel);
+
+/** A member with their own level on a project: lowered below Écriture on an Équipe project, chosen on a Privé one. */
+export interface ProjectMember {
+  person: Person;
+  level: AccessLevel;
+}
+
+/** `PUT /api/projects/:id/members/:personId`. */
+export interface SetMemberLevelRequest {
+  level: AccessLevel;
+}
+
 /** `GET /api/projects/:id/sharing`: who may see the project and whether the viewer may change that. */
 export interface ProjectSharing {
   visibility: ProjectVisibility;
+  /** The viewer's own level on the project. */
+  viewerLevel: AccessLevel;
+  /** The members with a level of their own: the lowered ones (Équipe) or the chosen ones (Privé), the creator and the admins left out. */
+  members: ProjectMember[];
+  /** The accounts the creator could still give a level to; empty for a viewer who cannot change levels. */
+  candidates: Person[];
   createdBy?: Person;
   /** True for the project's creator and the admins. */
   canChange: boolean;
@@ -81,6 +106,14 @@ export const NO_ACCESS_CODE = "no-access";
 export interface NoAccessResponse {
   error: string;
   code: typeof NO_ACCESS_CODE;
+  creator?: Person;
+}
+
+/** The `code` of the 403 a member gets for an action above their level on a project they can see. */
+export const INSUFFICIENT_LEVEL_CODE = "insufficient-level";
+export interface InsufficientLevelResponse {
+  error: string;
+  code: typeof INSUFFICIENT_LEVEL_CODE;
   creator?: Person;
 }
 
