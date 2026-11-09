@@ -2,17 +2,22 @@ import type { FastifyInstance } from "fastify";
 import { HOME_PATH, type AgentOverview, type CoveredProject, type HomeOverview, type HomeProject, type WorkOverview } from "@redline/shared";
 import { chooseAgent } from "./agent-selection.js";
 import { diffusionReview, reviewLineCount } from "./diffusion-review.js";
+import type { Access } from "./access.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
 const RECENT_PAGES = 5;
 
-export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock: PageLock): void {
-  app.get(HOME_PATH, async (): Promise<HomeOverview> => {
-    const projects = store.listProjects();
+export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock: PageLock, access: Access): void {
+  app.get(HOME_PATH, async (req): Promise<HomeOverview> => {
+    const seen = (projectId: string) => access.may(req.viewer, "read", { projectId });
+    const projects = store.listProjects().filter((p) => seen(p.id));
     // Archived projects too: their waiting items stay listed until they are unarchived.
-    const titleOf = new Map(store.listProjects("all").map((p) => [p.id, p.title]));
-    const { running, waiting } = pageLock.overview();
+    const titleOf = new Map(store.listProjects("all").filter((p) => seen(p.id)).map((p) => [p.id, p.title]));
+    const overview = pageLock.overview();
+    // Work on a project the viewer does not see stays out of the lists and the counts.
+    const running = overview.running.filter((r) => seen(store.getPage(r.pageId)?.projectId ?? ""));
+    const waiting = overview.waiting.filter((w) => seen(w.projectId));
 
     const covered = (agentId: string, kind: string): CoveredProject[] =>
       projects
@@ -55,7 +60,7 @@ export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock:
     ];
 
     const lastUpdate = new Map<string, { updatedAt: string; lastPageId: string }>();
-    for (const { page, updatedAt } of store.listRecentPages(Number.MAX_SAFE_INTEGER)) {
+    for (const { page, updatedAt } of store.listRecentPages(Number.MAX_SAFE_INTEGER).filter(({ page }) => seen(page.projectId))) {
       if (!lastUpdate.has(page.projectId)) lastUpdate.set(page.projectId, { updatedAt, lastPageId: page.id });
     }
     const homeProjects: HomeProject[] = projects.map((p) => {
@@ -75,7 +80,7 @@ export function registerHomeRoutes(app: FastifyInstance, store: Store, pageLock:
       projects: homeProjects,
       agents,
       refusedAgents: store.listRefusedAgents(),
-      recentPages: store.listRecentPages(RECENT_PAGES).map(({ page, updatedAt }) => ({
+      recentPages: store.listRecentPages(Number.MAX_SAFE_INTEGER).filter(({ page }) => seen(page.projectId)).slice(0, RECENT_PAGES).map(({ page, updatedAt }) => ({
         page,
         projectTitle: titleOf.get(page.projectId) ?? "",
         updatedAt,

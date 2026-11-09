@@ -82,6 +82,14 @@ export class AccountStore {
     `);
   }
 
+  /** Every active account with its role, oldest first. */
+  activeAccounts(): SignedInAccount[] {
+    const rows = this.db
+      .prepare("SELECT id, name, email, role FROM people WHERE role IS NOT NULL AND status = 'active' ORDER BY created_at, rowid")
+      .all() as AccountRow[];
+    return rows.map((row) => ({ id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id), role: row.role }));
+  }
+
   hasAccount(): boolean {
     return this.db.prepare("SELECT 1 FROM people WHERE role IS NOT NULL").get() !== undefined;
   }

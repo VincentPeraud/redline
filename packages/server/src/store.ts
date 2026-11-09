@@ -72,6 +72,7 @@ import type {
   ModelChoice,
   PageVersionSummary,
   Project,
+  ProjectVisibility,
   ProjectUsingDesignSystem,
   ServerEvent,
   SessionKind,
@@ -875,17 +876,28 @@ export class Store {
     return rows.map(({ project, ...agent }) => ({ ...agent, ...(project ? { project } : {}) }));
   }
 
-  private insertProject(title: string, id: string, instructions: string, designSystem: string | null): Project {
+  private insertProject(title: string, id: string, instructions: string, designSystem: string | null, ownership: ProjectOwnership = {}): Project {
+    const visibility = ownership.visibility ?? "team";
     this.db
-      .prepare("INSERT INTO projects (id, title, instructions, design_system, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(id, title, instructions, designSystem, now());
-    return { id, title, instructions, designSystem, globalTakeover: this.getGlobalTakeover(), globalTakeoverOverride: null };
+      .prepare("INSERT INTO projects (id, title, instructions, design_system, created_at, created_by, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(id, title, instructions, designSystem, now(), ownership.createdBy?.id ?? null, visibility);
+    return { id, title, visibility, ...(ownership.createdBy ? { createdBy: ownership.createdBy } : {}), instructions, designSystem, globalTakeover: this.getGlobalTakeover(), globalTakeoverOverride: null };
+  }
+
+  /** Who created a project and who sees it, for the access checks; undefined for an unknown project. */
+  projectOwnership(id: string): { createdBy?: string; visibility: ProjectVisibility } | undefined {
+    const row = this.db.prepare("SELECT created_by AS createdBy, visibility FROM projects WHERE id = ?").get(id) as { createdBy: string | null; visibility: ProjectVisibility } | undefined;
+    return row && { ...(row.createdBy ? { createdBy: row.createdBy } : {}), visibility: row.visibility };
+  }
+
+  setProjectVisibility(id: string, visibility: ProjectVisibility): void {
+    this.db.prepare("UPDATE projects SET visibility = ? WHERE id = ?").run(visibility, id);
   }
 
   /** A project without a shared design system starts with an empty project style (an empty file: it counts as existing), which Claude fills in. */
-  createProject(title: string, id: string = randomUUID(), instructions = "", chosenDesignSystem: string | null = null): Project {
+  createProject(title: string, id: string = randomUUID(), instructions = "", chosenDesignSystem: string | null = null, ownership: ProjectOwnership = {}): Project {
     const designSystem = chosenDesignSystem === NEUTRAL_DESIGN_SYSTEM_ID ? null : chosenDesignSystem;
-    const project = this.insertProject(title, id, instructions, designSystem);
+    const project = this.insertProject(title, id, instructions, designSystem, ownership);
     if (designSystem === null) this.saveDesignMd(id, PROJECT_STYLE_PATH, Buffer.alloc(0));
     return project;
   }
@@ -979,8 +991,10 @@ export class Store {
     const rows = this.db
       .prepare(
         `SELECT p.id, p.title, p.instructions, p.design_system AS designSystem, p.takeover_override AS takeoverOverride, p.archived_at AS archivedAt,
+                p.visibility, c.id AS creatorId, c.name AS creatorName, c.email AS creatorEmail,
                 a.id AS agentId, a.machine, a.folder, a.status
          FROM projects p LEFT JOIN agent_projects ap ON ap.project_id = p.id LEFT JOIN agents a ON a.id = ap.agent_id
+         LEFT JOIN people c ON c.id = p.created_by
          WHERE p.id NOT IN (SELECT project_id FROM design_systems) ${archived}
          ORDER BY ${which === "archived" ? "p.archived_at DESC," : ""} p.created_at, p.rowid`,
       )
@@ -991,6 +1005,10 @@ export class Store {
       designSystem: string | null;
       takeoverOverride: number | null;
       archivedAt: string | null;
+      visibility: ProjectVisibility;
+      creatorId: string | null;
+      creatorName: string | null;
+      creatorEmail: string | null;
       agentId: string | null;
       machine: string;
       folder: string;
@@ -1000,6 +1018,8 @@ export class Store {
     return rows.map((r) => ({
       id: r.id,
       title: r.title,
+      visibility: r.visibility,
+      ...(r.creatorId ? { createdBy: { id: r.creatorId, name: r.creatorName ?? "", email: r.creatorEmail ?? "", initials: initialsOf(r.creatorName ?? "", r.creatorId) } } : {}),
       instructions: r.instructions,
       designSystem: r.designSystem,
       globalTakeover: r.takeoverOverride === null ? global : r.takeoverOverride === 1,
@@ -2160,6 +2180,12 @@ export class Store {
 
 /** A work item as the page lock keeps it between restarts. */
 /** A project component moved up ("Remonter"): the design system draft page that received the copy. */
+/** Who a new project belongs to and who sees it (Équipe when `visibility` is absent). */
+export interface ProjectOwnership {
+  createdBy?: Person;
+  visibility?: ProjectVisibility;
+}
+
 export interface MovedUpComponent {
   designSystemId: string;
 }
