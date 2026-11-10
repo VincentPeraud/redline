@@ -1,0 +1,30 @@
+.area {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--color-surface-muted);
+}
+
+.world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.artboard {
+  position: absolute;
+  box-sizing: border-box;
+  background: var(--color-surface);
+  /* A hairline at any scale: --unit is one screen pixel in canvas pixels. */
+  box-shadow: 0 0 0 calc(var(--unit, 1) * 1px) var(--color-border-strong);
+}
+
+.shot,
+.blank {
+  position: absolute;
+  display: block;
+  border: 0;
+  background: var(--color-surface);
+}

@@ -1,5 +1,5 @@
-// Design systems (ticket 26). A design system is a special project with one page whose files
-// include `tokens.css`; artboards read it live from the artboard origin.
+// Design systems (ticket 26). A design system is a special project with any number of pages and project-level
+// `tokens.css` and DESIGN.md; artboards read the tokens live from the artboard origin.
 
 import type { ModelChoice } from "./work.js";
 
@@ -23,19 +23,55 @@ export const CORE_TOKENS = [
   "--space-unit",
 ] as const;
 
+/** Why `POST /api/projects/:id/archive` (or `/api/pages/:id/archive`) was refused (409): a run is in progress, or projects still follow the design system. */
+export type ArchiveRefusal = { error: string; reason: "busy" } | { error: string; reason: "followed"; projects: ProjectUsingDesignSystem[] };
+
+/** `GET /api/projects/:id/archive` (or `/api/pages/:id/archive`): why archiving the project or design system is refused now; no `refusal` = it can be archived. */
+export interface ArchiveStatus {
+  /** Set when it is archived already. */
+  archivedAt?: string;
+  refusal?: ArchiveRefusal;
+}
+
+/** A project following a design system; `archived` when it is an archived one. */
+export interface ProjectUsingDesignSystem {
+  id: string;
+  title: string;
+  archived?: true;
+}
+
 export interface DesignSystem {
   /** Same as the id of the underlying project, and the value of a manifest's `designSystem`. */
   id: string;
   title: string;
-  /** The page showing tokens and components; publish new versions of it to change the design system. */
+  /** Its first page (the design system may have many); a `tokens.css` published through any of its pages becomes the design system's tokens. */
   pageId: string;
+  /** When the design system was archived (ISO time): it is then read-only and no project can choose it. */
+  archivedAt?: string;
 }
 
 /** A design system as listed: with the projects whose `designSystem` it is. */
 export interface DesignSystemSummary extends DesignSystem {
-  usedBy: { id: string; title: string }[];
+  usedBy: ProjectUsingDesignSystem[];
   /** Time of the last version of the design system's page. */
   updatedAt?: string;
+  /** Lines of the review before diffusing (tokens, DESIGN.md, one per recorded or undescribed component change); 0 = nothing pending. */
+  pendingChanges: number;
+  /** Open requests of the projects. */
+  requests: number;
+  pageCount: number;
+  /** Components of the draft (the pages as they are now). */
+  componentCount: number;
+  /** Number of the current diffusion. */
+  diffusion: number;
+  /** Up to three colours of the draft tokens, for the card's preview. */
+  palette: string[];
+}
+
+/** A design system as terminal mode lists it (`GET /agent-api/design-systems`): its pages are the ones to check out. */
+export interface AgentDesignSystem extends DesignSystem {
+  pages: { id: string; title: string }[];
+  usedBy: { id: string; title: string }[];
 }
 
 export interface CreateDesignSystemRequest extends ModelChoice {

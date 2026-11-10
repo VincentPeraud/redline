@@ -1,0 +1,49 @@
+.pill {
+  display: inline-flex;
+  vertical-align: middle;
+  align-items: center;
+  gap: 6px;
+  box-sizing: content-box;
+  height: 26px;
+  padding: 0 8px 0 5px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  text-decoration: none;
+  white-space: normal;
+}
+
+.pill:hover {
+  color: var(--color-text);
+}
+
+.icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+}
+
+.prefix {
+  color: var(--color-text-muted);
+}
+
+.title {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.missing {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+.link {
+  overflow-wrap: anywhere;
+}

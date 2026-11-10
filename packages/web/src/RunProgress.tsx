@@ -34,18 +34,6 @@ function Steps({ run, current }: { run: ThreadRun; current: boolean }) {
   );
 }
 
-function StreamedText({ run }: { run: ThreadRun }) {
-  if (run.text === "") return null;
-  return (
-    <details className={styles.details}>
-      <summary>Texte de Claude en direct</summary>
-      <div data-testid="run-text" className={styles.liveText}>
-        {run.text}
-      </div>
-    </details>
-  );
-}
-
 /** Live state of the run that answers a thread or a conversation message; a finished run shows nothing more. */
 export function RunProgress({ run, label = "Claude travaille sur ce fil…" }: { run: ThreadRun; label?: string }) {
   if (run.status === "failed") {
@@ -77,7 +65,6 @@ export function RunProgress({ run, label = "Claude travaille sur ce fil…" }: {
         {retrying ? retryLabel(run) : label}
       </div>
       <Steps run={run} current />
-      <StreamedText run={run} />
     </div>
   );
 }

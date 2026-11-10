@@ -22,7 +22,7 @@ export function rulesToShow(text: string, saved: DesignMdRule[]): ShownRule[] {
     if (line.startsWith("#")) continue;
     const display = line.startsWith("- ") ? line.slice(2).trim() : line;
     const match = saved.filter((rule) => rule.text === line)[occurrence];
-    shown.push(match ? { text: display, versionId: match.versionId, origin: match.origin, originLabel: match.originLabel, createdAt: match.createdAt } : { text: display, versionId: undefined });
+    shown.push(match ? { text: display, versionId: match.versionId, origin: match.origin, originLabel: match.originLabel, person: match.person, createdAt: match.createdAt } : { text: display, versionId: undefined });
   }
   return shown;
 }

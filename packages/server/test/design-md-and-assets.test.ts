@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { DesignMdVersion, Page, Project, ProjectAsset, ProjectContext } from "@redline/shared";
+import { CORE_TOKENS, type DesignMdVersion, type DesignSystem, type Page, type Project, type ProjectAsset, type ProjectContext } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 const html = "<!doctype html><html><head></head><body><h1>Hi</h1></body></html>";
+const dsTokens = `:root {\n${CORE_TOKENS.map((t) => `  ${t}: #111;`).join("\n")}\n}\n`;
 const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe, 0x80]);
 
 describe("DESIGN.md and project assets over the server HTTP API", () => {
@@ -85,11 +86,10 @@ describe("DESIGN.md and project assets over the server HTTP API", () => {
     expect((await workingCopy(await createPage(project))).designMd).toBe("# v2");
   });
 
-  it("carries the design system files in the working copy", async () => {
+  it("carries no design system in the working copy of a project without one", async () => {
     const page = await createPage(await createProject());
     const copy = await workingCopy(page);
-    expect(copy.designSystem.id).toBe("neutral");
-    expect(Object.keys(copy.designSystem.files)).toContain("tokens.css");
+    expect(copy.designSystem).toBeUndefined();
   });
 
   it("stores an asset byte for byte under its content hash and lists it", async () => {
@@ -129,12 +129,76 @@ describe("DESIGN.md and project assets over the server HTTP API", () => {
     expect((await fetch(`${server.artboardOrigin}/pages/${other.id}/assets/logo.png`)).status).toBe(404);
   });
 
-  it("accepts an asset of up to 20 MB and refuses a bigger one, while other bodies stay small", async () => {
+  it("tells the open pages of the project to reload when an asset changes, not when it is saved unchanged", async () => {
+    const project = await createProject();
+    const [first, second] = [await createPage(project), await createPage(project)];
+    await putAsset(project, "home.css", Buffer.from("h1 { color: red; }"));
+    const controller = new AbortController();
+    let text = "";
+    const stream = await fetch(`${server.url}/api/events`, { signal: controller.signal });
+    void (async () => {
+      const reader = stream.body!.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) return;
+          text += new TextDecoder().decode(value);
+        }
+      } catch {
+        // aborted
+      }
+    })();
+    const reloads = () =>
+      text
+        .split("\n\n")
+        .flatMap((f) => (f.startsWith("data: ") ? [JSON.parse(f.slice(6)) as { type: string; pageIds?: string[] }] : []))
+        .filter((e) => e.type === "design-system-updated");
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+    await putAsset(project, "home.css", Buffer.from("h1 { color: red; }"));
+    await settle();
+    expect(reloads()).toEqual([]);
+
+    await putAsset(project, "home.css", Buffer.from('html[data-tweak-peps="Nuit"] h1 { color: white; }'));
+    for (let i = 0; i < 100 && reloads().length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort();
+    expect(reloads()).toHaveLength(1);
+    expect(reloads()[0]!.pageIds).toEqual(expect.arrayContaining([first.id, second.id]));
+  });
+
+  it("serves the assets next to each stylesheet, since a url(assets/…) in it resolves against the stylesheet", async () => {
+    const project = await createProject();
+    await putAsset(project, "fonts/inter.woff2", pngBytes);
+    const ds = (await (await server.post("/api/design-systems", { title: "Acme DS", files: { "tokens.css": dsTokens, "index.html": html } })).json()) as DesignSystem;
+    await putAsset({ id: ds.id } as Project, "fonts/brand.woff2", pngBytes);
+    await server.post(`/api/design-systems/${ds.id}/diffusions`, {});
+
+    for (const url of [
+      `/project-styles/${project.id}/assets/fonts/inter.woff2`,
+      `/projects/${project.id}/assets/fonts/inter.woff2`,
+      `/design-systems/${ds.id}/assets/fonts/brand.woff2`,
+      `/design-systems/${ds.id}/diffusions/1/assets/fonts/brand.woff2`,
+    ]) {
+      const res = await fetch(server.artboardOrigin + url);
+      expect(res.status, url).toBe(200);
+      expect(res.headers.get("access-control-allow-origin")).toBe("*");
+      expect(Buffer.from(await res.arrayBuffer()).equals(pngBytes)).toBe(true);
+    }
+    const missing = await fetch(`${server.artboardOrigin}/project-styles/${project.id}/assets/fonts/none.woff2`);
+    expect(missing.status).toBe(404);
+    // Without it, an opaque-origin artboard reports a missing font as a CORS error.
+    expect(missing.headers.get("access-control-allow-origin")).toBe("*");
+  });
+
+  it("accepts an asset of up to 20 MB and refuses a bigger one, while other bodies stay under 10 MB, saying why", async () => {
     const project = await createProject();
     expect((await putAsset(project, "photo.jpg", Buffer.alloc(5 * 1024 * 1024, 1))).status).toBe(201);
-    // The server answers 413 before the client has sent everything, which a client may see as a broken pipe.
-    await putAsset(project, "huge.jpg", Buffer.alloc(21 * 1024 * 1024, 1)).then((res) => expect(res.status).toBe(413), () => undefined);
-    await putDesignMd(project, "x".repeat(2 * 1024 * 1024)).then((res) => expect(res.status).toBe(413), () => undefined);
+    const huge = await putAsset(project, "huge.jpg", Buffer.alloc(21 * 1024 * 1024, 1));
+    expect(huge.status).toBe(413);
+    expect(((await huge.json()) as { error: string }).error).toMatch(/Asset too large: 20 MB/);
+    const heavy = await putDesignMd(project, "x".repeat(11 * 1024 * 1024));
+    expect(heavy.status).toBe(413);
+    expect(((await heavy.json()) as { error: string }).error).toMatch(/10 MB/);
 
     expect(((await (await server.get(`/api/projects/${project.id}/assets`)).json()) as ProjectAsset[]).map((a) => a.name)).toEqual(["photo.jpg"]);
     expect(((await (await server.get(`/api/projects/${project.id}/design-md`)).json()) as { content: string }).content).toBe("");

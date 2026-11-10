@@ -38,9 +38,9 @@ describe("design systems over the server HTTP API", () => {
   const artboard = (page: Page) => fetch(`${server.artboardOrigin}/pages/${page.id}/a.html`).then((r) => r.text());
   const tokens = (id: string) => fetch(`${server.artboardOrigin}/design-systems/${id}/tokens.css`);
 
-  it("seeds a neutral design system defining every core token", async () => {
+  it("keeps a hidden neutral design system defining every core token", async () => {
     const list = (await (await server.get("/api/design-systems")).json()) as DesignSystem[];
-    expect(list.map((d) => d.id)).toContain(NEUTRAL_DESIGN_SYSTEM_ID);
+    expect(list.map((d) => d.id)).not.toContain(NEUTRAL_DESIGN_SYSTEM_ID);
     const css = await (await tokens(NEUTRAL_DESIGN_SYSTEM_ID)).text();
     for (const token of CORE_TOKENS) expect(css).toContain(`${token}:`);
   });
@@ -50,13 +50,13 @@ describe("design systems over the server HTTP API", () => {
     expect(projects).toEqual([]);
   });
 
-  it("renders a page with the tokens of its design system, the neutral one by default", async () => {
+  it("renders a page with the tokens of its design system, none by default", async () => {
     const page = await createPage();
-    expect(await artboard(page)).toContain(`/design-systems/${NEUTRAL_DESIGN_SYSTEM_ID}/tokens.css`);
+    expect(await artboard(page)).not.toContain("/design-systems/");
 
     const ds = await createDesignSystem();
     const other = await createPage({ designSystem: ds.id, artboards: [{ file: "a.html" }] });
-    expect(await artboard(other)).toContain(`/design-systems/${ds.id}/tokens.css`);
+    expect(await artboard(other)).toContain(`/design-systems/${ds.id}/diffusions/1/tokens.css`);
   });
 
   it("applies a new design system version to every page using it without a new page version", async () => {
@@ -83,9 +83,8 @@ describe("design systems over the server HTTP API", () => {
     expect(bad.status).toBe(400);
     expect(((await bad.json()) as { error: string }).error).toContain("--font-heading");
 
-    const list = (await (await server.get("/api/design-systems")).json()) as DesignSystem[];
-    const neutral = list.find((d) => d.id === NEUTRAL_DESIGN_SYSTEM_ID)!;
-    const res = await server.post(`/api/pages/${neutral.pageId}/versions`, {
+    const ds = await createDesignSystem();
+    const res = await server.post(`/api/pages/${ds.pageId}/versions`, {
       files: { "tokens.css": tokensCss({}, ["--color-primary"]) },
       message: "Oops",
       origin: "thread",
@@ -93,7 +92,7 @@ describe("design systems over the server HTTP API", () => {
     expect(res.status).toBe(400);
   });
 
-  it("announces a new design system version to the pages that use it, and only to them", async () => {
+  it("announces a design system edit to its own pages and a new diffusion to the pages that use it, and only to them", async () => {
     const ds = await createDesignSystem();
     const using = await createPage({ designSystem: ds.id, artboards: [{ file: "a.html" }] });
     const other = await createPage();
@@ -108,30 +107,34 @@ describe("design systems over the server HTTP API", () => {
         frames.push(decoder.decode(value));
       }
     })().catch(() => undefined);
+    const announced = async (count: number) => {
+      for (let i = 0; i < 100 && frames.join("").split("design-system-updated").length - 1 < count; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+      const frame = frames.join("").split("\n\n").filter((f) => f.includes("design-system-updated"))[count - 1];
+      return JSON.parse(frame.slice(frame.indexOf("{"))) as { designSystemId: string; pageIds: string[] };
+    };
 
     await server.post(`/api/pages/${ds.pageId}/versions`, {
       files: { "tokens.css": tokensCss({ "--color-primary": "#f00" }) },
       message: "Warmer",
       origin: "thread",
     });
-    for (let i = 0; i < 100 && !frames.join("").includes("design-system-updated"); i++) await new Promise((resolve) => setTimeout(resolve, 20));
-    abort.abort();
+    expect(await announced(1)).toEqual({ type: "design-system-updated", designSystemId: ds.id, pageIds: [ds.pageId] });
 
-    const frame = frames.join("").split("\n\n").find((f) => f.includes("design-system-updated"))!;
-    const event = JSON.parse(frame.slice(frame.indexOf("{"))) as { designSystemId: string; pageIds: string[] };
+    await server.post(`/api/design-systems/${ds.id}/diffusions`, {});
+    const event = await announced(2);
+    abort.abort();
     expect(event.designSystemId).toBe(ds.id);
     expect(event.pageIds).toEqual([using.id]);
     expect(event.pageIds).not.toContain(other.id);
   });
 
-  it("includes the design system files in the working copy", async () => {
+  it("carries no design system in the working copy of a page without one", async () => {
     const page = await createPage();
     const copy = (await (await server.get(`/api/pages/${page.id}/working-copy`)).json()) as {
       files: Record<string, string>;
-      designSystem: { id: string; files: Record<string, string> };
+      designSystem?: unknown;
     };
     expect(copy.files["a.html"]).toBe(html);
-    expect(copy.designSystem.id).toBe(NEUTRAL_DESIGN_SYSTEM_ID);
-    expect(copy.designSystem.files["tokens.css"]).toContain("--color-primary");
+    expect(copy.designSystem).toBeUndefined();
   });
 });

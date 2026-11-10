@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser } from "playwright";
+import { type Browser } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import type { Page, Project } from "@redline/shared";
 import { FakeEngine, startSeam2, type FakeAction, type Seam2 } from "@redline/agent/seam2";
@@ -28,7 +29,7 @@ beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
   seam = await startSeam2(engine, { webDir });
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, 60_000);
 
 afterAll(async () => {
@@ -62,7 +63,7 @@ it("names the commented element, then shows the page Claude created under its an
 
   const card = tab.getByTestId("created-page");
   await card.waitFor();
-  expect((await card.textContent())?.replace(/\s+/g, " ")).toContain("Pricing · 1 artboard");
+  expect((await card.textContent())?.replace(/\s+/g, " ")).toContain("Pricing · 0 artboard");
 
   await tab.getByRole("button", { name: page.title ?? "Untitled", exact: false }).first().click();
   const created = tab.getByRole("menuitem", { name: /Pricing/ });
@@ -71,7 +72,7 @@ it("names the commented element, then shows the page Claude created under its an
 
   await card.click();
   await expect.poll(() => tab.url()).not.toContain(page.id);
-  await expect.poll(() => tab.locator("iframe").count()).toBe(1);
+  await tab.getByTestId("canvas-empty").waitFor();
 }, 60_000);
 
 it("shows exchange counts in the conversation list and the created page under Claude's message", async () => {
@@ -84,7 +85,7 @@ it("shows exchange counts in the conversation list and the created page under Cl
   await panel.getByLabel("Message à Claude").fill("Add a pricing page");
   await panel.getByLabel("Message à Claude").press("Enter");
   await panel.getByTestId("created-page").waitFor();
-  expect((await panel.getByTestId("created-page").textContent())?.replace(/\s+/g, " ")).toContain("Pricing · 1 artboard");
+  expect((await panel.getByTestId("created-page").textContent())?.replace(/\s+/g, " ")).toContain("Pricing · 0 artboard");
 
   await panel.getByRole("button", { name: "Conversation", exact: true }).click();
   await expect.poll(() => panel.getByRole("listbox").textContent()).toContain("1 échange · à l'instant");

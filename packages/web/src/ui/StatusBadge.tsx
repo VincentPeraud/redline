@@ -3,8 +3,8 @@ import type { SessionStatus } from "@redline/shared";
 import { cx } from "./cx.js";
 import styles from "./StatusBadge.module.css";
 
-/** running: red fill; warning: waiting or held; neutral: grey chip; success: green; muted: finished; danger: failure. */
-export type BadgeTone = "running" | "warning" | "neutral" | "success" | "muted" | "danger";
+/** accent: soft accent tint (a link in Écriture); running: red fill; warning: waiting or held; neutral: grey chip; success: green; muted: finished; danger: failure. */
+export type BadgeTone = "accent" | "running" | "warning" | "neutral" | "success" | "muted" | "danger";
 
 export interface StatusBadgeProps extends HTMLAttributes<HTMLSpanElement> {
   tone: BadgeTone;

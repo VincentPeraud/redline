@@ -1,19 +1,7 @@
-.list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
 
 .empty {
   color: var(--color-text-muted);
   font-size: var(--font-size-md);
-}
-
-.row {
-  display: grid;
-  grid-template-columns: 1.3fr 1.6fr 1.3fr 1fr auto;
-  gap: var(--space-4);
-  align-items: center;
 }
 
 .cell {
@@ -41,6 +29,10 @@
   background: var(--color-online);
 }
 
+.dotRefused {
+  background: var(--color-accent);
+}
+
 .name {
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-semibold);
@@ -53,42 +45,6 @@
 
 .warn {
   color: var(--color-warning-text);
-}
-
-.folder {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  overflow-wrap: anywhere;
-}
-
-.projects {
-  font-size: var(--font-size-sm);
-}
-
-.projectLink {
-  color: inherit;
-  text-decoration: none;
-}
-
-.projectLink:hover {
-  text-decoration: underline;
-}
-
-.covered {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin: 14px 0 0;
-  padding: 14px 0 0;
-  list-style: none;
-  border-top: 1px solid var(--color-border-subtle);
-  font-size: var(--font-size-sm);
-}
-
-.coveredItem {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-4);
 }
 
 .fallbackTitle {
@@ -114,7 +70,6 @@
 
 .optionOn {
   border: 2px solid var(--color-accent);
-  padding: 11px 13px;
 }
 
 .radio {
@@ -139,20 +94,6 @@
   color: var(--color-text-muted);
 }
 
-.panelWrap {
-  height: 100%;
-  overflow: auto;
-}
-
-.setup {
-  box-sizing: border-box;
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-  padding: var(--page-padding-y) var(--space-6);
-}
-
 .setupTitle {
   font-size: var(--font-size-h3);
   font-weight: var(--font-weight-semibold);
@@ -173,19 +114,6 @@
   font-size: var(--font-size-sm);
   line-height: 1.5;
   color: var(--color-text-body);
-}
-
-.code {
-  margin: 0;
-  background: var(--color-code-bg);
-  color: var(--color-code-text);
-  border-radius: var(--radius-md);
-  padding: 10px var(--space-3);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
 }
 
 .spacer {
@@ -226,4 +154,269 @@
 
 .tokenActions > button {
   flex: 1 1 0;
+}
+
+.settingHint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.step > .copyCommand {
+  align-self: flex-start;
+  height: 32px;
+  padding: 0 12px;
+}
+
+/* One grid for the header and every agent, so columns line up from one agent to the next. */
+.table {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 150px 170px minmax(0, 1.2fr) minmax(0, 1.2fr) 160px;
+  column-gap: 24px;
+  align-items: start;
+  padding: 16px 20px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.headRow {
+  padding: 10px 20px;
+  border-top: none;
+  background: var(--color-surface-hover);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+}
+
+.refused {
+  background: var(--color-warning-faint-bg);
+}
+
+/* dir="rtl" puts the ellipsis at the start; the <bdi> inside keeps the path itself left to right. */
+.folder {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.projectList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.projectItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.projectLink,
+.projectName {
+  min-width: 0;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Dark like the rest of the row (never the red accent), with a light underline so it still reads as a link. */
+.projectLink {
+  text-decoration: underline;
+  text-decoration-color: var(--color-border-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  /* Room under the text: the ellipsis clip would otherwise cut the underline off. */
+  padding-bottom: 3px;
+}
+
+.projectLink:hover {
+  color: var(--color-text);
+  text-decoration-color: currentColor;
+}
+
+.servedNow {
+  flex-shrink: 0;
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-success-text);
+  background: var(--color-success-bg);
+  border-radius: var(--radius-pill);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.more {
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rowAction {
+  height: 32px;
+}
+
+/* Over the page, from the right, under the global banner; slides in on open and out on close. */
+.launchPanel {
+  position: fixed;
+  top: var(--banner-height, 0px);
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  width: min(520px, 100vw);
+  overflow: auto;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.12);
+  animation: launch-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.launchPanelClosing {
+  animation: launch-out 180ms ease-in forwards;
+}
+
+@keyframes launch-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes launch-out {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launchPanel,
+  .launchPanelClosing {
+    animation-duration: 1ms;
+  }
+}
+
+.setup {
+  box-sizing: border-box;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--page-padding-y) var(--space-6);
+}
+
+.setupHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.close {
+  width: 32px;
+  height: 32px;
+  margin-right: -8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--color-surface-muted);
+}
+
+.setupSteps {
+  margin: var(--space-1) 0 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.inlineCode {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--color-text);
+}
+
+.strong {
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.verify {
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+/* Commands never wrap: a long server address scrolls instead of breaking the URL. */
+.code {
+  margin: 0;
+  background: var(--color-code-bg);
+  color: var(--color-code-text);
+  border-radius: var(--radius-md);
+  padding: 10px var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.by {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.by > span:first-child {
+  width: 24px;
+  height: 24px;
+  font-size: var(--font-size-3xs);
+}
+
+.intro {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--color-text-muted);
 }

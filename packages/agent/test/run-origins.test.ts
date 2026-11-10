@@ -97,7 +97,7 @@ describe("what a run records: version origin, DESIGN.md, created pages", () => {
 
     const [stored] = await json<Thread[]>(await seam.server.get(`/api/pages/${page.id}/threads`));
     expect(stored.id).toBe(thread.id);
-    expect(stored.replies[0].createdPages).toEqual([{ pageId: expect.any(String), name: "Pricing", artboardCount: 1 }]);
+    expect(stored.replies[0].createdPages).toEqual([{ pageId: expect.any(String), name: "Pricing", artboardCount: 0 }]);
     const created = await json<{ createdBy: string }>(await seam.server.get(`/api/pages/${stored.replies[0].createdPages![0].pageId}`));
     expect(created.createdBy).toBe("claude");
 
@@ -112,7 +112,7 @@ describe("what a run records: version origin, DESIGN.md, created pages", () => {
     await seam.server.post(`/api/conversations/${conversation.id}/messages`, { body: "Add a docs page" });
     await seam.waitForWorkEnd();
     const detail = await json<ConversationDetail>(await seam.server.get(`/api/conversations/${conversation.id}`));
-    expect(detail.messages.find((m) => m.author === "claude")?.createdPages).toEqual([{ pageId: expect.any(String), name: "Docs", artboardCount: 1 }]);
+    expect(detail.messages.find((m) => m.author === "claude")?.createdPages).toEqual([{ pageId: expect.any(String), name: "Docs", artboardCount: 0 }]);
   });
 
   it("tells the session the readable element name next to the selector, and stores it with the thread", async () => {

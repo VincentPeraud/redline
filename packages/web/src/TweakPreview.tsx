@@ -1,3 +1,4 @@
+import { ArtboardIframe } from "./artboardCapability.js";
 import { useEffect, useRef, useState } from "react";
 import type { ManifestArtboard, TweakValues } from "@redline/shared";
 import styles from "./TweaksPanel.module.css";
@@ -32,7 +33,7 @@ export function TweakPreview({ source, values }: { source: PreviewSource; values
 
   return (
     <span className={styles.previewThumb} aria-hidden="true">
-      <iframe
+      <ArtboardIframe
         ref={frame}
         tabIndex={-1}
         title={`Aperçu / ${artboard.file}`}

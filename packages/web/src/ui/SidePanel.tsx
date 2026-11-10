@@ -5,7 +5,7 @@ import styles from "./SidePanel.module.css";
 export interface SidePanelProps {
   /** Accessible name of the panel (e.g. "Session sélectionnée"). */
   label: string;
-  /** Width in px; 420 for session and thread panels, 360 for the Agents setup panel. */
+  /** Width in px; 420 for session and thread panels. */
   width?: number;
   className?: string;
   children: ReactNode;

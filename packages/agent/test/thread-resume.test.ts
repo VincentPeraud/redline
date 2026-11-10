@@ -92,7 +92,7 @@ describe("replying in a thread", () => {
       machine: "other-machine",
       folder: otherFolder,
       kind: "project",
-      projectId: seam.project.id,
+      projectIds: [seam.project.id],
       engine: otherEngine,
     });
     cleanups.push(() => other.close());

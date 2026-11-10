@@ -1,7 +1,7 @@
 .screen {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--banner-height, 0px));
   display: flex;
   flex-direction: column;
   background: var(--color-bg);
@@ -376,7 +376,121 @@
   color: var(--color-text-muted);
 }
 
-.dsPlaceholder {
-  height: 150px;
+.dsPreview {
+  height: 120px;
   background: var(--color-surface-sunken);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.dsSwatch {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
+}
+
+.dsSwatchOverridden {
+  outline: 2px solid var(--color-override-ring);
+  outline-offset: 2px;
+}
+
+.dsSwatchBordered {
+  border: 1px solid var(--color-border-strong);
+}
+
+.dsAa {
+  margin-left: 6px;
+  font-size: 26px;
+  font-weight: var(--font-weight-bold);
+}
+
+.dsInfo {
+  padding: 14px var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dsNameRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dsName {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.dsDiffusion,
+.dsMeta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.dsPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dsPillWarning,
+.dsPillNeutral {
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+}
+
+.dsPillWarning {
+  color: var(--color-warning-text);
+  background: var(--color-warning-bg);
+}
+
+.dsPillNeutral {
+  color: var(--color-text-secondary);
+  background: var(--color-surface-muted);
+}
+
+.archivedToggle {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-1);
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.archivedToggle:hover {
+  color: var(--color-text);
+}
+
+.archivedChevron {
+  display: inline-block;
+  color: var(--color-text-muted);
+  transition: transform 0.12s;
+}
+
+.archivedChevronOpen {
+  transform: rotate(90deg);
+}
+
+.pageCardArchived {
+  background: var(--color-surface-hover);
+}
+
+.pageCardArchived .pageTitle {
+  color: var(--color-text-secondary);
+}
+
+.pageCardArchived > :first-child {
+  opacity: 0.55;
+  filter: grayscale(1);
 }

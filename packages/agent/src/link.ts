@@ -1,27 +1,70 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { AGENT_API_PREFIX, type Project } from "@redline/shared";
+import { normalizeServerUrl, pickServer, type Login } from "./login.js";
 
 export type LinkChoice = { existing: string } | { create: string };
+/** What to do with a folder that is already linked: add a project, or stop serving one (never the last). */
+export type MoreChoice = LinkChoice | { remove: string };
 
 export interface LinkOptions {
   folder: string;
-  serverUrl: string;
-  /** The agents' token: projects are listed and created through the token-guarded `/agent-api`. */
-  token: string;
-  /** Asked only when the folder is not linked to a project of this server. */
+  /** Every server set up on this machine; the agents' token of each guards `/agent-api`. */
+  servers: Login[];
+  /** Asked only when the folder has no usable link and several servers are set up. */
+  chooseServer(servers: Login[]): Promise<Login>;
+  /** Asked only when the folder is not linked to a project of its server. */
   choose(projects: Project[]): Promise<LinkChoice>;
+  /**
+   * Asked when the folder was already linked: another project for it to serve too, one to stop serving, or nothing to go on.
+   * `others` leaves out the projects another online agent serves. Asked again after each change. Absent outside a terminal.
+   */
+  chooseMore?(linked: Project[], others: Project[]): Promise<MoreChoice | undefined>;
+  /** For a folder already linked: the projects it serves from now on, plus one to create (created only once the others are checked). */
+  target?: { projectIds: string[]; create?: string };
+}
+
+interface FolderLink {
+  /** Absent in links made before several servers were supported. */
+  serverUrl?: string;
+  projectIds: string[];
 }
 
 const LINK_FILE = "project.json";
 const IGNORE_ENTRY = ".redline/";
 
-function readLinkedProjectId(folder: string): string | undefined {
+export function readLink(folder: string): FolderLink | undefined {
   try {
-    return (JSON.parse(readFileSync(join(folder, ".redline", LINK_FILE), "utf8")) as { projectId?: string }).projectId;
+    // `projectId`: a link made before a folder could serve several projects.
+    const link = JSON.parse(readFileSync(join(folder, ".redline", LINK_FILE), "utf8")) as Partial<FolderLink> & { projectId?: string };
+    const projectIds = Array.isArray(link.projectIds) ? link.projectIds.filter((id) => typeof id === "string") : link.projectId ? [link.projectId] : [];
+    return projectIds.length > 0 ? { projectIds, serverUrl: link.serverUrl } : undefined;
   } catch {
     return undefined;
   }
+}
+
+export function readLinkedProjectIds(folder: string): string[] {
+  return [...new Set(readLink(folder)?.projectIds ?? [])];
+}
+
+/** The server the folder is linked to: its own, or for an old link the only (or first) one set up. */
+export function linkedServer(folder: string, servers: Login[]): Login | undefined {
+  const link = readLink(folder);
+  if (!link) return undefined;
+  const wanted = link.serverUrl && normalizeServerUrl(link.serverUrl);
+  return wanted ? servers.find((server) => normalizeServerUrl(server.serverUrl) === wanted) : servers[0];
+}
+
+/** The server `redline mcp` talks to from `folder`: the folder's own, else the only one set up. */
+export function serverForFolder(folder: string, servers: Login[]): Login {
+  return linkedServer(folder, servers) ?? pickServer(servers);
+}
+
+function writeLink(folder: string, link: FolderLink): void {
+  mkdirSync(join(folder, ".redline"), { recursive: true });
+  writeFileSync(join(folder, ".redline", LINK_FILE), JSON.stringify(link, null, 2));
 }
 
 export function ensureGitignored(folder: string): void {
@@ -33,28 +76,68 @@ export function ensureGitignored(folder: string): void {
   writeFileSync(file, `${content}${separator}${IGNORE_ENTRY}\n`);
 }
 
-/** Links the folder to a project (picked or created) unless it already is, and keeps `.redline/` out of git. Returns the project id. */
-export async function linkFolder({ folder, serverUrl, token, choose }: LinkOptions): Promise<string> {
-  const call = async <T>(init: { method: "GET" | "POST"; body?: unknown }): Promise<T> => {
-    const res = await fetch(`${serverUrl}${AGENT_API_PREFIX}/projects`, {
-      method: init.method,
-      headers: { authorization: `Bearer ${token}`, ...(init.body === undefined ? {} : { "content-type": "application/json" }) },
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    });
-    if (!res.ok) throw new Error(((await res.json()) as { error: string }).error);
-    return (await res.json()) as T;
-  };
-  const projects = await call<Project[]>({ method: "GET" });
-  let projectId = readLinkedProjectId(folder);
-  if (!projectId || !projects.some((p) => p.id === projectId)) {
-    const choice = await choose(projects);
-    if ("existing" in choice) projectId = choice.existing;
-    else {
-      projectId = (await call<Project>({ method: "POST", body: { title: choice.create } })).id;
-    }
-    mkdirSync(join(folder, ".redline"), { recursive: true });
-    writeFileSync(join(folder, ".redline", LINK_FILE), JSON.stringify({ projectId }, null, 2));
+async function callProjects<T>(server: Login, init: { method: "GET" | "POST"; body?: unknown }, query = ""): Promise<T> {
+  const res = await fetch(`${server.serverUrl}${AGENT_API_PREFIX}/projects${query}`, {
+    method: init.method,
+    redirect: "error",
+    headers: { authorization: `Bearer ${server.token}`, ...(init.body === undefined ? {} : { "content-type": "application/json" }) },
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
+  });
+  if (!res.ok) throw new Error(((await res.json()) as { error: string }).error);
+  return (await res.json()) as T;
+}
+
+/** The projects of a server: those open to a new link, or with `all` also the archived ones. */
+export const listProjects = (server: Login, all = false): Promise<Project[]> => callProjects<Project[]>(server, { method: "GET" }, all ? "?all=1" : "");
+
+/**
+ * Links the folder to a project (picked or created) unless it already is, and keeps `.redline/` out of git.
+ * A folder already linked keeps its projects (those gone from the server are dropped) and may be given more.
+ * An old link without a server is completed. Returns the projects the folder serves and the server they live on.
+ */
+/** Whether an online agent other than this folder's own serves the project. */
+export const servedElsewhere = (project: Project, folder: string): boolean =>
+  project.agent?.status === "online" && !(project.agent.machine === hostname() && project.agent.folder === folder);
+
+export async function linkFolder({ folder, servers, chooseServer, choose, chooseMore, target }: LinkOptions): Promise<{ projectIds: string[]; projects: Project[]; server: Login }> {
+  let server = linkedServer(folder, servers);
+  const all = server ? await listProjects(server, true) : [];
+  let projects = all.filter((p) => !p.archivedAt);
+  const linkedAll = readLinkedProjectIds(folder).flatMap((id) => all.filter((p) => p.id === id));
+  // Archived projects stay in the link (unarchiving one brings the folder back to it) but are not served.
+  const archived = linkedAll.filter((p) => p.archivedAt);
+  let linked = linkedAll.filter((p) => !p.archivedAt);
+  if (server && linked.length === 0 && archived.length > 0) {
+    const titles = archived.map((p) => `"${p.title}"`).join(", ");
+    throw new Error(`This folder's ${archived.length > 1 ? `projects ${titles} are` : `project ${titles} is`} archived. Unarchive it in Redline, or remove .redline/link.json to link the folder to another project.`);
   }
+  const pick = async (choice: LinkChoice): Promise<Project> =>
+    "existing" in choice ? projects.find((p) => p.id === choice.existing)! : callProjects<Project>(server!, { method: "POST", body: { title: choice.create } });
+  if (!server || linked.length === 0) {
+    server = servers.length === 1 ? servers[0] : await chooseServer(servers);
+    projects = await listProjects(server);
+    linked = [await pick(await choose(projects))];
+  } else if (target) {
+    const wanted = target.projectIds.map((id) => {
+      const project = projects.find((p) => p.id === id);
+      if (!project) throw new Error("A project ticked was archived or deleted meanwhile: open the dialog again.");
+      if (!linked.some((l) => l.id === id) && servedElsewhere(project, folder)) throw new Error(`"${project.title}" is now served by another agent.`);
+      return project;
+    });
+    const title = target.create?.trim();
+    if (wanted.length === 0 && !title) throw new Error("Pick at least one project for this folder.");
+    linked = title ? [...wanted, await pick({ create: title })] : wanted;
+  } else if (chooseMore) {
+    for (;;) {
+      const others = projects.filter((p) => !linked.some((l) => l.id === p.id) && !servedElsewhere(p, folder));
+      const choice = await chooseMore(linked, others);
+      if (!choice) break;
+      if (!("remove" in choice)) linked = [...linked, await pick(choice)];
+      else if (linked.length > 1) linked = linked.filter((p) => p.id !== choice.remove);
+    }
+  }
+  const projectIds = linked.map((p) => p.id);
+  writeLink(folder, { serverUrl: server.serverUrl, projectIds: [...projectIds, ...archived.map((p) => p.id)] });
   ensureGitignored(folder);
-  return projectId;
+  return { projectIds, projects: linked, server };
 }

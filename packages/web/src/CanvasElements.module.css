@@ -1,0 +1,187 @@
+/* Link cards are 640x112 canvas pixels: the board shows them at 50 %, so its values are doubled here. */
+.linkCard {
+  position: absolute;
+  width: 640px;
+  height: 112px;
+  box-sizing: border-box;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  background: var(--color-surface);
+  border: 2px solid var(--color-border-strong);
+  border-radius: 20px;
+  text-decoration: none;
+  color: var(--color-text);
+}
+
+.linkThumb {
+  width: 128px;
+  height: 80px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border: 2px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-muted);
+  gap: 6px;
+}
+
+.linkIcon {
+  width: 128px;
+  height: 80px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: var(--color-surface-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+
+.linkText {
+  flex-grow: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.linkTitle {
+  font-size: 26px;
+  font-weight: var(--font-weight-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linkSubtitle {
+  font-size: 22px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linkArrow {
+  color: var(--color-text-muted);
+  font-size: 28px;
+}
+
+.title {
+  position: absolute;
+  width: max-content;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.titleText {
+  margin: 0;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.01em;
+  line-height: 1.21;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subtitleText {
+  font-size: var(--font-size-sm);
+  line-height: 1.21;
+  color: var(--color-text-muted);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.arrowLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.arrowLabel {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 22px));
+  font-size: 22px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.image {
+  position: absolute;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.imageFile {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  user-select: none;
+}
+
+.imageCaption {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.hoverOutline,
+.hoverLabel,
+.markBadge {
+  position: absolute;
+  pointer-events: none;
+}
+
+/* Board CommentTargets: 24 px pin on the corner of a note, or the middle of an arrow. */
+.pin {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  display: block;
+  box-sizing: border-box;
+  border-radius: 50% 50% 50% 4px;
+  background: var(--color-warning-strong);
+  box-shadow: 0 0 0 2px var(--color-surface), 0 2px 6px rgba(0, 0, 0, 0.2);
+  color: var(--color-text-inverse);
+  font: 600 12px/24px Inter, system-ui, sans-serif;
+  text-align: center;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+}
+
+.pin:disabled {
+  pointer-events: none;
+}
+
+.pinResolved {
+  background: var(--color-online);
+}
+
+.pinReview {
+  border: 2px solid var(--color-warning-strong);
+  background: var(--color-surface);
+  color: var(--color-warning-strong);
+  line-height: 20px;
+}
+
+.pinHeld {
+  border: 2px dashed var(--color-warning-strong);
+  background: var(--color-surface);
+  color: var(--color-warning-strong);
+  line-height: 20px;
+}
+

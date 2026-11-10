@@ -9,5 +9,15 @@ export default defineConfig({
       "@redline/server/test-harness": fileURLToPath(new URL("./packages/server/src/test-harness.ts", import.meta.url)),
     },
   },
-  test: { include: ["packages/*/test/**/*.test.ts"], hookTimeout: 30000 },
+  test: {
+    include: ["packages/*/test/**/*.test.ts"],
+    hookTimeout: 30000,
+    // Journeys each run a Chromium and a server: one file per core saturates the machine and tests time out at random,
+    // while half the cores finishes in the same time.
+    maxWorkers: "50%",
+    minWorkers: 1,
+    testTimeout: 15000,
+    // expect.poll waits 1 s by default: too short for a run, a publish and a reload on a busy machine
+    expect: { poll: { timeout: 5000 } },
+  },
 });

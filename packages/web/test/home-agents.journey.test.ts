@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser } from "playwright";
+import { type Browser } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { starterPageFiles, type Page, type Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
@@ -18,7 +19,7 @@ beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
   server = await startTestServer({ webDir });
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, 60_000);
 
 afterAll(async () => {
@@ -29,7 +30,7 @@ afterAll(async () => {
 
 it("shows recent pages, running work and agents on the home, with live sidebar counts", async () => {
   const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
-  const files = starterPageFiles("Landing", null);
+  const files = starterPageFiles(null);
   const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Landing", files })).json()) as Page;
 
   const tab = await browser.newPage();
@@ -71,11 +72,14 @@ it("lists every agent on the Agents screen and lets the takeover choice be chang
   await expect.poll(() => card.getByTestId("agent-defaults").textContent()).toBe("Sonnet · low");
   expect(await card.getByTestId("agent-projects").textContent()).toBe("Blog");
   expect(await card.getByTestId("agent-status").textContent()).toBe("Libre");
+  await tab.getByRole("button", { name: "Lancer un agent" }).click();
   await tab.getByText("redline agent --global").waitFor();
+  await tab.keyboard.press("Escape");
+  await tab.getByRole("complementary", { name: "Lancer un agent" }).waitFor({ state: "detached" });
 
   expect(await tab.getByRole("radiogroup").count()).toBe(1);
-  const takeover = tab.getByRole("radiogroup", { name: "Quand l'agent d'un projet est hors ligne" }).getByLabel("L'agent global prend le relais");
-  await expect.poll(() => tab.getByLabel("Le fil attend son retour").isChecked()).toBe(true);
+  const takeover = tab.getByRole("radiogroup", { name: "Quand aucun agent ne tourne pour le projet" }).getByLabel("L'agent global le prend");
+  await expect.poll(() => tab.getByRole("radio", { name: /Le fil attend/ }).isChecked()).toBe(true);
   await takeover.click();
   await expect.poll(async () => ((await (await server.get("/api/settings")).json()) as { globalTakeover: boolean }).globalTakeover).toBe(true);
   await expect
@@ -84,5 +88,71 @@ it("lists every agent on the Agents screen and lets the takeover choice be chang
   await expect.poll(() => takeover.isChecked()).toBe(true);
 
   const globalCard = tab.getByTestId("agent-card").filter({ hasText: "/global" });
-  expect(await globalCard.getByTestId("agent-projects").textContent()).toBe("Solo");
+  await expect.poll(() => globalCard.getByTestId("agent-projects").textContent()).toContain("Solo");  expect(await globalCard.getByTestId("agent-projects").textContent()).toContain("Blog");
+  expect(await card.getByRole("list", { name: "Projets couverts" }).count()).toBe(0);
+
+  // the global agent lists the projects it covers, one per line, the one it serves now marked
+  const covered = globalCard.getByRole("list", { name: "Projets couverts" });
+  await expect.poll(() => covered.getByRole("listitem").filter({ hasText: "Solo" }).textContent()).toContain("sert maintenant");
+  expect(await covered.getByRole("listitem").filter({ hasText: "Blog" }).textContent()).not.toContain("sert maintenant");
+}, 60_000);
+
+it("shows a stopped project agent as offline with its waiting thread, without a covered projects button", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Reels" })).json()) as Project;
+  await fetch(`${server.url}/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ globalTakeoverOverride: false }) });
+  const files = starterPageFiles(null);
+  const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Landing", files })).json()) as Page;
+  const agent = await server.connectAgent({ machine: "Waiting-iMac", folder: "/work/reels", projectId: project.id });
+  await agent.hello;
+  agent.close();
+  await agent.closed;
+  await server.post(`/api/pages/${page.id}/threads`, { artboard: "index.html", selector: "h1", xPct: 1, yPct: 1, body: "Bigger" });
+
+  const tab = await browser.newPage();
+  await tab.goto(`${server.url}/#/agents`);
+  const card = tab.getByTestId("agent-card").filter({ hasText: "/work/reels" });
+  await card.getByText("1 fil attend un agent").waitFor();
+  expect(await card.getByTestId("agent-status").textContent()).toBe("Hors ligne");
+  expect(await card.getByText(/vu /).count()).toBe(1);
+  expect(await card.getByRole("list", { name: "Projets couverts" }).count()).toBe(0);
+}, 60_000);
+
+it("folds a long covered projects list behind « + N autres », and opens and closes the launch panel", async () => {
+  await fetch(`${server.url}/api/settings`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ globalTakeover: true }) });
+  for (const title of ["Un", "Deux", "Trois", "Quatre", "Cinq", "Six"]) await server.post("/api/projects", { title });
+  const global = await server.connectAgent({ machine: "Mini", folder: "/many", kind: "global" });
+  await global.hello;
+
+  const tab = await browser.newPage();
+  await tab.goto(`${server.url}/#/agents`);
+  const covered = tab.getByTestId("agent-card").filter({ hasText: "/many" }).getByRole("list", { name: "Projets couverts" });
+  const more = covered.getByRole("button", { name: /^\+ \d+ autres$/ });
+  await more.waitFor();
+  const links = covered.getByRole("link");
+  expect(await links.count()).toBe(3);
+  const total = Number((await more.textContent())!.match(/\d+/)![0]) + 3;
+  await more.click();
+  expect(await links.count()).toBe(total);
+  await covered.getByRole("button", { name: "Réduire" }).click();
+  expect(await links.count()).toBe(3);
+
+  const launch = tab.getByRole("button", { name: "Lancer un agent" });
+  const panel = tab.getByRole("complementary", { name: "Lancer un agent" });
+  expect(await panel.count()).toBe(0);
+  await launch.click();
+  await panel.getByText("connecte le MCP Redline à Claude Code").waitFor();
+  expect(await launch.getAttribute("aria-expanded")).toBe("true");
+  await tab.keyboard.press("Escape");
+  await panel.waitFor({ state: "detached" });
+  await expect.poll(() => tab.evaluate(() => document.activeElement?.textContent)).toBe("Lancer un agent");
+  await launch.click();
+  await expect.poll(() => tab.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Fermer");
+  await panel.getByRole("button", { name: "Fermer" }).click();
+  await panel.waitFor({ state: "detached" });
+  // a click on the page closes it too
+  await launch.click();
+  await panel.getByText("Agent global").waitFor();
+  await tab.getByRole("heading", { name: "Agents", level: 1 }).click();
+  await panel.waitFor({ state: "detached" });
+  await tab.close();
 }, 60_000);

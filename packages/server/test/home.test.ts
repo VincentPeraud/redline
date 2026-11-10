@@ -21,7 +21,7 @@ describe("home overview", () => {
   }
 
   async function createPage(projectId: string, title: string) {
-    const files = starterPageFiles(title, null);
+    const files = starterPageFiles(null);
     return (await (await server.post(`/api/projects/${projectId}/pages`, { title, files })).json()) as Page;
   }
 
@@ -30,7 +30,7 @@ describe("home overview", () => {
     const first = await createPage(acme.id, "First");
     await createPage(acme.id, "Second");
     await new Promise((resolve) => setTimeout(resolve, 5));
-    await server.post(`/api/pages/${first.id}/versions`, { files: starterPageFiles("First again", null), message: "edit", origin: "terminal" });
+    await server.post(`/api/pages/${first.id}/versions`, { files: { ...starterPageFiles(null), "index.html": "<h1>First again</h1>" }, message: "edit", origin: "terminal" });
     const overview = await home();
     expect(overview.projectCount).toBe(1);
     expect(overview.recentPages.map((r) => [r.page.title, r.projectTitle])).toEqual([
@@ -53,18 +53,36 @@ describe("home overview", () => {
     expect(projects.find((p) => p.id === empty.id)?.updatedAt).toBeUndefined();
   });
 
-  it("gives each agent its covered projects: a project agent its own, the global agent those without one", async () => {
+  it("names each project's last changed page, previewed on its card", async () => {
+    const acme = await createProject("Acme");
+    const landing = await createPage(acme.id, "Landing");
+    const pricing = await createPage(acme.id, "Pricing");
+    const empty = await createProject("Empty");
+    expect((await home()).projects.find((p) => p.id === acme.id)?.lastPageId).toBe(pricing.id);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await server.post(`/api/pages/${landing.id}/versions`, { files: { ...starterPageFiles(null), "index.html": "<h1>Landing again</h1>" }, message: "edit", origin: "terminal" });
+    const { projects } = await home();
+    expect(projects.find((p) => p.id === acme.id)?.lastPageId).toBe(landing.id);
+    expect(projects.find((p) => p.id === empty.id)?.lastPageId).toBeUndefined();
+  });
+
+  it("gives the global agent the projects that allow it, marks those it serves now, and a project agent its single project", async () => {
     const acme = await createProject("Acme");
     const blog = await createProject("Blog");
+    const reels = await createProject("Reels");
+    await createProject("Waiting");
+    for (const p of [acme, blog]) {
+      await fetch(`${server.url}/api/projects/${p.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ globalTakeoverOverride: true }) });
+    }
     const projectAgent = await server.connectAgent({ machine: "MacBook", folder: "/work/acme", projectId: acme.id });
     await projectAgent.hello;
     const global = await server.connectAgent({ machine: "iMac", folder: "/global", kind: "global" });
     await global.hello;
     const { agents } = await home();
-    const byKind = Object.fromEntries(agents.map((a) => [a.kind, a.projects.map((p) => p.title)]));
-    expect(byKind).toEqual({ project: ["Acme"], global: ["Blog"] });
+    const byKind = Object.fromEntries(agents.map((a) => [a.kind, a.projects.map((p) => [p.title, p.servedNow])]));
+    expect(byKind).toEqual({ project: [["Acme", true]], global: [["Acme", false], ["Blog", true]] });
     expect(agents.every((a) => a.status === "online" && a.running === 0)).toBe(true);
-    expect(blog.id).toBeTruthy();
+    expect(reels.id).toBeTruthy();
   });
 
   it("shows work running on an agent and threads waiting while the agent is offline", async () => {

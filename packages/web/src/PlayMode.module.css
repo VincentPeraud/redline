@@ -1,6 +1,7 @@
 .play {
   position: fixed;
-  inset: 0;
+  /* Below the "agent pas à jour" banner, which stays visible in play mode. */
+  inset: var(--banner-height, 0px) 0 0 0;
   z-index: 50;
   display: flex;
   flex-direction: column;
@@ -10,7 +11,8 @@
 }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: var(--space-4);
   height: 56px;
@@ -30,14 +32,26 @@
   border: 1px solid var(--play-border-strong);
   border-radius: var(--radius-md);
   background: transparent;
+  font: inherit;
   font-size: var(--font-size-md);
   color: var(--play-text);
   cursor: pointer;
 }
 
+.leading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
 .title {
+  min-width: 0;
+  overflow: hidden;
   font-size: var(--font-size-md);
   color: var(--play-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .spacer {
@@ -50,25 +64,126 @@
   gap: 6px;
 }
 
-.screen {
-  padding: 6px 10px;
-  border: none;
-  border-radius: var(--radius-sm);
+.step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 36px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
   background: transparent;
+  color: var(--play-text);
+  font: inherit;
   font-size: var(--font-size-sm);
-  color: var(--play-text-muted);
+  font-weight: var(--font-weight-medium);
   cursor: pointer;
 }
 
-.screenCurrent {
-  background: var(--play-border);
-  font-weight: var(--font-weight-medium);
-  color: #ffffff;
+.step:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
-.tweaksState {
+.counterWrap {
+  position: relative;
+  display: flex;
+}
+
+.counter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--play-border);
+  color: var(--play-text);
+  font: inherit;
   font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.counterOpen {
+  border-color: var(--play-text);
+}
+
+.counterChevron {
+  font-size: 10px;
   color: var(--play-text-muted);
+}
+
+/* The shared list in the play chrome colours; centred under the counter, 8 px under the header like board PlayNav. */
+.menu {
+  --color-border-strong: var(--play-border-strong);
+  --color-surface: var(--play-border);
+  --color-surface-muted: var(--play-border);
+  --color-accent-soft: var(--play-border-strong);
+  --color-text: var(--play-text);
+  --color-text-muted: var(--play-text-muted);
+  position: absolute;
+  top: 54.5px;
+  left: 50%;
+  z-index: 5;
+  width: 380px;
+  max-height: calc(100vh - 80px);
+  margin-left: -190px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 10px 0;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--play-panel-bg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.guidesButton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.guidesButtonOn {
+  background: var(--play-text);
+  color: var(--play-bg);
+}
+
+.tweaksButton {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.tweaksButtonOn {
+  background: var(--play-border);
 }
 
 .body {
@@ -85,23 +200,33 @@
   justify-content: center;
 }
 
-.device {
-  flex-shrink: 0;
-  overflow: hidden;
-  border-radius: var(--radius-xl);
-  background: #ffffff;
+.stage[data-frame="paper"] {
+  background: var(--play-border-strong);
 }
 
-.phone {
-  border-radius: 44px;
-  box-shadow: 0 0 0 10px var(--play-border);
+.stage[data-fill] [data-frame] {
+  border-radius: 0;
+}
+
+.viewport {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .frame {
   display: block;
   border: 0;
-  background: #ffffff;
+  background: var(--color-surface);
   transform-origin: 0 0;
+}
+
+.guides {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
 }
 
 .empty {
@@ -142,4 +267,376 @@
   font-size: var(--font-size-xs);
   line-height: 1.5;
   color: var(--play-text-muted);
+}
+
+.habillage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 36px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--play-text);
+  cursor: pointer;
+}
+
+.habillageOn {
+  background: var(--play-text);
+  color: var(--play-bg);
+}
+
+.stage[data-fill] > div[data-frame] {
+  border-radius: 0;
+}
+
+.mobileBar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 44px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 0 4px;
+  background: var(--play-bg);
+  color: var(--play-text);
+}
+
+.mobileBack {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: transparent;
+  color: var(--play-text);
+  cursor: pointer;
+}
+
+.mobileTitle {
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-sm);
+  color: var(--play-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Native arrow replaced by a chevron inset like the shared Select's, never glued to the edge. */
+.mobileRenderingWrap {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--play-text);
+}
+
+.mobileRenderingChevron {
+  position: absolute;
+  right: 10px;
+  pointer-events: none;
+}
+
+.mobileRendering {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  height: 30px;
+  max-width: 130px;
+  padding: 0 32px 0 10px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--play-border);
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-xs);
+}
+
+.renderings {
+  display: flex;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--play-border);
+}
+
+.rendering {
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--play-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.renderingCurrent {
+  background: var(--play-border-strong);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-inverse);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.copyWrap {
+  position: relative;
+  display: flex;
+}
+
+.actionButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 36px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+/* Under the button: the header has no room above it. Inverted colours, like the canvas bubble. */
+.copiedBubble {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  z-index: 5;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--play-text);
+  color: var(--play-bg);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.deadLink {
+  position: absolute;
+  bottom: var(--space-6);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+}
+
+.mobileSteps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.mobileStep {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--play-text);
+  cursor: pointer;
+}
+
+.mobileStep:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The menu is positioned against the play screen, not the counter. */
+.mobileCounterWrap {
+  display: flex;
+}
+
+.mobileCounter {
+  height: 44px;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+/* Not on the board (it has no menu state): the dark contents menu, full width under the bar. */
+.mobileMenu {
+  top: 44px;
+  left: 0;
+  right: 0;
+  width: auto;
+  margin-left: 0;
+  max-height: calc(100% - 44px);
+  border-width: 1px 0;
+  border-radius: 0;
+}
+
+/* A share link on a phone: title and level on top, previous and next at the bottom, as on the visiteur-page board. */
+.visitorTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-shrink: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--play-text);
+}
+
+.visitorTitle {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+}
+
+.visitorTitle strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+.visitorTitle span {
+  font-size: var(--font-size-xs);
+  color: var(--play-text-muted);
+}
+
+.visitorBottom {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-5);
+  background: var(--play-bg);
+}
+
+.visitorStep {
+  flex: 1;
+  height: 44px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--play-panel-bg);
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.visitorStep:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.visitorAction {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--play-panel-bg);
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.visitorActionMain {
+  font-weight: var(--font-weight-semibold);
+  border-color: transparent;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.visitorActionOn {
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+}
+
+.visitorHint {
+  position: absolute;
+  left: var(--space-4);
+  right: var(--space-4);
+  bottom: 88px;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--play-panel-bg);
+  color: var(--play-text);
+  font-size: var(--font-size-sm);
+  text-align: center;
+  pointer-events: none;
+}
+
+/* The composer and the list of the link's comments rise from the bottom of the phone, over the presentation. */
+.sheet {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 10;
+  max-height: 80%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.sheetList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-6);
+  border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.sheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sheetHead h2 {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.sheetClose {
+  width: 44px;
+  height: 44px;
+  margin: -10px;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xl);
+  cursor: pointer;
+}
+
+/* With Commenter and Commentaires on the bar, the arrows shrink to square buttons so both labels fit. */
+.visitorStepNarrow {
+  flex: 0 0 44px;
 }

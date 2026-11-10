@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Project } from "@redline/shared";
+import type { DesignSystem, Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 describe("projects over the server HTTP API", () => {
@@ -13,14 +13,15 @@ describe("projects over the server HTTP API", () => {
   });
 
   it("creates a project with title, instructions and design system and reads it back", async () => {
+    const ds = (await (await server.post("/api/design-systems", { title: "Acme DS" })).json()) as DesignSystem;
     const res = await server.post("/api/projects", {
       title: "Acme",
       instructions: "A calm, editorial look",
-      designSystem: "neutral",
+      designSystem: ds.id,
     });
     expect(res.status).toBe(201);
     const project = (await res.json()) as Project;
-    expect(project).toMatchObject({ title: "Acme", instructions: "A calm, editorial look", designSystem: "neutral" });
+    expect(project).toMatchObject({ title: "Acme", instructions: "A calm, editorial look", designSystem: ds.id });
 
     const read = await server.get(`/api/projects/${project.id}`);
     expect(read.status).toBe(200);

@@ -4,8 +4,21 @@
   gap: var(--space-4);
 }
 
-.title {
+.heading {
   flex-grow: 1;
+}
+
+.meta {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.header > .title {
+  flex-grow: 1;
+}
+
+.title {
   font-size: var(--font-size-h1);
   font-weight: var(--font-weight-bold);
 }
@@ -60,6 +73,13 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+}
+
+.cardBadges {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 .cardTitle {
@@ -189,6 +209,7 @@
 .optionsLabel {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
 }
 
 .option {
@@ -226,9 +247,126 @@
   color: var(--color-text-muted);
 }
 
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: var(--space-3) 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.choice:hover {
+  background: var(--color-surface-muted);
+}
+
+.choiceOn,
+.choiceOn:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.choice input {
+  margin: 0;
+  height: 1lh;
+  accent-color: var(--color-accent);
+}
+
+.choiceText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+
+.choiceText strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+.choiceText span {
+  color: var(--color-text-muted);
+}
+
 .form .create[aria-disabled="true"] {
   background: var(--color-border);
   color: var(--color-text-body);
   opacity: 1;
   cursor: pointer;
+}
+
+.archivedLink {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-1);
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+}
+
+.archivedLink:hover {
+  color: var(--color-text);
+}
+
+.archivedChevron {
+  color: var(--color-text-muted);
+}
+
+.archivedHeading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.archivedBreadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
+  color: var(--color-text-muted);
+}
+
+.archivedBreadcrumb a {
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.archivedCurrent {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.archivedSearch {
+  width: 260px;
+  height: 40px;
+}
+
+.archivedIntro {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--color-text-body);
+}
+
+.archivedPreview {
+  opacity: 0.55;
+  filter: grayscale(1);
+}
+
+.archivedPill {
+  flex-shrink: 0;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.archivedDetails {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
 }

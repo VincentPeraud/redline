@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser } from "playwright";
+import { type Browser } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { FakeEngine, startSeam2, type Seam2 } from "@redline/agent/seam2";
 
@@ -24,7 +25,7 @@ beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
   seam = await startSeam2(engine, { webDir });
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, 60_000);
 
 afterAll(async () => {
@@ -42,10 +43,10 @@ it("holds two comments with Plus tard, keeps them over a reload, then sends them
 
   await tab.keyboard.press("c");
   await artboard.locator("h1").click();
-  await tab.getByRole("textbox").fill("Make the title bolder");
-  await tab.getByRole("textbox").press("Meta+Enter");
+  await tab.locator("#new-comment").fill("Make the title bolder");
+  await tab.locator("#new-comment").press("Meta+Enter");
   await artboard.locator("button").click();
-  await tab.getByRole("textbox").fill("Exclaim the button");
+  await tab.locator("#new-comment").fill("Exclaim the button");
   await tab.getByRole("button", { name: "Plus tard" }).click();
 
   await expect.poll(() => tab.getByTestId("held-thread").count()).toBe(2);

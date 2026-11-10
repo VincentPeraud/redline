@@ -29,7 +29,7 @@ describe("pin bridge inside an artboard", () => {
     const page = (await res.json()) as Page;
     const served = await fetch(`${server.artboardOrigin}/pages/${page.id}/home.html`);
     artboardHtml = await served.text();
-    const src = /<script src="([^"]+)"><\/script>/.exec(artboardHtml)?.[1];
+    const src = /<script src="([^"]+bridge\.js[^"]*)"><\/script>/.exec(artboardHtml)?.[1];
     expect(src).toBeDefined();
     bridgeSource = await (await fetch(new URL(src!, server.artboardOrigin))).text();
   });
@@ -103,13 +103,52 @@ describe("pin bridge inside an artboard", () => {
     expect(sent.some((m) => m.type === "redline:picked")).toBe(true);
   });
 
-  it("places a pin on the artboard's right edge, level with its element, when the selector matches", async () => {
+  it("places a pin on its element's top-right corner when the selector matches", async () => {
     const { sent, place, post } = load();
     place("#title", 100, 200);
     post({ type: "redline:set-pins", pins: [{ id: "t1", selector: "#title", xPct: 90, yPct: 90 }] });
     await flush();
     const positions = sent.find((m) => m.type === "redline:pin-positions")!.positions;
-    expect(positions).toEqual([{ id: "t1", xPct: 100, yPct: 11.25, matched: true }]);
+    expect(positions).toEqual([{ id: "t1", xPct: 20, yPct: 10, matched: true }]);
+  });
+
+  const FORM = `<!doctype html><html><body><form><div class="f"><label>Plan de vol</label></div><div class="f"><label>Nom</label></div></form></body></html>`;
+
+  it("finds the element again by its name when the page moved it away from the selector", async () => {
+    const { sent, place, post } = load(FORM);
+    place("form > div:nth-of-type(1)", 0, 100);
+    place("form > div:nth-of-type(2)", 300, 400);
+    post({ type: "redline:set-pins", pins: [{ id: "t1", selector: "body > form > div:nth-of-type(1)", elementName: "bloc « Nom »", xPct: 5, yPct: 6 }] });
+    await flush();
+    const positions = sent.find((m) => m.type === "redline:pin-positions")!.positions;
+    expect(positions).toEqual([{ id: "t1", xPct: 40, yPct: 20, matched: true }]);
+  });
+
+  it("keeps the element at the selector when it still has the thread's name", async () => {
+    const { sent, place, post } = load(FORM);
+    place("form > div:nth-of-type(1)", 0, 100);
+    post({ type: "redline:set-pins", pins: [{ id: "t1", selector: "body > form > div:nth-of-type(1)", elementName: "bloc « Plan de vol »", xPct: 5, yPct: 6 }] });
+    await flush();
+    const positions = sent.find((m) => m.type === "redline:pin-positions")!.positions;
+    expect(positions).toEqual([{ id: "t1", xPct: 10, yPct: 5, matched: true }]);
+  });
+
+  it("keeps the last position and says the element is lost when no element has the thread's name", async () => {
+    const { sent, place, post } = load(FORM);
+    place("form > div:nth-of-type(1)", 0, 100);
+    post({ type: "redline:set-pins", pins: [{ id: "t1", selector: "body > form > div:nth-of-type(1)", elementName: "bloc « Météo »", xPct: 5, yPct: 6 }] });
+    await flush();
+    const positions = sent.find((m) => m.type === "redline:pin-positions")!.positions;
+    expect(positions).toEqual([{ id: "t1", xPct: 5, yPct: 6, matched: false, elementLost: true }]);
+  });
+
+  it("finds a removed selector's element by its name, the deepest one when the selector gives no tag", async () => {
+    const { sent, place, post } = load(FORM);
+    place("form > div:nth-of-type(2) > label", 300, 400);
+    post({ type: "redline:set-pins", pins: [{ id: "t1", selector: "#gone", elementName: "bloc « Nom »", xPct: 5, yPct: 6 }] });
+    await flush();
+    const positions = sent.find((m) => m.type === "redline:pin-positions")!.positions;
+    expect(positions).toEqual([{ id: "t1", xPct: 40, yPct: 20, matched: true }]);
   });
 
   it("falls back to the percentage position when the selector no longer matches", async () => {

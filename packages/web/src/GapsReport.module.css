@@ -1,0 +1,154 @@
+.root {
+  position: relative;
+}
+
+.button {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--color-text);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.diamond {
+  flex-shrink: 0;
+}
+
+.popover {
+  position: absolute;
+  top: 42px;
+  left: 0;
+  z-index: 30;
+  width: 440px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.lead {
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.list {
+  max-height: 520px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.rowTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+.file {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+}
+
+.deprecated {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  font-size: var(--font-size-2xs);
+}
+
+.rowButton {
+  height: 26px;
+  padding: 0 var(--space-2);
+}
+
+.summary {
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  color: var(--color-text);
+}
+
+.suggestion {
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+}
+
+.codeLarge {
+  font-size: var(--font-size-xs);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 12px 14px;
+}
+
+.hidden {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.ask {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+}
+
+.showExceptions {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}

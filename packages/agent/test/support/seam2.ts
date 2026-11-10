@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  CORE_TOKENS,
   SERVER_EVENTS_PATH,
   type AgentTokenResponse,
   type AgentWorkMessage,
@@ -29,6 +30,8 @@ export interface Seam2 {
   project: Project;
   agent: AgentConnection;
   createPage(files: Record<string, string>, title?: string): Promise<Page>;
+  /** Creates a shared design system (core tokens only) and returns its id, to name in a page's manifest. */
+  createDesignSystem(): Promise<string>;
   /** Sends a comment thread pinned on an artboard element (the server dispatches it to the agent). */
   pinThread(pageId: string, artboard: string, body: string, pin?: Partial<CreateThreadRequest>): Promise<Thread>;
   versions(pageId: string): Promise<PageVersionSummary[]>;
@@ -37,6 +40,8 @@ export interface Seam2 {
   events(): ServerEvent[];
   /** What the agent reported about its work items, in order (`work-event`, `work-done`, `work-failed`). */
   workMessages(): AgentWorkMessage[];
+  /** Restarts the server on the same data folder (see `TestServer.restart`); the event stream is reopened, `events()` keeps what came before. */
+  restartServer(options?: { downForMs?: number }): Promise<void>;
   waitForVersions(pageId: string, count: number): Promise<void>;
   /** Resolves once `count` work items have ended (done or failed). */
   waitForWorkEnd(count?: number): Promise<void>;
@@ -72,11 +77,11 @@ function collectEvents(url: string, into: ServerEvent[], signal: AbortSignal): P
  * Seam 2: a real server and a real agent (project agent in a temp folder) driven by the given engine
  * (usually a `FakeEngine`). Pass `webDir` to serve the web UI for browser journeys.
  */
-export async function startSeam2(engine: Engine, options: { webDir?: string; retryDelaysMs?: number[]; agent?: { model?: string; effort?: Effort } } = {}): Promise<Seam2> {
-  const server = await startTestServer({ webDir: options.webDir, retryDelaysMs: options.retryDelaysMs });
+export async function startSeam2(engine: Engine, options: { webDir?: string; retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; agent?: { model?: string; effort?: Effort } } = {}): Promise<Seam2> {
+  const server = await startTestServer({ webDir: options.webDir, retryDelaysMs: options.retryDelaysMs, terminalPresenceTimeoutMs: options.terminalPresenceTimeoutMs });
   const folder = mkdtempSync(join(tmpdir(), "redline-agent-folder-"));
   const events: ServerEvent[] = [];
-  const abort = new AbortController();
+  let abort = new AbortController();
   void collectEvents(server.url, events, abort.signal);
 
   const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
@@ -87,7 +92,7 @@ export async function startSeam2(engine: Engine, options: { webDir?: string; ret
     machine: "test-machine",
     folder,
     kind: "project",
-    projectId: project.id,
+    projectIds: [project.id],
     engine,
     ...options.agent,
   });
@@ -104,6 +109,10 @@ export async function startSeam2(engine: Engine, options: { webDir?: string; ret
     async createPage(files, title = "Home") {
       return (await (await server.post(`/api/projects/${project.id}/pages`, { title, files })).json()) as Page;
     },
+    async createDesignSystem() {
+      const tokens = `:root {\n${CORE_TOKENS.map((t) => `  ${t}: #111111;`).join("\n")}\n}\n`;
+      return ((await (await server.post("/api/design-systems", { title: "Acme DS", files: { "tokens.css": tokens } })).json()) as { id: string }).id;
+    },
     async pinThread(pageId, artboard, body, pin = {}) {
       const request: CreateThreadRequest = { artboard, selector: "h1", xPct: 20, yPct: 30, body, ...pin };
       return (await (await server.post(`/api/pages/${pageId}/threads`, request)).json()) as Thread;
@@ -113,6 +122,13 @@ export async function startSeam2(engine: Engine, options: { webDir?: string; ret
       return (await server.get(`/api/pages/${pageId}/files/${path}`)).text();
     },
     events: () => events,
+    async restartServer(restartOptions) {
+      // An open event stream would keep the old server from closing.
+      abort.abort();
+      await server.restart(restartOptions);
+      abort = new AbortController();
+      void collectEvents(server.url, events, abort.signal);
+    },
     workMessages,
     waitForVersions: (pageId, count) => until(async () => (await versions(pageId)).length >= count, `${count} versions`),
     waitForWorkEnd: (count = 1) =>

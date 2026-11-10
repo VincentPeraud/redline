@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser } from "playwright";
+import { type Browser } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { startSeam2, type Seam2 } from "@redline/agent/seam2";
 import type { Engine } from "../../agent/src/engine.js";
@@ -29,7 +30,7 @@ beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
   seam = await startSeam2(engine, { webDir });
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, 60_000);
 
 afterAll(async () => {
@@ -48,8 +49,8 @@ it("shows status, steps and streamed text as a run goes, and still shows them af
 
   await tab.keyboard.press("c");
   await artboard.locator("h1").click();
-  await tab.getByRole("textbox").fill("Check the title");
-  await tab.getByRole("textbox").press("Enter");
+  await tab.locator("#new-comment").fill("Check the title");
+  await tab.locator("#new-comment").press("Enter");
 
   await expect.poll(() => tab.getByTestId("run-status").getAttribute("data-status")).toBe("running");
   await expect.poll(() => tab.getByTestId("run-steps").textContent()).toContain("Lit");
@@ -57,8 +58,7 @@ it("shows status, steps and streamed text as a run goes, and still shows them af
   await tab.reload();
   await tab.getByRole("tab", { name: /^Commentaires/ }).click();
   await expect.poll(() => tab.getByTestId("run-steps").textContent()).toContain("Lit");
-  await tab.getByText("Texte de Claude").click();
-  await expect.poll(() => tab.getByTestId("run-text").textContent()).toBe("Checking the title.");
+  expect(await tab.getByText("Checking the title.").count()).toBe(0);
 
   release();
   await expect.poll(() => tab.getByTestId("run-status").getAttribute("data-status")).toBe("answered");

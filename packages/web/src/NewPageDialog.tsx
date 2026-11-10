@@ -18,12 +18,15 @@ export function NewPageDialog({
   projectId,
   projectTitle,
   designSystem,
+  withInstructions = true,
   onClose,
   onCreated,
 }: {
   projectId: string;
   projectTitle: string;
   designSystem: string | null;
+  /** Link visitors have no conversation with Claude to start. */
+  withInstructions?: boolean;
   onClose: () => void;
   onCreated: (page: Page) => void;
 }) {
@@ -35,7 +38,7 @@ export function NewPageDialog({
     event.preventDefault();
     if (!canCreate) return;
     const pageTitle = title.trim();
-    const body: CreatePageRequest = { title: pageTitle, files: starterPageFiles(pageTitle, designSystem) };
+    const body: CreatePageRequest = { title: pageTitle, files: starterPageFiles(designSystem) };
     const page = await postJson<Page>(`/api/projects/${projectId}/pages`, body);
     if (instructions.trim() !== "") {
       const conversation = await postJson<Conversation>(`/api/pages/${page.id}/conversations`, {});
@@ -51,6 +54,7 @@ export function NewPageDialog({
         <Field label="Nom de la page">
           <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex. Pages d'erreur" />
         </Field>
+        {withInstructions && (
         <Field
           label="Instructions pour Claude"
           optional
@@ -63,6 +67,7 @@ export function NewPageDialog({
             placeholder="Décris ce que la page doit contenir : artboards, contenus, cas à couvrir…"
           />
         </Field>
+        )}
         <DialogActions>
           <Button size="lg" onClick={onClose}>
             Annuler

@@ -1,11 +1,17 @@
+import type { Person } from "./people.js";
+
 /** Project-level files read by every session of the project, written into each working copy. */
 export const DESIGN_MD_PATH = "DESIGN.md";
+/** The project style's tokens: a project-level file next to DESIGN.md, at the root of the working copy. */
+export const PROJECT_STYLE_PATH = "tokens.css";
 /** Folder of the project's shared images and fonts, in the working copy and relative to every artboard. */
 export const ASSETS_DIR = "assets";
 /** Largest project asset (image, font) the server accepts, from the web UI or from an agent. */
 export const MAX_ASSET_BYTES = 20 * 1024 * 1024;
-/** Folder of the design system files inside a working copy. */
-export const WORKING_COPY_DESIGN_SYSTEM_DIR = "design-system";
+/** Read-only folder of a project session's working copy holding the design system's current diffusion. */
+export const WORKING_COPY_DESIGN_SYSTEM_DIR = ".design-system";
+/** Read-only folder of a project session's working copy holding the component files of every page of the project. */
+export const WORKING_COPY_PROJECT_COMPONENTS_DIR = ".project-components";
 
 export interface ProjectAsset {
   /** Path relative to the asset folder, e.g. `logo.png` or `fonts/inter.woff2`. */
@@ -28,6 +34,8 @@ export interface DesignMdAuthor {
   originId?: string;
   /** Its title when the version was saved. */
   originLabel?: string;
+  /** The person who saved it, or whom Claude saved it for; absent for terminal publishes, versions from before the SSO and without SSO. */
+  person?: Person;
 }
 
 /** One saved state of DESIGN.md. */
@@ -61,16 +69,40 @@ export interface SaveDesignMdRequest {
   content: string;
 }
 
+/** Path on the artboard origin serving a project's style tokens, live. */
+export function projectStyleUrlPath(projectId: string): string {
+  return `/project-styles/${encodeURIComponent(projectId)}/${PROJECT_STYLE_PATH}`;
+}
+
 /** What a working copy carries besides the page's own files. */
 export interface ProjectContext {
   /** Current DESIGN.md text, empty if none was written yet. */
   designMd: string;
   /** Asset name -> content, base64. */
   assets: Record<string, string>;
-  designSystem: { id: string; files: Record<string, string> };
+  /** Root `tokens.css`: the project style (empty when the project only follows its design system), or the draft tokens of a design system's own project. */
+  projectStyle?: string;
+  /** Project sessions: the design system's current diffusion, written to `.design-system/` (read-only). Absent for a design system's own pages. */
+  designSystem?: DesignSystemContext;
+  /** Project sessions: the component files (`components/<name>.html`) of every page of the project, written to `.project-components/` (read-only). Absent for a design system's own pages. */
+  projectComponents?: Record<string, string>;
+  /** Design system sessions: the design system whose draft (tokens, DESIGN.md, pages) the session edits. */
+  editsDesignSystem?: { id: string; title: string };
+}
+
+/** What a project session is told about its design system. */
+export interface DesignSystemContext {
+  id: string;
+  title: string;
+  /** Number of the current diffusion. */
+  diffusion: number;
+  /** Files of `.design-system/`: `index.md`, `pages/<page>.md`, `tokens.css`, `DESIGN.md`, `components/<name>.html`. */
+  files: Record<string, string>;
+  /** Pages of the design system, with their component count and whether the project's pages use one of their components. */
+  pages: { title: string; components: number; used: boolean }[];
 }
 
 /** True for working copy paths that belong to the project, not to the page. */
 export function isProjectContextPath(path: string): boolean {
-  return path === DESIGN_MD_PATH || path.startsWith(`${ASSETS_DIR}/`) || path.startsWith(`${WORKING_COPY_DESIGN_SYSTEM_DIR}/`);
+  return path === DESIGN_MD_PATH || path.startsWith(`${ASSETS_DIR}/`) || path.startsWith(`${WORKING_COPY_DESIGN_SYSTEM_DIR}/`) || path.startsWith(`${WORKING_COPY_PROJECT_COMPONENTS_DIR}/`);
 }

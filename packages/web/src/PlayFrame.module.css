@@ -1,0 +1,170 @@
+.shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.none {
+  border-radius: var(--radius-xl);
+}
+
+.phone {
+  overflow: visible;
+  border-radius: 44px;
+  box-shadow: 0 0 0 10px var(--play-border);
+}
+
+.phone > div:not(.statusBar) {
+  border-radius: 0 0 44px 44px;
+}
+
+/* iPhone status bar: Safari starts the page under it, so the Dynamic Island never covers the design, and tints it with
+   the background at the top of the page (white until the page reports it). The time and the icons sit centred in the
+   two "ears" on each side of the island. */
+.statusBar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  height: 59px;
+  flex-shrink: 0;
+  border-radius: 44px 44px 0 0;
+  background: #ffffff;
+  color: #000000;
+  font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.statusBar[data-ink="light"] {
+  color: #ffffff;
+}
+
+.statusTime {
+  justify-self: center;
+  padding-left: 6px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.statusIcons {
+  display: flex;
+  align-items: center;
+  justify-self: center;
+  gap: 6px;
+  padding-right: 6px;
+}
+
+.statusIcons svg {
+  display: block;
+  fill: currentColor;
+}
+
+.camera {
+  width: 126px;
+  height: 37px;
+  border-radius: var(--radius-pill);
+  background: #000000;
+}
+
+.phoneIndicator {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  width: 130px;
+  height: 5px;
+  margin-left: -65px;
+  border-radius: var(--radius-pill);
+  background: var(--play-panel-bg);
+  pointer-events: none;
+}
+
+.tablet {
+  overflow: visible;
+  border-radius: 28px;
+  box-shadow: 0 0 0 14px var(--play-border);
+}
+
+.tablet > div:not(.tabletStrip) {
+  border-radius: 28px 28px 0 0;
+}
+
+.tabletCamera {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: var(--color-text-body);
+}
+
+.tabletStrip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 0 0 28px 28px;
+  background: var(--color-surface);
+}
+
+.tabletIndicator {
+  width: 160px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--play-panel-bg);
+}
+
+.browser {
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 0 1px var(--play-border-strong), 0 24px 48px rgba(0, 0, 0, 0.45);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 36px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 0 12px;
+  background: var(--play-border);
+}
+
+.lights {
+  display: flex;
+  gap: 6px;
+}
+
+.light {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--color-text-body);
+}
+
+.address {
+  display: flex;
+  flex-grow: 1;
+  align-items: center;
+  justify-content: center;
+  max-width: 520px;
+  height: 22px;
+  margin: 0 auto;
+  border-radius: var(--radius-sm);
+  background: var(--play-panel-bg);
+  font-size: var(--font-size-xs);
+  color: var(--play-text-muted);
+}
+
+.barSpacer {
+  width: 51px;
+}
+
+.paper {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), 0 16px 40px rgba(0, 0, 0, 0.35);
+}

@@ -17,9 +17,53 @@ _Avoid_: Planche (also for a page of variants), board, artefact, page type, prot
 One HTML file placed on a page's canvas.
 _Avoid_: Écran, screen, planche (in the UI: always "artboard")
 
+**Artboard address**:
+The link to one artboard: the page route followed by `/artboards/<file>` (file URI-encoded). Opening it loads the page's canvas, centres it on the artboard and outlines it once; panning and zooming never rewrite it.
+_Avoid_: Artboard URL, deep link
+
+**Reading order**:
+The order in which a page's artboards are numbered: artboards whose vertical extents overlap form a row, rows go top to bottom and artboards of a row left to right, whatever the manifest order. Each artboard also falls under a group (the nearest group title above its row that covers it horizontally, or none).
+_Avoid_: Manifest order, artboard order
+
 **Design system**:
 A special project whose tokens, components and pages define a style that other projects use.
 _Avoid_: DS (in code and docs), theme, style guide
+
+**Diffusion**:
+A numbered (1, 2, ...), immutable snapshot of a shared design system (its `tokens.css`, `components.css`, DESIGN.md, component list and index) that projects use. The design system points at its current diffusion; its own pages and everything edited since are the **draft**, and the changes between the draft and the current diffusion are **pending** until the user creates a new diffusion. Projects only ever see diffused files.
+_Avoid_: Release, publish, version (a version is a saved state of one page)
+
+**Project style**:
+A project's own tokens (project-level `tokens.css`, next to DESIGN.md), injected after the design system's. With a shared design system it holds the project's overrides; without one it is the project's whole style, written by Claude from the subject of the project (or kept from before).
+_Avoid_: Theme, project layer, local design system
+
+**Override**:
+A project-style token or component that replaces the design system's one of the same name; its CSS comes later, so the project value wins.
+_Avoid_: Customisation, exception
+
+**Component**:
+An artboard file `components/<name>.html` of a page of a design system or of a project; its name is its file name (`[a-z0-9-]`). Its style lives in `<style data-component>` blocks, its description in `<meta name="description">`, its usage in `<template data-usage>`; its variants are the tweaks of its artboard and its states go through `data-state` or modifier classes. Redline assembles the components of a design system, or of a project, into a `components.css` served to artboards; the canvas marks a component with a ◆ and its name on the strip. Two components of one design system or one project cannot share a name.
+_Avoid_: Widget, block, symbol
+
+**Instance**:
+A component placed in a mock-up as its tag `<ui-<name>>` (same prefix for design system and project components), with its content in slots and its settings as attributes. The page file stores only the tag; the artboard expands it at display time, in light DOM, from the component's current definition. There is no detaching.
+_Avoid_: Copy, clone, usage
+
+**Setting**:
+A tweak of a component's artboard seen from an instance: an attribute named after the tweak (a choice takes one of its options, a toggle is a boolean attribute). An omitted attribute takes the tweak's default.
+_Avoid_: Prop, parameter, variant
+
+**Slot**:
+A `<slot>` of a component's template: one default slot and named ones (`<slot name="title">`). An instance's children go to the slot named by their `slot` attribute, the rest to the default slot; an empty slot keeps its fallback content.
+_Avoid_: Placeholder, region
+
+**Component definition**:
+What an instance renders from, produced by the component assembly for each component with a `<template data-component>`: tag, template, slots, settings (values and defaults), behaviour script and the components it contains. A diffusion snapshots the definitions; a project page sees the current diffusion's, a design system page the draft's.
+_Avoid_: Schema, spec
+
+**Gap** (UI word "écart"):
+An element of an artboard that bypasses the design system: a hard-coded colour or font, a `<button>`, `<input>`, `<select>` or `<textarea>` without any component class when components of that kind exist, or the use of a deprecated token. Measured only for pages of a project that follows a shared design system, against its design system (current diffusion) and project style (a project without one has no gaps); listed in the page header with the closest token or the component meant for the case. A gap never blocks a publish; an element carrying `data-ds-libre`, and its descendants, is outside the analysis.
+_Avoid_: Violation, lint error, warning
 
 **Core tokens**:
 The fixed set of named design variables every design system must define, so pages work with any design system.
@@ -29,6 +73,10 @@ _Avoid_: Base variables, required tokens
 A setting declared on a page (color, choice, toggle, range, count, text) whose chosen value is part of the design.
 _Avoid_: Variant, option, control
 
+**Tweak grid**:
+An artboard rendered once per combination of up to three of its tweaks (rows, columns, blocks), drawn as one labelled frame.
+_Avoid_: Matrix (the manifest key only), variant sheet
+
 **Version**:
 A saved state of a page's files, created each time a session publishes; any version can be restored.
 _Avoid_: Commit, revision, snapshot
@@ -36,8 +84,16 @@ _Avoid_: Commit, revision, snapshot
 ### Talking to the AI
 
 **Thread**:
-A comment pinned on an element of an artboard, with its replies; it ends when resolved.
+A comment with its replies, aimed at one of three targets: an element of an artboard (pinned), a whole artboard, or a canvas element; it ends when resolved.
 _Avoid_: Fil de commentaires, comment (for the whole exchange)
+
+**Canvas element**:
+A title, text, sticky note, link, image, shape or arrow placed directly on a page's canvas, described in its manifest and identified by a stable id; a thread or a chip can target it.
+_Avoid_: Object, widget, annotation
+
+**Chip**:
+A numbered element the user points at in a conversation message (an artboard element, a whole artboard or a canvas element); the message refers to it by its number.
+_Avoid_: Tag, attachment, mention
 
 **Conversation**:
 A free-form exchange attached to a page, with no pin; it ends when archived.
@@ -65,13 +121,57 @@ A process running on one of the user's machines, in one folder, that picks up th
 _Avoid_: Worker, runner, bot
 
 **Project agent**:
-An agent started in a project's code folder; a project has at most one.
+An agent started in a project's code folder; a project has at most one. A folder can be linked to several projects (two projects made from the same code), and its agent is then the project agent of each of them. It runs the project's new work whenever it is online, with the project's code and context. Stopped, it stays listed as offline and changes nothing to routing. It also runs the work of the **design system** its project uses: first when the design system was opened from its project, otherwise when its project is the oldest one using the design system with an agent online. A design system has no project agent of its own.
 
 **Global agent**:
-An agent started in a neutral folder that serves projects without a project agent, and those whose project agent is offline when the user allows it.
+An agent started in a neutral folder. When no project agent is online for a project, it runs the project's new work in a fresh session if the project's setting allows it (its override, else the default); otherwise the thread waits for an agent. Whether the project ever had a project agent does not matter. A design system's work comes to it only when no project using that design system has an agent online and the default setting allows it, or when no project uses the design system yet.
+
+**Agent host**:
+The background process of a machine that runs its agents: it outlives the terminal that launched them, keeps their run logs, and is controlled through a local socket. It starts on demand and exits once no agent runs and no screen is attached.
+_Avoid_: Daemon, supervisor
+
+**Agents screen**:
+The full-screen terminal view (`redline agents`, or opened by `redline agent`) of the agents of a machine: the selected agent's detail and run log, the list of agents, and the keys to act on them. Closing it does not stop any agent.
+_Avoid_: Dashboard, TUI
+
+**Terminal session**:
+One running `redline mcp` process, which is one Claude Code session in terminal mode. Identified by a random id generated when the process starts and never stored on disk; it reports its folder and machine in a heartbeat, and is present while the heartbeat is recent.
+_Avoid_: Terminal agent (it is not an **agent**: it runs no work Redline sends it)
+
+**Held page**:
+A page held by the **terminal session** that last published it, while that session is present. "Hold" is the verb: only a terminal publish takes a page, and the hold ends when its session leaves. The canvas header shows a pill while the page is held.
+_Avoid_: Locked page, owner (the page lock is a different thing)
+
+**Terminal session of a thread**:
+The **terminal session** that took a thread with `pending_comments` and answers it. Later replies in the thread wait for that session while it is present, whatever session holds the page; once it is gone, or the page was released, an agent takes them. An agent session is the other way a thread gets handled; a thread has one or the other.
+_Avoid_: Owner of a thread, terminal agent
 
 ### People
 
-**User**:
-The single owner of a Redline server; v1 has no other people.
-_Avoid_: Account, member
+**Person**:
+Someone Redline knows, with a display name and an e-mail. In `local` mode a person signs in with e-mail and password. In `proxy` mode a person is identified by the SSO's user-id header value, and their name and e-mail are refreshed whenever the SSO sends other ones. "Toi" in the UI means the person viewing.
+_Avoid_: User, member (for the person; a member is an account role)
+
+**Account**:
+A person's right to use Redline, with a role: **admin** (sees every project, manages accounts) or **member**. There are no guest accounts: someone outside the team uses a **share link**. An account is deactivated, not deleted; its sessions and agent token stop working at once.
+_Avoid_: User, profile, guest
+
+**Visibility**:
+Whether a project is **Équipe** (every member sees it with Écriture, the default) or **Privé** (only its creator, the admins and the members picked explicitly).
+_Avoid_: Privacy, scope
+
+**Access level**:
+What a person or a link may do on a project or page: **Lecture** (view), **Commentaire** (also comment; the comments arrive **À relire**) or **Écriture** (also edit and send to Claude). A member's level on a project can be lowered by its creator or an admin.
+_Avoid_: Role (an account's role is admin or member), permission
+
+**Share link**:
+An address `/s/<token>` that opens one page or one project at a chosen access level to someone with no account, without the SSO. It has a name and an optional expiry, and can be disabled and reactivated. A **personal link** signs the visitor's actions with a name; a **generic link** asks each visitor's name when they post their first comment.
+_Avoid_: Public link, guest link, invitation (an invitation creates an account)
+
+**Link visitor**:
+Someone using a share link. Their calls go through `/s/<token>/api/...` and only reach the link's scope.
+_Avoid_: Guest, anonymous user
+
+**À relire**:
+The review state of a thread posted at Commentaire level (by a link visitor or a member lowered to Commentaire): it is not sent to any agent until a member reads it and sends it to Claude ("Envoyer à Claude"), unless the link was created with "directly to Claude".
+_Avoid_: Pending, moderation

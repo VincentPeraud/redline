@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   MANIFEST_PATH,
+  manifestWithoutArtboard,
   defaultManifest,
   isSafePath,
   parseManifest,
@@ -12,6 +13,8 @@ import {
   type RestoreArtboardResponse,
 } from "@redline/shared";
 import { requiredString } from "./validation.js";
+import { personRef } from "./identity.js";
+import { restoredVersionMessage, validTimeZone } from "./version-dates.js";
 import type { Store, VersionRecord } from "./store.js";
 
 const CREATED_TITLE = "Artboard créé";
@@ -49,20 +52,6 @@ function contentChanges(records: VersionRecord[], file: string): VersionRecord[]
   return changes;
 }
 
-function formatDate(iso: string, timeZone: string | undefined): string {
-  return new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone }).format(new Date(iso));
-}
-
-function validTimeZone(timeZone: unknown): boolean {
-  if (timeZone === undefined) return true;
-  try {
-    new Intl.DateTimeFormat("fr-FR", { timeZone: timeZone as string });
-    return typeof timeZone === "string";
-  } catch {
-    return false;
-  }
-}
-
 /** Per-artboard history, deleted artboards and artboard restore: views and edits derived from the page versions. */
 export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store): void {
   app.get<{ Params: { pageId: string }; Querystring: { file?: string } }>("/api/pages/:pageId/artboard-versions", async (req, reply) => {
@@ -73,18 +62,30 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
     const headHash = records[records.length - 1]?.files[file];
     const changes = contentChanges(records, file);
     const newest = changes[changes.length - 1];
+    const ownPage = store.isDesignSystemPage(req.params.pageId);
+    const diffusionOf = (record: VersionRecord): ArtboardVersion["diffusion"] => {
+      if (ownPage) return undefined;
+      const hash = record.files[MANIFEST_PATH];
+      const designSystemId = store.sharedDesignSystemIdForManifest(req.params.pageId, hash === undefined ? undefined : store.blobText(hash));
+      const designSystem = designSystemId === undefined ? undefined : store.getDesignSystem(designSystemId);
+      return designSystem && { designSystemTitle: designSystem.title, number: record.diffusion };
+    };
     return changes
-      .map(
-        (record): ArtboardVersion => ({
+      .map((record): ArtboardVersion => {
+        const diffusion = diffusionOf(record);
+        return {
           versionId: record.id,
           title: record.origin === "creation" ? CREATED_TITLE : record.message,
           origin: record.origin,
           ...(record.originId ? { originId: record.originId } : {}),
           ...(record.originLabel ? { originLabel: record.originLabel } : {}),
+          ...(record.person ? { person: record.person } : {}),
+          ...(record.linkAuthor ? { linkAuthor: record.linkAuthor } : {}),
           createdAt: record.createdAt,
           current: record === newest && headHash !== undefined,
-        }),
-      )
+          ...(diffusion && { diffusion }),
+        };
+      })
       .reverse();
   });
 
@@ -103,10 +104,11 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
       .map(([file, { deletedIn, lastIn, artboard }]): DeletedArtboard => ({
         file,
         ...(artboard.title ? { title: artboard.title } : {}),
-        deletedBy: deletedIn.origin === "restore" || deletedIn.origin === "creation" || deletedIn.origin === "tweak" ? "user" : "claude",
+        deletedBy: deletedIn.origin === "restore" || deletedIn.origin === "user" || deletedIn.origin === "creation" || deletedIn.origin === "tweak" ? "user" : "claude",
         origin: deletedIn.origin,
         ...(deletedIn.originId ? { originId: deletedIn.originId } : {}),
         ...(deletedIn.originLabel ? { originLabel: deletedIn.originLabel } : {}),
+        ...(deletedIn.person ? { person: deletedIn.person } : {}),
         deletedAt: deletedIn.createdAt,
         lastVersionId: lastIn.id,
         width: artboard.width,
@@ -139,8 +141,10 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
     else files[file] = targetHash;
     const manifestHash = head.files[MANIFEST_PATH];
     if (manifestHash !== undefined && onPage !== (targetHash !== undefined)) {
-      const manifest = JSON.parse(store.blobText(manifestHash)) as { artboards?: { file: string }[] };
-      const artboards = manifest.artboards ?? [];
+      const stored = JSON.parse(store.blobText(manifestHash)) as { artboards?: { file: string }[]; elements?: Record<string, unknown>[] };
+      // Deleting: what is anchored to the artboard stays where it was, arrows aiming at it go.
+      const manifest = targetHash === undefined ? manifestWithoutArtboard(stored, file) : stored;
+      const artboards = stored.artboards ?? [];
       const targetManifestHash = target.files[MANIFEST_PATH];
       const formerEntry =
         targetManifestHash === undefined
@@ -153,8 +157,8 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
     const changes = contentChanges(records, file);
     const previousVersionId = head.files[file] === undefined ? head.id : changes[changes.length - 1].id;
     const message =
-      targetHash === undefined ? PUT_BACK_UNDONE_MESSAGE : !onPage ? PUT_BACK_MESSAGE : `Version du ${formatDate(target.createdAt, timeZone)} restaurée`;
-    const version = store.addVersionFromHashes(req.params.pageId, files, message, "restore");
+      targetHash === undefined ? PUT_BACK_UNDONE_MESSAGE : !onPage ? PUT_BACK_MESSAGE : restoredVersionMessage(target.createdAt, timeZone);
+    const version = store.addVersionFromHashes(req.params.pageId, files, message, "restore", personRef(req));
     const response: RestoreArtboardResponse = { version, previousVersionId };
     return reply.code(201).send(response);
   });

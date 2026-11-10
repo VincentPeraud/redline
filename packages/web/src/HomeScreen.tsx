@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { NEUTRAL_DESIGN_SYSTEM_ID, SESSIONS_PATH, type DesignSystemSummary, type HomeProject, type SessionRow } from "@redline/shared";
-import { DesignSystemThumbnail, ProjectThumbnail } from "./HomeThumbnails.js";
+import { SESSIONS_PATH, type DesignSystemSummary, type HomeProject, type SessionRow } from "@redline/shared";
+import { PendingPill, RequestsPill } from "./DesignSystemAlerts.js";
+import { DesignSystemThumbnail } from "./HomeThumbnails.js";
+import { ProjectPreview } from "./ProjectPreview.js";
 import { relativeTime } from "./relativeTime.js";
 import { routeHref } from "./router.js";
 import { Card, CardHeader, PageContent, PageHeader, SessionStatusBadge, StatusBadge, cx } from "./ui/index.js";
@@ -40,7 +42,7 @@ export function HomeScreen() {
   useEffect(() => {
     fetch("/api/design-systems")
       .then((res) => res.json() as Promise<DesignSystemSummary[]>)
-      .then((all) => setDesignSystems(all.filter((ds) => ds.id !== NEUTRAL_DESIGN_SYSTEM_ID)));
+      .then(setDesignSystems);
   }, []);
 
   // `home` is replaced on every server event: reload the sessions with it so statuses stay live.
@@ -67,6 +69,14 @@ export function HomeScreen() {
           <span data-testid="home-summary">
             {plural(home.projectCount, "projet", "projets")} · {plural(running, "session en cours", "sessions en cours")} ·{" "}
             {plural(home.waitingThreads, "fil en attente", "fils en attente")}
+            {home.designSystemsToDiffuse > 0 && (
+              <>
+                {" · "}
+                <a data-testid="home-to-diffuse" href={routeHref({ name: "designSystems" })}>
+                  {plural(home.designSystemsToDiffuse, "design system", "design systems")} à diffuser
+                </a>
+              </>
+            )}
           </span>
         }
       />
@@ -113,9 +123,9 @@ export function HomeScreen() {
         <Section title="Projets" testId="home-projects" link={<a href={routeHref({ name: "projects" })} className={styles.link}>Tous les projets</a>}>
           {home.projects.length === 0 && <p className={styles.empty}>Aucun projet pour l'instant.</p>}
           <div className={styles.projectGrid}>
-            {home.projects.map((project, index) => (
+            {home.projects.map((project) => (
               <a key={project.id} href={routeHref({ name: "project", projectId: project.id })} className={styles.projectCard}>
-                <ProjectThumbnail variant={index} />
+                <ProjectPreview pageId={project.lastPageId} height={120} />
                 <span className={styles.cardText}>
                   <span className={styles.cardTitle}>{project.title}</span>
                   <span className={styles.cardMeta}>{projectMeta(project)}</span>
@@ -134,6 +144,12 @@ export function HomeScreen() {
                 <span className={styles.cardMeta}>
                   {ds.usedBy.length === 0 ? "Utilisé par aucun projet" : `Utilisé par ${plural(ds.usedBy.length, "projet", "projets")}`}
                 </span>
+                {ds.pendingChanges > 0 && (
+                  <span className={styles.dsPills}>
+                    <PendingPill changes={ds.pendingChanges} />
+                    {ds.requests > 0 && <RequestsPill count={ds.requests} />}
+                  </span>
+                )}
               </span>
             </a>
           ))}

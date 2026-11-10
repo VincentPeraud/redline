@@ -25,7 +25,7 @@ async function startAgentIn(kind: "project" | "global", engine: FakeEngine, proj
   const folder = mkdtempSync(join(tmpdir(), "redline-agent-folder-"));
   folders.push(folder);
   const { token } = (await (await server!.get("/api/agent-token")).json()) as AgentTokenResponse;
-  const agent = await startAgent({ serverUrl: server!.url, token, machine, folder, kind, projectId, engine });
+  const agent = await startAgent({ serverUrl: server!.url, token, machine, folder, kind, projectIds: projectId ? [projectId] : undefined, engine });
   agents.push(agent);
   return agent;
 }
@@ -39,13 +39,14 @@ describe("global agent", () => {
     ]);
     await startAgentIn("global", engine);
     const project = (await (await server.post("/api/projects", { title: "Acme" })).json()) as Project;
+    await fetch(`${server.url}/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ globalTakeoverOverride: true }) });
     const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Home", files: { "home.html": "<h1>Home</h1>" } })).json()) as Page;
     await server.post(`/api/pages/${page.id}/threads`, { artboard: "home.html", selector: "h1", xPct: 10, yPct: 10, body: "Make it blue" });
     await engine.finished(1);
 
     expect(engine.runs[0].resume).toBe(false);
     const served = (await (await server.get(`/api/projects/${project.id}`)).json()) as Project;
-    expect(served.servedBy).toMatchObject({ kind: "global", takeover: false });
+    expect(served.servedBy).toMatchObject({ kind: "global", takeover: true });
   });
 
   it("takes over a thread of an offline project agent in a new session once the project allows it", async () => {

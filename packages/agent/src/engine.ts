@@ -12,6 +12,8 @@ export interface EngineRunRequest {
   mcpUrl: string;
   model?: string;
   effort?: Effort;
+  /** Aborted when the agent stops: the engine ends the session at once, killing whatever it started. */
+  signal?: AbortSignal;
 }
 
 /**

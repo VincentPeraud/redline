@@ -58,6 +58,8 @@ function toolText(result: unknown): string {
  */
 export class FakeEngine implements Engine {
   readonly runs: FakeRunRecord[] = [];
+  /** Session ids of the runs cancelled by an aborted signal, in order. */
+  readonly cancelled: string[] = [];
   private finishedRuns = 0;
   private waiters: { count: number; resolve: () => void }[] = [];
 
@@ -78,9 +80,12 @@ export class FakeEngine implements Engine {
   }
 
   private async *run(request: EngineRunRequest, resume: boolean): AsyncGenerator<EngineEvent> {
+    const cancel = () => this.cancelled.push(request.sessionId);
+    if (request.signal?.aborted) cancel();
+    else request.signal?.addEventListener("abort", cancel, { once: true });
     try {
       const mcpTools = await withMcpClient(request.mcpUrl, async (client) => (await client.listTools()).tools.map((t) => t.name));
-      this.runs.push({ ...request, resume, filesAtStart: readWorkingCopy(request.workingCopyDir), mcpTools });
+      this.runs.push({ ...request, resume, filesAtStart: readWorkingCopy(request.workingCopyDir, true), mcpTools });
       const callTool = (name: string, args: Record<string, unknown>) =>
         withMcpClient(request.mcpUrl, async (client) => toolText(await client.callTool({ name, arguments: args })));
       const context: FakeRunContext = {

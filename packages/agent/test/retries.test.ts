@@ -84,13 +84,15 @@ describe("retries and failure", () => {
   });
 
   it("waits for the reported reset of a subscription limit without using the retry delays", async () => {
-    const resetAt = Math.ceil(Date.now() / 1000) + 1;
+    // Taken once the server runs, so a slow start never puts the reset in the past
+    let resetAt = 0;
     const engine = new FakeEngine(() =>
       engineRuns(engine) < 2
         ? [{ type: "error", message: `Claude AI usage limit reached|${resetAt}` }]
         : [{ type: "result", summary: "Done" }],
     );
     seam = await startSeam2(engine, { retryDelaysMs: [] });
+    resetAt = Math.ceil(Date.now() / 1000) + 2;
     await openThread(seam);
     await until(() => lastRun(seam!)?.status === "answered", "the run after the reset");
 
@@ -99,7 +101,7 @@ describe("retries and failure", () => {
     expect(waiting[0].limit).toBe(true);
     expect(Date.parse(waiting[0].retryAt)).toBe(resetAt * 1000);
     expect(Date.now()).toBeGreaterThanOrEqual(resetAt * 1000 - 50);
-  });
+  }, 20_000);
 
   it("puts a failed item back in the queue on Relancer, keeping the message's model and effort", async () => {
     let failing = false;

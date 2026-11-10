@@ -35,7 +35,7 @@ async function setup() {
     machine: "test-machine",
     folder,
     kind: "project" as const,
-    projectId: project.id,
+    projectIds: [project.id],
     engine: new FakeEngine([]),
     reconnectDelaysMs: [20, 40],
   };

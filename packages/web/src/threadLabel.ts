@@ -1,6 +1,8 @@
-import type { Thread } from "@redline/shared";
+import { threadTargetLabel, type Thread } from "@redline/shared";
 
-/** "<artboard> · <element name>", falling back to the exact selector for threads without a name. */
-export function threadWhere(thread: Pick<Thread, "artboard" | "selector" | "elementName">): string {
-  return `${thread.artboard} · ${thread.elementName ?? thread.selector}`;
+export function threadWhere(thread: Pick<Thread, "target">): string {
+  return threadTargetLabel(thread.target);
 }
+
+/** Artboard file of a whole-artboard thread, the hook the chip on the name strip scrolls to. */
+export const wholeArtboardOf = (thread: Thread) => (thread.target.kind === "artboard" ? thread.artboard : undefined);

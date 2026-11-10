@@ -1,16 +1,21 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
-  NEUTRAL_DESIGN_SYSTEM_ID,
   type HomeProject,
   type CreateProjectRequest,
+  type ProjectVisibility,
   type DesignSystemSummary,
+  type Page,
   type Project,
+  type Thread,
 } from "@redline/shared";
+import { ArchiveIcon, archivedOnLabel } from "./ArchiveControls.js";
 import { agentLabel } from "./agentLabel.js";
 import { Dialog } from "./Dialog.js";
-import { ProjectThumb } from "./ProjectThumb.js";
+import { ProjectPreview } from "./ProjectPreview.js";
 import { routeHref } from "./router.js";
 import { useHome } from "./useHome.js";
+import { useMe } from "./useMe.js";
+import { VISIBILITY_LABEL, VisibilityBadge } from "./VisibilityBadge.js";
 import { Button, DialogActions, Field, PageContent, StatusBadge, TextInput, Textarea, cx } from "./ui/index.js";
 import styles from "./ProjectsScreen.module.css";
 
@@ -53,11 +58,18 @@ function designSystemUse(designSystem: DesignSystemSummary): string {
     : `Déjà utilisé par ${joinNames(designSystem.usedBy.map((project) => project.title))}`;
 }
 
+const VISIBILITY_OPTIONS: { value: ProjectVisibility; description: string }[] = [
+  { value: "team", description: "Tous les membres le voient et y travaillent." },
+  { value: "private", description: "Toi et les admins seulement ; tu ajoutes des membres ensuite." },
+];
+
 function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (project: Project) => void }) {
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
   const [choice, setChoice] = useState<string | null>(null);
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
+  const [visibility, setVisibility] = useState<ProjectVisibility>("team");
+  const hasAccounts = useMe()?.account !== undefined;
 
   useEffect(() => {
     fetch("/api/design-systems")
@@ -65,12 +77,11 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
       .then(setDesignSystems);
   }, []);
 
-  const choosable = designSystems.filter((ds) => ds.id !== NEUTRAL_DESIGN_SYSTEM_ID);
-  const selected = choice ?? choosable[0]?.id ?? NO_DESIGN_SYSTEM;
+  const selected = choice ?? designSystems[0]?.id ?? NO_DESIGN_SYSTEM;
   const canCreate = title.trim() !== "";
   const options = [
-    ...choosable.map((ds) => ({ id: ds.id, title: ds.title, description: designSystemUse(ds) })),
-    { id: NO_DESIGN_SYSTEM, title: "Aucun pour l'instant", description: "Claude part d'un style neutre" },
+    ...designSystems.map((ds) => ({ id: ds.id, title: ds.title, description: designSystemUse(ds) })),
+    { id: NO_DESIGN_SYSTEM, title: "Aucun pour l'instant", description: "Claude crée un style d'après le sujet du projet" },
   ];
 
   async function submit(event: FormEvent) {
@@ -80,6 +91,7 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
       title: title.trim(),
       instructions: instructions.trim(),
       designSystem: selected || null,
+      ...(hasAccounts && { visibility }),
     };
     const res = await fetch("/api/projects", {
       method: "POST",
@@ -106,6 +118,22 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         <Field label="Titre">
           <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex. Site vitrine du cabinet" />
         </Field>
+        {hasAccounts && (
+          <div role="radiogroup" aria-labelledby="new-project-visibility" className={styles.options}>
+            <div id="new-project-visibility" className={styles.optionsLabel}>
+              Visibilité
+            </div>
+            {VISIBILITY_OPTIONS.map((option) => (
+              <label key={option.value} className={cx(styles.choice, option.value === visibility && styles.choiceOn)}>
+                <input type="radio" name="new-project-visibility" checked={option.value === visibility} onChange={() => setVisibility(option.value)} />
+                <span className={styles.choiceText}>
+                  <strong>{VISIBILITY_LABEL[option.value]}</strong>
+                  <span>{option.description}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
         <Field
           label="Instructions pour Claude"
           optional
@@ -138,10 +166,10 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
           ))}
         </div>
         <DialogActions>
-          <Button size="lg" onClick={onClose}>
+          <Button onClick={onClose}>
             Annuler
           </Button>
-          <Button type="submit" variant="accent" size="lg" aria-disabled={!canCreate} className={styles.create}>
+          <Button type="submit" variant="accent" aria-disabled={!canCreate} className={styles.create}>
             Créer le projet
           </Button>
         </DialogActions>
@@ -152,32 +180,39 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
 
 function ProjectCard({
   project,
-  position,
   activity,
   designSystemTitle,
 }: {
   project: Project;
-  position: number;
   activity: HomeProject | undefined;
   designSystemTitle: string | undefined;
 }) {
   const agent = agentSummary(project);
-  const details = [agent.text, plural(activity?.pageCount ?? 0, "page", "pages"), designSystemTitle ?? "sans DS"].join(" · ");
+  const hasAccounts = useMe()?.account !== undefined;
+  const details = [
+    agent.text,
+    plural(activity?.pageCount ?? 0, "page", "pages"),
+    designSystemTitle ?? "sans DS",
+    ...(hasAccounts && project.createdBy ? [`créé par ${project.createdBy.name}`] : []),
+  ].join(" · ");
   return (
     <a href={routeHref({ name: "project", projectId: project.id })} className={styles.card}>
-      <ProjectThumb position={position} />
+      <ProjectPreview pageId={activity?.lastPageId} height={190} />
       <div className={styles.cardBody}>
         <div className={styles.cardTitleRow}>
           <span className={styles.cardTitle}>{project.title}</span>
-          {activity && activity.waitingThreads > 0 && activity.waitingThreads >= activity.openThreads ? (
-            <StatusBadge tone="neutral" size="sm" className={styles.cardBadge}>
-              {plural(activity.waitingThreads, "fil en attente", "fils en attente")}
-            </StatusBadge>
-          ) : activity && activity.openThreads > 0 ? (
-            <StatusBadge tone="warning" size="sm" className={styles.cardBadge}>
-              {plural(activity.openThreads, "fil ouvert", "fils ouverts")}
-            </StatusBadge>
-          ) : null}
+          <span className={styles.cardBadges}>
+            {hasAccounts && <VisibilityBadge visibility={project.visibility} />}
+            {activity && activity.waitingThreads > 0 && activity.waitingThreads >= activity.openThreads ? (
+              <StatusBadge tone="neutral" size="sm" className={styles.cardBadge}>
+                {plural(activity.waitingThreads, "fil en attente", "fils en attente")}
+              </StatusBadge>
+            ) : activity && activity.openThreads > 0 ? (
+              <StatusBadge tone="warning" size="sm" className={styles.cardBadge}>
+                {plural(activity.openThreads, "fil ouvert", "fils ouverts")}
+              </StatusBadge>
+            ) : null}
+          </span>
         </div>
         <div className={styles.agentLine} title={agentLabel(project)}>
           <span aria-hidden="true" className={cx(styles.dot, agent.online ? styles.dotOnline : styles.dotOffline)} />
@@ -189,17 +224,28 @@ function ProjectCard({
   );
 }
 
+/** "6 projets · 1 privé": the project list's header line, drawn on the artboard `projet`. */
+export function projectsSummary(projects: Project[]): string {
+  const privateCount = projects.filter((project) => project.visibility === "private").length;
+  return [plural(projects.length, "projet", "projets"), ...(privateCount > 0 ? [plural(privateCount, "privé", "privés")] : [])].join(" · ");
+}
+
 export function ProjectsScreen() {
+  const hasAccounts = useMe()?.account !== undefined;
   const [projects, setProjects] = useState<Project[] | null>(null);
   const { home } = useHome();
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState("");
+  const [archivedCount, setArchivedCount] = useState(0);
 
   useEffect(() => {
     fetch("/api/projects")
       .then((res) => res.json() as Promise<Project[]>)
       .then(setProjects);
+    fetch("/api/projects?archived=1")
+      .then((res) => res.json() as Promise<Project[]>)
+      .then((archived) => setArchivedCount(archived.length));
     fetch("/api/design-systems")
       .then((res) => res.json() as Promise<DesignSystemSummary[]>)
       .then(setDesignSystems);
@@ -211,7 +257,14 @@ export function ProjectsScreen() {
   return (
     <PageContent>
       <div className={styles.header}>
-        <h1 className={styles.title}>Projets</h1>
+        <div className={styles.heading}>
+          <h1 className={styles.title}>Projets</h1>
+          {hasAccounts && projects && (
+            <p className={styles.meta} data-testid="projects-summary">
+              {projectsSummary(projects)}
+            </p>
+          )}
+        </div>
         <TextInput
           type="search"
           size="md"
@@ -227,11 +280,10 @@ export function ProjectsScreen() {
       </div>
       {projects && (
         <div className={styles.grid}>
-          {visible.map((project, position) => (
+          {visible.map((project) => (
             <ProjectCard
               key={project.id}
               project={project}
-              position={position}
               activity={home?.projects.find((p) => p.id === project.id)}
               designSystemTitle={designSystems.find((ds) => ds.id === project.designSystem)?.title}
             />
@@ -245,6 +297,15 @@ export function ProjectsScreen() {
           </button>
         </div>
       )}
+      {archivedCount > 0 && (
+        <a href={routeHref({ name: "archivedProjects" })} className={styles.archivedLink}>
+          <ArchiveIcon size={16} />
+          Projets archivés · {archivedCount}
+          <span aria-hidden="true" className={styles.archivedChevron}>
+            ›
+          </span>
+        </a>
+      )}
       {creating && (
         <NewProjectDialog
           onClose={() => setCreating(false)}
@@ -252,6 +313,98 @@ export function ProjectsScreen() {
             window.location.hash = routeHref({ name: "project", projectId: project.id });
           }}
         />
+      )}
+    </PageContent>
+  );
+}
+
+interface ArchivedStats {
+  pageCount: number;
+  threadCount: number;
+  firstPageId?: string;
+}
+
+function ArchivedProjectCard({ project, stats, designSystemTitle }: { project: Project; stats: ArchivedStats | undefined; designSystemTitle: string | undefined }) {
+  const details = [plural(stats?.pageCount ?? 0, "page", "pages"), plural(stats?.threadCount ?? 0, "fil", "fils"), designSystemTitle ?? "sans DS"].join(" · ");
+  return (
+    <a href={routeHref({ name: "project", projectId: project.id })} className={styles.card}>
+      <div className={styles.archivedPreview}>
+        <ProjectPreview pageId={stats?.firstPageId} height={190} />
+      </div>
+      <div className={styles.cardBody}>
+        <div className={styles.cardTitleRow}>
+          <span className={styles.cardTitle}>{project.title}</span>
+          <span className={styles.archivedPill}>Archivé</span>
+        </div>
+        <div className={styles.archivedDetails}>{details}</div>
+        {project.archivedAt && <div className={styles.modified}>{archivedOnLabel(project.archivedAt)}</div>}
+      </div>
+    </a>
+  );
+}
+
+/** "Projets archivés": read-only projects, each opened to be unarchived or deleted for good. */
+export function ArchivedProjectsScreen() {
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [stats, setStats] = useState<Record<string, ArchivedStats>>({});
+  const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    fetch("/api/projects?archived=1")
+      .then((res) => res.json() as Promise<Project[]>)
+      .then(async (archived) => {
+        setProjects(archived);
+        const entries = await Promise.all(
+          archived.map(async (project): Promise<[string, ArchivedStats]> => {
+            const pages = (await (await fetch(`/api/projects/${project.id}/pages`)).json()) as Page[];
+            const threads = await Promise.all(pages.map(async (page) => ((await (await fetch(`/api/pages/${page.id}/threads`)).json()) as Thread[]).length));
+            return [project.id, { pageCount: pages.length, threadCount: threads.reduce((sum, count) => sum + count, 0), firstPageId: pages[0]?.id }];
+          }),
+        );
+        setStats(Object.fromEntries(entries));
+      });
+    fetch("/api/design-systems")
+      .then((res) => res.json() as Promise<DesignSystemSummary[]>)
+      .then(setDesignSystems);
+  }, []);
+
+  const query = search.trim().toLowerCase();
+  const visible = (projects ?? []).filter((project) => project.title.toLowerCase().includes(query));
+
+  return (
+    <PageContent>
+      <div className={styles.archivedHeading}>
+        <nav aria-label="Fil d'Ariane" className={styles.archivedBreadcrumb}>
+          <a href={routeHref({ name: "projects" })}>Projets</a>
+          <span aria-hidden="true">/</span>
+          <span className={styles.archivedCurrent}>Archivés</span>
+        </nav>
+        <div className={styles.header}>
+          <h1 className={styles.title}>Projets archivés</h1>
+          <TextInput
+            type="search"
+            size="md"
+            aria-label="Rechercher un projet archivé"
+            placeholder="Rechercher un projet archivé…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className={styles.archivedSearch}
+          />
+        </div>
+        <p className={styles.archivedIntro}>En lecture seule. Ouvre un projet pour le désarchiver ou le supprimer définitivement.</p>
+      </div>
+      {projects && (
+        <div className={styles.grid}>
+          {visible.map((project) => (
+            <ArchivedProjectCard
+              key={project.id}
+              project={project}
+              stats={stats[project.id]}
+              designSystemTitle={designSystems.find((ds) => ds.id === project.designSystem)?.title}
+            />
+          ))}
+        </div>
       )}
     </PageContent>
   );

@@ -173,7 +173,7 @@ async function main(): Promise<void> {
   const untilStatus = (id: string, name: string, expected: SessionStatus) => until(`${name} to be ${expected}`, async () => (await statusOf(id)) === expected);
 
   const { token } = await get<AgentTokenResponse>("/api/agent-token");
-  const connect = (options: { folder: string; machine: string; kind: "project" | "global"; projectId?: string; model: string; effort: Effort }) =>
+  const connect = (options: { folder: string; machine: string; kind: "project" | "global"; projectIds?: string[]; model: string; effort: Effort }) =>
     startAgent({ serverUrl: server.url, token, engine: demoEngine(), ...options });
 
   async function currentFiles(pageId: string): Promise<Record<string, string>> {
@@ -189,9 +189,9 @@ async function main(): Promise<void> {
   const lumora = await post<Project>("/api/projects", { title: "Lumora", designSystem: dsLumora.id });
   const blog = await post<Project>("/api/projects", { title: "Blog Lumora", designSystem: dsLumora.id });
   const reels = await post<Project>("/api/projects", { title: "Réels ComfyUI" });
-  const lumoraAgent = await connect({ folder: "~/projets/lumora-reel", machine: "MacBook", kind: "project", projectId: lumora.id, model: "sonnet", effort: "medium" });
+  const lumoraAgent = await connect({ folder: "~/projets/lumora-reel", machine: "MacBook", kind: "project", projectIds: [lumora.id], model: "sonnet", effort: "medium" });
   const globalAgent = await connect({ folder: "~/redline-agent", machine: "MacBook", kind: "global", model: "opus", effort: "high" });
-  const reelsAgent = await connect({ folder: "~/projets/reels", machine: "iMac", kind: "project", projectId: reels.id, model: "sonnet", effort: "low" });
+  const reelsAgent = await connect({ folder: "~/projets/reels", machine: "iMac", kind: "project", projectIds: [reels.id], model: "sonnet", effort: "low" });
   reelsAgent.close();
   await until("the reels agent to go offline", async () => (await get<{ folder: string; status: string }[]>("/api/agents")).some((a) => a.folder === "~/projets/reels" && a.status === "offline"));
 

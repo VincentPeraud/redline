@@ -1,4 +1,5 @@
 import type { AgentKind } from "./index.js";
+import type { Person } from "./people.js";
 import type { ModelChoice, QueueReason, ThreadContext } from "./work.js";
 
 export type SessionKind = "thread" | "conversation";
@@ -41,19 +42,25 @@ export interface SessionRow extends ModelChoice {
   pageId: string;
   pageTitle: string;
   status: SessionStatus;
+  /** The person of the first message; absent when none is known. */
+  startedBy?: Person;
   /** The agent running the session, else the project's agent; absent when none. */
   agent?: { id: string; machine: string; folder: string; kind: AgentKind };
   /** Engine session id; absent until the first run was sent. */
   sessionId?: string;
+  /** The thread belongs to a terminal session (it has no engine session id here). */
+  terminal?: true;
   context?: ThreadContext;
-  /** Why the session waits, when `status` is "queued" or "waiting-agent". */
-  waitingReason?: QueueReason | "retrying";
+  /** Why the session waits, when `status` is "queued" or "waiting-agent"; "design-system-agent-offline" = "agent-offline" on a design system's page. */
+  waitingReason?: QueueReason | "retrying" | "design-system-agent-offline";
   /** ISO time of the latest message. */
   activityAt: string;
 }
 
 export interface SessionMessage {
-  author: "user" | "claude";
+  author: "user" | "claude" | "redline";
+  /** The person who wrote a user message; absent when none is known. */
+  person?: Person;
   body: string;
   createdAt: string;
 }

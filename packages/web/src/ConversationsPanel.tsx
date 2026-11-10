@@ -1,21 +1,33 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   CONTEXT_WARNING_PERCENT,
   type Conversation,
   type ConversationDetail,
   type CreateConversationMessageRequest,
+  type MessageContext,
   type QueueEntry,
   type SessionRow,
+  type ThreadTarget,
   type ThreadRun,
 } from "@redline/shared";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
+import { contextChips } from "./messageContext.js";
 import { workQueueLabel } from "./queueLabel.js";
 import { CreatedPageCards } from "./CreatedPageCards.js";
+import { MessageAuthor } from "./MessageAuthor.js";
+import { usePersonLabel } from "./useMe.js";
+import { PendingDiffusionCard } from "./PendingDiffusionCard.js";
 import { activityLabel } from "./sessionsView.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
 import { subscribeServerEvents } from "./serverEvents.js";
-import { Button, Textarea, cx } from "./ui/index.js";
+import { ElementChip } from "./ElementChip.js";
+import { AddressPill, PlainLink } from "./AddressPill.js";
+import { splitMessageLinks } from "./messageLinks.js";
+import { rememberArtboardTitles } from "./otherPageArtboards.js";
+import { Button, Textarea, Tooltip, cx } from "./ui/index.js";
+import { useStickToBottom } from "./useStickToBottom.js";
+import { viaProjectField } from "./viaProject.js";
 import styles from "./ConversationsPanel.module.css";
 
 const AGENT_DEFAULT = "défaut de l'agent";
@@ -43,34 +55,86 @@ function SessionLine({ conversation }: { conversation: ConversationDetail }) {
   );
 }
 
+/** A conversation to bring up, `nonce` making a second request for the same one act again. */
+export interface FocusedConversation {
+  id: string;
+  nonce: number;
+}
+
 interface Props {
   pageId: string;
   pageTitle: string;
+  /** Version of the page: a run publishes after storing its answer, so the conversation reloads when it changes. */
+  versionId: string;
   artboardCount: number;
+  /** Artboards of the page, to title the pills that point at them; null until the manifest is known. */
+  artboards: { file: string; title: string }[] | null;
+  /** Centres the canvas on an artboard (a pill of this page). */
+  onCenterArtboard: (file: string) => void;
+  /** Shows "Cet artboard n'existe plus" (a pill whose artboard is gone). */
+  onMissingArtboard: (file: string) => void;
+  /** Shown as soon as it changes: the conversation that just received a message posted from outside the panel. */
+  focusedConversation: FocusedConversation | null;
+  /** What goes with the next message, live with the canvas view and the tweaks. */
+  context: MessageContext;
   runs: ThreadRun[];
   queue: QueueEntry[];
   sessions: Map<string, SessionRow>;
   defaults: AgentDefaults;
+  /** Elements the user points at for the next message; they live above this panel so they survive a tab switch. */
+  chips: ThreadTarget[];
+  selecting: boolean;
+  onSelectingChange: (selecting: boolean) => void;
+  onRemoveChip: (index: number) => void;
+  /** Called once the message is sent: the chips and their marks go. */
+  onChipsSent: () => void;
+  /** An archived project's (or archived) page: conversations are read, none is started, sent to or deleted. */
+  readOnly?: boolean;
+  /** What is archived, opening the read-only note: "Projet archivé" (default) or "Page archivée". */
+  archivedLabel?: string;
 }
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
-export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, queue, sessions, defaults }: Props) {
+export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, focusedConversation, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent, readOnly = false, archivedLabel = "Projet archivé" }: Props) {
+  const personLabel = usePersonLabel();
+  const messagesRef = useStickToBottom<HTMLDivElement>({ startAtBottom: true });
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  /** `activeId` as of now, not as of the last render: a message sent right after another one must land in the conversation just created. */
+  const activeRef = useRef<string | null>(null);
+  /** "+ Nouvelle" was clicked: an empty draft is shown, and the conversation only exists once its first message is sent. */
+  const [draft, setDraft] = useState(false);
+  const draftRef = useRef(false);
+  const creating = useRef<Promise<string> | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [text, setText] = useState("");
   const [choice, setChoice] = useState<ModelEffortChoice>({});
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
+  /** A failed refresh keeps what is shown: the next event or send refreshes again. */
   const refreshList = useCallback(async () => {
-    const res = await fetch(`/api/pages/${pageId}/conversations`);
-    const list = ((await res.json()) as Conversation[]).filter((c) => !c.archived);
-    setConversations(list.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)));
+    try {
+      const res = await fetch(`/api/pages/${pageId}/conversations`);
+      if (!res.ok) return;
+      const list = ((await res.json()) as Conversation[]).filter((c) => !c.archived);
+      setConversations(list.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)));
+    } catch {
+      // Network error: same as a failed response.
+    }
   }, [pageId]);
 
+  /** Only lands if `id` is still the conversation shown: switching while it loads must not show the previous one. */
   const refreshDetail = useCallback(async (id: string) => {
-    const res = await fetch(`/api/conversations/${id}`);
-    setDetail((await res.json()) as ConversationDetail);
+    try {
+      const res = await fetch(`/api/conversations/${id}`);
+      if (!res.ok) return;
+      const detail = (await res.json()) as ConversationDetail;
+      if (activeRef.current === id) setDetail(detail);
+    } catch {
+      // Network error: same as a failed response.
+    }
   }, []);
 
   useEffect(() => {
@@ -85,46 +149,94 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
     });
   }, [pageId, refreshList, refreshDetail]);
 
-  // Open the most recent conversation once the list is known.
+  const showConversation = (id: string | null) => {
+    activeRef.current = id;
+    setActiveId(id);
+    draftRef.current = false;
+    setDraft(false);
+  };
+
+  function startDraft() {
+    showConversation(null);
+    draftRef.current = true;
+    setDraft(true);
+    setListOpen(false);
+  }
+
   useEffect(() => {
-    setActiveId((current) => current ?? conversations[0]?.id ?? null);
+    if (!focusedConversation) return;
+    showConversation(focusedConversation.id);
+    void refreshList();
+  }, [focusedConversation, refreshList]);
+
+  // Open the most recent conversation once the list is known, unless a draft is open.
+  useEffect(() => {
+    if (activeRef.current === null && !draftRef.current && conversations[0]) showConversation(conversations[0].id);
   }, [conversations]);
 
   useEffect(() => {
     if (activeId) void refreshDetail(activeId);
     else setDetail(null);
-  }, [activeId, refreshDetail]);
+  }, [activeId, versionId, refreshDetail]);
 
-  async function create() {
-    const res = await fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-    const created = (await res.json()) as ConversationDetail;
-    await refreshList();
-    setActiveId(created.id);
-    setListOpen(false);
+  /** One creation at a time: a message sent while the first one is still creating the conversation joins it instead of creating a second one. */
+  function createConversation(): Promise<string> {
+    creating.current ??= fetch(`/api/pages/${pageId}/conversations`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(viaProjectField(pageId)) })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("conversation");
+        const { id } = (await res.json()) as ConversationDetail;
+        showConversation(id);
+        return id;
+      })
+      .finally(() => {
+        creating.current = null;
+      });
+    return creating.current;
   }
 
   async function archive(id: string) {
     await fetch(`/api/conversations/${id}/archive`, { method: "POST" });
     const rest = conversations.filter((c) => c.id !== id);
     setConversations(rest);
-    if (activeId === id) setActiveId(rest[0]?.id ?? null);
+    if (activeId === id) showConversation(rest[0]?.id ?? null);
   }
 
+  /** Keeps the text and chips when anything fails: they only go once the message is stored. */
   async function send() {
-    if (!activeId || text.trim() === "") return;
-    const request: CreateConversationMessageRequest = { body: text, ...choice };
-    await fetch(`/api/conversations/${activeId}/messages`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(request),
-    });
-    setText("");
+    if (text.trim() === "" || sending) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      const request: CreateConversationMessageRequest = { body: text, context: chips.length > 0 ? { ...context, targets: chips } : context, ...choice };
+      const conversationId = activeRef.current ?? (await createConversation());
+      const res = await fetch(`/api/conversations/${conversationId}/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+      });
+      if (!res.ok) throw new Error("message");
+      setText("");
+      onChipsSent();
+      // Not only on the live event: the tab relaying the shared stream may be frozen in the background.
+      void refreshList();
+      if (activeRef.current === conversationId) void refreshDetail(conversationId);
+    } catch {
+      setSendError("Le message n'a pas été envoyé. Ton texte est conservé, réessaie.");
+    } finally {
+      setSending(false);
+    }
   }
 
+  useEffect(() => {
+    if (artboards) rememberArtboardTitles(pageId, artboards.map((a) => [a.file, a.title]));
+  }, [pageId, artboards]);
+
+  const current = { id: pageId, title: pageTitle, artboards };
   const active = conversations.find((c) => c.id === activeId) ?? null;
   const lastRun = detail ? runs.find((r) => r.workId === detail.runWorkId) : undefined;
   const run = lastRun?.status === "answered" ? undefined : lastRun;
   const queued = workQueueLabel(queue, detail?.runWorkId);
+  const lastDesignSystemAnswer = [...(detail?.messages ?? [])].reverse().find((m) => m.designSystemId)?.id;
   const sessionId = activeId ? sessions.get(activeId)?.sessionId : undefined;
 
   return (
@@ -138,24 +250,30 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
           className={styles.picker}
           onClick={() => setListOpen(!listOpen)}
         >
-          <span className={styles.pickerTitle}>{active ? active.title : "Aucune conversation"}</span>
+          <span className={cx(styles.pickerTitle, !active && styles.pickerPlaceholder)}>{active ? active.title : draft ? "Nouvelle conversation" : "Aucune conversation"}</span>
           <span className={styles.spacer} />
           <span aria-hidden="true" className={styles.chevron}>
             ▼
           </span>
         </button>
-        <Button variant="accent" className={styles.newButton} onClick={() => void create()}>
+        {!readOnly && (
+        <>
+        <Button variant="accent" className={styles.newButton} onClick={startDraft}>
           + Nouvelle
         </Button>
-        <button
-          type="button"
-          aria-label="Supprimer cette conversation"
-          className={styles.iconButton}
-          disabled={!active}
-          onClick={() => active && void archive(active.id)}
-        >
-          <TrashIcon />
-        </button>
+        <Tooltip label="Supprimer cette conversation">
+          <button
+            type="button"
+            aria-label="Supprimer cette conversation"
+            className={styles.iconButton}
+            disabled={!active}
+            onClick={() => active && void archive(active.id)}
+          >
+            <TrashIcon />
+          </button>
+        </Tooltip>
+        </>
+        )}
         {listOpen && (
           <div role="listbox" aria-label="Conversations de la page" className={styles.list}>
             <div className={styles.listTitle}>Conversations · {pageTitle}</div>
@@ -167,18 +285,22 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
                   aria-selected={c.id === activeId}
                   className={styles.optionMain}
                   onClick={() => {
-                    setActiveId(c.id);
+                    showConversation(c.id);
                     setListOpen(false);
                   }}
                 >
                   <span className={styles.optionTitle}>{c.title}</span>
                   <span className={styles.optionMeta}>
-                    {c.exchangeCount} {c.exchangeCount === 1 ? "échange" : "échanges"} · {activityLabel(c.lastActivityAt)}
+                    {[personLabel(c.startedBy, "history"), `${c.exchangeCount} ${c.exchangeCount === 1 ? "échange" : "échanges"}`, activityLabel(c.lastActivityAt)].filter(Boolean).join(" · ")}
                   </span>
                 </button>
-                <button type="button" aria-label={`Supprimer la conversation ${c.title}`} className={styles.optionDelete} onClick={() => void archive(c.id)}>
-                  <TrashIcon />
-                </button>
+                {!readOnly && (
+                  <Tooltip label={`Supprimer la conversation ${c.title}`}>
+                    <button type="button" aria-label={`Supprimer la conversation ${c.title}`} className={styles.optionDelete} onClick={() => void archive(c.id)}>
+                      <TrashIcon />
+                    </button>
+                  </Tooltip>
+                )}
               </div>
             ))}
             {conversations.length === 0 && <div className={styles.listEmpty}>Aucune conversation sur cette page.</div>}
@@ -186,26 +308,58 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
         )}
       </div>
 
+      {active && personLabel(active.startedBy, "history") && (
+        <div data-testid="conversation-starter" className={styles.starter}>
+          {personLabel(active.startedBy, "history")} · {activityLabel(active.lastActivityAt)}
+        </div>
+      )}
+
+      {!readOnly && (
       <div className={styles.context}>
         <span className={styles.contextLabel}>Contexte transmis</span>
-        <span className={styles.chip}>
-          {pageTitle} · {artboardCount} {artboardCount > 1 ? "artboards" : "artboard"}
-        </span>
+        <div className={styles.chips}>
+          {contextChips(pageTitle, artboardCount, context).map((chip) => (
+            <span key={chip} className={styles.chip}>
+              {chip}
+            </span>
+          ))}
+        </div>
       </div>
+      )}
 
       {detail && detail.messages.length > 0 ? (
-        <div className={styles.messages}>
+        <div ref={messagesRef} className={styles.messages}>
           {detail.messages.map((m) =>
             m.author === "user" ? (
-              <div key={m.id} data-testid="conversation-message" className={styles.userBubble}>
-                {m.body}
+              <div key={m.id} className={styles.userMessage}>
+                {m.targets && m.targets.length > 0 && (
+                  <div data-testid="message-chips" className={styles.messageChips}>
+                    {m.targets.map((target, i) => (
+                      <ElementChip key={i} number={i + 1} target={target} />
+                    ))}
+                  </div>
+                )}
+                <MessageAuthor person={m.person} bubble />
+                <div data-testid="conversation-message" className={styles.userBubble}>
+                  {m.body}
+                </div>
               </div>
             ) : (
               <Fragment key={m.id}>
                 <div data-testid="conversation-message" className={styles.claudeMessage}>
-                  <span className={styles.author}>Claude</span> — {m.body}
+                  <MessageAuthor claude />
+                  {splitMessageLinks(m.body, window.location.origin).map((segment, i) =>
+                    segment.kind === "text" ? (
+                      <Fragment key={i}>{segment.text}</Fragment>
+                    ) : segment.kind === "link" ? (
+                      <PlainLink key={i} url={segment.url} />
+                    ) : (
+                      <AddressPill key={i} address={segment} current={current} onCenter={onCenterArtboard} onMissing={onMissingArtboard} />
+                    ),
+                  )}
                 </div>
                 <CreatedPageCards pages={m.createdPages} />
+                {m.designSystemId && m.id === lastDesignSystemAnswer && <PendingDiffusionCard designSystemId={m.designSystemId} refreshKey={versionId} />}
               </Fragment>
             ),
           )}
@@ -219,7 +373,9 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
         </div>
       ) : (
         <div className={styles.empty}>
-          {detail ? (
+          {readOnly ? (
+            <div className={styles.emptyText}>Aucune conversation sur cette page.</div>
+          ) : detail ? (
             <>
               <div className={styles.emptyTitle}>Nouvelle conversation</div>
               <div className={styles.emptyText}>Claude connaît la page affichée. Demande un retour général, un artboard ou une nouvelle page.</div>
@@ -233,36 +389,63 @@ export function ConversationsPanel({ pageId, pageTitle, artboardCount, runs, que
             </>
           ) : (
             <>
-              <div className={styles.emptyTitle}>Aucune conversation</div>
-              <div className={styles.emptyText}>Clique sur « + Nouvelle » pour en ouvrir une.</div>
+              <div className={styles.emptyTitle}>Nouvelle conversation</div>
+              <div className={styles.emptyText}>Écris ton premier message : la conversation est créée à l'envoi.</div>
             </>
           )}
         </div>
       )}
 
+      {readOnly ? (
+        <div className={styles.readOnlyNote}>{archivedLabel} : les conversations se lisent mais ne reçoivent plus de messages.</div>
+      ) : (
       <div className={styles.composer}>
         <label htmlFor="conversation-message" className={styles.label}>
           Message à Claude
         </label>
-        <Textarea
-          id="conversation-message"
-          className={styles.messageInput}
-          rows={3}
-          placeholder="Un retour général, un artboard à ajouter, une nouvelle page…"
-          disabled={!activeId}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
+        <div className={styles.messageBox}>
+          {chips.length > 0 && (
+            <div className={styles.messageBoxChips}>
+              {chips.map((target, i) => (
+                <ElementChip key={i} number={i + 1} target={target} onRemove={() => onRemoveChip(i)} />
+              ))}
+            </div>
+          )}
+          <Textarea
+            id="conversation-message"
+            className={styles.messageInput}
+            rows={chips.length > 0 ? 2 : 3}
+            placeholder="Un retour général, un artboard à ajouter, une nouvelle page…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+          />
+        </div>
+        {sendError && (
+          <div role="alert" className={styles.error}>
+            {sendError}
+          </div>
+        )}
+        <div className={styles.actions}>
+          <button type="button" aria-pressed={selecting} className={cx(styles.elementButton, selecting && styles.elementButtonOn)} onClick={() => onSelectingChange(!selecting)}>
+            + Élément
+          </button>
+          {selecting && <span className={styles.selectingNote}>mode sélection actif</span>}
+          <span className={styles.spacer} />
+          <Button variant="primary" className={styles.sendButton} disabled={text.trim() === "" || sending} onClick={() => void send()}>
+            Envoyer
+          </Button>
+        </div>
         <ModelEffortControls value={choice} onChange={setChoice} defaults={defaults} />
         {detail && detail.context && detail.context.percent >= CONTEXT_WARNING_PERCENT && <SessionLine conversation={detail} />}
         <div className={styles.sessionId}>{sessionId ? `session ${shortSessionId(sessionId)}` : "aucune session"} · séparée des fils de commentaires</div>
       </div>
+      )}
     </section>
   );
 }

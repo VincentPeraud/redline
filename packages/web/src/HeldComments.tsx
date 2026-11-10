@@ -1,8 +1,12 @@
 import { useState } from "react";
 import type { SendHeldRequest, Thread, UpdateThreadRequest } from "@redline/shared";
 import type { ModelEffortChoice } from "./ModelEffortControls.js";
-import { threadWhere } from "./threadLabel.js";
-import { Button, Textarea, cx } from "./ui/index.js";
+import { MessageAuthor } from "./MessageAuthor.js";
+import { InstanceThreadInfo } from "./InstanceThreads.js";
+import { RemovedTag } from "./RemovedTag.js";
+import { RenderingChip } from "./RenderingChip.js";
+import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
+import { Button, Textarea, Tooltip, cx } from "./ui/index.js";
 import styles from "./Thread.module.css";
 
 /** Bar "N en attente d'envoi · Tout envoyer": the held comments of the open page leave together, as one message. */
@@ -46,34 +50,41 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
   }
 
   return (
-    <article data-testid="held-thread" className={cx(styles.card, styles.held)}>
+    <article data-testid="held-thread" data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.held, thread.removed && styles.removed)}>
       <div className={styles.head}>
-        <span className={cx(styles.badge, styles.badgeHeld)}>{thread.number}</span>
+        <span className={cx(styles.badge, styles.badgeHeld, thread.removed && styles.badgeRemoved)}>{thread.number}</span>
         <span className={styles.where}>{threadWhere(thread)}</span>
+        <RenderingChip thread={thread} />
         <span className={styles.spacer} />
+        {thread.removed && <RemovedTag />}
         <span className={styles.headRight}>
           <span className={styles.heldLabel}>En attente d'envoi</span>
           {!editing && (
             <span className={styles.heldActions}>
-              <button type="button" aria-label="Modifier" title="Modifier" className={styles.iconAction} onClick={() => setEditing(true)}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M4 20h4L19 9l-4-4L4 16v4z" />
-                  <path d="M13 7l4 4" />
-                </svg>
-              </button>
-              <button type="button" aria-label="Supprimer" title="Supprimer" className={styles.iconAction} onClick={() => void fetch(`/api/threads/${thread.id}`, { method: "DELETE" })}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M4 7h16" />
-                  <path d="M10 11v6" />
-                  <path d="M14 11v6" />
-                  <path d="M6 7l1 13h10l1-13" />
-                  <path d="M9 7V4h6v3" />
-                </svg>
-              </button>
+              <Tooltip label="Modifier">
+                <button type="button" aria-label="Modifier" className={styles.iconAction} onClick={() => setEditing(true)}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 20h4L19 9l-4-4L4 16v4z" />
+                    <path d="M13 7l4 4" />
+                  </svg>
+                </button>
+              </Tooltip>
+              <Tooltip label="Supprimer">
+                <button type="button" aria-label="Supprimer" className={styles.iconAction} onClick={() => void fetch(`/api/threads/${thread.id}`, { method: "DELETE" })}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 7h16" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                    <path d="M6 7l1 13h10l1-13" />
+                    <path d="M9 7V4h6v3" />
+                  </svg>
+                </button>
+              </Tooltip>
             </span>
           )}
         </span>
       </div>
+      <InstanceThreadInfo thread={thread} />
       {editing ? (
         <>
           <Textarea aria-label="Modifier le commentaire" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
@@ -95,7 +106,8 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
       ) : (
         <>
           <div className={styles.message}>
-            <span className={styles.author}>Toi</span> — {thread.body}
+            <MessageAuthor person={thread.person} />
+            {thread.body}
           </div>
         </>
       )}

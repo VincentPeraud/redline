@@ -1,0 +1,23 @@
+.link {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  text-decoration: underline;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.link:hover:not(:disabled) {
+  color: var(--color-accent-hover);
+}
+
+.link:disabled {
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  cursor: default;
+}

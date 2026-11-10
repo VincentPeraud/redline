@@ -96,10 +96,6 @@
   line-height: 1.5;
 }
 
-.message b {
-  font-weight: var(--font-weight-semibold);
-}
-
 .fromUser {
   align-self: flex-end;
   background: var(--color-surface-muted);
@@ -121,24 +117,10 @@
   color: var(--color-accent);
 }
 
+/* The working dots of the thread cards, in the accent colour. */
 .dots {
-  display: flex;
-  gap: 3px;
-}
-
-.dots span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-accent);
-}
-
-.dots span:nth-child(2) {
-  opacity: 0.6;
-}
-
-.dots span:nth-child(3) {
-  opacity: 0.3;
+  composes: dots from "./Thread.module.css";
+  color: var(--color-accent);
 }
 
 .note {
@@ -157,4 +139,15 @@
 
 .composerInput.composerInput {
   line-height: normal;
+}
+
+.launcher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+}
+
+.unknown {
+  color: var(--color-text-muted);
 }

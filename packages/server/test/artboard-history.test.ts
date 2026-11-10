@@ -76,8 +76,8 @@ describe("per-artboard history, deleted artboards and artboard restore over the 
     const body = await res.text();
     expect(res.status).toBe(200);
     expect(res.headers.get("content-security-policy")).toBe("sandbox allow-scripts");
-    expect(body).toContain("a1");
-    expect(body).not.toContain("a2");
+    expect(body).toContain("<h1>a1</h1>");
+    expect(body).not.toContain("<h1>a2</h1>");
     expect(body).toContain("/__redline/bridge.js");
     expect((await fetch(server.artboardOrigin + versionPreviewPath(page.id, "nope", "a.html"))).status).toBe(404);
   });
@@ -133,6 +133,20 @@ describe("per-artboard history, deleted artboards and artboard restore over the 
     expect((await restore("b.html", put.previousVersionId)).status).toBe(201);
     expect((await current())["b.html"]).toBeUndefined();
     expect((await deleted()).map((d) => [d.file, d.deletedBy])).toEqual([["b.html", "user"]]);
+  });
+
+  it("keeps a whole-artboard thread through the artboard's deletion and restore", async () => {
+    const created = await server.post(`/api/pages/${page.id}/threads`, { target: { kind: "artboard", artboard: "b.html" }, body: "Too busy" });
+    expect(created.status).toBe(201);
+    const { "b.html": _removed, ...rest } = await current();
+    await publish({ ...rest, [MANIFEST_PATH]: ONLY_A }, "Remove B", "conversation");
+    const threads = async () => (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as { target: unknown; status: string }[];
+    expect(await threads()).toMatchObject([{ target: { kind: "artboard", artboard: "b.html" }, status: "open" }]);
+    expect((await server.post(`/api/pages/${page.id}/threads`, { target: { kind: "artboard", artboard: "b.html" }, body: "Gone" })).status).toBe(400);
+
+    const [gone] = await deleted();
+    expect((await restore("b.html", gone.lastVersionId)).status).toBe(201);
+    expect(await threads()).toMatchObject([{ target: { kind: "artboard", artboard: "b.html" }, status: "open" }]);
   });
 
   it("validates the request", async () => {

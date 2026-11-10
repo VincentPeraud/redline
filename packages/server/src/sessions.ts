@@ -8,11 +8,13 @@ import {
   type SessionStatus,
   type ThreadRun,
 } from "@redline/shared";
+import type { Access } from "./access.js";
 import type { PageLock } from "./page-lock.js";
 import type { SessionOrigin, Store } from "./store.js";
 
 interface Derived extends Pick<SessionRow, "name" | "sessionId" | "model" | "effort" | "context" | "activityAt"> {
   agentId?: string;
+  terminal?: true;
   workId?: string;
   threadId?: string;
   messages: SessionMessage[];
@@ -30,6 +32,7 @@ export function registerSessionRoutes(
   lock: PageLock,
   runs: Map<string, ThreadRun>,
   lastConversationWork: Map<string, string>,
+  access: Access,
 ): void {
   function derive(origin: SessionOrigin): Derived | undefined {
     if (origin.kind === "thread") {
@@ -37,13 +40,13 @@ export function registerSessionRoutes(
       if (!thread) return undefined;
       const session = store.getThreadSession(thread.id);
       const messages: SessionMessage[] = [
-        { author: "user", body: thread.body, createdAt: origin.createdAt },
-        ...thread.replies.map((r): SessionMessage => ({ author: r.author, body: r.body, createdAt: r.createdAt })),
+        { author: "user", ...(thread.person ? { person: thread.person } : {}), body: thread.body, createdAt: origin.createdAt },
+        ...thread.replies.map((r): SessionMessage => ({ author: r.author, ...(r.person ? { person: r.person } : {}), body: r.body, createdAt: r.createdAt })),
       ];
       const idleStatus: SessionStatus =
         thread.status === "resolved"
           ? "resolved"
-          : thread.status === "held"
+          : thread.status === "held" || thread.status === "review"
             ? "held"
             : thread.replies.some((r) => r.author === "claude")
               ? "answered"
@@ -52,6 +55,7 @@ export function registerSessionRoutes(
         name: thread.title,
         sessionId: session?.sessionId,
         agentId: session?.agentId,
+        ...(store.getThreadTerminalSession(thread.id) ? { terminal: true as const } : {}),
         model: thread.context?.model,
         effort: thread.context?.effort,
         context: thread.context,
@@ -67,7 +71,7 @@ export function registerSessionRoutes(
     const context = store.getConversationContext(conversation.id);
     const stored = store.conversationMessages(conversation.id);
     const lastUser = [...stored].reverse().find((m) => m.author === "user");
-    const messages = stored.map((m): SessionMessage => ({ author: m.author, body: m.body, createdAt: m.createdAt }));
+    const messages = stored.map((m): SessionMessage => ({ author: m.author, ...(m.person ? { person: m.person } : {}), body: m.body, createdAt: m.createdAt }));
     const idleStatus: SessionStatus = conversation.archived
       ? "archived"
       : stored.some((m) => m.author === "claude")
@@ -100,7 +104,8 @@ export function registerSessionRoutes(
     if (status !== "resolved" && status !== "archived") {
       if (queued) {
         status = queued.reason === "agent-offline" ? "waiting-agent" : "queued";
-        waitingReason = queued.reason;
+        // A design system has no folder of its own: its work waits for the agent of a project using it.
+        waitingReason = queued.reason === "agent-offline" && store.isDesignSystemProject(origin.projectId) ? "design-system-agent-offline" : queued.reason;
       } else if (run?.status === "sent" || run?.status === "running") {
         status = "running";
       } else if (run?.status === "retrying") {
@@ -125,8 +130,10 @@ export function registerSessionRoutes(
       pageTitle: origin.pageTitle,
       status,
       activityAt: d.activityAt,
+      ...(d.messages[0]?.person ? { startedBy: d.messages[0].person } : {}),
       ...(agent ? { agent: { id: agent.id, machine: agent.machine, folder: agent.folder, kind: agent.kind } } : {}),
       ...(d.sessionId ? { sessionId: d.sessionId } : {}),
+      ...(d.terminal ? { terminal: true as const } : {}),
       ...(d.model ? { model: d.model } : {}),
       ...(d.effort ? { effort: d.effort } : {}),
       ...(d.context ? { context: d.context } : {}),
@@ -137,16 +144,17 @@ export function registerSessionRoutes(
 
   const agentsById = () => new Map(store.listAgents().map((a) => [a.id, a]));
 
-  app.get(SESSIONS_PATH, async (): Promise<SessionRow[]> => {
+  app.get(SESSIONS_PATH, async (req): Promise<SessionRow[]> => {
     const agents = agentsById();
     return store
       .listSessionOrigins()
+      .filter((origin) => access.may(req.viewer, "read", { projectId: origin.projectId }))
       .flatMap((origin) => toRow(origin, agents)?.row ?? [])
       .sort((a, b) => b.activityAt.localeCompare(a.activityAt));
   });
 
   app.get<{ Params: { id: string } }>(`${SESSIONS_PATH}/:id`, async (req, reply) => {
-    const origin = store.listSessionOrigins().find((o) => o.id === req.params.id);
+    const origin = store.listSessionOrigins().find((o) => o.id === req.params.id && access.may(req.viewer, "read", { projectId: o.projectId }));
     const found = origin && toRow(origin, agentsById());
     if (!found) return reply.code(404).send({ error: "session not found" });
     const detail: SessionDetail = { ...found.row, messages: found.messages };

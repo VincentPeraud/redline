@@ -1,0 +1,144 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.text {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-body);
+  line-height: 1.6;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 14px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.main strong {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.main span {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.levelSelect.levelSelect {
+  width: 140px;
+  font-size: var(--font-size-sm);
+}
+
+.memberSelect.memberSelect {
+  width: 220px;
+  font-size: var(--font-size-sm);
+}
+
+.add {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.alone {
+  align-self: flex-start;
+}
+
+.undimmed,
+.dimmed {
+  display: inline-flex;
+}
+
+.dimmed {
+  opacity: 0.5;
+}
+
+.remove.remove {
+  color: var(--color-text);
+}
+
+.warn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 14px;
+  background: var(--color-warning-note-bg);
+  color: var(--color-warning-ink);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.warn:last-child {
+  border-bottom: none;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.check input {
+  margin: 0;
+  height: 1lh;
+  accent-color: var(--color-accent);
+}

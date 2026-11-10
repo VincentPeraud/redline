@@ -8,3 +8,8 @@ dist
 .redline
 .claude/worktrees/
 .demo-url
+.playwright-mcp/
+*.tsbuildinfo
+.env
+.scratch/eval-runs/
+secrets/

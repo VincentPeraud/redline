@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 import type { DesignMdInfo, DesignMdResponse, DesignMdVersion, Project, SaveDesignMdRequest } from "@redline/shared";
 import { rulesToShow } from "./designMdRules.js";
-import { dayLabel, designMdAuthor, originLabel, ruleOrigin } from "./historyLabels.js";
+import { dayLabel, designMdStatus, metaLine, originLabel, ruleOrigin } from "./historyLabels.js";
+import { useWho } from "./useMe.js";
 import { relativeTime } from "./relativeTime.js";
-import { routeHref } from "./router.js";
+import { routeHref, type Route } from "./router.js";
 import { Button, Dialog, Logo, cx } from "./ui/index.js";
 import styles from "./DesignMdScreen.module.css";
+import { useDocumentTitle } from "./documentTitle.js";
 
 const plural = (count: number) => `${count} ${count <= 1 ? "version" : "versions"}`;
 
 function HistoryDialog({ versions, onRestore, onClose }: { versions: DesignMdVersion[]; onRestore: (version: DesignMdVersion) => void; onClose: () => void }) {
+  const who = useWho();
   return (
     <Dialog title="Historique de DESIGN.md" onClose={onClose} width={520}>
       <ol className={styles.versions}>
@@ -18,7 +21,7 @@ function HistoryDialog({ versions, onRestore, onClose }: { versions: DesignMdVer
             <span className={styles.versionText}>
               <span>{relativeTime(version.createdAt)}</span>
               <span className={styles.versionMeta}>
-                {originLabel(version.origin, version.originLabel)} · {version.content.split("\n").length} lignes
+                {metaLine(originLabel(version.origin, version.originLabel, who(version.person)), `${version.content.split("\n").length} lignes`)}
               </span>
             </span>
             {index === 0 ? (
@@ -36,7 +39,9 @@ function HistoryDialog({ versions, onRestore, onClose }: { versions: DesignMdVer
 }
 
 export function DesignMdScreen({ projectId }: { projectId: string }) {
-  const [project, setProject] = useState<Project | null>(null);
+  const who = useWho();
+  /** Whose DESIGN.md it is: a project, or a design system (same id space, reached from its overview). */
+  const [owner, setOwner] = useState<{ title: string; designSystem: boolean } | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [justSaved, setJustSaved] = useState(false);
@@ -54,9 +59,12 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
     });
 
   useEffect(() => {
-    fetch(`/api/projects/${projectId}`)
-      .then((res) => res.json() as Promise<Project>)
-      .then(setProject);
+    void (async () => {
+      const designSystem = await fetch(`/api/design-systems/${projectId}`);
+      if (designSystem.ok) return setOwner({ title: ((await designSystem.json()) as { title: string }).title, designSystem: true });
+      const project = (await (await fetch(`/api/projects/${projectId}`)).json()) as Project;
+      setOwner({ title: project.title, designSystem: false });
+    })();
     fetch(`/api/projects/${projectId}/design-md`)
       .then((res) => res.json() as Promise<DesignMdResponse>)
       .then(({ content }) => {
@@ -66,7 +74,9 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
     void loadVersions();
   }, [projectId]);
 
-  if (!project || saved === null) return <main className={styles.screen}>Chargement…</main>;
+  useDocumentTitle("DESIGN.md", owner?.title);
+
+  if (!owner || saved === null) return <main className={styles.screen}>Chargement…</main>;
 
   const dirty = text !== saved;
   const latest = info?.lastModified;
@@ -75,7 +85,7 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
     : justSaved
       ? "Enregistré"
       : latest
-        ? `Dernière modification par ${designMdAuthor(latest.origin, latest.originLabel)} · ${dayLabel(latest.createdAt)}`
+        ? designMdStatus(latest.origin, latest.originLabel, dayLabel(latest.createdAt), who(latest.person))
         : "";
 
   async function save() {
@@ -97,6 +107,7 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
   }
 
   const rules = rulesToShow(text, info?.rules ?? []);
+  const back: Route = owner.designSystem ? { name: "designSystem", designSystemId: projectId } : { name: "project", projectId };
   const firstVersionId = versions[versions.length - 1]?.id;
 
   return (
@@ -106,9 +117,9 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
           <Logo />
         </a>
         <nav aria-label="Fil d'Ariane" className={styles.breadcrumb}>
-          <a href={routeHref({ name: "projects" })}>Projets</a>
+          <a href={routeHref(owner.designSystem ? { name: "designSystems" } : { name: "projects" })}>{owner.designSystem ? "Design systems" : "Projets"}</a>
           <span aria-hidden="true">/</span>
-          <a href={routeHref({ name: "project", projectId })}>{project.title}</a>
+          <a href={routeHref(back)}>{owner.title}</a>
           <span aria-hidden="true">/</span>
           <span className={styles.current}>DESIGN.md</span>
         </nav>
@@ -116,7 +127,7 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
         <div data-testid="design-md-status" className={cx(styles.status, dirty && styles.statusDirty)}>
           {status}
         </div>
-        <a href={routeHref({ name: "project", projectId })} className={styles.closeLink}>
+        <a href={routeHref(back)} className={styles.closeLink}>
           Fermer
         </a>
         <button type="button" className={styles.save} onClick={save} disabled={!dirty}>
@@ -166,8 +177,8 @@ export function DesignMdScreen({ projectId }: { projectId: string }) {
                     {rule.versionId === undefined || rule.origin === undefined || rule.createdAt === undefined
                       ? "pas encore enregistrée"
                       : rule.origin === "user" && rule.versionId === firstVersionId
-                        ? ruleOrigin(rule.origin, rule.originLabel, true)
-                        : `${ruleOrigin(rule.origin, rule.originLabel, false)} · ${dayLabel(rule.createdAt)}`}
+                        ? ruleOrigin(rule.origin, rule.originLabel, true, who(rule.person))
+                        : metaLine(ruleOrigin(rule.origin, rule.originLabel, false, who(rule.person)), dayLabel(rule.createdAt))}
                   </div>
                 </li>
               ))}

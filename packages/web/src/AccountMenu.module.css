@@ -1,0 +1,120 @@
+.root {
+  display: contents;
+}
+
+/* The drawer clips the menu: closed, the menu sits outside it, behind the trigger; open, it slides in. */
+.drawer {
+  position: absolute;
+  height: 200px;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  transition: visibility 0s linear 0.2s;
+}
+
+.drawer[data-open="true"] {
+  visibility: visible;
+  pointer-events: auto;
+  transition: visibility 0s;
+}
+
+.up {
+  left: -12px;
+  right: -12px;
+  bottom: 100%;
+}
+
+.down {
+  /* Under the header's 1px bottom border. */
+  top: calc(100% + 1px);
+  right: var(--space-1);
+  width: 264px;
+  z-index: 30;
+}
+
+.menu {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+  transition: transform 0.2s cubic-bezier(0.7, 0, 0.84, 0);
+}
+
+.up .menu {
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: var(--space-2);
+  transform: translateY(104%);
+}
+
+.down .menu {
+  top: 0;
+  right: var(--space-3);
+  width: 240px;
+  transform: translateY(-104%);
+}
+
+.drawer[data-open="true"] .menu {
+  transform: none;
+  transition: transform 0.34s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) 10px;
+}
+
+.name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.email {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.divider {
+  height: 1px;
+  margin: var(--space-1);
+  background: var(--color-border-subtle);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 10px;
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+  text-decoration: none;
+}
+
+button.item {
+  width: 100%;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover {
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer,
+  .menu {
+    transition: none !important;
+  }
+}

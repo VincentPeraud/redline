@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 type RunResult = { stdout: string; missing: boolean; ok: boolean };
 
@@ -11,8 +13,17 @@ function run(args: string[], env: NodeJS.ProcessEnv): Promise<RunResult> {
   });
 }
 
-/** Throws a user-facing error unless Claude Code is installed and logged in. */
-export async function checkClaude(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+function accountOf(authStatus: string): string | undefined {
+  try {
+    const email: unknown = JSON.parse(authStatus).email;
+    return typeof email === "string" && email ? email : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Throws a user-facing error unless Claude Code is installed and logged in; returns the logged-in account's email when known. */
+export async function checkClaude(env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> {
   const version = await run(["--version"], env);
   if (version.missing) {
     throw new Error("Claude Code is not installed. Install it (https://docs.claude.com/claude-code), then retry.");
@@ -21,4 +32,11 @@ export async function checkClaude(env: NodeJS.ProcessEnv = process.env): Promise
   if (!auth.ok || !/"loggedIn":\s*true/.test(auth.stdout)) {
     throw new Error("Claude Code is not logged in. Run `claude` once to log in, then retry.");
   }
+  return accountOf(auth.stdout);
 }
+
+/** Claude Code's settings file of the environment, where its default effort level lives. */
+export const claudeSettingsFileOf = (env: NodeJS.ProcessEnv = process.env): string => join(claudeConfigDirOf(env), "settings.json");
+
+/** The Claude config directory of the environment: the one the agent's worker must run with to keep the account checked above. */
+export const claudeConfigDirOf = (env: NodeJS.ProcessEnv = process.env): string => env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");

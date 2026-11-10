@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { QueueEntry, QueueReason, WorkItem } from "@redline/shared";
-import { chooseAgent } from "./agent-selection.js";
+import type { Person, QueueEntry, QueueReason, WorkItem, WorkLabels } from "@redline/shared";
+import { chooseAgent, globalAgentFor } from "./agent-selection.js";
 import type { AgentHub } from "./agents.js";
 import { RETRY_DELAYS_MS, UNKNOWN_RESET_WAIT_MS, isSubscriptionLimit, limitResetAt } from "./retry-policy.js";
 import type { PersistedWork, Store } from "./store.js";
@@ -14,6 +14,13 @@ export interface SubmitOptions {
    * offline with the global agent taking over, or no longer the project's agent. Without it a pinned item just waits.
    */
   takeoverItem?: WorkItem;
+  /**
+   * The item waits for the terminal session that holds its page instead of going to an agent, until `releaseTerminalWork`.
+   * Only for new work no agent session owns.
+   */
+  forTerminal?: boolean;
+  /** The person who handed the item over to the agent from a held page: the run works for them instead of the commenter. */
+  handedOverBy?: Person;
 }
 
 interface Queued extends SubmitOptions {
@@ -25,6 +32,8 @@ interface Queued extends SubmitOptions {
 interface Active {
   queued: Queued;
   agentId: string;
+  /** Who the run works for, fixed when the item is sent: the author of the message that starts it, not of a later reply. */
+  requester?: Person;
 }
 
 interface Retrying {
@@ -75,7 +84,14 @@ export class PageLock {
   /** Loads the persisted state. Call once, after every listener of the store events is registered (the run tracker needs the replayed events). */
   restore(): void {
     const rows = this.store.loadWorkQueue();
-    const toQueued = ({ projectId, agentId, item, takeoverItem }: PersistedWork): Queued => ({ projectId, agentId, item, takeoverItem });
+    const toQueued = ({ projectId, agentId, item, takeoverItem, forTerminal, handedOverBy }: PersistedWork): Queued => ({
+      projectId,
+      agentId,
+      item,
+      takeoverItem,
+      ...(forTerminal ? { forTerminal } : {}),
+      ...(handedOverBy ? { handedOverBy } : {}),
+    });
     this.queue = [...rows.filter((r) => r.state === "active"), ...rows.filter((r) => r.state === "queued")].map(toQueued);
     for (const row of rows) {
       if (row.attempts > 0) this.attempts.set(row.item.id, row.attempts);
@@ -102,6 +118,82 @@ export class PageLock {
     this.pump();
   }
 
+  /** Sends the waiting work `only` accepts to the agents, under the single routing rule (its terminal session left, or its page was handed over). */
+  releaseTerminalWork(only: (item: WorkItem) => boolean, handedOverBy?: Person): void {
+    let released = false;
+    for (const queued of this.queue) {
+      if (!queued.forTerminal || !only(queued.item)) continue;
+      this.sendToAgents(queued, handedOverBy);
+      released = true;
+    }
+    if (released) this.pump();
+  }
+
+  /** The item stops waiting for a terminal session. A reply that waited in a thread the terminal session started gets the thread's history: the agent has no session to resume. */
+  private sendToAgents(queued: Queued, handedOverBy?: Person): void {
+    delete queued.forTerminal;
+    if (handedOverBy) queued.handedOverBy = handedOverBy;
+    if (!queued.takeoverItem || queued.agentId) return;
+    queued.item = { ...queued.takeoverItem, id: queued.item.id };
+    delete queued.takeoverItem;
+  }
+
+  /**
+   * Sends the waiting work of one thread to the agents. A batch holding other threads is split: `split` gives the item
+   * for the thread and the item for the others. False when no item waiting for a terminal session holds the thread.
+   */
+  releaseTerminalThread(threadId: string, split: (item: WorkItem) => { handed: WorkItem; rest: WorkItem }, handedOverBy?: Person): boolean {
+    const index = this.queue.findIndex((q) => q.forTerminal && q.item.threads.some((t) => t.threadId === threadId));
+    if (index < 0) return false;
+    const queued = this.queue[index];
+    if (queued.item.threads.length > 1) {
+      const { handed, rest } = split(queued.item);
+      queued.item = rest;
+      this.queue.splice(index + 1, 0, { projectId: queued.projectId, item: handed, ...(handedOverBy ? { handedOverBy } : {}) });
+    } else {
+      this.sendToAgents(queued, handedOverBy);
+    }
+    this.pump();
+    this.save();
+    this.store.emit({ type: "queue-updated", pageId: queued.item.pageId });
+    return true;
+  }
+
+  /** The comments waiting for a terminal session, per page. */
+  terminalWaiting(): { pageId: string; threadIds: string[] }[] {
+    return this.queue.filter((q) => q.forTerminal).map((q) => ({ pageId: q.item.pageId, threadIds: q.item.threads.map((t) => t.threadId) }));
+  }
+
+  /**
+   * Hands the waiting items `match` accepts to a terminal session: they leave the queue without being sent, and each of their
+   * threads gets a run of its own showing it as being worked on (so that answering one thread does not end the others of a batch).
+   */
+  takeTerminalWork(match: (item: WorkItem) => boolean): { item: WorkItem; runs: { threadId: string; workId: string }[] }[] {
+    const taken = this.queue.filter((q) => q.forTerminal && match(q.item));
+    if (taken.length === 0) return [];
+    this.queue = this.queue.filter((q) => !taken.includes(q));
+    this.save();
+    for (const pageId of new Set(taken.map((q) => q.item.pageId))) this.store.emit({ type: "queue-updated", pageId });
+    return taken.map(({ item }) => ({
+      item,
+      runs: item.threads.map(({ threadId }) => {
+        const workId = randomUUID();
+        this.showTerminalRun(item.pageId, workId, threadId);
+        return { threadId, workId };
+      }),
+    }));
+  }
+
+  /** Shows a thread as being worked on by a terminal session (a picked thread, or one picked before a restart). */
+  showTerminalRun(pageId: string, workId: string, threadId: string): void {
+    this.store.emit({ type: "work-dispatched", pageId, workId, threadIds: [threadId] });
+  }
+
+  /** Ends the run of a thread picked by a terminal session: done (the session answered) or failed (the thread goes back to the agents). */
+  endTerminalRun(workId: string, failure?: string): void {
+    this.store.emit({ type: "work", message: failure === undefined ? { type: "work-done", workId } : { type: "work-failed", workId, message: failure } });
+  }
+
   /** Waits for the page's turn like any work item (no agent needed); resolves with the function that releases the page. */
   acquire(pageId: string): Promise<() => void> {
     return new Promise((resolve) => {
@@ -119,6 +211,11 @@ export class PageLock {
       this.retrying.get(workId)?.queued.item ??
       this.failed.get(workId)?.queued.item
     );
+  }
+
+  /** The person a running item works for (none without SSO, for comments from before the SSO, or for terminal mode). */
+  requesterOf(workId: string): Person | undefined {
+    return this.active.get(workId)?.requester;
   }
 
   /**
@@ -230,6 +327,26 @@ export class PageLock {
     return { running, waiting };
   }
 
+  /** Whether a work item runs or will be retried on one of `pageIds` (archiving a project waits for none). Waiting and failed items do not count. */
+  hasWorkOn(pageIds: Set<string>): boolean {
+    const items = [...[...this.active.values()].map((held) => held.queued), ...[...this.retrying.values()].map((r) => r.queued)];
+    return items.some((queued) => pageIds.has(queued.item.pageId));
+  }
+
+  /** Forgets the waiting and failed items of deleted pages, so they are neither sent, persisted nor offered to "Relancer". */
+  forgetPages(pageIds: Set<string>): void {
+    // A terminal publish waiting for the page (`onGranted`) stays: once granted, the route finds the page gone and answers.
+    this.queue = this.queue.filter((queued) => queued.onGranted !== undefined || !pageIds.has(queued.item.pageId));
+    for (const [workId, failed] of this.failed) if (pageIds.has(failed.queued.item.pageId)) this.failed.delete(workId);
+    this.save();
+  }
+
+  /** Whether a work item other than `exceptWorkId` is running on the page (a session, or terminal mode publishing). */
+  isHeldByOther(pageId: string, exceptWorkId?: string): boolean {
+    for (const [workId, held] of this.active) if (held.queued.item.pageId === pageId && workId !== exceptWorkId) return true;
+    return false;
+  }
+
   private isPageLocked(pageId: string): boolean {
     for (const held of this.active.values()) if (held.queued.item.pageId === pageId) return true;
     return false;
@@ -237,7 +354,28 @@ export class PageLock {
 
   /** Why each queued item waits: the page is busy with another item, or no agent can run it. */
   private reasons(): { queued: Queued; reason: QueueReason }[] {
-    return this.queue.map((queued) => ({ queued, reason: this.isPageLocked(queued.item.pageId) ? "page-busy" : "agent-offline" }));
+    return this.queue.map((queued) => ({
+      queued,
+      reason: queued.forTerminal
+        ? "terminal"
+        : this.isArchivedProjectPage(queued.item.pageId)
+        ? "project-archived"
+        : this.store.isPageArchived(queued.item.pageId)
+          ? "page-archived"
+          : this.isPageLocked(queued.item.pageId)
+            ? "page-busy"
+            : "agent-offline",
+    }));
+  }
+
+  private isArchivedProjectPage(pageId: string): boolean {
+    const projectId = this.store.projectIdOfPage(pageId);
+    return projectId !== undefined && this.store.isArchived(projectId);
+  }
+
+  /** The page, or its project, is archived: its waiting items stay queued until it is unarchived. */
+  private isArchivedPage(pageId: string): boolean {
+    return this.store.isPageArchived(pageId) || this.isArchivedProjectPage(pageId);
   }
 
   private pump(): void {
@@ -247,7 +385,13 @@ export class PageLock {
     const stillWaiting: Queued[] = [];
     for (const queued of this.queue) {
       const { pageId, sessionId } = queued.item;
-      if (this.isPageLocked(pageId) || (sessionId !== "" && waitingSessions.has(sessionId))) {
+      if (queued.forTerminal) {
+        stillWaiting.push(queued);
+        continue;
+      }
+      // An archived project's or page's waiting items stay queued until it is unarchived (`reconsider`); a terminal publish
+      // waiting for the page (`onGranted`) is granted, so that the archive guard refuses its write and the call is answered.
+      if (this.isPageLocked(pageId) || (sessionId !== "" && waitingSessions.has(sessionId)) || (this.isArchivedPage(pageId) && !queued.onGranted)) {
         stillWaiting.push(queued);
         continue;
       }
@@ -263,8 +407,9 @@ export class PageLock {
         continue;
       }
       const { agentId, item } = target;
-      this.active.set(queued.item.id, { queued, agentId });
-      if (this.hub.send(agentId, { type: "work", item })) {
+      const requester = queued.handedOverBy ?? this.store.requestingPersonOfItem(item);
+      this.active.set(queued.item.id, { queued, agentId, requester });
+      if (this.hub.send(agentId, { type: "work", item: { ...item, labels: this.labelsOf(item, requester) } })) {
         this.recordSession(agentId, item);
         this.store.emit({ type: "work-dispatched", pageId, workId: item.id, threadIds: item.threads.map((t) => t.threadId) });
         continue;
@@ -276,6 +421,17 @@ export class PageLock {
     this.queue = stillWaiting;
     this.save();
     for (const pageId of touched) this.store.emit({ type: "queue-updated", pageId });
+  }
+
+  private labelsOf(item: WorkItem, requester: Person | undefined): WorkLabels {
+    const page = this.store.getPage(item.pageId);
+    const projectId = page?.projectId ?? "";
+    const author = requester && (requester.name || requester.email);
+    return {
+      project: this.store.getProject(projectId)?.title ?? this.store.getDesignSystem(projectId)?.title ?? "",
+      page: page?.title ?? "",
+      ...(author ? { author } : {}),
+    };
   }
 
   /** The sent item's session now belongs to the agent that got it: threads and conversations resume it there. */
@@ -300,19 +456,23 @@ export class PageLock {
    */
   private pickTarget(queued: Queued): { agentId: string; item: WorkItem } | undefined {
     const { agentId: pinned, takeoverItem, projectId } = queued;
+    const designSystem = this.store.isDesignSystemProject(projectId);
+    // Only a design system's work depends on the project it was opened from.
+    const choose = () => chooseAgent(this.store, projectId, designSystem ? this.store.viaProjectOfItem(queued.item) : undefined);
     if (!pinned) {
-      const choice = chooseAgent(this.store, projectId);
+      const choice = choose();
       return choice && { agentId: choice.agentId, item: queued.item };
     }
     if (this.store.getAgent(pinned)?.status === "online") return { agentId: pinned, item: queued.item };
     if (!takeoverItem) return undefined;
     // Whatever is sent keeps the queued item's id: the lock and the agent's reports are keyed by it.
     const taken = { ...takeoverItem, id: queued.item.id };
-    if (!this.store.isProjectAgent(pinned)) {
-      const choice = chooseAgent(this.store, projectId);
+    // A design system's work is never pinned to an agent of its own: the next agent its rule picks starts a new session.
+    if (!this.store.isProjectAgent(pinned) || designSystem) {
+      const choice = choose();
       return choice && { agentId: choice.agentId, item: taken };
     }
-    const globalId = this.store.getProject(projectId)?.globalTakeover ? this.store.findOnlineGlobalAgentId() : undefined;
+    const globalId = this.store.getProject(projectId)?.globalTakeover ? globalAgentFor(this.store, projectId) : undefined;
     return globalId ? { agentId: globalId, item: taken } : undefined;
   }
 
@@ -331,6 +491,8 @@ export class PageLock {
       agentId: queued.agentId,
       item: queued.item,
       takeoverItem: queued.takeoverItem,
+      ...(queued.forTerminal ? { forTerminal: true } : {}),
+      ...(queued.handedOverBy ? { handedOverBy: queued.handedOverBy } : {}),
       attempts: this.attempts.get(queued.item.id) ?? 0,
       ...extra,
     });

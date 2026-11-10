@@ -17,7 +17,7 @@ beforeEach(async () => {
     await server.post(`/api/projects/${project.id}/pages`, { title: "P", files: { "home.html": ARTBOARD } })
   ).json()) as Page;
   const html = await (await fetch(`${server.artboardOrigin}/pages/${page.id}/home.html`)).text();
-  const src = /<script src="([^"]+)"><\/script>/.exec(html)![1]!;
+  const src = /<script src="([^"]+bridge\.js[^"]*)"><\/script>/.exec(html)![1]!;
   bridgeSource = await (await fetch(new URL(src, server.artboardOrigin))).text();
 });
 afterEach(async () => {
@@ -45,7 +45,7 @@ function load() {
     Object.defineProperty(list, "clientHeight", { value: 100, configurable: true });
     list.scrollTop = top;
   };
-  return { wheels, post, wheel, scrollList };
+  return { window, wheels, post, wheel, scrollList };
 }
 
 it("forwards wheel and pinch gestures to the canvas once the canvas asks for them", async () => {
@@ -94,4 +94,17 @@ it("converts a wheel counted in lines into pixels", async () => {
   wheel({ deltaY: 3, deltaMode: 1 });
   await flush();
   expect(wheels[0]).toMatchObject({ deltaY: 48, deltaMode: 0 });
+});
+
+it("keeps a drag on the canvas from selecting the artboard's text, but not in play mode", async () => {
+  const { window, post } = load();
+  const selectStart = () => {
+    const event = new window.Event("selectstart", { bubbles: true, cancelable: true });
+    window.document.getElementById("text")!.firstChild!.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  expect(selectStart()).toBe(false);
+  post({ type: "redline:set-mode", picking: false, forwardWheel: true });
+  await flush();
+  expect(selectStart()).toBe(true);
 });

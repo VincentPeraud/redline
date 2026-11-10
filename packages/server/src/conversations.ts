@@ -6,12 +6,18 @@ import {
   type ConversationMessage,
   type CreateConversationMessageRequest,
   type CreateConversationRequest,
+  type MessageContext,
   type ModelChoice,
+  type Person,
+  type ThreadTarget,
   type ServerEvent,
   type WorkItem,
 } from "@redline/shared";
+import { renderingLabel } from "@redline/shared";
+import { canvasElementText } from "./canvas-element-text.js";
+import { cellSeenText, elementText, renderingText } from "./thread-subject.js";
 import { contextOf, usageContext } from "./context.js";
-import { definedChoice, modelChoiceError, modelChoiceOf, requiredString } from "./validation.js";
+import { definedChoice, isMessageContext, modelChoiceError, modelChoiceOf, requiredString } from "./validation.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -19,7 +25,7 @@ export type SendConversationMessage = (
   conversation: Conversation,
   body: string,
   choice: ModelChoice,
-  options?: { extraContext?: string; projectId?: string; brief?: boolean },
+  options?: { context?: MessageContext; extraContext?: string; projectId?: string; brief?: boolean; person?: Person },
 ) => ConversationMessage;
 
 /** The message Claude receives for a conversation message; every message says which page is shown. */
@@ -29,6 +35,27 @@ export function conversationMessage(pageTitle: string, pageId: string, bodies: s
     "",
     ...bodies.flatMap((body) => [body, ""]),
     "Make the change in the working copy if the message asks for one, then answer in a short final message.",
+  ].join("\n");
+}
+
+function chipLine(target: ThreadTarget, number: number): string {
+  switch (target.kind) {
+    case "element":
+      return `${number}: ${elementText(target)} on artboard ${target.artboard}${renderingText(target.rendering)}${cellSeenText(target.cell)}`;
+    case "artboard":
+      return `${number}: the whole artboard ${target.artboard}`;
+    case "canvas-element":
+      return `${number}: ${canvasElementText(target)}`;
+  }
+}
+
+/** The lines that follow a conversation message: what the user is looking at, the tweak values and the numbered chips. */
+export function contextBlock(context: MessageContext): string {
+  const files = context.visibleArtboards.map(({ file, rendering }) => (rendering ? `${file} (${renderingLabel(rendering)})` : file));
+  return [
+    `The user is looking at: ${files.length > 0 ? files.join(", ") : "no artboard on screen"}`,
+    ...(context.tweaks.length > 0 ? [`Tweak values: ${context.tweaks.map((t) => `${t.label}: ${t.value}`).join(", ")}`] : []),
+    ...(context.targets && context.targets.length > 0 ? ["Elements the user points at:", ...context.targets.map((t, i) => chipLine(t, i + 1))] : []),
   ].join("\n");
 }
 
@@ -84,8 +111,25 @@ export function registerConversationRoutes(
   });
   app.addHook("onClose", async () => unsubscribe());
 
+  /**
+   * Flags Claude's answers whose run published a version of a design system page. The answer is stored before the run
+   * publishes, so a run is matched to the span from its user message to the next one, not to the answer's own time.
+   */
+  function withDesignSystemChanges(conversation: Conversation, messages: ConversationMessage[]): ConversationMessage[] {
+    const designSystem = store.designSystemOfPage(conversation.pageId);
+    if (!designSystem) return messages;
+    const versions = store.listVersions(conversation.pageId).filter((v) => v.origin === "conversation" && v.originId === conversation.id);
+    return messages.map((message, index) => {
+      if (message.author !== "claude") return message;
+      const start = messages.slice(0, index).reverse().find((m) => m.author === "user")?.createdAt ?? "";
+      const end = messages.slice(index + 1).find((m) => m.author === "user")?.createdAt;
+      const published = versions.some((v) => v.createdAt >= start && (end === undefined || v.createdAt < end));
+      return published ? { ...message, designSystemId: designSystem.id } : message;
+    });
+  }
+
   function detail(conversation: Conversation): ConversationDetail {
-    const messages = store.conversationMessages(conversation.id);
+    const messages = withDesignSystemChanges(conversation, store.conversationMessages(conversation.id));
     const lastUser = [...messages].reverse().find((m) => m.author === "user");
     return {
       ...conversation,
@@ -144,12 +188,12 @@ export function registerConversationRoutes(
   /** Stores a user message and dispatches it; `extraContext` goes to Claude with it without being stored, and `projectId` overrides the project whose agent serves it. */
   const sendMessage: SendConversationMessage = (conversation, body, choice, options = {}) => {
     const previous = store.conversationMessages(conversation.id);
-    const message = store.addConversationMessage(conversation.id, "user", body, choice)!;
+    const message = store.addConversationMessage(conversation.id, "user", body, choice, [], options.context?.targets, options.person)!;
     const page = store.getPage(conversation.pageId)!;
     dispatch(
       conversation,
       previous,
-      [...(options.extraContext ? [options.extraContext] : []), body],
+      [...(options.extraContext ? [options.extraContext] : []), options.context ? `${body}\n\n${contextBlock(options.context)}` : body],
       choice,
       options.projectId ?? page.projectId,
       options.brief ? briefMessage(page.title, page.id, body) : undefined,
@@ -165,15 +209,16 @@ export function registerConversationRoutes(
   app.post<{ Params: { pageId: string }; Body: CreateConversationRequest }>("/api/pages/:pageId/conversations", async (req, reply) => {
     const page = store.getPage(req.params.pageId);
     if (!page) return reply.code(404).send({ error: "page not found" });
-    const title = req.body?.title;
+    const { title, viaProjectId } = req.body ?? {};
     if (title !== undefined && !requiredString(title)) {
       return reply.code(400).send({ error: "title must be a non-empty string" });
     }
+    if (viaProjectId !== undefined && typeof viaProjectId !== "string") return reply.code(400).send({ error: "viaProjectId must be a string" });
     const first = !store.projectHasConversation(page.projectId);
-    const conversation = store.createConversation(page.id, title ?? "Nouvelle conversation");
+    const conversation = store.createConversation(page.id, title ?? "Nouvelle conversation", req.person, viaProjectId);
     const instructions = store.getProject(page.projectId)?.instructions ?? "";
     // The project's brief opens its first conversation: it is sent now, with a short acknowledgement asked back.
-    if (first && instructions.trim() !== "") sendMessage(conversation, instructions, {}, { brief: true });
+    if (first && instructions.trim() !== "") sendMessage(conversation, instructions, {}, { brief: true, person: req.person });
     return reply.code(201).send(detail(conversation));
   });
 
@@ -197,7 +242,8 @@ export function registerConversationRoutes(
       if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
       const invalidChoice = modelChoiceError(req.body);
       if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
-      const message = sendMessage(conversation, body, modelChoiceOf(req.body));
+      if (req.body.context !== undefined && !isMessageContext(req.body.context)) return reply.code(400).send({ error: "context is malformed" });
+      const message = sendMessage(conversation, body, modelChoiceOf(req.body), { context: req.body.context, person: req.person });
       return reply.code(201).send(message);
     },
   );

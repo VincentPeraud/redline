@@ -2,12 +2,13 @@ import type { FastifyInstance } from "fastify";
 import {
   ASSETS_DIR,
   DESIGN_MD_PATH,
+  PROJECT_STYLE_PATH,
   MAX_ASSET_BYTES,
-  MANIFEST_PATH,
-  NEUTRAL_DESIGN_SYSTEM_ID,
   isSafePath,
-  parseManifest,
+  classesUsedIn,
+  componentClassesOf,
   type DesignMdAuthor,
+  type DesignSystemContext,
   type DesignMdInfo,
   type DesignMdResponse,
   type DesignMdRule,
@@ -16,34 +17,95 @@ import {
   type ProjectContext,
   type SaveDesignMdRequest,
 } from "@redline/shared";
+import { componentFilesOf } from "./components.js";
+import { editorAuthor } from "./identity.js";
 import type { Store } from "./store.js";
 
-/** Design system a page uses: the one its manifest names if it exists, else the neutral one. */
-export function designSystemIdOf(store: Store, pageId: string): string {
-  const text = store.readPageFile(pageId, MANIFEST_PATH)?.toString("utf8");
-  if (text !== undefined) {
-    try {
-      const id = parseManifest(text).designSystem;
-      if (id !== undefined && store.getDesignSystem(id)) return id;
-    } catch {
-      // An invalid stored manifest must not break serving the artboard.
+const slugOf = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "page";
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/**
+ * What a project session gets of its design system: the CURRENT diffusion (never the draft) as the files of
+ * `.design-system/`, and which of the design system's pages the project's pages use (through component classes).
+ */
+function designSystemContext(store: Store, projectId: string, designSystemId: string): DesignSystemContext {
+  const designSystem = store.getDesignSystem(designSystemId)!;
+  const { number } = store.currentDiffusion(designSystemId)!;
+  const read = (file: Parameters<Store["readDiffusionFile"]>[2]) => store.readDiffusionFile(designSystemId, number, file);
+  const components = store.diffusionComponents(designSystemId, number);
+  const indexes = store.diffusionPageIndexes(designSystemId, number);
+  const componentFiles = store.diffusionComponentFiles(designSystemId, number);
+
+  const classesOfPage = new Map<string, Set<string>>();
+  for (const component of components) {
+    const classes = classesOfPage.get(component.page.id) ?? new Set<string>();
+    for (const name of componentClassesOf(componentFiles[component.file] ?? "")) classes.add(name);
+    classesOfPage.set(component.page.id, classes);
+  }
+  const used = new Set<string>();
+  for (const page of store.listPages(projectId)) {
+    for (const [path, content] of Object.entries(store.readPageFiles(page.id)?.files ?? {})) {
+      if (!path.endsWith(".html")) continue;
+      const classes = classesUsedIn(content);
+      for (const [pageId, own] of classesOfPage) if ([...own].some((name) => classes.has(name))) used.add(pageId);
     }
   }
-  return NEUTRAL_DESIGN_SYSTEM_ID;
+
+  const taken = new Set<string>();
+  const pages = Object.keys(indexes).map((id) => {
+    const own = components.filter((c) => c.page.id === id);
+    const title = store.getPage(id)?.title ?? own[0]?.page.title ?? id;
+    let slug = slugOf(title);
+    for (let n = 2; taken.has(slug); n++) slug = `${slugOf(title)}-${n}`;
+    taken.add(slug);
+    return { id, title, slug, own };
+  });
+  const files: Record<string, string> = {
+    "tokens.css": read("tokens.css") ?? "",
+    "DESIGN.md": read("DESIGN.md") ?? "",
+    ...componentFiles,
+  };
+  for (const { id, title, slug } of pages) {
+    files[`pages/${slug}.md`] = `# ${title}\n\n${indexes[id].trim() === "" ? "No component on this page.\n" : indexes[id]}`;
+  }
+  files["index.md"] = [
+    `# ${designSystem.title} (diffusion ${number})`,
+    "",
+    "Pages of the design system (read the page file to see its components; the full files are in components/):",
+    "",
+    ...pages.map(({ title, slug, own }) => `- ${title} (pages/${slug}.md): ${plural(own.length, "component")}${own.length ? ` (${own.map((c) => c.name).join(", ")})` : ""}`),
+    "",
+  ].join("\n");
+  return {
+    id: designSystem.id,
+    title: designSystem.title,
+    diffusion: number,
+    files,
+    pages: pages.map(({ id, title, own }) => ({ title, components: own.length, used: used.has(id) })),
+  };
 }
 
-/** DESIGN.md, assets and design system that go into the working copy of a page. */
+/** DESIGN.md, assets, project style and design system that go into the working copy of a page. */
 export function projectContext(store: Store, pageId: string): ProjectContext {
   const page = store.getPage(pageId)!;
-  const designSystem = store.getDesignSystem(designSystemIdOf(store, pageId))!;
   const assets: Record<string, string> = {};
   for (const { name } of store.listProjectFiles(page.projectId, `${ASSETS_DIR}/`)) {
     assets[name] = store.readProjectFile(page.projectId, `${ASSETS_DIR}/${name}`)!.toString("base64");
   }
+  const own = store.getDesignSystem(page.projectId);
+  const sharedDesignSystemId = own ? undefined : store.sharedDesignSystemIdOfPage(pageId);
   return {
-    designMd: store.readProjectFile(page.projectId, DESIGN_MD_PATH)?.toString("utf8") ?? "",
+    designMd: store.readProjectText(page.projectId, DESIGN_MD_PATH),
     assets,
-    designSystem: { id: designSystem.id, files: store.readPageFiles(designSystem.pageId)!.files },
+    // A project's style, or the draft tokens of a design system's own project: the same root file either way.
+    projectStyle: store.readProjectText(page.projectId, PROJECT_STYLE_PATH),
+    ...(own
+      ? { editsDesignSystem: { id: own.id, title: own.title } }
+      : {
+          projectComponents: componentFilesOf(store, page.projectId),
+          ...(sharedDesignSystemId === undefined ? {} : { designSystem: designSystemContext(store, page.projectId, sharedDesignSystemId) }),
+        }),
   };
 }
 
@@ -60,21 +122,31 @@ export function putProjectAsset(store: Store, projectId: string, name: string, b
   const safe = assetNameOf(name);
   if (safe === undefined) return { error: "invalid asset name" };
   if (!Buffer.isBuffer(body)) return { error: "file content is required" };
-  const hash = store.setProjectFile(projectId, `${ASSETS_DIR}/${safe}`, body);
+  const path = `${ASSETS_DIR}/${safe}`;
+  const unchanged = store.readProjectFile(projectId, path)?.equals(body) ?? false;
+  const hash = store.setProjectFile(projectId, path, body);
+  // Assets are not part of a page version: an open artboard keeps the old one (a stylesheet's tweak rules, say) until it reloads.
+  if (!unchanged) store.announceProjectStyleChange(projectId);
   return { name: safe, hash, size: body.length };
 }
 
 /** An asset of the project the page belongs to, so every artboard reaches it as `assets/<name>`. */
 export function readPageAsset(store: Store, pageId: string, rawName: string): Buffer | undefined {
   const page = store.getPage(pageId);
-  const name = assetNameOf(rawName);
-  return page && name !== undefined ? store.readProjectFile(page.projectId, `${ASSETS_DIR}/${name}`) : undefined;
+  return page ? readProjectAsset(store, page.projectId, rawName) : undefined;
 }
 
-const authorOf = ({ origin, originId, originLabel }: DesignMdAuthor): DesignMdAuthor => ({
+/** An asset of a project (a design system's included), as reached from one of its stylesheets as `assets/<name>`. */
+export function readProjectAsset(store: Store, projectId: string, rawName: string): Buffer | undefined {
+  const name = assetNameOf(rawName);
+  return name !== undefined && store.projectExists(projectId) ? store.readProjectFile(projectId, `${ASSETS_DIR}/${name}`) : undefined;
+}
+
+const authorOf = ({ origin, originId, originLabel, person }: DesignMdAuthor): DesignMdAuthor => ({
   origin,
   ...(originId ? { originId } : {}),
   ...(originLabel ? { originLabel } : {}),
+  ...(person ? { person } : {}),
 });
 
 const linesOf = (content: string): { text: string; line: number }[] =>
@@ -109,15 +181,33 @@ export function designMdRules(versions: DesignMdVersion[]): DesignMdRule[] {
 export async function registerProjectFileRoutes(app: FastifyInstance, store: Store): Promise<void> {
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/design-md", async (req, reply): Promise<DesignMdResponse> => {
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-    return { content: store.readProjectFile(req.params.projectId, DESIGN_MD_PATH)?.toString("utf8") ?? "" };
+    return { content: store.readProjectText(req.params.projectId, DESIGN_MD_PATH) };
   });
 
   app.put<{ Params: { projectId: string }; Body: SaveDesignMdRequest }>("/api/projects/:projectId/design-md", async (req, reply) => {
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
     const content = req.body?.content;
     if (typeof content !== "string") return reply.code(400).send({ error: "content is required" });
-    store.saveDesignMd(req.params.projectId, DESIGN_MD_PATH, Buffer.from(content, "utf8"));
+    store.saveDesignMd(req.params.projectId, DESIGN_MD_PATH, Buffer.from(content, "utf8"), editorAuthor(req));
     return { content };
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/project-style", async (req, reply): Promise<DesignMdResponse> => {
+    if (!store.projectExists(req.params.projectId) || store.isDesignSystemProject(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    return { content: store.readProjectText(req.params.projectId, PROJECT_STYLE_PATH) };
+  });
+
+  app.put<{ Params: { projectId: string }; Body: SaveDesignMdRequest }>("/api/projects/:projectId/project-style", async (req, reply) => {
+    if (!store.projectExists(req.params.projectId) || store.isDesignSystemProject(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    const content = req.body?.content;
+    if (typeof content !== "string") return reply.code(400).send({ error: "content is required" });
+    store.saveDesignMd(req.params.projectId, PROJECT_STYLE_PATH, Buffer.from(content, "utf8"), editorAuthor(req));
+    return { content };
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/project-style/versions", async (req, reply): Promise<DesignMdVersion[]> => {
+    if (!store.projectExists(req.params.projectId) || store.isDesignSystemProject(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    return store.listDesignMdVersions(req.params.projectId, PROJECT_STYLE_PATH);
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/design-md/versions", async (req, reply): Promise<DesignMdVersion[]> => {

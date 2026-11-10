@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser } from "playwright";
+import { type Browser } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import type { Conversation, DesignSystem, DesignSystemSummary, Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
@@ -18,7 +19,7 @@ beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
   server = await startTestServer({ webDir });
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, 60_000);
 
 afterAll(async () => {
@@ -36,6 +37,7 @@ it("lists design systems with their projects, creates one and shows the hint in 
   await tab.goto(`${server.url}/#/design-systems`);
   await expect.poll(async () => tab.getByTestId("design-systems").textContent()).toContain("DS Lumora");
   expect(await tab.getByTestId("design-systems").textContent()).toContain("Utilisé par Lumora");
+  expect(await tab.getByTestId("design-system-stats").first().innerText()).toBe("1 page · 0 composant · diffusion 1");
 
   await tab.getByRole("button", { name: "Ajouter un design system" }).first().click();
   await tab.getByLabel("Nom").fill("DS Blog");

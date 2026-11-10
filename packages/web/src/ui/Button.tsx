@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from "react";
+import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { cx } from "./cx.js";
 import styles from "./Button.module.css";
 
@@ -12,6 +12,6 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: ButtonSize;
 }
 
-export function Button({ variant = "secondary", size = "md", className, type = "button", ...rest }: ButtonProps) {
-  return <button type={type} className={cx(styles.button, styles[variant], styles[size], className)} {...rest} />;
-}
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ variant = "secondary", size = "md", className, type = "button", ...rest }, ref) {
+  return <button ref={ref} type={type} className={cx(styles.button, styles[variant], styles[size], className)} {...rest} />;
+});

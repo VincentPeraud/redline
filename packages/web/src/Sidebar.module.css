@@ -1,6 +1,6 @@
 .shell {
   display: flex;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--banner-height, 0px));
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
@@ -15,11 +15,11 @@
 
 .navInner {
   position: sticky;
-  top: 0;
+  top: var(--banner-height, 0px);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  height: 100vh;
+  height: calc(100vh - var(--banner-height, 0px));
   padding: var(--space-5) var(--space-4);
 }
 
@@ -34,6 +34,30 @@
   color: var(--color-text-secondary);
   font-size: var(--font-size-md);
   text-decoration: none;
+}
+
+.link:has(.badge) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  box-sizing: border-box;
+  padding-block: 0;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
 }
 
 .link:hover {
@@ -84,6 +108,74 @@
   font-size: var(--font-size-xs);
   line-height: 1.5;
   color: var(--color-text-muted);
+}
+
+.accountDivider {
+  height: 1px;
+  margin: var(--space-2) 0;
+  background: var(--color-border-subtle);
+}
+
+/* The menu's drawer is placed against this box, so it rises from behind the block. */
+.account {
+  position: relative;
+}
+
+.accountButton {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font: inherit;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.accountButton:hover {
+  background: var(--color-surface-muted);
+}
+
+.accountText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex-grow: 1;
+}
+
+.accountName {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.accountEmail {
+  overflow: hidden;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+}
+
+.accountChevron {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.accountChevronOpen {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .accountChevron {
+    transition: none;
+  }
 }
 
 .content {

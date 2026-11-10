@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser } from "playwright";
+import { type Browser } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import type { Page, PageVersionSummary } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
@@ -18,7 +19,7 @@ beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
   server = await startTestServer({ webDir });
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, 60_000);
 
 afterAll(async () => {
@@ -61,7 +62,7 @@ it("adjusts every tweak type on the canvas and in play mode, versions each chang
     (window as unknown as { alive: boolean }).alive = true;
   });
 
-  await tab.getByRole("button", { name: "Tweaks", exact: true }).click();
+  await tab.getByRole("button", { name: "Tweaks · 6" }).click();
   await tab.getByLabel("Accent").fill("#0f766e");
   await expect.poll(attr("accent")).toBe("#0f766e");
   await tab.getByRole("button", { name: "grid" }).click();
@@ -85,7 +86,7 @@ it("adjusts every tweak type on the canvas and in play mode, versions each chang
   const html = await (await server.get(`/api/pages/${page.id}/files/home.html`)).text();
   expect(html).toBe("<!doctype html><body><h1>Hello</h1></body>");
 
-  await tab.getByRole("button", { name: "Plein écran" }).click();
+  await tab.getByRole("button", { name: /^Lancer .* en plein écran$/ }).click();
   const playFrame = tab.frameLocator('[data-testid="play"] iframe');
   const playAttr = (name: string) => () => playFrame.locator("html").getAttribute(`data-tweak-${name}`);
   await expect.poll(playAttr("accent")).toBe("#0f766e");
@@ -103,3 +104,34 @@ it("adjusts every tweak type on the canvas and in play mode, versions each chang
   await expect.poll(attr("gap")).toBe("4");
   await expect.poll(attr("title")).toBe("Welcome");
 }, 90_000);
+
+it("shows in play mode only the shown artboard's tweaks and the page tweaks bound to no artboard", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Studio" })).json()) as { id: string };
+  const page = (await (
+    await server.post(`/api/projects/${project.id}/pages`, {
+      title: "Screens",
+      files: {
+        "home.html": "<!doctype html><body><h1>Home</h1></body>",
+        "script.html": "<!doctype html><body><h1>Script</h1></body>",
+        "manifest.json": JSON.stringify({
+          artboards: [
+            { file: "home.html", width: 400, height: 300 },
+            { file: "script.html", width: 400, height: 300, x: 500 },
+          ],
+          tweaks: [
+            { id: "homeState", type: "choice", label: "Home state", options: ["normal", "empty"], artboard: "home.html" },
+            { id: "scriptState", type: "choice", label: "Script state", options: ["draft", "done"], artboard: "script.html" },
+            { id: "accent", type: "color", label: "Accent", default: "#e5484d" },
+          ],
+        }),
+      },
+    })
+  ).json()) as Page;
+
+  const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${page.id}/play/script.html`);
+  const panel = tab.getByRole("complementary", { name: "Tweaks" });
+  await expect.poll(() => panel.getByText("Script state").count()).toBe(1);
+  expect(await panel.getByText("Accent").count()).toBe(1);
+  expect(await panel.getByText("Home state").count()).toBe(0);
+}, 60_000);

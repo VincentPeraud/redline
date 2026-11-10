@@ -1,6 +1,8 @@
 // Engine events and work items: the contract between server, agent and engine adapters (ticket 07).
 
-import type { CreatedPage } from "./index.js";
+import type { CreatedPage, ThreadRendering, ThreadTarget } from "./index.js";
+import type { Person } from "./people.js";
+import type { LinkAuthor } from "./links.js";
 import type { ProjectContext } from "./projectFiles.js";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -18,6 +20,9 @@ export const MODEL_CHOICES = [
   { id: "sonnet", label: "Sonnet" },
   { id: "haiku", label: "Haiku" },
 ] as const;
+
+/** Model names reach `claude --model`: letters, digits, `.`, `_`, `-` and brackets only (`opus`, `claude-opus-4-1`, `sonnet[1m]`). */
+export const MODEL_PATTERN = /^[\w.\-[\]]+$/;
 
 /** Display name of a model alias ("sonnet" -> "Sonnet"); unknown names are shown as given. */
 export const modelLabel = (model: string): string => MODEL_CHOICES.find((choice) => choice.id === model)?.label ?? model;
@@ -65,6 +70,15 @@ export interface WorkItem extends ModelChoice {
   /** Engine session id to start, or to resume when `resume` is true. */
   sessionId: string;
   resume: boolean;
+  /** Set by the server when it sends the item: what the agent tells its user about the run. Never stored with the queued item. */
+  labels?: WorkLabels;
+}
+
+/** Names the agent shows in its activity log; the author is absent without SSO. */
+export interface WorkLabels {
+  project: string;
+  page: string;
+  author?: string;
 }
 
 /** Messages an agent sends about a work item. */
@@ -94,7 +108,12 @@ export const newSessionPath = (threadId: string) => `/api/threads/${threadId}/ne
 
 export interface ThreadReply {
   id: string;
-  author: "claude" | "user";
+  /** "redline": a message Redline itself wrote (for example after a diffusion); no person wrote it. */
+  author: "claude" | "user" | "redline";
+  /** The signed-in person who wrote a user message; absent for Claude's answers, messages from before the SSO and without SSO. */
+  person?: Person;
+  /** Set instead of `person` on a message written through a share link. */
+  linkAuthor?: LinkAuthor;
   body: string;
   createdAt: string;
   /** Pages the run that gave this answer created with `create_page` (on the first answer of that run only). */
@@ -103,18 +122,26 @@ export interface ThreadReply {
 
 export interface CreateReplyRequest extends ModelChoice {
   body: string;
+  /** Through a generic share link: the name the visitor signs with. */
+  visitorName?: string;
 }
 
 /** Body of `POST /agent-api/threads/:id/replies`: `workId` is the run posting the answer (to attach the pages it created). */
 export interface AgentReplyRequest extends CreateReplyRequest {
   workId?: string;
+  /** The terminal session answering: accepted only for a thread it picked with `pending_comments`. */
+  terminalSessionId?: string;
 }
 
 /** Server-sent events on `GET /api/events`, so the web UI refreshes without polling. */
 export type ServerEvent =
   | { type: "page-updated"; pageId: string; versionId: string }
+  /** The page got a new title (from the header or a session's rename_page): an open canvas shows it. */
+  | { type: "page-renamed"; pageId: string }
+  /** The page was archived or unarchived (from the web UI or a session's archive_page): an open canvas turns read-only, or back. */
+  | { type: "page-archive-changed"; pageId: string; projectId: string }
   /** A design system got a new version: the pages that use it (`pageIds`) reload their artboards to pick up the tokens. */
-  | { type: "design-system-updated"; designSystemId: string; pageIds: string[] }
+  | { type: "design-system-updated"; designSystemId?: string; pageIds: string[] }
   | { type: "thread-updated"; pageId: string; threadId: string }
   /** A conversation of the page, or one of its messages, changed. */
   | { type: "conversation-updated"; pageId: string; conversationId: string }
@@ -128,6 +155,8 @@ export type ServerEvent =
   | { type: "work-retrying"; pageId: string; workId: string; threadIds: string[]; retryAt: string; limit: boolean; message: string }
   /** Live state of a run, sent after every change (full snapshot, replace by `workId`). */
   | { type: "run-updated"; pageId: string; run: ThreadRun }
+  /** A terminal session took, released or lost the page, or connected or left while holding it (`GET /api/pages/:id/terminal-holder`). */
+  | { type: "terminal-hold-changed"; pageId: string }
   /** An agent connected or disconnected. */
   | { type: "agents-updated" };
 
@@ -161,7 +190,11 @@ export const retryRunPath = (pageId: string, workId: string) => `/api/pages/${pa
 export const pageRunsPath = (pageId: string) => `/api/pages/${pageId}/runs`;
 
 /** Why a work item is not running yet. */
-export type QueueReason = "page-busy" | "agent-offline";
+/**
+ * "project-archived" / "page-archived": the project or the page was archived while the item waited; it is sent once unarchived.
+ * "terminal": the page is held by a present terminal session, which the item waits for.
+ */
+export type QueueReason = "page-busy" | "agent-offline" | "project-archived" | "page-archived" | "terminal";
 
 /** A work item waiting for its turn on a page. */
 export interface QueueEntry {
@@ -180,6 +213,8 @@ export interface Conversation {
   title: string;
   archived: boolean;
   createdAt: string;
+  /** The person who started the conversation; absent for conversations from before the SSO and without SSO. */
+  startedBy?: Person;
   /** Number of exchanges: one user message and Claude's answer count for one (an unanswered user message counts too). */
   exchangeCount: number;
   /** ISO time of the latest message, else of the creation. */
@@ -188,11 +223,17 @@ export interface Conversation {
 
 export interface ConversationMessage extends ModelChoice {
   id: string;
+  /** Claude's answer only: the design system whose page the answering run published a version of (what is left pending is in `GET /api/design-systems/:id`). */
+  designSystemId?: string;
   author: "user" | "claude";
+  /** The signed-in person who wrote a user message; absent for Claude's answers, messages from before the SSO and without SSO. */
+  person?: Person;
   body: string;
   createdAt: string;
   /** Pages the run created with `create_page`, on Claude's answer. */
   createdPages?: CreatedPage[];
+  /** Chips of a user message: the elements it pointed at, numbered from 1 in this order. */
+  targets?: ThreadTarget[];
 }
 
 /** `GET /api/conversations/:id` and the result of creating one. */
@@ -207,11 +248,24 @@ export interface ConversationDetail extends Conversation, ModelChoice {
 /** Body of `POST /api/pages/:pageId/conversations`. */
 export interface CreateConversationRequest {
   title?: string;
+  /** On a design system's page: the project it was opened from, whose agent runs the work (ignored when that project does not use it). */
+  viaProjectId?: string;
+}
+
+/** What the user sees when a conversation message is sent. Sent with the message; only its `targets` (the chips) are stored, on the user's message. */
+export interface MessageContext {
+  /** Artboards on screen (partly visible ones included); `rendering` only for a responsive artboard in play mode. */
+  visibleArtboards: { file: string; rendering?: ThreadRendering }[];
+  /** Every tweak of the page with its current value, as shown to the user; empty when the page has none. */
+  tweaks: { label: string; value: string }[];
+  /** Elements the user points at, in order (numbered from 1 for Claude); same kinds as a thread's target. */
+  targets?: ThreadTarget[];
 }
 
 /** Body of `POST /api/conversations/:id/messages`; model and effort apply from this message on. */
 export interface CreateConversationMessageRequest extends ModelChoice {
   body: string;
+  context?: MessageContext;
 }
 
 /**
@@ -220,12 +274,19 @@ export interface CreateConversationMessageRequest extends ModelChoice {
  *   GET  /agent-api/pages/:pageId/files          -> AgentCheckout
  *   POST /agent-api/pages/:pageId/versions       (CreateVersionRequest) -> PageVersionSummary
  *   POST /agent-api/pages/:pageId/siblings       (CreateSiblingRequest) -> Page, a new page in the same project
+ *   PUT  /agent-api/pages/:pageId/title          (RenamePageRequest)    -> Page, renamed
  *   POST /agent-api/threads/:threadId/replies    (AgentReplyRequest)    -> ThreadReply
  */
 export const AGENT_API_PREFIX = "/agent-api";
 
 /** Body of `POST /agent-api/pages/:pageId/siblings`; `workId` ties the created page to the run that made it. */
 export interface CreateSiblingRequest {
+  title: string;
+  workId?: string;
+}
+
+/** `PUT /agent-api/pages/:pageId/title`: a session renames a page of its project (`workId` keeps it to that project). */
+export interface RenamePageRequest {
   title: string;
   workId?: string;
 }

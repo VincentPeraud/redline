@@ -2,10 +2,11 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, isSafePath, parseManifest, type ManifestArtboard } from "@redline/shared";
+import { ARTBOARD_FRAMES, CHANGE_KINDS, type ChangeRecordInput, ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, isSafePath, parseManifest, type ArtboardFrame, type ManifestArtboard } from "@redline/shared";
+import { gapsNote, layoutNote } from "./design-system-note.js";
 import { REDLINE_GUIDE } from "./guide.js";
 import { pathInside, readWorkingCopy } from "./working-copy.js";
 import type { ServerApi } from "./server-api.js";
@@ -13,7 +14,15 @@ import type { ServerApi } from "./server-api.js";
 export const REPLY_IN_THREAD_TOOL = "reply_in_thread";
 export const ADD_ARTBOARD_TOOL = "add_artboard";
 export const CREATE_PAGE_TOOL = "create_page";
+export const MOVE_ARTBOARD_TOOL = "move_artboard";
+export const SEND_REQUEST_TOOL = "send_request";
+export const RECORD_CHANGE_TOOL = "record_change";
+export const MERGE_REQUEST_TOOL = "merge_request";
+export const RENAME_PAGE_TOOL = "rename_page";
+export const ARCHIVE_PAGE_TOOL = "archive_page";
+export const CONFIRM_REMOVALS_TOOL = "confirm_removals";
 export const READ_GUIDE_TOOL = "read_guide";
+export const CHECK_PAGE_TOOL = "check_page";
 
 export interface RedlineToolsContext {
   api: ServerApi;
@@ -26,7 +35,21 @@ export interface RedlineToolsContext {
   workId?: string;
   /** Where `reply_in_thread` sends the text; default: the thread right away. A run holds replies back until it succeeds. */
   postReply?: (threadId: string, text: string) => Promise<unknown>;
+  /** Terminal mode registers its own `create_page`, which also works with no page checked out. */
+  ownCreatePage?: boolean;
+  /** Called after an artboard of the page was moved away and dropped from the working copy: the caller re-bases what it publishes later on the page as it is now. */
+  afterArtboardMoved?: (file: string) => Promise<void>;
+  /** Called when Claude confirms, after the user agreed, that a design system publish may remove tokens or components pages still use. */
+  onRemovalsConfirmed?: () => void;
+  /** Called when the design system's session records a change: the caller sends it with the next publish. */
+  onChangeRecorded?: (change: ChangeRecordInput) => void;
+  /** Applied to the result of every tool registered on the server (terminal mode adds its update notice there). */
+  decorateResult?: (result: ToolResult) => ToolResult | Promise<ToolResult>;
+  /** Checked before every tool runs: a result returned here is the answer and the tool does not run (terminal mode pauses a stale MCP). */
+  refuseCall?: () => ToolResult | undefined;
 }
+
+export type ToolResult = { isError?: boolean; content: { type: "text"; text: string }[] };
 
 const text = (message: string, isError = false) => ({ ...(isError ? { isError } : {}), content: [{ type: "text" as const, text: message }] });
 
@@ -36,15 +59,24 @@ function artboardFileError(file: string): string | null {
   return null;
 }
 
+/** The form `parseManifest` reads back: a responsive artboard declares its renderings, not the derived frame size. */
+function declaredArtboard(artboard: ManifestArtboard): unknown {
+  if (!artboard.responsive) return artboard;
+  const { responsive, width: _width, height: _height, ...rest } = artboard;
+  return { ...rest, responsive: responsive.map(({ format, width, height }) => ({ format, width, height })) };
+}
+
 /** Writes `file` in the working copy and adds (or updates) its entry in the manifest. */
 function addArtboardToWorkingCopy(
   dir: string,
-  artboard: { file: string; html: string; title?: string; width?: number; height?: number; x?: number; y?: number },
+  artboard: { file: string; html: string; title?: string; width?: number; height?: number; x?: number; y?: number; frame?: ArtboardFrame; url?: string },
 ): void {
   const manifestPath = join(dir, MANIFEST_PATH);
-  const manifest = existsSync(manifestPath)
-    ? parseManifest(readFileSync(manifestPath, "utf8"))
-    : defaultManifest(Object.keys(readWorkingCopy(dir)));
+  // Only the artboards are rewritten: everything else stays as written (a parsed element would carry computed fields, such as an anchored one's x and y).
+  const stored = existsSync(manifestPath) ? (JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>) : undefined;
+  // A legacy `notes` list is rewritten as elements (titles only, nothing computed in them).
+  const written = stored?.notes === undefined ? stored : undefined;
+  const manifest = stored ? parseManifest(JSON.stringify(stored)) : defaultManifest(Object.keys(readWorkingCopy(dir)));
   const { html, ...placement } = artboard;
   const given = Object.fromEntries(Object.entries(placement).filter(([, value]) => value !== undefined));
   const index = manifest.artboards.findIndex((a) => a.file === artboard.file);
@@ -63,7 +95,16 @@ function addArtboardToWorkingCopy(
   const target = pathInside(dir, artboard.file);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, html);
-  writeFileSync(manifestPath, JSON.stringify({ ...manifest, artboards }, null, 2));
+  writeFileSync(manifestPath, JSON.stringify({ ...(written ?? manifest), artboards: artboards.map(declaredArtboard) }, null, 2));
+}
+
+/** Deletes `file` and its manifest entry from the working copy, as the server did on the page when the artboard moved away. */
+function dropArtboardFromWorkingCopy(dir: string, file: string): void {
+  rmSync(pathInside(dir, file), { force: true });
+  const manifestPath = join(dir, MANIFEST_PATH);
+  if (!existsSync(manifestPath)) return;
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { artboards?: { file: string }[] };
+  writeFileSync(manifestPath, JSON.stringify({ ...manifest, artboards: (manifest.artboards ?? []).filter((a) => a.file !== file) }, null, 2));
 }
 
 /** Redline's tools for a session. Add new tools here: the agent's session server and `redline mcp` both use it. */
@@ -71,6 +112,12 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
   const { api, allowedThreadIds } = context;
   const postReply = context.postReply ?? ((threadId: string, text: string) => api.replyInThread(threadId, text, context.workId));
   const server = new McpServer({ name: "redline", version: "0.0.0" });
+  const { decorateResult = (result: ToolResult): ToolResult | Promise<ToolResult> => result, refuseCall } = context;
+  if (context.decorateResult || refuseCall) {
+    const register = server.registerTool.bind(server) as (name: string, config: unknown, handler: (...args: unknown[]) => Promise<ToolResult>) => unknown;
+    server.registerTool = ((name: string, config: unknown, handler: (...args: unknown[]) => Promise<ToolResult>) =>
+      register(name, config, async (...args) => refuseCall?.() ?? await decorateResult(await handler(...args)))) as typeof server.registerTool;
+  }
   server.registerTool(
     REPLY_IN_THREAD_TOOL,
     {
@@ -98,6 +145,8 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
         height: z.number().positive().optional(),
         x: z.number().optional(),
         y: z.number().optional(),
+        frame: z.enum(ARTBOARD_FRAMES as [ArtboardFrame, ...ArtboardFrame[]]).optional().describe("Frame play mode draws around a screen or printed artboard; omit to show it as is"),
+        url: z.string().optional().describe("Address bar text of a browser artboard; omit when there is no real address"),
       },
     },
     async (artboard) => {
@@ -111,15 +160,166 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
       return text(`Artboard ${artboard.file} added to the working copy; it is published with this run.`);
     },
   );
+  if (!context.ownCreatePage) {
+    server.registerTool(
+      CREATE_PAGE_TOOL,
+      {
+        description: "Create a new, empty page (a manifest, no artboard) in the same project. Returns its id.",
+        inputSchema: { title: z.string() },
+      },
+      async ({ title }) => {
+        const page = await api.createPageBeside(context.pageId, title, context.workId);
+        return text(`Page "${page.title}" created (id ${page.id}).`);
+      },
+    );
+  }
   server.registerTool(
-    CREATE_PAGE_TOOL,
+    RENAME_PAGE_TOOL,
     {
-      description: "Create a new page in the same project, with a manifest and one starter artboard. Returns its id.",
-      inputSchema: { title: z.string() },
+      description:
+        "Rename a page of this project: the title shown in Redline's page lists and header (the manifest has no page title). Without pageId it renames the page you work on.",
+      inputSchema: {
+        title: z.string(),
+        pageId: z.string().optional().describe("Id of the page to rename (see list_pages); default: the page you work on"),
+      },
     },
-    async ({ title }) => {
-      const page = await api.createPageBeside(context.pageId, title, context.workId);
-      return text(`Page "${page.title}" created (id ${page.id}).`);
+    async ({ title, pageId }) => {
+      try {
+        const page = await api.renamePage(pageId ?? context.pageId, title, context.workId);
+        return text(`Page renamed "${page.title}" (id ${page.id}).`);
+      } catch (error) {
+        return text((error as Error).message, true);
+      }
+    },
+  );
+  server.registerTool(
+    ARCHIVE_PAGE_TOOL,
+    {
+      description:
+        "Archive a page of this project that is no longer needed (an old version, a draft): it leaves the page lists and list_pages and becomes read-only, but keeps its versions and comments, and the user can unarchive it in Redline. Pages cannot be deleted from here. A design system's page, and a page a session works on (yours included), cannot be archived.",
+      inputSchema: { pageId: z.string().describe("Id of the page to archive (see list_pages)") },
+    },
+    async ({ pageId }) => {
+      try {
+        const page = await api.archivePage(pageId, context.workId);
+        return text(`Page archived "${page.title}" (id ${page.id}).`);
+      } catch (error) {
+        return text((error as Error).message, true);
+      }
+    },
+  );
+  server.registerTool(
+    SEND_REQUEST_TOOL,
+    {
+      description:
+        "Ask the design system this project follows for something a component lacks (a missing setting value, slot or look) when the closest instance cannot do it. First use that closest instance in the mock-up so it is never blocked, then send the request: it becomes a thread on the component's artboard in the design system (on its main page when the component does not exist there yet, so a whole new component can be requested), handled right away in its draft; the user reviews the change before it is diffused, and the thread of the mock-up that asked reopens afterwards. For a user comment you routed as a component change, pass its threadId so the request points back to it. Never copy the component's markup to get the look instead.",
+      inputSchema: {
+        component: z.string().describe("The component, e.g. ui-modal"),
+        missing: z.string().describe("What is missing and why the mock-up needs it, e.g. \"A 720 px size, for the mission edit form\""),
+        artboard: z.string().describe("Artboard file of this page where the closest instance is, e.g. planning.html"),
+        selector: z.string().optional().describe("CSS selector of that instance on the artboard, e.g. #edit"),
+        threadId: z.string().optional().describe("The user's comment this request answers, as given in your message"),
+      },
+    },
+    async ({ component, missing, artboard, selector, threadId }) => {
+      if (threadId !== undefined && allowedThreadIds && !allowedThreadIds.includes(threadId)) return text(`Thread ${threadId} is not part of this run.`, true);
+      try {
+        const sent = await api.sendRequest(context.pageId, { component, missing, artboard, ...(selector ? { selector } : {}), ...(threadId ? { threadId } : {}), ...(context.workId ? { workId: context.workId } : {}) });
+        return text(`Request sent to the design system "${sent.designSystemTitle}" (thread ${sent.threadId}). It is handled in the design system's draft and the user reviews it before diffusing. Keep the closest instance for now${threadId ? "; tell the user in their thread that the request was sent" : ""}.`);
+      } catch (error) {
+        return text((error as Error).message, true);
+      }
+    },
+  );
+  server.registerTool(
+    RECORD_CHANGE_TOOL,
+    {
+      description:
+        "Design system pages only. Record one change you made to a component, to send with your next publish_page (or with the end of your run): call it once per component you changed, with a short label (\"Taille 720 px\"), the kind, the request or comment thread it answers (threadId, as given in your message) and optionally the element it touches, as a CSS selector in the component's artboard in the draft (draftAnchor, for an added or modified element) and in the current diffusion (diffusedAnchor, for a removed or modified element). The user reviews these changes before diffusing, and a request turns \"Faite dans le brouillon\" once a change linked to it is published. Record a change even when it answers no request.",
+      inputSchema: {
+        component: z.string().describe("The component, e.g. ui-modal"),
+        label: z.string().describe("What changed, in a few words, e.g. \"Taille 720 px\""),
+        kind: z.enum(CHANGE_KINDS).describe("added: something new (a size, a slot); removed: something taken away; modified: something that changed"),
+        threadId: z.string().optional().describe("The request (or comment) thread this change answers"),
+        draftAnchor: z.string().optional().describe("Selector of the touched element in the draft's artboard"),
+        diffusedAnchor: z.string().optional().describe("Selector of the touched element in the current diffusion's artboard"),
+      },
+    },
+    async ({ component, label, kind, threadId, draftAnchor, diffusedAnchor }) => {
+      const anchor = draftAnchor || diffusedAnchor ? { ...(draftAnchor ? { draft: draftAnchor } : {}), ...(diffusedAnchor ? { diffused: diffusedAnchor } : {}) } : undefined;
+      context.onChangeRecorded?.({ component, label, kind, ...(threadId ? { threadId } : {}), ...(anchor ? { anchor } : {}) });
+      return text(`Change recorded for ${component}: it is sent with the next publish${threadId ? ", and the request it answers turns \"Faite dans le brouillon\"" : ""}.`);
+    },
+  );
+  server.registerTool(
+    MERGE_REQUEST_TOOL,
+    {
+      description:
+        "Design system pages only. Attach a request to another request about the same component when they ask for the same thing (two near-identical sizes, say): the first one's origins join the second, which shows \"Aussi demandé par ...\", and only the second stays open. Answer the merged request's thread afterwards to say what you did, then record your change against the one that stays.",
+      inputSchema: {
+        threadId: z.string().describe("The request to attach (it closes)"),
+        into: z.string().describe("The existing request that stays open"),
+      },
+    },
+    async ({ threadId, into }) => {
+      try {
+        await api.mergeRequest(threadId, into, context.workId);
+        return text(`Request ${threadId} merged into ${into}: its origins now show on that request, which stays the only open one. Link your change to ${into}.`);
+      } catch (error) {
+        return text((error as Error).message, true);
+      }
+    },
+  );
+  server.registerTool(
+    MOVE_ARTBOARD_TOOL,
+    {
+      description:
+        "Move an artboard of this page to another page of the same project, or to a new page, at once (with its comments). The move is refused when the target already has a file of that name or when another session works on either page. Give pageId or newPageTitle; the answer carries the target page's id, to use for the next moves to that page.",
+      inputSchema: {
+        file: z.string().describe("Artboard file of this page, e.g. btn.html"),
+        pageId: z.string().optional().describe("Id of the target page (see create_page, list_pages)"),
+        newPageTitle: z.string().optional().describe("Title of a new page to create and move the artboard to"),
+      },
+    },
+    async ({ file, pageId, newPageTitle }) => {
+      if ((pageId === undefined) === (newPageTitle === undefined)) return text("Give either pageId or newPageTitle.", true);
+      try {
+        const sourceId = context.pageId;
+        const request = pageId !== undefined ? { file, targetPageId: pageId } : { file, newPageTitle: newPageTitle! };
+        const { targetPage } = await api.moveArtboard(sourceId, { ...request, ...(context.workId ? { workId: context.workId } : {}) });
+        dropArtboardFromWorkingCopy(context.workingCopyDir, file);
+        await context.afterArtboardMoved?.(file);
+        return text(`${file} moved to page "${targetPage.title}" (id ${targetPage.id}). Do not edit its manifest entry in this working copy.`);
+      } catch (error) {
+        return text((error as Error).message, true);
+      }
+    },
+  );
+  server.registerTool(
+    CONFIRM_REMOVALS_TOOL,
+    {
+      description:
+        "Confirm that the next publish of this design system may remove tokens or components that pages still use. Call it only after the user explicitly agreed to the removal when you asked them; never on your own.",
+    },
+    async () => {
+      context.onRemovalsConfirmed?.();
+      return text("Removals confirmed for the next publish.");
+    },
+  );
+  server.registerTool(
+    CHECK_PAGE_TOOL,
+    {
+      description:
+        "Check the working copy before you finish a page: its design system gaps, only for a project with a shared design system (hard-coded colours and fonts, raw controls, deprecated tokens: the \"écarts\" the user sees), with the token or component to use, and its probable layout problems on the canvas (overlaps, a note over an artboard, an arrow crossing a box).",
+    },
+    async () => {
+      try {
+        const files = readWorkingCopy(context.workingCopyDir);
+        const { gaps } = await api.checkGaps(context.pageId, files);
+        return text(`${gapsNote(gaps) ?? "No design system gaps."}\n${layoutNote(files)}`);
+      } catch (error) {
+        return text((error as Error).message, true);
+      }
     },
   );
   server.registerTool(

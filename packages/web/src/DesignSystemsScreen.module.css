@@ -11,6 +11,7 @@
 }
 
 .card {
+  position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -26,80 +27,49 @@
   border-color: var(--color-border-strong);
 }
 
+/* The title is the link and stretches over the whole card; "Relire et diffuser" stays above it, so no button sits inside a link. */
+.cardLink {
+  color: inherit;
+  text-decoration: none;
+}
+
+.cardLink::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.cardLink:focus-visible::after {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-xl);
+}
+
 .preview {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: var(--space-2);
   height: 180px;
   background: var(--color-surface-sunken);
 }
 
-.sheet {
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  width: 240px;
-  height: 136px;
-  padding: 12px 14px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-strong);
+.swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
+}
+
+.swatchLarge {
+  width: 60px;
+  height: 60px;
   border-radius: var(--radius-sm);
 }
 
-.row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.grow {
-  flex-grow: 1;
-}
-
-.logoMark {
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
-  background: var(--color-accent);
-}
-
-.bar {
-  border-radius: 2px;
-  background: var(--color-text);
-}
-
-.barLight {
-  height: 6px;
-  width: 40%;
-  border-radius: 2px;
-  background: var(--color-offline);
-}
-
-.line {
-  height: 3px;
-  background: var(--color-border-strong);
-}
-
-.tile {
-  flex: 1 1 0;
-  height: 40px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xs);
-}
-
-.block {
-  height: 54px;
-  background: #eceae4;
-  border-radius: var(--radius-xs);
-}
-
-.ghostButton {
-  height: 14px;
-  width: 64px;
-  margin-top: 2px;
-  border: 1px solid var(--color-offline);
-  border-radius: 3px;
+.pill {
+  height: 18px;
+  width: 16px;
+  border-radius: var(--radius-pill);
 }
 
 .body {
@@ -107,6 +77,37 @@
   flex-direction: column;
   gap: 6px;
   padding: 16px 18px;
+}
+
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+
+.alertsRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.review {
+  position: relative;
+  z-index: 1;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-accent);
+  text-decoration: underline;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.review:hover {
+  color: var(--color-accent-hover);
 }
 
 .name {
@@ -119,7 +120,7 @@
   color: var(--color-text-secondary);
 }
 
-.modified {
+.stats {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
@@ -177,4 +178,73 @@
 .mono {
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
+}
+
+.archivedLink {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-1);
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+}
+
+.archivedLink:hover {
+  color: var(--color-text);
+}
+
+.archivedChevron {
+  color: var(--color-text-muted);
+}
+
+.archivedHeading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.archivedBreadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
+  color: var(--color-text-muted);
+}
+
+.archivedBreadcrumb a {
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.archivedCurrent {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.archivedTitle {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-bold);
+}
+
+.archivedIntro {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--color-text-body);
+}
+
+.archivedPreview {
+  opacity: 0.55;
+  filter: grayscale(1);
+}
+
+.archivedPill {
+  flex-shrink: 0;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
 }

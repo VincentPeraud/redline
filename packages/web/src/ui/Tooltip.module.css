@@ -1,0 +1,36 @@
+.bubble {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--color-text);
+  color: var(--color-text-inverse);
+  font: 500 12px/1.3 var(--font-sans);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: appear 0.12s;
+}
+
+.arrow {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--color-text);
+  transform: translate(-50%, -50%) rotate(45deg);
+  z-index: -1;
+}
+
+.top .arrow {
+  top: 100%;
+}
+
+.bottom .arrow {
+  top: 0;
+}
+
+@keyframes appear {
+  from {
+    opacity: 0;
+  }
+}

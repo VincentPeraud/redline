@@ -3,9 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser } from "playwright";
+import { type Browser } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import type { Project } from "@redline/shared";
+import type { Page, Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -18,7 +19,7 @@ beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
   server = await startTestServer({ webDir });
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, 60_000);
 
 afterAll(async () => {
@@ -52,11 +53,39 @@ it("creates a project, then a page from its overview, and opens it on the canvas
   await pageDialog.getByRole("button", { name: "Créer la page" }).click();
 
   await expect.poll(() => tab.url()).toContain("#/pages/");
-  await expect.poll(() => tab.locator("iframe").count()).toBe(1);
+  await tab.getByTestId("canvas-empty").getByRole("heading", { name: "Cette page est vide" }).waitFor();
+  expect(await tab.locator("iframe").count()).toBe(0);
 
   await tab.getByRole("link", { name: "Acme" }).click();
   const card = tab.getByTestId("page-card").filter({ hasText: "Landing" });
   await card.waitFor();
-  await expect.poll(() => card.locator("iframe").count()).toBe(1);
-  await card.getByText("1 artboard").waitFor();
+  await card.getByText("0 artboard").waitFor();
+}, 60_000);
+
+it("previews each project with the artboards of its last changed page, on the home and on the Projects screen", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Preview" })).json()) as Project;
+  const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Landing", files: { "index.html": "<!doctype html><h1>Hi</h1>" } })).json()) as Page;
+  await server.post(`/api/projects/${project.id}/pages`, { title: "Pricing", files: { "pricing.html": "<!doctype html><h1>Plans</h1>" } });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await server.post(`/api/pages/${page.id}/versions`, { files: { "index.html": "<!doctype html><h1>Hello</h1>" }, message: "edit", origin: "terminal" });
+  const preview = new RegExp(`^${server.artboardOrigin}/c/[^/]+/pages/${page.id}/index.html$`);
+
+  const tab = await browser.newPage();
+  await tab.goto(`${server.url}/#/projects`);
+  const card = tab.getByRole("link").filter({ hasText: "Preview" });
+  await expect.poll(() => card.locator("iframe").first().getAttribute("src")).toMatch(preview);
+
+  await tab.goto(`${server.url}/#/`);
+  const homeCard = tab.getByTestId("home-projects").getByRole("link").filter({ hasText: "Preview" });
+  await expect.poll(() => homeCard.locator("iframe").first().getAttribute("src")).toMatch(preview);
+}, 60_000);
+
+it("shows the Redline logo as the tab icon", async () => {
+  const tab = await browser.newPage();
+  await tab.goto(`${server.url}/#/projects`);
+  const href = await tab.locator('link[rel="icon"]').getAttribute("href");
+  const icon = await fetch(new URL(href!, server.url));
+  expect(icon.status).toBe(200);
+  expect(icon.headers.get("content-type")).toContain("image/svg+xml");
+  expect(await icon.text()).toContain("#d92d20");
 }, 60_000);

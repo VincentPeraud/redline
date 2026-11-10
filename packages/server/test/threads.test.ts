@@ -1,3 +1,5 @@
+import Database from "better-sqlite3";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Page, Project, Thread } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
@@ -34,6 +36,71 @@ describe("pinned threads over the server HTTP API", () => {
     return (await res.json()) as Thread;
   }
 
+  it("stores the rendering a thread was pinned in, and keeps it after a reload", async () => {
+    const thread = await createThread("Burger menu", { rendering: { format: "mobile", width: 390 } });
+    expect(thread.rendering).toEqual({ format: "mobile", width: 390 });
+    const [listed] = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+    expect(listed.rendering).toEqual({ format: "mobile", width: 390 });
+    expect((await createThread("No rendering")).rendering).toBeUndefined();
+  });
+
+  it("accepts a fractional rendering width, as a manifest declares them", async () => {
+    const thread = await createThread("Odd", { rendering: { format: "mobile", width: 390.5 } });
+    expect(thread.rendering).toEqual({ format: "mobile", width: 390.5 });
+  });
+
+  it("refuses a rendering whose format is a prototype key", async () => {
+    const res = await server.post(`/api/pages/${page.id}/threads`, pin("Bad", { rendering: { format: "constructor", width: 390 } }));
+    expect(res.status).toBe(400);
+  });
+
+  it("keeps the rendering of a held comment", async () => {
+    await createThread("Later", { held: true, rendering: { format: "tablet", width: 768 } });
+    const [held] = (await (await server.get(`/api/pages/${page.id}/held`)).json()) as Thread[];
+    expect(held.rendering).toEqual({ format: "tablet", width: 768 });
+  });
+
+  it("stores the tweak grid cell a thread was pinned in, keeps it after a reload and on a held comment", async () => {
+    const cell = { state: "Hover", variant: "Outlined", icon: false };
+    const thread = await createThread("Too tight", { cell });
+    expect(thread.cell).toEqual(cell);
+    expect(thread.target).toMatchObject({ kind: "element", cell });
+    const [listed] = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+    expect(listed.cell).toEqual(cell);
+    expect((await createThread("No cell")).cell).toBeUndefined();
+    await createThread("Later", { held: true, cell });
+    const [held] = (await (await server.get(`/api/pages/${page.id}/held`)).json()) as Thread[];
+    expect(held.cell).toEqual(cell);
+  });
+
+  it("stores the state of the component instances a thread was written with, keeps it after a reload and on a held comment", async () => {
+    const instanceState = [{ selector: "main > ui-modal#confirm", attributes: { open: "" } }];
+    const thread = await createThread("Round cross", { selector: "main > ui-modal#confirm >>> div > button", instanceState });
+    expect(thread.instanceState).toEqual(instanceState);
+    expect(thread.target).toMatchObject({ kind: "element", instanceState });
+    const [listed] = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+    expect(listed.instanceState).toEqual(instanceState);
+    expect((await createThread("No state")).instanceState).toBeUndefined();
+    await createThread("Later", { held: true, instanceState });
+    const [held] = (await (await server.get(`/api/pages/${page.id}/held`)).json()) as Thread[];
+    expect(held.instanceState).toEqual(instanceState);
+  });
+
+  it.each([["open"], [[]], [[{ selector: "", attributes: { open: "" } }]], [[{ selector: "ui-modal", attributes: { open: 1 } }]], [[{ selector: "ui-modal", attributes: {} }]]])("refuses the instance state %j", async (instanceState) => {
+    const res = await server.post(`/api/pages/${page.id}/threads`, pin("Bad", { instanceState }));
+    expect(res.status).toBe(400);
+  });
+
+  it.each([[[]], ["Hover"], [{ state: { a: 1 } }], [{}], [{ state: null }]])("refuses the cell %j", async (cell) => {
+    const res = await server.post(`/api/pages/${page.id}/threads`, pin("Bad", { cell }));
+    expect(res.status).toBe(400);
+  });
+
+  it.each([{ format: "watch", width: 390 }, { format: "mobile", width: 0 }, { format: "mobile" }, "mobile"])("refuses the rendering %j", async (rendering) => {
+    const res = await server.post(`/api/pages/${page.id}/threads`, pin("Bad", { rendering }));
+    expect(res.status).toBe(400);
+  });
+
   it("stores a thread with its selector and percentage position, numbered from 1", async () => {
     const thread = await createThread("Make the title bigger\nand bolder");
     expect(thread).toMatchObject({
@@ -49,6 +116,55 @@ describe("pinned threads over the server HTTP API", () => {
 
     const list = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
     expect(list).toEqual([thread]);
+  });
+
+  it("exposes a created thread as an element target", async () => {
+    const thread = await createThread("Bigger", { elementName: "titre « Hi »" });
+    expect(thread.target).toEqual({ kind: "element", artboard: "home.html", selector: "body > h1", elementName: "titre « Hi »", xPct: 12.5, yPct: 30 });
+  });
+
+  it("reads rows of the other target kinds back as artboard and canvas element targets", async () => {
+    const whole = await createThread("Too busy");
+    const canvas = await createThread("Fix this note");
+    const db = new Database(join(server.dataDir, "redline.db"));
+    db.prepare("UPDATE threads SET target_kind = 'artboard', selector = '' WHERE id = ?").run(whole.id);
+    db.prepare("UPDATE threads SET target_kind = 'canvas-element', element_id = 'note-parcours', element_kind = 'sticky' WHERE id = ?").run(canvas.id);
+    db.close();
+    const list = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+    expect(list.map((t) => t.target)).toEqual([
+      { kind: "artboard", artboard: "home.html" },
+      { kind: "canvas-element", elementId: "note-parcours", elementKind: "sticky" },
+    ]);
+  });
+
+  describe("whole-artboard threads", () => {
+    const wholeArtboard = (body: string, extra: object = {}) => ({ target: { kind: "artboard", artboard: "home.html" }, body, ...extra });
+
+    it("creates a thread on a whole artboard, with no selector, position or rendering", async () => {
+      const res = await server.post(`/api/pages/${page.id}/threads`, wholeArtboard("Too busy"));
+      expect(res.status).toBe(201);
+      const thread = (await res.json()) as Thread;
+      expect(thread).toMatchObject({ number: 1, status: "open", title: "Too busy", target: { kind: "artboard", artboard: "home.html" }, artboard: "home.html" });
+      expect(thread.rendering).toBeUndefined();
+      const [listed] = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+      expect(listed.target).toEqual({ kind: "artboard", artboard: "home.html" });
+    });
+
+    it("supports Plus tard like any comment", async () => {
+      const res = await server.post(`/api/pages/${page.id}/threads`, wholeArtboard("Later", { held: true }));
+      expect(((await res.json()) as Thread).status).toBe("held");
+      const [held] = (await (await server.get(`/api/pages/${page.id}/held`)).json()) as Thread[];
+      expect(held.target).toEqual({ kind: "artboard", artboard: "home.html" });
+    });
+
+    it("refuses an artboard that is not on the page", async () => {
+      const res = await server.post(`/api/pages/${page.id}/threads`, { target: { kind: "artboard", artboard: "gone.html" }, body: "Hi" });
+      expect(res.status).toBe(400);
+    });
+
+    it.each([{ kind: "artboard" }, { kind: "artboard", artboard: "../x.html" }, { kind: "nope", artboard: "home.html" }])("refuses the target %j", async (target) => {
+      expect((await server.post(`/api/pages/${page.id}/threads`, { target, body: "Hi" })).status).toBe(400);
+    });
   });
 
   it("numbers threads in creation order and never reuses a number", async () => {
@@ -84,7 +200,24 @@ describe("pinned threads over the server HTTP API", () => {
     expect((await server.post(`/api/threads/unknown/resolve`, {})).status).toBe(404);
   });
 
-  it("exposes no way to change a thread's status other than the user's resolve route", async () => {
+  it("lets the user reopen a resolved thread, which goes back to the open threads", async () => {
+    const thread = await createThread("Fix the header");
+    await server.post(`/api/threads/${thread.id}/resolve`, {});
+    const res = await server.post(`/api/threads/${thread.id}/reopen`, {});
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: thread.id, status: "open", title: "Fix the header" });
+    const list = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+    expect(list.map((t) => t.status)).toEqual(["open"]);
+    expect((await server.post(`/api/threads/unknown/reopen`, {})).status).toBe(404);
+  });
+
+  it("only reopens a resolved thread: a held comment stays held", async () => {
+    const thread = await createThread("Later", { held: true });
+    expect(thread.status).toBe("held");
+    expect((await server.post(`/api/threads/${thread.id}/reopen`, {})).status).toBe(409);
+  });
+
+  it("exposes no way to change a thread's status other than the user's resolve and reopen routes", async () => {
     const thread = await createThread("Fix the header");
     for (const method of ["PATCH", "PUT"]) {
       const res = await fetch(`${server.url}/api/threads/${thread.id}`, {

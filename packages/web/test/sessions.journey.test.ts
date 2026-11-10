@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
-import { chromium, type Browser } from "playwright";
+import { type Browser } from "playwright";
+import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { FakeEngine, startSeam2, type Seam2 } from "@redline/agent/seam2";
+import { startTestServer } from "@redline/server/test-harness";
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -25,7 +27,7 @@ beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
   seam = await startSeam2(engine, { webDir });
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 }, 60_000);
 
 afterAll(async () => {
@@ -65,8 +67,8 @@ it("lists threads and conversations, filters by status and opens a session's mes
 
   await threadRow.click();
   await expect.poll(() => tab.getByTestId("session-message").allTextContents()).toEqual([
-    "Toi — Button too discreet",
-    "Claude — Button is now filled.",
+    "ToiButton too discreet",
+    "ClaudeButton is now filled.",
   ]);
   expect(tab.url()).toContain("#/sessions");
 
@@ -82,4 +84,22 @@ it("lists threads and conversations, filters by status and opens a session's mes
   expect(await later(3 * 3_600_000)).toContain("il y a 3 h");
   expect(await later(30 * 3_600_000)).toContain("hier");
   expect(await later(50 * 3_600_000)).toContain("il y a 2 jours");
+}, 60_000);
+
+it("says a thread waits until an agent runs for its project", async () => {
+  // No agent at all, default setting "Le fil attend": the thread waits.
+  const server = await startTestServer({ webDir });
+  const tab = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  try {
+    const project = (await (await server.post("/api/projects", { title: "Reels" })).json()) as { id: string };
+    const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Thumbnails", files: { "home.html": "<!doctype html><h1>Title</h1>" } })).json()) as { id: string };
+    await server.post(`/api/pages/${page.id}/threads`, { artboard: "home.html", selector: "h1", xPct: 20, yPct: 30, body: "Bigger title" });
+
+    await tab.goto(`${server.url}/#/sessions`);
+    await tab.getByTestId("session-row").filter({ hasText: "Bigger title" }).click();
+    await tab.getByText("Aucun agent ne tourne pour ce projet : le fil part dès qu'un agent est lancé dans son dossier.").waitFor();
+  } finally {
+    await tab.close();
+    await server.stop();
+  }
 }, 60_000);

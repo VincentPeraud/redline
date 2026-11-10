@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 10px var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
@@ -25,7 +25,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 10px;
+  padding: 0 var(--space-3);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface);
@@ -151,12 +151,19 @@
   cursor: pointer;
 }
 
+.starter {
+  padding: var(--space-2) var(--space-5);
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
 .context {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
-  padding: var(--space-3) var(--space-5);
+  padding: 10px 16px;
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
@@ -165,8 +172,14 @@
   color: var(--color-text-muted);
 }
 
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .chip {
-  padding: 3px 9px;
+  padding: 3px 8px;
   border-radius: var(--radius-pill);
   background: var(--color-surface-muted);
   font-size: var(--font-size-xs);
@@ -184,7 +197,7 @@
 
 .userBubble {
   align-self: flex-end;
-  max-width: 92%;
+  max-width: 100%;
   padding: 10px var(--space-3);
   border-radius: var(--radius-xl) var(--radius-xl) var(--radius-xs) var(--radius-xl);
   background: var(--color-surface-muted);
@@ -196,13 +209,9 @@
 
 .claudeMessage {
   font-size: var(--font-size-md);
-  line-height: 1.5;
+  line-height: 1.7;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-}
-
-.author {
-  font-weight: var(--font-weight-semibold);
 }
 
 .queued {
@@ -218,8 +227,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
-  padding: 40px 28px;
+  gap: 6px;
+  padding: var(--space-6);
   text-align: center;
 }
 
@@ -237,20 +246,53 @@
 .composer {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: 14px var(--space-5) var(--space-5);
-  border-top: 1px solid var(--color-border-subtle);
+  gap: 10px;
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border);
 }
 
 .label {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+}
+
+.messageBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.messageBox:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus-ring);
+}
+
+.messageBoxChips,
+.messageChips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.userMessage {
+  align-self: flex-end;
+  max-width: 92%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
 }
 
 .sessionLine,
 .sessionId {
   font-family: var(--font-mono);
-  font-size: var(--font-size-2xs);
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
 
@@ -258,6 +300,67 @@
   color: var(--color-warning-strong);
 }
 
-.messageInput.messageInput {
-  line-height: normal;
+.messageBox .messageInput {
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+}
+
+.elementButton {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.elementButtonOn {
+  border-color: var(--color-accent);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+}
+
+.selectingNote {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.composer .sendButton {
+  height: 32px;
+  padding: 0 14px;
+  font-size: var(--font-size-sm);
+}
+
+.pickerPlaceholder {
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-muted);
+}
+
+.error {
+  font-size: var(--font-size-xs);
+  color: var(--color-danger-text);
+}
+
+/* An archived project's panel: a note in place of what writes. */
+.readOnlyNote {
+  margin: var(--space-4);
+  padding: var(--space-3) 14px;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
 }

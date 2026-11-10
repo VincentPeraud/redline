@@ -10,6 +10,7 @@
   --color-text-body: #52525b;
   --color-text-muted: #5f5f68;
   --color-text-inverse: #ffffff;
+  --color-text-placeholder: #8a8a93;
 
   /* Colours: borders */
   --color-border: #e4e2dc;
@@ -25,6 +26,7 @@
   --color-accent-ink: #8a1c12;
   --color-accent-soft-border: #f2b8b3;
   --color-accent-deep: #7a271a;
+  --color-accent-on-dark: #fca5a5;
 
   /* Colours: accent tint (selected ring on swatches, scope chips) and the dark play-mode chrome */
   --color-accent-tint: #fde3df;
@@ -39,8 +41,11 @@
   --color-warning-bg: #fdebdd;
   --color-warning-note-bg: #fff4e5;
   --color-warning-soft-bg: #fff7ed;
+  --color-warning-faint-bg: #fffbf7;
+  --color-override-ring: #ea580c;
   --color-warning-text: #9a3412;
   --color-warning-strong: #c2410c;
+  --color-warning-ink: #7c2d12;
   --color-warning-border: #f1c4b0;
   --color-danger-bg: #fef3f2;
   --color-danger-border: #f5c2bc;
@@ -53,7 +58,14 @@
   --color-offline: #a1a1aa;
   --color-code-bg: #18181b;
   --color-code-text: #e4e4e7;
+  --color-removed-border: #a1a1aa;
+  --color-removed-text: #71717a;
   --color-overlay: rgba(24, 24, 27, 0.45);
+
+  /* Responsive artboards: badge and frame outline */
+  --color-responsive-bg: #e0e7ff;
+  --color-responsive-text: #3730a3;
+  --color-responsive-border: #c7d2fe;
 
   /* Status badges: background / text */
   --badge-running-bg: var(--color-accent);
@@ -72,6 +84,7 @@
   /* Typography */
   --font-sans: "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-size-3xs: 10px;
   --font-size-2xs: 11px;
   --font-size-xs: 12px;
   --font-size-sm: 13px;
@@ -82,6 +95,7 @@
   --font-size-h3: 18px;
   --font-size-h2: 20px;
   --font-size-h1: 28px;
+  --font-size-title: 32px;
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
@@ -97,6 +111,7 @@
   --radius-pill: 999px;
 
   /* Spacing scale (4px base) */
+  --banner-size: 44px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -116,5 +131,6 @@
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
   --shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.14);
+  --shadow-focus-ring: 0 0 0 3px rgba(217, 45, 32, 0.12);
   --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.25);
 }

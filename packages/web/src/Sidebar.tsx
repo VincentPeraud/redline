@@ -1,16 +1,21 @@
 import type { ReactNode } from "react";
 import { routeHref, useRoute, type Route } from "./router.js";
-import { HomeProvider, useHome } from "./useHome.js";
+import { useHome } from "./useHome.js";
+import { useMe } from "./useMe.js";
+import { AccountMenu, displayName } from "./AccountMenu.js";
+import { Avatar } from "./Avatar.js";
 import { cx, Logo } from "./ui/index.js";
 import styles from "./Sidebar.module.css";
 
 const NAV: { label: string; route: Route; active: Route["name"][] }[] = [
   { label: "Accueil", route: { name: "home" }, active: ["home"] },
-  { label: "Projets", route: { name: "projects" }, active: ["projects", "project", "designMd"] },
-  { label: "Design systems", route: { name: "designSystems" }, active: ["designSystems"] },
+  { label: "Projets", route: { name: "projects" }, active: ["projects", "archivedProjects", "project", "designMd"] },
+  { label: "Design systems", route: { name: "designSystems" }, active: ["designSystems", "archivedDesignSystems"] },
   { label: "Sessions", route: { name: "sessions" }, active: ["sessions"] },
   { label: "Agents", route: { name: "agents" }, active: ["agents"] },
 ];
+
+const ACCOUNTS_ITEM: (typeof NAV)[number] = { label: "Comptes", route: { name: "accounts" }, active: ["accounts"] };
 
 function plural(count: number, one: string, many: string): string {
   return `${count} ${count <= 1 ? one : many}`;
@@ -34,24 +39,61 @@ function AgentStatusBox() {
   );
 }
 
+/** The signed-in person at the bottom of the sidebar; nothing without SSO. */
+function AccountBlock() {
+  const me = useMe();
+  if (!me) return null;
+  return (
+    <>
+      <div className={styles.accountDivider} />
+      <div className={styles.account}>
+        <AccountMenu
+          me={me}
+          placement="up"
+          trigger={(props, open) => (
+            <button type="button" data-testid="account-block" className={styles.accountButton} {...props}>
+              <Avatar initials={me.initials} />
+              <span className={styles.accountText}>
+                <span className={styles.accountName}>{displayName(me)}</span>
+                <span className={styles.accountEmail}>{me.email}</span>
+              </span>
+              <span aria-hidden="true" className={cx(styles.accountChevron, open && styles.accountChevronOpen)}>
+                ▲
+              </span>
+            </button>
+          )}
+        />
+      </div>
+    </>
+  );
+}
+
 function Nav() {
   const route = useRoute();
+  const { home } = useHome();
+  const isAdmin = useMe()?.account?.role === "admin";
   return (
     <nav aria-label="Navigation principale" className={styles.nav}>
       <div className={styles.navInner}>
         <div className={styles.logo}>
           <Logo />
         </div>
-        {NAV.map((item) => {
+        {(isAdmin ? [...NAV, ACCOUNTS_ITEM] : NAV).map((item) => {
           const current = item.active.includes(route.name);
           return (
             <a key={item.label} href={routeHref(item.route)} aria-current={current ? "page" : undefined} className={cx(styles.link, current && styles.current)}>
               {item.label}
+              {item.route.name === "designSystems" && home && home.designSystemsToDiffuse > 0 && (
+                <span data-testid="sidebar-to-diffuse" aria-label={`${plural(home.designSystemsToDiffuse, "design system", "design systems")} à diffuser`} className={styles.badge}>
+                  {home.designSystemsToDiffuse}
+                </span>
+              )}
             </a>
           );
         })}
         <div className={styles.spacer} />
         <AgentStatusBox />
+        <AccountBlock />
       </div>
     </nav>
   );
@@ -63,11 +105,9 @@ function Nav() {
  */
 export function Shell({ children }: { children: ReactNode }) {
   return (
-    <HomeProvider>
-      <div className={styles.shell}>
-        <Nav />
-        <div className={styles.content}>{children}</div>
-      </div>
-    </HomeProvider>
+    <div className={styles.shell}>
+      <Nav />
+      <div className={styles.content}>{children}</div>
+    </div>
   );
 }

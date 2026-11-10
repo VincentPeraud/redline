@@ -3,13 +3,14 @@ import {
   type CreateDesignSystemRequest,
   type DesignSystem,
   type DesignSystemSummary,
-  NEUTRAL_DESIGN_SYSTEM_ID,
   type Project,
 } from "@redline/shared";
+import { ArchiveIcon, archivedOnLabel } from "./ArchiveControls.js";
 import { Button, Dialog, DialogActions, Field, PageContent, PageHeader, Select, Textarea, TextInput } from "./ui/index.js";
 import { usedByLabel } from "./designSystemLabel.js";
-import { relativeTime } from "./relativeTime.js";
-import { routeHref } from "./router.js";
+import { componentCountLabel, pageCountLabel } from "./diffusionLabels.js";
+import { navigateTo, routeHref } from "./router.js";
+import { PendingPill, RequestsPill } from "./DesignSystemAlerts.js";
 import styles from "./DesignSystemsScreen.module.css";
 
 function NewDesignSystemDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (designSystem: DesignSystem) => void }) {
@@ -90,39 +91,15 @@ function NewDesignSystemDialog({ onClose, onCreated }: { onClose: () => void; on
   );
 }
 
-/** Schematic page sketch, alternating between the board's two layouts. */
-function PreviewSheet({ variant }: { variant: number }) {
+/** The design system's colours as the board draws them: two small squares, a large one and a pill. */
+function PreviewSwatches({ palette }: { palette: string[] }) {
+  const [first, second, third] = palette;
   return (
     <div className={styles.preview} aria-hidden="true">
-      {variant % 2 === 0 ? (
-        <div className={styles.sheet}>
-          <div className={styles.row}>
-            <div className={styles.logoMark} />
-            <div className={styles.bar} style={{ height: 5, width: 56 }} />
-            <div className={styles.grow} />
-            <div className={styles.line} style={{ width: 20 }} />
-            <div className={styles.line} style={{ width: 20 }} />
-          </div>
-          <div className={styles.bar} style={{ height: 9, width: "60%", marginTop: 4 }} />
-          <div className={styles.line} style={{ width: "85%" }} />
-          <div className={styles.row} style={{ marginTop: 6 }}>
-            <div className={styles.tile} />
-            <div className={styles.tile} />
-            <div className={styles.tile} />
-          </div>
-        </div>
-      ) : (
-        <div className={styles.sheet}>
-          <div className={styles.barLight} />
-          <div className={styles.row} style={{ marginTop: 4 }}>
-            <div className={styles.block} style={{ flex: "2 1 0" }} />
-            <div className={styles.block} style={{ flex: "1 1 0" }} />
-          </div>
-          <div className={styles.line} style={{ width: "80%" }} />
-          <div className={styles.line} style={{ width: "65%" }} />
-          <div className={styles.ghostButton} />
-        </div>
-      )}
+      {first && <div className={styles.swatch} style={{ background: first }} />}
+      {second && <div className={styles.swatch} style={{ background: second }} />}
+      {third && <div className={styles.swatchLarge} style={{ background: third }} />}
+      {first && <div className={styles.pill} style={{ background: first }} />}
     </div>
   );
 }
@@ -130,11 +107,15 @@ function PreviewSheet({ variant }: { variant: number }) {
 export function DesignSystemsScreen() {
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[] | null>(null);
   const [creating, setCreating] = useState(false);
+  const [archivedCount, setArchivedCount] = useState(0);
 
   useEffect(() => {
     fetch("/api/design-systems")
       .then((res) => res.json() as Promise<DesignSystemSummary[]>)
-      .then((all) => setDesignSystems(all.filter((ds) => ds.id !== NEUTRAL_DESIGN_SYSTEM_ID)));
+      .then(setDesignSystems);
+    fetch("/api/design-systems?archived=1")
+      .then((res) => res.json() as Promise<DesignSystemSummary[]>)
+      .then((archived) => setArchivedCount(archived.length));
   }, []);
 
   return (
@@ -154,15 +135,39 @@ export function DesignSystemsScreen() {
         }
       />
       <div className={styles.grid} data-testid="design-systems">
-        {designSystems?.map((ds, index) => (
-          <a key={ds.id} className={styles.card} data-testid="design-system" href={routeHref({ name: "page", pageId: ds.pageId })}>
-            <PreviewSheet variant={index} />
+        {designSystems?.map((ds) => (
+          <div key={ds.id} className={styles.card} data-testid="design-system">
+            <PreviewSwatches palette={ds.palette} />
             <div className={styles.body}>
-              <div className={styles.name}>{ds.title}</div>
+              <div className={styles.nameRow}>
+                <div className={styles.name}>
+                  <a className={styles.cardLink} href={routeHref({ name: "designSystem", designSystemId: ds.id })}>
+                    {ds.title}
+                  </a>
+                </div>
+                {ds.pendingChanges > 0 && <PendingPill changes={ds.pendingChanges} />}
+              </div>
               <div className={styles.usedBy}>{usedByLabel(ds)}</div>
-              {ds.updatedAt && <div className={styles.modified}>Modifié {relativeTime(ds.updatedAt)}</div>}
+              {(ds.requests > 0 || ds.pendingChanges > 0) && (
+                <div className={styles.alertsRow}>
+                  {ds.requests > 0 && <RequestsPill count={ds.requests} suffix=" des projets" />}
+                  {ds.pendingChanges > 0 && (
+                    <button
+                      type="button"
+                      data-testid="review-and-diffuse"
+                      className={styles.review}
+                      onClick={() => navigateTo({ name: "designSystem", designSystemId: ds.id, review: true })}
+                    >
+                      Relire et diffuser
+                    </button>
+                  )}
+                </div>
+              )}
+              <div data-testid="design-system-stats" className={styles.stats}>
+                {pageCountLabel(ds.pageCount)} · {componentCountLabel(ds.componentCount)} · diffusion {ds.diffusion}
+              </div>
             </div>
-          </a>
+          </div>
         ))}
         <button type="button" className={styles.add} onClick={() => setCreating(true)}>
           <span className={styles.plus} aria-hidden="true">
@@ -172,6 +177,15 @@ export function DesignSystemsScreen() {
           <span className={styles.addHint}>De zéro, ou à partir des pages d'un projet</span>
         </button>
       </div>
+      {archivedCount > 0 && (
+        <a href={routeHref({ name: "archivedDesignSystems" })} className={styles.archivedLink}>
+          <ArchiveIcon size={16} />
+          Design systems archivés · {archivedCount}
+          <span aria-hidden="true" className={styles.archivedChevron}>
+            ›
+          </span>
+        </a>
+      )}
       {creating && (
         <NewDesignSystemDialog
           onClose={() => setCreating(false)}
@@ -180,6 +194,50 @@ export function DesignSystemsScreen() {
           }}
         />
       )}
+    </PageContent>
+  );
+}
+
+/** "Design systems archivés": read-only design systems, each opened to be unarchived or deleted for good. */
+export function ArchivedDesignSystemsScreen() {
+  const [designSystems, setDesignSystems] = useState<DesignSystemSummary[] | null>(null);
+
+  useEffect(() => {
+    fetch("/api/design-systems?archived=1")
+      .then((res) => res.json() as Promise<DesignSystemSummary[]>)
+      .then(setDesignSystems);
+  }, []);
+
+  return (
+    <PageContent>
+      <div className={styles.archivedHeading}>
+        <nav aria-label="Fil d'Ariane" className={styles.archivedBreadcrumb}>
+          <a href={routeHref({ name: "designSystems" })}>Design systems</a>
+          <span aria-hidden="true">/</span>
+          <span className={styles.archivedCurrent}>Archivés</span>
+        </nav>
+        <h1 className={styles.archivedTitle}>Design systems archivés</h1>
+        <p className={styles.archivedIntro}>En lecture seule. Ouvre un design system pour le désarchiver ou le supprimer définitivement.</p>
+      </div>
+      <div className={styles.grid}>
+        {designSystems?.map((ds) => (
+          <a key={ds.id} className={styles.card} href={routeHref({ name: "designSystem", designSystemId: ds.id })}>
+            <div className={styles.archivedPreview}>
+              <PreviewSwatches palette={ds.palette} />
+            </div>
+            <div className={styles.body}>
+              <div className={styles.nameRow}>
+                <div className={styles.name}>{ds.title}</div>
+                <span className={styles.archivedPill}>Archivé</span>
+              </div>
+              <div className={styles.usedBy}>
+                {pageCountLabel(ds.pageCount)} · {componentCountLabel(ds.componentCount)}
+              </div>
+              {ds.archivedAt && <div className={styles.stats}>{archivedOnLabel(ds.archivedAt)}</div>}
+            </div>
+          </a>
+        ))}
+      </div>
     </PageContent>
   );
 }

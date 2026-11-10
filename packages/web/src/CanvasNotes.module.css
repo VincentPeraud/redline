@@ -1,0 +1,42 @@
+.text,
+.sticky {
+  position: absolute;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+
+.text {
+  padding: 0.6em 0.9em;
+  background: var(--color-surface);
+  border: 2px solid var(--color-border);
+  border-radius: 16px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.sticky {
+  padding: 0.85em 1em;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  line-height: 1.42;
+}
+
+.paragraph {
+  margin: 0;
+}
+
+.paragraph + .paragraph,
+.paragraph + .list {
+  margin-top: 0.3em;
+}
+
+.list {
+  margin: 0.15em 0 0;
+  padding-left: 1.3em;
+}
+
+.text a,
+.sticky a {
+  color: inherit;
+  text-decoration: underline;
+}

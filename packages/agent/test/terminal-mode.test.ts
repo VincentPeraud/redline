@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { AgentTokenResponse, DesignMdInfo, PageVersionSummary } from "@redline/shared";
+import type { AgentTokenResponse, DesignMdInfo, Page, PageVersionSummary, Project } from "@redline/shared";
 import { ServerApi } from "../src/server-api.js";
 import { createTerminalMcpServer } from "../src/terminal-mcp.js";
 import { FakeEngine, startSeam2, type Seam2 } from "./support/seam2.js";
@@ -54,6 +54,114 @@ describe("terminal mode (redline mcp)", () => {
     const versions = (await (await seam.server.get(`/api/pages/${page.id}/versions`)).json()) as PageVersionSummary[];
     expect(versions[0]).toMatchObject({ origin: "terminal", message: "Rework home" });
     expect(await origins(page.id)).toHaveLength(2);
+  });
+
+  it("lists the artboards of a checked-out page in canvas reading order, with their canvas and play addresses", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const manifest = {
+      artboards: [
+        { file: "paiement.html", title: "Paiement", x: 900, y: 0 },
+        { file: "accueil é.html", title: "Accueil", x: 0, y: 0 },
+        { file: "merci.html", x: 0, y: 900 },
+      ],
+    };
+    const page = await seam.createPage({
+      "manifest.json": JSON.stringify(manifest),
+      "paiement.html": "<p>p</p>",
+      "accueil é.html": "<p>a</p>",
+      "merci.html": "<p>m</p>",
+    });
+    const call = await connectTerminal(seam.folder);
+    const base = `${seam.server.url}/#/pages/${page.id}`;
+
+    const answer = await call("checkout_page", { pageId: page.id });
+
+    expect(answer).toContain(base);
+    expect(answer.split("\n").filter((line) => /^\d\. /.test(line))).toEqual([
+      `1. Accueil · canvas ${base}/artboards/accueil%20%C3%A9.html · play ${base}/play/accueil%20%C3%A9.html`,
+      `2. Paiement · canvas ${base}/artboards/paiement.html · play ${base}/play/paiement.html`,
+      `3. merci.html · canvas ${base}/artboards/merci.html · play ${base}/play/merci.html`,
+    ]);
+  });
+
+  it("returns the page address after the version id when publishing", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+    writeFileSync(join(seam.folder, ".redline", page.id, "home.html"), "<h1>Changed</h1>");
+
+    const answer = await call("publish_page", { message: "Rework" });
+
+    expect(answer).toMatch(/Published version [0-9a-f-]{36}: /);
+    expect(answer).toContain(`${seam.server.url}/#/pages/${page.id}`);
+  });
+
+  it("lists the design system gaps and the layout of the published version after its address", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const designSystem = await seam.createDesignSystem();
+    const page = await seam.createPage({ ...PAGE_FILES, "manifest.json": JSON.stringify({ designSystem, artboards: [{ file: "home.html", x: 0, y: 0, width: 400, height: 300 }] }) });
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+    writeFileSync(join(seam.folder, ".redline", page.id, "home.html"), '<h1 style="color: #2563eb">Changed</h1>');
+
+    const answer = await call("publish_page", { message: "Blue" });
+
+    expect(answer).toContain("1 design system gap");
+    expect(answer).toContain("- colour #2563eb ×1 (home.html)");
+    expect(answer).toContain("Layout: nothing overlaps.");
+  });
+
+  it("tells a checkout of a project without a design system that its style is the project style, still to be created while empty", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+
+    const empty = await call("checkout_page", { pageId: page.id });
+    expect(empty).toContain("This project has no design system. Its style is still to be created: tokens.css at the root of the working copy is empty.");
+    expect(empty).not.toContain("Neutral");
+    expect(existsSync(join(seam.folder, ".redline", page.id, ".design-system"))).toBe(false);
+
+    for (const content of [":root {\n  /* to be designed */\n}\n", ":root {}\n"]) {
+      await fetch(`${seam.server.url}/api/projects/${seam.project.id}/project-style`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ content }) });
+      expect(await call("checkout_page", { pageId: page.id })).toContain("Its style is still to be created");
+    }
+
+    await fetch(`${seam.server.url}/api/projects/${seam.project.id}/project-style`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: ":root { --color-primary: #7c3aed; }\n" }),
+    });
+    const styled = await call("checkout_page", { pageId: page.id });
+    expect(styled).toContain("This project has no design system. Its style is the project style: tokens.css at the root of the working copy.");
+    expect(existsSync(join(seam.folder, ".redline", page.id, ".design-system"))).toBe(false);
+  });
+
+  it("keeps the design system note and folder in a checkout of a project with a shared design system", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const designSystem = await seam.createDesignSystem();
+    const page = await seam.createPage({ ...PAGE_FILES, "manifest.json": JSON.stringify({ designSystem, artboards: [{ file: "home.html", x: 0, y: 0, width: 400, height: 300 }] }) });
+    const call = await connectTerminal(seam.folder);
+
+    const answer = await call("checkout_page", { pageId: page.id });
+
+    expect(answer).toMatch(/Design system: .* \(diffusion 1\), read-only in \.design-system\//);
+    expect(answer).not.toContain("has no design system");
+    expect(existsSync(join(seam.folder, ".redline", page.id, ".design-system"))).toBe(true);
+  });
+
+  it("reports no gaps after publishing a page of a project without a design system", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+    writeFileSync(join(seam.folder, ".redline", page.id, "home.html"), '<h1 style="color: #2563eb; font-family: Arial">Changed</h1>');
+
+    const answer = await call("publish_page", { message: "Blue" });
+
+    expect(answer).toMatch(/Published/);
+    expect(answer).not.toContain("gap");
+    expect(answer).toContain("Layout: nothing overlaps.");
   });
 
   it("uploads the assets added or changed in the working copy, with or without a page change", async () => {
@@ -170,6 +278,23 @@ describe("terminal mode (redline mcp)", () => {
     expect(await call("publish_page", { message: "Again" })).toMatch(/Nothing changed/);
   });
 
+  it("publishes a project style (tokens.css) edited in the working copy as a terminal version", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const page = await seam.createPage(PAGE_FILES);
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+
+    writeFileSync(join(seam.folder, ".redline", page.id, "tokens.css"), ":root { --color-primary: #7c3aed; }\n");
+    expect(await call("publish_page", { message: "Purple" })).toMatch(/Published/);
+
+    const style = (await (await seam.server.get(`/api/projects/${seam.project.id}/project-style`)).json()) as { content: string };
+    expect(style.content).toBe(":root { --color-primary: #7c3aed; }\n");
+    const versions = (await (await seam.server.get(`/api/projects/${seam.project.id}/project-style/versions`)).json()) as { origin: string }[];
+    expect(versions[0]).toMatchObject({ origin: "terminal" });
+    expect((await seam.server.get(`/api/pages/${page.id}/files/tokens.css`)).status).toBe(404);
+    expect(await call("publish_page", { message: "Again" })).toMatch(/Nothing changed/);
+  });
+
   it("publish waits for the page lock while a session runs on the page", async () => {
     let finishSession!: () => void;
     const sessionMayEnd = new Promise<void>((resolve) => (finishSession = resolve));
@@ -195,5 +320,147 @@ describe("terminal mode (redline mcp)", () => {
     await seam.waitForWorkEnd();
     expect(await origins(page.id)).toEqual(["terminal", "thread", "creation"]);
     rmSync(terminalFolder, { recursive: true, force: true });
+  });
+});
+
+describe("terminal mode: projects and pages", () => {
+  it("creates a project, lists it, and lists its pages, with links into Redline", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const call = await connectTerminal(seam.folder);
+
+    const created = await call("create_project", { title: "Halloween" });
+    const projectId = /id ([0-9a-f-]{36})/.exec(created)![1];
+    expect(created).toContain(`${seam.server.url}/#/projects/${projectId}`);
+    const project = (await (await seam.server.get(`/api/projects/${projectId}`)).json()) as Project;
+    expect(project.title).toBe("Halloween");
+
+    const projects = await call("list_projects", {});
+    expect(projects).toContain("Halloween");
+    expect(projects).toContain(projectId);
+
+    expect(await call("list_pages", { projectId })).toMatch(/no page/i);
+    const page = await seam.createPage(PAGE_FILES, "Stories");
+    expect((await seam.server.get(`/api/projects/${seam.project.id}/pages`)).status).toBe(200);
+    const pages = await call("list_pages", { projectId: seam.project.id });
+    expect(pages).toContain("Stories");
+    expect(pages).toContain(`${seam.server.url}/#/pages/${page.id}`);
+  });
+
+  it("creates an empty page in the given project without any checkout, ready to be checked out", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const call = await connectTerminal(seam.folder);
+
+    const answer = await call("create_page", { title: "Stories", projectId: seam.project.id });
+    const pages = (await (await seam.server.get(`/api/projects/${seam.project.id}/pages`)).json()) as Page[];
+    const stories = pages.find((p) => p.title === "Stories")!;
+    expect(Object.keys(stories.version.files)).toEqual(["manifest.json"]);
+    expect(answer).toContain(`${seam.server.url}/#/pages/${stories.id}`);
+    expect(answer).toMatch(/checkout_page/);
+
+    await call("checkout_page", { pageId: stories.id });
+    await call("add_artboard", { file: "story-1.html", html: "<h1>1</h1>" });
+    expect(await call("publish_page", { message: "First story" })).toMatch(/Published/);
+    expect(await seam.readFile(stories.id, "story-1.html")).toBe("<h1>1</h1>");
+  });
+
+  it("creates the page in the checked-out page's project, else in the folder's linked project, else explains", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const listTitles = async () =>
+      ((await (await seam!.server.get(`/api/projects/${seam!.project.id}/pages`)).json()) as Page[]).map((p) => p.title);
+
+    const bare = mkdtempSync(join(tmpdir(), "redline-terminal-"));
+    let call = await connectTerminal(bare);
+    expect(await call("create_page", { title: "Nowhere" })).toMatch(/projectId.*list_projects/);
+
+    const page = await seam.createPage(PAGE_FILES);
+    await call("checkout_page", { pageId: page.id });
+    await call("create_page", { title: "Beside" });
+    expect(await listTitles()).toContain("Beside");
+    await client!.close();
+
+    const linked = mkdtempSync(join(tmpdir(), "redline-terminal-"));
+    mkdirSync(join(linked, ".redline"));
+    writeFileSync(join(linked, ".redline", "project.json"), JSON.stringify({ projectId: seam.project.id }));
+    call = await connectTerminal(linked);
+    await call("create_page", { title: "Linked" });
+    await call("create_page", { title: "Blank id", projectId: "" });
+    expect(await listTitles()).toEqual(expect.arrayContaining(["Linked", "Blank id"]));
+    await client!.close();
+
+    const several = mkdtempSync(join(tmpdir(), "redline-terminal-"));
+    mkdirSync(join(several, ".redline"));
+    writeFileSync(join(several, ".redline", "project.json"), JSON.stringify({ projectIds: [seam.project.id, "other"] }));
+    call = await connectTerminal(several);
+    expect(await call("create_page", { title: "Which one" })).toMatch(/several projects.*projectId/);
+
+    rmSync(bare, { recursive: true, force: true });
+    rmSync(linked, { recursive: true, force: true });
+    rmSync(several, { recursive: true, force: true });
+  });
+  it("renames the checked-out page, or the page given by id, and explains when there is none", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const web = await seam.createPage(PAGE_FILES, "Sortie");
+    const other = await seam.createPage(PAGE_FILES, "Brouillon");
+    const call = await connectTerminal(seam.folder);
+    const titleOf = async (pageId: string) => ((await (await seam!.server.get(`/api/pages/${pageId}`)).json()) as Page).title;
+
+    expect(await call("rename_page", { title: "Archive" })).toMatch(/No page checked out/);
+    expect(await call("rename_page", { pageId: other.id, title: "Archive · Brouillon" })).toMatch(/renamed "Archive · Brouillon"/);
+    expect(await titleOf(other.id)).toBe("Archive · Brouillon");
+
+    await call("checkout_page", { pageId: web.id });
+    await call("rename_page", { title: "  Archive · Sortie (v1) " });
+    expect(await titleOf(web.id)).toBe("Archive · Sortie (v1)");
+    expect(await call("rename_page", { title: "  " })).toMatch(/title/);
+  });
+
+  it("archives the page given by id, which then leaves list_pages", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const web = await seam.createPage(PAGE_FILES, "Sortie");
+    const other = await seam.createPage(PAGE_FILES, "Brouillon");
+    const call = await connectTerminal(seam.folder);
+
+    expect(await call("archive_page", { pageId: other.id })).toMatch(/archived "Brouillon"/);
+    const listed = await call("list_pages", { projectId: web.projectId });
+    expect(listed).toContain(web.id);
+    expect(listed).not.toContain(other.id);
+  });
+
+  it("refuses a manifest title changed to rename the page, and keeps one left as checked out", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const manifest = (title: string) => JSON.stringify({ title, artboards: [{ file: "home.html", x: 0, y: 0 }] }, null, 2);
+    const page = await seam.createPage({ ...PAGE_FILES, "manifest.json": manifest("Sortie") }, "Sortie");
+    // The user renamed the page since: the title the manifest still carries is left alone.
+    await fetch(`${seam.server.url}/api/pages/${page.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Sortie · rejeu" }) });
+    const call = await connectTerminal(seam.folder);
+    await call("checkout_page", { pageId: page.id });
+    const copy = join(seam.folder, ".redline", page.id);
+
+    writeFileSync(join(copy, "home.html"), "<h1>Changed</h1>");
+    expect(await call("publish_page", { message: "Rework home" })).toMatch(/Published/);
+
+    writeFileSync(join(copy, "manifest.json"), manifest("Archive · Sortie"));
+    const refused = await call("publish_page", { message: "Rename page to archive" });
+    expect(refused).toMatch(/does not rename the page/);
+    expect(refused).toMatch(/rename_page/);
+    expect(await origins(page.id)).toHaveLength(2);
+  });
+
+  it("moves an artboard of the checked-out page to another page, refreshes the working copy and explains refusals", async () => {
+    seam = await startSeam2(new FakeEngine([]));
+    const manifest = JSON.stringify({ artboards: [{ file: "home.html", x: 0, y: 0 }, { file: "btn.html", x: 900, y: 0 }] });
+    const web = await seam.createPage({ "manifest.json": manifest, "home.html": "<p>h</p>", "btn.html": "<button>Ok</button>" }, "Web");
+    const buttons = await seam.createPage({ "manifest.json": JSON.stringify({ artboards: [] }) }, "Boutons");
+    const call = await connectTerminal(seam.folder);
+
+    expect(await call("move_artboard", { file: "btn.html", pageId: buttons.id })).toMatch(/No page checked out/);
+    await call("checkout_page", { pageId: web.id });
+    expect(await call("move_artboard", { file: "btn.html", pageId: buttons.id })).toMatch(/Boutons/);
+
+    expect(await seam.readFile(buttons.id, "btn.html")).toBe("<button>Ok</button>");
+    expect(existsSync(join(seam.folder, ".redline", web.id, "btn.html"))).toBe(false);
+    expect(await call("publish_page", { message: "Nothing to publish" })).toMatch(/Nothing changed/);
+
+    expect(await call("move_artboard", { file: "ghost.html", pageId: buttons.id })).toMatch(/not an artboard/);
   });
 });
