@@ -58,6 +58,45 @@ describe("agent sign-in link", () => {
     expect(logs.some((line) => line.includes("v@example.com") && line.includes("sign-in link"))).toBe(true);
   });
 
+  const preview = (linkToken: string) => fetch(`${server!.url}/api/agent-sign-in/preview`, { method: "POST", headers: { ...JSON_HEADERS, [TOKEN_HEADER]: linkToken }, body: "{}" });
+
+  it("previews who the link signs in without using it up", async () => {
+    const { token } = await localInstance();
+    const { url } = (await (await issue(token)).json()) as { url: string };
+    const shown = await preview(tokenOf(url));
+    expect(shown.status).toBe(200);
+    expect(await shown.json()).toMatchObject({ name: "Vincent", email: "v@example.com" });
+    expect(shown.headers.get("set-cookie")).toBeNull();
+    expect((await preview(tokenOf(url))).status).toBe(200);
+    expect((await consume(tokenOf(url))).status).toBe(200);
+    expect((await preview(tokenOf(url))).status).toBe(404);
+    expect((await preview("unknown")).status).toBe(404);
+  });
+
+  it("opens a 12-hour session that keeps the account's rights", async () => {
+    const { token } = await localInstance();
+    const { url } = (await (await issue(token)).json()) as { url: string };
+    const cookie = (await consume(tokenOf(url))).headers.get("set-cookie")!;
+    expect(cookie).toContain("Max-Age=43200");
+    expect((await fetch(`${server!.url}/api/accounts`, { headers: { cookie: cookie.split(";")[0] } })).status).toBe(200);
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 13 * 3_600_000 });
+    expect((await fetch(`${server!.url}/api/me`, { headers: { cookie: cookie.split(";")[0] } })).status).toBe(401);
+  });
+
+  it("ends its agent sessions and pending links when the agent token is regenerated, and leaves the other sessions", async () => {
+    const { token, cookie } = await localInstance();
+    const first = (await (await issue(token)).json()) as { url: string };
+    const agentCookie = (await consume(tokenOf(first.url))).headers.get("set-cookie")!.split(";")[0];
+    const pending = (await (await issue(token)).json()) as { url: string };
+    expect((await fetch(`${server!.url}/api/me`, { headers: { cookie: agentCookie } })).status).toBe(200);
+
+    expect((await fetch(`${server!.url}/api/agent-token/regenerate`, { method: "POST", headers: { ...JSON_HEADERS, cookie }, body: "{}" })).status).toBeLessThan(300);
+
+    expect((await fetch(`${server!.url}/api/me`, { headers: { cookie: agentCookie } })).status).toBe(401);
+    expect((await consume(tokenOf(pending.url))).status).toBe(404);
+    expect((await fetch(`${server!.url}/api/me`, { headers: { cookie } })).status).toBe(200);
+  });
+
   it("stops working after 60 seconds", async () => {
     const { token } = await localInstance();
     const { url } = (await (await issue(token)).json()) as { url: string };

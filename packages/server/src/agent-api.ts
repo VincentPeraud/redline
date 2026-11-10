@@ -124,13 +124,15 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const base = (publicUrl ?? `${req.protocol}://${req.headers.host}`).replace(/\/$/, "");
         if (access.mode === "none") return { url: `${base}/${path ?? ""}` };
         if (access.mode === "proxy") return reply.code(409).send({ error: "This instance signs people in through its SSO: the test browser needs the SSO session, not a Redline link." });
-        const account = store.accounts.agentActorOf(req.headers.authorization?.slice("Bearer ".length))?.account;
+        const agentToken = req.headers.authorization?.slice("Bearer ".length) ?? "";
+        const account = store.accounts.agentActorOf(agentToken)?.account;
         if (!account) return reply.code(409).send({ error: "This agent token stands for no account yet." });
         const now = Date.now();
+        for (const [id, times] of signInLinkTimes) if (times.every((time) => now - time >= 60_000)) signInLinkTimes.delete(id);
         const recent = (signInLinkTimes.get(account.id) ?? []).filter((time) => now - time < 60_000);
         if (recent.length >= 10) return reply.code(429).send({ error: "Too many sign-in links asked: wait a minute." });
         signInLinkTimes.set(account.id, [...recent, now]);
-        const token = store.accounts.issueAgentSignInLink(account.id);
+        const token = store.accounts.issueAgentSignInLink(account.id, agentToken);
         store.accounts.log(`Agent sign-in link issued for ${account.email}.`);
         return { url: `${base}/#/connexion-agent/${token}${path === undefined ? "" : `?to=${encodeURIComponent(path)}`}` };
       });

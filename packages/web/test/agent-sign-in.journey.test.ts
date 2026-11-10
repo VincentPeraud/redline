@@ -49,10 +49,15 @@ it("signs a fresh browser in and lands on the asked path, then says a second use
   const url = await linkTo("#/accounts");
   const tab = await (await browser.newContext()).newPage();
   await tab.goto(url);
+  await tab.getByText("Se connecter en tant que Vincent Peraud (vincent@example.com)").waitFor();
+  // Opening the link signs nobody in: only the click does.
+  expect((await tab.context().cookies()).length).toBe(0);
+  await tab.getByRole("button", { name: "Continuer" }).click();
   await tab.getByRole("heading", { name: "Comptes" }).waitFor();
   await expect.poll(() => tab.evaluate(() => window.location.hash)).toBe("#/accounts");
 
   const other = await (await browser.newContext()).newPage();
   await other.goto(url);
+  await other.getByRole("heading", { name: "Lien expiré" }).waitFor();
   await other.getByText("Ce lien de connexion a expiré. Redemande-en un.").waitFor();
 });

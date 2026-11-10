@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { ACCOUNTS_PATH, AGENT_SIGN_IN_PATH, type DeactivateRequest, INVITATIONS_PATH, INVITATION_PATH, MY_ACCOUNT_PATH, MY_PASSWORD_PATH, PASSWORD_LINK_PATH, SESSION_PATH, SETUP_PATH, TOKEN_HEADER } from "@redline/shared";
+import { ACCOUNTS_PATH, AGENT_SIGN_IN_PATH, AGENT_SIGN_IN_PREVIEW_PATH, type DeactivateRequest, INVITATIONS_PATH, INVITATION_PATH, MY_ACCOUNT_PATH, MY_PASSWORD_PATH, PASSWORD_LINK_PATH, SESSION_PATH, SETUP_PATH, TOKEN_HEADER } from "@redline/shared";
 import { AccountError, SESSION_DAYS, parseRole } from "./accounts.js";
 import { SESSION_COOKIE, cookieOf } from "./access.js";
 import { LoginThrottle } from "./login-throttle.js";
@@ -29,6 +29,10 @@ function sessionCookie(req: FastifyRequest, value: string, maxAgeSeconds: number
 function signIn(store: Store, req: FastifyRequest, reply: FastifyReply, personId: string): void {
   const { token } = store.accounts.createSession(personId);
   reply.header("set-cookie", sessionCookie(req, token, SESSION_DAYS * 86_400));
+}
+
+function signInAsAgent(req: FastifyRequest, reply: FastifyReply, session: { token: string; expiresAt: Date }): void {
+  reply.header("set-cookie", sessionCookie(req, session.token, Math.round((session.expiresAt.getTime() - Date.now()) / 1000)));
 }
 
 const STATUS_OF_ERROR: Record<AccountError["code"], number> = {
@@ -118,10 +122,14 @@ function registerBuiltInSignIn(app: FastifyInstance, store: Store, trustedProxy:
   );
 
   app.post(AGENT_SIGN_IN_PATH, async (req, reply) =>
-    answering(reply, () => store.accounts.consumeAgentSignInLink(tokenOf(req)), (person) => {
-      signIn(store, req, reply, person.id);
+    answering(reply, () => store.accounts.consumeAgentSignInLink(tokenOf(req)), ({ person, session }) => {
+      signInAsAgent(req, reply, session);
       return person;
     }),
+  );
+
+  app.post(AGENT_SIGN_IN_PREVIEW_PATH, async (req, reply) =>
+    store.accounts.previewAgentSignInLink(tokenOf(req)) ?? reply.code(404).send({ error: "This sign-in link is expired or used.", code: "invalid-link" }),
   );
 
   /** Mon compte: any signed-in account changes its own name and password. */

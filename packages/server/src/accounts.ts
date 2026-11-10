@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "no
 import { promisify } from "node:util";
 import { tokensEqual } from "./request-hardening.js";
 import type Database from "better-sqlite3";
-import { AGENT_SIGN_IN_SECONDS, INVITATION_DAYS, PASSWORD_LINK_HOURS, initialsOf, type AccountEntry, type AccountRole, type AccountsResponse, type InvitationEntry, type InvitationPreview, type PasswordLinkEntry, type PasswordLinkPreview, type Person } from "@redline/shared";
+import { AGENT_SESSION_HOURS, AGENT_SIGN_IN_SECONDS, INVITATION_DAYS, PASSWORD_LINK_HOURS, initialsOf, type AccountEntry, type AccountRole, type AccountsResponse, type InvitationEntry, type InvitationPreview, type PasswordLinkEntry, type PasswordLinkPreview, type Person } from "@redline/shared";
 
 const scryptAsync = promisify(scrypt) as (password: string, salt: Buffer, keyLength: number) => Promise<Buffer>;
 const KEY_LENGTH = 64;
@@ -142,6 +142,9 @@ export class AccountStore {
       );
     `);
     addColumn("single_use_links", "person_id", "TEXT");
+    // The agent token behind an agent sign-in link and the session it opens: regenerating that token ends both.
+    addColumn("single_use_links", "agent_token_hash", "TEXT");
+    addColumn("sessions", "agent_token_hash", "TEXT");
   }
 
   /** Every active account with its role, oldest first. */
@@ -362,29 +365,51 @@ export class AccountStore {
     return link && { email: link.email, expiresAt: link.expiresAt };
   }
 
-  /** A link for a headless test browser, valid 60 seconds and single use, that signs it in as this account. */
-  issueAgentSignInLink(personId: string): string {
+  /** A link for a headless test browser, valid 60 seconds and single use, that signs it in as this account; `agentToken` is the token that asked for it. */
+  issueAgentSignInLink(personId: string, agentToken: string): string {
     const account = this.requireAccount(personId);
     if (account.status !== "active") throw new AccountError("unknown-account", "This account is deactivated.");
     const token = randomBytes(24).toString("base64url");
-    this.db.prepare("INSERT INTO single_use_links (token_hash, kind, created_at, person_id) VALUES (?, 'agent-sign-in', ?, ?)").run(sha256(token), new Date().toISOString(), personId);
+    const now = Date.now();
+    this.db.transaction(() => {
+      this.db.prepare("DELETE FROM single_use_links WHERE kind = 'agent-sign-in' AND created_at < ?").run(new Date(now - AGENT_SIGN_IN_SECONDS * 1000).toISOString());
+      this.db
+        .prepare("INSERT INTO single_use_links (token_hash, kind, created_at, person_id, agent_token_hash) VALUES (?, 'agent-sign-in', ?, ?, ?)")
+        .run(sha256(token), new Date(now).toISOString(), personId, sha256(agentToken));
+    })();
     return token;
   }
 
-  /** Consumes an agent sign-in link and returns the account it signs in; the link is gone whether or not it was still valid. */
-  consumeAgentSignInLink(token: string): Person {
+  private openAgentSignInLink(token: string): { person: Person; agentTokenHash: string | null } | undefined {
     const hash = sha256(token);
     const row = this.db
       .prepare(
-        `SELECT l.token_hash, l.created_at, p.id, p.name, p.email FROM single_use_links l JOIN people p ON p.id = l.person_id
+        `SELECT l.token_hash, l.created_at, l.agent_token_hash, p.id, p.name, p.email FROM single_use_links l JOIN people p ON p.id = l.person_id
          WHERE l.token_hash = ? AND l.kind = 'agent-sign-in' AND p.role IS NOT NULL AND p.status = 'active'`,
       )
-      .get(hash) as { token_hash: string; created_at: string; id: string; name: string; email: string } | undefined;
-    const taken = row !== undefined && this.db.prepare("DELETE FROM single_use_links WHERE token_hash = ?").run(hash).changes === 1;
-    const fresh = row !== undefined && Date.now() - new Date(row.created_at).getTime() < AGENT_SIGN_IN_SECONDS * 1000;
-    if (!row || !taken || !fresh || !tokensEqual(hash, row.token_hash)) throw new AccountError("invalid-link", "This sign-in link is expired or used.");
-    this.db.prepare("UPDATE people SET last_sign_in_at = ? WHERE id = ?").run(new Date().toISOString(), row.id);
-    return { id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id) };
+      .get(hash) as { token_hash: string; created_at: string; agent_token_hash: string | null; id: string; name: string; email: string } | undefined;
+    if (!row || !tokensEqual(hash, row.token_hash) || Date.now() - new Date(row.created_at).getTime() >= AGENT_SIGN_IN_SECONDS * 1000) return undefined;
+    return { person: { id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id) }, agentTokenHash: row.agent_token_hash };
+  }
+
+  /** Who a still-valid agent sign-in link signs in, without using it up. */
+  previewAgentSignInLink(token: string): Person | undefined {
+    return this.openAgentSignInLink(token)?.person;
+  }
+
+  /** Consumes an agent sign-in link and opens the 12-hour agent session it gives; the link is gone whether or not it was still valid. */
+  consumeAgentSignInLink(token: string): { person: Person; session: { token: string; expiresAt: Date } } {
+    const link = this.openAgentSignInLink(token);
+    const taken = this.db.prepare("DELETE FROM single_use_links WHERE token_hash = ?").run(sha256(token)).changes === 1;
+    if (!link || !taken) throw new AccountError("invalid-link", "This sign-in link is expired or used.");
+    this.db.prepare("UPDATE people SET last_sign_in_at = ? WHERE id = ?").run(new Date().toISOString(), link.person.id);
+    return { person: link.person, session: this.createSession(link.person.id, { lifetimeMs: AGENT_SESSION_HOURS * HOUR_MS, agentTokenHash: link.agentTokenHash }) };
+  }
+
+  /** Ends the sessions and pending links that an agent token opened. */
+  private endAgentSessions(agentTokenHash: string): void {
+    this.db.prepare("DELETE FROM sessions WHERE agent_token_hash = ?").run(agentTokenHash);
+    this.db.prepare("DELETE FROM single_use_links WHERE kind = 'agent-sign-in' AND agent_token_hash = ?").run(agentTokenHash);
   }
 
   /** Sets the new password, consumes the link and signs every device of the account out, in one transaction. */
@@ -459,6 +484,8 @@ export class AccountStore {
   regenerateAgentToken(personId: string): string {
     const token = `abt_${randomBytes(24).toString("hex")}`;
     this.db.transaction(() => {
+      const previous = this.db.prepare("SELECT token_hash FROM agent_tokens WHERE person_id = ?").get(personId) as { token_hash: string } | undefined;
+      if (previous) this.endAgentSessions(previous.token_hash);
       this.storeAgentToken(personId, token);
       // The shared token was the first admin's: regenerating replaces it, it must not come back.
       if (this.firstAdmin()?.id === personId) this.db.prepare("DELETE FROM settings WHERE key = 'agent_token'").run();
@@ -547,12 +574,12 @@ export class AccountStore {
     })();
   }
 
-  createSession(personId: string): { token: string; expiresAt: Date } {
+  createSession(personId: string, agent?: { lifetimeMs: number; agentTokenHash: string | null }): { token: string; expiresAt: Date } {
     const token = randomBytes(32).toString("base64url");
-    const expiresAt = new Date(Date.now() + SESSION_DAYS * DAY_MS);
+    const expiresAt = new Date(Date.now() + (agent?.lifetimeMs ?? SESSION_DAYS * DAY_MS));
     this.db
-      .prepare("INSERT INTO sessions (token_hash, person_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
-      .run(sha256(token), personId, new Date().toISOString(), expiresAt.toISOString());
+      .prepare("INSERT INTO sessions (token_hash, person_id, created_at, expires_at, agent_token_hash) VALUES (?, ?, ?, ?, ?)")
+      .run(sha256(token), personId, new Date().toISOString(), expiresAt.toISOString(), agent?.agentTokenHash ?? null);
     return { token, expiresAt };
   }
 

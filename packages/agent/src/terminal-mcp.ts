@@ -382,7 +382,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
         "Get a single-use link that signs a headless test browser (Playwright) in to Redline as the user's own account, with no password. Call it only when a headless browser must see Redline signed in.",
       inputSchema: { path: z.string().optional().describe('In-app path to land on after signing in, for example "#/pages/<id>"; leave out for the home page') },
     },
-    tool(async ({ path }: { path?: string }) => `${await api.browserSignInLink(path)}\nOpen it in the test browser within 60 seconds; the session lasts 30 days.`),
+    tool(async ({ path }: { path?: string }) => `${await api.browserSignInLink(path)}\nOpen it in the test browser within 60 seconds; the session lasts 12 hours.`),
   );
   return server;
 }

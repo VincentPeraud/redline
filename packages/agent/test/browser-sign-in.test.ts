@@ -17,5 +17,5 @@ it("browser_sign_in answers the url to open in the test browser, then how long i
   const answer = await terminal.call("browser_sign_in", { path: "#/projects" });
 
   expect(answer).toContain(`${seam.server.url}/#/projects`);
-  expect(answer).toContain("Open it in the test browser within 60 seconds; the session lasts 30 days.");
+  expect(answer).toContain("Open it in the test browser within 60 seconds; the session lasts 12 hours.");
 });
