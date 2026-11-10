@@ -100,6 +100,12 @@ export class ServerApi {
     return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/release`, body);
   }
 
+  /** A 60-second single-use link that signs a headless test browser in as this token's account. */
+  async browserSignInLink(path?: string): Promise<string> {
+    const { url } = await this.request<{ url: string }>("POST", "/sign-in-link", path === undefined ? {} : { path });
+    return url;
+  }
+
   /** Takes the comments waiting for this terminal session: they leave the waiting list and become its to answer. */
   terminalPick(sessionId: string): Promise<TerminalPickedPage[]> {
     return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/pick`, {});
