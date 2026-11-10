@@ -44,6 +44,17 @@ describe("project links and Écriture links", () => {
     expect((await visit(link, `/api/pages/${archived}/threads`)).status).toBe(403);
   });
 
+  it("shows a project link the design system of the project, without who changed its style", async () => {
+    const { project } = await setup();
+    const link = await createLink(`/api/projects/${project.id}/links`);
+    const response = await visit(link, `/api/projects/${project.id}/design-system`);
+    expect(response.status).toBe(200);
+    const detail = (await response.json()) as Record<string, unknown>;
+    expect(detail).toMatchObject({ designSystem: null, diffusion: null });
+    expect(Array.isArray(detail.tokens)).toBe(true);
+    for (const key of ["lastModified", "designSystemPages", "excluded"]) expect(detail).not.toHaveProperty(key);
+  });
+
   it("keeps a page link away from the list of the project's pages", async () => {
     const { project, pageId } = await setup();
     const link = await createLink(`/api/pages/${pageId}/links`);

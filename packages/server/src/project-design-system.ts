@@ -154,7 +154,11 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/design-system", async (req, reply) => {
     if (!hasProjectStyle(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-    return projectDesignSystem(store, req.params.projectId);
+    const detail = projectDesignSystem(store, req.params.projectId);
+    if (req.viewer?.kind !== "link") return detail;
+    // A link visitor sees what the pages are drawn with, not who changed the style nor the design system's own pages.
+    const { lastModified: _lastModified, designSystemPages: _pages, excluded: _excluded, ...shown } = detail;
+    return shown;
   });
 
   app.put<{ Params: { projectId: string }; Body: SetProjectDesignSystemRequest }>("/api/projects/:projectId/design-system", async (req, reply) => {

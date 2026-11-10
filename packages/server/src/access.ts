@@ -37,6 +37,7 @@ export const LINK_ROUTES: Record<string, AccessLevel> = {
   "GET /api/projects/:projectId": "read",
   "GET /api/projects/:projectId/artboard-capability": "read",
   "GET /api/projects/:projectId/pages": "read",
+  "GET /api/projects/:projectId/design-system": "read",
   "GET /api/projects/:projectId/threads": "write",
   // From here on, an Écriture link works like a member on its scope; links, archive, delete and agents stay out.
   "POST /api/projects/:projectId/pages": "write",

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import type { Page, Project, ProjectLinkPage } from "@redline/shared";
+import type { Page, Project, ProjectDesignSystem, ProjectLinkPage } from "@redline/shared";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { ProjectPreview } from "./ProjectPreview.js";
+import { previewSwatches } from "./projectDesignSystemLabels.js";
 import { relativeTime } from "./relativeTime.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import { navigateTo } from "./router.js";
@@ -18,6 +19,7 @@ export function VisitorProject({ visitor }: { visitor: VisitorState }) {
   const [pages, setPages] = useState<ProjectLinkPage[] | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [creating, setCreating] = useState(false);
+  const [designSystem, setDesignSystem] = useState<ProjectDesignSystem | null>(null);
   const { project: shown, level } = visitor.view;
 
   async function load() {
@@ -26,6 +28,7 @@ export function VisitorProject({ visitor }: { visitor: VisitorState }) {
   useEffect(() => {
     void load();
     void fetch(`/api/projects/${shown.id}`).then(async (res) => setProject((await res.json()) as Project));
+    void fetch(`/api/projects/${shown.id}/design-system`).then(async (res) => setDesignSystem(res.ok ? ((await res.json()) as ProjectDesignSystem) : null));
     return subscribeServerEvents((event) => {
       if (event.type === "page-updated" || event.type === "page-renamed" || event.type === "page-archive-changed") void load();
     });
@@ -44,6 +47,7 @@ export function VisitorProject({ visitor }: { visitor: VisitorState }) {
         <div className={styles.spacer} />
         <StatusBadge tone={level === "write" ? "accent" : "neutral"}>{linkBadgeLabel(visitor.view)}</StatusBadge>
       </header>
+      <div className={styles.layout}>
       <main className={styles.main}>
         <div className={styles.heading}>
           <div>
@@ -72,6 +76,8 @@ export function VisitorProject({ visitor }: { visitor: VisitorState }) {
           ))}
         </div>
       </main>
+      {designSystem?.designSystem && designSystem.diffusion && <DesignSystemPanel detail={designSystem} />}
+      </div>
       {creating && (
         <NewPageDialog
           projectId={shown.id}
@@ -83,5 +89,27 @@ export function VisitorProject({ visitor }: { visitor: VisitorState }) {
         />
       )}
     </div>
+  );
+}
+
+/** The design system the project's pages are drawn with, read-only: its colours, its name and diffusion. Its own pages are not part of the link. */
+function DesignSystemPanel({ detail }: { detail: ProjectDesignSystem }) {
+  return (
+    <aside className={styles.aside} aria-label="Design system">
+      <h2 className={styles.asideTitle}>Design system</h2>
+      <div className={styles.ds}>
+        <div className={styles.dsPreview} aria-hidden="true">
+          {previewSwatches(detail).map((swatch, index) => (
+            <span key={index} className={swatch.bordered ? `${styles.swatch} ${styles.swatchBordered}` : styles.swatch} style={{ background: swatch.value }} />
+          ))}
+          <span className={styles.aa}>Aa</span>
+        </div>
+        <div className={styles.dsInfo}>
+          <strong>{detail.designSystem?.title}</strong>
+          <span>diffusion {detail.diffusion?.number}</span>
+        </div>
+      </div>
+      <p className={styles.hint}>Les pages de ce projet utilisent ce design system. Ses propres pages ne sont pas partagées par ce lien.</p>
+    </aside>
   );
 }

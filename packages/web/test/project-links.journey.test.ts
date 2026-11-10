@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import type { Browser, Page } from "playwright";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { MANIFEST_PATH, type Project, type ShareLink, type Thread } from "@redline/shared";
+import { CORE_TOKENS, MANIFEST_PATH, type DesignSystem, type Project, type ShareLink, type Thread } from "@redline/shared";
 import { hashPassword } from "../../server/src/accounts.js";
 import { startServer, type RunningServer } from "../../server/src/start.js";
 import { launchBrowser } from "./journeyBrowser.js";
@@ -70,6 +70,8 @@ it("opens a project link on the list of its pages: later pages in, archived ones
   await tab.getByRole("heading", { name: "Agora" }).waitFor();
   await tab.getByText("1 page · les nouvelles pages apparaîtront ici").waitFor();
   expect(await tab.getByRole("button", { name: "Nouvelle page" }).count()).toBe(0);
+  // A project with no shared design system shows no design system panel.
+  expect(await tab.getByRole("complementary", { name: "Design system" }).count()).toBe(0);
   // Each card shows the page itself, as on the members' project overview, through the link's artboard capability.
   await tab.getByRole("link", { name: /Réunion avant/ }).locator("iframe").first().waitFor();
   expect(await tab.getByRole("link", { name: /Réunion avant/ }).locator("iframe").first().getAttribute("src")).toContain("/c/");
@@ -289,3 +291,22 @@ it("lets a visitor reply in a thread of the panel, signed with the link, in the 
   expect(thread.replies.at(-1)).toMatchObject({ body: "Answer from Alix", linkAuthor: { name: "Alix" } });
   await context.close();
 }, 30_000);
+
+it("shows a project link the design system its pages use, read-only, under the pages on a phone", async () => {
+  const tokens = `:root {\n${CORE_TOKENS.map((t) => `  ${t}: ${t === "--color-primary" ? "#0f766e" : "#fafaf9"};`).join("\n")}\n}\n`;
+  const ds = (await (await api("POST", "/api/design-systems", { title: "Lumora", files: { "tokens.css": tokens, "manifest.json": JSON.stringify({ artboards: [] }) } })).json()) as DesignSystem;
+  const project = (await (await api("POST", "/api/projects", { title: "Halloween", designSystem: ds.id })).json()) as Project;
+  await newPage(project.id, "Stories");
+  const link = await newLink(`/api/projects/${project.id}/links`, { kind: "generic", name: "Client", level: "read" });
+  for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+    const context = await browser.newContext({ viewport });
+    const tab = await context.newPage();
+    await tab.goto(`${server.url}/s/${link.token}`);
+    const panel = tab.getByRole("complementary", { name: "Design system" });
+    await panel.getByText("Lumora").waitFor();
+    await panel.getByText(/diffusion \d+/).waitFor();
+    expect(await panel.getByRole("link").count()).toBe(0);
+    await tab.screenshot({ path: join(tmpdir(), `visitor-project-ds-${viewport.width}.png`), fullPage: true });
+    await context.close();
+  }
+});
