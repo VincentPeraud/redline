@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { ACCOUNTS_PATH, type DeactivateRequest, INVITATIONS_PATH, INVITATION_PATH, MY_ACCOUNT_PATH, MY_PASSWORD_PATH, PASSWORD_LINK_PATH, SESSION_PATH, SETUP_PATH, TOKEN_HEADER } from "@redline/shared";
+import { ACCOUNTS_PATH, AGENT_SIGN_IN_PATH, type DeactivateRequest, INVITATIONS_PATH, INVITATION_PATH, MY_ACCOUNT_PATH, MY_PASSWORD_PATH, PASSWORD_LINK_PATH, SESSION_PATH, SETUP_PATH, TOKEN_HEADER } from "@redline/shared";
 import { AccountError, SESSION_DAYS, parseRole } from "./accounts.js";
 import { SESSION_COOKIE, cookieOf } from "./access.js";
 import { LoginThrottle } from "./login-throttle.js";
@@ -112,6 +112,13 @@ function registerBuiltInSignIn(app: FastifyInstance, store: Store, trustedProxy:
 
   app.post<{ Body: { token?: string; password?: string } }>(PASSWORD_LINK_PATH, async (req, reply) =>
     answering(reply, () => store.accounts.choosePassword(req.body?.token ?? "", req.body?.password ?? ""), (person) => {
+      signIn(store, req, reply, person.id);
+      return person;
+    }),
+  );
+
+  app.post(AGENT_SIGN_IN_PATH, async (req, reply) =>
+    answering(reply, () => store.accounts.consumeAgentSignInLink(tokenOf(req)), (person) => {
       signIn(store, req, reply, person.id);
       return person;
     }),

@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "no
 import { promisify } from "node:util";
 import { tokensEqual } from "./request-hardening.js";
 import type Database from "better-sqlite3";
-import { INVITATION_DAYS, PASSWORD_LINK_HOURS, initialsOf, type AccountEntry, type AccountRole, type AccountsResponse, type InvitationEntry, type InvitationPreview, type PasswordLinkEntry, type PasswordLinkPreview, type Person } from "@redline/shared";
+import { AGENT_SIGN_IN_SECONDS, INVITATION_DAYS, PASSWORD_LINK_HOURS, initialsOf, type AccountEntry, type AccountRole, type AccountsResponse, type InvitationEntry, type InvitationPreview, type PasswordLinkEntry, type PasswordLinkPreview, type Person } from "@redline/shared";
 
 const scryptAsync = promisify(scrypt) as (password: string, salt: Buffer, keyLength: number) => Promise<Buffer>;
 const KEY_LENGTH = 64;
@@ -360,6 +360,31 @@ export class AccountStore {
   previewPasswordLink(token: string): PasswordLinkPreview | undefined {
     const link = this.openPasswordLink(token);
     return link && { email: link.email, expiresAt: link.expiresAt };
+  }
+
+  /** A link for a headless test browser, valid 60 seconds and single use, that signs it in as this account. */
+  issueAgentSignInLink(personId: string): string {
+    const account = this.requireAccount(personId);
+    if (account.status !== "active") throw new AccountError("unknown-account", "This account is deactivated.");
+    const token = randomBytes(24).toString("base64url");
+    this.db.prepare("INSERT INTO single_use_links (token_hash, kind, created_at, person_id) VALUES (?, 'agent-sign-in', ?, ?)").run(sha256(token), new Date().toISOString(), personId);
+    return token;
+  }
+
+  /** Consumes an agent sign-in link and returns the account it signs in; the link is gone whether or not it was still valid. */
+  consumeAgentSignInLink(token: string): Person {
+    const hash = sha256(token);
+    const row = this.db
+      .prepare(
+        `SELECT l.token_hash, l.created_at, p.id, p.name, p.email FROM single_use_links l JOIN people p ON p.id = l.person_id
+         WHERE l.token_hash = ? AND l.kind = 'agent-sign-in' AND p.role IS NOT NULL AND p.status = 'active'`,
+      )
+      .get(hash) as { token_hash: string; created_at: string; id: string; name: string; email: string } | undefined;
+    const taken = row !== undefined && this.db.prepare("DELETE FROM single_use_links WHERE token_hash = ?").run(hash).changes === 1;
+    const fresh = row !== undefined && Date.now() - new Date(row.created_at).getTime() < AGENT_SIGN_IN_SECONDS * 1000;
+    if (!row || !taken || !fresh || !tokensEqual(hash, row.token_hash)) throw new AccountError("invalid-link", "This sign-in link is expired or used.");
+    this.db.prepare("UPDATE people SET last_sign_in_at = ? WHERE id = ?").run(new Date().toISOString(), row.id);
+    return { id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id) };
   }
 
   /** Sets the new password, consumes the link and signs every device of the account out, in one transaction. */

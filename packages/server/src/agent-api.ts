@@ -61,7 +61,8 @@ export function workOrigin(store: Store, pageLock: PageLock, workId: unknown, pa
 }
 
 /** HTTP API for agents and their sessions' MCP tools, guarded by the agent token (see `AGENT_API_PREFIX`). */
-export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock, terminalSessions: TerminalSessions, access: Access): Promise<void> {
+export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock, terminalSessions: TerminalSessions, access: Access, publicUrl?: string): Promise<void> {
+  const signInLinkTimes = new Map<string, number[]>();
   /** A running work item (`workId`) that does not belong to `projectId`, or whose run is over: its session may not act there. */
   const workOutsideProject = (workId: unknown, projectId: string | undefined): boolean => {
     if (workId === undefined) return false;
@@ -114,6 +115,24 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       api.post<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/bye", async (req, reply) => {
         terminalSessions.bye(req.params.sessionId);
         return reply.code(204).send();
+      });
+
+      // `browser_sign_in`: a 60-second single-use link that signs a headless test browser in as the token's own account.
+      api.post<{ Body: { path?: unknown } | undefined }>("/sign-in-link", async (req, reply) => {
+        const path = req.body?.path;
+        if (path !== undefined && (typeof path !== "string" || !path.startsWith("#/"))) return reply.code(400).send({ error: "path is an in-app hash path such as #/pages/<id>" });
+        const base = (publicUrl ?? `${req.protocol}://${req.headers.host}`).replace(/\/$/, "");
+        if (access.mode === "none") return { url: `${base}/${path ?? ""}` };
+        if (access.mode === "proxy") return reply.code(409).send({ error: "This instance signs people in through its SSO: the test browser needs the SSO session, not a Redline link." });
+        const account = store.accounts.agentActorOf(req.headers.authorization?.slice("Bearer ".length))?.account;
+        if (!account) return reply.code(409).send({ error: "This agent token stands for no account yet." });
+        const now = Date.now();
+        const recent = (signInLinkTimes.get(account.id) ?? []).filter((time) => now - time < 60_000);
+        if (recent.length >= 10) return reply.code(429).send({ error: "Too many sign-in links asked: wait a minute." });
+        signInLinkTimes.set(account.id, [...recent, now]);
+        const token = store.accounts.issueAgentSignInLink(account.id);
+        store.accounts.log(`Agent sign-in link issued for ${account.email}.`);
+        return { url: `${base}/#/connexion-agent/${token}${path === undefined ? "" : `?to=${encodeURIComponent(path)}`}` };
       });
 
       // `redline agent` picks or creates the projects a folder serves, before they have anything else to call.
