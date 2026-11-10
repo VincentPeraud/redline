@@ -82,6 +82,7 @@ it("types and sends on a page without conversation: the first message creates it
 }, 60_000);
 
 it("shows a new conversation and its message as soon as it is sent, even when no live event reaches the tab", async () => {
+  const before = engine.runs.length;
   const page = await seam.createPage({ "home.html": "<!doctype html><h1>Title</h1>" });
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   // The tab holding the shared stream can be frozen in the background: then no event comes.
@@ -95,6 +96,8 @@ it("shows a new conversation and its message as soon as it is sent, even when no
 
   await expect.poll(() => panel.getByTestId("conversation-message").first().textContent()).toBe("Without events");
   await expect.poll(() => panel.getByRole("button", { name: "Conversation", exact: true }).textContent()).not.toContain("Aucune conversation");
+  // Its run must end here: finishing later, it would count as the next test's run
+  await engine.finished(before + 1);
   await tab.close();
 }, 60_000);
 

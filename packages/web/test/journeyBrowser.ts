@@ -17,7 +17,8 @@ export async function launchBrowser(): Promise<Browser> {
   browser.newPage = async (options?: BrowserContextOptions) => {
     const context = await browser.newContext(options);
     const page = await context.newPage();
-    page.on("close", () => void context.close());
+    // Closing the browser closes its pages first, then the contexts are already gone: nothing to report
+    page.on("close", () => void context.close().catch(() => {}));
     return page;
   };
   return browser;
