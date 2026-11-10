@@ -70,6 +70,9 @@ it("opens a project link on the list of its pages: later pages in, archived ones
   await tab.getByRole("heading", { name: "Agora" }).waitFor();
   await tab.getByText("1 page · les nouvelles pages apparaîtront ici").waitFor();
   expect(await tab.getByRole("button", { name: "Nouvelle page" }).count()).toBe(0);
+  // Each card shows the page itself, as on the members' project overview, through the link's artboard capability.
+  await tab.getByRole("link", { name: /Réunion avant/ }).locator("iframe").first().waitFor();
+  expect(await tab.getByRole("link", { name: /Réunion avant/ }).locator("iframe").first().getAttribute("src")).toContain("/c/");
   await tab.screenshot({ path: join(tmpdir(), "visitor-project-desktop.png") });
 
   // A page created after the link shows up live; an archived one leaves.

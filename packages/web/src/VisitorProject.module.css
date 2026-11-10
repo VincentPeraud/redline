@@ -90,20 +90,11 @@
   border-color: var(--color-border-strong);
 }
 
+/* The canvas photo of the page, as on the members' project overview. */
 .thumb {
   height: 150px;
-  box-sizing: border-box;
-  display: flex;
-  gap: var(--space-2);
-  padding: var(--space-5);
+  overflow: hidden;
   background: var(--color-surface-muted);
-}
-
-.thumb i {
-  flex: 1;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xs);
-  background: var(--color-surface);
 }
 
 .body {

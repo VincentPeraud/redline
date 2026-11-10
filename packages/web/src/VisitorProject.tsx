@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Page, Project, ProjectLinkPage } from "@redline/shared";
 import { NewPageDialog } from "./NewPageDialog.js";
+import { ProjectPreview } from "./ProjectPreview.js";
 import { relativeTime } from "./relativeTime.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import { navigateTo } from "./router.js";
@@ -59,9 +60,7 @@ export function VisitorProject({ visitor }: { visitor: VisitorState }) {
           {pages?.map((page) => (
             <a key={page.id} className={styles.card} href={pageHref(page.id)}>
               <div className={styles.thumb} aria-hidden="true">
-                {Array.from({ length: Math.min(Math.max(page.artboardCount, 1), 3) }, (_, index) => (
-                  <i key={index} />
-                ))}
+                <ProjectPreview pageId={page.id} height={150} />
               </div>
               <div className={styles.body}>
                 <strong>{page.title}</strong>
