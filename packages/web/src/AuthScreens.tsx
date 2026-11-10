@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { SESSION_PATH, SETUP_PATH, INVITATION_PATH, PASSWORD_LINK_PATH, TOKEN_HEADER, type InvitationPreview, type PasswordLinkPreview } from "@redline/shared";
+import { AGENT_SIGN_IN_PATH, SESSION_PATH, SETUP_PATH, INVITATION_PATH, PASSWORD_LINK_PATH, TOKEN_HEADER, type InvitationPreview, type PasswordLinkPreview } from "@redline/shared";
 import { Button, Field, Logo, TextInput, cx } from "./ui/index.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { useSession } from "./useMe.js";
@@ -306,6 +306,34 @@ export function DeadLinkScreen() {
     <AuthCard high className={cx(styles.centered, styles.dead)}>
       <h1 className={styles.centeredTitle}>Ce lien ne marche plus</h1>
       <p className={styles.centeredText}>Il a expiré ou a été désactivé. Demande un nouveau lien à la personne qui te l'a envoyé.</p>
+    </AuthCard>
+  );
+}
+
+/** Link tokens already sent, so that a second mount (React strict mode) cannot spend a single-use link twice. */
+const sentAgentLinks = new Set<string>();
+
+/** The page of a test browser's sign-in link, `#/connexion-agent/<token>?to=<path>`: signs in and lands on `to`, or says the link is dead. */
+export function AgentSignInScreen({ token, to }: { token: string; to: string | null }) {
+  useDocumentTitle("Connexion");
+  const { reload } = useSession();
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (sentAgentLinks.has(token)) return;
+    sentAgentLinks.add(token);
+    void fetch(AGENT_SIGN_IN_PATH, { method: "POST", headers: { "content-type": "application/json", [TOKEN_HEADER]: token }, body: "{}" }).then(async (res) => {
+      if (!res.ok) return setFailed(true);
+      window.location.hash = to?.startsWith("#/") ? to : "#/";
+      await reload();
+    });
+  }, [token, to, reload]);
+
+  if (!failed) return null;
+  return (
+    <AuthCard high className={cx(styles.centered, styles.dead)}>
+      <h1 className={styles.centeredTitle}>Lien expiré</h1>
+      <p className={styles.centeredText}>Ce lien de connexion a expiré. Redemande-en un.</p>
     </AuthCard>
   );
 }
