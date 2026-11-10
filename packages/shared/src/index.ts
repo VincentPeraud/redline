@@ -447,6 +447,8 @@ export interface Thread {
   /** First line of the comment, kept visible when the thread is resolved. */
   title: string;
   body: string;
+  /** When the thread was written (ISO time). */
+  createdAt: string;
   /** The signed-in person who wrote `body` (the thread's first message, or the held comment); absent for comments from before the SSO and without SSO. */
   person?: Person;
   /** Set instead of `person` when `body` came through a share link. */

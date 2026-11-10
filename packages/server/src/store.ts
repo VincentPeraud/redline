@@ -353,6 +353,7 @@ export class Store {
     addColumn("versions", "origin_label", "TEXT");
     addColumn("versions", "diffusion", "INTEGER");
     addColumn("threads", "element_name", "TEXT");
+    addColumn("threads", "reopen_to", "TEXT");
     addColumn("threads", "rendering", "TEXT");
     addColumn("threads", "cell", "TEXT");
     addColumn("threads", "instance_state", "TEXT");
@@ -920,11 +921,11 @@ export class Store {
     return row && { ...(row.createdBy ? { createdBy: row.createdBy } : {}), visibility: row.visibility };
   }
 
-  /** Switching to Privé drops the lowered levels; back to Équipe, the levels below Écriture stay as lowered levels and the others vanish. */
+  /** Either switch starts the project over: every member entry is dropped (Privé: only the creator and admins remain; Équipe: everyone is back to Écriture). */
   setProjectVisibility(id: string, visibility: ProjectVisibility): void {
     this.db.transaction(() => {
       this.db.prepare("UPDATE projects SET visibility = ? WHERE id = ?").run(visibility, id);
-      this.db.prepare(visibility === "private" ? "DELETE FROM project_members WHERE project_id = ?" : "DELETE FROM project_members WHERE project_id = ? AND level = 'write'").run(id);
+      this.db.prepare("DELETE FROM project_members WHERE project_id = ?").run(id);
     })();
   }
 
@@ -1717,7 +1718,7 @@ export class Store {
   private listThreadsWithStatus(pageId: string, status: ThreadStatus, withReplies = false): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.instance_state, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.instance_state, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id, t.created_at
          FROM threads t WHERE t.page_id = ? AND t.status = ? ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId, status) as ThreadRow[];
@@ -1765,16 +1766,17 @@ export class Store {
     if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
   }
 
+  /** Resolves a thread; one that was waiting to be read ("À relire") remembers it and goes back there when reopened. */
   resolveThread(id: string): Thread | undefined {
-    this.db.prepare("UPDATE threads SET status = 'resolved' WHERE id = ?").run(id);
+    this.db.prepare("UPDATE threads SET reopen_to = CASE status WHEN 'review' THEN 'review' WHEN 'resolved' THEN reopen_to ELSE NULL END, status = 'resolved' WHERE id = ?").run(id);
     const thread = this.getThread(id);
     if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
     return thread;
   }
 
-  /** Puts a resolved thread back among the open ones; undefined when the thread does not exist or is not resolved. */
+  /** Puts a resolved thread back among the open ones (or "À relire", where it was); undefined when the thread does not exist or is not resolved. */
   reopenThread(id: string): Thread | undefined {
-    const { changes } = this.db.prepare("UPDATE threads SET status = 'open' WHERE id = ? AND status = 'resolved'").run(id);
+    const { changes } = this.db.prepare("UPDATE threads SET status = COALESCE(reopen_to, 'open'), reopen_to = NULL WHERE id = ? AND status = 'resolved'").run(id);
     if (changes === 0) return undefined;
     const thread = this.getThread(id)!;
     this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
@@ -2354,7 +2356,7 @@ function toDesignSystem({ archivedAt, ...designSystem }: DesignSystemRow): Desig
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, instance_state, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request, link_id, link_author FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, instance_state, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request, link_id, link_author, created_at FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -2382,6 +2384,7 @@ interface ThreadRow {
   request: string | null;
   link_id: string | null;
   link_author: string | null;
+  created_at: string;
 }
 
 function targetOf(row: ThreadRow): ThreadTarget {
@@ -2431,6 +2434,7 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     yPct: row.y_pct,
     title: row.title,
     body: row.body,
+    createdAt: row.created_at,
     status: row.status,
     replies,
     ...(row.context ? { context: JSON.parse(row.context) as ThreadContext } : {}),

@@ -258,8 +258,8 @@ export async function buildMainApp(
     const accounts = store.accounts.activeAccounts();
     const isOwnerOrAdmin = (a: { id: string; role: string }) => a.role === "admin" || a.id === project.createdBy?.id;
     const person = ({ role: _role, ...rest }: (typeof accounts)[number]): Person => rest;
-    const wouldLoseAccess = project.visibility === "private" ? [] : accounts.filter((a) => !isOwnerOrAdmin(a)).map(person);
     const canChange = access.manages(req.viewer, project.id);
+    const wouldLoseAccess = project.visibility === "private" || !canChange ? [] : accounts.filter((a) => !isOwnerOrAdmin(a)).map(person);
     const views = linkViews(store, access);
     const workingLinks = canChange ? store.links.ofProject(project.id).filter(isWorking) : [];
     const linksOf = (personIds: string[], aboveLevel?: AccessLevel) =>

@@ -22,8 +22,8 @@ export type Viewer =
 export type Action = AccessLevel | "manage";
 
 const LEVEL_RANK: Record<AccessLevel, number> = { read: 0, comment: 1, write: 2 };
-/** Writes a member at Commentaire may make: comment, reply, resolve and reopen. */
-const COMMENT_ROUTES = new Set(["POST /api/pages/:pageId/threads", "POST /api/threads/:threadId/messages", "POST /api/threads/:threadId/resolve", "POST /api/threads/:threadId/reopen"]);
+/** Writes a member at Commentaire may make: comment and reply. Resolving and reopening need Écriture. */
+const COMMENT_ROUTES = new Set(["POST /api/pages/:pageId/threads", "POST /api/threads/:threadId/messages"]);
 /** Writes that stay with the creator of the project and the admins. */
 const MANAGE_ROUTES = new Set(["POST /api/projects/:projectId/archive", "POST /api/projects/:projectId/unarchive", "DELETE /api/projects/:projectId", "PUT /api/projects/:projectId/members/:personId", "DELETE /api/projects/:projectId/members/:personId"]);
 
@@ -50,6 +50,10 @@ export const LINK_ROUTES: Record<string, AccessLevel> = {
   "POST /api/pages/:pageId/artboards/restore": "write",
   "POST /api/threads/:threadId/resolve": "write",
   "POST /api/threads/:threadId/reopen": "write",
+  "POST /api/pages/:pageId/send-review": "write",
+  "POST /api/pages/:pageId/send-held": "write",
+  "PATCH /api/pages/:pageId": "write",
+  "POST /api/threads/:threadId/hand-over": "write",
 };
 /** Calls a project link may make but a page link may not: a page link reaches its own page, never the pages around it. */
 const LINK_PROJECT_ONLY_ROUTES = new Set(["POST /api/projects/:projectId/pages"]);

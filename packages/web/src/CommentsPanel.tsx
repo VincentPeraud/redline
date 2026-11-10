@@ -109,8 +109,12 @@ function ThreadMessages({ thread }: { thread: Thread }) {
     <>
       <div className={styles.message}>
         <MessageAuthor person={thread.person} linkAuthor={thread.linkAuthor} claude={requestAskerName(thread)} redline={thread.automatic} />
-        {thread.status === "review" && thread.person && <span className={styles.reviewNote}>membre en Commentaire sur ce projet</span>}
-        {thread.status === "review" && thread.linkAuthor && <span className={styles.reviewNote}>{thread.linkAuthor.linkName ? `lien « ${thread.linkAuthor.linkName} »` : "lien en Commentaire"}</span>}
+        {thread.status === "review" && thread.person && <span className={styles.reviewNote}>membre en Commentaire sur ce projet · {relativeTime(thread.createdAt)}</span>}
+        {thread.status === "review" && thread.linkAuthor && (
+          <span className={styles.reviewNote}>
+            {thread.linkAuthor.linkName ? `lien « ${thread.linkAuthor.linkName} »` : "lien en Commentaire"} · {relativeTime(thread.createdAt)}
+          </span>
+        )}
         {thread.body}
       </div>
       {thread.replies.map((reply) => (
@@ -189,7 +193,8 @@ function ThreadCard({
   run: ThreadRun | undefined;
   session: SessionRow | undefined;
   choice: ModelEffortChoice;
-  onResolve: () => void;
+  /** "Résoudre": absent where the viewer only comments (Commentaire). */
+  onResolve?: () => void;
   /** "Envoyer à Claude", for an "À relire" thread: absent where the viewer does not work (Commentaire). */
   onSend?: () => void;
   readOnly: boolean;
@@ -257,7 +262,7 @@ function ThreadCard({
                   Refuser
                 </Button>
               )}
-              {!thread.request && (
+              {!thread.request && onResolve && (
                 <Button size="sm" variant={thread.status === "review" ? "ghost" : "primary"} onClick={onResolve}>
                   Résoudre
                 </Button>
@@ -302,7 +307,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
         {!readOnly && <ReviewBar pageId={pageId} count={reviewCount} choice={choice} canSend={!commentOnly} />}
         {ordered.map((thread) => {
           if (thread.status === "held") return <HeldThreadCard key={thread.id} thread={thread} />;
-          if (thread.status === "resolved") return <ResolvedThreadCard key={thread.id} thread={thread} session={sessions.get(thread.id)} readOnly={readOnly} open={unfolded.has(thread.id)} onOpen={(open) => onUnfold(thread.id, open)} />;
+          if (thread.status === "resolved") return <ResolvedThreadCard key={thread.id} thread={thread} session={sessions.get(thread.id)} readOnly={readOnly || commentOnly} open={unfolded.has(thread.id)} onOpen={(open) => onUnfold(thread.id, open)} />;
           return (
             <ThreadCard
               key={thread.id}
@@ -312,7 +317,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
               run={runs.filter((r) => r.threadIds.includes(thread.id)).slice(-1)[0]}
               session={sessions.get(thread.id)}
               choice={choice}
-              onResolve={() => void fetch(`/api/threads/${thread.id}/resolve`, { method: "POST" })}
+              onResolve={commentOnly ? undefined : () => void fetch(`/api/threads/${thread.id}/resolve`, { method: "POST" })}
               onSend={commentOnly ? undefined : () => void sendToClaude(pageId, choice, [thread.id])}
               readOnly={readOnly}
             />

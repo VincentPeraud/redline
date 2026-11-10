@@ -88,6 +88,8 @@ it("shows À relire threads with a counter, sends one to Claude from the card, a
   expect(await thomasBar.innerText()).toContain("2 commentaires à relire");
   expect(await thomas.getByRole("button", { name: "Envoyer à Claude", exact: true }).count()).toBe(0);
   expect(await thomas.getByRole("button", { name: "Tout envoyer à Claude" }).count()).toBe(0);
+  // Commentaire = comment and reply: resolving needs Écriture.
+  expect(await thomas.getByRole("button", { name: "Résoudre" }).count()).toBe(0);
 
   const ariane = await tabFor("ariane@example.com");
   await ariane.goto(`${server.url}/#/pages/${pageId}`);
@@ -96,6 +98,8 @@ it("shows À relire threads with a counter, sends one to Claude from the card, a
   await bar.waitFor();
   expect(await bar.innerText()).toContain("2 commentaires à relire");
   expect(await ariane.getByText("À relire", { exact: true }).count()).toBe(2);
+  // Each card says how long ago it was written.
+  await ariane.getByText(/membre en Commentaire sur ce projet · à l'instant/).first().waitFor();
   await ariane.getByRole("button", { name: "Envoyer à Claude", exact: true }).first().click();
   await expect.poll(() => bar.innerText(), { timeout: 10_000 }).toContain("1 commentaire à relire");
   await ariane.getByRole("button", { name: "Résoudre" }).first().click();

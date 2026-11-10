@@ -22,14 +22,15 @@ function linkRequestError(body: Partial<CreateLinkRequest & UpdateLinkRequest>, 
 
 /** Why a comment through a link cannot be signed, or undefined: a generic link needs the name the visitor gave. */
 export function visitorNameError(viewer: Viewer, visitorName: unknown): string | undefined {
-  if (viewer.kind !== "link" || viewer.link.kind === "personal") return undefined;
+  if (viewer.kind !== "link" || viewer.link.kind === "personal" || viewer.member) return undefined;
   if (typeof visitorName !== "string" || visitorName.trim() === "" || visitorName.trim().length > MAX_VISITOR_NAME_LENGTH) return `visitorName must be 1 to ${MAX_VISITOR_NAME_LENGTH} characters`;
   return undefined;
 }
 
-/** What a comment through a link is signed with: the name of a personal link, the visitor's name on a generic one. Undefined for members. */
+/** What a comment through a link is signed with: the account name of a member who opened it, else the name of a personal link, else the visitor's name on a generic one. Undefined for members at their own level. */
 export function linkAuthorOf(viewer: Viewer, visitorName: unknown): LinkAuthor | undefined {
   if (viewer.kind !== "link") return undefined;
+  if (viewer.member) return { linkId: viewer.link.id, name: viewer.member.person.name };
   return { linkId: viewer.link.id, name: viewer.link.kind === "personal" ? viewer.link.name : (visitorName as string).trim() };
 }
 

@@ -53,14 +53,14 @@ describe("member levels", () => {
     expect(body.code).toBe("insufficient-level");
   });
 
-  it("lets a member lowered to Commentaire comment, reply and resolve, but nothing else", async () => {
+  it("lets a member lowered to Commentaire comment and reply, but nothing else (resolving needs Écriture)", async () => {
     const { project, pageId, thomas } = await lowered("comment");
     const created = await thread(thomas, pageId);
     expect(created.status).toBe(201);
     const threadId = ((await created.json()) as { id: string }).id;
     expect((await thomas.send("POST", `/api/threads/${threadId}/messages`, { body: "More" })).status).toBe(201);
-    expect((await thomas.send("POST", `/api/threads/${threadId}/resolve`, {})).status).toBe(200);
-    expect((await thomas.send("POST", `/api/threads/${threadId}/reopen`, {})).status).toBe(200);
+    expect((await thomas.send("POST", `/api/threads/${threadId}/resolve`, {})).status).toBe(403);
+    expect((await thomas.send("POST", `/api/threads/${threadId}/reopen`, {})).status).toBe(403);
     expect((await thomas.send("POST", `/api/projects/${project.id}/pages`, { title: "Mine", files: FILES })).status).toBe(403);
     expect((await thomas.send("PATCH", `/api/pages/${pageId}`, { title: "Renamed" })).status).toBe(403);
     expect((await thomas.send("POST", `/api/pages/${pageId}/archive`)).status).toBe(403);
