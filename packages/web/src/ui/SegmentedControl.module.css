@@ -24,3 +24,28 @@
   font-weight: var(--font-weight-semibold);
   color: var(--color-text);
 }
+
+.trackMd {
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-md);
+}
+
+.segmentMd {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.segmentMd:not(.checked) {
+  color: var(--color-text-muted);
+}
+
+.disabled {
+  opacity: 0.5;
+}
+
+.disabled .segment {
+  cursor: default;
+}

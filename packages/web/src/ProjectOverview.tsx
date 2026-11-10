@@ -1,3 +1,4 @@
+import { useArtboardOrigin } from "./artboardCapability.js";
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import {
   type DesignMdInfo,
@@ -12,7 +13,9 @@ import {
 import { AgentPill } from "./AgentPill.js";
 import { ArchiveFooter, ArchiveIcon, ArchivedBanner, DeleteSection, PageArchiveButton, pageArchivedOnLabel } from "./ArchiveControls.js";
 import { dayLabel, designMdStatus } from "./historyLabels.js";
-import { useWho } from "./useMe.js";
+import { useMe, useWho } from "./useMe.js";
+import { ShareProjectButton, useProjectSharing } from "./ProjectSharingDialog.js";
+import { VisibilityBadge } from "./VisibilityBadge.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
@@ -44,6 +47,7 @@ function PageCard({
   artboardOrigin,
   current,
   readOnly,
+  locked,
   onRename,
   onArchived,
 }: {
@@ -52,6 +56,8 @@ function PageCard({
   artboardOrigin: string;
   current: boolean;
   readOnly: boolean;
+  /** The page cannot be renamed or archived: archived project, or a viewer below Écriture. */
+  locked: boolean;
   onRename: (title: string) => Promise<void>;
   onArchived: () => void;
 }) {
@@ -88,8 +94,8 @@ function PageCard({
             <a href={routeHref({ name: "page", pageId: page.id })} className={cx(styles.pageTitle, styles.pageTitleLink)}>
               {page.title}
             </a>
-            {!readOnly && <RenamePencil label="Renommer la page" size="page" onClick={() => setRenaming(true)} />}
-            {!readOnly && <PageArchiveButton pageId={page.id} onArchived={onArchived} />}
+            {!locked && <RenamePencil label="Renommer la page" size="page" onClick={() => setRenaming(true)} />}
+            {!locked && <PageArchiveButton pageId={page.id} onArchived={onArchived} />}
             <span className={styles.spacer} />
             {!readOnly && stats && stats.openThreads > 0 && (
               <StatusBadge tone="warning" className={styles.chip}>
@@ -201,12 +207,14 @@ function groupAssets(assets: ProjectAsset[]): AssetEntry[] {
 
 export function ProjectOverview({ projectId }: { projectId: string }) {
   const who = useWho();
+  const hasAccounts = useMe()?.account !== undefined;
   const [project, setProject] = useState<Project | null>(null);
+  const { sharing, reload: reloadSharing } = useProjectSharing(projectId, project?.visibility, hasAccounts);
   const [pages, setPages] = useState<Page[]>([]);
   const [archivedPages, setArchivedPages] = useState<Page[]>([]);
   const [showArchivedPages, setShowArchivedPages] = useState(false);
   const [pageStats, setPageStats] = useState<Record<string, PageStats>>({});
-  const [artboardOrigin, setArtboardOrigin] = useState("");
+  const artboardOrigin = useArtboardOrigin(projectId);
   const [designSystem, setDesignSystem] = useState<ProjectDesignSystem | null>(null);
   const [designMd, setDesignMd] = useState<string | null>(null);
   const [designMdInfo, setDesignMdInfo] = useState<DesignMdInfo | null>(null);
@@ -222,9 +230,6 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
       .then(setAssets);
 
   useEffect(() => {
-    fetch("/api/config")
-      .then((res) => res.json() as Promise<{ artboardOrigin: string }>)
-      .then((config) => setArtboardOrigin(config.artboardOrigin));
     fetch(`/api/projects/${projectId}`)
       .then((res) => res.json() as Promise<Project>)
       .then(setProject);
@@ -295,6 +300,9 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
 
   const archivedAt = project.archivedAt;
   const readOnly = archivedAt !== undefined;
+  const locked = readOnly || (project.viewerLevel ?? "write") !== "write";
+  // Archive and delete stay with the creator and the admins; without accounts everyone manages.
+  const canManage = !hasAccounts || sharing?.canChange === true;
   const allStats = Object.values(pageStats);
   const openThreads = allStats.reduce((sum, stats) => sum + stats.openThreads, 0);
   const threadCount = allStats.reduce((sum, stats) => sum + stats.threads, 0);
@@ -325,10 +333,13 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
         <div className={styles.spacer} />
         {!readOnly && (
           <>
-            <AgentPill project={project} onProjectChange={setProject} />
-            <Button variant="accent" onClick={() => setCreating(true)}>
-              Nouvelle page
-            </Button>
+            {!locked && <AgentPill project={project} onProjectChange={setProject} />}
+            {hasAccounts && <ShareProjectButton project={project} sharing={sharing} reload={reloadSharing} onChanged={setProject} />}
+            {!locked && (
+              <Button variant="accent" onClick={() => setCreating(true)}>
+                Nouvelle page
+              </Button>
+            )}
           </>
         )}
       </header>
@@ -352,7 +363,8 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
           ) : (
             <div className={cx(styles.titleRow, renameHost)}>
               <h1 className={styles.title}>{project.title}</h1>
-              {!readOnly && <RenamePencil label="Renommer le projet" size="project" onClick={() => setRenamingProject(true)} />}
+              {hasAccounts && <VisibilityBadge visibility={project.visibility} />}
+              {!locked && <RenamePencil label="Renommer le projet" size="project" onClick={() => setRenamingProject(true)} />}
             </div>
           )}
           <div className={styles.summary}>
@@ -371,11 +383,12 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
                 artboardOrigin={artboardOrigin}
                 current={index === 0 && !readOnly}
                 readOnly={readOnly}
+                locked={locked}
                 onRename={(title) => renamePage(page.id, title)}
                 onArchived={() => setReload((count) => count + 1)}
               />
             ))}
-            {!readOnly && (
+            {!locked && (
               <button type="button" className={styles.newPageTile} onClick={() => setCreating(true)}>
                 <span aria-hidden="true" className={styles.plus}>
                   +
@@ -397,7 +410,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
               {showArchivedPages && (
                 <div className={styles.pageGrid}>
                   {archivedPages.map((page) => (
-                    <PageCard key={page.id} page={page} stats={undefined} artboardOrigin={artboardOrigin} current={false} readOnly onRename={async () => {}} onArchived={() => {}} />
+                    <PageCard key={page.id} page={page} stats={undefined} artboardOrigin={artboardOrigin} current={false} readOnly locked onRename={async () => {}} onArchived={() => {}} />
                   ))}
                 </div>
               )}
@@ -410,7 +423,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
             <h2 className={styles.sectionTitle}>Assets du projet</h2>
             <span className={styles.assetsPath}>assets/ · partagés par tous les artefacts</span>
             <span className={styles.spacer} />
-            {!readOnly && (
+            {!locked && (
               <>
                 <Button size="sm" onClick={() => uploadInput.current?.click()}>
                   Ajouter
@@ -438,7 +451,7 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
           )}
         </section>
 
-        {readOnly ? (
+        {!canManage ? null : readOnly ? (
           <DeleteSection
             kind="project"
             id={projectId}
@@ -454,13 +467,13 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
 
       <SidePanel label="Contexte du projet" width={380} className={styles.aside}>
         <SidePanelBody className={styles.panelBody}>
-          {designSystem && <DesignSystemBox projectId={projectId} detail={designSystem} readOnly={readOnly} />}
+          {designSystem && <DesignSystemBox projectId={projectId} detail={designSystem} readOnly={locked} />}
 
           <section className={cx(styles.panelSection, styles.grow)}>
             <div className={styles.panelHeading}>
               <h2 className={styles.designMdTitle}>DESIGN.md</h2>
               <span className={styles.spacer} />
-              {!readOnly && (
+              {!locked && (
                 <a href={routeHref({ name: "designMd", projectId })} aria-label="Modifier DESIGN.md">
                   Modifier
                 </a>

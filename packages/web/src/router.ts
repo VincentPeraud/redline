@@ -8,6 +8,8 @@ export type Route =
   | { name: "archivedDesignSystems" }
   | { name: "agents" }
   | { name: "sessions" }
+  | { name: "accounts" }
+  | { name: "account" }
   | { name: "designSystems" }
   | { name: "designSystem"; designSystemId: string; viaProjectId?: string; review?: true }
   | { name: "beforeAfter"; designSystemId: string; component: string }
@@ -42,6 +44,8 @@ export function parseRoute(hash: string): Route {
   const viaProject = via === null ? {} : { viaProjectId: via };
   if (section === "agents") return { name: "agents" };
   if (section === "sessions") return { name: "sessions" };
+  if (section === "accounts") return { name: "accounts" };
+  if (section === "account") return { name: "account" };
   if (section === "projects" && !id) return { name: "projects" };
   if (section === "archived-projects") return { name: "archivedProjects" };
   if (section === "archived-design-systems") return { name: "archivedDesignSystems" };
@@ -77,6 +81,10 @@ export function routeHref(route: Route): string {
       return "#/agents";
     case "sessions":
       return "#/sessions";
+    case "accounts":
+      return "#/accounts";
+    case "account":
+      return "#/account";
     case "designSystems":
       return "#/design-systems";
     case "designSystem": {

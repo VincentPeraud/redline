@@ -1,9 +1,12 @@
 import { createReadStream, existsSync } from "node:fs";
 import { extname } from "node:path";
-import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyStatic from "@fastify/static";
 import {
   type PageViewSettings,
+  type LinkAuthor,
+  type ProjectLinkPage,
+  type Thread,
   type TerminalHolder,
   COMPONENTS_CSS_PATH,
   withoutComponentStyles,
@@ -33,6 +36,8 @@ import {
   type CreateVersionRequest,
   type SendHeldRequest,
   type SendHeldResponse,
+  type SendReviewRequest,
+  type SendReviewResponse,
   type UpdateThreadRequest,
   type ServerConfig,
   type Settings,
@@ -40,7 +45,10 @@ import {
   type MoveArtboardRequest,
   type UpdatePageRequest,
   type UpdateProjectRequest,
+  type Project,
+  type ProjectVisibility,
   CLI_TARBALL_PATH,
+  ARTBOARD_CAPABILITY_SEGMENT,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import { INSTANCES_PATH, INSTANCES_SOURCE, injectInstances, instanceLayersOf } from "./instances.js";
@@ -51,6 +59,9 @@ import { TerminalSessions } from "./terminal-sessions.js";
 import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
 import { projectContext, readPageAsset, readProjectAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
+import { linkAuthorOf, registerLinkRoutes, visitorNameError } from "./link-routes.js";
+import { registerProjectSharingRoutes } from "./project-sharing.js";
+import { rewriteLinkUrl } from "./link-url.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
 import { removalsError, rollbackImpact } from "./removals.js";
@@ -63,7 +74,7 @@ import { settleUndoneChanges } from "./undone-changes.js";
 import { closeDiffusedRequests, requestsClosedBy, returnPendingOn } from "./diffusion-returns.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
-import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
+import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, isVisibility, requiredString, threadIdsError, titleError, versionRequestError, viewSettingsError } from "./validation.js";
 import { registerContextTracking } from "./context.js";
 import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
@@ -71,17 +82,20 @@ import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
 import { validTimeZone } from "./version-dates.js";
 import { registerGapRoutes } from "./gaps.js";
-import { registerIdentity, personRef, type IdentityConfig } from "./identity.js";
+import type { ArtboardCapabilities } from "./artboard-capabilities.js";
+import { createAccess, registerAccess, type Access, type AuthMode, type Viewer } from "./access.js";
+import { DEFAULT_IDENTITY, registerIdentity, personRef, type IdentityConfig } from "./identity.js";
 import { type CliBuild } from "./cli-build.js";
 import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
 import { registerPublicDeadline } from "./public-deadline.js";
+import { registerAccountRoutes } from "./account-routes.js";
 import { registerRequestHardening } from "./request-hardening.js";
 import { announceDiffusion, registerDesignSystemReload } from "./design-system-reload.js";
 import { registerSessionRoutes } from "./sessions.js";
 import { registerHomeRoutes } from "./home.js";
 import { archivedError, registerArchiveRoutes, registerArchivedGuard } from "./archive.js";
 import { moveArtboard } from "./move-artboard.js";
-import { dispatchBatch, dispatchReply, dispatchThread, handOverThread } from "./work.js";
+import { dispatchBatch, dispatchReply, dispatchReviewed, dispatchThread, handOverThread } from "./work.js";
 
 const PALETTE_TOKENS = ["--color-primary", "--color-text", "--color-background"];
 
@@ -133,13 +147,19 @@ export async function buildMainApp(
   store: Store,
   config: ServerConfig,
   webDir?: string,
-  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; cliBuild?: CliBuild; publicUntil?: Date } = {},
+  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; firstAdminEmail?: string; trustedProxy?: boolean; authMode?: AuthMode; cliBuild?: CliBuild; publicUntil?: Date; capabilities?: ArtboardCapabilities } = {},
 ): Promise<FastifyInstance> {
-  const app = Fastify({ bodyLimit: MAX_PAGE_BYTES });
+  const app = Fastify({ bodyLimit: MAX_PAGE_BYTES, rewriteUrl: rewriteLinkUrl });
   registerPublicDeadline(app, options.publicUntil);
   registerProxySecretCheck(app, options.proxySecrets);
   registerHealthRoute(app);
-  registerIdentity(app, store, options.proxySecrets, options.identity);
+  const identity = options.identity ?? DEFAULT_IDENTITY;
+  const authMode = options.authMode ?? (options.proxySecrets ? "proxy" : "none");
+  const access = createAccess({ mode: authMode, store, secrets: options.proxySecrets, identity, firstAdminEmail: options.firstAdminEmail });
+  registerAccess(app, access);
+  registerIdentity(app, store, identity, authMode);
+  const onDeactivated: ((personId: string) => void)[] = [];
+  if (authMode === "local" || authMode === "proxy") registerAccountRoutes(app, store, authMode, (personId) => onDeactivated.forEach((listener) => listener(personId)), options.trustedProxy === true);
   const { cliBuild } = options;
   store.setServerBuildHash(cliBuild?.hash);
   if (cliBuild) {
@@ -147,7 +167,7 @@ export async function buildMainApp(
       reply.type("application/gzip").header("content-disposition", 'attachment; filename="redline-cli.tgz"').send(createReadStream(cliBuild.tarballPath)),
     );
   }
-  registerRequestHardening(app);
+  registerRequestHardening(app, { requireJsonOrHeader: authMode !== "none" });
   explainTooLarge(app);
   registerArchivedGuard(app, store);
   const agents = await registerAgentRoutes(app, store);
@@ -155,18 +175,24 @@ export async function buildMainApp(
   app.addHook("onClose", async () => pageLock.dispose());
   const terminalSessions = new TerminalSessions(store, pageLock, options.terminalPresenceTimeoutMs);
   app.addHook("onClose", async () => terminalSessions.dispose());
-  await registerAgentApi(app, store, pageLock, terminalSessions);
+  onDeactivated.push((personId) => {
+    agents.disconnectPerson(personId);
+    terminalSessions.releaseSessionsOf(personId);
+  });
+  await registerAgentApi(app, store, pageLock, terminalSessions, access);
   await registerProjectFileRoutes(app, store);
   registerProjectDesignSystemRoutes(app, store);
-  registerEventRoutes(app, store);
+  registerEventRoutes(app, store, pageLock, access);
+  registerLinkRoutes(app, store, access);
+  registerProjectSharingRoutes(app, store, access);
   registerDesignSystemReload(app, store);
   const runs = registerRunRoutes(app, store);
-  registerHomeRoutes(app, store, pageLock);
+  registerHomeRoutes(app, store, pageLock, access);
   registerArchiveRoutes(app, store, pageLock, (pageIds) => returnPendingOn(store, pageLock, terminalSessions, pageIds));
   const knownWindows = new Map<string, number>();
   registerContextTracking(app, store, pageLock, knownWindows);
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
-  registerSessionRoutes(app, store, pageLock, runs, lastConversationWork);
+  registerSessionRoutes(app, store, pageLock, runs, lastConversationWork, access);
   registerArtboardHistoryRoutes(app, store);
   registerGapRoutes(app, store);
   pageLock.restore();
@@ -187,9 +213,17 @@ export async function buildMainApp(
 
   app.get("/api/config", async () => config);
 
+  // The pass the app puts in artboard urls; `registerAccess` has already asked `may` for this project.
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/artboard-capability", async (req, reply) => {
+    if (!options.capabilities) return reply.code(404).send({ error: "artboard capabilities are not available" });
+    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    return options.capabilities.issueFor(access, req.viewer, req.params.projectId) ?? reply.code(403).send({ error: "forbidden" });
+  });
+
   app.post<{ Body: CreateProjectRequest }>("/api/projects", async (req, reply) => {
-    const { title, instructions, designSystem } = req.body ?? ({} as Partial<CreateProjectRequest>);
+    const { title, instructions, designSystem, visibility } = req.body ?? ({} as Partial<CreateProjectRequest>);
     if (!requiredString(title)) return reply.code(400).send({ error: "title is required" });
+    if (visibility !== undefined && !isVisibility(visibility)) return reply.code(400).send({ error: "visibility must be team or private" });
     if (instructions !== undefined && typeof instructions !== "string") {
       return reply.code(400).send({ error: "instructions must be a string" });
     }
@@ -197,31 +231,48 @@ export async function buildMainApp(
       return reply.code(400).send({ error: "designSystem must be a string" });
     }
     if (designSystem && store.isArchived(designSystem)) return reply.code(400).send({ error: "This design system is archived: choose another one." });
-    return reply.code(201).send(store.createProject(title, undefined, instructions, designSystem ?? null));
+    return reply.code(201).send(store.createProject(title, undefined, instructions, designSystem ?? null, { createdBy: req.person, visibility }));
   });
 
+  const withViewerLevel = (viewer: Viewer, project: Project): Project => {
+    const level = access.levelOf(viewer, { projectId: project.id });
+    return level === "read" || level === "comment" ? { ...project, viewerLevel: level } : project;
+  };
+
   app.get<{ Querystring: { archived?: string } }>("/api/projects", async (req) =>
-    store.listProjects(req.query.archived ? "archived" : "active").map((project) => withServedBy(store, project)),
+    store
+      .listProjects(req.query.archived ? "archived" : "active")
+      .filter((project) => access.may(req.viewer, "read", { projectId: project.id }))
+      .map((project) => withViewerLevel(req.viewer, withServedBy(store, project))),
   );
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId", async (req, reply) => {
     const project = store.getProject(req.params.projectId);
-    return project ? withServedBy(store, project) : reply.code(404).send({ error: "project not found" });
+    if (!project) return reply.code(404).send({ error: "project not found" });
+    // A link visitor learns the project's name and nothing else: no brief, agent or creator.
+    // In Écriture it also learns whether Claude can answer now (never which agent serves) and the design system new pages start with.
+    if (req.viewer.kind === "link") return { id: project.id, title: project.title, ...(req.viewer.link.level === "write" ? { claudeAvailable: withServedBy(store, project).servedBy !== undefined, designSystem: project.designSystem } : { viewerLevel: req.viewer.link.level }) };
+    return withViewerLevel(req.viewer, withServedBy(store, project));
   });
 
   app.patch<{ Params: { projectId: string }; Body: UpdateProjectRequest }>("/api/projects/:projectId", async (req, reply) => {
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-    const { title, globalTakeoverOverride } = req.body ?? ({} as Partial<UpdateProjectRequest>);
+    const { title, globalTakeoverOverride, visibility } = req.body ?? ({} as Partial<UpdateProjectRequest>);
     if (title !== undefined && titleError(title)) return reply.code(400).send({ error: titleError(title) });
     if (globalTakeoverOverride !== undefined && globalTakeoverOverride !== null && typeof globalTakeoverOverride !== "boolean") {
       return reply.code(400).send({ error: "globalTakeoverOverride must be a boolean or null" });
+    }
+    if (visibility !== undefined) {
+      if (!isVisibility(visibility)) return reply.code(400).send({ error: "visibility must be team or private" });
+      if (!access.manages(req.viewer, req.params.projectId)) return reply.code(403).send({ error: "Only the creator of the project or an admin changes who sees it." });
+      store.setProjectVisibility(req.params.projectId, visibility);
     }
     if (title !== undefined) store.renameProject(req.params.projectId, title.trim());
     if (globalTakeoverOverride !== undefined) {
       store.setTakeoverOverride(req.params.projectId, globalTakeoverOverride);
       pageLock.reconsider();
     }
-    return withServedBy(store, store.getProject(req.params.projectId)!);
+    return withViewerLevel(req.viewer, withServedBy(store, store.getProject(req.params.projectId)!));
   });
 
   app.get("/api/settings", async (): Promise<Settings> => ({ globalTakeover: store.getGlobalTakeover() }));
@@ -245,7 +296,7 @@ export async function buildMainApp(
       const invalidFiles = pageFilesError(files);
       const invalid = invalidFiles ?? newPageComponentsError(store, req.params.projectId, title, files!);
       if (invalid) return reply.code(400).send({ error: invalid });
-      return reply.code(201).send(store.createPage(req.params.projectId, title, files!, "user", req.person));
+      return reply.code(201).send(store.createPage(req.params.projectId, title, files!, "user", req.person, linkAuthorOf(req.viewer, undefined)));
     },
   );
 
@@ -254,7 +305,7 @@ export async function buildMainApp(
       const { draft } = store.pendingDiffusion(designSystem.id);
       return {
         ...designSystem,
-        usedBy: store.projectsUsingDesignSystem(designSystem.id),
+        usedBy: store.projectsUsingDesignSystem(designSystem.id).filter((project) => access.may(req.viewer, "read", { projectId: project.id })),
         updatedAt: store.listVersions(designSystem.pageId)[0]?.createdAt,
         pendingChanges: reviewLineCount(diffusionReview(store, designSystem.id)),
         requests: store.listDesignSystemRequests(designSystem.id).length,
@@ -270,7 +321,7 @@ export async function buildMainApp(
     const designSystem = store.getDesignSystem(req.params.designSystemId);
     if (!designSystem) return void reply.code(404).send({ error: "design system not found" });
     const current = store.currentDiffusion(designSystem.id)!;
-    const usedBy = store.projectsUsingDesignSystem(designSystem.id);
+    const usedBy = store.projectsUsingDesignSystem(designSystem.id).filter((project) => access.may(req.viewer, "read", { projectId: project.id }));
     const { draft, pending } = store.pendingDiffusion(designSystem.id);
     const changed = new Set(pending.tokens.changed.map((token) => token.name));
     const overrides = usedBy.flatMap((project) => {
@@ -449,13 +500,23 @@ export async function buildMainApp(
   });
 
   // The project's pages; `?archived=1` lists its archived pages instead, the most recently archived first.
-  app.get<{ Params: { projectId: string }; Querystring: { archived?: string } }>("/api/projects/:projectId/pages", async (req) =>
-    store.listPages(req.params.projectId, req.query.archived ? "archived" : "active"),
-  );
+  // A link visitor lists the pages of a project link, never the archived ones.
+  app.get<{ Params: { projectId: string }; Querystring: { archived?: string } }>("/api/projects/:projectId/pages", async (req, reply) => {
+    if (req.viewer.kind === "link") {
+      if (req.viewer.link.scope !== "project") return reply.code(403).send({ error: "forbidden" });
+      return store.listPages(req.params.projectId, "active").map((page): ProjectLinkPage => {
+        const manifest = store.readPageFile(page.id, MANIFEST_PATH)?.toString("utf8");
+        return { id: page.id, title: page.title, artboardCount: manifest === undefined ? 0 : parseManifest(manifest).artboards.length, updatedAt: store.listVersions(page.id)[0].createdAt };
+      });
+    }
+    return store.listPages(req.params.projectId, req.query.archived ? "archived" : "active");
+  });
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId", async (req, reply) => {
     const page = store.getPage(req.params.pageId);
-    return page ? { ...page, viewSettings: store.getViewSettings(page.id), designSystem: store.isDesignSystemProject(page.projectId) } : reply.code(404).send({ error: "page not found" });
+    if (!page) return reply.code(404).send({ error: "page not found" });
+    const { createdByPerson, ...withoutAuthor } = page;
+    return { ...(req.viewer.kind === "link" ? withoutAuthor : page), viewSettings: store.getViewSettings(page.id), designSystem: store.isDesignSystemProject(page.projectId) };
   });
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/terminal-holder", async (req, reply): Promise<TerminalHolder | null> => {
@@ -508,29 +569,59 @@ export async function buildMainApp(
     return store.getPage(req.params.pageId);
   });
 
+  /** Members read a link comment with the name of its link; a visitor never learns it. */
+  const withLinkName = (viewer: Viewer, thread: Thread): Thread => {
+    if (viewer.kind === "link") return thread;
+    const named = <T extends { linkAuthor?: LinkAuthor }>(item: T): T => {
+      const linkName = item.linkAuthor && store.links.get(item.linkAuthor.linkId)?.name;
+      return linkName ? { ...item, linkAuthor: { ...item.linkAuthor!, linkName } } : item;
+    };
+    return { ...named(thread), replies: thread.replies.map(named) };
+  };
+
+  /** What a viewer in Commentaire writes waits for someone in Écriture to read it, unless it comes through a link made to go straight to Claude. */
+  const needsReview = (viewer: Viewer, resource: { pageId?: string; threadId?: string }): boolean =>
+    access.levelOf(viewer, resource) === "comment" && !(viewer.kind === "link" && viewer.link.direct);
+
   app.post<{ Params: { pageId: string }; Body: CreateThreadRequest }>(
     "/api/pages/:pageId/threads",
     async (req, reply) => {
       if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
       const invalid = createThreadRequestError(req.body);
       if (invalid) return reply.code(400).send({ error: invalid });
-      const request = req.body;
+      const nameError = visitorNameError(req.viewer, req.body.visitorName);
+      if (nameError) return reply.code(400).send({ error: nameError });
+      // A visitor chooses neither to hold a comment nor the model that answers it.
+      const request = req.viewer.kind === "link" ? { ...req.body, held: false, model: undefined, effort: undefined } : req.body;
       if ("target" in request && request.target.kind === "artboard" && !store.hasArtboard(req.params.pageId, request.target.artboard)) {
         return reply.code(400).send({ error: "artboard is not on the page" });
       }
       if ("target" in request && request.target.kind === "canvas-element" && !store.canvasElement(req.params.pageId, request.target.elementId)) {
         return reply.code(400).send({ error: "element is not on the page's canvas" });
       }
-      const thread = store.createThread(req.params.pageId, request, req.person);
-      if (thread.status === "held") return reply.code(201).send(thread);
-      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, modelChoiceOf(request), terminalSessions);
-      return reply.code(201).send(thread);
+      // What a Commentaire member writes waits for someone in Écriture to read it.
+      const toReview = needsReview(req.viewer, { pageId: req.params.pageId });
+      const thread = store.createThread(req.params.pageId, request, req.person, false, undefined, toReview, linkAuthorOf(req.viewer, request.visitorName));
+      if (thread.status === "held" || thread.status === "review") return reply.code(201).send(withLinkName(req.viewer, thread));
+      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, req.viewer.kind === "link" ? {} : modelChoiceOf(request), terminalSessions);
+      return reply.code(201).send(withLinkName(req.viewer, thread));
     },
   );
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/threads", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-    return store.listThreads(req.params.pageId);
+    // A visitor hears only of threads made through its own link (every thread of the page in Écriture); a Lecture link makes none.
+    if (req.viewer.kind === "link" && req.viewer.link.level !== "write") {
+      const linkId = req.viewer.link.id;
+      return store.listThreads(req.params.pageId).filter((thread) => thread.linkAuthor?.linkId === linkId);
+    }
+    return store.listThreads(req.params.pageId).map((thread) => withLinkName(req.viewer, thread));
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/threads", async (req, reply) => {
+    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
+    if (req.viewer.kind === "link" && req.viewer.link.scope !== "project") return reply.code(403).send({ error: "forbidden" });
+    return store.listProjectThreads(req.params.projectId).map((thread) => withLinkName(req.viewer, thread));
   });
 
   // The user's reply in a thread: resumes the thread's session on the agent that opened it.
@@ -541,8 +632,18 @@ export async function buildMainApp(
     if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
     const invalidChoice = modelChoiceError(req.body);
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
-    const message = store.addReply(thread.id, body, "user", [], req.person)!;
-    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, modelChoiceOf(req.body), terminalSessions);
+    // A visitor answers in the threads of its own link only.
+    if (req.viewer.kind === "link" && req.viewer.link.level !== "write" && thread.linkAuthor?.linkId !== req.viewer.link.id) return reply.code(403).send({ error: "forbidden" });
+    const nameError = visitorNameError(req.viewer, req.body.visitorName);
+    if (nameError) return reply.code(400).send({ error: nameError });
+    const message = store.addReply(thread.id, body, "user", [], req.person, linkAuthorOf(req.viewer, req.body.visitorName))!;
+    // A thread waiting to be read stays with the readers; a Commentaire reply sends it back to them instead of to Claude.
+    if (thread.status === "review") return reply.code(201).send(message);
+    if (needsReview(req.viewer, { threadId: thread.id })) {
+      store.returnToReview(thread.id);
+      return reply.code(201).send(message);
+    }
+    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, req.viewer.kind === "link" ? {} : modelChoiceOf(req.body), terminalSessions);
     return reply.code(201).send(message);
   });
 
@@ -582,6 +683,24 @@ export async function buildMainApp(
       dispatchBatch(pageLock, page.projectId, held, modelChoiceOf(req.body ?? {}), terminalSessions);
     }
     const response: SendHeldResponse = { threads: held.length };
+    return response;
+  });
+
+  // "Envoyer à Claude": "À relire" threads of the page leave, together, as one message.
+  app.post<{ Params: { pageId: string }; Body: SendReviewRequest }>("/api/pages/:pageId/send-review", async (req, reply) => {
+    const page = store.getPage(req.params.pageId);
+    if (!page) return reply.code(404).send({ error: "page not found" });
+    const invalidChoice = modelChoiceError(req.body ?? {});
+    if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
+    const invalidIds = threadIdsError(req.body?.threadIds);
+    if (invalidIds) return reply.code(400).send({ error: invalidIds });
+    const ids = req.body?.threadIds;
+    const waiting = store.listReviewThreads(page.id).filter((thread) => ids === undefined || ids.includes(thread.id));
+    if (waiting.length > 0) {
+      for (const thread of waiting) store.releaseReviewThread(thread.id);
+      dispatchReviewed(store, pageLock, page.projectId, waiting, modelChoiceOf(req.body ?? {}), terminalSessions);
+    }
+    const response: SendReviewResponse = { threads: waiting.length };
     return response;
   });
 
@@ -678,10 +797,56 @@ export async function buildMainApp(
  * share an origin with the API. The CSP sandbox (without allow-same-origin) also gives
  * the document an opaque origin, even if someone opens the URL directly.
  */
-export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets, publicUntil?: Date): Promise<FastifyInstance> {
-  const app = Fastify();
+export async function buildArtboardApp(
+  store: Store,
+  { proxySecrets, publicUntil, capabilities, authMode }: { proxySecrets?: ProxySecrets; publicUntil?: Date; capabilities: ArtboardCapabilities; authMode: AuthMode },
+): Promise<FastifyInstance> {
+  // A capability is longer than the default 100 characters of a path parameter.
+  const app = Fastify({ routerOptions: { maxParamLength: 500 } });
   registerPublicDeadline(app, publicUntil);
   registerProxySecretCheck(app, proxySecrets, { artboards: true });
+  // Every url carries a capability (`/c/<capability>/pages/...`); mode `none` has no login to protect and also serves the plain urls.
+  await app.register(
+    async (scope) => {
+      if (authMode !== "none") scope.addHook("preHandler", requireCapability(store, capabilities));
+      registerArtboardRoutes(scope, store);
+    },
+    { prefix: `/${ARTBOARD_CAPABILITY_SEGMENT}/:capability` },
+  );
+  if (authMode === "none") await app.register(async (scope) => registerArtboardRoutes(scope, store));
+  return app;
+}
+
+/** Whether `capabilityProject` may be served the files of `requestedId`: itself, or a design system it uses or used (its history previews). */
+function coversProject(store: Store, capabilityProject: string, requestedId: string): boolean {
+  if (requestedId === capabilityProject) return true;
+  if (!store.isDesignSystemProject(requestedId)) return false;
+  return store.sharedDesignSystemIdOfProject(capabilityProject) === requestedId || store.listPages(capabilityProject).some((page) => store.sharedDesignSystemIdOfPage(page.id) === requestedId) || store.historyUsesDesignSystem(capabilityProject, requestedId);
+}
+
+/** Refuses (403) a request without a valid capability for the project of what it asks: the page, project or design system named in its path. */
+function requireCapability(store: Store, capabilities: ArtboardCapabilities) {
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const params = req.params as { capability: string; pageId?: string; projectId?: string; designSystemId?: string };
+    const scope = capabilities.scopeOf(params.capability);
+    if (scope === undefined) return reply.code(403).send("capability required");
+    const project = scope.projectId;
+    if (scope.pageId !== undefined && params.pageId !== undefined && params.pageId !== scope.pageId) return reply.code(403).send("capability is for another page");
+    const { versionId } = req.params as { versionId?: string };
+    if (versionId !== undefined && scope.linkLevel !== undefined && scope.linkLevel !== "write") return reply.code(403).send("capability does not open the history");
+    if (scope.withoutArchived && params.pageId !== undefined && store.getPage(params.pageId)?.archivedAt) return reply.code(403).send("capability does not open archived pages");
+    const requested = params.pageId !== undefined ? store.projectIdOfPage(params.pageId) : (params.projectId ?? params.designSystemId);
+    if (params.pageId !== undefined && requested === undefined) return reply.code(404).send("not found");
+    if (requested !== undefined && !coversProject(store, project, requested)) return reply.code(403).send("capability is for another project");
+  };
+}
+
+function registerArtboardRoutes(app: FastifyInstance, store: Store): void {
+  /** The url prefix the request came under, for the links injected into the page. */
+  const baseOf = (req: FastifyRequest) => {
+    const capability = (req.params as { capability?: string }).capability;
+    return capability === undefined ? "" : `/${ARTBOARD_CAPABILITY_SEGMENT}/${capability}`;
+  };
 
   app.get(BRIDGE_PATH, async (_req, reply) =>
     reply.header("content-security-policy", "sandbox allow-scripts").header("cache-control", "no-cache").type(MIME[".js"]).send(BRIDGE_SOURCE),
@@ -732,7 +897,7 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
       .header("cache-control", "no-cache")
       .type(MIME[".html"])
       // The component's own style blocks are what components.css assembles: dropped here so that the chosen diffusion's css decides.
-      .send(injectDesignSystem(withoutComponentStyles(html), designSystemId, undefined, diffusion));
+      .send(injectDesignSystem(withoutComponentStyles(html), designSystemId, undefined, diffusion, baseOf(req)));
   });
 
   app.get<{ Params: { designSystemId: string; "*": string } }>("/design-systems/:designSystemId/*", async (req, reply) => {
@@ -763,7 +928,7 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
 
   // A page as it was in one version (history preview): same sandbox and injections as the live artboards, read-only.
   app.get<{ Params: { pageId: string; versionId: string; "*": string } }>("/page-versions/:pageId/:versionId/*", async (req, reply) =>
-    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"]), { versionId: req.params.versionId }),
+    serveArtboardFile(req.params.pageId, req.params["*"], reply, store.readVersionFile(req.params.pageId, req.params.versionId, req.params["*"]), { versionId: req.params.versionId, base: baseOf(req) }),
   );
 
   // `?preview=draft`: the viewer's preview of a project with the design system draft; it is the same call without a diffusion number.
@@ -771,7 +936,7 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
   app.get<{ Params: { pageId: string; "*": string }; Querystring: { preview?: string; diffusion?: string } }>("/pages/:pageId/*", async (req, reply) => {
     const { pageId } = req.params;
     const path = req.params["*"];
-    if (req.query.diffusion === undefined) return serveArtboardFile(pageId, path, reply, store.readPageFile(pageId, path), { draftPreview: req.query.preview === "draft" });
+    if (req.query.diffusion === undefined) return serveArtboardFile(pageId, path, reply, store.readPageFile(pageId, path), { draftPreview: req.query.preview === "draft", base: baseOf(req) });
     const designSystemId = store.isDesignSystemPage(pageId) ? store.getPage(pageId)?.projectId : undefined;
     if (designSystemId === undefined || !/^\d+$/.test(req.query.diffusion)) return reply.code(404).send("not found");
     const number = Number(req.query.diffusion);
@@ -779,7 +944,7 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
     // Only through the page that held the component in that diffusion.
     const heldBy = store.diffusionComponents(designSystemId, number).find((component) => component.file === path)?.page.id;
     if (frozen === undefined || heldBy !== pageId) return reply.code(404).send("not found");
-    return serveArtboardFile(pageId, path, reply, Buffer.from(frozen), { frozenDiffusion: number });
+    return serveArtboardFile(pageId, path, reply, Buffer.from(frozen), { frozenDiffusion: number, base: baseOf(req) });
   });
 
   /** The page's project when it has a project style (every project but a design system's own). */
@@ -796,7 +961,7 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
     return designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId)?.number;
   }
 
-  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, { versionId, draftPreview = false, frozenDiffusion }: { versionId?: string; draftPreview?: boolean; frozenDiffusion?: number } = {}) {
+  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, { versionId, draftPreview = false, frozenDiffusion, base = "" }: { versionId?: string; draftPreview?: boolean; frozenDiffusion?: number; base?: string } = {}) {
     const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, pageId, path.slice("assets/".length)) : undefined);
     if (!asset) return reply.code(404).send("not found");
     // Artboards are opaque-origin, so fonts of the project assets need CORS to load.
@@ -804,12 +969,10 @@ export async function buildArtboardApp(store: Store, proxySecrets?: ProxySecrets
     const isHtml = extname(path) === ".html";
     if (!isHtml) return reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[extname(path)] ?? "application/octet-stream").send(asset);
     const diffusion = frozenDiffusion ?? (draftPreview ? undefined : diffusionOf(pageId, versionId));
-    const withDesignSystem = injectDesignSystem(asset.toString("utf8"), store.sharedDesignSystemIdOfPage(pageId, versionId), projectStyleProjectOf(pageId), diffusion);
+    const withDesignSystem = injectDesignSystem(asset.toString("utf8"), store.sharedDesignSystemIdOfPage(pageId, versionId), projectStyleProjectOf(pageId), diffusion, base);
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[".html"])
-      .send(injectBridge(injectInstances(withDesignSystem, instanceLayersOf(store, pageId, diffusion, versionId))));
+      .send(injectBridge(injectInstances(withDesignSystem, instanceLayersOf(store, pageId, diffusion, versionId), base), base));
   }
-
-  return app;
 }

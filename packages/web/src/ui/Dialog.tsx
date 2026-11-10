@@ -12,12 +12,14 @@ export interface DialogProps {
   gap?: number;
   /** Plays the exit animation; the caller unmounts the dialog once it is over (`DIALOG_EXIT_MS`). */
   closing?: boolean;
+  /** A confirmation of a destructive action: announced as an alert dialog. */
+  alert?: boolean;
 }
 
 export const DIALOG_EXIT_MS = 140;
 
 /** Modal: dimmed overlay, white 16px-radius panel, title row with a close button. Escape and a click on the overlay close it. */
-export function Dialog({ title, onClose, children, width = 580, gap, closing = false }: DialogProps) {
+export function Dialog({ title, onClose, children, width = 580, gap, closing = false, alert = false }: DialogProps) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -29,7 +31,7 @@ export function Dialog({ title, onClose, children, width = 580, gap, closing = f
   return (
     <div className={styles.overlay} data-closing={closing || undefined} onClick={onClose}>
       <div
-        role="dialog"
+        role={alert ? "alertdialog" : "dialog"}
         aria-modal="true"
         aria-label={title}
         className={styles.panel}

@@ -15,6 +15,8 @@ const NAV: { label: string; route: Route; active: Route["name"][] }[] = [
   { label: "Agents", route: { name: "agents" }, active: ["agents"] },
 ];
 
+const ACCOUNTS_ITEM: (typeof NAV)[number] = { label: "Comptes", route: { name: "accounts" }, active: ["accounts"] };
+
 function plural(count: number, one: string, many: string): string {
   return `${count} ${count <= 1 ? one : many}`;
 }
@@ -69,13 +71,14 @@ function AccountBlock() {
 function Nav() {
   const route = useRoute();
   const { home } = useHome();
+  const isAdmin = useMe()?.account?.role === "admin";
   return (
     <nav aria-label="Navigation principale" className={styles.nav}>
       <div className={styles.navInner}>
         <div className={styles.logo}>
           <Logo />
         </div>
-        {NAV.map((item) => {
+        {(isAdmin ? [...NAV, ACCOUNTS_ITEM] : NAV).map((item) => {
           const current = item.active.includes(route.name);
           return (
             <a key={item.label} href={routeHref(item.route)} aria-current={current ? "page" : undefined} className={cx(styles.link, current && styles.current)}>

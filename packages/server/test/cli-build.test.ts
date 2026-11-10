@@ -31,6 +31,7 @@ describe("CLI served by the server", () => {
       artboardPort: 0,
       host: "127.0.0.1",
       cliDir: options.cliDir,
+      firstAdminEmail: "admin@example.com",
       proxySecrets: options.machine ? { human: "h".repeat(32), machine: options.machine } : undefined,
     });
 

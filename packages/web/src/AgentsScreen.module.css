@@ -179,8 +179,8 @@
 
 .row {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1.3fr) minmax(0, 1fr) 200px;
-  column-gap: 32px;
+  grid-template-columns: 150px 170px minmax(0, 1.2fr) minmax(0, 1.2fr) 160px;
+  column-gap: 24px;
   align-items: start;
   padding: 16px 20px;
   border-top: 1px solid var(--color-border-subtle);
@@ -399,4 +399,24 @@
   line-height: 1.6;
   white-space: pre;
   overflow-x: auto;
+}
+
+.by {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.by > span:first-child {
+  width: 24px;
+  height: 24px;
+  font-size: var(--font-size-3xs);
+}
+
+.intro {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--color-text-muted);
 }

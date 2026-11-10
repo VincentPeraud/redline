@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Conversation, ConversationDetail, Page, Project, Thread, ThreadReply } from "@redline/shared";
 import { PROXY_SECRET_HEADER } from "../src/proxy-secrets.js";
 import { startServer, type RunningServer } from "../src/start.js";
+import { admitSsoPeople } from "./sso-people.js";
 
 const HUMAN = "h".repeat(32);
 const MACHINE = "m".repeat(32);
@@ -12,7 +13,6 @@ const FILES = { "home.html": "<h1>Home</h1>" };
 
 const ariane = { [PROXY_SECRET_HEADER]: HUMAN, "remote-user": "amartin", "remote-name": "Ariane Martin", "remote-email": "ariane@example.com" };
 const vincent = { [PROXY_SECRET_HEADER]: HUMAN, "remote-user": "vperaud", "remote-name": "Vincent Peraud", "remote-email": "vincent@example.com" };
-const anonymous = { [PROXY_SECRET_HEADER]: HUMAN };
 
 describe("signed thread and conversation messages", () => {
   let dataDir: string;
@@ -24,9 +24,11 @@ describe("signed thread and conversation messages", () => {
       port: 0,
       artboardPort: 0,
       host: "127.0.0.1",
+      firstAdminEmail: "vincent@example.com",
       proxySecrets: { human: HUMAN, machine: MACHINE },
       identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email" },
     });
+    await admitSsoPeople(server.url, [vincent, ariane]);
   });
   afterEach(async () => {
     await server.close();
@@ -61,14 +63,6 @@ describe("signed thread and conversation messages", () => {
     const held = await get<Thread[]>(`/api/pages/${page.id}/held`);
     expect(held).toHaveLength(1);
     expect(held[0].person).toMatchObject({ id: "amartin", name: "Ariane Martin" });
-  });
-
-  it("leaves messages from before the SSO without an author", async () => {
-    const page = await createPage();
-    const thread = await comment(page, anonymous, "Written before the SSO");
-    expect(thread.person).toBeUndefined();
-    const reply = await post<ThreadReply>(`/api/threads/${thread.id}/messages`, anonymous, { body: "Still no name" });
-    expect(reply.person).toBeUndefined();
   });
 
   it("returns who started a conversation and who wrote each of its messages", async () => {

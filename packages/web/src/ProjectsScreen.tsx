@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import {
   type HomeProject,
   type CreateProjectRequest,
+  type ProjectVisibility,
   type DesignSystemSummary,
   type Page,
   type Project,
@@ -13,6 +14,8 @@ import { Dialog } from "./Dialog.js";
 import { ProjectPreview } from "./ProjectPreview.js";
 import { routeHref } from "./router.js";
 import { useHome } from "./useHome.js";
+import { useMe } from "./useMe.js";
+import { VISIBILITY_LABEL, VisibilityBadge } from "./VisibilityBadge.js";
 import { Button, DialogActions, Field, PageContent, StatusBadge, TextInput, Textarea, cx } from "./ui/index.js";
 import styles from "./ProjectsScreen.module.css";
 
@@ -55,11 +58,18 @@ function designSystemUse(designSystem: DesignSystemSummary): string {
     : `Déjà utilisé par ${joinNames(designSystem.usedBy.map((project) => project.title))}`;
 }
 
+const VISIBILITY_OPTIONS: { value: ProjectVisibility; description: string }[] = [
+  { value: "team", description: "Tous les membres le voient et y travaillent." },
+  { value: "private", description: "Toi et les admins seulement ; tu ajoutes des membres ensuite." },
+];
+
 function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (project: Project) => void }) {
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
   const [choice, setChoice] = useState<string | null>(null);
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
+  const [visibility, setVisibility] = useState<ProjectVisibility>("team");
+  const hasAccounts = useMe()?.account !== undefined;
 
   useEffect(() => {
     fetch("/api/design-systems")
@@ -81,6 +91,7 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
       title: title.trim(),
       instructions: instructions.trim(),
       designSystem: selected || null,
+      ...(hasAccounts && { visibility }),
     };
     const res = await fetch("/api/projects", {
       method: "POST",
@@ -107,6 +118,22 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
         <Field label="Titre">
           <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex. Site vitrine du cabinet" />
         </Field>
+        {hasAccounts && (
+          <div role="radiogroup" aria-labelledby="new-project-visibility" className={styles.options}>
+            <div id="new-project-visibility" className={styles.optionsLabel}>
+              Visibilité
+            </div>
+            {VISIBILITY_OPTIONS.map((option) => (
+              <label key={option.value} className={cx(styles.choice, option.value === visibility && styles.choiceOn)}>
+                <input type="radio" name="new-project-visibility" checked={option.value === visibility} onChange={() => setVisibility(option.value)} />
+                <span className={styles.choiceText}>
+                  <strong>{VISIBILITY_LABEL[option.value]}</strong>
+                  <span>{option.description}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
         <Field
           label="Instructions pour Claude"
           optional
@@ -139,10 +166,10 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
           ))}
         </div>
         <DialogActions>
-          <Button size="lg" onClick={onClose}>
+          <Button onClick={onClose}>
             Annuler
           </Button>
-          <Button type="submit" variant="accent" size="lg" aria-disabled={!canCreate} className={styles.create}>
+          <Button type="submit" variant="accent" aria-disabled={!canCreate} className={styles.create}>
             Créer le projet
           </Button>
         </DialogActions>
@@ -161,22 +188,31 @@ function ProjectCard({
   designSystemTitle: string | undefined;
 }) {
   const agent = agentSummary(project);
-  const details = [agent.text, plural(activity?.pageCount ?? 0, "page", "pages"), designSystemTitle ?? "sans DS"].join(" · ");
+  const hasAccounts = useMe()?.account !== undefined;
+  const details = [
+    agent.text,
+    plural(activity?.pageCount ?? 0, "page", "pages"),
+    designSystemTitle ?? "sans DS",
+    ...(hasAccounts && project.createdBy ? [`créé par ${project.createdBy.name}`] : []),
+  ].join(" · ");
   return (
     <a href={routeHref({ name: "project", projectId: project.id })} className={styles.card}>
       <ProjectPreview pageId={activity?.lastPageId} height={190} />
       <div className={styles.cardBody}>
         <div className={styles.cardTitleRow}>
           <span className={styles.cardTitle}>{project.title}</span>
-          {activity && activity.waitingThreads > 0 && activity.waitingThreads >= activity.openThreads ? (
-            <StatusBadge tone="neutral" size="sm" className={styles.cardBadge}>
-              {plural(activity.waitingThreads, "fil en attente", "fils en attente")}
-            </StatusBadge>
-          ) : activity && activity.openThreads > 0 ? (
-            <StatusBadge tone="warning" size="sm" className={styles.cardBadge}>
-              {plural(activity.openThreads, "fil ouvert", "fils ouverts")}
-            </StatusBadge>
-          ) : null}
+          <span className={styles.cardBadges}>
+            {hasAccounts && <VisibilityBadge visibility={project.visibility} />}
+            {activity && activity.waitingThreads > 0 && activity.waitingThreads >= activity.openThreads ? (
+              <StatusBadge tone="neutral" size="sm" className={styles.cardBadge}>
+                {plural(activity.waitingThreads, "fil en attente", "fils en attente")}
+              </StatusBadge>
+            ) : activity && activity.openThreads > 0 ? (
+              <StatusBadge tone="warning" size="sm" className={styles.cardBadge}>
+                {plural(activity.openThreads, "fil ouvert", "fils ouverts")}
+              </StatusBadge>
+            ) : null}
+          </span>
         </div>
         <div className={styles.agentLine} title={agentLabel(project)}>
           <span aria-hidden="true" className={cx(styles.dot, agent.online ? styles.dotOnline : styles.dotOffline)} />
@@ -188,7 +224,14 @@ function ProjectCard({
   );
 }
 
+/** "6 projets · 1 privé": the project list's header line, drawn on the artboard `projet`. */
+export function projectsSummary(projects: Project[]): string {
+  const privateCount = projects.filter((project) => project.visibility === "private").length;
+  return [plural(projects.length, "projet", "projets"), ...(privateCount > 0 ? [plural(privateCount, "privé", "privés")] : [])].join(" · ");
+}
+
 export function ProjectsScreen() {
+  const hasAccounts = useMe()?.account !== undefined;
   const [projects, setProjects] = useState<Project[] | null>(null);
   const { home } = useHome();
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
@@ -214,7 +257,14 @@ export function ProjectsScreen() {
   return (
     <PageContent>
       <div className={styles.header}>
-        <h1 className={styles.title}>Projets</h1>
+        <div className={styles.heading}>
+          <h1 className={styles.title}>Projets</h1>
+          {hasAccounts && projects && (
+            <p className={styles.meta} data-testid="projects-summary">
+              {projectsSummary(projects)}
+            </p>
+          )}
+        </div>
         <TextInput
           type="search"
           size="md"

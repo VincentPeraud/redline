@@ -4,6 +4,8 @@ import { counted } from "./plural.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import { Button, Dialog, DialogActions, Field, TextInput, Tooltip, cx } from "./ui/index.js";
 import { hostRevealButton } from "./Rename.js";
+import { useProjectSharing } from "./ProjectSharingDialog.js";
+import { useMe } from "./useMe.js";
 import styles from "./ArchiveControls.module.css";
 
 /** A project, a design system or a page: all are archived, unarchived and deleted the same way (a design system's id is its project's). */
@@ -158,6 +160,10 @@ export interface BannerDeletion {
 export function ArchivedBanner({ kind, id, archivedAt, onUnarchived, deletion, className }: { kind: ArchiveKind; id: string; archivedAt: string; onUnarchived: () => void; deletion?: BannerDeletion; className?: string }) {
   const [error, setError] = useState<string | null>(null);
   const [contents, setContents] = useState<string | null>(null);
+  // Unarchiving a project stays with its creator and the admins, like archiving it; without accounts everyone manages.
+  const hasAccounts = useMe()?.account !== undefined;
+  const { sharing } = useProjectSharing(id, undefined, kind === "project" && hasAccounts);
+  const canUnarchive = kind !== "project" || !hasAccounts || sharing?.canChange === true;
   async function unarchive() {
     const res = await fetch(`${archiveBase(kind, id)}/unarchive`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => null);
     if (res?.ok) onUnarchived();
@@ -200,7 +206,7 @@ export function ArchivedBanner({ kind, id, archivedAt, onUnarchived, deletion, c
           Supprimer définitivement
         </button>
       )}
-      <Button onClick={() => void unarchive()}>Désarchiver</Button>
+      {canUnarchive && <Button onClick={() => void unarchive()}>Désarchiver</Button>}
       {deletion && contents !== null && (
         <DeleteDialog kind={kind} id={id} title={deletion.title} contents={contents} onClose={() => setContents(null)} onDeleted={deletion.onDeleted} />
       )}

@@ -68,16 +68,16 @@ it("previews each project with the artboards of its last changed page, on the ho
   await server.post(`/api/projects/${project.id}/pages`, { title: "Pricing", files: { "pricing.html": "<!doctype html><h1>Plans</h1>" } });
   await new Promise((resolve) => setTimeout(resolve, 5));
   await server.post(`/api/pages/${page.id}/versions`, { files: { "index.html": "<!doctype html><h1>Hello</h1>" }, message: "edit", origin: "terminal" });
-  const preview = `${server.artboardOrigin}/pages/${page.id}/index.html`;
+  const preview = new RegExp(`^${server.artboardOrigin}/c/[^/]+/pages/${page.id}/index.html$`);
 
   const tab = await browser.newPage();
   await tab.goto(`${server.url}/#/projects`);
   const card = tab.getByRole("link").filter({ hasText: "Preview" });
-  await expect.poll(() => card.locator("iframe").first().getAttribute("src")).toBe(preview);
+  await expect.poll(() => card.locator("iframe").first().getAttribute("src")).toMatch(preview);
 
   await tab.goto(`${server.url}/#/`);
   const homeCard = tab.getByTestId("home-projects").getByRole("link").filter({ hasText: "Preview" });
-  await expect.poll(() => homeCard.locator("iframe").first().getAttribute("src")).toBe(preview);
+  await expect.poll(() => homeCard.locator("iframe").first().getAttribute("src")).toMatch(preview);
 }, 60_000);
 
 it("shows the Redline logo as the tab icon", async () => {

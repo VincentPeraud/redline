@@ -33,7 +33,7 @@ import { askToUndoRefused } from "./refusals.js";
 import { settleUndoneChanges } from "./undone-changes.js";
 import { changesError, mergeRequests } from "./change-records.js";
 import { ARCHIVED_PAGE_ERROR, archivableExists, archivePage, archiveProject, archivedError, projectOrDesignSystem } from "./archive.js";
-import { tokensEqual } from "./request-hardening.js";
+import type { Access } from "./access.js";
 import { versionComponentsError } from "./components.js";
 import { removalsError } from "./removals.js";
 import { instanceChangesError } from "./instance-guards.js";
@@ -61,7 +61,7 @@ export function workOrigin(store: Store, pageLock: PageLock, workId: unknown, pa
 }
 
 /** HTTP API for agents and their sessions' MCP tools, guarded by the agent token (see `AGENT_API_PREFIX`). */
-export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock, terminalSessions: TerminalSessions): Promise<void> {
+export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock, terminalSessions: TerminalSessions, access: Access): Promise<void> {
   /** A running work item (`workId`) that does not belong to `projectId`, or whose run is over: its session may not act there. */
   const workOutsideProject = (workId: unknown, projectId: string | undefined): boolean => {
     if (workId === undefined) return false;
@@ -73,7 +73,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       // onRequest, not preHandler: a wrong token is refused before its body (up to 20 MB for assets) is read.
       api.addHook("onRequest", async (req, reply) => {
         const given = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice("Bearer ".length) : undefined;
-        if (!tokensEqual(given, store.getAgentToken())) {
+        if (!store.accounts.agentActorOf(given)) {
           return reply.code(401).send({ error: "Wrong or missing agent token." });
         }
         const build = req.headers[BUILD_HASH_HEADER];
@@ -83,6 +83,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       api.addHook("preHandler", async (req, reply) => {
         const { sessionId } = (req.params ?? {}) as { sessionId?: string };
         if (sessionId !== undefined && !isTerminalSessionId(sessionId)) return reply.code(400).send({ error: "a terminal session id is a UUID" });
+        if (sessionId !== undefined && !terminalSessions.claim(sessionId, req.viewer.kind === "agent" ? req.viewer.person?.id : undefined)) {
+          return reply.code(403).send({ error: "this terminal session belongs to another account" });
+        }
       });
 
       // Terminal mode (`redline mcp`) says it is there: every ~20 s while the session is open, and once more as it closes.
@@ -90,7 +93,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const { folder, machine } = req.body ?? {};
         if (!requiredString(folder) || !requiredString(machine)) return reply.code(400).send({ error: "folder and machine are required" });
         if (folder.length > MAX_TERMINAL_TEXT_LENGTH || machine.length > MAX_TERMINAL_TEXT_LENGTH) return reply.code(400).send({ error: `folder and machine are ${MAX_TERMINAL_TEXT_LENGTH} characters at most` });
-        terminalSessions.heartbeat(req.params.sessionId, folder, machine);
+        terminalSessions.heartbeat(req.params.sessionId, folder, machine, req.viewer.kind === "agent" ? req.viewer.person?.id : undefined);
         return reply.code(204).send();
       });
 
@@ -115,7 +118,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
 
       // `redline agent` picks or creates the projects a folder serves, before they have anything else to call.
       // `?all=1` (folder links) includes archived projects, so that a folder linked to one is not linked elsewhere.
-      api.get<{ Querystring: { all?: string } }>("/projects", async (req) => store.listProjects(req.query.all ? "all" : "active"));
+      api.get<{ Querystring: { all?: string } }>("/projects", async (req) => store.listProjects(req.query.all ? "all" : "active").filter((project) => access.may(req.viewer, "write", { projectId: project.id })));
 
       api.post<{ Body: { title?: unknown; designSystem?: unknown } }>("/projects", async (req, reply) => {
         const { title } = req.body ?? {};
@@ -125,7 +128,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           return reply.code(400).send({ error: "designSystem must be the id of an existing design system" });
         }
         if (designSystem !== null && store.isArchived(designSystem)) return reply.code(400).send({ error: "This design system is archived: choose another one." });
-        return reply.code(201).send(store.createProject((title as string).trim(), undefined, undefined, designSystem));
+        return reply.code(201).send(store.createProject((title as string).trim(), undefined, undefined, designSystem, req.viewer.kind === "agent" && req.viewer.person ? { createdBy: req.viewer.person } : {}));
       });
 
       // Terminal mode sets up brands: list and create design systems, and point a project at one (or at none).

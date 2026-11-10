@@ -27,6 +27,7 @@ describe("signed-in person", () => {
       port: 0,
       artboardPort: 0,
       host: "127.0.0.1",
+      firstAdminEmail: "ariane@example.com",
       proxySecrets: options.sso ? { human: HUMAN, machine: MACHINE } : undefined,
       identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email", ...options.headers, logoutUrl: options.logoutUrl },
     });
@@ -43,7 +44,7 @@ describe("signed-in person", () => {
     "remote-email": email,
   });
 
-  it("returns the person with the logout URL, and creates them on the first visit", async () => {
+  it("returns the person with the logout URL, and makes the first one admin", async () => {
     await start({ sso: true, logoutUrl: LOGOUT });
     expect(await me(signedIn("Ariane Martin", "ariane@example.com"))).toEqual({
       id: "amartin",
@@ -51,6 +52,7 @@ describe("signed-in person", () => {
       email: "ariane@example.com",
       initials: "AM",
       logoutUrl: LOGOUT,
+      account: { role: "admin", sso: true },
     });
   });
 

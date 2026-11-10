@@ -8,7 +8,9 @@ import { launchBrowser } from "./journeyBrowser.js";
 import WebSocket from "ws";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { AGENT_API_PREFIX, AGENT_ENDPOINT, MANIFEST_PATH, PROTOCOL_VERSION, type WorkItem } from "@redline/shared";
+import { admitSsoPeople } from "../../server/test/sso-people.js";
 import { startServer, type RunningServer } from "../../server/src/start.js";
+import { admitSsoPeople } from "../../server/test/sso-people.js";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -16,7 +18,8 @@ const HUMAN = "h".repeat(32);
 const person = (user: string, name: string) => ({ "x-redline-proxy-secret": HUMAN, "remote-user": user, "remote-name": name, "remote-email": `${user}@example.com` });
 const ariane = person("amartin", "Ariane Martin");
 const vincent = person("vperaud", "Vincent Peraud");
-const beforeSso = { "x-redline-proxy-secret": HUMAN };
+const beforeSso = {};
+const rules = ["- Police Inter, titres en 600.", "- Ton chaleureux, tutoiement interdit.", "- Les boutons principaux sont pleins.", "- La semaine commence le lundi."];
 
 const manifestOf = (...files: string[]) =>
   JSON.stringify({ artboards: files.map((file, i) => ({ file, x: i * 400, y: 0, width: 300, height: 200 })), tweaks: [{ id: "accent", type: "color", label: "Accent", default: "#e5484d" }] });
@@ -30,6 +33,7 @@ let plain: TestServer;
 let projectId: string;
 let historyPageId: string;
 let deletionPageId: string;
+let unnamedDeletionPageId: string;
 let plainProjectId: string;
 let plainPageId: string;
 
@@ -67,32 +71,39 @@ beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   dataDir = mkdtempSync(join(tmpdir(), "redline-signed-history-"));
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  // Before the SSO the server had no accounts: what nobody signed is written then, on the same data.
+  const beforeSsoServer = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1" });
+  const old = call(beforeSsoServer.url, beforeSso);
+  projectId = (await old<{ id: string }>("POST", "/api/projects", { title: "Acme" })).id;
+  const oldPage = (title: string, files = filesOf(title, "home.html")) => old<{ id: string; version: { id: string } }>("POST", `/api/projects/${projectId}/pages`, { title, files });
+  await old("PUT", `/api/projects/${projectId}/design-md`, { content: rules[0] });
+  const history = await oldPage("Parcours");
+  await oldPage("Hier");
+  const unnamedDeletions = await oldPage("Étapes retirées", filesOf("Étapes", "ecran-1.html", "ecran-6.html"));
+  unnamedDeletionPageId = unnamedDeletions.id;
+  await old("POST", `/api/pages/${unnamedDeletions.id}/versions`, { files: filesOf("Étapes", "ecran-1.html"), message: "Retire l'écran 6", origin: "user" });
+  await beforeSsoServer.close();
+
   sso = await startServer({
     dataDir,
     port: 0,
     artboardPort: 0,
     host: "127.0.0.1",
     webDir,
+    firstAdminEmail: "amartin@example.com",
     proxySecrets: { human: HUMAN, machine: MACHINE },
     identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email" },
   });
   plain = await startTestServer({ webDir });
   browser = await launchBrowser();
 
-  // Both people are known to the server before anything is signed.
-  await call(sso.url, ariane)("GET", "/api/me");
-  await call(sso.url, vincent)("GET", "/api/me");
+  await admitSsoPeople(sso.url, [ariane, vincent]);
 
-  // A project whose pages were made by different hands.
-  const project = await call(sso.url, vincent)<{ id: string }>("POST", "/api/projects", { title: "Acme" });
-  projectId = project.id;
   const page = (title: string, headers: Record<string, string>, files = filesOf(title, "home.html")) =>
     call(sso.url, headers)<{ id: string; version: { id: string } }>("POST", `/api/projects/${projectId}/pages`, { title, files });
 
-  // DESIGN.md: a rule from before the SSO, one from Ariane (Claude's and Vincent's follow below).
+  // DESIGN.md: Ariane's rule follows the one from before the SSO (Claude's and Vincent's follow below).
   const designMd = (headers: Record<string, string>, content: string) => call(sso.url, headers)("PUT", `/api/projects/${projectId}/design-md`, { content });
-  const rules = ["- Police Inter, titres en 600.", "- Ton chaleureux, tutoiement interdit.", "- Les boutons principaux sont pleins.", "- La semaine commence le lundi."];
-  await designMd(beforeSso, rules[0]);
   await designMd(ariane, rules.slice(0, 2).join("\n"));
 
   await connectAgent();
@@ -108,7 +119,6 @@ beforeAll(async () => {
   };
 
   // The history of home.html on "Parcours": created before the SSO, then Terminal, Claude for Ariane, Vincent by hand, Ariane's restoration.
-  const history = await page("Parcours", beforeSso);
   historyPageId = history.id;
   const terminal = await asAgent<{ id: string }>("POST", `/pages/${history.id}/versions`, {
     files: filesOf("Terminal", "home.html"),
@@ -134,7 +144,6 @@ beforeAll(async () => {
   // Pages for the page menu and the deleted artboards.
   await asAgent("POST", `/pages/${history.id}/siblings`, { title: "Page de Claude seule" });
   await page("Profil médecin", ariane);
-  await page("Hier", beforeSso);
   const deletions = await page("Onboarding", vincent, filesOf("Onboarding", "ecran-1.html", "ecran-4.html", "ecran-5.html", "ecran-6.html"));
   deletionPageId = deletions.id;
   await claudeRun(deletions.id, vincent, { artboard: "ecran-1.html", body: "Trop d'étapes" }, async (workId) => {
@@ -148,7 +157,6 @@ beforeAll(async () => {
     });
   });
   await call(sso.url, ariane)("POST", `/api/pages/${deletions.id}/versions`, { files: filesOf("Onboarding", "ecran-1.html", "ecran-6.html"), message: "Retire l'écran 5", origin: "user" });
-  await call(sso.url, beforeSso)("POST", `/api/pages/${deletions.id}/versions`, { files: filesOf("Onboarding", "ecran-1.html"), message: "Retire l'écran 6", origin: "user" });
 
   const plainProject = await call(plain.url, {})<{ id: string }>("POST", "/api/projects", { title: "Plain" });
   plainProjectId = plainProject.id;
@@ -209,7 +217,12 @@ it("says who deleted each artboard, or who asked Claude to", async () => {
   await entry("ecran-4.html").waitFor();
   expect(await entry("ecran-4.html").innerText()).toMatch(/Supprimé par Claude · fil « Trop d'étapes », demandé par Toi · /);
   expect(await entry("ecran-5.html").innerText()).toMatch(/Supprimé par Ariane Martin · /);
-  const unnamed = await entry("ecran-6.html").innerText();
+  const unnamedTab = await open(vincent, sso.url, `pages/${unnamedDeletionPageId}`);
+  await unnamedTab.getByRole("button", { name: "Étapes retirées" }).first().click();
+  await unnamedTab.getByRole("menuitem", { name: /Artboards supprimés/ }).click();
+  const unnamedEntry = unnamedTab.getByRole("dialog", { name: "Artboards supprimés" }).getByTestId("deleted-artboard").filter({ hasText: "ecran-6.html" });
+  await unnamedEntry.waitFor();
+  const unnamed = await unnamedEntry.innerText();
   expect(unnamed).toMatch(/\n[^\n]*/);
   expect(unnamed).not.toContain("Supprimé par");
 }, 60_000);

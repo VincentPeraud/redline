@@ -98,6 +98,15 @@
   text-decoration: none;
 }
 
+button.item {
+  width: 100%;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .item:hover {
   color: var(--color-text);
   background: var(--color-surface-muted);

@@ -2,6 +2,7 @@ import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply,
 import { tweakGridError, type TweakGridDeclaration } from "./tweakGrid.js";
 import type { Gap } from "./gaps.js";
 import type { Person } from "./people.js";
+import type { LinkAuthor, ShareLink } from "./links.js";
 import type { InstanceState } from "./instanceState.js";
 import type { ThreadRequest } from "./request.js";
 import type { ChangeRecordInput } from "./changeRecord.js";
@@ -29,9 +30,15 @@ export function isSafePath(path: string): boolean {
 /** `UUID` v1-v8 as produced by `randomUUID()`; page ids are used to build folder names on agents. */
 export const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
+/** Équipe: every member sees the project. Privé: its creator, the admins and the members chosen for it. */
+export type ProjectVisibility = "team" | "private";
+
 export interface Project {
   id: string;
   title: string;
+  visibility: ProjectVisibility;
+  /** Who created the project; absent for a design system's own project and for projects that predate accounts without SSO. */
+  createdBy?: Person;
   /** Brief that becomes the first message of the project's first conversation. */
   instructions: string;
   /** Id of the shared design system the project follows, or null for none (its project style is then its whole style). */
@@ -42,10 +49,14 @@ export interface Project {
   globalTakeover: boolean;
   /** The project's own choice; null follows the global setting. */
   globalTakeoverOverride: boolean | null;
+  /** Link visitors in Écriture only: whether an agent serves the project now (the agent itself stays unnamed). */
+  claudeAvailable?: boolean;
   /** The online agent that would run the project's work now (`GET /api/projects...`); absent when none can. */
   servedBy?: { id: string; machine: string; folder: string; kind: AgentKind; takeover: boolean };
   /** When the project was archived (ISO time): it is then read-only, hidden from sessions, and only it can be deleted. */
   archivedAt?: string;
+  /** The viewer's level when it is below Écriture (absent means Écriture: admin, creator, or no accounts). */
+  viewerLevel?: AccessLevel;
 }
 
 /** `PATCH /api/projects/:id`: any field may be sent alone. */
@@ -54,6 +65,72 @@ export interface UpdateProjectRequest {
   title?: string;
   /** true / false overrides the global takeover setting for this project, null goes back to following it. */
   globalTakeoverOverride?: boolean | null;
+  /** Switch between Équipe and Privé: its creator or an admin only. */
+  visibility?: ProjectVisibility;
+}
+
+/**
+ * What a member may do on a project: Lecture views, plays, previews and reads the history; Commentaire also comments;
+ * Écriture does everything on its pages. Administrators and the creator are always at Écriture.
+ */
+export type AccessLevel = "read" | "comment" | "write";
+export const ACCESS_LEVELS: readonly AccessLevel[] = ["read", "comment", "write"];
+/** 0 for Lecture, 1 for Commentaire, 2 for Écriture: compares levels. */
+export const levelRank = (level: AccessLevel): number => ACCESS_LEVELS.indexOf(level);
+export const isAccessLevel = (value: unknown): value is AccessLevel => ACCESS_LEVELS.includes(value as AccessLevel);
+
+/** A member with their own level on a project: lowered below Écriture on an Équipe project, chosen on a Privé one. */
+export interface ProjectMember {
+  person: Person;
+  level: AccessLevel;
+  /** Their working links on the project above their level: they keep working, and the creator may disable them. Empty for a viewer who cannot change levels. */
+  aboveLinks: ShareLink[];
+}
+
+/** `PUT /api/projects/:id/members/:personId`. */
+export interface SetMemberLevelRequest {
+  level: AccessLevel;
+}
+
+/** `GET /api/projects/:id/sharing`: who may see the project and whether the viewer may change that. */
+export interface ProjectSharing {
+  visibility: ProjectVisibility;
+  /** The viewer's own level on the project. */
+  viewerLevel: AccessLevel;
+  /** The members with a level of their own: the lowered ones (Équipe) or the chosen ones (Privé), the creator and the admins left out. */
+  members: ProjectMember[];
+  /** The accounts the creator could still give a level to; empty for a viewer who cannot change levels. */
+  candidates: Person[];
+  createdBy?: Person;
+  /** True for the project's creator and the admins. */
+  canChange: boolean;
+  /** Active accounts: the "N personnes" of an Équipe project. */
+  accountCount: number;
+  /** The accounts that would no longer see the project if it became Privé: every active member but the creator. Empty when it already is. */
+  wouldLoseAccess: Person[];
+  /** The working links on the project made by those accounts: they keep working after the switch, and the creator may disable them. Empty for a viewer who cannot change levels. */
+  lostAccessLinks: ShareLink[];
+}
+
+/** The answer to a member level change or removal: the links of that member now above their level. */
+export interface MemberChangeResponse {
+  links: ShareLink[];
+}
+
+/** The `code` of the 403 a person gets on a project they may not see; `creator` names who to ask. */
+export const NO_ACCESS_CODE = "no-access";
+export interface NoAccessResponse {
+  error: string;
+  code: typeof NO_ACCESS_CODE;
+  creator?: Person;
+}
+
+/** The `code` of the 403 a member gets for an action above their level on a project they can see. */
+export const INSUFFICIENT_LEVEL_CODE = "insufficient-level";
+export interface InsufficientLevelResponse {
+  error: string;
+  code: typeof INSUFFICIENT_LEVEL_CODE;
+  creator?: Person;
 }
 
 /** `PATCH /api/pages/:id`: rename the page. */
@@ -72,6 +149,8 @@ export interface Settings {
 
 export interface CreateProjectRequest {
   title: string;
+  /** Équipe when absent. */
+  visibility?: ProjectVisibility;
   instructions?: string;
   designSystem?: string | null;
 }
@@ -91,6 +170,8 @@ export interface PageVersionSummary {
   originLabel?: string;
   /** The person who made the version, or whom Claude made it for (the requesting person of its run); absent for terminal publishes, versions from before the SSO and without SSO. */
   person?: Person;
+  /** The link a version was made through, shown "Alix (lien)"; instead of `person`. */
+  linkAuthor?: LinkAuthor;
   createdAt: string;
   /** Only in the answer to an agent's publish: the page had moved since `baseVersionId` and the changes were merged onto its current version. */
   merged?: boolean;
@@ -145,6 +226,8 @@ export interface ArtboardVersion {
   originId?: string;
   originLabel?: string;
   person?: Person;
+  /** Made through a share link: shown "Alix (lien)". */
+  linkAuthor?: LinkAuthor;
   createdAt: string;
   /** The content the page shows now. At most one entry per artboard is current. */
   current: boolean;
@@ -286,8 +369,20 @@ export interface ServerConfig {
   artboardOrigin: string;
 }
 
+/** Path segment before a capability in an artboard url: `<origin>/c/<capability>/pages/...`. */
+export const ARTBOARD_CAPABILITY_SEGMENT = "c";
+
+/** `GET /api/projects/:projectId/artboard-capability`: a signed viewing capability for the artboards of one project. */
+export interface ArtboardCapability {
+  capability: string;
+  /** The capability stops working after this long; the app asks for a new one after `renewAfterMs`. */
+  lifetimeMs: number;
+  renewAfterMs: number;
+}
+
 /** `held`: a finished comment kept back ("Plus tard") until "Tout envoyer"; not yet sent to any session. */
-export type ThreadStatus = "held" | "open" | "resolved";
+/** "review" is "À relire": posted at Commentaire level, not sent to Claude until a member in Écriture sends it. */
+export type ThreadStatus = "held" | "review" | "open" | "resolved";
 
 /** What a thread is about: an element of an artboard, a whole artboard, or an element of the page canvas. */
 export type ThreadTarget =
@@ -352,8 +447,12 @@ export interface Thread {
   /** First line of the comment, kept visible when the thread is resolved. */
   title: string;
   body: string;
+  /** When the thread was written (ISO time). */
+  createdAt: string;
   /** The signed-in person who wrote `body` (the thread's first message, or the held comment); absent for comments from before the SSO and without SSO. */
   person?: Person;
+  /** Set instead of `person` when `body` came through a share link. */
+  linkAuthor?: LinkAuthor;
   /** Opened by Redline itself (signed "Redline"), for example when a diffusion removes something a page uses; no person wrote it. */
   automatic?: true;
   /** Set on a request to the design system (a thread on a component's artboard, opened by a project's session). */
@@ -377,6 +476,8 @@ interface CreateThreadCommon extends ModelChoice {
   held?: boolean;
   /** On a design system's page: the project it was opened from, whose agent runs the work (ignored when that project does not use it). */
   viaProjectId?: string;
+  /** Through a generic share link: the name the visitor signs with (a personal link signs with its own name). */
+  visitorName?: string;
 }
 
 /** A comment pinned on an element of an artboard. */
@@ -420,6 +521,16 @@ export interface SendHeldRequest extends ModelChoice {
 
 export interface SendHeldResponse {
   /** Held comments sent (0 when the page had none). */
+  threads: number;
+}
+
+/** `POST /api/pages/:pageId/send-review`: sends "À relire" threads of that page to Claude as one message (every one of them when `threadIds` is absent). */
+export interface SendReviewRequest extends ModelChoice {
+  threadIds?: string[];
+}
+
+export interface SendReviewResponse {
+  /** Threads sent (0 when none was À relire). */
   threads: number;
 }
 
@@ -1239,6 +1350,8 @@ export interface AgentInfo extends ModelChoice {
   updating?: true;
   /** Why the last update failed; the agent kept running its previous build. */
   updateError?: string;
+  /** The account whose token the agent connected with; its rights are the agent's. Absent without accounts. */
+  launchedBy?: Person;
 }
 
 /** An agent the server refused for its protocol; listed until it connects again. */
@@ -1366,3 +1479,4 @@ export * from "./request.js";
 export * from "./changeRecord.js";
 export * from "./diffusionReview.js";
 export * from "./componentComparison.js";
+export * from "./links.js";

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { cliUpdateCommand, modelLabel, type AgentOverview, type AgentTokenResponse, type RefusedAgent, type Settings } from "@redline/shared";
+import { Avatar } from "./Avatar.js";
 import { agentName } from "./agentName.js";
 import { routeHref } from "./router.js";
 import { relativeTime } from "./relativeTime.js";
@@ -75,11 +76,15 @@ function ProjectList({ agent }: { agent: AgentOverview }) {
   const shown = all || hidden === 0 ? agent.projects : agent.projects.slice(0, SHOWN_PROJECTS);
   return (
     <ul className={styles.projectList} aria-label={global ? "Projets couverts" : "Projets"} data-testid="agent-projects">
-      {shown.map((project) => (
-        <li key={project.id} className={styles.projectItem}>
-          <a className={styles.projectLink} href={routeHref({ name: "project", projectId: project.id })}>
-            {project.title}
-          </a>
+      {shown.map((project, index) => (
+        <li key={project.private ? `private-${index}` : project.id} className={styles.projectItem}>
+          {project.private ? (
+            <span className={styles.projectName}>{project.title}</span>
+          ) : (
+            <a className={styles.projectLink} href={routeHref({ name: "project", projectId: project.id })}>
+              {project.title}
+            </a>
+          )}
           {global && project.servedNow && <span className={styles.servedNow}>sert maintenant</span>}
         </li>
       ))}
@@ -103,6 +108,16 @@ function Folder({ path }: { path: string }) {
   );
 }
 
+function LaunchedBy({ agent }: { agent: AgentOverview }) {
+  if (!agent.launchedBy) return <span className={styles.secondary}>-</span>;
+  return (
+    <div className={styles.by}>
+      <Avatar initials={agent.launchedBy.initials} muted />
+      <span>{agent.launchedBy.name}</span>
+    </div>
+  );
+}
+
 function AgentRow({ agent }: { agent: AgentOverview }) {
   const global = agent.kind === "global";
   const offline = agent.status === "offline";
@@ -117,6 +132,9 @@ function AgentRow({ agent }: { agent: AgentOverview }) {
           <span className={styles.name}>{agentName(agent)}</span>
         </div>
         <span className={styles.secondary}>{global ? "Agent global" : "Agent de projet"}</span>
+      </div>
+      <div role="cell" className={styles.cell}>
+        <LaunchedBy agent={agent} />
       </div>
       <div role="cell" className={styles.cell}>
         <Folder path={agent.folder} />
@@ -166,6 +184,7 @@ function RefusedAgentRow({ agent }: { agent: RefusedAgent }) {
         </div>
         <span className={styles.secondary}>{agent.kind === "global" ? "Agent global" : "Agent de projet"}</span>
       </div>
+      <div role="cell" className={styles.cell} />
       <div role="cell" className={styles.cell}>
         <Folder path={agent.folder} />
         <span className={styles.secondary}>
@@ -213,15 +232,15 @@ function TokenSection({ token, onToken }: { token: string; onToken: (token: stri
   const [copied, copy] = useCopy();
 
   async function regenerate() {
-    if (!window.confirm("Régénérer le jeton déconnecte tous les agents. Continuer ?")) return;
+    if (!window.confirm("Régénérer ton jeton déconnecte tes agents. Continuer ?")) return;
     const res = await fetch("/api/agent-token/regenerate", { method: "POST" });
     onToken(((await res.json()) as AgentTokenResponse).token);
   }
 
   return (
-    <section aria-label="Jeton des agents" className={styles.token}>
-      <div className={styles.stepTitle}>Jeton des agents</div>
-      <div className={styles.tokenHint}>Déjà inclus dans la commande ci-dessus. Le régénérer déconnecte tous les agents.</div>
+    <section aria-label="Ton jeton d'agent" className={styles.token}>
+      <div className={styles.stepTitle}>Ton jeton d'agent</div>
+      <div className={styles.tokenHint}>Personnel : ne le donne à personne. Le régénérer ne déconnecte que tes agents.</div>
       <div className={styles.tokenValue}>
         <code data-testid="token">{token ? maskToken(token, 11) : ""}</code>
       </div>
@@ -293,6 +312,7 @@ function LaunchPanel({ closing, onClose, onClosed, trigger }: { closing: boolean
             </svg>
           </button>
         </div>
+        <p className={styles.intro}>L'agent tourne sur ta machine avec <strong className={styles.strong}>tes droits</strong> : il ne voit que les projets que tu vois et n'écrit que là où tu écris.</p>
         <Step
           title="Une fois par machine"
           text={
@@ -350,9 +370,9 @@ export function AgentsScreen() {
       <PageContent>
         <PageHeader
           title="Agents"
-          subtitle="Un agent tourne sur ta machine, dans un dossier, avec le compte Claude connecté dans le terminal. C'est lui qui lance les sessions."
+          subtitle="Chaque agent tourne avec le jeton de la personne qui l'a lancé, et n'a que ses droits."
           actions={
-            <Button ref={launchButton} variant="accent" size="lg" aria-expanded={launch === "open"} onClick={() => (launch === "open" ? closeLaunch() : setLaunch("open"))}>
+            <Button ref={launchButton} variant="accent" aria-expanded={launch === "open"} onClick={() => (launch === "open" ? closeLaunch() : setLaunch("open"))}>
               Lancer un agent
             </Button>
           }
@@ -363,6 +383,7 @@ export function AgentsScreen() {
           <div role="table" aria-label="Agents" className={styles.table}>
             <div role="row" className={cx(styles.row, styles.headRow)}>
               <span role="columnheader">Agent</span>
+              <span role="columnheader">Lancé par</span>
               <span role="columnheader">Dossier</span>
               <span role="columnheader">Projets</span>
               <span role="columnheader">État</span>

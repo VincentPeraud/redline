@@ -10,12 +10,15 @@ export interface FieldProps {
   hint?: ReactNode;
   /** Wraps the control in a label, so clicking the text focuses it. */
   children: ReactNode;
+  /** Secondary-colour label, as in the account, invitation and sharing forms. */
+  quiet?: boolean;
+  className?: string;
 }
 
 /** Label above a control (13px, medium), with optional marker and hint. */
-export function Field({ label, optional, hint, children }: FieldProps) {
+export function Field({ label, optional, hint, children, quiet, className }: FieldProps) {
   return (
-    <label className={styles.field}>
+    <label className={cx(styles.field, quiet && styles.quiet, className)}>
       <span>
         {label}
         {optional ? <span className={styles.optional}> (facultatif)</span> : null}
@@ -27,8 +30,8 @@ export function Field({ label, optional, hint, children }: FieldProps) {
 }
 
 export interface TextInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "size"> {
-  /** md: 36px, 13px text (filters, search); lg: 44px, 15px text (forms and dialogs). */
-  size?: "md" | "lg";
+  /** md: 36px, 13px text (filters, search); lg: 44px, 15px text (forms and dialogs); form: 40px, 14px text (account, invitation and sharing forms). */
+  size?: "md" | "lg" | "form";
 }
 
 export function TextInput({ size = "lg", className, ...rest }: TextInputProps) {
@@ -40,8 +43,8 @@ export function Textarea({ className, ...rest }: TextareaHTMLAttributes<HTMLText
 }
 
 export interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "size"> {
-  /** sm: 32px, 12px text; md: 36px, 14px text; lg: 44px, 14px text. */
-  size?: "sm" | "md" | "lg";
+  /** sm: 32px, 12px text; md: 36px, 14px text; form: 40px, 14px text; lg: 44px, 14px text. */
+  size?: "sm" | "md" | "form" | "lg";
 }
 
 /** Native select drawn with the mock-up's chevron; pass `<option>` children. */

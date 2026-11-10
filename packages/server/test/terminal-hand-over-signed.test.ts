@@ -6,6 +6,7 @@ import WebSocket from "ws";
 import { AGENT_API_PREFIX, AGENT_ENDPOINT, PROTOCOL_VERSION, type AgentTokenResponse, type Page, type PageVersionSummary, type Project, type Thread, type WorkItem } from "@redline/shared";
 import { PROXY_SECRET_HEADER } from "../src/proxy-secrets.js";
 import { startServer, type RunningServer } from "../src/start.js";
+import { admitSsoPeople } from "./sso-people.js";
 
 const HUMAN = "h".repeat(32);
 const MACHINE = "m".repeat(32);
@@ -23,9 +24,11 @@ beforeEach(async () => {
     port: 0,
     artboardPort: 0,
     host: "127.0.0.1",
+    firstAdminEmail: "vperaud@example.com",
     proxySecrets: { human: HUMAN, machine: MACHINE },
     identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email" },
   });
+  await admitSsoPeople(server.url, [vincent, ariane]);
 });
 afterEach(async () => {
   await server.close();

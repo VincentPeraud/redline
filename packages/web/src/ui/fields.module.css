@@ -6,6 +6,10 @@
   font-weight: var(--font-weight-medium);
 }
 
+.quiet {
+  color: var(--color-text-secondary);
+}
+
 .optional,
 .hint {
   font-weight: var(--font-weight-regular);
@@ -43,6 +47,11 @@
   font-size: var(--font-size-lg);
 }
 
+.form {
+  height: 40px;
+  font-size: var(--font-size-md);
+}
+
 .textarea {
   padding: 10px 12px;
   width: 100%;
@@ -77,6 +86,12 @@
   font-size: var(--font-size-md);
 }
 
+.select-form {
+  height: 40px;
+  padding: 0 36px 0 12px;
+  font-size: var(--font-size-md);
+}
+
 .select-lg {
   height: 44px;
   padding: 0 40px 0 12px;
@@ -87,4 +102,8 @@
   position: absolute;
   right: 12px;
   pointer-events: none;
+}
+
+.control[aria-invalid="true"] {
+  border-color: var(--color-danger-text);
 }

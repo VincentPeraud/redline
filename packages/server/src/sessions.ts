@@ -8,6 +8,7 @@ import {
   type SessionStatus,
   type ThreadRun,
 } from "@redline/shared";
+import type { Access } from "./access.js";
 import type { PageLock } from "./page-lock.js";
 import type { SessionOrigin, Store } from "./store.js";
 
@@ -31,6 +32,7 @@ export function registerSessionRoutes(
   lock: PageLock,
   runs: Map<string, ThreadRun>,
   lastConversationWork: Map<string, string>,
+  access: Access,
 ): void {
   function derive(origin: SessionOrigin): Derived | undefined {
     if (origin.kind === "thread") {
@@ -44,7 +46,7 @@ export function registerSessionRoutes(
       const idleStatus: SessionStatus =
         thread.status === "resolved"
           ? "resolved"
-          : thread.status === "held"
+          : thread.status === "held" || thread.status === "review"
             ? "held"
             : thread.replies.some((r) => r.author === "claude")
               ? "answered"
@@ -142,16 +144,17 @@ export function registerSessionRoutes(
 
   const agentsById = () => new Map(store.listAgents().map((a) => [a.id, a]));
 
-  app.get(SESSIONS_PATH, async (): Promise<SessionRow[]> => {
+  app.get(SESSIONS_PATH, async (req): Promise<SessionRow[]> => {
     const agents = agentsById();
     return store
       .listSessionOrigins()
+      .filter((origin) => access.may(req.viewer, "read", { projectId: origin.projectId }))
       .flatMap((origin) => toRow(origin, agents)?.row ?? [])
       .sort((a, b) => b.activityAt.localeCompare(a.activityAt));
   });
 
   app.get<{ Params: { id: string } }>(`${SESSIONS_PATH}/:id`, async (req, reply) => {
-    const origin = store.listSessionOrigins().find((o) => o.id === req.params.id);
+    const origin = store.listSessionOrigins().find((o) => o.id === req.params.id && access.may(req.viewer, "read", { projectId: o.projectId }));
     const found = origin && toRow(origin, agentsById());
     if (!found) return reply.code(404).send({ error: "session not found" });
     const detail: SessionDetail = { ...found.row, messages: found.messages };

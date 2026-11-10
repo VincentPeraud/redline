@@ -74,6 +74,7 @@ const requiredEnv = {
   REDLINE_UI_HOST: "redline.example.com",
   REDLINE_ARTBOARD_HOST: "artboards.example.com",
   REDLINE_AUTH_MIDDLEWARE: "sso@docker",
+  REDLINE_FIRST_ADMIN_EMAIL: "admin@example.com",
   REDLINE_PROXY_SECRET_HUMAN: "a".repeat(64),
   REDLINE_PROXY_SECRET_MACHINE: "b".repeat(64),
 };
@@ -129,19 +130,27 @@ describe.skipIf(!process.env.REDLINE_DOCKER_TEST)("production compose", () => {
       new Set(Object.keys(labels).filter((k) => k.startsWith(`traefik.http.${kind}.`)).map((k) => k.split(".")[3]));
 
     expect([...names("routers")].sort()).toEqual(
-      ["acme-artboards", "acme-artboards-http", "acme-machine", "acme-ui", "acme-ui-http"],
+      ["acme-artboards", "acme-artboards-http", "acme-machine", "acme-share", "acme-ui", "acme-ui-http"],
     );
     expect([...names("middlewares")].sort()).toEqual(
       ["acme-body", "acme-headers", "acme-https", "acme-ratelimit", "acme-secret-human", "acme-secret-machine", "acme-strip-identity"],
     );
     expect(labels["traefik.http.routers.acme-ui.middlewares"]).toBe("acme-headers,acme-strip-identity,sso@docker,acme-body,acme-secret-human");
-    expect(labels["traefik.http.routers.acme-artboards.middlewares"]).toBe("acme-headers,acme-strip-identity,sso@docker,acme-body,acme-secret-human");
+    // The artboard origin is guarded by the viewing capability in its URL, not by the SSO.
+    expect(labels["traefik.http.routers.acme-artboards.middlewares"]).toBe("acme-headers,acme-strip-identity,acme-body,acme-secret-human");
+    // Link visitors have no SSO account: `/s/*` (and the app bundle it loads) skips the SSO but keeps the human secret.
+    expect(labels["traefik.http.routers.acme-share.rule"]).toBe("Host(`redline.example.com`) && (PathPrefix(`/s/`) || PathPrefix(`/assets/`))");
+    expect(labels["traefik.http.routers.acme-share.middlewares"]).toBe("acme-headers,acme-strip-identity,acme-body,acme-ratelimit,acme-secret-human");
+    expect(labels["traefik.http.routers.acme-share.middlewares"]).not.toContain("sso@docker");
+    expect(Number(labels["traefik.http.routers.acme-share.priority"])).toBeGreaterThan(Number(labels["traefik.http.routers.acme-ui.priority"]));
     expect(labels["traefik.http.routers.acme-machine.middlewares"]).not.toContain("sso@docker");
     expect(labels["traefik.http.routers.acme-machine.middlewares"]).toContain("acme-secret-machine");
     expect(Number(labels["traefik.http.routers.acme-machine.priority"])).toBeGreaterThan(Number(labels["traefik.http.routers.acme-ui.priority"]));
     expect(labels["traefik.http.routers.acme-ui-http.service"]).toBe("noop@internal");
     expect(labels["traefik.http.middlewares.acme-secret-human.headers.customrequestheaders.X-Redline-Proxy-Secret"]).toBe(requiredEnv.REDLINE_PROXY_SECRET_HUMAN);
     expect(service.environment.REDLINE_ARTBOARD_ORIGIN).toBe("https://artboards.example.com");
+    expect(service.environment.REDLINE_AUTH_MODE).toBe("proxy");
+    expect(service.environment.REDLINE_PUBLIC_URL).toBe("https://redline.example.com");
     expect(service.ports).toBeUndefined();
   });
 });

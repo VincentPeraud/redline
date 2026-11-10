@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Person, QueueEntry, QueueReason, WorkItem, WorkLabels } from "@redline/shared";
-import { chooseAgent } from "./agent-selection.js";
+import { chooseAgent, globalAgentFor } from "./agent-selection.js";
 import type { AgentHub } from "./agents.js";
 import { RETRY_DELAYS_MS, UNKNOWN_RESET_WAIT_MS, isSubscriptionLimit, limitResetAt } from "./retry-policy.js";
 import type { PersistedWork, Store } from "./store.js";
@@ -472,7 +472,7 @@ export class PageLock {
       const choice = choose();
       return choice && { agentId: choice.agentId, item: taken };
     }
-    const globalId = this.store.getProject(projectId)?.globalTakeover ? this.store.findOnlineGlobalAgentId() : undefined;
+    const globalId = this.store.getProject(projectId)?.globalTakeover ? globalAgentFor(this.store, projectId) : undefined;
     return globalId ? { agentId: globalId, item: taken } : undefined;
   }
 

@@ -1,4 +1,5 @@
 import { SERVER_EVENTS_PATH, type ServerEvent } from "@redline/shared";
+import { API_PREFIX } from "./linkAddress.js";
 
 // One stream for the whole browser, shared by every subscriber of every tab: each EventSource holds one of the browser's
 // six HTTP/1.1 connections to the host, so a stream per tab left the seventh tab's requests pending forever.
@@ -14,7 +15,7 @@ let started = false;
 const dispatch = (event: ServerEvent) => handlers.forEach((each) => each(event));
 
 function openStream(onEvent: (event: ServerEvent) => void): void {
-  const source = new EventSource(SERVER_EVENTS_PATH);
+  const source = new EventSource(`${API_PREFIX}${SERVER_EVENTS_PATH}`);
   source.onmessage = (message) => {
     let event: ServerEvent;
     try {
@@ -28,7 +29,7 @@ function openStream(onEvent: (event: ServerEvent) => void): void {
 
 function startStream(): void {
   // Web Locks only exist in secure contexts (https, localhost): elsewhere each tab keeps its own stream.
-  if (!navigator.locks) return openStream(dispatch);
+  if (!navigator.locks || API_PREFIX !== "") return openStream(dispatch);
   const channel = new BroadcastChannel(CHANNEL_NAME);
   channel.onmessage = (message: MessageEvent<ServerEvent>) => dispatch(message.data);
   // Held until the tab closes, which releases the lock for the next tab waiting for it.

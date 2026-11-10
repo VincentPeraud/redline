@@ -554,3 +554,11 @@
 .archivedBanner.archivedBanner {
   padding: 12px var(--space-5);
 }
+
+/* A link visitor's comment being written: a card over the canvas, left of the panel of the link's comments. */
+.visitorComposer {
+  position: fixed;
+  right: calc(360px + var(--space-4));
+  bottom: var(--space-4);
+  z-index: 30;
+}

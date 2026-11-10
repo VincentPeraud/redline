@@ -129,7 +129,7 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
           </div>
           {(versions ?? []).map((version) => {
             const previewing = version.versionId === previewVersionId;
-            const meta = metaLine(originLabel(version.origin, version.originLabel, who(version.person)), historyDate(version.createdAt, { withTime: true }));
+            const meta = metaLine(originLabel(version.origin, version.originLabel, version.linkAuthor ? { sso: true, name: `${version.linkAuthor.name} (lien)` } : who(version.person)), historyDate(version.createdAt, { withTime: true }));
             const diffusion = version.diffusion && `affichée avec ${version.diffusion.designSystemTitle} · diffusion ${version.diffusion.number}`;
             if (previewing) {
               return (

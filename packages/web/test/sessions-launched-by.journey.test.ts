@@ -8,6 +8,7 @@ import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { MANIFEST_PATH } from "@redline/shared";
 import { startServer, type RunningServer } from "../../server/src/start.js";
+import { admitSsoPeople } from "../../server/test/sso-people.js";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -15,7 +16,7 @@ const HUMAN = "h".repeat(32);
 const sso = (user: string, name: string) => ({ "x-redline-proxy-secret": HUMAN, "remote-user": user, "remote-name": name, "remote-email": `${user}@example.com` });
 const ariane = sso("amartin", "Ariane Martin");
 const vincent = sso("vperaud", "Vincent Peraud");
-const anonymous = { "x-redline-proxy-secret": HUMAN };
+const anonymous = {};
 
 let webDir: string;
 let dataDir: string;
@@ -40,17 +41,23 @@ beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   dataDir = mkdtempSync(join(tmpdir(), "redline-sso-"));
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  // Before the SSO the server had no accounts: the "Before SSO" session is started then, on the same data.
+  const beforeSso = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1" });
+  await seed(beforeSso.url, [anonymous], ["Before SSO"]);
+  await beforeSso.close();
   server = await startServer({
     dataDir,
     port: 0,
     artboardPort: 0,
     host: "127.0.0.1",
     webDir,
+    firstAdminEmail: "amartin@example.com",
     proxySecrets: { human: HUMAN, machine: "m".repeat(32) },
     identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email" },
   });
   plain = await startTestServer({ webDir });
-  await seed(server.url, [ariane, vincent, anonymous], ["Mine", "His", "Before SSO"]);
+  await admitSsoPeople(server.url, [ariane, vincent]);
+  await seed(server.url, [ariane, vincent], ["Mine", "His"]);
   await seed(plain.url, [{}], ["Plain"]);
   browser = await launchBrowser();
 }, 60_000);

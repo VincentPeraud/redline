@@ -1,6 +1,8 @@
 import type { CSSProperties, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles/global.css";
+import { AccountsScreen } from "./AccountsScreen.js";
+import { MyAccountScreen } from "./MyAccountScreen.js";
 import { AgentsScreen } from "./AgentsScreen";
 import { AgentUpdateBanner, useOutdatedAgentNames } from "./AgentUpdateBanner.js";
 import { App } from "./App";
@@ -14,12 +16,18 @@ import { ProjectDesignSystemScreen } from "./ProjectDesignSystemScreen";
 import { ProjectOverview } from "./ProjectOverview";
 import { ArchivedProjectsScreen, ProjectsScreen } from "./ProjectsScreen";
 import { Shell } from "./Sidebar";
-import { MeProvider } from "./useMe.js";
+import { AuthGate } from "./AuthGate.js";
+import { installApiCalls } from "./apiCalls.js";
+import { NoAccessGate } from "./NoAccess.js";
+import { MeProvider, useMe } from "./useMe.js";
+import { NoAccessScreen } from "./AuthScreens.js";
 import { useRoute } from "./router";
 import { SessionsScreen } from "./SessionsScreen";
 import { HomeProvider } from "./useHome.js";
 import { notePageRoute } from "./viaProject.js";
 import { useDocumentTitle } from "./documentTitle.js";
+import { LINK_TOKEN } from "./linkAddress.js";
+import { VisitorApp } from "./visitor.js";
 import type { Route } from "./router";
 
 /** Tab titles of the screens that have no name of their own; the others (a page, a project, a design system) set theirs. */
@@ -27,6 +35,8 @@ const SECTION_TITLES: Partial<Record<Route["name"], string>> = {
   home: "Accueil",
   agents: "Agents",
   sessions: "Sessions",
+  accounts: "Comptes",
+  account: "Mon compte",
   projects: "Projets",
   archivedProjects: "Projets archivés",
   designSystems: "Design systems",
@@ -69,6 +79,10 @@ function RouteScreen({ route }: { route: Route }) {
       return <Shell><HomeScreen /></Shell>;
     case "agents":
       return <Shell><AgentsScreen /></Shell>;
+    case "accounts":
+      return <AccountsRoute />;
+    case "account":
+      return <Shell><MyAccountScreen /></Shell>;
     case "project":
       return <ProjectOverview key={route.projectId} projectId={route.projectId} />;
     case "designMd":
@@ -92,20 +106,37 @@ function RouteScreen({ route }: { route: Route }) {
   }
 }
 
+/** Comptes is for admins: a member who opens its address gets the no-access screen. */
+function AccountsRoute() {
+  const me = useMe();
+  return me?.account?.role === "admin" ? <Shell><AccountsScreen /></Shell> : <NoAccessScreen />;
+}
+
 function Root() {
   return (
     <HomeProvider>
-      <WithBanner>
-        <Screen />
-      </WithBanner>
+      <NoAccessGate>
+        <WithBanner>
+          <Screen />
+        </WithBanner>
+      </NoAccessGate>
     </HomeProvider>
   );
 }
 
+installApiCalls();
+
+// A share link opens its page for anyone: no sign-in, no sidebar, none of the team's screens.
 createRoot(document.getElementById("root")!).render(
-  <MeProvider>
-    <DiffusionProvider>
-      <Root />
-    </DiffusionProvider>
-  </MeProvider>,
+  LINK_TOKEN !== undefined ? (
+    <VisitorApp />
+  ) : (
+    <MeProvider>
+      <AuthGate>
+        <DiffusionProvider>
+          <Root />
+        </DiffusionProvider>
+      </AuthGate>
+    </MeProvider>
+  ),
 );

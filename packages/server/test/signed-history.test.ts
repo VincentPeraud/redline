@@ -20,6 +20,7 @@ import {
 } from "@redline/shared";
 import { PROXY_SECRET_HEADER } from "../src/proxy-secrets.js";
 import { startServer, type RunningServer } from "../src/start.js";
+import { admitSsoPeople } from "./sso-people.js";
 
 const HUMAN = "h".repeat(32);
 const MACHINE = "m".repeat(32);
@@ -35,7 +36,6 @@ const ONLY_HOME = JSON.stringify({ artboards: [{ file: "home.html", x: 0, y: 0, 
 
 const ariane = { [PROXY_SECRET_HEADER]: HUMAN, "remote-user": "amartin", "remote-name": "Ariane Martin", "remote-email": "ariane@example.com" };
 const vincent = { [PROXY_SECRET_HEADER]: HUMAN, "remote-user": "vperaud", "remote-name": "Vincent Peraud", "remote-email": "vincent@example.com" };
-const anonymous = { [PROXY_SECRET_HEADER]: HUMAN };
 
 describe("signed history, DESIGN.md, pages and deleted artboards", () => {
   let dataDir: string;
@@ -47,9 +47,11 @@ describe("signed history, DESIGN.md, pages and deleted artboards", () => {
       port: 0,
       artboardPort: 0,
       host: "127.0.0.1",
+      firstAdminEmail: "vincent@example.com",
       proxySecrets: { human: HUMAN, machine: MACHINE },
       identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email" },
     });
+    await admitSsoPeople(server.url, [vincent, ariane]);
   });
   afterEach(async () => {
     await server.close();
@@ -88,14 +90,6 @@ describe("signed history, DESIGN.md, pages and deleted artboards", () => {
     expect(byOrigin).toEqual({ tweak: "vperaud", user: "amartin", restore: "vperaud", creation: "amartin" });
   });
 
-  it("leaves the versions and pages from before the SSO without a person", async () => {
-    const page = await createPage(anonymous);
-    expect(page.createdByPerson).toBeUndefined();
-    expect((await versions(page))[0].person).toBeUndefined();
-    await post(`/api/pages/${page.id}/tweaks`, anonymous, { id: "accent", value: "#0f766e" });
-    expect((await versions(page))[0].person).toBeUndefined();
-  });
-
   it("signs the artboard history and the artboards a person deleted or put back", async () => {
     const page = await createPage(ariane);
     const files = { "manifest.json": ONLY_HOME, "home.html": "<h1>Home</h1>" };
@@ -121,14 +115,6 @@ describe("signed history, DESIGN.md, pages and deleted artboards", () => {
       ["- Buttons are round", "amartin"],
       ["- Titles are bold", "vperaud"],
     ]);
-  });
-
-  it("keeps DESIGN.md versions saved without SSO unsigned", async () => {
-    const page = await createPage(anonymous);
-    await send("PUT", `/api/projects/${page.projectId}/design-md`, anonymous, { content: "- Rule" });
-    const info = await get<DesignMdInfo>(`/api/projects/${page.projectId}/design-md/info`);
-    expect(info.lastModified?.person).toBeUndefined();
-    expect(info.rules[0].person).toBeUndefined();
   });
 
   describe("Claude runs and terminal publishes", () => {
@@ -221,14 +207,6 @@ describe("signed history, DESIGN.md, pages and deleted artboards", () => {
       const first = await agent.work();
       await post(`/api/conversations/${conversation.id}/messages`, vincent, { body: "Add a denied page" });
       expect((await publish(page, first, "conversation")).person?.id).toBe("amartin");
-      agent.close();
-    });
-
-    it("signs nothing for a comment written before the SSO", async () => {
-      const page = await createPage(vincent);
-      const agent = await connectAgent(page.projectId);
-      await post<Thread>(`/api/pages/${page.id}/threads`, anonymous, { artboard: "home.html", selector: "h1", xPct: 10, yPct: 20, body: "Old comment" });
-      expect((await publish(page, await agent.work(), "thread")).person).toBeUndefined();
       agent.close();
     });
 

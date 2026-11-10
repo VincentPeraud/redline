@@ -13,7 +13,6 @@ import {
   type AgentTokenResponse,
   type ServerToAgentMessage,
 } from "@redline/shared";
-import { tokensEqual } from "./request-hardening.js";
 import type { Store } from "./store.js";
 
 function send(socket: WebSocket, message: ServerToAgentMessage): void {
@@ -67,6 +66,8 @@ export interface AgentHub {
   onAgentOnline(listener: (agentId: string) => void): void;
   /** Only work messages for which `owns(agentId, workId)` is true are relayed: an agent cannot report on another agent's work. */
   acceptWorkMessagesFrom(owns: (agentId: string, workId: string) => boolean): void;
+  /** Closes the connections of the agents a person launched (their token was revoked or regenerated). */
+  disconnectPerson(personId: string): void;
   /** Calls `listener` when an agent's connection ended (closed, or dropped by a token regeneration). */
   onAgentOffline(listener: (agentId: string) => void): void;
 }
@@ -74,13 +75,13 @@ export interface AgentHub {
 /** Agent endpoint (WebSocket) plus the token and agent-list API. */
 export async function registerAgentRoutes(app: FastifyInstance, store: Store): Promise<AgentHub> {
   await app.register(websocket);
-  const connected = new Map<WebSocket, string>();
+  const connected = new Map<WebSocket, { agentId: string; personId?: string }>();
   const onlineListeners: ((agentId: string) => void)[] = [];
   const offlineListeners: ((agentId: string) => void)[] = [];
   let ownsWork: (agentId: string, workId: string) => boolean = () => true;
 
   function sendToAgent(agentId: string, message: ServerToAgentMessage): boolean {
-    for (const [socket, id] of connected) {
+    for (const [socket, { agentId: id }] of connected) {
       if (id === agentId) {
         send(socket, message);
         return true;
@@ -90,7 +91,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
   }
 
   app.addHook("onClose", async () => {
-    for (const agentId of connected.values()) store.markAgentOffline(agentId);
+    for (const { agentId } of connected.values()) store.markAgentOffline(agentId);
     connected.clear();
   });
 
@@ -102,7 +103,8 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         send(socket, { type: "error", code: "bad_hello", message: "Expected a hello message." });
         return socket.close(AgentCloseCode.BadHello, "bad hello");
       }
-      if (!tokensEqual(hello.token, store.getAgentToken())) {
+      const actor = store.accounts.agentActorOf(hello.token);
+      if (!actor) {
         send(socket, {
           type: "error",
           code: "unauthorized",
@@ -142,8 +144,9 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
           return socket.close(AgentCloseCode.ProjectTaken, "project taken");
         }
       }
-      const agentId = store.markAgentOnline({ ...hello, projectIds });
-      connected.set(socket, agentId);
+      const personId = actor.account?.id;
+      const agentId = store.markAgentOnline({ ...hello, projectIds, personId });
+      connected.set(socket, { agentId, personId });
       store.emit({ type: "agents-updated" });
       socket.on("close", () => {
         if (!connected.delete(socket)) return;
@@ -167,17 +170,28 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
     });
   });
 
-  app.get("/api/agent-token", async (): Promise<AgentTokenResponse> => ({ token: store.getAgentToken() }));
-
-  app.post("/api/agent-token/regenerate", async (): Promise<AgentTokenResponse> => {
-    const token = store.regenerateAgentToken();
-    for (const [socket, agentId] of connected) {
+  function disconnect(accepts: (personId: string | undefined) => boolean): void {
+    for (const [socket, { agentId, personId }] of connected) {
+      if (!accepts(personId)) continue;
       connected.delete(socket);
       store.markAgentOffline(agentId);
       store.emit({ type: "agents-updated" });
-      socket.close(AgentCloseCode.Unauthorized, "token regenerated");
+      socket.close(AgentCloseCode.Unauthorized, "token revoked");
       for (const listener of offlineListeners) listener(agentId);
     }
+  }
+
+  // Everyone has their own token; without accounts (mode none) there is only the shared one.
+  app.get("/api/agent-token", async (req): Promise<AgentTokenResponse> => ({ token: req.person ? store.accounts.agentTokenOf(req.person.id) : store.getAgentToken() }));
+
+  app.post("/api/agent-token/regenerate", async (req): Promise<AgentTokenResponse> => {
+    if (req.person) {
+      const token = store.accounts.regenerateAgentToken(req.person.id);
+      disconnect((personId) => personId === req.person!.id);
+      return { token };
+    }
+    const token = store.regenerateAgentToken();
+    disconnect(() => true);
     return { token };
   });
 
@@ -195,6 +209,7 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
     onAgentOnline: (listener) => void onlineListeners.push(listener),
     onAgentOffline: (listener) => void offlineListeners.push(listener),
     acceptWorkMessagesFrom: (owns) => void (ownsWork = owns),
+    disconnectPerson: (personId) => disconnect((owner) => owner === personId),
     send: sendToAgent,
   };
 }

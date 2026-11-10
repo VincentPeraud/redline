@@ -80,11 +80,15 @@ import { subscribeServerEvents } from "./serverEvents.js";
 import { Tooltip, cx } from "./ui/index.js";
 import { usePageSessions } from "./usePageSessions.js";
 import { useRuns } from "./useRuns.js";
+import { LEVEL_LABEL } from "./ProjectSharingDialog.js";
+import { PHONE_VISITOR_MAX_WIDTH, useVisitor } from "./visitor.js";
+import { VisitorComposer, VisitorThreadsPanel } from "./VisitorComments.js";
 import { useTweaks } from "./useTweaks.js";
 import { viaProjectField } from "./viaProject.js";
 import styles from "./PageCanvas.module.css";
 
 const ZOOM_STEP = 1.25;
+
 /** Where the artboards start on screen at the initial view: left margin, and room above for the group title and artboard labels. */
 const START_LEFT = 80;
 const START_TOP = 190;
@@ -171,8 +175,15 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   /** Previewed with a design system's draft: read-only, nothing here comments, converses, saves or publishes. */
   const previewing = previewOf !== undefined;
   /** Previewed, or archived: nothing comments, saves or publishes (an archived page still shows its threads and conversations). */
-  const readOnly = previewing || archived !== undefined;
-  const archivedLabel = archived?.kind === "page" ? "Page archivée" : "Projet archivé";
+  /** The viewer's level (a design system's page has no project: everyone works there). Lecture only reads, Commentaire also comments. */
+  const visitor = useVisitor();
+  const level = visitor?.view.level ?? project?.viewerLevel ?? "write";
+  const canComment = level !== "read";
+  const canWork = level === "write";
+  const readOnly = previewing || archived !== undefined || !canComment;
+  /** Archived, or below Écriture: no edit, tweak, restore, move, rename or message to Claude. */
+  const frozen = archived !== undefined || !canWork;
+  const archivedLabel = archived?.kind === "page" ? "Page archivée" : archived ? "Projet archivé" : `Niveau ${LEVEL_LABEL[level]}`;
   const [threads, setThreads] = useState<Thread[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [pickingRequested, setPicking] = useState(false);
@@ -440,6 +451,23 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     setThreads((await res.json()) as Thread[]);
   }, [pageId]);
 
+  /** A project link in Écriture reads the threads of every page of the project, newest first. */
+  const projectWide = visitor?.view.level === "write" && visitor.view.scope === "project";
+  const [projectThreads, setProjectThreads] = useState<Thread[]>([]);
+  const [pageTitles, setPageTitles] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!projectWide) return;
+    const load = async () => {
+      const [threadsRes, pagesRes] = await Promise.all([fetch(`/api/projects/${projectId}/threads`), fetch(`/api/projects/${projectId}/pages`)]);
+      setProjectThreads((await threadsRes.json()) as Thread[]);
+      setPageTitles(Object.fromEntries(((await pagesRes.json()) as { id: string; title: string }[]).map((page) => [page.id, page.title])));
+    };
+    void load();
+    return subscribeServerEvents((event) => {
+      if (event.type === "thread-updated") void load();
+    });
+  }, [projectWide, projectId]);
+
   const refreshQueue = useCallback(async () => {
     const res = await fetch(`/api/pages/${pageId}/queue`);
     setQueue((await res.json()) as QueueEntry[]);
@@ -531,9 +559,11 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   }, [toggleGuides, toggleOverview, playing, readOnly]);
 
   /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
-  async function send(held: boolean) {
+  async function send(held: boolean, visitorName?: string) {
     if (!draft || text.trim() === "") return;
-    const request: CreateThreadRequest = { ...threadPlace(draft), body: text, ...(held ? { held } : choice), ...viaProjectField(pageId) };
+    const request: CreateThreadRequest = visitor
+      ? { ...threadPlace(draft), body: text, visitorName }
+      : { ...threadPlace(draft), body: text, ...(held ? { held } : choice), ...viaProjectField(pageId) };
     await fetch(`/api/pages/${pageId}/threads`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -547,7 +577,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   /** View settings are per page and live on the server; they are not a version and no session hears of them. */
   function changeViewSettings(next: PageViewSettings) {
     setViewSettings(next);
-    if (readOnly) return;
+    if (readOnly || frozen) return;
     void fetch(`/api/pages/${pageId}/view-settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(next) });
   }
 
@@ -677,6 +707,11 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     // eslint-disable-next-line react-hooks/exhaustive-deps -- artboardSrc, heightOf and layoutOf read only these
     [hasContent, placedArtboards, manifest, files, tokensVersion, preview, previewing, artboardOrigin, pageId, docHeights, pageHeights, viewSettings],
   );
+  // A phone opens a share link in the presentation, one artboard at a time.
+  const firstToPlay = tocItems[0]?.file;
+  useEffect(() => {
+    if (visitor && playFile === undefined && firstToPlay !== undefined && window.innerWidth <= PHONE_VISITOR_MAX_WIDTH) navigateTo(playRoute(pageId, firstToPlay), "replace");
+  }, [visitor, playFile, firstToPlay, pageId]);
   if (playing && manifest && playFile !== undefined) {
     return (
       <PlayMode
@@ -820,7 +855,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         }}
         runningCount={runningCount}
         artboardOrigin={artboardOrigin}
-        deleted={readOnly ? [] : deleted}
+        deleted={readOnly || frozen ? [] : deleted}
         onPutBack={(item) => restore(item.file, item.lastVersionId)}
         onRenamePage={renamePage}
         toc={{ items: tocItems, currentFile: currentTocFile, onSelect: centerOnArtboard }}
@@ -833,7 +868,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         errors={errorEntries}
         onSeeErrors={centerOnArtboard}
         onAskFixErrors={() => void askClaudeToFixErrors()}
-        archived={archived !== undefined}
+        archived={frozen}
+        commentOnly={archived === undefined && !canWork && canComment}
       />
       {archived && (
         <ArchivedBanner
@@ -998,7 +1034,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       </button>
                     )}
                     <span className={styles.spacer} />
-                    {!readOnly && artboardTweaks(artboard.file).length > 0 && (
+                    {!readOnly && !frozen && artboardTweaks(artboard.file).length > 0 && (
                       <button
                         type="button"
                         aria-label={`Tweaks · ${artboardTweaks(artboard.file).length}`}
@@ -1012,7 +1048,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                     )}
                     {!previewing && (
                     <>
-                    {!archived && (
+                    {!readOnly && (
                     <Tooltip label="Commenter l'artboard entier">
                       <button
                         type="button"
@@ -1027,6 +1063,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       </button>
                     </Tooltip>
                     )}
+                    {(!visitor || canWork) && (
                     <ArtboardHistory
                       pageId={pageId}
                       file={artboard.file}
@@ -1036,8 +1073,9 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       previewVersionId={preview?.file === artboard.file ? preview.versionId : null}
                       onPreview={(previewId) => setPreview(previewId ? { file: artboard.file, versionId: previewId } : null)}
                       onRestore={(restoreId) => restore(artboard.file, restoreId)}
-                      readOnly={archived !== undefined}
+                      readOnly={frozen}
                     />
+                    )}
                     <Tooltip label={`Copier le lien de ${artboard.file}`}>
                       <button
                         type="button"
@@ -1058,7 +1096,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                         <FullscreenIcon />
                       </button>
                     </Tooltip>
-                    {!archived && (
+                    {!frozen && !visitor && (
                     <ArtboardMoreMenu
                       pageId={pageId}
                       file={artboard.file}
@@ -1250,7 +1288,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
               </>
             )}
           </div>
-          <div className={cx(styles.hintWrap, (previewing || selecting || missingArtboard !== null) && styles.hintWrapHidden)}>
+          <div className={cx(styles.hintWrap, (previewing || visitor !== null || selecting || missingArtboard !== null) && styles.hintWrapHidden)}>
             <div data-testid="mode-indicator" className={styles.hint}>
               {picking
                 ? "Mode commentaire : clique sur un élément d'artboard ou du canvas. La bulle d'un bandeau commente l'artboard entier."
@@ -1278,7 +1316,38 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
           </div>
         </main>
 
-        {!previewing && (
+        {visitor && canComment && (
+          <>
+            <VisitorThreadsPanel
+              threads={projectWide ? projectThreads : visitor.view.level === "write" ? [...threads].reverse() : threads}
+              visitor={visitor}
+              artboardTitles={Object.fromEntries((artboardTitles ?? []).map((a) => [a.file, a.title]))}
+              otherPages={projectWide ? { currentPageId: pageId, titles: pageTitles } : undefined}
+              claudeAvailable={project?.claudeAvailable}
+              onShow={(threadId) => {
+                const elsewhere = projectThreads.find((thread) => thread.id === threadId && thread.pageId !== pageId);
+                if (elsewhere) navigateTo({ name: "page", pageId: elsewhere.pageId });
+                else showThread(threadId);
+              }}
+            />
+            {draft && (
+              <div className={styles.visitorComposer}>
+                <VisitorComposer
+                  visitor={visitor}
+                  label={draftLabel(draft)}
+                  text={text}
+                  onText={setText}
+                  onSend={(visitorName) => send(false, visitorName)}
+                  onCancel={() => {
+                    setDraft(null);
+                    setText("");
+                  }}
+                />
+              </div>
+            )}
+          </>
+        )}
+        {!previewing && !visitor && (
         <aside aria-label="Commentaires" className={styles.aside}>
           <div role="tablist" aria-label="Panneau latéral" className={styles.tabs}>
             <button type="button" role="tab" aria-selected={tab === "conversation"} className={cx(styles.tab, tab === "conversation" && styles.tabActive)} onClick={() => setTab("conversation")}>
@@ -1298,7 +1367,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
               onSelectingChange={changeSelecting}
               onRemoveChip={(index) => setChips((current) => removeChip(current, index))}
               onChipsSent={() => setChips([])}
-              readOnly={archived !== undefined}
+              readOnly={frozen}
               archivedLabel={archivedLabel}
             />
           ) : tab === "toc" ? (
@@ -1324,7 +1393,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                   setDraft(null);
                   setText("");
                 }}
-                readOnly={archived !== undefined}
+                readOnly={readOnly}
+                commentOnly={archived === undefined && !canWork}
                 archivedLabel={archivedLabel}
                 unfolded={unfoldedResolved}
                 onUnfold={unfoldResolved}

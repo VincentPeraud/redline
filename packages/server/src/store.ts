@@ -2,11 +2,14 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
+import { AccountStore } from "./accounts.js";
+import { LinkStore } from "./link-store.js";
 import { componentFilesOf, projectComponents } from "./components.js";
 import { restoredVersionMessage } from "./version-dates.js";
 import {
   EMPTY_VIEW_SETTINGS,
   initialsOf,
+  type AccountRole,
   diffDiffusionStates,
   definitionsOf,
   diffusionSummary,
@@ -34,6 +37,7 @@ import {
   type DesignMdAuthor,
   type DesignMdVersion,
   type ProjectAsset,
+  type LinkAuthor,
 } from "@redline/shared";
 import type {
   Person,
@@ -58,6 +62,7 @@ import type {
   ThreadTarget,
   ManifestElement,
   ManifestElementKind,
+  AccessLevel,
   AgentHello,
   AgentInfo,
   RefusedAgent,
@@ -71,6 +76,7 @@ import type {
   ModelChoice,
   PageVersionSummary,
   Project,
+  ProjectVisibility,
   ProjectUsingDesignSystem,
   ServerEvent,
   SessionKind,
@@ -90,6 +96,8 @@ export class Store {
   private readonly blobDir: string;
   private readonly listeners = new Set<(event: ServerEvent) => void>();
   private serverBuildHash: string | undefined;
+  readonly accounts: AccountStore;
+  readonly links: LinkStore;
 
   constructor(dataDir: string) {
     this.blobDir = join(dataDir, "blobs");
@@ -161,6 +169,12 @@ export class Store {
         status TEXT NOT NULL,
         last_seen_at TEXT NOT NULL,
         UNIQUE (machine, folder)
+      );
+      CREATE TABLE IF NOT EXISTS project_members (
+        project_id TEXT NOT NULL,
+        person_id TEXT NOT NULL,
+        level TEXT NOT NULL,
+        PRIMARY KEY (project_id, person_id)
       );
       CREATE TABLE IF NOT EXISTS design_systems (
         project_id TEXT PRIMARY KEY REFERENCES projects(id),
@@ -294,6 +308,11 @@ export class Store {
     addColumn("pages", "created_by", "TEXT NOT NULL DEFAULT 'user'");
     // The signed-in person who wrote a human message or started a conversation; NULL before the SSO and without it.
     addColumn("threads", "person_id", "TEXT");
+    // A message written through a share link: the link and the name it is signed with (no person).
+    addColumn("threads", "link_id", "TEXT");
+    addColumn("threads", "link_author", "TEXT");
+    addColumn("thread_replies", "link_id", "TEXT");
+    addColumn("thread_replies", "link_author", "TEXT");
     addColumn("thread_replies", "person_id", "TEXT");
     addColumn("conversations", "person_id", "TEXT");
     addColumn("conversation_messages", "person_id", "TEXT");
@@ -304,6 +323,8 @@ export class Store {
     addColumn("conversations", "via_project_id", "TEXT");
     // Same for what a person (or Claude, for the requesting person) did: page versions, DESIGN.md / tokens versions and pages.
     addColumn("versions", "person_id", "TEXT");
+    addColumn("versions", "link_id", "TEXT");
+    addColumn("versions", "link_name", "TEXT");
     addColumn("design_md_versions", "person_id", "TEXT");
     addColumn("pages", "person_id", "TEXT");
     // The old per-project boolean (default 0) becomes a nullable override of the global setting: only an explicit "allow" is kept.
@@ -324,12 +345,15 @@ export class Store {
     addColumn("projects", "archived_at", "TEXT");
     // When the page was archived: read-only, out of the page lists and of sessions, deletable.
     addColumn("pages", "archived_at", "TEXT");
+    this.accounts = new AccountStore(this.db);
+    this.links = new LinkStore(this.db);
     addColumn("pages", "held_by", "TEXT");
     addColumn("pages", "held_at", "TEXT");
     addColumn("versions", "origin_id", "TEXT");
     addColumn("versions", "origin_label", "TEXT");
     addColumn("versions", "diffusion", "INTEGER");
     addColumn("threads", "element_name", "TEXT");
+    addColumn("threads", "reopen_to", "TEXT");
     addColumn("threads", "rendering", "TEXT");
     addColumn("threads", "cell", "TEXT");
     addColumn("threads", "instance_state", "TEXT");
@@ -778,13 +802,13 @@ export class Store {
   }
 
   /** Records an agent as online; one entry per machine and folder. */
-  markAgentOnline({ machine, folder, kind, projectIds = [], model, effort, buildHash }: Omit<AgentIdentity, "projectId"> & Pick<AgentHello, "model" | "effort" | "buildHash">): string {
+  markAgentOnline({ machine, folder, kind, projectIds = [], model, effort, buildHash, personId }: Omit<AgentIdentity, "projectId"> & Pick<AgentHello, "model" | "effort" | "buildHash"> & { personId?: string }): string {
     this.db
       .prepare(
-        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, model, effort, build_hash) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?)
-         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, model = excluded.model, effort = excluded.effort, build_hash = excluded.build_hash`,
+        `INSERT INTO agents (id, machine, folder, kind, status, last_seen_at, model, effort, build_hash, person_id) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?)
+         ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, status = 'online', last_seen_at = excluded.last_seen_at, model = excluded.model, effort = excluded.effort, build_hash = excluded.build_hash, person_id = excluded.person_id`,
       )
-      .run(randomUUID(), machine, folder, kind, now(), model ?? null, effort ?? null, buildHash ?? null);
+      .run(randomUUID(), machine, folder, kind, now(), model ?? null, effort ?? null, buildHash ?? null, personId ?? null);
     this.db.prepare("DELETE FROM refused_agents WHERE machine = ? AND folder = ?").run(machine, folder);
     const id = (this.db.prepare("SELECT id FROM agents WHERE machine = ? AND folder = ?").get(machine, folder) as { id: string }).id;
     // The agent now serves exactly its folder's projects, taking them from any agent that served them before.
@@ -839,12 +863,23 @@ export class Store {
     return this.serverBuildHash !== undefined && buildHash !== this.serverBuildHash;
   }
 
+  /** Who launched the agent (the account of the token it connected with), or undefined for an agent without accounts. */
+  agentOwner(agentId: string): { id: string; role: AccountRole } | undefined {
+    const row = this.db.prepare("SELECT p.id, p.role FROM agents a JOIN people p ON p.id = a.person_id WHERE a.id = ?").get(agentId) as { id: string; role: AccountRole | null } | undefined;
+    return row && { id: row.id, role: row.role ?? "member" };
+  }
+
   listAgents(): AgentInfo[] {
     const rows = this.db
-      .prepare("SELECT id, machine, folder, kind, status, last_seen_at AS lastSeenAt, model, effort, build_hash AS buildHash FROM agents ORDER BY machine, folder")
-      .all() as (Omit<AgentInfo, "model" | "effort" | "outdated" | "updating" | "updateError"> & { model: string | null; effort: Effort | null; buildHash: string | null })[];
-    return rows.map(({ model, effort, buildHash, ...agent }) => ({
+      .prepare(
+        `SELECT a.id, a.machine, a.folder, a.kind, a.status, a.last_seen_at AS lastSeenAt, a.model, a.effort, a.build_hash AS buildHash,
+                p.id AS ownerId, p.name AS ownerName, p.email AS ownerEmail
+         FROM agents a LEFT JOIN people p ON p.id = a.person_id ORDER BY a.machine, a.folder`,
+      )
+      .all() as (Omit<AgentInfo, "model" | "effort" | "outdated" | "updating" | "updateError" | "launchedBy"> & { model: string | null; effort: Effort | null; buildHash: string | null; ownerId: string | null; ownerName: string | null; ownerEmail: string | null })[];
+    return rows.map(({ model, effort, buildHash, ownerId, ownerName, ownerEmail, ...agent }) => ({
       ...agent,
+      ...(ownerId ? { launchedBy: { id: ownerId, name: ownerName ?? "", email: ownerEmail ?? "", initials: initialsOf(ownerName ?? "", ownerId) } } : {}),
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(agent.status === "online" && this.isOutdated(buildHash) ? { outdated: true as const } : {}),
@@ -872,17 +907,50 @@ export class Store {
     return rows.map(({ project, ...agent }) => ({ ...agent, ...(project ? { project } : {}) }));
   }
 
-  private insertProject(title: string, id: string, instructions: string, designSystem: string | null): Project {
+  private insertProject(title: string, id: string, instructions: string, designSystem: string | null, ownership: ProjectOwnership = {}): Project {
+    const visibility = ownership.visibility ?? "team";
     this.db
-      .prepare("INSERT INTO projects (id, title, instructions, design_system, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(id, title, instructions, designSystem, now());
-    return { id, title, instructions, designSystem, globalTakeover: this.getGlobalTakeover(), globalTakeoverOverride: null };
+      .prepare("INSERT INTO projects (id, title, instructions, design_system, created_at, created_by, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(id, title, instructions, designSystem, now(), ownership.createdBy?.id ?? null, visibility);
+    return { id, title, visibility, ...(ownership.createdBy ? { createdBy: ownership.createdBy } : {}), instructions, designSystem, globalTakeover: this.getGlobalTakeover(), globalTakeoverOverride: null };
+  }
+
+  /** Who created a project and who sees it, for the access checks; undefined for an unknown project. */
+  projectOwnership(id: string): { createdBy?: string; visibility: ProjectVisibility } | undefined {
+    const row = this.db.prepare("SELECT created_by AS createdBy, visibility FROM projects WHERE id = ?").get(id) as { createdBy: string | null; visibility: ProjectVisibility } | undefined;
+    return row && { ...(row.createdBy ? { createdBy: row.createdBy } : {}), visibility: row.visibility };
+  }
+
+  /** Either switch starts the project over: every member entry is dropped (Privé: only the creator and admins remain; Équipe: everyone is back to Écriture). */
+  setProjectVisibility(id: string, visibility: ProjectVisibility): void {
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE projects SET visibility = ? WHERE id = ?").run(visibility, id);
+      this.db.prepare("DELETE FROM project_members WHERE project_id = ?").run(id);
+    })();
+  }
+
+  /** The level written for one member of a project, if the table has one. */
+  memberLevel(projectId: string, personId: string): AccessLevel | undefined {
+    return (this.db.prepare("SELECT level FROM project_members WHERE project_id = ? AND person_id = ?").get(projectId, personId) as { level: AccessLevel } | undefined)?.level;
+  }
+
+  /** The table of member levels of a project, oldest entry first. */
+  memberLevels(projectId: string): { personId: string; level: AccessLevel }[] {
+    return this.db.prepare("SELECT person_id AS personId, level FROM project_members WHERE project_id = ? ORDER BY rowid").all(projectId) as { personId: string; level: AccessLevel }[];
+  }
+
+  setMemberLevel(projectId: string, personId: string, level: AccessLevel): void {
+    this.db.prepare("INSERT INTO project_members (project_id, person_id, level) VALUES (?, ?, ?) ON CONFLICT (project_id, person_id) DO UPDATE SET level = excluded.level").run(projectId, personId, level);
+  }
+
+  removeMemberLevel(projectId: string, personId: string): void {
+    this.db.prepare("DELETE FROM project_members WHERE project_id = ? AND person_id = ?").run(projectId, personId);
   }
 
   /** A project without a shared design system starts with an empty project style (an empty file: it counts as existing), which Claude fills in. */
-  createProject(title: string, id: string = randomUUID(), instructions = "", chosenDesignSystem: string | null = null): Project {
+  createProject(title: string, id: string = randomUUID(), instructions = "", chosenDesignSystem: string | null = null, ownership: ProjectOwnership = {}): Project {
     const designSystem = chosenDesignSystem === NEUTRAL_DESIGN_SYSTEM_ID ? null : chosenDesignSystem;
-    const project = this.insertProject(title, id, instructions, designSystem);
+    const project = this.insertProject(title, id, instructions, designSystem, ownership);
     if (designSystem === null) this.saveDesignMd(id, PROJECT_STYLE_PATH, Buffer.alloc(0));
     return project;
   }
@@ -976,8 +1044,10 @@ export class Store {
     const rows = this.db
       .prepare(
         `SELECT p.id, p.title, p.instructions, p.design_system AS designSystem, p.takeover_override AS takeoverOverride, p.archived_at AS archivedAt,
+                p.visibility, c.id AS creatorId, c.name AS creatorName, c.email AS creatorEmail,
                 a.id AS agentId, a.machine, a.folder, a.status
          FROM projects p LEFT JOIN agent_projects ap ON ap.project_id = p.id LEFT JOIN agents a ON a.id = ap.agent_id
+         LEFT JOIN people c ON c.id = p.created_by
          WHERE p.id NOT IN (SELECT project_id FROM design_systems) ${archived}
          ORDER BY ${which === "archived" ? "p.archived_at DESC," : ""} p.created_at, p.rowid`,
       )
@@ -988,6 +1058,10 @@ export class Store {
       designSystem: string | null;
       takeoverOverride: number | null;
       archivedAt: string | null;
+      visibility: ProjectVisibility;
+      creatorId: string | null;
+      creatorName: string | null;
+      creatorEmail: string | null;
       agentId: string | null;
       machine: string;
       folder: string;
@@ -997,6 +1071,8 @@ export class Store {
     return rows.map((r) => ({
       id: r.id,
       title: r.title,
+      visibility: r.visibility,
+      ...(r.creatorId ? { createdBy: { id: r.creatorId, name: r.creatorName ?? "", email: r.creatorEmail ?? "", initials: initialsOf(r.creatorName ?? "", r.creatorId) } } : {}),
       instructions: r.instructions,
       designSystem: r.designSystem,
       globalTakeover: r.takeoverOverride === null ? global : r.takeoverOverride === 1,
@@ -1068,6 +1144,8 @@ export class Store {
       for (const row of this.db.prepare(`SELECT ${column} AS hash FROM ${table} WHERE ${owner} = ?`).all(id) as { hash: string | null }[]) if (row.hash) blobs.push(row.hash);
     }
     this.db.transaction(() => {
+      for (const { id: pageId } of this.db.prepare(pages).all(id) as { id: string }[]) this.links.deleteFor("page", pageId);
+      this.links.deleteFor("project", id);
       for (const sql of [
         ...pageRowDeletes(pages),
         "DELETE FROM component_changes WHERE design_system_id = ?",
@@ -1075,6 +1153,7 @@ export class Store {
         "DELETE FROM design_system_diffusions WHERE design_system_id = ?",
         "DELETE FROM design_systems WHERE project_id = ?",
         "DELETE FROM pages WHERE project_id = ?",
+        "DELETE FROM project_members WHERE project_id = ?",
         "DELETE FROM project_files WHERE project_id = ?",
         "DELETE FROM design_md_versions WHERE project_id = ?",
         "DELETE FROM work_queue WHERE project_id = ?",
@@ -1111,9 +1190,9 @@ export class Store {
   }
 
   /** Id of an online global agent that is not updating, the most recently seen first. */
-  findOnlineGlobalAgentId(): string | undefined {
+  findOnlineGlobalAgentId(accepts: (agentId: string) => boolean = () => true): string | undefined {
     const rows = this.db.prepare("SELECT id FROM agents WHERE kind = 'global' AND status = 'online' ORDER BY last_seen_at DESC, rowid").all() as { id: string }[];
-    return rows.find((row) => !this.updatingAgents.has(row.id))?.id;
+    return rows.find((row) => !this.updatingAgents.has(row.id) && accepts(row.id))?.id;
   }
 
   getAgent(id: string): AgentInfo | undefined {
@@ -1192,12 +1271,12 @@ export class Store {
     return rows.map((r) => ({ name: r.path.slice(prefix.length), hash: r.hash, size: statSync(join(this.blobDir, r.hash)).size }));
   }
 
-  createPage(projectId: string, title: string, files: Record<string, string>, createdBy: PageCreator = "user", person?: Person): Page {
+  createPage(projectId: string, title: string, files: Record<string, string>, createdBy: PageCreator = "user", person?: Person, link?: LinkAuthor): Page {
     const id = randomUUID();
     this.db
       .prepare("INSERT INTO pages (id, project_id, title, created_by, created_at, person_id) VALUES (?, ?, ?, ?, ?, ?)")
       .run(id, projectId, title, createdBy, now(), person?.id ?? null);
-    this.createVersion(id, files, "Page created", "creation", person && { person });
+    this.createVersion(id, files, "Page created", "creation", person ? { person } : link && { link });
     return this.getPage(id)!;
   }
 
@@ -1306,6 +1385,7 @@ export class Store {
       blobs.push(...Object.values(JSON.parse(files) as Record<string, string>));
     }
     this.db.transaction(() => {
+      this.links.deleteFor("page", pageId);
       for (const sql of [...pageRowDeletes("?"), "DELETE FROM pages WHERE id = ?"]) {
         this.db.prepare(sql).run(pageId);
       }
@@ -1330,7 +1410,7 @@ export class Store {
   }
 
   /** `automatic`: opened by Redline itself (signed "Redline"), not written by a person. */
-  createThread(pageId: string, request: CreateThreadRequest, person?: Person, automatic = false, designSystemRequest?: StoredRequest): Thread {
+  createThread(pageId: string, request: CreateThreadRequest, person?: Person, automatic = false, designSystemRequest?: StoredRequest, toReview = false, linkAuthor?: LinkAuthor): Thread {
     const id = randomUUID();
     const { next } = this.db
       .prepare("SELECT COALESCE(MAX(number), 0) + 1 AS next FROM threads WHERE page_id = ?")
@@ -1358,10 +1438,10 @@ export class Store {
           };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, instance_state, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, instance_state, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request, link_id, link_author)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null);
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, toReview ? "review" : request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null, linkAuthor?.linkId ?? null, linkAuthor?.name ?? null);
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -1390,6 +1470,18 @@ export class Store {
       .all(pageId) as ThreadRow[];
     const elements = this.canvasElementsById(pageId);
     return rows.map((row) => this.withPerson(withCurrentElement(toThread(row, this.repliesOf(row.id)), elements), row.person_id));
+  }
+
+  /** Every thread of the project's pages, archived ones left out, newest first (a project link in Écriture reads them all). */
+  listProjectThreads(projectId: string): Thread[] {
+    const rows = this.db
+      .prepare(`${THREAD_SELECT} WHERE page_id IN (SELECT id FROM pages WHERE project_id = ? AND archived_at IS NULL) ORDER BY created_at DESC, rowid DESC`)
+      .all(projectId) as ThreadRow[];
+    const elements = new Map<string, ReturnType<Store["canvasElementsById"]>>();
+    return rows.map((row) => {
+      if (!elements.has(row.page_id)) elements.set(row.page_id, this.canvasElementsById(row.page_id));
+      return this.withPerson(withCurrentElement(toThread(row, this.repliesOf(row.id)), elements.get(row.page_id)!), row.person_id);
+    });
   }
 
   getThread(id: string): Thread | undefined {
@@ -1615,14 +1707,37 @@ export class Store {
 
   /** Held comments of a page, oldest first. */
   listHeldThreads(pageId: string): Thread[] {
+    return this.listThreadsWithStatus(pageId, "held");
+  }
+
+  /** Threads of a page waiting for an Écriture member to read them ("À relire"), oldest first, with their replies. */
+  listReviewThreads(pageId: string): Thread[] {
+    return this.listThreadsWithStatus(pageId, "review", true);
+  }
+
+  private listThreadsWithStatus(pageId: string, status: ThreadStatus, withReplies = false): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.instance_state, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id
-         FROM threads t WHERE t.page_id = ? AND t.status = 'held' ORDER BY t.created_at, t.rowid`,
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.instance_state, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id, t.created_at
+         FROM threads t WHERE t.page_id = ? AND t.status = ? ORDER BY t.created_at, t.rowid`,
       )
-      .all(pageId) as ThreadRow[];
+      .all(pageId, status) as ThreadRow[];
     const elements = this.canvasElementsById(pageId);
-    return rows.map((row) => this.withPerson(withCurrentElement(toThread(row, []), elements), row.person_id));
+    return rows.map((row) => this.withPerson(withCurrentElement(toThread(row, withReplies ? this.repliesOf(row.id) : []), elements), row.person_id));
+  }
+
+  /** An open thread goes back to "À relire" (a Commentaire reply in a thread already sent to Claude). */
+  returnToReview(id: string): void {
+    const { changes } = this.db.prepare("UPDATE threads SET status = 'review' WHERE id = ? AND status = 'open'").run(id);
+    const thread = changes > 0 ? this.getThread(id) : undefined;
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
+  }
+
+  /** An "À relire" thread leaves for Claude: it becomes a regular open thread. */
+  releaseReviewThread(id: string): void {
+    this.db.prepare("UPDATE threads SET status = 'open' WHERE id = ? AND status = 'review'").run(id);
+    const thread = this.getThread(id);
+    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
   }
 
   /** Edits the text of a held comment; undefined when the thread does not exist or is not held. */
@@ -1651,16 +1766,17 @@ export class Store {
     if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
   }
 
+  /** Resolves a thread; one that was waiting to be read ("À relire") remembers it and goes back there when reopened. */
   resolveThread(id: string): Thread | undefined {
-    this.db.prepare("UPDATE threads SET status = 'resolved' WHERE id = ?").run(id);
+    this.db.prepare("UPDATE threads SET reopen_to = CASE status WHEN 'review' THEN 'review' WHEN 'resolved' THEN reopen_to ELSE NULL END, status = 'resolved' WHERE id = ?").run(id);
     const thread = this.getThread(id);
     if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
     return thread;
   }
 
-  /** Puts a resolved thread back among the open ones; undefined when the thread does not exist or is not resolved. */
+  /** Puts a resolved thread back among the open ones (or "À relire", where it was); undefined when the thread does not exist or is not resolved. */
   reopenThread(id: string): Thread | undefined {
-    const { changes } = this.db.prepare("UPDATE threads SET status = 'open' WHERE id = ? AND status = 'resolved'").run(id);
+    const { changes } = this.db.prepare("UPDATE threads SET status = COALESCE(reopen_to, 'open'), reopen_to = NULL WHERE id = ? AND status = 'resolved'").run(id);
     if (changes === 0) return undefined;
     const thread = this.getThread(id)!;
     this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
@@ -1735,13 +1851,13 @@ export class Store {
   }
 
   /** Records an answer of Claude or a message of the user in a thread; undefined if the thread does not exist. */
-  addReply(threadId: string, body: string, author: ThreadReply["author"] = "claude", createdPageIds: string[] = [], person?: Person): ThreadReply | undefined {
+  addReply(threadId: string, body: string, author: ThreadReply["author"] = "claude", createdPageIds: string[] = [], person?: Person, linkAuthor?: LinkAuthor): ThreadReply | undefined {
     const thread = this.getThread(threadId);
     if (!thread) return undefined;
     const reply: ThreadReply = { id: randomUUID(), author, body, createdAt: now() };
     this.db
-      .prepare("INSERT INTO thread_replies (id, thread_id, author, body, created_at, created_page_ids, person_id) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(reply.id, threadId, reply.author, body, reply.createdAt, createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null, person?.id ?? null);
+      .prepare("INSERT INTO thread_replies (id, thread_id, author, body, created_at, created_page_ids, person_id, link_id, link_author) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(reply.id, threadId, reply.author, body, reply.createdAt, createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null, person?.id ?? null, linkAuthor?.linkId ?? null, linkAuthor?.name ?? null);
     this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
     return this.repliesOf(threadId).find((r) => r.id === reply.id);
   }
@@ -1888,12 +2004,12 @@ export class Store {
 
   private repliesOf(threadId: string): ThreadReply[] {
     const rows = this.db
-      .prepare("SELECT id, author, body, created_at AS createdAt, created_page_ids AS createdPageIds, person_id AS personId FROM thread_replies WHERE thread_id = ? ORDER BY created_at, rowid")
-      .all(threadId) as (ThreadReply & { createdPageIds: string | null; personId: string | null })[];
-    return rows.map(({ createdPageIds, personId, ...reply }) => {
+      .prepare("SELECT id, author, body, created_at AS createdAt, created_page_ids AS createdPageIds, person_id AS personId, link_id AS linkId, link_author AS linkName FROM thread_replies WHERE thread_id = ? ORDER BY created_at, rowid")
+      .all(threadId) as (ThreadReply & { createdPageIds: string | null; personId: string | null; linkId: string | null; linkName: string | null })[];
+    return rows.map(({ createdPageIds, personId, linkId, linkName, ...reply }) => {
       const createdPages = this.createdPagesOf(createdPageIds);
       const person = this.getPerson(personId);
-      return { ...reply, ...(person ? { person } : {}), ...(createdPages ? { createdPages } : {}) };
+      return { ...reply, ...(person ? { person } : {}), ...(linkId && linkName ? { linkAuthor: { linkId, name: linkName } } : {}), ...(createdPages ? { createdPages } : {}) };
     });
   }
 
@@ -1954,7 +2070,7 @@ export class Store {
   /** Every version of a page with its file hashes, OLDEST first. */
   listVersionRecords(pageId: string): VersionRecord[] {
     const rows = this.db
-      .prepare("SELECT id, files, message, origin, origin_id, origin_label, person_id, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
+      .prepare("SELECT id, files, message, origin, origin_id, origin_label, person_id, link_id, link_name, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
       .all(pageId) as (VersionRow & { files: string; diffusion: number | null })[];
     return rows.map((row) => ({ ...this.toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1 }));
   }
@@ -2039,7 +2155,7 @@ export class Store {
   listVersions(pageId: string): PageVersionSummary[] {
     const rows = this.db
       .prepare(
-        "SELECT id, message, origin, origin_id, origin_label, person_id, created_at FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC",
+        "SELECT id, message, origin, origin_id, origin_label, person_id, link_id, link_name, created_at FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC",
       )
       .all(pageId) as VersionRow[];
     return rows.map((row) => this.toSummary(row));
@@ -2069,10 +2185,10 @@ export class Store {
   }
 
   private insertVersion(pageId: string, filesJson: string, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
-    const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, person_id: ref?.person?.id ?? null, created_at: now() };
+    const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, person_id: ref?.person?.id ?? null, link_id: ref?.link?.linkId ?? null, link_name: ref?.link?.name ?? null, created_at: now() };
     this.db
-      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, person_id, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, row.person_id, this.diffusionForNewVersion(pageId, filesJson) ?? null);
+      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, person_id, link_id, link_name, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, row.person_id, row.link_id, row.link_name, this.diffusionForNewVersion(pageId, filesJson) ?? null);
     this.emit({ type: "page-updated", pageId, versionId: row.id });
     return this.toSummary(row);
   }
@@ -2086,6 +2202,7 @@ export class Store {
       ...(row.origin_id ? { originId: row.origin_id } : {}),
       ...(row.origin_label ? { originLabel: row.origin_label } : {}),
       ...(person ? { person } : {}),
+      ...(row.link_id && row.link_name ? { linkAuthor: { linkId: row.link_id, name: row.link_name } } : {}),
       createdAt: row.created_at,
     };
   }
@@ -2125,6 +2242,15 @@ export class Store {
     return this.sharedDesignSystemIdForManifest(pageId, manifest?.toString("utf8"));
   }
 
+  /** Whether any version, past or present, of the project's pages was drawn with this design system (a history preview still needs its stylesheets). */
+  historyUsesDesignSystem(projectId: string, designSystemId: string): boolean {
+    for (const page of this.listPages(projectId)) {
+      const versions = this.db.prepare("SELECT id FROM versions WHERE page_id = ?").all(page.id) as { id: string }[];
+      if (versions.some(({ id }) => this.sharedDesignSystemIdOfPage(page.id, id) === designSystemId)) return true;
+    }
+    return false;
+  }
+
   /** The shared design system a project follows: none when it has none or the hidden Neutral one. */
   sharedDesignSystemIdOfProject(projectId: string): string | undefined {
     const id = this.getProject(projectId)?.designSystem;
@@ -2157,6 +2283,12 @@ export class Store {
 
 /** A work item as the page lock keeps it between restarts. */
 /** A project component moved up ("Remonter"): the design system draft page that received the copy. */
+/** Who a new project belongs to and who sees it (Équipe when `visibility` is absent). */
+export interface ProjectOwnership {
+  createdBy?: Person;
+  visibility?: ProjectVisibility;
+}
+
 export interface MovedUpComponent {
   designSystemId: string;
 }
@@ -2233,7 +2365,7 @@ function toDesignSystem({ archivedAt, ...designSystem }: DesignSystemRow): Desig
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, instance_state, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, instance_state, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request, link_id, link_author, created_at FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -2259,6 +2391,9 @@ interface ThreadRow {
   person_id: string | null;
   automatic: number;
   request: string | null;
+  link_id: string | null;
+  link_author: string | null;
+  created_at: string;
 }
 
 function targetOf(row: ThreadRow): ThreadTarget {
@@ -2308,10 +2443,12 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     yPct: row.y_pct,
     title: row.title,
     body: row.body,
+    createdAt: row.created_at,
     status: row.status,
     replies,
     ...(row.context ? { context: JSON.parse(row.context) as ThreadContext } : {}),
     ...(row.new_session ? { newSession: row.new_session } : {}),
+    ...(row.link_id && row.link_author ? { linkAuthor: { linkId: row.link_id, name: row.link_author } } : {}),
     ...(row.automatic ? { automatic: true as const } : {}),
     ...(row.request ? { request: JSON.parse(row.request) as ThreadRequest } : {}),
   };
@@ -2334,6 +2471,8 @@ interface VersionRow {
   origin_id?: string | null;
   origin_label?: string | null;
   person_id?: string | null;
+  link_id?: string | null;
+  link_name?: string | null;
   created_at: string;
 }
 
@@ -2357,6 +2496,8 @@ export interface OriginRef {
   originLabel?: string;
   /** Who the version is signed with: the person acting, or the requesting person of a Claude run; none for terminal publishes. */
   person?: Person;
+  /** Who the version is signed with when it was made through a share link. */
+  link?: LinkAuthor;
 }
 
 export interface VersionRecord extends PageVersionSummary {

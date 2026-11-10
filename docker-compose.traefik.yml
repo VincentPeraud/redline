@@ -3,6 +3,7 @@
 services:
   redline:
     environment:
+      REDLINE_PUBLIC_URL: http://${REDLINE_HOST_NAME:-redline.localhost}
       REDLINE_ARTBOARD_ORIGIN: http://${REDLINE_ARTBOARD_HOST:-artboards.redline.localhost}
     networks:
       - default

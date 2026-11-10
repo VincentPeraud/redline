@@ -11,6 +11,8 @@ const HOME_PREFIX = /^(?:\/Users\/[^/]+|\/home\/[^/]+|\/root|[A-Za-z]:\\Users\\[
 const homeShortened = (folder: string) => folder.replace(HOME_PREFIX, "~");
 
 interface Presence {
+  /** The account whose token the session uses. */
+  personId?: string;
   folder: string;
   machine: string;
   lastSeen: number;
@@ -32,6 +34,8 @@ export interface WaitingOnPage {
  */
 export class TerminalSessions implements TerminalPresence {
   private readonly present = new Map<string, Presence>();
+  /** The account (or "" for the shared token) that first used each session id: nobody else may use it. */
+  private readonly owners = new Map<string, { personId: string; since: number }>();
   private readonly startedAt = Date.now();
   private readonly timer: NodeJS.Timeout;
 
@@ -53,14 +57,33 @@ export class TerminalSessions implements TerminalPresence {
     for (const { pageId, runId, threadId } of this.store.terminalPicks()) this.lock.showTerminalRun(pageId, runId, threadId);
   }
 
-  heartbeat(sessionId: string, folder: string, machine: string): void {
+  /** Binds the session id to the first account that uses it; false for any other account. */
+  claim(sessionId: string, personId: string | undefined): boolean {
+    const owner = this.owners.get(sessionId);
+    if (!owner) this.owners.set(sessionId, { personId: personId ?? "", since: Date.now() });
+    return owner === undefined || owner.personId === (personId ?? "");
+  }
+
+  heartbeat(sessionId: string, folder: string, machine: string, personId?: string): void {
     const wasPresent = this.present.has(sessionId);
-    this.present.set(sessionId, { folder, machine, lastSeen: Date.now() });
+    this.present.set(sessionId, { personId, folder, machine, lastSeen: Date.now() });
     if (!wasPresent) this.announceHolds(sessionId);
   }
 
   bye(sessionId: string): void {
+    this.owners.delete(sessionId);
     if (this.present.delete(sessionId)) this.releaseSessions((id) => id === sessionId);
+  }
+
+  /** The account was deactivated: its sessions leave, the pages they held and the work waiting for them go to the agents. */
+  releaseSessionsOf(personId: string): void {
+    const leaving = new Set<string>();
+    for (const [sessionId, session] of this.present) if (session.personId === personId) leaving.add(sessionId);
+    for (const sessionId of leaving) {
+      this.present.delete(sessionId);
+      this.owners.delete(sessionId);
+    }
+    if (leaving.size > 0) this.releaseSessions((id) => leaving.has(id));
   }
 
   isPresent(sessionId: string): boolean {
@@ -88,8 +111,11 @@ export class TerminalSessions implements TerminalPresence {
     for (const [sessionId, session] of this.present) {
       if (now - session.lastSeen <= this.timeoutMs) continue;
       this.present.delete(sessionId);
+      this.owners.delete(sessionId);
       quiet.add(sessionId);
     }
+    // A session id claimed but never seen (no heartbeat) is forgotten after the same delay.
+    for (const [sessionId, owner] of this.owners) if (!this.present.has(sessionId) && now - owner.since > this.timeoutMs) this.owners.delete(sessionId);
     if (now - this.startedAt > this.timeoutMs) this.releaseSessions((id) => !this.present.has(id));
     else if (quiet.size > 0) this.releaseSessions((id) => quiet.has(id));
   }
