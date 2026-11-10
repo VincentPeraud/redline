@@ -85,6 +85,9 @@ export class AccountStore {
   /** A hash to check against when the e-mail is unknown, so that a miss takes as long as a wrong password. */
   private readonly decoyHash: Promise<string> = hashPassword(randomUUID());
 
+  /** Where notable migrations are reported; the server points it at its log. */
+  log: (line: string) => void = () => {};
+
   constructor(private readonly db: Database.Database) {
     const columns = (table: string) => (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
     const addColumn = (table: string, column: string, definition: string) => {
@@ -259,6 +262,7 @@ export class AccountStore {
     const invitation = this.openInvitation(token);
     if (!invitation) throw invalidLink();
     const name = input.name.trim();
+    if (name === "") throw new AccountError("invalid-name", "Enter a name.");
     if (input.password.length < MIN_PASSWORD_LENGTH) throw new AccountError("password-too-short", `The password needs ${MIN_PASSWORD_LENGTH} characters at least.`);
     const hash = await hashPassword(input.password);
     const id = randomUUID();
@@ -407,6 +411,7 @@ export class AccountStore {
       if (!this.db.prepare("SELECT 1 FROM agent_tokens WHERE person_id = ?").get(admin.id)) this.storeAgentToken(admin.id, shared.value);
       this.db.prepare("DELETE FROM settings WHERE key = 'agent_token'").run();
     })();
+    this.log(`The shared agent token of before the accounts is now the agent token of ${admin.email}. If other machines used it, regenerate it from the Agents page.`);
     return admin;
   }
 
@@ -458,10 +463,10 @@ export class AccountStore {
   /**
    * The account of a person the SSO let in, or undefined when Redline does not know them (or has deactivated them).
    * Found by SSO user id; else bound at their first sign-in to the account of a former local mode or to the entry
-   * an admin added, both matched by e-mail; else, while no account exists at all, the first person becomes admin.
+   * an admin added, both matched by e-mail; else, while no account exists at all, the person with `firstAdminEmail` becomes admin.
    * All of it runs in one transaction, so two first visitors cannot both become admin.
    */
-  signInThroughSso(sso: { id: string; name: string; email: string }): SignedInAccount | undefined {
+  signInThroughSso(sso: { id: string; name: string; email: string }, firstAdminEmail?: string): SignedInAccount | undefined {
     return this.db.transaction((): SignedInAccount | undefined => {
       const now = new Date();
       const columns = "id, name, email, role, status, last_sign_in_at";
@@ -490,7 +495,8 @@ export class AccountStore {
       }
 
       const pending = sso.email === "" ? undefined : (this.db.prepare("SELECT id, role FROM invitations WHERE lower(email) = lower(?) AND expires_at > ?").get(sso.email, now.toISOString()) as { id: string; role: AccountRole } | undefined);
-      const role: AccountRole | undefined = pending?.role ?? (this.hasAccount() ? undefined : "admin");
+      const mayBeFirstAdmin = !this.hasAccount() && sso.email !== "" && sso.email.toLowerCase() === firstAdminEmail?.trim().toLowerCase();
+      const role: AccountRole | undefined = pending?.role ?? (mayBeFirstAdmin ? "admin" : undefined);
       if (!role) return undefined;
       // A person seen before the accounts already has a row under their SSO user id: it becomes the account, so their history follows.
       const seen = this.db.prepare("SELECT 1 FROM people WHERE id = ?").get(sso.id);

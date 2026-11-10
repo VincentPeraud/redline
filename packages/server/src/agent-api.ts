@@ -83,6 +83,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       api.addHook("preHandler", async (req, reply) => {
         const { sessionId } = (req.params ?? {}) as { sessionId?: string };
         if (sessionId !== undefined && !isTerminalSessionId(sessionId)) return reply.code(400).send({ error: "a terminal session id is a UUID" });
+        if (sessionId !== undefined && !terminalSessions.claim(sessionId, req.viewer.kind === "agent" ? req.viewer.person?.id : undefined)) {
+          return reply.code(403).send({ error: "this terminal session belongs to another account" });
+        }
       });
 
       // Terminal mode (`redline mcp`) says it is there: every ~20 s while the session is open, and once more as it closes.

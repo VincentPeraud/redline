@@ -24,6 +24,9 @@ services:
     environment:
       TZ: ${TZ:-Europe/Paris}
       REDLINE_AUTH_MODE: proxy
+      REDLINE_FIRST_ADMIN_EMAIL: ${REDLINE_FIRST_ADMIN_EMAIL:?Set REDLINE_FIRST_ADMIN_EMAIL in .env}
+      # Traefik sets X-Forwarded-For: the sign-in lockout counts the address it reports.
+      REDLINE_TRUSTED_PROXY: "true"
       REDLINE_PUBLIC_URL: https://${REDLINE_UI_HOST:?Set REDLINE_UI_HOST in .env}
       REDLINE_ARTBOARD_ORIGIN: https://${REDLINE_ARTBOARD_HOST:?Set REDLINE_ARTBOARD_HOST in .env}
       REDLINE_PROXY_SECRET_HUMAN_FILE: /run/secrets/redline_proxy_secret_human

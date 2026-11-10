@@ -35,6 +35,7 @@ describe("accounts behind an SSO (proxy mode)", () => {
       artboardPort: 0,
       host: "127.0.0.1",
       authMode: "proxy",
+      firstAdminEmail: "vincent@example.com",
       proxySecrets: { human: HUMAN, machine: MACHINE },
       identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email" },
     });
@@ -44,7 +45,7 @@ describe("accounts behind an SSO (proxy mode)", () => {
     server = undefined;
   };
   const call = (method: string, path: string, headers: Record<string, string>, body?: unknown) =>
-    fetch(server!.url + path, { method, headers: { ...headers, ...(body === undefined ? {} : JSON_HEADERS) }, body: body === undefined ? undefined : JSON.stringify(body) });
+    fetch(server!.url + path, { method, headers: { ...headers, "x-redline": "1", ...(body === undefined ? {} : JSON_HEADERS) }, body: body === undefined ? undefined : JSON.stringify(body) });
   const me = async (headers: Record<string, string>) => (await (await call("GET", "/api/me", headers)).json()) as NonNullable<MeResponse>;
   const accounts = async (headers: Record<string, string>) => (await (await call("GET", "/api/accounts", headers)).json()) as AccountsResponse;
   const add = (admin: Record<string, string>, email: string, role = "member") => call("POST", "/api/accounts/invitations", admin, { email, role });
@@ -61,13 +62,12 @@ describe("accounts behind an SSO (proxy mode)", () => {
     expect((await call("GET", "/api/accounts", ARIANE)).status).toBe(403);
   });
 
-  it("makes exactly one admin when two first people sign in at the same moment", async () => {
+  it("makes only the person with the first admin e-mail admin, even when others sign in at the same moment", async () => {
     await startProxy();
-    const [first, second] = await Promise.all([me(VINCENT), me(ARIANE)]);
-    const admins = [first, second].filter((who) => who.account?.role === "admin");
-    expect(admins).toHaveLength(1);
-    const winner = admins[0].id === "vincent" ? VINCENT : ARIANE;
-    expect((await accounts(winner)).accounts).toHaveLength(1);
+    const [first, second] = await Promise.all([me(ARIANE), me(VINCENT)]);
+    expect(first.account).toBeUndefined();
+    expect(second.account?.role).toBe("admin");
+    expect((await accounts(VINCENT)).accounts).toHaveLength(1);
   });
 
   it("adds a person by e-mail, pending without expiry or link until their first SSO sign-in, and cancellable", async () => {

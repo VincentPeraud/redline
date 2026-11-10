@@ -27,6 +27,7 @@ describe("signed-in person", () => {
       port: 0,
       artboardPort: 0,
       host: "127.0.0.1",
+      firstAdminEmail: "ariane@example.com",
       proxySecrets: options.sso ? { human: HUMAN, machine: MACHINE } : undefined,
       identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email", ...options.headers, logoutUrl: options.logoutUrl },
     });

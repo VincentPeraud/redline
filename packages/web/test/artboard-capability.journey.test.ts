@@ -25,7 +25,7 @@ beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   dataDir = mkdtempSync(join(tmpdir(), "redline-data-"));
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
-  server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", webDir, authMode: "proxy", proxySecrets: { human: HUMAN, machine: MACHINE }, artboardCapabilityLifetimeMs: LIFETIME_MS });
+  server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", webDir, authMode: "proxy", firstAdminEmail: "ariane@example.com", proxySecrets: { human: HUMAN, machine: MACHINE }, artboardCapabilityLifetimeMs: LIFETIME_MS });
   browser = await launchBrowser();
 }, 60_000);
 

@@ -46,6 +46,7 @@ beforeAll(async () => {
     artboardPort: 0,
     host: "127.0.0.1",
     webDir,
+    firstAdminEmail: "amartin@example.com",
     proxySecrets: { human: HUMAN, machine: "m".repeat(32) },
     identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email" },
   });

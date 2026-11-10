@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { SESSION_PATH, SETUP_PATH, INVITATION_PATH, PASSWORD_LINK_PATH, type InvitationPreview, type PasswordLinkPreview } from "@redline/shared";
+import { SESSION_PATH, SETUP_PATH, INVITATION_PATH, PASSWORD_LINK_PATH, TOKEN_HEADER, type InvitationPreview, type PasswordLinkPreview } from "@redline/shared";
 import { Button, Field, Logo, TextInput, cx } from "./ui/index.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { useSession } from "./useMe.js";
@@ -97,7 +97,7 @@ export function SetupScreen({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetch(`${SETUP_PATH}?token=${encodeURIComponent(token)}`).then((res) => setValid(res.ok));
+    fetch(SETUP_PATH, { headers: { [TOKEN_HEADER]: token } }).then((res) => setValid(res.ok));
   }, [token]);
 
   async function submit(event: FormEvent) {
@@ -184,7 +184,7 @@ export function InvitationScreen({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetch(`${INVITATION_PATH}?token=${encodeURIComponent(token)}`).then(async (res) => setInvitation(res.ok ? ((await res.json()) as InvitationPreview) : null));
+    fetch(INVITATION_PATH, { headers: { [TOKEN_HEADER]: token } }).then(async (res) => setInvitation(res.ok ? ((await res.json()) as InvitationPreview) : null));
   }, [token]);
 
   async function submit(event: FormEvent) {
@@ -243,7 +243,7 @@ export function PasswordLinkScreen({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetch(`${PASSWORD_LINK_PATH}?token=${encodeURIComponent(token)}`).then(async (res) => setLink(res.ok ? ((await res.json()) as PasswordLinkPreview) : null));
+    fetch(PASSWORD_LINK_PATH, { headers: { [TOKEN_HEADER]: token } }).then(async (res) => setLink(res.ok ? ((await res.json()) as PasswordLinkPreview) : null));
   }, [token]);
 
   async function submit(event: FormEvent) {

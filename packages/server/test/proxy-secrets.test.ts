@@ -15,7 +15,7 @@ describe("proxy secrets", () => {
   let server: RunningServer;
   beforeEach(async () => {
     dataDir = mkdtempSync(join(tmpdir(), "redline-secrets-"));
-    server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", proxySecrets: { human: HUMAN, machine: MACHINE } });
+    server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", firstAdminEmail: "ariane@example.com", proxySecrets: { human: HUMAN, machine: MACHINE } });
   });
   afterEach(async () => {
     await server.close();
@@ -79,7 +79,7 @@ describe("proxy secrets", () => {
 describe("proxy secrets at startup", () => {
   const start = (proxySecrets: { human: string; machine: string }) => {
     const dataDir = mkdtempSync(join(tmpdir(), "redline-secrets-"));
-    return startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", proxySecrets });
+    return startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", firstAdminEmail: "ariane@example.com", proxySecrets });
   };
 
   it("refuses a short secret", async () => {

@@ -60,7 +60,7 @@ describe("account management and Mon compte", () => {
       expect(link.token).toMatch(/^[A-Za-z0-9_-]{20,}$/);
       expect(Date.parse(link.expiresAt) - Date.now()).toBeGreaterThan(23 * HOUR);
 
-      const preview = await fetch(`${server!.url}/api/password-link?token=${link.token}`);
+      const preview = await fetch(`${server!.url}/api/password-link`, { headers: { "x-redline-token": link.token } });
       expect((await preview.json()) as PasswordLinkPreview).toEqual({ email: "ariane@example.com", expiresAt: link.expiresAt });
 
       expect((await send("POST", "/api/password-link", { token: link.token, password: "short" })).status).toBe(400);
@@ -73,7 +73,7 @@ describe("account management and Mon compte", () => {
       expect((await signIn("ariane@example.com", NEW_PASSWORD)).status).toBe(200);
 
       expect((await send("POST", "/api/password-link", { token: link.token, password: NEW_PASSWORD })).status).toBe(404);
-      expect((await fetch(`${server!.url}/api/password-link?token=${link.token}`)).status).toBe(404);
+      expect((await fetch(`${server!.url}/api/password-link`, { headers: { "x-redline-token": link.token } })).status).toBe(404);
     });
 
     it("expires after 24 hours and a newer link replaces the older one", async () => {
@@ -84,11 +84,11 @@ describe("account management and Mon compte", () => {
 
       const first = (await passwordLink(admin, ariane.id)).link;
       const second = (await passwordLink(admin, ariane.id)).link;
-      expect((await fetch(`${server!.url}/api/password-link?token=${first.token}`)).status).toBe(404);
+      expect((await fetch(`${server!.url}/api/password-link`, { headers: { "x-redline-token": first.token } })).status).toBe(404);
       vi.setSystemTime(Date.now() + 24 * HOUR - 1000);
-      expect((await fetch(`${server!.url}/api/password-link?token=${second.token}`)).status).toBe(200);
+      expect((await fetch(`${server!.url}/api/password-link`, { headers: { "x-redline-token": second.token } })).status).toBe(200);
       vi.setSystemTime(Date.now() + 2000);
-      expect((await fetch(`${server!.url}/api/password-link?token=${second.token}`)).status).toBe(404);
+      expect((await fetch(`${server!.url}/api/password-link`, { headers: { "x-redline-token": second.token } })).status).toBe(404);
       expect((await send("POST", "/api/password-link", { token: second.token, password: NEW_PASSWORD })).status).toBe(404);
     });
 
@@ -242,6 +242,7 @@ describe("account management and Mon compte", () => {
       artboardPort: 0,
       host: "127.0.0.1",
       authMode: "proxy",
+      firstAdminEmail: "vincent@example.com",
       proxySecrets: { human, machine: "m".repeat(32) },
       identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email" },
     });

@@ -26,7 +26,7 @@ describe("built-in accounts", () => {
   });
 
   const start = async () => {
-    server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", authMode: "local", log: (line) => logs.push(line) });
+    server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", authMode: "local", trustedProxy: true, log: (line) => logs.push(line) });
     return server.url;
   };
   const setupToken = () => {
@@ -52,8 +52,8 @@ describe("built-in accounts", () => {
     expect(setupToken()).toMatch(/^[A-Za-z0-9_-]{20,}$/);
     expect((await fetch(`${url}/api/projects`)).status).toBe(401);
     expect((await fetch(`${url}/api/me`)).status).toBe(401);
-    expect((await fetch(`${url}/api/setup?token=${setupToken()}`)).status).toBe(200);
-    expect((await fetch(`${url}/api/setup?token=wrong`)).status).toBe(404);
+    expect((await fetch(`${url}/api/setup`, { headers: { "x-redline-token": setupToken() } })).status).toBe(200);
+    expect((await fetch(`${url}/api/setup`, { headers: { "x-redline-token": "wrong" } })).status).toBe(404);
   });
 
   it("creates the first admin once, gives them every existing project as Équipe, and signs them in", async () => {

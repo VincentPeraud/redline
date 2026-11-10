@@ -24,6 +24,7 @@ describe("signed thread and conversation messages", () => {
       port: 0,
       artboardPort: 0,
       host: "127.0.0.1",
+      firstAdminEmail: "vincent@example.com",
       proxySecrets: { human: HUMAN, machine: MACHINE },
       identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email" },
     });

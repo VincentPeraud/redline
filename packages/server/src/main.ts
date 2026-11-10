@@ -20,6 +20,8 @@ const server = await startServer({
   authMode: resolveAuthMode(process.env, proxySecrets),
   proxySecrets,
   publicUrl: process.env.REDLINE_PUBLIC_URL,
+  firstAdminEmail: process.env.REDLINE_FIRST_ADMIN_EMAIL,
+  trustedProxy: ["1", "true"].includes((process.env.REDLINE_TRUSTED_PROXY ?? "").toLowerCase()),
   identity: identityFromEnv(process.env),
   publicUntil: publicDeadlineFromEnv(process.env),
   cliDir: process.env.REDLINE_CLI_DIR,

@@ -29,6 +29,7 @@ beforeAll(async () => {
     host: "127.0.0.1",
     webDir,
     authMode: "proxy",
+    firstAdminEmail: "vincent@example.com",
     proxySecrets: { human: HUMAN, machine: "m".repeat(32) },
     identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email", logoutUrl: LOGOUT },
   });

@@ -70,7 +70,7 @@ describe("authentication modes", () => {
     });
 
     it("keeps reading the SSO person and allows the rest, with the public deadline set", async () => {
-      const { url } = await start({ authMode: "proxy", proxySecrets: secrets, publicUntil: new Date(Date.now() + 60_000) });
+      const { url } = await start({ authMode: "proxy", firstAdminEmail: "ariane@example.com", proxySecrets: secrets, publicUntil: new Date(Date.now() + 60_000) });
       const headers = { [PROXY_SECRET_HEADER]: HUMAN, "remote-user": "amartin", "remote-name": "Ariane Martin", "remote-email": "ariane@example.com" };
       const me = (await (await fetch(`${url}/api/me`, { headers })).json()) as MeResponse;
       expect(me?.id).toBe("amartin");
@@ -79,7 +79,7 @@ describe("authentication modes", () => {
     });
 
     it("is the mode when proxy secrets are given and none is named", async () => {
-      const { url } = await start({ proxySecrets: secrets });
+      const { url } = await start({ proxySecrets: secrets, firstAdminEmail: "ariane@example.com" });
       const headers = { [PROXY_SECRET_HEADER]: HUMAN, "remote-user": "amartin", "remote-name": "Ariane Martin", "remote-email": "ariane@example.com" };
       expect((await fetch(`${url}/api/projects`, { headers })).status).toBe(200);
     });

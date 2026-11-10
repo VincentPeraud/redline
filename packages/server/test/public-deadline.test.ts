@@ -35,7 +35,7 @@ describe("public deadline", () => {
 
   const start = async (publicUntil: Date) => {
     dataDir = mkdtempSync(join(tmpdir(), "redline-deadline-"));
-    server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", proxySecrets: SECRETS, publicUntil });
+    server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", firstAdminEmail: "ariane@example.com", proxySecrets: SECRETS, publicUntil });
     return server;
   };
 

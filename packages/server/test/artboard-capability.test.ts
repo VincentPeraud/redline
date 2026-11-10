@@ -27,7 +27,7 @@ describe("artboard viewing capability", () => {
   });
 
   const start = async (options: Partial<StartOptions> = {}) => {
-    server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", authMode: "proxy", proxySecrets: { human: HUMAN, machine: MACHINE }, ...options });
+    server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", authMode: "proxy", firstAdminEmail: "ariane@example.com", proxySecrets: { human: HUMAN, machine: MACHINE }, ...options });
     return server;
   };
   const api = (path: string, body?: unknown) =>

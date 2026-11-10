@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { ACCOUNTS_PATH, type DeactivateRequest, INVITATIONS_PATH, INVITATION_PATH, MY_ACCOUNT_PATH, MY_PASSWORD_PATH, PASSWORD_LINK_PATH, SESSION_PATH, SETUP_PATH } from "@redline/shared";
+import { ACCOUNTS_PATH, type DeactivateRequest, INVITATIONS_PATH, INVITATION_PATH, MY_ACCOUNT_PATH, MY_PASSWORD_PATH, PASSWORD_LINK_PATH, SESSION_PATH, SETUP_PATH, TOKEN_HEADER } from "@redline/shared";
 import { AccountError, SESSION_DAYS } from "./accounts.js";
 import { SESSION_COOKIE, cookieOf } from "./access.js";
 import { LoginThrottle } from "./login-throttle.js";
@@ -8,11 +8,17 @@ import type { Store } from "./store.js";
 export const WRONG_CREDENTIALS = "Email ou mot de passe incorrect.";
 export const TOO_MANY_ATTEMPTS = "Trop d'essais. Réessaie dans 15 minutes, ou demande à un admin un lien pour changer ton mot de passe.";
 
-/** The proxy in front appends the address it saw as the last entry; earlier ones are whatever the client sent. */
-function clientIp(req: FastifyRequest): string {
-  const forwarded = req.headers["x-forwarded-for"];
+/** The address a request came from. Only behind a trusted proxy, which appends the address it saw as the last entry (earlier ones are whatever the client sent); else the socket's. */
+function clientIp(req: FastifyRequest, trustedProxy: boolean): string {
+  const forwarded = trustedProxy ? req.headers["x-forwarded-for"] : undefined;
   const last = (Array.isArray(forwarded) ? forwarded.join(",") : forwarded)?.split(",").pop()?.trim();
   return last || req.socket.remoteAddress || "unknown";
+}
+
+/** A setup, invitation or password-link token travels in a header, never in a URL that access logs keep. */
+function tokenOf(req: FastifyRequest): string {
+  const given = req.headers[TOKEN_HEADER];
+  return (Array.isArray(given) ? given[0] : given) ?? "";
 }
 
 function sessionCookie(req: FastifyRequest, value: string, maxAgeSeconds: number): string {
@@ -54,17 +60,17 @@ async function answering<T>(reply: FastifyReply, action: () => T | Promise<T>, s
 }
 
 /** Setup link, invitation, sign-in and sign-out of the built-in accounts, and the accounts screen. The setup, invitation and session paths are open to people who are not signed in. */
-export function registerAccountRoutes(app: FastifyInstance, store: Store, mode: "local" | "proxy", onDeactivated: (personId: string) => void): void {
+export function registerAccountRoutes(app: FastifyInstance, store: Store, mode: "local" | "proxy", onDeactivated: (personId: string) => void, trustedProxy = false): void {
   /** Behind an SSO the same screen adds people by e-mail, with no link and no password: the built-in sign-in routes are not there. */
-  if (mode === "local") registerBuiltInSignIn(app, store);
+  if (mode === "local") registerBuiltInSignIn(app, store, trustedProxy);
   registerAccountManagement(app, store, mode, onDeactivated);
 }
 
-function registerBuiltInSignIn(app: FastifyInstance, store: Store): void {
+function registerBuiltInSignIn(app: FastifyInstance, store: Store, trustedProxy: boolean): void {
   const throttle = new LoginThrottle();
 
-  app.get<{ Querystring: { token?: string } }>(SETUP_PATH, async (req, reply) =>
-    store.accounts.isSetupTokenValid(req.query.token ?? "") ? reply.send({ valid: true }) : reply.code(404).send({ error: "This setup link is used or unknown." }),
+  app.get(SETUP_PATH, async (req, reply) =>
+    store.accounts.isSetupTokenValid(tokenOf(req)) ? reply.send({ valid: true }) : reply.code(404).send({ error: "This setup link is used or unknown." }),
   );
 
   app.post<{ Body: { token?: string; name?: string; email?: string; password?: string } }>(SETUP_PATH, async (req, reply) => {
@@ -79,8 +85,8 @@ function registerBuiltInSignIn(app: FastifyInstance, store: Store): void {
     }
   });
 
-  app.get<{ Querystring: { token?: string } }>(INVITATION_PATH, async (req, reply) => {
-    const preview = store.accounts.previewInvitation(req.query.token ?? "");
+  app.get(INVITATION_PATH, async (req, reply) => {
+    const preview = store.accounts.previewInvitation(tokenOf(req));
     return preview ?? reply.code(404).send({ error: "This invitation link is expired, used or cancelled.", code: "invalid-link" });
   });
 
@@ -100,8 +106,8 @@ function registerBuiltInSignIn(app: FastifyInstance, store: Store): void {
     isAdmin(req) ? answering(reply, () => store.accounts.issuePasswordLink(req.params.id), (link) => reply.code(201).send(link)) : forbidden(reply),
   );
 
-  app.get<{ Querystring: { token?: string } }>(PASSWORD_LINK_PATH, async (req, reply) =>
-    store.accounts.previewPasswordLink(req.query.token ?? "") ?? reply.code(404).send({ error: "This password link is expired or used.", code: "invalid-link" }),
+  app.get(PASSWORD_LINK_PATH, async (req, reply) =>
+    store.accounts.previewPasswordLink(tokenOf(req)) ?? reply.code(404).send({ error: "This password link is expired or used.", code: "invalid-link" }),
   );
 
   app.post<{ Body: { token?: string; password?: string } }>(PASSWORD_LINK_PATH, async (req, reply) =>
@@ -120,7 +126,7 @@ function registerBuiltInSignIn(app: FastifyInstance, store: Store): void {
 
   app.post<{ Body: { email?: string; password?: string } }>(SESSION_PATH, async (req, reply) => {
     const { email = "", password = "" } = req.body ?? {};
-    const ip = clientIp(req);
+    const ip = clientIp(req, trustedProxy);
     if (throttle.isLocked(email, ip)) return reply.code(429).send({ error: TOO_MANY_ATTEMPTS });
     const person = await store.accounts.authenticate(email, password);
     if (!person) {
@@ -168,6 +174,8 @@ function registerAccountManagement(app: FastifyInstance, store: Store, mode: "lo
           const entry = store.accounts.deactivate(req.person!.id, req.params.id);
           if (req.body?.disableLinks === true) store.links.disableCreatedBy(req.params.id, req.person!);
           onDeactivated(req.params.id);
+          // Streams resolve their viewer again on every event: this one closes the deactivated account's at once.
+          store.emit({ type: "agents-updated" });
           return entry;
         })
       : forbidden(reply),

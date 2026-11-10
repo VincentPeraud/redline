@@ -135,7 +135,7 @@ scripts/generate-secrets.sh   # creates ./secrets/* and the two REDLINE_PROXY_SE
 docker compose up -d --build
 ```
 
-`docker compose` refuses to start while `REDLINE_UI_HOST`, `REDLINE_ARTBOARD_HOST`, `REDLINE_AUTH_MIDDLEWARE` or a proxy secret is missing. The generator creates the missing secret files and `.env` lines, and never overwrites one that exists. The container publishes no port, runs as uid 1000 with a read-only root, no capability and `no-new-privileges`, and is limited to 1 GB of memory and 256 processes. Open `https://<UI host>`: the SSO asks you to sign in, then the machine setup command is shown on the Agents screen.
+`docker compose` refuses to start while `REDLINE_UI_HOST`, `REDLINE_ARTBOARD_HOST`, `REDLINE_AUTH_MIDDLEWARE`, `REDLINE_FIRST_ADMIN_EMAIL` or a proxy secret is missing. The generator creates the missing secret files and `.env` lines, and never overwrites one that exists. The container publishes no port, runs as uid 1000 with a read-only root, no capability and `no-new-privileges`, and is limited to 1 GB of memory and 256 processes. Open `https://<UI host>`: the SSO asks you to sign in, then the machine setup command is shown on the Agents screen.
 
 Agent sessions connect through `https://<UI host>` (`npm i -g https://<UI host>/cli/redline-cli.tgz && redline setup https://<UI host> --token <token>`); the machine route is rate limited and asset uploads of 20 MB pass its body limit.
 

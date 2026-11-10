@@ -72,7 +72,7 @@ describe("accounts screen and invitations", () => {
     const admin = await startWithAdmin();
     const { invitation } = await invite(admin, "marc@example.com", "member");
 
-    const preview = await fetch(`${server!.url}/api/invitation?token=${invitation.token}`);
+    const preview = await fetch(`${server!.url}/api/invitation`, { headers: { "x-redline-token": invitation.token } });
     expect(preview.status).toBe(200);
     expect((await preview.json()) as InvitationPreview).toEqual({ email: "marc@example.com", role: "member", invitedBy: "Vincent Peraud", expiresAt: invitation.expiresAt });
 
@@ -84,7 +84,7 @@ describe("accounts screen and invitations", () => {
 
     // Single use.
     expect((await accept(invitation.token, "Someone else")).status).toBe(404);
-    expect((await fetch(`${server!.url}/api/invitation?token=${invitation.token}`)).status).toBe(404);
+    expect((await fetch(`${server!.url}/api/invitation`, { headers: { "x-redline-token": invitation.token } })).status).toBe(404);
 
     const { accounts, invitations } = await list(admin);
     expect(invitations).toEqual([]);
@@ -98,9 +98,9 @@ describe("accounts screen and invitations", () => {
     const admin = await startWithAdmin();
     const { invitation } = await invite(admin);
     vi.setSystemTime(Date.now() + 7 * DAY - 1000);
-    expect((await fetch(`${server!.url}/api/invitation?token=${invitation.token}`)).status).toBe(200);
+    expect((await fetch(`${server!.url}/api/invitation`, { headers: { "x-redline-token": invitation.token } })).status).toBe(200);
     vi.setSystemTime(Date.now() + 2000);
-    expect((await fetch(`${server!.url}/api/invitation?token=${invitation.token}`)).status).toBe(404);
+    expect((await fetch(`${server!.url}/api/invitation`, { headers: { "x-redline-token": invitation.token } })).status).toBe(404);
     expect((await accept(invitation.token)).status).toBe(404);
   });
 

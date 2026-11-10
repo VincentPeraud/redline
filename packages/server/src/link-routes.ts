@@ -60,6 +60,16 @@ export function registerLinkRoutes(app: FastifyInstance, store: Store, access: A
     return store.links.list("project", req.params.projectId).map((link) => viewOf(req, link));
   });
 
+  const projectOfLink = (link: StoredLink): string => (link.scope === "project" ? link.scopeId : (store.projectIdOfPage(link.scopeId) ?? ""));
+
+  /** Why the viewer may not give a link of this level on its scope, or undefined: Privé projects keep links to their creator and the admins, and a link never gives more than the viewer's own level. */
+  const grantError = (viewer: Viewer, scope: ShareLink["scope"], scopeId: string, projectId: string, level: AccessLevel): string | undefined => {
+    if (store.getProject(projectId)?.visibility === "private" && !access.manages(viewer, projectId)) return "On a private project only its creator and the admins create links.";
+    const own = access.levelOf(viewer, scope === "page" ? { pageId: scopeId } : { projectId });
+    if (own === undefined || LEVEL_RANK[level] > LEVEL_RANK[own]) return "A link cannot give more than your own level.";
+    return undefined;
+  };
+
   /** Creates a link on a scope, under the rules: the kind and level pair, Privé projects, and never above the creator's own level. */
   const createLink = (req: FastifyRequest<{ Body: CreateLinkRequest }>, reply: FastifyReply, scope: ShareLink["scope"], scopeId: string, projectId: string) => {
     const body = req.body ?? ({} as Partial<CreateLinkRequest>);
@@ -67,9 +77,8 @@ export function registerLinkRoutes(app: FastifyInstance, store: Store, access: A
     if (typeof body.name !== "string" || !isAccessLevel(body.level)) return reply.code(400).send({ error: "name and level are required" });
     const invalid = linkRequestError(body, body.kind);
     if (invalid) return reply.code(400).send({ error: invalid });
-    if (store.getProject(projectId)?.visibility === "private" && !access.manages(req.viewer, projectId)) return reply.code(403).send({ error: "On a private project only its creator and the admins create links." });
-    const own = access.levelOf(req.viewer, scope === "page" ? { pageId: scopeId } : { projectId });
-    if (own === undefined || LEVEL_RANK[body.level] > LEVEL_RANK[own]) return reply.code(403).send({ error: "A link cannot give more than your own level." });
+    const refused = grantError(req.viewer, scope, scopeId, projectId, body.level);
+    if (refused) return reply.code(403).send({ error: refused });
     const link = store.links.create({
       scope,
       scopeId,
@@ -107,17 +116,26 @@ export function registerLinkRoutes(app: FastifyInstance, store: Store, access: A
     const body = req.body ?? {};
     const invalid = linkRequestError(body, link.kind);
     if (invalid) return reply.code(400).send({ error: invalid });
+    const refused = grantError(req.viewer, link.scope, link.scopeId, projectOfLink(link), body.level ?? link.level);
+    if (refused) return reply.code(403).send({ error: refused });
     return viewOf(req, store.links.update(link.id, { name: body.name?.trim(), level: body.level, direct: body.direct, expiresAt: body.expiresAt })!);
   });
 
   app.post<{ Params: { linkId: string } }>("/api/links/:linkId/disable", async (req, reply) => {
     const link = manageable(req, reply);
-    return link ? viewOf(req, store.links.setActive(link.id, false, req.person)!) : undefined;
+    if (!link) return undefined;
+    const disabled = viewOf(req, store.links.setActive(link.id, false, req.person)!);
+    // Streams resolve their viewer again on every event: this one closes the visitor's at once.
+    store.emit({ type: "agents-updated" });
+    return disabled;
   });
 
   app.post<{ Params: { linkId: string } }>("/api/links/:linkId/reactivate", async (req, reply) => {
     const link = manageable(req, reply);
-    return link ? viewOf(req, store.links.setActive(link.id, true)!) : undefined;
+    if (!link) return undefined;
+    const refused = grantError(req.viewer, link.scope, link.scopeId, projectOfLink(link), link.level);
+    if (refused) return reply.code(403).send({ error: refused });
+    return viewOf(req, store.links.setActive(link.id, true)!);
   });
 
   app.get(MY_LINKS_PATH, async (req): Promise<MyLink[]> => {

@@ -41,6 +41,7 @@ beforeAll(async () => {
     artboardPort: 0,
     host: "127.0.0.1",
     webDir,
+    firstAdminEmail: "ariane@example.com",
     proxySecrets: { human: HUMAN, machine: "m".repeat(32) },
     identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email", logoutUrl: LOGOUT },
   });
@@ -152,7 +153,7 @@ it("shows neither the block nor the pill without SSO", async () => {
 
 it("offers no sign-out without a logout URL", async () => {
   const noLogoutDir = mkdtempSync(join(tmpdir(), "redline-sso-"));
-  const server = await startServer({ dataDir: noLogoutDir, port: 0, artboardPort: 0, host: "127.0.0.1", webDir, proxySecrets: { human: HUMAN, machine: "m".repeat(32) } });
+  const server = await startServer({ dataDir: noLogoutDir, port: 0, artboardPort: 0, host: "127.0.0.1", webDir, firstAdminEmail: "ariane@example.com", proxySecrets: { human: HUMAN, machine: "m".repeat(32) } });
   const context = await browser.newContext({ extraHTTPHeaders: ssoHeaders });
   const tab = await context.newPage();
   await tab.goto(`${server.url}/#/`);

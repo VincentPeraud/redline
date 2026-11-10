@@ -21,8 +21,10 @@ export interface NoAccess {
 }
 
 export const SESSION_PATH = "/api/session";
+/** The header that carries a setup, invitation or password-link token on the preview calls (a query string would end up in access logs). */
+export const TOKEN_HEADER = "x-redline-token";
 export const SETUP_PATH = "/api/setup";
-/** Open to people who are not signed in: `GET ?token=` reads an invitation, `POST` accepts it (creates the account). */
+/** Open to people who are not signed in: `GET` with the token header reads an invitation, `POST` accepts it (creates the account). */
 export const INVITATION_PATH = "/api/invitation";
 /** Admins only: `GET` lists accounts and pending invitations. */
 export const ACCOUNTS_PATH = "/api/accounts";
@@ -31,7 +33,7 @@ export const INVITATIONS_PATH = "/api/accounts/invitations";
 
 export const INVITATION_DAYS = 7;
 
-/** Open to people who are not signed in: `GET ?token=` reads a password link, `POST` chooses the new password with it. */
+/** Open to people who are not signed in: `GET` with the token header reads a password link, `POST` chooses the new password with it. */
 export const PASSWORD_LINK_PATH = "/api/password-link";
 export const PASSWORD_LINK_HOURS = 24;
 /** Mon compte: `PATCH` changes the name of the signed-in account. */

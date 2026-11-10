@@ -34,6 +34,8 @@ export interface WaitingOnPage {
  */
 export class TerminalSessions implements TerminalPresence {
   private readonly present = new Map<string, Presence>();
+  /** The account (or "" for the shared token) that first used each session id: nobody else may use it. */
+  private readonly owners = new Map<string, { personId: string; since: number }>();
   private readonly startedAt = Date.now();
   private readonly timer: NodeJS.Timeout;
 
@@ -55,6 +57,13 @@ export class TerminalSessions implements TerminalPresence {
     for (const { pageId, runId, threadId } of this.store.terminalPicks()) this.lock.showTerminalRun(pageId, runId, threadId);
   }
 
+  /** Binds the session id to the first account that uses it; false for any other account. */
+  claim(sessionId: string, personId: string | undefined): boolean {
+    const owner = this.owners.get(sessionId);
+    if (!owner) this.owners.set(sessionId, { personId: personId ?? "", since: Date.now() });
+    return owner === undefined || owner.personId === (personId ?? "");
+  }
+
   heartbeat(sessionId: string, folder: string, machine: string, personId?: string): void {
     const wasPresent = this.present.has(sessionId);
     this.present.set(sessionId, { personId, folder, machine, lastSeen: Date.now() });
@@ -62,6 +71,7 @@ export class TerminalSessions implements TerminalPresence {
   }
 
   bye(sessionId: string): void {
+    this.owners.delete(sessionId);
     if (this.present.delete(sessionId)) this.releaseSessions((id) => id === sessionId);
   }
 
@@ -69,7 +79,10 @@ export class TerminalSessions implements TerminalPresence {
   releaseSessionsOf(personId: string): void {
     const leaving = new Set<string>();
     for (const [sessionId, session] of this.present) if (session.personId === personId) leaving.add(sessionId);
-    for (const sessionId of leaving) this.present.delete(sessionId);
+    for (const sessionId of leaving) {
+      this.present.delete(sessionId);
+      this.owners.delete(sessionId);
+    }
     if (leaving.size > 0) this.releaseSessions((id) => leaving.has(id));
   }
 
@@ -98,8 +111,11 @@ export class TerminalSessions implements TerminalPresence {
     for (const [sessionId, session] of this.present) {
       if (now - session.lastSeen <= this.timeoutMs) continue;
       this.present.delete(sessionId);
+      this.owners.delete(sessionId);
       quiet.add(sessionId);
     }
+    // A session id claimed but never seen (no heartbeat) is forgotten after the same delay.
+    for (const [sessionId, owner] of this.owners) if (!this.present.has(sessionId) && now - owner.since > this.timeoutMs) this.owners.delete(sessionId);
     if (now - this.startedAt > this.timeoutMs) this.releaseSessions((id) => !this.present.has(id));
     else if (quiet.size > 0) this.releaseSessions((id) => quiet.has(id));
   }

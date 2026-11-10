@@ -8,6 +8,13 @@ import type { Store } from "./store.js";
 /** The events a link visitor hears of (about its page): the page itself, its design system, its threads. Agent work stays with the team. */
 const LINK_EVENTS = new Set<ServerEvent["type"]>(["page-updated", "page-renamed", "page-archive-changed", "design-system-updated", "thread-updated"]);
 
+/** Whether `now` is still the viewer the stream was opened for: the same link, the same account, a viewer that is not nobody. */
+function sameViewer(opened: Viewer, now: Viewer): boolean {
+  if (opened.kind === "link") return now.kind === "link" && now.link.id === opened.link.id;
+  if (opened.kind === "account") return now.kind === "account" && now.person.id === opened.person.id;
+  return now.kind === opened.kind;
+}
+
 /** Server-sent events: one `data: <ServerEvent JSON>` line per change, so the web UI can refresh live. Each viewer gets only the events of what they may see. */
 export function registerEventRoutes(app: FastifyInstance, store: Store, pageLock: PageLock, access: Access): void {
   const streams = new Set<ServerResponse>();
@@ -35,8 +42,16 @@ export function registerEventRoutes(app: FastifyInstance, store: Store, pageLock
     stream.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
     stream.write(": connected\n\n");
     streams.add(stream);
+    const close = () => {
+      unsubscribe();
+      streams.delete(stream);
+      stream.end();
+    };
     const unsubscribe = store.onChange((event) => {
-      const visible = visibleTo(req.viewer, event);
+      // The viewer is resolved again on every event: a disabled link or a deactivated account stops hearing at once.
+      const viewer = access.viewerOf(req);
+      if (!sameViewer(req.viewer, viewer)) return close();
+      const visible = visibleTo(viewer, event);
       if (visible) stream.write(`data: ${JSON.stringify(visible)}\n\n`);
     });
     req.raw.on("close", () => {

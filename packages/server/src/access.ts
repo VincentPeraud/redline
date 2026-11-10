@@ -51,6 +51,8 @@ export const LINK_ROUTES: Record<string, AccessLevel> = {
   "POST /api/threads/:threadId/resolve": "write",
   "POST /api/threads/:threadId/reopen": "write",
 };
+/** Calls a project link may make but a page link may not: a page link reaches its own page, never the pages around it. */
+const LINK_PROJECT_ONLY_ROUTES = new Set(["POST /api/projects/:projectId/pages"]);
 /** Calls that name no project or page and tell a visitor nothing beyond its own link. */
 const LINK_OPEN_ROUTES = new Set(["GET /api/link", "GET /api/config", "GET /api/events"]);
 
@@ -121,6 +123,8 @@ export interface AccessOptions {
   secrets?: ProxySecrets;
   /** Names of the SSO identity headers, read in proxy mode only. */
   identity: { userHeader: string; nameHeader: string; emailHeader: string };
+  /** Proxy mode: the only e-mail that becomes the first admin of an instance with no account. */
+  firstAdminEmail?: string;
 }
 
 /** Node decodes header bytes as latin1, SSOs send UTF-8. */
@@ -130,7 +134,7 @@ function headerText(req: FastifyRequest, name: string): string {
   return first === undefined ? "" : Buffer.from(first, "latin1").toString("utf8").trim();
 }
 
-export function createAccess({ mode, store, secrets, identity }: AccessOptions): Access {
+export function createAccess({ mode, store, secrets, identity, firstAdminEmail }: AccessOptions): Access {
   /** The signed-in account behind the request, else the SSO person without an account, else nobody. */
   const signedInOf = (req: FastifyRequest): Viewer => {
     if (mode === "proxy" && secrets && req.url.startsWith("/api/") && hasHumanSecret(req, secrets)) {
@@ -138,7 +142,7 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
       if (id !== "") {
         const name = headerText(req, identity.nameHeader);
         const email = headerText(req, identity.emailHeader);
-        const account = store.accounts.signInThroughSso({ id, name, email });
+        const account = store.accounts.signInThroughSso({ id, name, email }, firstAdminEmail);
         if (!account) return { kind: "nobody", ssoPerson: { id, name, email, initials: initialsOf(name, id) } };
         return { kind: "account", person: { id: account.id, name: account.name, email: account.email, initials: account.initials }, role: account.role };
       }
@@ -223,6 +227,21 @@ export function createAccess({ mode, store, secrets, identity }: AccessOptions):
   return { mode, viewerOf, may, levelOf, manages, creatorOf };
 }
 
+/** A copy of `value` where every `person` is reduced to its name and initials. */
+function withoutAccountDetails(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutAccountDetails);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, inner]) => {
+      if (key === "person" && typeof inner === "object" && inner !== null) {
+        const { name, initials } = inner as Person;
+        return [key, { name, initials }];
+      }
+      return [key, withoutAccountDetails(inner)];
+    }),
+  );
+}
+
 function actionOf(req: FastifyRequest): Action {
   const route = `${req.method} ${req.routeOptions.url}`;
   if (READS_NEEDING_WRITE.has(route)) return "write";
@@ -248,6 +267,8 @@ export function registerAccess(app: FastifyInstance, access: Access): void {
       return reply.code(404).send(dead);
     }
   });
+  // A visitor learns who wrote what by name, never by e-mail or account id.
+  app.addHook("preSerialization", async (req, _reply, payload) => (req.viewer.kind === "link" ? withoutAccountDetails(payload) : payload));
   app.addHook("preHandler", async (req, reply) => {
     if (OPEN_PATHS.has(req.url.split("?")[0])) return;
     // The web app's own files (the static handler and the single-page fallback) are what shows the sign-in screen.
@@ -259,6 +280,7 @@ export function registerAccess(app: FastifyInstance, access: Access): void {
       if (LINK_OPEN_ROUTES.has(key)) return;
       const needed = LINK_ROUTES[key];
       if (needed === undefined || !access.may(req.viewer, needed, resource)) return reply.code(403).send({ error: "forbidden" });
+      if (LINK_PROJECT_ONLY_ROUTES.has(key) && req.viewer.link.scope !== "project") return reply.code(403).send({ error: "forbidden" });
       return;
     }
     if (!access.may(req.viewer, actionOf(req), resource)) {
@@ -290,9 +312,12 @@ export function resolveAuthMode(env: NodeJS.ProcessEnv, proxySecrets: ProxySecre
 }
 
 /** Mode `none` has no login: it refuses to start wherever someone else could reach it. */
-export function assertModeCanStart(mode: AuthMode, options: { host: string; artboardOrigin?: string; publicUntil?: Date; proxySecrets?: ProxySecrets }): void {
+export function assertModeCanStart(mode: AuthMode, options: { host: string; artboardOrigin?: string; publicUntil?: Date; proxySecrets?: ProxySecrets; publicUrl?: string; firstAdminEmail?: string }): void {
   if (mode === "proxy" && !options.proxySecrets) {
     throw new Error('Mode "proxy" needs the proxy secrets: set REDLINE_PROXY_SECRET_HUMAN_FILE and REDLINE_PROXY_SECRET_MACHINE_FILE.');
+  }
+  if (mode === "proxy" && !options.firstAdminEmail?.trim()) {
+    throw new Error("Mode \"proxy\" needs REDLINE_FIRST_ADMIN_EMAIL: the e-mail of the SSO person who becomes the first admin.");
   }
   if (mode !== "proxy" && options.proxySecrets) {
     throw new Error(`Proxy secrets are set but the mode is "${mode}": use mode "proxy", or remove the secrets.`);
@@ -304,6 +329,9 @@ export function assertModeCanStart(mode: AuthMode, options: { host: string; artb
   if (options.publicUntil) refuse("with REDLINE_PUBLIC_UNTIL set (a public share)");
   if (options.artboardOrigin && !isLocalHost(new URL(options.artboardOrigin).hostname.replace(/^(?=.*:)(.*)$/, "[$1]"))) {
     refuse(`behind a tunnel (artboard origin ${options.artboardOrigin} is not a local name)`);
+  }
+  if (options.publicUrl && !isLocalHost(new URL(options.publicUrl).hostname.replace(/^(?=.*:)(.*)$/, "[$1]"))) {
+    refuse(`with REDLINE_PUBLIC_URL ${options.publicUrl} (not a local name)`);
   }
   // 0.0.0.0 and :: are what a container binds; the compose file publishes them on loopback only.
   if (!["0.0.0.0", "::"].includes(options.host) && !isLocalHost(options.host)) refuse(`on a host that is not local (${options.host})`);

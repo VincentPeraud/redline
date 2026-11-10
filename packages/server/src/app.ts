@@ -154,7 +154,7 @@ export async function buildMainApp(
   store: Store,
   config: ServerConfig,
   webDir?: string,
-  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; authMode?: AuthMode; cliBuild?: CliBuild; publicUntil?: Date; capabilities?: ArtboardCapabilities } = {},
+  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; firstAdminEmail?: string; trustedProxy?: boolean; authMode?: AuthMode; cliBuild?: CliBuild; publicUntil?: Date; capabilities?: ArtboardCapabilities } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ bodyLimit: MAX_PAGE_BYTES, rewriteUrl: rewriteLinkUrl });
   registerPublicDeadline(app, options.publicUntil);
@@ -162,11 +162,11 @@ export async function buildMainApp(
   registerHealthRoute(app);
   const identity = options.identity ?? DEFAULT_IDENTITY;
   const authMode = options.authMode ?? (options.proxySecrets ? "proxy" : "none");
-  const access = createAccess({ mode: authMode, store, secrets: options.proxySecrets, identity });
+  const access = createAccess({ mode: authMode, store, secrets: options.proxySecrets, identity, firstAdminEmail: options.firstAdminEmail });
   registerAccess(app, access);
   registerIdentity(app, store, identity, authMode);
   const onDeactivated: ((personId: string) => void)[] = [];
-  if (authMode === "local" || authMode === "proxy") registerAccountRoutes(app, store, authMode, (personId) => onDeactivated.forEach((listener) => listener(personId)));
+  if (authMode === "local" || authMode === "proxy") registerAccountRoutes(app, store, authMode, (personId) => onDeactivated.forEach((listener) => listener(personId)), options.trustedProxy === true);
   const { cliBuild } = options;
   store.setServerBuildHash(cliBuild?.hash);
   if (cliBuild) {
@@ -174,7 +174,7 @@ export async function buildMainApp(
       reply.type("application/gzip").header("content-disposition", 'attachment; filename="redline-cli.tgz"').send(createReadStream(cliBuild.tarballPath)),
     );
   }
-  registerRequestHardening(app, { requireJsonOrHeader: authMode === "local" });
+  registerRequestHardening(app, { requireJsonOrHeader: authMode !== "none" });
   explainTooLarge(app);
   registerArchivedGuard(app, store);
   const agents = await registerAgentRoutes(app, store);
@@ -896,6 +896,9 @@ function requireCapability(store: Store, capabilities: ArtboardCapabilities) {
     if (scope === undefined) return reply.code(403).send("capability required");
     const project = scope.projectId;
     if (scope.pageId !== undefined && params.pageId !== undefined && params.pageId !== scope.pageId) return reply.code(403).send("capability is for another page");
+    const { versionId } = req.params as { versionId?: string };
+    if (versionId !== undefined && scope.linkLevel !== undefined && scope.linkLevel !== "write") return reply.code(403).send("capability does not open the history");
+    if (scope.withoutArchived && params.pageId !== undefined && store.getPage(params.pageId)?.archivedAt) return reply.code(403).send("capability does not open archived pages");
     const requested = params.pageId !== undefined ? store.projectIdOfPage(params.pageId) : (params.projectId ?? params.designSystemId);
     if (params.pageId !== undefined && requested === undefined) return reply.code(404).send("not found");
     if (requested !== undefined && !coversProject(store, project, requested)) return reply.code(403).send("capability is for another project");

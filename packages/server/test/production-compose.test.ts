@@ -74,6 +74,7 @@ const requiredEnv = {
   REDLINE_UI_HOST: "redline.example.com",
   REDLINE_ARTBOARD_HOST: "artboards.example.com",
   REDLINE_AUTH_MIDDLEWARE: "sso@docker",
+  REDLINE_FIRST_ADMIN_EMAIL: "admin@example.com",
   REDLINE_PROXY_SECRET_HUMAN: "a".repeat(64),
   REDLINE_PROXY_SECRET_MACHINE: "b".repeat(64),
 };

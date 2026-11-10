@@ -23,6 +23,10 @@ export interface StartOptions {
   proxySecrets?: ProxySecrets;
   /** Names of the SSO identity headers and the logout URL; the headers are read only when proxy secrets are set. */
   identity?: IdentityConfig;
+  /** Proxy mode: the e-mail of the SSO person who becomes the first admin of an instance with no account (required in that mode). */
+  firstAdminEmail?: string;
+  /** Behind a reverse proxy that sets `X-Forwarded-For`: the sign-in lockout then counts the address it reports. Never set it when clients can reach Redline directly. */
+  trustedProxy?: boolean;
   /** Public address of the web UI, used in the setup link written to the logs (default: the address the server listens on). */
   publicUrl?: string;
   /** Where the setup link is written; default the console. */
@@ -49,6 +53,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   if (options.proxySecrets) assertValidProxySecrets(options.proxySecrets);
   const log = options.log ?? ((line: string) => console.log(line));
   const store = new Store(options.dataDir);
+  store.accounts.log = log;
   const capabilities = new ArtboardCapabilities(loadCapabilityKey(options.dataDir), options.artboardCapabilityLifetimeMs);
   const artboardApp = await buildArtboardApp(store, { proxySecrets: options.proxySecrets, publicUntil: options.publicUntil, capabilities, authMode });
   await artboardApp.listen({ port: options.artboardPort, host: options.host });
@@ -59,6 +64,8 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     terminalPresenceTimeoutMs: options.terminalPresenceTimeoutMs,
     proxySecrets: options.proxySecrets,
     identity: options.identity,
+    firstAdminEmail: options.firstAdminEmail,
+    trustedProxy: options.trustedProxy,
     authMode,
     capabilities,
     publicUntil: options.publicUntil,

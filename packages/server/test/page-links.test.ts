@@ -109,7 +109,8 @@ describe("page share links in Lecture", () => {
     expect((await open(`/pages/${pageId}/home.html`)).status).toBe(200);
     expect((await open(`/pages/${otherPageId}/home.html`)).status).toBe(403);
     expect((await open(`/page-versions/${otherPageId}/any/home.html`)).status).toBe(403);
-    expect((await open(`/page-versions/${pageId}/any/home.html`)).status).not.toBe(403);
+    // A Lecture link sees the latest version only, never the history.
+    expect((await open(`/page-versions/${pageId}/any/home.html`)).status).toBe(403);
     expect((await open(`/project-styles/${project.id}/tokens.css`)).status).not.toBe(403);
     expect((await open(`/project-styles/${otherProject.id}/tokens.css`)).status).toBe(403);
     // A member keeps the capability of the whole project.
@@ -243,7 +244,7 @@ describe("page share links behind the SSO", () => {
   const HUMAN = "h".repeat(32);
   beforeEach(async () => {
     dataDir = mkdtempSync(join(tmpdir(), "redline-links-proxy-"));
-    server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", authMode: "proxy", proxySecrets: { human: HUMAN, machine: "m".repeat(32) } });
+    server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", authMode: "proxy", firstAdminEmail: "ariane@example.com", proxySecrets: { human: HUMAN, machine: "m".repeat(32) } });
   });
   afterEach(async () => {
     await server.close();
