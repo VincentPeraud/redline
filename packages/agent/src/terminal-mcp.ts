@@ -24,6 +24,7 @@ export const LIST_DESIGN_SYSTEMS_TOOL = "list_design_systems";
 export const CREATE_DESIGN_SYSTEM_TOOL = "create_design_system";
 export const SET_PROJECT_DESIGN_SYSTEM_TOOL = "set_project_design_system";
 export const RELEASE_PAGE_TOOL = "release_page";
+export const BROWSER_SIGN_IN_TOOL = "browser_sign_in";
 export const PENDING_COMMENTS_TOOL = "pending_comments";
 
 /** How long a tool answer waits for the waiting-comments line before going out without it. */
@@ -373,6 +374,15 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       const lines = released.map((page) => `- ${page.title}: ${page.count === 0 ? "no waiting comment" : `${page.count} comment${page.count > 1 ? "s" : ""} handed over to the agent`}`);
       return `Released ${released.length > 1 ? "these pages" : "this page"}; the agent now takes its comments until a terminal session publishes ${released.length > 1 ? "them" : "it"} again:\n${lines.join("\n")}`;
     }),
+  );
+  server.registerTool(
+    BROWSER_SIGN_IN_TOOL,
+    {
+      description:
+        "Get a single-use link that signs a headless test browser (Playwright) in to Redline as the user's own account, with no password. Call it only when a headless browser must see Redline signed in.",
+      inputSchema: { path: z.string().optional().describe('In-app path to land on after signing in, for example "#/pages/<id>"; leave out for the home page') },
+    },
+    tool(async ({ path }: { path?: string }) => `${await api.browserSignInLink(path)}\nOpen it in the test browser within 60 seconds; the session lasts 12 hours.`),
   );
   return server;
 }

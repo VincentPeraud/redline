@@ -141,6 +141,7 @@ When the user asks to fetch their design system from Claude Design and recreate 
 
 ## Letting go of a page (terminal mode)
 - A terminal session holds the pages it publishes, so that their new comments wait for it. When the user asks you to let go of a page ("lâche la page", "laisse l'agent s'en occuper"), call release_page {pageId}; "lâche toutes les pages" is release_page with no argument. The waiting comments then go to the Redline agent, and so do the new ones until a terminal session publishes the page again. Never release a page on your own.
+- To look at Redline in a headless browser (Playwright) when it asks for a sign-in, call browser_sign_in {path?} (path like "#/pages/<id>"): it answers a single-use link, valid 60 seconds, that signs the browser in as the user's account. Open it in the browser, then continue. Call it only when a headless browser must see Redline signed in.
 
 ## Conversation messages (context block)
 - A message from the page's conversation ends with a context block: "The user is looking at: <files>" lists the artboards on screen (partly visible ones included; in play mode, the one shown, with its rendering in parentheses for a responsive artboard), and "Tweak values: <label>: <value>, ..." gives the current value of each tweak (the line is absent when the page has no tweaks).

@@ -147,7 +147,7 @@ export async function buildMainApp(
   store: Store,
   config: ServerConfig,
   webDir?: string,
-  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; firstAdminEmail?: string; trustedProxy?: boolean; authMode?: AuthMode; cliBuild?: CliBuild; publicUntil?: Date; capabilities?: ArtboardCapabilities } = {},
+  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; firstAdminEmail?: string; publicUrl?: string; trustedProxy?: boolean; authMode?: AuthMode; cliBuild?: CliBuild; publicUntil?: Date; capabilities?: ArtboardCapabilities } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ bodyLimit: MAX_PAGE_BYTES, rewriteUrl: rewriteLinkUrl });
   registerPublicDeadline(app, options.publicUntil);
@@ -179,7 +179,7 @@ export async function buildMainApp(
     agents.disconnectPerson(personId);
     terminalSessions.releaseSessionsOf(personId);
   });
-  await registerAgentApi(app, store, pageLock, terminalSessions, access);
+  await registerAgentApi(app, store, pageLock, terminalSessions, access, options.publicUrl);
   await registerProjectFileRoutes(app, store);
   registerProjectDesignSystemRoutes(app, store);
   registerEventRoutes(app, store, pageLock, access);

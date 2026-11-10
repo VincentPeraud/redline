@@ -36,6 +36,12 @@ export const INVITATION_DAYS = 7;
 /** Open to people who are not signed in: `GET` with the token header reads a password link, `POST` chooses the new password with it. */
 export const PASSWORD_LINK_PATH = "/api/password-link";
 export const PASSWORD_LINK_HOURS = 24;
+/** Open to people who are not signed in: `POST` with the token header signs a test browser in with a link from the agent API's `sign-in-link`. */
+export const AGENT_SIGN_IN_PATH = "/api/agent-sign-in";
+/** `POST` with the token header answers who the link signs in, without using it up. */
+export const AGENT_SIGN_IN_PREVIEW_PATH = "/api/agent-sign-in/preview";
+export const AGENT_SIGN_IN_SECONDS = 60;
+export const AGENT_SESSION_HOURS = 12;
 /** Mon compte: `PATCH` changes the name of the signed-in account. */
 export const MY_ACCOUNT_PATH = "/api/account";
 /** Mon compte: `POST { currentPassword, newPassword }` changes the password and signs the other devices out. */

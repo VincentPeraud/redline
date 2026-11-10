@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { SESSION_PATH, SETUP_PATH, INVITATION_PATH, PASSWORD_LINK_PATH, TOKEN_HEADER, type InvitationPreview, type PasswordLinkPreview } from "@redline/shared";
+import { AGENT_SIGN_IN_PATH, AGENT_SIGN_IN_PREVIEW_PATH, SESSION_PATH, SETUP_PATH, INVITATION_PATH, PASSWORD_LINK_PATH, TOKEN_HEADER, type InvitationPreview, type PasswordLinkPreview, type Person } from "@redline/shared";
 import { Button, Field, Logo, TextInput, cx } from "./ui/index.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { useSession } from "./useMe.js";
@@ -306,6 +306,49 @@ export function DeadLinkScreen() {
     <AuthCard high className={cx(styles.centered, styles.dead)}>
       <h1 className={styles.centeredTitle}>Ce lien ne marche plus</h1>
       <p className={styles.centeredText}>Il a expiré ou a été désactivé. Demande un nouveau lien à la personne qui te l'a envoyé.</p>
+    </AuthCard>
+  );
+}
+
+/** The page of a test browser's sign-in link, `#/connexion-agent/<token>?to=<path>`: shows whose account it opens, signs in on "Continuer" and lands on `to`, or says the link is dead. */
+export function AgentSignInScreen({ token, to }: { token: string; to: string | null }) {
+  useDocumentTitle("Connexion");
+  const { reload } = useSession();
+  const [who, setWho] = useState<Person | null | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    fetch(AGENT_SIGN_IN_PREVIEW_PATH, { method: "POST", headers: { "content-type": "application/json", [TOKEN_HEADER]: token }, body: "{}" }).then(async (res) => setWho(res.ok ? ((await res.json()) as Person) : null));
+  }, [token]);
+
+  async function proceed() {
+    setBusy(true);
+    const res = await fetch(AGENT_SIGN_IN_PATH, { method: "POST", headers: { "content-type": "application/json", [TOKEN_HEADER]: token }, body: "{}" });
+    if (!res.ok) return setWho(null);
+    window.location.hash = to?.startsWith("#/") ? to : "#/";
+    await reload();
+  }
+
+  if (who === undefined) return null;
+  if (who === null) {
+    return (
+      <AuthCard high className={cx(styles.centered, styles.dead)}>
+        <h1 className={styles.centeredTitle}>Lien expiré</h1>
+        <p className={styles.centeredText}>Ce lien de connexion a expiré. Redemande-en un.</p>
+      </AuthCard>
+    );
+  }
+  return (
+    <AuthCard className={styles.invitation}>
+      <div className={styles.head}>
+        <h1>
+          Se connecter en tant que {who.name} ({who.email})
+        </h1>
+        <p>Ce lien ouvre une session de 12 heures dans ce navigateur de test, avec les droits de ce compte.</p>
+      </div>
+      <Button variant="accent" size="lg" className={styles.submit} disabled={busy} onClick={() => void proceed()}>
+        Continuer
+      </Button>
     </AuthCard>
   );
 }

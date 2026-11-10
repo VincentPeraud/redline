@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { INSUFFICIENT_LEVEL_CODE, levelRank, INVITATION_PATH, LINK_DEAD_CODE, type LinkDeadResponse, NO_ACCESS_CODE, PASSWORD_LINK_PATH, initialsOf, SESSION_PATH, SETUP_PATH, type AccessLevel, type AccountRole, type InsufficientLevelResponse, type NoAccessResponse, type Person } from "@redline/shared";
+import { AGENT_SIGN_IN_PATH, AGENT_SIGN_IN_PREVIEW_PATH, INSUFFICIENT_LEVEL_CODE, levelRank, INVITATION_PATH, LINK_DEAD_CODE, type LinkDeadResponse, NO_ACCESS_CODE, PASSWORD_LINK_PATH, initialsOf, SESSION_PATH, SETUP_PATH, type AccessLevel, type AccountRole, type InsufficientLevelResponse, type NoAccessResponse, type Person } from "@redline/shared";
 import { HEALTH_PATH, hasHumanSecret, isMachinePath, type ProxySecrets } from "./proxy-secrets.js";
 import { isLocalHost } from "./public-deadline.js";
 import type { Store } from "./store.js";
@@ -99,7 +99,7 @@ declare module "fastify" {
 
 const NOBODY: Viewer = { kind: "nobody" };
 /** Paths a viewer may always reach: they say who the viewer is, or answer the container's probe. */
-const OPEN_PATHS = new Set(["/api/me", HEALTH_PATH, SESSION_PATH, SETUP_PATH, INVITATION_PATH, PASSWORD_LINK_PATH]);
+const OPEN_PATHS = new Set(["/api/me", HEALTH_PATH, SESSION_PATH, SETUP_PATH, INVITATION_PATH, PASSWORD_LINK_PATH, AGENT_SIGN_IN_PATH, AGENT_SIGN_IN_PREVIEW_PATH]);
 
 export const SESSION_COOKIE = "redline_session";
 

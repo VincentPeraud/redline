@@ -65,6 +65,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     proxySecrets: options.proxySecrets,
     identity: options.identity,
     firstAdminEmail: options.firstAdminEmail,
+    publicUrl: options.publicUrl,
     trustedProxy: options.trustedProxy,
     authMode,
     capabilities,
