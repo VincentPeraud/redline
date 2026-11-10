@@ -8,6 +8,7 @@ import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { MANIFEST_PATH } from "@redline/shared";
 import { startServer, type RunningServer } from "../../server/src/start.js";
+import { admitSsoPeople } from "../../server/test/sso-people.js";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -15,7 +16,7 @@ const HUMAN = "h".repeat(32);
 const person = (user: string, name: string) => ({ "x-redline-proxy-secret": HUMAN, "remote-user": user, "remote-name": name, "remote-email": `${user}@example.com` });
 const ariane = person("amartin", "Ariane Martin");
 const vincent = person("vperaud", "Vincent Peraud");
-const beforeSso = { "x-redline-proxy-secret": HUMAN };
+const beforeSso = {};
 const files = { "home.html": "<h1>Home</h1>", [MANIFEST_PATH]: JSON.stringify({ artboards: [{ file: "home.html", x: 0, y: 0 }] }) };
 
 let webDir: string;
@@ -29,8 +30,8 @@ let plainPageId: string;
 const call = (base: string, headers: Record<string, string>) => async <T>(method: string, path: string, body?: unknown): Promise<T> =>
   (await fetch(base + path, { method, headers: { "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) })).json() as Promise<T>;
 
-async function createPage(base: string): Promise<string> {
-  const api = call(base, vincent);
+async function createPage(base: string, headers: Record<string, string>): Promise<string> {
+  const api = call(base, headers);
   const project = await api<{ id: string }>("POST", "/api/projects", { title: "Acme" });
   return (await api<{ id: string }>("POST", `/api/projects/${project.id}/pages`, { title: "Home", files })).id;
 }
@@ -40,6 +41,11 @@ beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   dataDir = mkdtempSync(join(tmpdir(), "redline-signed-"));
   await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  // Before the SSO the server had no accounts: the old comment is written then, on the same data.
+  const beforeSsoServer = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1" });
+  pageId = await createPage(beforeSsoServer.url, beforeSso);
+  await call(beforeSsoServer.url, beforeSso)("POST", `/api/pages/${pageId}/threads`, threadBody("Old comment"));
+  await beforeSsoServer.close();
   sso = await startServer({
     dataDir,
     port: 0,
@@ -51,8 +57,8 @@ beforeAll(async () => {
     identity: { userHeader: "remote-user", nameHeader: "remote-name", emailHeader: "remote-email" },
   });
   plain = await startTestServer({ webDir });
-  pageId = await createPage(sso.url);
-  plainPageId = await createPage(plain.url);
+  await admitSsoPeople(sso.url, [ariane, vincent]);
+  plainPageId = await createPage(plain.url, {});
   browser = await launchBrowser();
 }, 60_000);
 
@@ -76,7 +82,6 @@ it("signs thread messages: Toi for the viewer, the name for the other person, Ut
   const arianeApi = call(sso.url, ariane);
   const thread = await arianeApi<{ id: string }>("POST", `/api/pages/${pageId}/threads`, threadBody("Make the button bigger"));
   await call(sso.url, vincent)("POST", `/api/threads/${thread.id}/messages`, { body: "Keep the outline on hover" });
-  await call(sso.url, beforeSso)("POST", `/api/pages/${pageId}/threads`, threadBody("Old comment"));
 
   const tab = await open(vincent, sso.url, pageId);
   const card = tab.locator("article").filter({ hasText: "Make the button bigger" });
