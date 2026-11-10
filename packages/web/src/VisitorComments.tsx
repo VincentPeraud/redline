@@ -124,7 +124,7 @@ function VisitorReply({ threadId, visitor }: { threadId: string; visitor: Visito
   return (
     <div className={replyStyles.replyForm}>
       {!personal && rememberedVisitorName() === "" && (
-        <Field label="Ton nom">
+        <Field quiet label="Ton nom">
           <TextInput size="form" autoComplete="name" maxLength={MAX_VISITOR_NAME_LENGTH} value={name} onChange={(event) => setName(event.target.value)} />
         </Field>
       )}
@@ -172,7 +172,7 @@ export function VisitorComposer({ visitor, label, text, onText, onSend, onCancel
             <h2>Avant ton premier commentaire</h2>
             <p>Ton nom signe tes commentaires pour l'équipe. Il est retenu sur cet appareil.</p>
           </div>
-          <Field label="Ton nom">
+          <Field quiet label="Ton nom">
             <TextInput size="form" autoFocus autoComplete="name" maxLength={MAX_VISITOR_NAME_LENGTH} value={name} onChange={(event) => setName(event.target.value)} />
           </Field>
           <div className={styles.sep} />
@@ -191,7 +191,7 @@ export function VisitorComposer({ visitor, label, text, onText, onSend, onCancel
           )}
         </span>
       )}
-      <Field label={`Commentaire sur « ${label} »`}>
+      <Field quiet label={`Commentaire sur « ${label} »`}>
         <Textarea autoFocus={!asking} className={styles.area} value={text} onChange={(event) => onText(event.target.value)} />
       </Field>
       <div className={styles.row}>

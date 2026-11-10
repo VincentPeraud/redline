@@ -343,7 +343,7 @@ function LinkFormDialog({ scope, mayWrite, link, onClose, onDone, onCloseAll }: 
         <div role="status" className={invite.ok}>
           Lien créé pour {created.name}, en {LEVEL_LABEL[created.level]}, {created.expiresAt ? `jusqu'au ${shortDate(created.expiresAt).replace(/\.$/, "")}` : "sans expiration"}.
         </div>
-        <Field label="Lien" hint={created.kind === "personal" ? `Quiconque a ce lien agit au nom de ${created.name} : envoie-le-lui directement.` : "Quiconque a ce lien voit la page : envoie-le au groupe concerné."}>
+        <Field quiet label="Lien" hint={created.kind === "personal" ? `Quiconque a ce lien agit au nom de ${created.name} : envoie-le-lui directement.` : "Quiconque a ce lien voit la page : envoie-le au groupe concerné."}>
           <span className={invite.linkbox}>
             <TextInput size="form" className={invite.linkInput} readOnly value={url} onFocus={(e) => e.target.select()} />
             <Button size="lg" onClick={() => void copy(created)}>
@@ -378,7 +378,7 @@ function LinkFormDialog({ scope, mayWrite, link, onClose, onDone, onCloseAll }: 
             />
           </fieldset>
         )}
-        <Field
+        <Field quiet
           label={kind === "personal" ? "Son nom" : "Nom du lien"}
           hint={kind === "personal" ? `Ses commentaires et ses changements seront signés « ${name.trim() || "Alix"} ».` : "Visible de l'équipe, pas des visiteurs. À son premier commentaire, chaque visiteur donne son nom."}
           className={invite.field}
@@ -424,7 +424,7 @@ function LinkFormDialog({ scope, mayWrite, link, onClose, onDone, onCloseAll }: 
           </div>
         </fieldset>
         <div className={styles.two}>
-          <Field label="Expiration">
+          <Field quiet label="Expiration">
             <Select size="form" aria-label="Expiration" value={expiry} onChange={(e) => setExpiry(e.target.value as ExpiryChoice)}>
               {EXPIRY_CHOICES.map((choice) => (
                 <option key={choice.value} value={choice.value}>
@@ -434,7 +434,7 @@ function LinkFormDialog({ scope, mayWrite, link, onClose, onDone, onCloseAll }: 
             </Select>
           </Field>
           {expiry === "date" && (
-            <Field label="Date">
+            <Field quiet label="Date">
               <TextInput size="form" type="date" aria-label="Date d'expiration" value={date} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setDate(e.target.value)} />
             </Field>
           )}

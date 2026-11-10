@@ -56,7 +56,7 @@ export function InviteDialog({ sso, onClose, onInvited }: { sso: boolean; onClos
         <div role="status" className={styles.ok}>
           Invitation créée pour {created.email}, comme {created.role === "admin" ? "admin" : "membre"}. Le lien marche une fois, jusqu'au {until}.
         </div>
-        <Field label="Lien d'invitation">
+        <Field quiet label="Lien d'invitation">
           <span className={styles.linkbox}>
             <TextInput size="form" className={styles.linkInput} readOnly value={link} onFocus={(e) => e.target.select()} />
             <Button size="lg" onClick={() => void copy(link)}>{copied ? "Copié" : "Copier"}</Button>
@@ -78,7 +78,7 @@ export function InviteDialog({ sso, onClose, onInvited }: { sso: boolean; onClos
             ? "La personne entre avec son compte Authelia : crée-le d'abord s'il n'existe pas. Redline la reconnaît à cet e-mail, à sa première connexion."
             : "Redline n'envoie pas d'email : il crée un lien d'invitation que tu envoies toi-même (Mattermost, SMS…)."}
         </p>
-        <Field label="Email" hint={error} className={styles.field}>
+        <Field quiet label="Email" hint={error} className={styles.field}>
           <TextInput size="form" type="email" name="email" value={email} required aria-invalid={error !== undefined} onChange={(e) => { setEmail(e.target.value); setError(undefined); }} />
         </Field>
         <fieldset className={styles.fieldset}>

@@ -94,7 +94,7 @@ export function PasswordLinkDialog({ account, link, onClose }: { account: Accoun
       <p className={styles.text}>
         Envoie ce lien à {account.name}, qui y choisit un nouveau mot de passe. Il marche une fois, pendant 24 heures, et déconnecte ses autres appareils.
       </p>
-      <Field label={`Lien pour ${account.name}`}>
+      <Field quiet label={`Lien pour ${account.name}`}>
         <span className={styles.linkbox}>
           <TextInput size="form" className={styles.linkInput} readOnly value={url} onFocus={(e) => e.target.select()} />
           <Button size="lg" onClick={() => void copy()}>{copied ? "Copié" : "Copier"}</Button>
