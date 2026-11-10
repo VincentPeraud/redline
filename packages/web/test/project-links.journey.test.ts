@@ -248,3 +248,41 @@ it("tells an Écriture visitor on a phone that Claude is not available, and keep
   await tab.screenshot({ path: join(tmpdir(), "visitor-write-phone.png") });
   await phone.close();
 }, 30_000);
+
+it("lists the threads of every page to an Écriture project link on a phone, with the page each one sits on", async () => {
+  const project = (await (await api("POST", "/api/projects", { title: "Phone threads" })).json()) as Project;
+  const first = await newPage(project.id, "Avant");
+  const second = await newPage(project.id, "Après");
+  const thread = (pageId: string, body: string) => api("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body, held: true });
+  await thread(first, "Remark on the first");
+  await thread(second, "Remark on the second");
+  const link = await newLink(`/api/projects/${project.id}/links`, { kind: "personal", name: "Alix", level: "write" });
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const tab = await phone.newPage();
+  await tab.goto(`${server.url}/s/${link.token}#/pages/${first}`);
+  await tab.getByRole("button", { name: "Commentaires · 2" }).click();
+  const list = tab.getByRole("region", { name: "Commentaires" });
+  await list.getByText("Remark on the second").waitFor();
+  expect(await list.getByText("Après · Accueil").count()).toBe(1);
+  await phone.close();
+}, 30_000);
+
+it("lets a visitor reply in a thread of the panel, signed with the link, in the style of the members' reply", async () => {
+  const project = (await (await api("POST", "/api/projects", { title: "Replies" })).json()) as Project;
+  const pageId = await newPage(project.id, "Page");
+  const created = (await (await api("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body: "Team question" })).json()) as { id: string };
+  const link = await newLink(`/api/pages/${pageId}/links`, { kind: "personal", name: "Alix", level: "write" });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const tab = await context.newPage();
+  await tab.goto(`${server.url}/s/${link.token}`);
+  await tab.getByRole("heading", { name: "Commentaires · 1" }).waitFor();
+  await tab.getByRole("button", { name: "Répondre", exact: true }).click();
+  await tab.getByLabel("Répondre").fill("Answer from Alix");
+  await tab.screenshot({ path: join(tmpdir(), "visitor-reply-desktop.png") });
+  await tab.getByRole("button", { name: "Envoyer la réponse" }).click();
+  await tab.getByTestId("visitor-thread").getByText("Answer from Alix").waitFor();
+  const [thread] = (await (await api("GET", `/api/pages/${pageId}/threads`)).json()) as Thread[];
+  expect(thread.id).toBe(created.id);
+  expect(thread.replies.at(-1)).toMatchObject({ body: "Answer from Alix", linkAuthor: { name: "Alix" } });
+  await context.close();
+}, 30_000);

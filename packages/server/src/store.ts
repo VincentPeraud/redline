@@ -2242,6 +2242,15 @@ export class Store {
     return this.sharedDesignSystemIdForManifest(pageId, manifest?.toString("utf8"));
   }
 
+  /** Whether any version, past or present, of the project's pages was drawn with this design system (a history preview still needs its stylesheets). */
+  historyUsesDesignSystem(projectId: string, designSystemId: string): boolean {
+    for (const page of this.listPages(projectId)) {
+      const versions = this.db.prepare("SELECT id FROM versions WHERE page_id = ?").all(page.id) as { id: string }[];
+      if (versions.some(({ id }) => this.sharedDesignSystemIdOfPage(page.id, id) === designSystemId)) return true;
+    }
+    return false;
+  }
+
   /** The shared design system a project follows: none when it has none or the hidden Neutral one. */
   sharedDesignSystemIdOfProject(projectId: string): string | undefined {
     const id = this.getProject(projectId)?.designSystem;

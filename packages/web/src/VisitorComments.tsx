@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { MAX_VISITOR_NAME_LENGTH, type Thread, type ThreadReply } from "@redline/shared";
+import { MAX_VISITOR_NAME_LENGTH, type CreateReplyRequest, type Thread, type ThreadReply } from "@redline/shared";
 import { Button, cx, Field, Textarea, TextInput } from "./ui/index.js";
 import { rememberVisitorName, rememberedVisitorName } from "./visitorName.js";
 import type { VisitorState } from "./visitor.js";
 import styles from "./VisitorComments.module.css";
+import replyStyles from "./Thread.module.css";
 
 /** The name a visitor signs with: the person of a personal link, else the one remembered on this device (empty until given). */
 export function signedName(visitor: VisitorState): string {
@@ -63,27 +64,85 @@ export function VisitorThreadCards({ threads, visitor, artboardTitles, otherPage
   return (
     <>
       {threads.map((thread) => (
-        <button type="button" key={thread.id} data-testid="visitor-thread" className={styles.card} onClick={() => onShow?.(thread.id)}>
-          <span className={styles.where}>
-            <span className={cx(styles.pin, writing && styles.pinFilled)}>{thread.number}</span>
-            {whereLabel(thread, artboardTitles, otherPages)}
-          </span>
-          <span className={styles.who}>{authorOf(thread)}</span>
-          <span>{thread.body}</span>
-          {thread.replies.map((reply) => (
-            <span key={reply.id} className={styles.reply}>
-              <span className={styles.who}>{replyAuthor(reply, mine, writing)}</span>
-              <span>{reply.body}</span>
+        <div key={thread.id} className={styles.item}>
+          <button type="button" data-testid="visitor-thread" className={styles.card} onClick={() => onShow?.(thread.id)}>
+            <span className={styles.where}>
+              <span className={cx(styles.pin, writing && styles.pinFilled)}>{thread.number}</span>
+              {whereLabel(thread, artboardTitles, otherPages)}
             </span>
-          ))}
-          {writing && claudeAvailable === false && thread.status === "open" && thread.replies.length === 0 && thread.linkAuthor && mine(thread.linkAuthor.name) && (
-            <span role="status" className={styles.wait}>
-              {CLAUDE_UNAVAILABLE_NOTE}
-            </span>
-          )}
-        </button>
+            <span className={styles.who}>{authorOf(thread)}</span>
+            <span>{thread.body}</span>
+            {thread.replies.map((reply) => (
+              <span key={reply.id} className={styles.reply}>
+                <span className={styles.who}>{replyAuthor(reply, mine, writing)}</span>
+                <span>{reply.body}</span>
+              </span>
+            ))}
+            {writing && claudeAvailable === false && thread.status === "open" && thread.replies.length === 0 && thread.linkAuthor && mine(thread.linkAuthor.name) && (
+              <span role="status" className={styles.wait}>
+                {CLAUDE_UNAVAILABLE_NOTE}
+              </span>
+            )}
+          </button>
+          {thread.status !== "resolved" && <VisitorReply threadId={thread.id} visitor={visitor} />}
+        </div>
       ))}
     </>
+  );
+}
+
+/** "Répondre" under a thread the visitor reads, in the style of the members' reply: the reply is signed with the link's name, or the name given on a generic link. */
+function VisitorReply({ threadId, visitor }: { threadId: string; visitor: VisitorState }) {
+  const personal = visitor.view.kind === "personal";
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [name, setName] = useState(() => signedName(visitor));
+  const [failed, setFailed] = useState(false);
+  const canSend = text.trim() !== "" && (personal || name.trim() !== "");
+
+  async function send() {
+    if (!canSend) return;
+    const signed = personal ? visitor.view.name : name.trim();
+    const request: CreateReplyRequest = { body: text, visitorName: signed };
+    const response = await fetch(`/api/threads/${threadId}/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
+    if (!response.ok) return setFailed(true);
+    if (!personal) rememberVisitorName(signed);
+    setText("");
+    setFailed(false);
+    setOpen(false);
+  }
+
+  if (!open) {
+    return (
+      <div className={styles.replyRow}>
+        <Button size="sm" aria-expanded={false} onClick={() => setOpen(true)}>
+          Répondre
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className={replyStyles.replyForm}>
+      {!personal && rememberedVisitorName() === "" && (
+        <Field label="Ton nom">
+          <TextInput autoComplete="name" maxLength={MAX_VISITOR_NAME_LENGTH} value={name} onChange={(event) => setName(event.target.value)} />
+        </Field>
+      )}
+      <Textarea aria-label="Répondre" autoFocus rows={2} value={text} onChange={(event) => setText(event.target.value)} />
+      {failed && (
+        <span role="alert" className={styles.wait}>
+          La réponse n'est pas partie, réessaie.
+        </span>
+      )}
+      <div className={replyStyles.replyActions}>
+        <Button size="sm" onClick={() => setOpen(false)}>
+          Annuler
+        </Button>
+        <Button size="sm" variant="primary" onClick={() => void send()} disabled={!canSend}>
+          Envoyer la réponse
+        </Button>
+      </div>
+    </div>
   );
 }
 

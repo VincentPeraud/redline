@@ -881,11 +881,11 @@ export async function buildArtboardApp(
   return app;
 }
 
-/** Whether `capabilityProject` may be served the files of `requestedId`: itself, or a design system it uses. */
+/** Whether `capabilityProject` may be served the files of `requestedId`: itself, or a design system it uses or used (its history previews). */
 function coversProject(store: Store, capabilityProject: string, requestedId: string): boolean {
   if (requestedId === capabilityProject) return true;
   if (!store.isDesignSystemProject(requestedId)) return false;
-  return store.sharedDesignSystemIdOfProject(capabilityProject) === requestedId || store.listPages(capabilityProject).some((page) => store.sharedDesignSystemIdOfPage(page.id) === requestedId);
+  return store.sharedDesignSystemIdOfProject(capabilityProject) === requestedId || store.listPages(capabilityProject).some((page) => store.sharedDesignSystemIdOfPage(page.id) === requestedId) || store.historyUsesDesignSystem(capabilityProject, requestedId);
 }
 
 /** Refuses (403) a request without a valid capability for the project of what it asks: the page, project or design system named in its path. */

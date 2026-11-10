@@ -103,6 +103,9 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   /** An Écriture link reads like a member ("Commentaires", newest first) and is told when no agent serves the project. */
   const writing = visitor?.view.level === "write";
   const [claudeAvailable, setClaudeAvailable] = useState<boolean | undefined>(undefined);
+  /** A project link in Écriture lists the threads of every page of the project, with the page each one sits on. */
+  const projectWide = writing && visitor.view.scope === "project";
+  const [pageTitles, setPageTitles] = useState<Record<string, string>>({});
   const renderings = artboard?.responsive ?? [];
   const [rendering, selectRendering] = usePlayRendering(renderings, renderingParam);
   const presentation = artboard && presentationOf(artboard, framed, windowWidth, artboard.responsive ? rendering : undefined);
@@ -149,15 +152,18 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   }, [pageId, current]);
   useEffect(() => {
     if (!canComment) return;
-    const load = () =>
-      void fetch(`/api/pages/${pageId}/threads`)
-        .then((response) => response.json() as Promise<Thread[]>)
-        .then(setLinkThreads);
-    load();
+    const projectId = visitor.view.project.id;
+    const load = async () => {
+      if (!projectWide) return setLinkThreads((await (await fetch(`/api/pages/${pageId}/threads`)).json()) as Thread[]);
+      const [threadsRes, pagesRes] = await Promise.all([fetch(`/api/projects/${projectId}/threads`), fetch(`/api/projects/${projectId}/pages`)]);
+      setLinkThreads((await threadsRes.json()) as Thread[]);
+      setPageTitles(Object.fromEntries(((await pagesRes.json()) as { id: string; title: string }[]).map((page) => [page.id, page.title])));
+    };
+    void load();
     return subscribeServerEvents((event) => {
-      if (event.type === "thread-updated" && event.pageId === pageId) load();
+      if (event.type === "thread-updated" && (projectWide || event.pageId === pageId)) void load();
     });
-  }, [canComment, pageId]);
+  }, [canComment, pageId, projectWide, visitor]);
   useEffect(() => {
     if (!canComment || !writing) return;
     void fetch(`/api/projects/${visitor.view.project.id}`)
@@ -430,7 +436,7 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
                 ×
               </button>
             </header>
-            <VisitorThreadCards threads={writing ? [...linkThreads].reverse() : linkThreads} visitor={visitor} artboardTitles={Object.fromEntries(manifest.artboards.map((a) => [a.file, a.title ?? a.file]))} claudeAvailable={claudeAvailable} />
+            <VisitorThreadCards threads={writing ? [...linkThreads].reverse() : linkThreads} visitor={visitor} artboardTitles={Object.fromEntries(manifest.artboards.map((a) => [a.file, a.title ?? a.file]))} otherPages={projectWide ? { currentPageId: pageId, titles: pageTitles } : undefined} claudeAvailable={claudeAvailable} />
           </section>
         </div>
       )}
