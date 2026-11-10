@@ -155,11 +155,10 @@ export function LinkStepDialog({ scope, project, linkStep: [step, setStep], relo
       </p>
       <p className={styles.text}>Tu pourras le réactiver plus tard : la même adresse remarchera.</p>
       <DialogActions>
-        <Button size="lg" onClick={() => setStep({ name: "list" })}>
+        <Button onClick={() => setStep({ name: "list" })}>
           Annuler
         </Button>
         <Button
-          size="lg"
           className={styles.dangerFill}
           onClick={async () => {
             await fetch(`/api/links/${link.id}/disable`, { method: "POST", headers: JSON_HEADERS, body: "{}" });
@@ -206,7 +205,7 @@ export function LinksSection({ scope, project, links, reload, linkStep: [, setSt
       <div className={sharing.main}>
         <strong className={styles.rowTitle}>
           {link.name}
-          <StatusBadge tone="neutral" size="sm" inline>
+          <StatusBadge tone={link.level === "write" ? "accent" : "neutral"} size="sm" inline>
             {LEVEL_LABEL[link.level]}
           </StatusBadge>
         </strong>
@@ -346,14 +345,14 @@ function LinkFormDialog({ scope, mayWrite, link, onClose, onDone, onCloseAll }: 
         </div>
         <Field label="Lien" hint={created.kind === "personal" ? `Quiconque a ce lien agit au nom de ${created.name} : envoie-le-lui directement.` : "Quiconque a ce lien voit la page : envoie-le au groupe concerné."}>
           <span className={invite.linkbox}>
-            <TextInput className={invite.linkInput} readOnly value={url} onFocus={(e) => e.target.select()} />
+            <TextInput size="form" className={invite.linkInput} readOnly value={url} onFocus={(e) => e.target.select()} />
             <Button size="lg" onClick={() => void copy(created)}>
               {copied ? "Copié" : "Copier"}
             </Button>
           </span>
         </Field>
         <DialogActions>
-          <Button variant="primary" size="lg" onClick={onCloseAll}>
+          <Button variant="primary" onClick={onCloseAll}>
             Terminé
           </Button>
         </DialogActions>
@@ -384,7 +383,7 @@ function LinkFormDialog({ scope, mayWrite, link, onClose, onDone, onCloseAll }: 
           hint={kind === "personal" ? `Ses commentaires et ses changements seront signés « ${name.trim() || "Alix"} ».` : "Visible de l'équipe, pas des visiteurs. À son premier commentaire, chaque visiteur donne son nom."}
           className={invite.field}
         >
-          <TextInput name="name" value={name} placeholder={kind === "personal" ? "Alix" : "Client HAIDF"} aria-invalid={error !== undefined && name.trim() === ""} onChange={(e) => { setName(e.target.value); setError(undefined); }} />
+          <TextInput size="form" name="name" value={name} placeholder={kind === "personal" ? "Alix" : "Client HAIDF"} aria-invalid={error !== undefined && name.trim() === ""} onChange={(e) => { setName(e.target.value); setError(undefined); }} />
         </Field>
         <fieldset className={invite.fieldset}>
           <legend className={invite.legend}>Niveau</legend>
@@ -426,7 +425,7 @@ function LinkFormDialog({ scope, mayWrite, link, onClose, onDone, onCloseAll }: 
         </fieldset>
         <div className={styles.two}>
           <Field label="Expiration">
-            <Select aria-label="Expiration" value={expiry} onChange={(e) => setExpiry(e.target.value as ExpiryChoice)}>
+            <Select size="form" aria-label="Expiration" value={expiry} onChange={(e) => setExpiry(e.target.value as ExpiryChoice)}>
               {EXPIRY_CHOICES.map((choice) => (
                 <option key={choice.value} value={choice.value}>
                   {choice.label}
@@ -436,7 +435,7 @@ function LinkFormDialog({ scope, mayWrite, link, onClose, onDone, onCloseAll }: 
           </Field>
           {expiry === "date" && (
             <Field label="Date">
-              <TextInput type="date" aria-label="Date d'expiration" value={date} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setDate(e.target.value)} />
+              <TextInput size="form" type="date" aria-label="Date d'expiration" value={date} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setDate(e.target.value)} />
             </Field>
           )}
         </div>
@@ -446,10 +445,10 @@ function LinkFormDialog({ scope, mayWrite, link, onClose, onDone, onCloseAll }: 
           </p>
         )}
         <DialogActions>
-          <Button size="lg" onClick={onClose}>
+          <Button onClick={onClose}>
             Annuler
           </Button>
-          <Button type="submit" variant="accent" size="lg" disabled={busy}>
+          <Button type="submit" variant="accent" disabled={busy}>
             {editing ? "Enregistrer" : "Créer le lien"}
           </Button>
         </DialogActions>

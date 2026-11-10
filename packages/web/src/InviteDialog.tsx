@@ -58,13 +58,13 @@ export function InviteDialog({ sso, onClose, onInvited }: { sso: boolean; onClos
         </div>
         <Field label="Lien d'invitation">
           <span className={styles.linkbox}>
-            <TextInput className={styles.linkInput} readOnly value={link} onFocus={(e) => e.target.select()} />
+            <TextInput size="form" className={styles.linkInput} readOnly value={link} onFocus={(e) => e.target.select()} />
             <Button size="lg" onClick={() => void copy(link)}>{copied ? "Copié" : "Copier"}</Button>
           </span>
         </Field>
         <p className={styles.hint}>Tu le retrouves dans Comptes tant qu'il n'a pas servi.</p>
         <DialogActions>
-          <Button variant="primary" size="lg" onClick={onClose}>Terminé</Button>
+          <Button variant="primary" onClick={onClose}>Terminé</Button>
         </DialogActions>
       </Dialog>
     );
@@ -79,7 +79,7 @@ export function InviteDialog({ sso, onClose, onInvited }: { sso: boolean; onClos
             : "Redline n'envoie pas d'email : il crée un lien d'invitation que tu envoies toi-même (Mattermost, SMS…)."}
         </p>
         <Field label="Email" hint={error} className={styles.field}>
-          <TextInput type="email" name="email" value={email} required aria-invalid={error !== undefined} onChange={(e) => { setEmail(e.target.value); setError(undefined); }} />
+          <TextInput size="form" type="email" name="email" value={email} required aria-invalid={error !== undefined} onChange={(e) => { setEmail(e.target.value); setError(undefined); }} />
         </Field>
         <fieldset className={styles.fieldset}>
           <legend className={styles.legend}>Rôle</legend>
@@ -97,8 +97,8 @@ export function InviteDialog({ sso, onClose, onInvited }: { sso: boolean; onClos
         </fieldset>
         <p className={styles.hint}>Pour un client ou un freelance, pas de compte : partage-lui une page ou un projet par lien.</p>
         <DialogActions>
-          <Button size="lg" onClick={onClose}>Annuler</Button>
-          <Button type="submit" variant="accent" size="lg" disabled={busy}>{sso ? "Ajouter" : "Créer le lien d'invitation"}</Button>
+          <Button onClick={onClose}>Annuler</Button>
+          <Button type="submit" variant="accent" disabled={busy}>{sso ? "Ajouter" : "Créer le lien d'invitation"}</Button>
         </DialogActions>
       </form>
     </Dialog>

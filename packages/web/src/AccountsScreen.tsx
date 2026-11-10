@@ -25,7 +25,7 @@ function AccountRow({ account, isMe, soleAdmin, actions }: { account: AccountEnt
     <tr className={cx(off && styles.off)}>
       <td>
         <div className={styles.who}>
-          <Avatar initials={account.initials} muted={off} />
+          <Avatar initials={account.initials} muted />
           <div className={styles.whoText}>
             <strong>{isMe ? `${account.name} (toi)` : account.name}</strong>
             <span>{account.email}</span>
@@ -140,7 +140,7 @@ export function AccountsScreen() {
             ? `${plural(data.accounts.length, "compte", "comptes")} · ${plural(data.invitations.length, "ajout en attente", "ajouts en attente")} · connexion par Authelia`
             : `${plural(data.accounts.length, "compte", "comptes")} · ${plural(data.invitations.length, "invitation en attente", "invitations en attente")} · connexion Redline`
         }
-        actions={<Button variant="accent" size="lg" onClick={() => setInviting(true)}>{data.sso ? "Ajouter quelqu'un" : "Inviter quelqu'un"}</Button>}
+        actions={<Button variant="accent" onClick={() => setInviting(true)}>{data.sso ? "Ajouter quelqu'un" : "Inviter quelqu'un"}</Button>}
       />
       {notice && <div role="alert" className={styles.notice}>{notice}</div>}
       {data.sso && (

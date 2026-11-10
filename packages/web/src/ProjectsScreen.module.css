@@ -209,6 +209,7 @@
 .optionsLabel {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
 }
 
 .option {
@@ -243,6 +244,49 @@
 
 .optionDescription {
   font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: var(--space-3) 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.choice:hover {
+  background: var(--color-surface-muted);
+}
+
+.choiceOn,
+.choiceOn:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.choice input {
+  margin: 0;
+  height: 1lh;
+  accent-color: var(--color-accent);
+}
+
+.choiceText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+
+.choiceText strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+.choiceText span {
   color: var(--color-text-muted);
 }
 

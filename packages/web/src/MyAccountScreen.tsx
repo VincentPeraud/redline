@@ -32,7 +32,7 @@ function ProfilePanel({ name: initialName }: { name: string }) {
       <h2 className={styles.panelTitle}>Profil</h2>
       <form className={styles.form} onSubmit={submit}>
         <Field label="Nom" hint={saved ? "Enregistré." : undefined}>
-          <TextInput name="name" autoComplete="name" value={name} required onChange={(e) => { setName(e.target.value); setSaved(false); }} />
+          <TextInput size="form" name="name" autoComplete="name" value={name} required onChange={(e) => { setName(e.target.value); setSaved(false); }} />
         </Field>
         <div className={styles.end}>
           <Button type="submit" variant="primary" disabled={busy}>Enregistrer</Button>
@@ -71,10 +71,10 @@ function PasswordPanel() {
       <h2 className={styles.panelTitle}>Mot de passe</h2>
       <form className={styles.form} onSubmit={submit}>
         <Field label="Mot de passe actuel" hint={error?.field === "current" ? error.text : undefined}>
-          <TextInput type="password" name="current-password" autoComplete="current-password" value={current} required aria-invalid={error?.field === "current"} onChange={(e) => { setCurrent(e.target.value); setError(undefined); }} />
+          <TextInput size="form" type="password" name="current-password" autoComplete="current-password" value={current} required aria-invalid={error?.field === "current"} onChange={(e) => { setCurrent(e.target.value); setError(undefined); }} />
         </Field>
         <Field label="Nouveau mot de passe" hint={error?.field === "next" ? error.text : "8 caractères au moins. Tes autres appareils seront déconnectés."}>
-          <TextInput type="password" name="new-password" autoComplete="new-password" value={next} required aria-invalid={error?.field === "next"} onChange={(e) => { setNext(e.target.value); setError(undefined); setDone(false); }} />
+          <TextInput size="form" type="password" name="new-password" autoComplete="new-password" value={next} required aria-invalid={error?.field === "next"} onChange={(e) => { setNext(e.target.value); setError(undefined); setDone(false); }} />
         </Field>
         <div className={styles.end}>
           {done && <span role="status" className={styles.done}>Mot de passe changé.</span>}

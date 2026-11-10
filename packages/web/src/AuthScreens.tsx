@@ -125,7 +125,7 @@ export function SetupScreen({ token }: { token: string }) {
           <p>Le compte admin de cette instance existe déjà : connecte-toi avec lui. Si tu as perdu son mot de passe, cette commande sur le serveur écrit dans les logs un lien pour en choisir un nouveau :</p>
         </div>
         <pre className={styles.command}>docker compose exec redline redline-server reset-admin</pre>
-        <Button variant="secondary" size="lg" className={styles.link} onClick={() => { window.location.hash = "#/"; void reload(); }}>
+        <Button variant="secondary" className={styles.link} onClick={() => { window.location.hash = "#/"; void reload(); }}>
           Aller à la connexion
         </Button>
       </AuthCard>
@@ -166,7 +166,7 @@ function LinkExpired() {
         <h1>Ce lien ne marche plus</h1>
         <p>Il a expiré, a déjà servi, ou a été annulé. Demande un nouveau lien à la personne qui te l'a envoyé.</p>
       </div>
-      <Button variant="secondary" size="lg" className={styles.link} onClick={() => { window.location.hash = "#/"; void reload(); }}>
+      <Button variant="secondary" className={styles.link} onClick={() => { window.location.hash = "#/"; void reload(); }}>
         Aller à la connexion
       </Button>
     </AuthCard>
@@ -292,7 +292,7 @@ export function NoAccessScreen() {
     <AuthCard high className={styles.centered}>
       <h1 className={styles.centeredTitle}>Réservé aux admins</h1>
       <p className={styles.centeredText}>Les comptes ne se gèrent que par un admin de cette instance.</p>
-      <Button variant="secondary" size="lg" className={styles.centeredButton} onClick={() => { window.location.hash = "#/"; }}>
+      <Button variant="secondary" className={styles.centeredButton} onClick={() => { window.location.hash = "#/"; }}>
         Retour à l'accueil
       </Button>
     </AuthCard>
@@ -321,7 +321,7 @@ export function UnknownPersonScreen({ email, admins, logoutUrl }: { email: strin
         Ton compte <strong>{email}</strong> n'est pas dans les comptes de cette instance. Demande à un admin de t'ajouter{names ? ` : ${names}` : ""}. Si on t'a envoyé un lien de partage, ouvre-le directement.
       </p>
       {logoutUrl && (
-        <Button variant="secondary" size="lg" className={styles.centeredButton} onClick={() => { window.location.href = logoutUrl; }}>
+        <Button variant="secondary" className={styles.centeredButton} onClick={() => { window.location.href = logoutUrl; }}>
           Se déconnecter
         </Button>
       )}

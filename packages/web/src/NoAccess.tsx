@@ -42,7 +42,7 @@ export function ProjectNoAccessScreen({ creatorName }: { creatorName?: string })
         <p className={styles.text}>
           {creatorName ? `Ce projet est privé. Demande à ${creatorName}, qui l'a créé, de t'y ajouter.` : "Ce projet est privé. Demande à la personne qui l'a créé de t'y ajouter."}
         </p>
-        <Button size="lg" onClick={() => navigateTo({ name: "home" })}>
+        <Button onClick={() => navigateTo({ name: "home" })}>
           Retour à l'accueil
         </Button>
       </main>

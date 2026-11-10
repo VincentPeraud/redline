@@ -183,10 +183,10 @@ function ProjectSharingDialog({ project, sharing, reload, onChanged, onClose }: 
           </>
         )}
         <DialogActions>
-          <Button size="lg" onClick={() => setConfirming(false)}>
+          <Button onClick={() => setConfirming(false)}>
             Annuler
           </Button>
-          <Button variant="accent" size="lg" onClick={() => void setVisibility("private")}>
+          <Button variant="accent" onClick={() => void setVisibility("private")}>
             Passer en privé
           </Button>
         </DialogActions>

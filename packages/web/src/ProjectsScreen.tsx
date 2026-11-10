@@ -124,11 +124,11 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
               Visibilité
             </div>
             {VISIBILITY_OPTIONS.map((option) => (
-              <label key={option.value} className={cx(styles.option, option.value === visibility && styles.optionSelected)}>
+              <label key={option.value} className={cx(styles.choice, option.value === visibility && styles.choiceOn)}>
                 <input type="radio" name="new-project-visibility" checked={option.value === visibility} onChange={() => setVisibility(option.value)} />
-                <span className={styles.optionText}>
-                  <span className={styles.optionTitle}>{VISIBILITY_LABEL[option.value]}</span>
-                  <span className={styles.optionDescription}>{option.description}</span>
+                <span className={styles.choiceText}>
+                  <strong>{VISIBILITY_LABEL[option.value]}</strong>
+                  <span>{option.description}</span>
                 </span>
               </label>
             ))}
@@ -166,10 +166,10 @@ function NewProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreat
           ))}
         </div>
         <DialogActions>
-          <Button size="lg" onClick={onClose}>
+          <Button onClick={onClose}>
             Annuler
           </Button>
-          <Button type="submit" variant="accent" size="lg" aria-disabled={!canCreate} className={styles.create}>
+          <Button type="submit" variant="accent" aria-disabled={!canCreate} className={styles.create}>
             Créer le projet
           </Button>
         </DialogActions>

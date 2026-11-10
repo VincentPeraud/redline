@@ -112,7 +112,7 @@ function LaunchedBy({ agent }: { agent: AgentOverview }) {
   if (!agent.launchedBy) return <span className={styles.secondary}>-</span>;
   return (
     <div className={styles.by}>
-      <Avatar initials={agent.launchedBy.initials} />
+      <Avatar initials={agent.launchedBy.initials} muted />
       <span>{agent.launchedBy.name}</span>
     </div>
   );
@@ -372,7 +372,7 @@ export function AgentsScreen() {
           title="Agents"
           subtitle="Chaque agent tourne avec le jeton de la personne qui l'a lancé, et n'a que ses droits."
           actions={
-            <Button ref={launchButton} variant="accent" size="lg" aria-expanded={launch === "open"} onClick={() => (launch === "open" ? closeLaunch() : setLaunch("open"))}>
+            <Button ref={launchButton} variant="accent" aria-expanded={launch === "open"} onClick={() => (launch === "open" ? closeLaunch() : setLaunch("open"))}>
               Lancer un agent
             </Button>
           }

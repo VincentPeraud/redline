@@ -125,7 +125,7 @@ function VisitorReply({ threadId, visitor }: { threadId: string; visitor: Visito
     <div className={replyStyles.replyForm}>
       {!personal && rememberedVisitorName() === "" && (
         <Field label="Ton nom">
-          <TextInput autoComplete="name" maxLength={MAX_VISITOR_NAME_LENGTH} value={name} onChange={(event) => setName(event.target.value)} />
+          <TextInput size="form" autoComplete="name" maxLength={MAX_VISITOR_NAME_LENGTH} value={name} onChange={(event) => setName(event.target.value)} />
         </Field>
       )}
       <Textarea aria-label="Répondre" autoFocus rows={2} value={text} onChange={(event) => setText(event.target.value)} />
@@ -173,7 +173,7 @@ export function VisitorComposer({ visitor, label, text, onText, onSend, onCancel
             <p>Ton nom signe tes commentaires pour l'équipe. Il est retenu sur cet appareil.</p>
           </div>
           <Field label="Ton nom">
-            <TextInput autoFocus autoComplete="name" maxLength={MAX_VISITOR_NAME_LENGTH} value={name} onChange={(event) => setName(event.target.value)} />
+            <TextInput size="form" autoFocus autoComplete="name" maxLength={MAX_VISITOR_NAME_LENGTH} value={name} onChange={(event) => setName(event.target.value)} />
           </Field>
           <div className={styles.sep} />
         </>
@@ -195,10 +195,10 @@ export function VisitorComposer({ visitor, label, text, onText, onSend, onCancel
         <Textarea autoFocus={!asking} className={styles.area} value={text} onChange={(event) => onText(event.target.value)} />
       </Field>
       <div className={styles.row}>
-        <Button type="button" size="lg" onClick={onCancel}>
+        <Button type="button" onClick={onCancel}>
           Annuler
         </Button>
-        <Button type="submit" variant="accent" size="lg" disabled={!canSend}>
+        <Button type="submit" variant="accent" disabled={!canSend}>
           Envoyer
         </Button>
       </div>

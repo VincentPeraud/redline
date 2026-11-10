@@ -28,8 +28,8 @@ export function RoleDialog({ account, onClose, onConfirm }: { account: AccountEn
     <Dialog title={`Passer ${account.name} admin ?`} onClose={onClose} width={480}>
       <p className={styles.text}>{first} verra tous les projets, même privés, et pourra gérer les comptes : inviter, désactiver, changer les rôles.</p>
       <DialogActions>
-        <Button size="lg" onClick={onClose}>Annuler</Button>
-        <Button variant="accent" size="lg" onClick={onConfirm}>Passer admin</Button>
+        <Button onClick={onClose}>Annuler</Button>
+        <Button variant="accent" onClick={onConfirm}>Passer admin</Button>
       </DialogActions>
     </Dialog>
   );
@@ -73,8 +73,8 @@ export function DeactivateDialog({ account, onClose, onDone }: { account: Accoun
       )}
       {error && <p role="alert" className={styles.error}>{error}</p>}
       <DialogActions>
-        <Button size="lg" onClick={onClose}>Annuler</Button>
-        <Button size="lg" className={styles.dangerFill} disabled={busy} onClick={() => void confirm()}>Désactiver</Button>
+        <Button onClick={onClose}>Annuler</Button>
+        <Button className={styles.dangerFill} disabled={busy} onClick={() => void confirm()}>Désactiver</Button>
       </DialogActions>
     </Dialog>
   );
@@ -96,12 +96,12 @@ export function PasswordLinkDialog({ account, link, onClose }: { account: Accoun
       </p>
       <Field label={`Lien pour ${account.name}`}>
         <span className={styles.linkbox}>
-          <TextInput className={styles.linkInput} readOnly value={url} onFocus={(e) => e.target.select()} />
+          <TextInput size="form" className={styles.linkInput} readOnly value={url} onFocus={(e) => e.target.select()} />
           <Button size="lg" onClick={() => void copy()}>{copied ? "Copié" : "Copier"}</Button>
         </span>
       </Field>
       <DialogActions>
-        <Button variant="primary" size="lg" onClick={onClose}>Terminé</Button>
+        <Button variant="primary" onClick={onClose}>Terminé</Button>
       </DialogActions>
     </Dialog>
   );
