@@ -17,6 +17,8 @@ Environment variables (all optional):
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `REDLINE_AUTH_MODE` | `local` | How people sign in: `local`, `proxy` or `none`, see "Sign-in modes" |
+| `REDLINE_FIRST_ADMIN_EMAIL` | none | `proxy` mode only, required: the e-mail of the SSO person who becomes the first admin |
+| `REDLINE_TRUSTED_PROXY` | off | `1` or `true` behind a reverse proxy that sets `X-Forwarded-For`: the sign-in lockout then counts the address it reports; never set it when clients reach Redline directly |
 | `REDLINE_PUBLIC_URL` | `http://localhost:$REDLINE_PORT` | Address people open; used in the setup link and by `reset-admin` |
 | `REDLINE_BIND` | `127.0.0.1` | Host address the two ports are published on |
 | `REDLINE_PORT` | `3000` | Host port of the web UI and API |
@@ -31,7 +33,7 @@ Environment variables (all optional):
 
 ### Exposing the server
 
-In `none` mode Redline has no login, and anyone who reaches the API can administer it. In the default `local` mode people sign in with an account, but `docker-compose.yml` still publishes both ports on `127.0.0.1` by default. To use Redline from other machines, keep the default and put a reverse proxy on the same host (it reaches `127.0.0.1:3000` and `127.0.0.1:3001`) that authenticates users. Set `REDLINE_BIND=0.0.0.0` only on a network you trust, and set `REDLINE_PUBLIC_URL` to the address people open.
+In `none` mode Redline has no login, and anyone who reaches the API can administer it. In the default `local` mode people sign in with an account, but `docker-compose.yml` still publishes both ports on `127.0.0.1` by default. To use Redline from other machines, keep the default and put a reverse proxy on the same host (it reaches `127.0.0.1:3000` and `127.0.0.1:3001`) that authenticates users. Set `REDLINE_BIND=0.0.0.0` only on a network you trust, and set `REDLINE_PUBLIC_URL` to the address people open. Mode `none` refuses to start when `REDLINE_PUBLIC_URL` names a host that is not local.
 
 ### Sign-in modes
 
@@ -47,11 +49,13 @@ In `none` mode Redline has no login, and anyone who reaches the API can administ
 
 **Lost password (`local`).** `docker compose exec redline redline-server reset-admin` writes a single-use password link (valid 24 hours) for the oldest active admin to its output.
 
-**First admin (`proxy`).** There is no setup link: the first person who signs in through the SSO on an instance with no account becomes admin, and receives the existing projects if there are any. People seen before the update get the no-access screen until an admin adds them in "Comptes". `reset-admin` is a `local` command.
+**First admin (`proxy`).** There is no setup link: set `REDLINE_FIRST_ADMIN_EMAIL` (Redline refuses to start without it); on an instance with no account, the SSO person with that e-mail becomes admin and receives the existing projects if there are any, and anyone else gets the no-access screen. **The e-mails your SSO sends must be set by the SSO's admin, not by the users themselves** (true for Authelia's file backend): Redline matches people by e-mail, so a user who could choose their e-mail could take over an account. People seen before the update get the no-access screen until an admin adds them in "Comptes". `reset-admin` is a `local` command.
 
 **Moving from `local` to `proxy`.** Set `REDLINE_AUTH_MODE=proxy` (and the proxy secrets, see below). At their first SSO sign-in, accounts are matched by e-mail and keep their role, projects, links and agent token, so the SSO must send the same e-mails the accounts use. Accounts not matched yet stay listed; admins deactivate the ones that left.
 
 **Share links.** A share link (`/s/<token>`) is for someone with no account. In `proxy` mode your proxy must not ask the SSO for `/s/*` (nor for `/assets/`, the app bundle the link loads); Redline only serves such a request its link's scope. The artboard origin needs no SSO either: each artboard URL carries a signed viewing capability (`/c/<capability>/...`) valid 10 minutes, and its key is kept in the data folder (`artboard-capability.key`). `docker-compose.production.yml` configures both routers.
+
+**Old shared agent token.** The single agent token of before the accounts becomes the first admin's own token, and Redline logs a line when it migrates. If other machines still used it, regenerate it from the Agents page and set those machines up again.
 
 **Stored tokens.** Share link tokens and agent tokens are stored readable in the SQLite database (so a link can be copied again), and so are in its backups. The database, the data volume and its backups are the trust boundary: keep them as private as the server.
 
