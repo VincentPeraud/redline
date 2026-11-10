@@ -1,5 +1,6 @@
 {
   "name": "redline",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -13,7 +14,8 @@
     "test": "vitest run",
     "demo": "tsx --tsconfig scripts/tsconfig.json scripts/demo.ts",
     "test:docker": "REDLINE_DOCKER_TEST=1 vitest run packages/server/test/docker.test.ts packages/server/test/production-compose.test.ts packages/server/test/backup-restore.test.ts",
-    "eval:agent": "tsx --tsconfig scripts/tsconfig.json scripts/eval-agent.ts"
+    "eval:agent": "tsx --tsconfig scripts/tsconfig.json scripts/eval-agent.ts",
+    "release": "bash scripts/release.sh"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
