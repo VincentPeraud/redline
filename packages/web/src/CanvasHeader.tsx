@@ -44,9 +44,11 @@ function AgentPill({ project, running }: { project: Project | null; running: num
   const online = project?.servedBy !== undefined;
   const state = !online ? "hors ligne" : running === 0 ? "aucune session en cours" : plural(running, "session en cours", "sessions en cours");
   return (
-    <div data-testid="canvas-agent" className={cx(styles.pill, !online && styles.pillOff)}>
+    <div data-testid="canvas-agent" className={cx(styles.pill, !online && styles.pillOff)} title={`Agent ${folderName(agent.folder)} · ${state}`}>
       <span aria-hidden="true" className={cx(styles.dot, !online && styles.dotOff)} />
-      Agent {folderName(agent.folder)} · {state}
+      <span className={styles.pillText}>
+        Agent {folderName(agent.folder)} · {state}
+      </span>
     </div>
   );
 }
