@@ -22,6 +22,11 @@ import {
   CANVAS_ELEMENT_KIND_LABELS,
   type ModelChoice,
   type PageViewSettings,
+  MAX_VISITOR_NAME_LENGTH,
+  isAccessLevel,
+  type CreateLinkRequest,
+  type ShareLink,
+  type UpdateLinkRequest,
 } from "@redline/shared";
 
 /** True for a string with something in it; the guard form of "field is required". */
@@ -255,4 +260,27 @@ export function threadCellError(cell: unknown): string | null {
 
 export function isVisibility(value: unknown): value is "team" | "private" {
   return value === "team" || value === "private";
+}
+
+const MAX_LINK_NAME_LENGTH = 80;
+
+/** Why a link request is refused, or undefined: the name, the kind and level pair, and the expiry. */
+export function linkRequestError(body: Partial<CreateLinkRequest & UpdateLinkRequest>, kind: ShareLink["kind"]): string | undefined {
+  if (body.name !== undefined && (typeof body.name !== "string" || body.name.trim() === "" || body.name.trim().length > MAX_LINK_NAME_LENGTH)) return `name must be 1 to ${MAX_LINK_NAME_LENGTH} characters`;
+  if (body.level !== undefined && !isAccessLevel(body.level)) return "level must be read, comment or write";
+  if (kind === "generic" && body.level === "write") return "A link for anyone opens in Lecture or Commentaire only.";
+  if (body.expiresAt !== undefined && body.expiresAt !== null && (typeof body.expiresAt !== "string" || Number.isNaN(Date.parse(body.expiresAt)))) return "expiresAt must be an ISO date or null";
+  if (body.direct !== undefined && typeof body.direct !== "boolean") return "direct must be a boolean";
+  return undefined;
+}
+
+/** Why the name a visitor signs with is refused, or undefined. */
+export function visitorNameValueError(visitorName: unknown): string | undefined {
+  if (typeof visitorName !== "string" || visitorName.trim() === "" || visitorName.trim().length > MAX_VISITOR_NAME_LENGTH) return `visitorName must be 1 to ${MAX_VISITOR_NAME_LENGTH} characters`;
+  return undefined;
+}
+
+/** Why the `threadIds` of a "send to Claude" request are refused, or undefined (absent means every waiting thread). */
+export function threadIdsError(ids: unknown): string | undefined {
+  return ids !== undefined && (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) ? "threadIds must be a list of thread ids" : undefined;
 }

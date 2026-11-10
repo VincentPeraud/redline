@@ -34,6 +34,15 @@ export interface AgentActor {
   account?: SignedInAccount;
 }
 
+/** The role named in a request, or an `invalid-role` refusal. */
+export function parseRole(role: unknown): AccountRole {
+  if (role !== "admin" && role !== "member") throw new AccountError("invalid-role", "The role is admin or member.");
+  return role;
+}
+
+/** The person behind an account: what is shown and signed, without its role. */
+export const personOf = ({ id, name, email, initials }: Person): Person => ({ id, name, email, initials });
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -221,10 +230,9 @@ export class AccountStore {
   }
 
   /** A link to copy, valid 7 days and single use, for someone with this e-mail; `expiry: "never"` is the entry waiting for a first SSO sign-in (proxy mode, no link). */
-  invite(adminId: string, input: { email: string; role: string }, expiry: "7-days" | "never" = "7-days"): InvitationEntry {
+  invite(adminId: string, input: { email: string; role: AccountRole }, expiry: "7-days" | "never" = "7-days"): InvitationEntry {
     const email = input.email.trim();
     if (!EMAIL_PATTERN.test(email)) throw new AccountError("invalid-email", "Enter a valid e-mail.");
-    if (input.role !== "admin" && input.role !== "member") throw new AccountError("invalid-role", "The role is admin or member.");
     if (this.db.prepare("SELECT 1 FROM people WHERE role IS NOT NULL AND lower(email) = lower(?)").get(email)) throw new AccountError("email-taken", "This e-mail already has an account.");
     const now = new Date();
     if (this.db.prepare("SELECT 1 FROM invitations WHERE lower(email) = lower(?) AND expires_at > ?").get(email, now.toISOString())) {
@@ -297,8 +305,7 @@ export class AccountStore {
   }
 
   /** Makes an account admin or member; the last active admin cannot be lowered. */
-  setRole(id: string, role: string): AccountEntry {
-    if (role !== "admin" && role !== "member") throw new AccountError("invalid-role", "The role is admin or member.");
+  setRole(id: string, role: AccountRole): AccountEntry {
     const account = this.requireAccount(id);
     if (role === "member") this.assertNotLastAdmin(account);
     this.db.prepare("UPDATE people SET role = ? WHERE id = ?").run(role, id);

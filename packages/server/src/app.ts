@@ -45,17 +45,10 @@ import {
   type MoveArtboardRequest,
   type UpdatePageRequest,
   type UpdateProjectRequest,
-  type Person,
   type Project,
-  type ProjectSharing,
-  type SetMemberLevelRequest,
-  isAccessLevel,
   type ProjectVisibility,
   CLI_TARBALL_PATH,
   ARTBOARD_CAPABILITY_SEGMENT,
-  levelRank,
-  type AccessLevel,
-  type MemberChangeResponse,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import { INSTANCES_PATH, INSTANCES_SOURCE, injectInstances, instanceLayersOf } from "./instances.js";
@@ -66,8 +59,8 @@ import { TerminalSessions } from "./terminal-sessions.js";
 import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
 import { projectContext, readPageAsset, readProjectAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
-import { linkAuthorOf, linkViews, registerLinkRoutes, visitorNameError } from "./link-routes.js";
-import { isWorking } from "./link-store.js";
+import { linkAuthorOf, registerLinkRoutes, visitorNameError } from "./link-routes.js";
+import { registerProjectSharingRoutes } from "./project-sharing.js";
 import { rewriteLinkUrl } from "./link-url.js";
 import { withServedBy } from "./agent-selection.js";
 import { PageLock } from "./page-lock.js";
@@ -81,7 +74,7 @@ import { settleUndoneChanges } from "./undone-changes.js";
 import { closeDiffusedRequests, requestsClosedBy, returnPendingOn } from "./diffusion-returns.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
-import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, isVisibility, requiredString, titleError, versionRequestError, viewSettingsError } from "./validation.js";
+import { createThreadRequestError, designSystemError, filesError, modelChoiceError, modelChoiceOf, pageFilesError, isVisibility, requiredString, threadIdsError, titleError, versionRequestError, viewSettingsError } from "./validation.js";
 import { registerContextTracking } from "./context.js";
 import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
@@ -191,6 +184,7 @@ export async function buildMainApp(
   registerProjectDesignSystemRoutes(app, store);
   registerEventRoutes(app, store, pageLock, access);
   registerLinkRoutes(app, store, access);
+  registerProjectSharingRoutes(app, store, access);
   registerDesignSystemReload(app, store);
   const runs = registerRunRoutes(app, store);
   registerHomeRoutes(app, store, pageLock, access);
@@ -251,65 +245,6 @@ export async function buildMainApp(
       .filter((project) => access.may(req.viewer, "read", { projectId: project.id }))
       .map((project) => withViewerLevel(req.viewer, withServedBy(store, project))),
   );
-
-  app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/sharing", async (req, reply): Promise<ProjectSharing | undefined> => {
-    const project = store.getProject(req.params.projectId);
-    if (!project) return void reply.code(404).send({ error: "project not found" });
-    const accounts = store.accounts.activeAccounts();
-    const isOwnerOrAdmin = (a: { id: string; role: string }) => a.role === "admin" || a.id === project.createdBy?.id;
-    const person = ({ role: _role, ...rest }: (typeof accounts)[number]): Person => rest;
-    const canChange = access.manages(req.viewer, project.id);
-    const wouldLoseAccess = project.visibility === "private" || !canChange ? [] : accounts.filter((a) => !isOwnerOrAdmin(a)).map(person);
-    const views = linkViews(store, access);
-    const workingLinks = canChange ? store.links.ofProject(project.id).filter(isWorking) : [];
-    const linksOf = (personIds: string[], aboveLevel?: AccessLevel) =>
-      workingLinks.filter((link) => link.createdBy !== undefined && personIds.includes(link.createdBy.id) && (aboveLevel === undefined || levelRank(link.level) > levelRank(aboveLevel))).map((link) => views(req.viewer, link));
-    const levels = store.memberLevels(project.id);
-    const members = levels.flatMap(({ personId, level }) => {
-      const account = accounts.find((a) => a.id === personId);
-      return account ? [{ person: person(account), level, aboveLinks: linksOf([account.id], level) }] : [];
-    });
-    const candidates = canChange ? accounts.filter((a) => !isOwnerOrAdmin(a) && !levels.some((l) => l.personId === a.id)).map(person) : [];
-    return {
-      visibility: project.visibility,
-      viewerLevel: access.levelOf(req.viewer, { projectId: project.id }) ?? "read",
-      accountCount: accounts.length,
-      ...(project.createdBy ? { createdBy: project.createdBy } : {}),
-      canChange,
-      members,
-      candidates,
-      wouldLoseAccess,
-      lostAccessLinks: linksOf(wouldLoseAccess.map((p) => p.id)),
-    };
-  });
-
-  // Équipe: a level below Écriture lowers the member, Écriture lifts the exception. Privé: the level is the member's entry.
-  app.put<{ Params: { projectId: string; personId: string }; Body: SetMemberLevelRequest }>("/api/projects/:projectId/members/:personId", async (req, reply) => {
-    const project = store.getProject(req.params.projectId);
-    if (!project) return reply.code(404).send({ error: "project not found" });
-    const account = store.accounts.activeAccounts().find((a) => a.id === req.params.personId);
-    if (!account) return reply.code(404).send({ error: "account not found" });
-    const level = req.body?.level;
-    if (!isAccessLevel(level)) return reply.code(400).send({ error: "level must be read, comment or write" });
-    if (account.role === "admin" || account.id === project.createdBy?.id) return reply.code(400).send({ error: "The creator and the admins are always at Écriture." });
-    if (project.visibility === "team" && level === "write") store.removeMemberLevel(project.id, account.id);
-    else store.setMemberLevel(project.id, account.id, level);
-    return linksAbove(req.viewer, project.id, account.id, level);
-  });
-
-  /** The working links a member made on the project that their level no longer allows: they keep working, and the dialog offers to disable them. */
-  const linksAbove = (viewer: Viewer, projectId: string, personId: string, level: AccessLevel | undefined): MemberChangeResponse => {
-    const views = linkViews(store, access);
-    return { links: store.links.ofProject(projectId).filter((link) => isWorking(link) && link.createdBy?.id === personId && (level === undefined || levelRank(link.level) > levelRank(level))).map((link) => views(viewer, link)) };
-  };
-
-  app.delete<{ Params: { projectId: string; personId: string } }>("/api/projects/:projectId/members/:personId", async (req, reply) => {
-    if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
-    store.removeMemberLevel(req.params.projectId, req.params.personId);
-    const project = store.getProject(req.params.projectId)!;
-    // Back to the default: Écriture on an Équipe project (nothing to warn about), no access on a Privé one.
-    return linksAbove(req.viewer, project.id, req.params.personId, project.visibility === "team" ? "write" : undefined);
-  });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId", async (req, reply) => {
     const project = store.getProject(req.params.projectId);
@@ -757,8 +692,9 @@ export async function buildMainApp(
     if (!page) return reply.code(404).send({ error: "page not found" });
     const invalidChoice = modelChoiceError(req.body ?? {});
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
+    const invalidIds = threadIdsError(req.body?.threadIds);
+    if (invalidIds) return reply.code(400).send({ error: invalidIds });
     const ids = req.body?.threadIds;
-    if (ids !== undefined && (!Array.isArray(ids) || ids.some((id) => typeof id !== "string"))) return reply.code(400).send({ error: "threadIds must be a list of thread ids" });
     const waiting = store.listReviewThreads(page.id).filter((thread) => ids === undefined || ids.includes(thread.id));
     if (waiting.length > 0) {
       for (const thread of waiting) store.releaseReviewThread(thread.id);

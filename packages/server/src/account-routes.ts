@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ACCOUNTS_PATH, type DeactivateRequest, INVITATIONS_PATH, INVITATION_PATH, MY_ACCOUNT_PATH, MY_PASSWORD_PATH, PASSWORD_LINK_PATH, SESSION_PATH, SETUP_PATH, TOKEN_HEADER } from "@redline/shared";
-import { AccountError, SESSION_DAYS } from "./accounts.js";
+import { AccountError, SESSION_DAYS, parseRole } from "./accounts.js";
 import { SESSION_COOKIE, cookieOf } from "./access.js";
 import { LoginThrottle } from "./login-throttle.js";
 import type { Store } from "./store.js";
@@ -152,7 +152,7 @@ function registerAccountManagement(app: FastifyInstance, store: Store, mode: "lo
   app.post<{ Body: { email?: string; role?: string } }>(INVITATIONS_PATH, async (req, reply) => {
     if (!isAdmin(req)) return forbidden(reply);
     try {
-      return reply.code(201).send(store.accounts.invite(req.person!.id, { email: req.body?.email ?? "", role: req.body?.role ?? "" }, mode === "proxy" ? "never" : "7-days"));
+      return reply.code(201).send(store.accounts.invite(req.person!.id, { email: req.body?.email ?? "", role: parseRole(req.body?.role) }, mode === "proxy" ? "never" : "7-days"));
     } catch (error) {
       if (!(error instanceof AccountError)) throw error;
       return reply.code(STATUS_OF_ERROR[error.code]).send({ error: error.message, code: error.code });
@@ -165,7 +165,7 @@ function registerAccountManagement(app: FastifyInstance, store: Store, mode: "lo
   });
 
   app.patch<{ Params: { id: string }; Body: { role?: string } }>(`${ACCOUNTS_PATH}/:id`, async (req, reply) =>
-    isAdmin(req) ? answering(reply, () => store.accounts.setRole(req.params.id, req.body?.role ?? "")) : forbidden(reply),
+    isAdmin(req) ? answering(reply, () => store.accounts.setRole(req.params.id, parseRole(req.body?.role))) : forbidden(reply),
   );
 
   app.post<{ Params: { id: string }; Body: DeactivateRequest | undefined }>(`${ACCOUNTS_PATH}/:id/deactivate`, async (req, reply) =>

@@ -1,30 +1,18 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { MAX_VISITOR_NAME_LENGTH, MY_LINKS_PATH, isAccessLevel, linkPath, type LinkAuthor, type AccessLevel, type CreateLinkRequest, type MyLink, type ShareLink, type ShareLinkView, type UpdateLinkRequest } from "@redline/shared";
+import { MY_LINKS_PATH, isAccessLevel, levelRank, linkPath, type LinkAuthor, type AccessLevel, type CreateLinkRequest, type MyLink, type ShareLink, type ShareLinkView, type UpdateLinkRequest } from "@redline/shared";
 import { cookieOf, type Access, type Viewer } from "./access.js";
 import type { StoredLink } from "./link-store.js";
 import type { Store } from "./store.js";
+import { linkRequestError, visitorNameValueError } from "./validation.js";
 
 export const LINK_DEVICE_COOKIE = "redline_link_device";
 const DEVICE_COOKIE_SECONDS = 365 * 86_400;
-const MAX_NAME_LENGTH = 80;
-const LEVEL_RANK: Record<AccessLevel, number> = { read: 0, comment: 1, write: 2 };
-
-/** Why a link request is refused, or undefined: the name, the kind and level pair, and the expiry. */
-function linkRequestError(body: Partial<CreateLinkRequest & UpdateLinkRequest>, kind: ShareLink["kind"]): string | undefined {
-  if (body.name !== undefined && (typeof body.name !== "string" || body.name.trim() === "" || body.name.trim().length > MAX_NAME_LENGTH)) return `name must be 1 to ${MAX_NAME_LENGTH} characters`;
-  if (body.level !== undefined && !isAccessLevel(body.level)) return "level must be read, comment or write";
-  if (kind === "generic" && body.level === "write") return "A link for anyone opens in Lecture or Commentaire only.";
-  if (body.expiresAt !== undefined && body.expiresAt !== null && (typeof body.expiresAt !== "string" || Number.isNaN(Date.parse(body.expiresAt)))) return "expiresAt must be an ISO date or null";
-  if (body.direct !== undefined && typeof body.direct !== "boolean") return "direct must be a boolean";
-  return undefined;
-}
 
 /** Why a comment through a link cannot be signed, or undefined: a generic link needs the name the visitor gave. */
 export function visitorNameError(viewer: Viewer, visitorName: unknown): string | undefined {
   if (viewer.kind !== "link" || viewer.link.kind === "personal" || viewer.member) return undefined;
-  if (typeof visitorName !== "string" || visitorName.trim() === "" || visitorName.trim().length > MAX_VISITOR_NAME_LENGTH) return `visitorName must be 1 to ${MAX_VISITOR_NAME_LENGTH} characters`;
-  return undefined;
+  return visitorNameValueError(visitorName);
 }
 
 /** What a comment through a link is signed with: the account name of a member who opened it, else the name of a personal link, else the visitor's name on a generic one. Undefined for members at their own level. */
@@ -67,7 +55,7 @@ export function registerLinkRoutes(app: FastifyInstance, store: Store, access: A
   const grantError = (viewer: Viewer, scope: ShareLink["scope"], scopeId: string, projectId: string, level: AccessLevel): string | undefined => {
     if (store.getProject(projectId)?.visibility === "private" && !access.manages(viewer, projectId)) return "On a private project only its creator and the admins create links.";
     const own = access.levelOf(viewer, scope === "page" ? { pageId: scopeId } : { projectId });
-    if (own === undefined || LEVEL_RANK[level] > LEVEL_RANK[own]) return "A link cannot give more than your own level.";
+    if (own === undefined || levelRank(level) > levelRank(own)) return "A link cannot give more than your own level.";
     return undefined;
   };
 
@@ -157,7 +145,7 @@ export function registerLinkRoutes(app: FastifyInstance, store: Store, access: A
     const page = link.scope === "page" ? store.getPage(link.scopeId)! : undefined;
     const project = store.getProject(page ? page.projectId : link.scopeId)!;
     const memberLevel = viewer.member && access.levelOf(viewer.member, page ? { pageId: page.id } : { projectId: project.id });
-    const memberRedirect = memberLevel !== undefined && LEVEL_RANK[memberLevel] >= LEVEL_RANK[link.level];
+    const memberRedirect = memberLevel !== undefined && levelRank(memberLevel) >= levelRank(link.level);
     if (!memberRedirect) {
       const known = cookieOf(req, LINK_DEVICE_COOKIE);
       const device = known ?? randomUUID();

@@ -1,10 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { INSUFFICIENT_LEVEL_CODE, INVITATION_PATH, LINK_DEAD_CODE, type LinkDeadResponse, NO_ACCESS_CODE, PASSWORD_LINK_PATH, initialsOf, SESSION_PATH, SETUP_PATH, type AccessLevel, type AccountRole, type InsufficientLevelResponse, type NoAccessResponse, type Person } from "@redline/shared";
+import { INSUFFICIENT_LEVEL_CODE, levelRank, INVITATION_PATH, LINK_DEAD_CODE, type LinkDeadResponse, NO_ACCESS_CODE, PASSWORD_LINK_PATH, initialsOf, SESSION_PATH, SETUP_PATH, type AccessLevel, type AccountRole, type InsufficientLevelResponse, type NoAccessResponse, type Person } from "@redline/shared";
 import { HEALTH_PATH, hasHumanSecret, isMachinePath, type ProxySecrets } from "./proxy-secrets.js";
 import { isLocalHost } from "./public-deadline.js";
 import type { Store } from "./store.js";
 import type { StoredLink } from "./link-store.js";
 import { linkTokenOf } from "./link-url.js";
+import { personOf } from "./accounts.js";
 
 export type AuthMode = "local" | "proxy" | "none";
 
@@ -21,13 +22,12 @@ export type Viewer =
 /** What a request needs: a level of the project (`read` views, `comment` comments, `write` works on pages), or `manage` (creator and admins). */
 export type Action = AccessLevel | "manage";
 
-const LEVEL_RANK: Record<AccessLevel, number> = { read: 0, comment: 1, write: 2 };
 /** Writes a member at Commentaire may make: comment and reply. Resolving and reopening need Écriture. */
 const COMMENT_ROUTES = new Set(["POST /api/pages/:pageId/threads", "POST /api/threads/:threadId/messages"]);
 /** Writes that stay with the creator of the project and the admins. */
 const MANAGE_ROUTES = new Set(["POST /api/projects/:projectId/archive", "POST /api/projects/:projectId/unarchive", "DELETE /api/projects/:projectId", "PUT /api/projects/:projectId/members/:personId", "DELETE /api/projects/:projectId/members/:personId"]);
 
-/** The calls a link visitor may make, each with the lowest link level that allows it. Tickets for the higher levels add their routes here. */
+/** The calls a link visitor may make, each with the lowest link level that allows it. A link reaches only what names its own scope; a route absent here is closed to every link. */
 export const LINK_ROUTES: Record<string, AccessLevel> = {
   "GET /api/pages/:pageId": "read",
   "GET /api/pages/:pageId/files/*": "read",
@@ -148,13 +148,13 @@ export function createAccess({ mode, store, secrets, identity, firstAdminEmail }
         const email = headerText(req, identity.emailHeader);
         const account = store.accounts.signInThroughSso({ id, name, email }, firstAdminEmail);
         if (!account) return { kind: "nobody", ssoPerson: { id, name, email, initials: initialsOf(name, id) } };
-        return { kind: "account", person: { id: account.id, name: account.name, email: account.email, initials: account.initials }, role: account.role };
+        return { kind: "account", person: personOf(account), role: account.role };
       }
     }
     if (mode === "local" && req.url.startsWith("/api/")) {
       const session = cookieOf(req, SESSION_COOKIE);
       const account = session && store.accounts.accountOfSession(session);
-      if (account) return { kind: "account", person: { id: account.id, name: account.name, email: account.email, initials: account.initials }, role: account.role };
+      if (account) return { kind: "account", person: personOf(account), role: account.role };
     }
     return NOBODY;
   };
@@ -162,7 +162,7 @@ export function createAccess({ mode, store, secrets, identity, firstAdminEmail }
     if (isMachinePath(req.url)) {
       const given = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice("Bearer ".length) : undefined;
       const account = store.accounts.agentActorOf(given)?.account;
-      return account ? { kind: "agent", person: { id: account.id, name: account.name, email: account.email, initials: account.initials }, role: account.role } : { kind: "agent" };
+      return account ? { kind: "agent", person: personOf(account), role: account.role } : { kind: "agent" };
     }
     const token = linkTokenOf(req);
     if (token === undefined) return signedInOf(req);
@@ -171,9 +171,12 @@ export function createAccess({ mode, store, secrets, identity, firstAdminEmail }
     const signedIn = signedInOf(req);
     return { kind: "link", token, link, ...(signedIn.kind === "account" ? { member: signedIn } : {}) };
   };
+  /** The page of the thread or conversation a resource names. */
+  const pageOfSubject = (resource: Resource): string | undefined =>
+    (resource.threadId ? store.getThread(resource.threadId)?.pageId : undefined) ?? (resource.conversationId ? store.getConversation(resource.conversationId)?.pageId : undefined);
   const projectIdOf = (resource: Resource): string | undefined => {
     const link = resource.linkId ? store.links.get(resource.linkId) : undefined;
-    const pageId = resource.pageId ?? (link?.scope === "page" ? link.scopeId : undefined) ?? (resource.threadId ? store.getThread(resource.threadId)?.pageId : undefined) ?? (resource.conversationId ? store.getConversation(resource.conversationId)?.pageId : undefined);
+    const pageId = resource.pageId ?? (link?.scope === "page" ? link.scopeId : undefined) ?? pageOfSubject(resource);
     return resource.projectId ?? (link?.scope === "project" ? link.scopeId : undefined) ?? (pageId ? store.getPage(pageId)?.projectId : undefined);
   };
   const levelIn = (viewer: Viewer, projectId: string): AccessLevel | undefined => {
@@ -189,13 +192,12 @@ export function createAccess({ mode, store, secrets, identity, firstAdminEmail }
   /** A link opens its page (and, for the capability and the trimmed project, that page's project): nothing else, whatever its level. */
   const inLinkScope = (link: StoredLink, resource: Resource): boolean => {
     const projectId = projectIdOf(resource);
+    const pageId = resource.pageId ?? pageOfSubject(resource);
     if (link.scope === "project") {
-      const pageId = resource.pageId ?? (resource.threadId ? store.getThread(resource.threadId)?.pageId : undefined) ?? (resource.conversationId ? store.getConversation(resource.conversationId)?.pageId : undefined);
       // A project link covers its present and future pages, not the archived ones.
       if (pageId !== undefined && store.getPage(pageId)?.archivedAt) return false;
       return projectId === link.scopeId;
     }
-    const pageId = resource.pageId ?? (resource.threadId ? store.getThread(resource.threadId)?.pageId : undefined) ?? (resource.conversationId ? store.getConversation(resource.conversationId)?.pageId : undefined);
     if (pageId !== undefined) return pageId === link.scopeId;
     return projectId !== undefined && projectId === store.projectIdOfPage(link.scopeId);
   };
@@ -222,7 +224,7 @@ export function createAccess({ mode, store, secrets, identity, firstAdminEmail }
       const projectId = projectIdOf(resource);
       return projectId === undefined || manages(viewer, projectId);
     }
-    return LEVEL_RANK[level] >= LEVEL_RANK[action];
+    return levelRank(level) >= levelRank(action);
   };
   const creatorOf = (resource: Resource): Person | undefined => {
     const projectId = projectIdOf(resource);
@@ -258,8 +260,22 @@ function resourceOf(req: FastifyRequest): Resource {
   return { projectId: params.projectId, pageId: params.pageId, designSystemId: params.designSystemId, threadId: params.threadId, conversationId: params.conversationId, linkId: params.linkId };
 }
 
+/** The keys of the route tables that name no registered route: a renamed route would otherwise silently fall out of its rule. */
+export function unknownRouteKeys(registered: ReadonlySet<string>): string[] {
+  const keyed = [...Object.keys(LINK_ROUTES), ...LINK_OPEN_ROUTES, ...LINK_PROJECT_ONLY_ROUTES, ...READS_NEEDING_WRITE, ...COMMENT_ROUTES, ...MANAGE_ROUTES];
+  return keyed.filter((key) => !registered.has(key));
+}
+
 /** Resolves the viewer of every request, then refuses (403) what the viewer may not do, before any route runs. */
 export function registerAccess(app: FastifyInstance, access: Access): void {
+  const registered = new Set<string>();
+  app.addHook("onRoute", (route) => {
+    for (const method of [route.method].flat()) registered.add(`${method} ${route.url}`);
+  });
+  app.addHook("onReady", async () => {
+    const unknown = unknownRouteKeys(registered);
+    if (unknown.length > 0) throw new Error(`Route tables name routes that do not exist: ${unknown.join(", ")}`);
+  });
   app.decorateRequest("viewer", undefined as never);
   app.decorateRequest("person", undefined);
   app.addHook("onRequest", async (req, reply) => {

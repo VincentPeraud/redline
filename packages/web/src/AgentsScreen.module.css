@@ -411,7 +411,7 @@
 .by > span:first-child {
   width: 24px;
   height: 24px;
-  font-size: 10px;
+  font-size: var(--font-size-3xs);
 }
 
 .intro {
