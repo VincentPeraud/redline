@@ -14,9 +14,13 @@ import { claudeCodeEngine } from "./claude-code-engine.js";
 import { ensureHost, type HostClient } from "./host-client.js";
 import { chooseModelEffort } from "./launch-choice.js";
 import { linkFolder, linkFolderToServer, linkedServer, listProjects, type LinkChoice, type MoreChoice } from "./link.js";
-import { SetupRefusal, checkedAddress, installationLogins, listInstallations, resolveFolder, setupInstallation } from "./installations.js";
+import { SetupRefusal, checkedAddress, hasLegacyLayout, installationLogins, listInstallations, resolveFolder, setupInstallation } from "./installations.js";
 import { askInstallation, confirm, orphanLines, runLink } from "./link-command.js";
+import { ensureGlobalCommand, launchedThroughNpx, systemGlobalCommand } from "./global-command.js";
 import { importAndServe, launchMcp } from "./mcp-launcher.js";
+import { connectMigrateHost, legacyRefusal, migrateLegacy } from "./migrate.js";
+import { cliVersion } from "./build-hash.js";
+import { fileURLToPath } from "node:url";
 import { defaultConfigDir, pickServer, type Login } from "./login.js";
 import { sanitizeForTerminal } from "./sanitize.js";
 import { servingAgent } from "./serving-agent.js";
@@ -39,6 +43,7 @@ async function runSetup(args: string[], { askAddress }: { askAddress: boolean })
   try {
     checkedAddress(serverUrl);
     const token = flagValue(args, "--token") ?? (await askSecret("Agents' token (shown on the Agents screen): "));
+    if (launchedThroughNpx(process.env, fileURLToPath(new URL("..", import.meta.url)))) await prepareFromNpx(checkedAddress(serverUrl), color);
     const result = await setupInstallation({
       configDir,
       serverUrl,
@@ -54,6 +59,34 @@ async function runSetup(args: string[], { askAddress }: { askAddress: boolean })
     console.error(`${color ? "\u001b[38;2;217;45;32m✗ " : "✗ "}${(error as Error).message}${color ? "\u001b[0m" : ""}`);
     process.exitCode = 1;
   }
+}
+
+/** Run by the panel's npx command: the global `redline` command is installed when missing or older, and an old computer migrates first. */
+async function prepareFromNpx(serverUrl: string, color: boolean): Promise<void> {
+  try {
+    const done = await ensureGlobalCommand(serverUrl, cliVersion(), systemGlobalCommand);
+    if (done !== "current") console.log(`✓ redline command ${done} (v${cliVersion()}).`);
+  } catch (error) {
+    throw new SetupRefusal(`Could not install the redline command: ${(error as Error).message}\n  Nothing else was changed. Run npm i -g ${serverUrl}/cli/redline-cli.tgz yourself, then run the command again.`);
+  }
+  if (hasLegacyLayout(defaultConfigDir())) {
+    console.log("This computer has the old Redline installation: migrating it first.");
+    await runMigrate([], color);
+  }
+}
+
+/** `redline migrate [--now] [--name <address>=<name>]`. */
+async function runMigrate(args: string[], color: boolean): Promise<void> {
+  const configDir = defaultConfigDir();
+  const names: Record<string, string> = {};
+  args.forEach((arg, index) => {
+    if (arg !== "--name") return;
+    const [address, ...name] = (args[index + 1] ?? "").split("=");
+    if (!address || name.join("=").trim() === "") throw new Error("--name needs <address>=<name>.");
+    names[address] = name.join("=").trim();
+  });
+  const { left } = await migrateLegacy({ configDir, deps: systemDeps(configDir), host: await connectMigrateHost(configDir), now: args.includes("--now"), names, out: console.log, color });
+  if (left > 0) process.exitCode = 1;
 }
 
 async function ask(question: string): Promise<string> {
@@ -305,9 +338,16 @@ async function runLinkCommand(args: string[]): Promise<void> {
 }
 
 const [command, ...args] = process.argv.slice(2);
+/** What still works while the old single installation remains: migrate, doctor, help, and the processes the commands start. */
+const WORKS_BEFORE_MIGRATE = ["migrate", "doctor", "help", "mcp", "host", "worker", "build-hash"];
 try {
+  if (hasLegacyLayout(defaultConfigDir()) && !WORKS_BEFORE_MIGRATE.includes(command ?? "")) {
+    console.error(`✗ ${legacyRefusal(command === undefined)}`);
+    process.exit(1);
+  }
   if (command === "setup") await runSetup(args, { askAddress: false });
   else if (command === "login") await runSetup(args, { askAddress: true });
+  else if (command === "migrate") await runMigrate(args, Boolean(process.stdout.isTTY) && !process.env.NO_COLOR);
   else if (command === "link") await runLinkCommand(args);
   else if (command === "agent") await superviseOrRunAgent(args);
   else if (command === "agents") await runAgents();

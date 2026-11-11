@@ -207,6 +207,23 @@ function writeLogin(dir: string, stored: StoredLogin): void {
   chmodSync(file, 0o600);
 }
 
+/** Installs the build and writes the login in a folder of its own, then moves it into place: nothing is left behind when it fails. */
+export async function createInstallation({ configDir, id, serverUrl, token, name, nameChosen, deps }: { configDir: string; id: string; serverUrl: string; token: string; name: string; nameChosen: boolean; deps: Pick<InstallationsDeps, "install"> }): Promise<Installation> {
+  const root = installationsPath(configDir);
+  mkdirSync(root, { recursive: true });
+  const building = join(root, `.${id}-${process.pid}-${Date.now()}`);
+  try {
+    mkdirSync(building);
+    await deps.install(serverUrl, join(building, "npm"));
+    writeLogin(building, { serverUrl, token, name, nameChosen });
+    renameSync(building, join(root, id));
+  } catch (error) {
+    rmSync(building, { recursive: true, force: true });
+    throw error;
+  }
+  return readInstallation(configDir, id)!;
+}
+
 /** A refusal with a message meant to be printed as is (second lines indented by two spaces). */
 export class SetupRefusal extends Error {}
 
@@ -243,7 +260,7 @@ export interface SetupResult {
 
 const versionParts = (version: string) => version.split(".").map((part) => Number.parseInt(part, 10) || 0);
 
-function isOlder(version: string, than: string): boolean {
+export function isOlder(version: string, than: string): boolean {
   const [a, b] = [versionParts(version), versionParts(than)];
   for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
     if ((a[index] ?? 0) !== (b[index] ?? 0)) return (a[index] ?? 0) < (b[index] ?? 0);
@@ -298,16 +315,9 @@ export async function setupInstallation(options: SetupOptions): Promise<SetupRes
     throw new SetupRefusal(`The name "${name}" (${id}) is already used by ${clash.serverUrl}.\n  Pick another one: redline setup ${url} --name <name>`);
   }
 
-  const root = installationsPath(configDir);
-  mkdirSync(root, { recursive: true });
-  const building = join(root, `.${id}-${process.pid}-${Date.now()}`);
   try {
-    mkdirSync(building);
-    await deps.install(url, join(building, "npm"));
-    writeLogin(building, { serverUrl: url, token, name, nameChosen: chosen });
-    renameSync(building, join(root, id));
+    await createInstallation({ configDir, id, serverUrl: url, token, name, nameChosen: chosen, deps });
   } catch (error) {
-    rmSync(building, { recursive: true, force: true });
     throw new SetupRefusal(`Could not install ${name}'s build: ${(error as Error).message.replace(/\.$/, "")}.\n  Nothing was saved. Check that the server is up, then run the command again.`);
   }
   const installation = readInstallation(configDir, id)!;

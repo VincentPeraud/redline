@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -83,6 +83,17 @@ export function saveLogin({ configDir, serverUrl, token }: Login & { configDir: 
   const file = join(configDir, "login.json");
   writeFileSync(file, JSON.stringify([...others, entry], null, 2), { mode: 0o600 });
   // `mode` only applies when the file is created: tighten one that already existed.
+  chmodSync(file, 0o600);
+}
+
+/** Rewrites the legacy login file with these servers only; no server left removes the file. */
+export function replaceLogins(configDir: string, logins: Login[]): void {
+  const file = join(configDir, "login.json");
+  if (logins.length === 0) {
+    rmSync(file, { force: true });
+    return;
+  }
+  writeFileSync(file, JSON.stringify(logins, null, 2), { mode: 0o600 });
   chmodSync(file, 0o600);
 }
 

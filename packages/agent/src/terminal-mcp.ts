@@ -79,7 +79,7 @@ interface Checkout {
  * No thread or conversation is involved.
  */
 /** `runningBuild` is the build this process loaded; `installedBuild` reads the one installed now (an update replaces it on disk). */
-export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(), runningBuild = buildHash(), installedBuild = buildHash, instance }: { api: ServerApi; folder: string; sessionId?: string; runningBuild?: string; installedBuild?: () => string; instance?: InstanceLabel }): McpServer {
+export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(), runningBuild = buildHash(), installedBuild = buildHash, instance, refusal }: { api: ServerApi; folder: string; sessionId?: string; runningBuild?: string; installedBuild?: () => string; instance?: InstanceLabel; refusal?: string }): McpServer {
   let current: Checkout | undefined;
   let removalsConfirmed = false;
   let changes: ChangeRecordInput[] = [];
@@ -111,6 +111,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     // The CLI was reinstalled under this running MCP (the Agents screen's update, or npm by hand): its code is the previous one
     // until Claude Code reconnects it, so no tool runs. "dev" (sources, or a file being replaced) never pauses.
     refuseCall: () => {
+      if (refusal) return { isError: true, content: [{ type: "text", text: refusal }] };
       const installed = installedBuild();
       if (runningBuild === "dev" || installed === "dev" || installed === runningBuild) return undefined;
       return {

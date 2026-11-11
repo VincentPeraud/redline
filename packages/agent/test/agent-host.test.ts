@@ -276,6 +276,23 @@ describe("the agent host's control API", { timeout: 20_000 }, () => {
     expect((await onServer())[0].status).toBe("offline");
   });
 
+  it("keeps the reason of an agent stopped with one (redline migrate) across a host restart", async () => {
+    const { launchSettings, startHost, client } = await setup();
+    const host = await startHost();
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+    await api.stop(agent.id, "Stopped by redline migrate.");
+    expect((await api.list())[0]).toMatchObject({ state: "stopped", reason: "Stopped by redline migrate." });
+
+    await host.stop();
+    hosts = [];
+    api.close();
+    clients = [];
+    await startHost();
+
+    expect((await (await client()).list())[0]).toMatchObject({ id: agent.id, state: "stopped", reason: "Stopped by redline migrate." });
+  });
+
   it("launches a stopped agent again instead of adding a second one", async () => {
     const { onServer, launchSettings, startHost, client } = await setup();
     await startHost();

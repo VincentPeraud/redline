@@ -257,6 +257,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       case "stop": {
         const entry = entryOf(request.agentId);
         await stopWorker(entry);
+        if (request.reason && entry.agent.state === "stopped") setAgent(entry, { reason: request.reason });
         return { id: request.id, ok: true, agent: entry.agent };
       }
       case "remove": {
