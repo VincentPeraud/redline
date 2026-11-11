@@ -1,5 +1,5 @@
 import { liveSessions } from "./mcp-sessions.js";
-import { diagnoseInstallation, probe, type DoctorDeps, type InstallationDiagnosis } from "./doctor.js";
+import { diagnoseInstallation, probe, type DoctorDeps, type ProbeDeps, type InstallationDiagnosis } from "./doctor.js";
 import type { Installation, InstallationsDeps } from "./installations.js";
 
 /** What the Instances tab's left pane shows about one installation: doctor's diagnosis plus what uses it. */
@@ -17,7 +17,7 @@ export interface InstanceDetails {
   sessions: number;
 }
 
-export type InstanceDetailsDeps = Pick<DoctorDeps, "fetchInstance" | "commandVersion" | "hostProtocol" | "timeoutMs"> & Pick<InstallationsDeps, "agentsOf">;
+export type InstanceDetailsDeps = ProbeDeps & Pick<DoctorDeps, "commandVersion" | "hostProtocol"> & Pick<InstallationsDeps, "agentsOf">;
 
 /** Asks the installation's server and gathers what uses it; never rejects because of the server (a refusal or a timeout is part of the diagnosis). */
 export async function inspectInstallation(installation: Installation, deps: InstanceDetailsDeps): Promise<InstanceDetails> {
