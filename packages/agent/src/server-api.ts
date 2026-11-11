@@ -30,6 +30,7 @@ import {
   type SendRequestRequest,
   type SendRequestResponse,
   cliUpdateCommand,
+  type InstanceResponse,
 } from "@redline/shared";
 import { buildHash as ownBuildHash } from "./build-hash.js";
 
@@ -38,7 +39,7 @@ export class ServerApi {
   private serverSaidOutdated = false;
 
   constructor(
-    private readonly serverUrl: string,
+    readonly serverUrl: string,
     private readonly token: string,
     private readonly buildHash: string = ownBuildHash(),
   ) {}
@@ -50,6 +51,11 @@ export class ServerApi {
 
   updateCommand(): string {
     return cliUpdateCommand(this.serverUrl);
+  }
+
+  /** What the server tells about itself: its Redline version, instance name and host protocol. */
+  instance(): Promise<InstanceResponse> {
+    return this.request("GET", "/instance");
   }
 
   checkout(pageId: string): Promise<AgentCheckout> {

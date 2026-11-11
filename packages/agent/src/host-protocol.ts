@@ -72,6 +72,11 @@ export type HostRequest =
   /** Restarts every stopped agent, and returns those. */
   | ({ type: "restart-all" } & ClientEnvironment)
   /**
+   * The installation was updated on disk: each of its agents with a worker restarts with the new files, at once when it runs no work,
+   * else when its run ends (never cancelled). Returns those agents; stopped ones start with the new files when started.
+   */
+  | { type: "installation-updated"; installation: string }
+  /**
    * Sets the model and effort (absent = Claude's default) of the agent's next runs: the registry and the folder's last launch choice
    * are updated, and a running worker is told without restarting. A run in progress keeps its own. Returns the agent.
    */
@@ -100,6 +105,7 @@ export interface HostReplies {
   remove: Record<never, never>;
   restart: { agent: HostAgent; started: boolean };
   "restart-all": { agents: HostAgent[] };
+  "installation-updated": { agents: HostAgent[] };
   "set-model-effort": { agent: HostAgent };
   log: { entries: HostLogEntry[] };
   subscribe: Record<never, never>;

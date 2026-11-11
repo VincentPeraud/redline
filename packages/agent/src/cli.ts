@@ -15,6 +15,7 @@ import { ensureHost, type HostClient } from "./host-client.js";
 import { chooseModelEffort } from "./launch-choice.js";
 import { linkFolder, linkFolderToServer, linkedServer, listProjects, type LinkChoice, type MoreChoice } from "./link.js";
 import { SetupRefusal, type Installation, addressOf, checkedAddress, currentInstallation, hasLegacyLayout, installationLogins, listInstallations, pickInstallation, resolveFolder, setupInstallation } from "./installations.js";
+import { removeInstallation, removeReport, updateInstallation, updateReport } from "./installation-update.js";
 import { askInstallation, confirm, orphanLines, runLink } from "./link-command.js";
 import { ensureGlobalCommand, launchedThroughNpx, systemGlobalCommand } from "./global-command.js";
 import { importAndServe, launchMcp } from "./mcp-launcher.js";
@@ -26,7 +27,8 @@ import { sanitizeForTerminal } from "./sanitize.js";
 import { servingAgent } from "./serving-agent.js";
 import { askSecret } from "./secret-prompt.js";
 import { serveAgent } from "./serve-agent.js";
-import { setupReport, systemDeps } from "./setup.js";
+import { doctorReport, gatherDoctor } from "./doctor.js";
+import { setupReport, systemDeps, systemDoctorDeps } from "./setup.js";
 import { createNewAgentFlow } from "./new-agent.js";
 import { helpLines } from "./commands-help.js";
 import { folderLineOf, instanceEntries } from "./instance-list.js";
@@ -358,6 +360,48 @@ async function runMcp(): Promise<void> {
   await new Promise<void>((resolve) => process.stdin.on("end", resolve));
 }
 
+/** `redline update <instance|address>`. */
+async function runUpdate(args: string[]): Promise<void> {
+  const [wanted] = args;
+  if (!wanted) throw new Error("Usage: redline update <instance|address>");
+  const configDir = defaultConfigDir();
+  const color = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
+  await reportRefusal(color, async () => {
+    for (const line of updateReport(await updateInstallation({ configDir, wanted, deps: systemDeps(configDir) }))) console.log(line);
+  });
+}
+
+/** `redline remove <instance>`. */
+async function runRemove(args: string[]): Promise<void> {
+  const [wanted] = args;
+  if (!wanted) throw new Error("Usage: redline remove <instance>");
+  const configDir = defaultConfigDir();
+  const color = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
+  await reportRefusal(color, async () => {
+    for (const line of removeReport(await removeInstallation({ configDir, wanted, deps: systemDeps(configDir), home: homedir() }), { home: homedir() })) console.log(line);
+  });
+}
+
+/** A refusal is printed after a red "✗ " and sets the exit code; any other error is a bug and goes on. */
+async function reportRefusal(color: boolean, run: () => Promise<void>): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    if (!(error instanceof SetupRefusal)) throw error;
+    console.error(`${color ? "\u001b[38;2;217;45;32m✗ " : "✗ "}${error.message}${color ? "\u001b[0m" : ""}`);
+    process.exitCode = 1;
+  }
+}
+
+/** `redline doctor`: works before the migration too; exits 1 when something is wrong. */
+async function runDoctor(): Promise<void> {
+  const configDir = defaultConfigDir();
+  const state = await gatherDoctor({ configDir, folder: process.cwd(), deps: systemDoctorDeps(configDir) });
+  const { lines, problems } = doctorReport(state, { color: Boolean(process.stdout.isTTY) && !process.env.NO_COLOR, home: homedir() });
+  for (const line of lines) console.log(line);
+  if (problems > 0) process.exitCode = 1;
+}
+
 /** `redline link [<instance>]`. */
 async function runLinkCommand(args: string[]): Promise<void> {
   const configDir = defaultConfigDir();
@@ -387,6 +431,9 @@ try {
   else if (command === "login") await runSetup(args, { askAddress: true });
   else if (command === "migrate") await runMigrate(args, Boolean(process.stdout.isTTY) && !process.env.NO_COLOR);
   else if (command === "link") await runLinkCommand(args);
+  else if (command === "update") await runUpdate(args);
+  else if (command === "remove") await runRemove(args);
+  else if (command === "doctor") await runDoctor();
   else if (command === "agent") await superviseOrRunAgent(args);
   else if (command === "agents") await runAgents();
   else if (command === undefined) await (runsInBackground() && process.stdout.isTTY ? runAgents() : printHelp());

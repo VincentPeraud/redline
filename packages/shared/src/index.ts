@@ -1302,6 +1302,42 @@ export function cliUpdateCommand(origin: string): string {
   return `npm i -g ${origin}${CLI_TARBALL_PATH}`;
 }
 
+/** The command that sets up this server's instance on a computer: installs the global command when needed, then the instance. */
+export function cliSetupCommand(origin: string, token: string): string {
+  return `npx -y ${origin}${CLI_TARBALL_PATH} setup ${origin} --token ${token}`;
+}
+
+/** The command that moves a computer installed before instances to them. */
+export function cliMigrateCommand(origin: string): string {
+  return `npx -y ${origin}${CLI_TARBALL_PATH} migrate`;
+}
+
+/** The command that brings an instance's installation up to this server's version. */
+export function redlineUpdateCommand(origin: string): string {
+  return `redline update ${origin}`;
+}
+
+/** The name a computer gives this server's instance when the administrator set none: the first label of its address, skipping a leading `redline`. */
+export function instanceFallbackName(origin: string): string {
+  const labels = new URL(origin).hostname.split(".");
+  return (labels[0] === "redline" && labels.length > 1 ? labels[1] : labels[0]) ?? "";
+}
+
+/** The word `redline link` and `--instance` take for an instance: its name, lowercased, without accents or punctuation. */
+export function instanceHandle(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** What a refused agent runs: `migrate` when it was installed before instances (its hello has no host protocol), else `redline update`. */
+export function refusedAgentCommand(origin: string, beforeInstances: boolean): string {
+  return beforeInstances ? cliMigrateCommand(origin) : redlineUpdateCommand(origin);
+}
+
 /** WebSocket close codes sent by the server on the agent endpoint. */
 export const AgentCloseCode = {
   /** Wrong token, or token regenerated while connected. */
@@ -1332,6 +1368,8 @@ export interface AgentHello extends ModelChoice {
   projectId?: string;
   /** Hash of the CLI build the agent runs ("dev" from sources). */
   buildHash?: string;
+  /** Host protocol of the build the agent runs; absent from a build installed before instances. */
+  hostProtocol?: number;
 }
 
 /** The agent could not install the update; it keeps running its previous build. */
@@ -1363,6 +1401,8 @@ export interface AgentInfo extends ModelChoice {
   /** Present when this connected agent runs another CLI build than the server's. */
   outdated?: true;
   /** The agent was asked to update and has not come back (or failed) yet: the server sends it no new work. */
+  /** Host protocol of the build the agent runs; absent from a build installed before instances. */
+  hostProtocol?: number;
   updating?: true;
   /** Why the last update failed; the agent kept running its previous build. */
   updateError?: string;
@@ -1379,6 +1419,8 @@ export interface RefusedAgent {
   project?: string;
   /** ISO time of the refusal. */
   refusedAt: string;
+  /** Installed before instances (its hello has no host protocol): it needs `migrate`, not `redline update`. */
+  beforeInstances?: true;
 }
 
 export interface AgentTokenResponse {

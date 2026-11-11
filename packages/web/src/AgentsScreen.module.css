@@ -179,7 +179,7 @@
 
 .row {
   display: grid;
-  grid-template-columns: 150px 170px minmax(0, 1.2fr) minmax(0, 1.2fr) 160px;
+  grid-template-columns: 150px 170px minmax(0, 1.2fr) minmax(0, 1.2fr) 280px;
   column-gap: 24px;
   align-items: start;
   padding: 16px 20px;
@@ -426,4 +426,20 @@
   align-items: center;
   height: 22px;
   padding: 0 var(--space-2);
+}
+
+.setupTitles {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.refusedCommand {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  padding: 2px 6px;
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-sm);
+  line-height: 1.6;
+  word-break: break-all;
 }

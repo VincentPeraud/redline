@@ -122,6 +122,8 @@ export async function startAgentHost({
   /** The agents this host stops for its own restart (the new command's version, once a change is seen), and those it will give back. */
   let restartingFor: string | undefined;
   const toResume = new Set<string>();
+  /** The agents of an updated installation whose worker restarts once its run ends. */
+  const restartAfterRun = new Set<string>();
   /** The agents the previous host died with, while they are still stopped: the fresh start lasts as long as one is. */
   const lost = loaded.interrupted;
   const clients = new Set<Socket>();
@@ -147,6 +149,7 @@ export async function startAgentHost({
     persist();
     publish({ event: "agent-changed", agent: entry.agent });
     if (restartingFor !== undefined) void settleRestart();
+    if (restartAfterRun.has(entry.agent.id)) void restartWhenIdle(entry);
   };
 
   const record = (entry: Entry, event: HostLogEvent) => {
@@ -208,6 +211,27 @@ export async function startAgentHost({
     }
   }
 
+  async function restartWhenIdle(entry: Entry): Promise<void> {
+    const { id } = entry.agent;
+    if (!entry.worker) restartAfterRun.delete(id);
+    if (!restartAfterRun.has(id) || entry.agent.state === "running") return;
+    restartAfterRun.delete(id);
+    await stopWorker(entry);
+    if (!shuttingDown && restartingFor === undefined) startWorker(entry);
+  }
+
+  /**
+   * An installation's files changed: its agents restart with them, each after its run (`except` already did, it is what exited to
+   * update). A host that is restarting anyway starts every agent from the new files already.
+   */
+  function restartInstallationAgents(installationId: string, except?: Entry): Entry[] {
+    const affected = [...entries.values()].filter((entry) => entry !== except && entry.worker && installationOf(entry.agent)?.id === installationId);
+    if (shuttingDown || restartingFor !== undefined) return affected;
+    for (const entry of affected) restartAfterRun.add(entry.agent.id);
+    for (const entry of affected) void restartWhenIdle(entry);
+    return affected;
+  }
+
   function checkCommand(): void {
     if (restartingFor !== undefined || shuttingDown) return;
     if (command.installedBuild() === command.build) return;
@@ -261,7 +285,12 @@ export async function startAgentHost({
       if (entry.stopRequested) {
         entry.stopRequested = false;
         stoppedAs(entry);
-      } else if (code === UPDATE_EXIT_CODE && !shuttingDown) startWorker(entry);
+      } else if (code === UPDATE_EXIT_CODE && !shuttingDown) {
+        startWorker(entry);
+        // The update replaced the installation's files: the other agents running them restart too.
+        const installation = installationOf(agent);
+        if (installation) restartInstallationAgents(installation.id, entry);
+      }
       else {
         const lastWords = stderrTail.trim().split("\n").at(-1)?.slice(0, 300);
         const how = signal ? `The agent process was killed (${signal})` : `The agent process exited (code ${code})`;
@@ -381,6 +410,8 @@ export async function startAgentHost({
         for (const entry of stopped) startWorker(entry, request.env);
         return { id: request.id, ok: true, agents: stopped.map((entry) => entry.agent) };
       }
+      case "installation-updated":
+        return { id: request.id, ok: true, agents: restartInstallationAgents(request.installation).map((entry) => entry.agent) };
       case "subscribe":
         attached.add(client);
         subscribers.add(client);

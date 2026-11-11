@@ -1,5 +1,6 @@
+import { defaultConfigDir } from "./login.js";
 import { ServerApi } from "./server-api.js";
-import type { InstanceLabel } from "./installations.js";
+import { listInstallations, type InstanceLabel } from "./installations.js";
 import { serveTerminalMcp } from "./terminal-mcp.js";
 
 /**
@@ -7,5 +8,6 @@ import { serveTerminalMcp } from "./terminal-mcp.js";
  * can run any installation's own MCP. A build without this file is too old for the launcher.
  */
 export async function serveInstallationMcp({ serverUrl, token, folder, instance }: { serverUrl: string; token: string; folder: string; instance: InstanceLabel }): Promise<void> {
-  await serveTerminalMcp({ api: new ServerApi(serverUrl, token), folder, instance });
+  const otherInstances = () => listInstallations(defaultConfigDir()).filter((installation) => installation.serverUrl !== serverUrl).map((installation) => installation.name);
+  await serveTerminalMcp({ api: new ServerApi(serverUrl, token), folder, instance, otherInstances });
 }

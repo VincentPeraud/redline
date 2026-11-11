@@ -97,11 +97,12 @@ describe("the agent's build hash", () => {
 });
 
 describe("the terminal MCP of an outdated CLI", () => {
-  async function connectTerminal(s: TestServer, buildHash: string, installedBuild: () => string = () => buildHash) {
+  const LUMORA = { name: "Lumora", address: "redline.lumora.com", version: "0.2.0" };
+  async function connectTerminal(s: TestServer, buildHash: string, installedBuild: () => string = () => buildHash, more: { installedVersion?: () => string; otherInstances?: () => string[] } = {}) {
     const folder = mkdtempSync(join(tmpdir(), "redline-mcp-folder-"));
     dirs.push(folder);
     mkdirSync(folder, { recursive: true });
-    const mcp = createTerminalMcpServer({ api: new ServerApi(s.url, await tokenOf(s), buildHash), folder, runningBuild: buildHash, installedBuild });
+    const mcp = createTerminalMcpServer({ api: new ServerApi(s.url, await tokenOf(s), buildHash), folder, runningBuild: buildHash, installedBuild, instance: LUMORA, ...more });
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
     await mcp.connect(serverSide);
     client = new Client({ name: "terminal-claude", version: "0.0.0" });
@@ -112,35 +113,36 @@ describe("the terminal MCP of an outdated CLI", () => {
     };
   }
 
-  it("prepends one update notice to its first answer only", async () => {
+  it("tells, once and after the answer, that the installation is behind its server and which command updates it", async () => {
     const s = await startServerWithCli();
     const call = await connectTerminal(s, "old-build");
     const first = await call("list_projects");
-    expect(first.split("\n")[0]).toBe(`Redline: this CLI is not up to date. Tell the user to update it with \`${cliUpdateCommand(s.url)}\`, then to type /mcp in Claude Code and reconnect redline.`);
-    expect(first).toContain("No project yet");
-    expect(await call("list_projects")).toBe("No project yet. Create one with create_project.");
+    expect(first.split("\n")[0]).toBe("Instance: Lumora (redline.lumora.com, v0.2.0)");
+    expect(first).toMatch(new RegExp(`No project yet\\. Create one with create_project\\.\\nRedline: Lumora's server runs v\\S+ and this installation v0\\.2\\.0\\.\\nTell the user to run redline update ${s.url}\\.$`));
+    expect(await call("list_projects")).not.toContain("redline update");
   });
 
-  it("pauses every tool once a newer CLI is installed under it, until Claude Code reconnects it", async () => {
+  it("pauses every tool once its installation was updated on this computer, naming the versions, and says other instances are fine", async () => {
     const s = await startServerWithCli();
     let installed = SERVER_BUILD;
-    const call = await connectTerminal(s, SERVER_BUILD, () => installed);
-    expect(await call("list_projects")).toBe("No project yet. Create one with create_project.");
+    const call = await connectTerminal(s, SERVER_BUILD, () => installed, { installedVersion: () => "0.2.1", otherInstances: () => ["Local", "Brightco"] });
+    expect(await call("list_projects")).toContain("No project yet");
 
     installed = "newer-build";
     const refused = await call("create_project", { title: "Never created" });
-    expect(refused).toContain("this MCP still runs the previous version");
-    expect(refused).toContain("type /mcp in Claude Code and reconnect redline");
+    expect(refused).toBe(
+      "Redline: the Lumora installation was updated to v0.2.1 on this computer, but this MCP still runs v0.2.0, so its tools are paused. Tell the user to type /mcp and reconnect redline, then call the tool again.\nSessions on other instances (Local, Brightco) are not affected.",
+    );
     expect(((await (await s.get("/api/projects")).json()) as Project[]).length).toBe(0);
 
     // a file being replaced reads as "dev": no pause
     installed = "dev";
-    expect(await call("list_projects")).toBe("No project yet. Create one with create_project.");
+    expect(await call("list_projects")).toContain("No project yet");
   });
 
   it("says nothing when the build matches", async () => {
     const s = await startServerWithCli();
     const call = await connectTerminal(s, SERVER_BUILD);
-    expect(await call("list_projects")).toBe("No project yet. Create one with create_project.");
+    expect(await call("list_projects")).toBe("Instance: Lumora (redline.lumora.com, v0.2.0)\nNo project yet. Create one with create_project.");
   });
 });
