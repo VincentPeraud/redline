@@ -19,7 +19,7 @@ const shown = (path: string, home: string) => (path === home || path.startsWith(
 const pad = (text: string, width: number) => text.padEnd(width);
 
 /** What `redline agent` says of a folder linked to an address with no installation here (agent.html). */
-export const orphanLines = (serverUrl: string): string[] => [`This folder is linked to ${addressOf(serverUrl)}, which is not installed on this computer.`, `  Install it: redline setup ${serverUrl}`];
+export const orphanLines = (serverUrl: string): string[] => [`This folder's link file names ${addressOf(serverUrl)}, which is not installed on this computer.`, `  Install it: redline setup ${serverUrl}`];
 
 /** Lists the instances (name, address, version) and asks which one; the number or the name works. */
 export async function askInstallation(installations: Installation[], { ask, out }: Pick<LinkCommand, "ask" | "out">): Promise<Installation> {
@@ -67,7 +67,7 @@ export async function runLink({ configDir, folder, wanted, home, fetchInstance, 
     out(`This folder is linked to ${ownLink.installation.name} and serves ${served} there. Link it to ${target.name} instead?`);
     if (!(await confirm(ask, `Its agent stops serving ${served} from this folder. (y/N): `))) return void out("Nothing changed.");
   } else if (ownLink?.kind === "orphan") {
-    out(`This folder is linked to ${addressOf(ownLink.serverUrl)}, which is not installed on this computer.`);
+    out(`This folder's link file names ${addressOf(ownLink.serverUrl)}, which is not installed on this computer.`);
     if (!(await confirm(ask, `Link it to ${target.name} instead? (y/N): `))) return void out("Nothing changed.");
   }
   linkFolderToServer(folder, target.serverUrl);

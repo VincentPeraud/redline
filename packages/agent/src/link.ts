@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { AGENT_API_PREFIX, type Project } from "@redline/shared";
-import { normalizeServerUrl, type Login } from "./login.js";
+import { normalizeServerUrl, validateServerUrl, type Login } from "./login.js";
 
 export type LinkChoice = { existing: string } | { create: string };
 /** What to do with a folder that is already linked: add a project, or stop serving one (never the last). */
@@ -39,8 +39,10 @@ export function readLink(folder: string): FolderLink | undefined {
     // `projectId`: a link made before a folder could serve several projects.
     const link = JSON.parse(readFileSync(join(folder, ".redline", LINK_FILE), "utf8")) as Partial<FolderLink> & { projectId?: string };
     const projectIds = Array.isArray(link.projectIds) ? link.projectIds.filter((id) => typeof id === "string") : link.projectId ? [link.projectId] : [];
+    // The file may come from a cloned repo: an address that is not a safe server address (it ends up in commands and on the terminal) makes the folder unlinked.
+    const serverUrl = typeof link.serverUrl === "string" ? validateServerUrl(link.serverUrl) : undefined;
     // An address with no project is a link too (`redline link`).
-    return projectIds.length > 0 || typeof link.serverUrl === "string" ? { projectIds, serverUrl: link.serverUrl } : undefined;
+    return projectIds.length > 0 || serverUrl !== undefined ? { projectIds, serverUrl } : undefined;
   } catch {
     return undefined;
   }

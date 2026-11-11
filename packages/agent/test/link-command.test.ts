@@ -106,7 +106,7 @@ describe("redline link", () => {
     const { run, out, questions } = terminal(["y"]);
     const folder = folderWithLink({ serverUrl: "https://redline.tda.fr", projectIds: ["p1"] });
     await run(folder, "local");
-    expect(out[0]).toBe("This folder is linked to redline.tda.fr, which is not installed on this computer.");
+    expect(out[0]).toBe("This folder's link file names redline.tda.fr, which is not installed on this computer.");
     expect(questions).toEqual(["Link it to Local instead? (y/N): "]);
     expect(linkOf(folder).serverUrl).toBe("https://redline.localhost");
   });
@@ -123,6 +123,6 @@ describe("redline link", () => {
 
 describe("the message of redline agent in a folder linked to an address not installed here", () => {
   it("names the address and the setup to run", () => {
-    expect(orphanLines("https://redline.tda.fr")).toEqual(["This folder is linked to redline.tda.fr, which is not installed on this computer.", "  Install it: redline setup https://redline.tda.fr"]);
+    expect(orphanLines("https://redline.tda.fr")).toEqual(["This folder's link file names redline.tda.fr, which is not installed on this computer.", "  Install it: redline setup https://redline.tda.fr"]);
   });
 });

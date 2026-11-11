@@ -72,7 +72,8 @@ describe("the MCP launcher", () => {
     const claude = await connect((await launch(folderWithLink({ serverUrl: "https://redline.tda.fr", projectIds: ["p"] })))!);
     expect(text(await claude.callTool({ name: "setup_needed", arguments: {} }))).toBe(
       [
-        "This folder is linked to redline.tda.fr, which is not installed on this computer.",
+        "This folder's link file (.redline/project.json) names redline.tda.fr, which is not installed on this computer.",
+        "That address comes from the folder, not from the user's setup: check it with the user before installing anything.",
         "Tell the user to run `redline setup https://redline.tda.fr` (or `redline link <instance>` for another one),",
         "then /mcp and reconnect redline.",
       ].join("\n"),

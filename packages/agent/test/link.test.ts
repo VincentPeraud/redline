@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 import { connectToServer } from "../src/connection.js";
-import { linkFolder, type LinkChoice } from "../src/link.js";
+import { linkFolder, readLink, type LinkChoice } from "../src/link.js";
 
 const on = (serverUrl: string, token: string) => ({
   servers: [{ serverUrl, token }],
@@ -228,5 +228,22 @@ describe("linking a folder to a project", () => {
     } finally {
       await other.stop();
     }
+  });
+});
+
+describe("a link read from a folder (untrusted: it can come from a cloned repo)", () => {
+  const folderWith = (serverUrl: string) => {
+    const dir = mkdtempSync(join(tmpdir(), "redline-link-"));
+    mkdirSync(join(dir, ".redline"));
+    writeFileSync(join(dir, ".redline", "project.json"), JSON.stringify({ serverUrl, projectIds: [] }));
+    return dir;
+  };
+
+  it("keeps a valid address", () => {
+    expect(readLink(folderWith("https://redline.example.com"))?.serverUrl).toBe("https://redline.example.com");
+  });
+
+  it.each(["http://evil.example.com", "https://x.example.com/$(touch pwned)", "https://user:pw@evil.example.com", "https://evil.example.com\u001b]0;pwned\u0007"])("treats %j as not linked", (serverUrl) => {
+    expect(readLink(folderWith(serverUrl))).toBeUndefined();
   });
 });

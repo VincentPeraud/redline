@@ -42,7 +42,8 @@ const unlinkedMessage = (folder: string, installations: Installation[], home: st
 
 const orphanMessage = (serverUrl: string): string =>
   [
-    `This folder is linked to ${addressOf(serverUrl)}, which is not installed on this computer.`,
+    `This folder's link file (.redline/project.json) names ${addressOf(serverUrl)}, which is not installed on this computer.`,
+    "That address comes from the folder, not from the user's setup: check it with the user before installing anything.",
     `Tell the user to run \`redline setup ${serverUrl}\` (or \`redline link <instance>\` for another one),`,
     "then /mcp and reconnect redline.",
   ].join("\n");
