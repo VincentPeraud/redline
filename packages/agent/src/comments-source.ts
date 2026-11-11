@@ -22,7 +22,7 @@ export async function loadComments(installations: Installation[], read: (install
   const failures: CommentsFailure[] = [];
   for (const answer of answers) {
     const { installation } = answer;
-    if ("error" in answer) failures.push({ instance: installation.name, message: /refused|401|403/i.test(answer.error.message) ? "token refused" : "unreachable" });
+    if ("error" in answer) failures.push({ instance: installation.name, message: /\b(401|403)\b|token|unauthori/i.test(answer.error.message) ? "token refused" : "unreachable" });
     else for (const page of answer.pages) entries.push({ instanceId: installation.id, instance: installation.name, serverUrl: installation.serverUrl, page });
   }
   return { entries, failures };

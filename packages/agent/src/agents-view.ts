@@ -659,7 +659,8 @@ const TABS: Record<TabId, TabDef> = {
     body: (state, { left, right, height }) => ({ left: leftColumn(state, left, height), right: rightColumn(state, right, height) }),
   },
   instances: placeholderTab("Instances", (state) => state.instances.length, (state) => state.instances.reduce((total, entry) => total + (entry.problems ?? 0), 0)),
-  comments: { label: "Comments", count: commentsCount, headerInstance: commentsHeaderInstance, onKey: commentsOnKey, bar: commentsBar, body: commentsBody },
+  // Wrapped: comments-tab.ts imports this module back, so its names may not be bound yet when TABS is built.
+  comments: { label: "Comments", count: (state) => commentsCount(state), headerInstance: (state) => commentsHeaderInstance(state), onKey: (state, key) => commentsOnKey(state, key), bar: (state) => commentsBar(state), body: (state, size) => commentsBody(state, size) },
 };
 
 /** A tab that exists for the bar and its counts, until its own ticket fills it. */

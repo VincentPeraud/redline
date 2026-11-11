@@ -35,7 +35,10 @@ export function commentsLoaded(state: ScreenState, { entries, failures }: { entr
 
 const selectedEntry = (comments: CommentsState): CommentsEntry | undefined => comments.entries[comments.selected];
 
-export const commentsCount = (state: ScreenState): number => state.comments.entries.reduce((total, entry) => total + entry.page.comments.length, 0);
+// Function declarations: agents-view imports this module and this one imports it back, so only hoisted names are safe at load time.
+export function commentsCount(state: ScreenState): number {
+  return state.comments.entries.reduce((total, entry) => total + entry.page.comments.length, 0);
+}
 
 export function commentsHeaderInstance(state: ScreenState): string | undefined {
   const entry = selectedEntry(state.comments);
