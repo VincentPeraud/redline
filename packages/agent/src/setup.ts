@@ -5,9 +5,13 @@ import { join } from "node:path";
 import { AGENT_API_PREFIX, CLI_TARBALL_PATH, HOST_PROTOCOL_VERSION, type InstanceResponse } from "@redline/shared";
 import { cliVersion } from "./build-hash.js";
 import { agentsOfInstallation, removeStoppedAgents, restartInstallationAgents, restartStoppedAgents } from "./installation-agents.js";
+import type { DoctorDeps, McpRegistration } from "./doctor.js";
+import { HostClient } from "./host-client.js";
 import { hostProtocol } from "./host-protocol.js";
+import { listProjects } from "./link.js";
 import { npmInstall } from "./install-cli.js";
 import type { InstallationsDeps, InstanceInfo, McpStatus, SetupResult } from "./installations.js";
+import { sanitizeForTerminal } from "./sanitize.js";
 import { ServerApi } from "./server-api.js";
 
 interface ClaudeResult {
@@ -38,6 +42,17 @@ export async function registerMcp(env: NodeJS.ProcessEnv): Promise<McpStatus> {
   const added = await claude(["mcp", "add", "--scope", "user", "redline", "--", "redline", "mcp"], env);
   if (!added.ok) throw new Error("`claude mcp add` failed. Run it yourself: claude mcp add --scope user redline -- redline mcp");
   return "registered";
+}
+
+/** What Claude Code has registered as `redline` (user scope), for doctor. */
+export async function mcpRegistration(env: NodeJS.ProcessEnv): Promise<McpRegistration> {
+  const existing = await claude(["mcp", "get", "redline"], env);
+  if (existing.missing) return { status: "claude-missing" };
+  if (!existing.ok) return { status: "absent" };
+  if (isRegistered(existing.stdout)) return { status: "registered" };
+  const command = /Command:\s*(.+)$/im.exec(existing.stdout)?.[1]?.trim() ?? "";
+  const args = /Args:\s*(.*)$/im.exec(existing.stdout)?.[1]?.trim() ?? "";
+  return { status: "other", command: `${command} ${args}`.trim() };
 }
 
 /** The server's own description of itself; an older server has no such route, and then only the token is checked. */
@@ -75,6 +90,33 @@ async function install(serverUrl: string, prefix: string): Promise<void> {
   }
 }
 
+/** The real servers, Claude Code and host, for `redline doctor`. */
+export function systemDoctorDeps(configDir: string, env: NodeJS.ProcessEnv = process.env): DoctorDeps {
+  const { fetchInstance: fetchOne, commandVersion, hostProtocol: protocol } = systemDeps(configDir, env);
+  return {
+    fetchInstance: fetchOne,
+    commandVersion,
+    hostProtocol: protocol,
+    mcp: () => mcpRegistration(env),
+    async host() {
+      let host: HostClient;
+      try {
+        host = await HostClient.connect(configDir, env);
+      } catch {
+        return { running: false };
+      }
+      try {
+        return { running: true, agents: (await host.list()).filter((agent) => agent.state !== "stopped").length };
+      } finally {
+        host.close();
+      }
+    },
+    async projectNames({ serverUrl, token }, ids) {
+      return (await listProjects({ serverUrl, token }, true)).filter((project) => ids.includes(project.id)).map((project) => sanitizeForTerminal(project.title));
+    },
+  };
+}
+
 /** The real npm, Claude Code, server and host. */
 export function systemDeps(configDir: string, env: NodeJS.ProcessEnv = process.env): InstallationsDeps {
   return {
@@ -92,7 +134,7 @@ export function systemDeps(configDir: string, env: NodeJS.ProcessEnv = process.e
   };
 }
 
-const STYLES = { bold: "1", muted: "38;2;161;161;170", green: "38;2;74;222;128", amber: "38;2;251;191;36", red: "38;2;217;45;32" } as const;
+export const STYLES = { bold: "1", muted: "38;2;161;161;170", green: "38;2;74;222;128", amber: "38;2;251;191;36", red: "38;2;217;45;32" } as const;
 
 /** The lines `redline setup` prints for a finished setup (texts of the setup.html mock-up); `color` paints them for a terminal. */
 export function setupReport(
