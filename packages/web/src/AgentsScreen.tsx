@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { CLI_TARBALL_PATH, cliSetupCommand, instanceFallbackName, instanceHandle, modelLabel, refusedAgentCommand, type AgentOverview, type AgentTokenResponse, type RefusedAgent, type ServerConfig, type Settings } from "@redline/shared";
 import { Avatar } from "./Avatar.js";
 import { agentName } from "./agentName.js";
@@ -202,7 +202,7 @@ function RefusedAgentRow({ agent }: { agent: RefusedAgent }) {
     <div role="row" className={cx(styles.row, styles.refused)} data-testid="refused-agent-card">
       <div role="cell" className={styles.cell}>
         <div className={styles.nameLine}>
-          <span aria-hidden="true" className={cx(styles.dot, styles.dotRefused)} />
+          <span aria-hidden="true" className={styles.dot} />
           <span className={styles.name}>{agentName(agent)}</span>
         </div>
         <span className={styles.secondary}>{agent.kind === "global" ? "Agent global" : "Agent de projet"}</span>
@@ -223,7 +223,14 @@ function RefusedAgentRow({ agent }: { agent: RefusedAgent }) {
           <StatusBadge tone="danger">Pas à jour · refusé</StatusBadge>
         </div>
         {agent.beforeInstances && <span className={styles.secondary}>Installé avant les instances : la commande met Redline à jour puis déplace son installation.</span>}
-        <code className={styles.refusedCommand}>{command}</code>
+        <code className={styles.refusedCommand}>
+          {command.split(/(?<=\/)/).map((part, index) => (
+            <Fragment key={index}>
+              {index > 0 && <wbr />}
+              {part}
+            </Fragment>
+          ))}
+        </code>
         <Button className={styles.rowAction} onClick={() => void copy(command)}>
           {copied ? "Copié" : "Copier la commande"}
         </Button>
