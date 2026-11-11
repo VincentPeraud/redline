@@ -56,7 +56,8 @@ export async function runLink({ configDir, folder, wanted, home, fetchInstance, 
   } else target = await askInstallation(all, { ask, out });
 
   const here = resolveFolder(configDir, folder);
-  const ownLink = "root" in here && here.root === folder ? here : undefined;
+  const found = "root" in here ? here : undefined;
+  const ownLink = found && found.root === folder ? found : undefined;
   if (ownLink?.kind === "linked" && ownLink.installation.id === target.id) {
     out(`✓ Already linked to ${target.name} (${addressOf(target.serverUrl)}). Nothing changed.`);
     return;
@@ -66,9 +67,18 @@ export async function runLink({ configDir, folder, wanted, home, fetchInstance, 
     const served = titles.length > 0 ? titles.join(", ") : `${ownLink.projectIds.length} project${ownLink.projectIds.length === 1 ? "" : "s"}`;
     out(`This folder is linked to ${ownLink.installation.name} and serves ${served} there. Link it to ${target.name} instead?`);
     if (!(await confirm(ask, `Its agent stops serving ${served} from this folder. (y/N): `))) return void out("Nothing changed.");
+  } else if (ownLink?.kind === "linked") {
+    out(`This folder is linked to ${ownLink.installation.name} (no project yet). Link it to ${target.name} instead?`);
+    if (!(await confirm(ask, `Link it to ${target.name} instead? (y/N): `))) return void out("Nothing changed.");
   } else if (ownLink?.kind === "orphan") {
     out(`This folder's link file names ${addressOf(ownLink.serverUrl)}, which is not installed on this computer.`);
     if (!(await confirm(ask, `Link it to ${target.name} instead? (y/N): `))) return void out("Nothing changed.");
+  } else if (found?.kind === "linked" && found.installation.id !== target.id) {
+    out(`The parent folder ${shown(found.root, home)} is linked to ${found.installation.name}. Link this folder to ${target.name} instead, below it?`);
+    if (!(await confirm(ask, `Link only this folder to ${target.name}? (y/N): `))) return void out("Nothing changed.");
+  } else if (found?.kind === "orphan") {
+    out(`The parent folder ${shown(found.root, home)} has a link file naming ${addressOf(found.serverUrl)}, which is not installed on this computer.`);
+    if (!(await confirm(ask, `Link only this folder to ${target.name}? (y/N): `))) return void out("Nothing changed.");
   }
   linkFolderToServer(folder, target.serverUrl);
   if (only) out(`✓ Linked to ${target.name}, the only instance on this computer. No agent started.`);

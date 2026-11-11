@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { orphanLines, runLink } from "../src/link-command.js";
@@ -111,13 +111,50 @@ describe("redline link", () => {
     expect(linkOf(folder).serverUrl).toBe("https://redline.localhost");
   });
 
-  it("links a subfolder of a linked folder on its own, without asking", async () => {
-    const { run } = terminal();
+  it("asks before switching a folder linked to another instance even when it serves no project", async () => {
+    const { run, out, questions } = terminal(["y"]);
+    const folder = folderWithLink({ serverUrl: "https://redline.lumora.com", projectIds: [] });
+    await run(folder, "local");
+    expect(out[0]).toBe("This folder is linked to Lumora (no project yet). Link it to Local instead?");
+    expect(questions).toEqual(["Link it to Local instead? (y/N): "]);
+    expect(linkOf(folder).serverUrl).toBe("https://redline.localhost");
+  });
+
+  it("changes nothing when the user refuses to switch a folder with no project", async () => {
+    const { run, out } = terminal(["n"]);
+    const folder = folderWithLink({ serverUrl: "https://redline.lumora.com", projectIds: [] });
+    await run(folder, "local");
+    expect(out.at(-1)).toBe("Nothing changed.");
+    expect(linkOf(folder).serverUrl).toBe("https://redline.lumora.com");
+  });
+
+  it("tells that the parent folder is linked and asks before linking a subfolder to another instance, and links on y", async () => {
+    const { run, out, questions } = terminal(["y"]);
     const root = folderWithLink({ serverUrl: "https://redline.lumora.com", projectIds: ["p1"] });
     const sub = join(root, "pkg");
     await run(sub, "local");
+    expect(out[0]).toBe(`The parent folder ${root} is linked to Lumora. Link this folder to Local instead, below it?`);
+    expect(questions).toEqual(["Link only this folder to Local? (y/N): "]);
     expect(linkOf(root).serverUrl).toBe("https://redline.lumora.com");
     expect(linkOf(sub).serverUrl).toBe("https://redline.localhost");
+  });
+
+  it("creates no link below a linked folder when the user refuses", async () => {
+    const { run, out } = terminal(["n"]);
+    const root = folderWithLink({ serverUrl: "https://redline.lumora.com", projectIds: ["p1"] });
+    const sub = join(root, "pkg");
+    await run(sub, "local");
+    expect(out.at(-1)).toBe("Nothing changed.");
+    expect(existsSync(join(sub, ".redline"))).toBe(false);
+  });
+
+  it("links a subfolder to the instance its parent already uses without asking", async () => {
+    const { run, questions } = terminal();
+    const root = folderWithLink({ serverUrl: "https://redline.lumora.com", projectIds: ["p1"] });
+    const sub = join(root, "pkg");
+    await run(sub, "lumora");
+    expect(questions).toEqual([]);
+    expect(linkOf(sub).serverUrl).toBe("https://redline.lumora.com");
   });
 });
 
