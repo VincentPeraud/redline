@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { findInstallation, listInstallations } from "../src/installations.js";
@@ -117,6 +117,15 @@ describe("redline remove", () => {
     done();
     await remove();
     expect(listInstallations(configDir)).toEqual([]);
+  });
+
+  it("records a session in a file only its owner can read", () => {
+    const { configDir } = lumora();
+    const installation = findInstallation(configDir, "lumora")!;
+    const done = recordSession(installation.dir, "/home/me/Sites/agora");
+    const sessions = join(installation.dir, "sessions");
+    expect(statSync(join(sessions, readdirSync(sessions)[0])).mode & 0o777).toBe(0o600);
+    done();
   });
 
   it("ignores a session whose process is gone", async () => {

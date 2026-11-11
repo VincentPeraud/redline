@@ -10,7 +10,7 @@ const sessionsDir = (installationDir: string) => join(installationDir, "sessions
 export function recordSession(installationDir: string, folder: string): () => void {
   const file = join(sessionsDir(installationDir), `${process.pid}.json`);
   mkdirSync(sessionsDir(installationDir), { recursive: true });
-  writeFileSync(file, JSON.stringify({ pid: process.pid, folder }));
+  writeFileSync(file, JSON.stringify({ pid: process.pid, folder }), { mode: 0o600 });
   const forget = () => rmSync(file, { force: true });
   process.once("exit", forget);
   return () => {

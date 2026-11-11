@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { fallbackName, findInstallation, hasLegacyLayout, installationId, listInstallations, pickInstallation, resolveFolder, setupInstallation, type SetupResult } from "../src/installations.js";
+import { currentInstallation, fallbackName, findInstallation, hasLegacyLayout, installationId, listInstallations, pickInstallation, resolveFolder, setupInstallation, type SetupResult } from "../src/installations.js";
 import { saveLogin } from "../src/login.js";
 import { addInstallation, fakeWorld, folderWithLink, readJson, tempDir } from "./support/installations.js";
 
@@ -40,6 +40,14 @@ describe("redline setup, a new instance", () => {
     expect(readJson(join(result.installation.dir, "login.json"))).toMatchObject({ serverUrl: LUMORA, token: "abt_one", name: "Lumora" });
     expect(listInstallations(configDir).map((installation) => installation.id)).toEqual(["lumora"]);
     expect(readdirSync(join(configDir, "instances"))).toEqual(["lumora"]);
+  });
+
+  it("cleans a server's name of control characters and cuts it short", async () => {
+    const { world, run } = setup();
+    world.servers.set(LUMORA, { instanceName: `Evil\u001b]0;pwned\u0007${"x".repeat(200)}`, version: "0.2.0" });
+    const { installation } = await run();
+    expect(installation.name).not.toMatch(/[\u0000-\u001f]/);
+    expect(installation.name.length).toBeLessThanOrEqual(60);
   });
 
   it("lets --name win over the server's name, and keeps it", async () => {
@@ -273,5 +281,15 @@ describe("choosing the instance of a global agent (--instance, alias --server)",
 
   it("says when the instance is not set up", () => {
     expect(() => pickInstallation(world(), "brightco")).toThrow("brightco is not set up. Run `redline setup brightco` first.");
+  });
+});
+
+describe("the name the server gives later", () => {
+  it("is cleaned of control characters before it is stored", async () => {
+    const { world, configDir, run } = setup();
+    world.servers.set(LUMORA, { instanceName: "Lumora", version: "0.2.0" });
+    const { installation } = await run();
+    const renamed = await currentInstallation(configDir, installation, async () => ({ instanceName: "New\u001b[2Jname" }));
+    expect(renamed.name).toBe("New[2Jname");
   });
 });

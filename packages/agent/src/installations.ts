@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync
 import { join } from "node:path";
 import { acceptsProtocol, hostProtocol } from "./host-protocol.js";
 import { findLink } from "./link.js";
+import { receivedInstanceName } from "./sanitize.js";
 import { normalizeServerUrl, readLogins, validateServerUrl, type Login } from "./login.js";
 
 /**
@@ -237,9 +238,10 @@ export async function currentInstallation(configDir: string, installation: Insta
   if (installation.nameChosen) return installation;
   const timeout = new Promise<InstanceInfo>((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs).unref());
   const info = await Promise.race([fetchInstance(installation.serverUrl, installation.token), timeout]).catch(() => undefined);
-  if (!info?.instanceName || info.instanceName === installation.name) return installation;
-  writeLogin(installation.dir, { serverUrl: installation.serverUrl, token: installation.token, name: info.instanceName, nameChosen: false });
-  return { ...installation, name: info.instanceName };
+  const name = info?.instanceName && receivedInstanceName(info.instanceName);
+  if (!name || name === installation.name) return installation;
+  writeLogin(installation.dir, { serverUrl: installation.serverUrl, token: installation.token, name, nameChosen: false });
+  return { ...installation, name };
 }
 
 function writeLogin(dir: string, stored: StoredLogin): void {
@@ -312,7 +314,8 @@ export function isOlder(version: string, than: string): boolean {
 
 async function chooseName(options: SetupOptions, info: InstanceInfo, url: string): Promise<{ name: string; chosen: boolean }> {
   if (options.name?.trim()) return { name: options.name.trim(), chosen: true };
-  if (info.instanceName) return { name: info.instanceName, chosen: false };
+  const received = info.instanceName && receivedInstanceName(info.instanceName);
+  if (received) return { name: received, chosen: false };
   const suggested = fallbackName(url);
   if (suggested !== "localhost" && suggested !== "") return { name: suggested, chosen: false };
   if (!options.askName) throw new SetupRefusal("The server has no instance name (REDLINE_INSTANCE_NAME).\n  Name this installation: redline setup " + url + " --name <name>");

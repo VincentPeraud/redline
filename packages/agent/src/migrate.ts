@@ -4,6 +4,7 @@ import { MIGRATE_STOP_REASON } from "./activity.js";
 import { HostClient } from "./host-client.js";
 import type { HostAgent } from "./host-protocol.js";
 import { createInstallation, fallbackName, installationId, listInstallations, type InstallationsDeps, type InstanceInfo } from "./installations.js";
+import { receivedInstanceName } from "./sanitize.js";
 import { normalizeServerUrl, readLogins, replaceLogins, type Login } from "./login.js";
 
 export { MIGRATE_STOP_REASON };
@@ -107,7 +108,7 @@ export async function migrateLegacy(options: MigrateOptions): Promise<{ migrated
       continue;
     }
     const chosen = names[serverUrl];
-    const name = chosen ?? info.instanceName ?? (label === "localhost" || label === "" ? "Local" : label);
+    const name = chosen ?? ((info.instanceName && receivedInstanceName(info.instanceName)) || undefined) ?? (label === "localhost" || label === "" ? "Local" : label);
     const id = installationId(name);
     const owner = taken.get(id);
     if (!id || owner) {
