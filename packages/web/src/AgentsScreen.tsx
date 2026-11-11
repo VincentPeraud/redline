@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { cliUpdateCommand, modelLabel, type AgentOverview, type AgentTokenResponse, type RefusedAgent, type Settings } from "@redline/shared";
+import { cliUpdateCommand, modelLabel, type AgentOverview, type AgentTokenResponse, type RefusedAgent, type ServerConfig, type Settings } from "@redline/shared";
 import { Avatar } from "./Avatar.js";
 import { agentName } from "./agentName.js";
 import { routeHref } from "./router.js";
@@ -7,6 +7,24 @@ import { relativeTime } from "./relativeTime.js";
 import { Button, Card, PageContent, PageHeader, StatusBadge, cx } from "./ui/index.js";
 import { useHome } from "./useHome.js";
 import styles from "./AgentsScreen.module.css";
+
+function InstanceBadge() {
+  const [config, setConfig] = useState<ServerConfig | null>(null);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((res) => res.json() as Promise<ServerConfig>)
+      .then(setConfig);
+  }, []);
+
+  if (!config) return null;
+  const text = config.instanceName ? `${config.instanceName} · v${config.version}` : `v${config.version}`;
+  return (
+    <StatusBadge tone="neutral" className={styles.instanceBadge} data-testid="instance-badge">
+      {text}
+    </StatusBadge>
+  );
+}
 
 function maskToken(token: string, dots: number): string {
   return token.length <= 8 ? "••••" : `${token.slice(0, 4)}${"•".repeat(dots)}${token.slice(-4)}`;
@@ -370,6 +388,7 @@ export function AgentsScreen() {
       <PageContent>
         <PageHeader
           title="Agents"
+          badge={<InstanceBadge />}
           subtitle="Chaque agent tourne avec le jeton de la personne qui l'a lancé, et n'a que ses droits."
           actions={
             <Button ref={launchButton} variant="accent" aria-expanded={launch === "open"} onClick={() => (launch === "open" ? closeLaunch() : setLaunch("open"))}>

@@ -8,6 +8,7 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ### Added
 
+- The server has an instance name (`REDLINE_INSTANCE_NAME`, for example "Lumora"): `/api/config` returns it with the version and the build hash, and the Agents page shows "<name> · v<version>" next to its title. The production compose project name is now a setting (`REDLINE_COMPOSE_PROJECT`, default `redline`) so a second copy can run on the same host.
 - A "Présenter" button in the page's top bar plays the page from its first artboard in reading order.
 
 ### Fixed

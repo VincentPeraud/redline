@@ -1,7 +1,11 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Page, Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
+const serverVersion = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
 const HOME_HTML = "<!doctype html><title>Home</title><script>window.x = 1</script>";
 
 describe("pages over the server HTTP API", () => {
@@ -76,6 +80,19 @@ describe("pages over the server HTTP API", () => {
 
   it("tells the web UI which origin serves artboards", async () => {
     const res = await server.get("/api/config");
-    expect(await res.json()).toEqual({ artboardOrigin: server.artboardOrigin });
+    expect(await res.json()).toEqual({ artboardOrigin: server.artboardOrigin, version: serverVersion });
+  });
+
+  it("tells the web UI the instance name and the build hash when the server has them", async () => {
+    const cliDir = mkdtempSync(join(tmpdir(), "redline-cli-"));
+    writeFileSync(join(cliDir, "redline-cli.tgz"), "tarball");
+    writeFileSync(join(cliDir, "build-hash.txt"), "abc123\n");
+    const named = await startTestServer({ instanceName: "Lumora", cliDir });
+    try {
+      expect(await (await named.get("/api/config")).json()).toEqual({ artboardOrigin: named.artboardOrigin, instanceName: "Lumora", version: serverVersion, buildHash: "abc123" });
+    } finally {
+      await named.stop();
+      rmSync(cliDir, { recursive: true, force: true });
+    }
   });
 });

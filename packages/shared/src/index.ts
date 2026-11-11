@@ -365,8 +365,15 @@ export interface CreatePageRequest {
   files: Record<string, string>;
 }
 
+/** `GET /api/config`. */
 export interface ServerConfig {
   artboardOrigin: string;
+  /** The Redline instance's name (for example "Lumora"); absent when the administrator set none. */
+  instanceName?: string;
+  /** The Redline version of the server. */
+  version: string;
+  /** Hash of the build the image carries; absent in development. */
+  buildHash?: string;
 }
 
 /** Path segment before a capability in an artboard url: `<origin>/c/<capability>/pages/...`. */
