@@ -18,6 +18,12 @@ The version lives in the root `package.json` and every `packages/*/package.json`
 
 `CHANGELOG.md`, [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Each merged lot or user-visible fix adds a line under `## [Unreleased]` (`Added`, `Changed`, `Fixed`, `Removed`), in the same commit or right after the merge.
 
+## Tests and pushes
+
+- `npm test`: the whole suite (~7 min on a quiet Mac). `npm run test:fast`: everything but the browser journeys. `npm run test:journeys`: the journeys only.
+- CI runs on every push to `develop`, and a new push cancels the run in progress. The repository is private, so each run is billed in Actions minutes: push a finished piece of work, not every commit.
+- Journeys are sensitive to a busy machine (random timeouts): when they go red, rerun on a quiet machine before suspecting a bug.
+
 ## Cutting a release
 
 From `develop`, clean and in sync with `origin`:
@@ -29,7 +35,7 @@ npm run release -- 0.2.0
 The script (`scripts/release.sh`):
 
 1. refuses unless it runs on `develop`, tracked files are clean, `develop` and `master` equal their `origin` copies, `master` is contained in `develop`, the version is above the last tag and `Unreleased` is not empty;
-2. runs `npm test` and `npm run build` (`--skip-tests` as second argument skips the tests, for an exception you can name);
+2. checks the tests, then runs `npm run build`. GitHub Actions (`.github/workflows/ci.yml`) runs the build and the fast tests (`npm run test:fast`: server, agent, shared logic) on every push to `develop`; the script reads that run for the released commit (waiting for it if it is still running, stopping if it failed) and then runs only the browser journeys here (`npm run test:journeys`, ~3/4 of the suite's time). Without a CI run for that commit (or without `gh`), it runs the whole suite (`npm test`). `--skip-tests` as second argument skips the tests, for an exception you can name;
 3. commits `Release v0.2.0` on `develop`: the `Unreleased` section becomes `## [0.2.0] - <date>` and every `package.json` gets the version;
 4. merges `develop` into `master` (`--no-ff`, in a temporary worktree, so the main checkout stays on `develop`) and tags `v0.2.0`, then fast-forwards `develop` to that merge, so both branches end on the same commit;
 5. prints the push and GitHub release commands, and how to undo. **It never pushes.**

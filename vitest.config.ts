@@ -12,6 +12,8 @@ export default defineConfig({
   test: {
     include: ["packages/*/test/**/*.test.ts"],
     hookTimeout: 30000,
+    // The web app the journeys serve, built once for the whole run
+    globalSetup: ["packages/web/test/support/build-web-once.ts"],
     // Journeys each run a Chromium and a server: one file per core saturates the machine and tests time out at random,
     // while half the cores finishes in the same time.
     maxWorkers: "50%",

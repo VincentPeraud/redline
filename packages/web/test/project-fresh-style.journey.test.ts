@@ -1,15 +1,13 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import { type Browser } from "playwright";
 import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import type { Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 const shots = "/private/tmp/claude-501/-Users-vincentperaud-claude-projects-redline/0f6c9635-9fe2-47bf-9743-78a0a485b075/scratchpad";
 
 let server: TestServer;
@@ -18,7 +16,7 @@ let webDir: string;
 
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   server = await startTestServer({ webDir });
   browser = await launchBrowser();
   mkdirSync(shots, { recursive: true });

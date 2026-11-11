@@ -1,0 +1,30 @@
+# Build and fast tests (server, agent, shared logic) on every push to develop.
+# The browser journeys (~3/4 of the suite's time) run at release time: scripts/release.sh
+# reads this workflow's result for the released commit, then runs only the journeys.
+name: CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast-tests:
+    name: Build and fast tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:fast

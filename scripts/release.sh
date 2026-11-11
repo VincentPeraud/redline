@@ -38,11 +38,30 @@ notes="$(awk '/^## \[Unreleased\]/{on=1; next} /^## \[/{on=0} on' CHANGELOG.md |
 [[ -n "$(printf '%s' "$notes" | tr -d '[:space:]')" ]] \
   || die "the Unreleased section of CHANGELOG.md is empty"
 
-# 2. Green build
+# 2. Green build: GitHub's CI covers the fast tests of this commit, the journeys run here
+ci_run() {
+  command -v gh >/dev/null || return 0
+  gh run list --workflow ci.yml --commit "$(git rev-parse HEAD)" --limit 1 \
+    --json databaseId,status,conclusion,url -q '.[0] | "\(.databaseId) \(.status) \(.conclusion) \(.url)"' 2>/dev/null || true
+}
+
 if [[ "$skip_tests" == "--skip-tests" ]]; then
   echo "release: tests skipped (--skip-tests)"
 else
-  npm test
+  read -r run_id run_status run_conclusion run_url <<<"$(ci_run)" || true
+  if [[ -z "${run_id:-}" ]]; then
+    echo "release: no CI run for this commit, running the whole suite here"
+    npm test
+  else
+    if [[ "$run_status" != "completed" ]]; then
+      echo "release: waiting for CI on this commit ($run_url)"
+      gh run watch "$run_id" --exit-status >/dev/null || die "CI failed on this commit: $run_url"
+    elif [[ "$run_conclusion" != "success" ]]; then
+      die "CI is $run_conclusion on this commit: $run_url"
+    fi
+    echo "release: fast tests green on CI ($run_url), running the browser journeys here"
+    npm run test:journeys
+  fi
 fi
 npm run build
 

@@ -1,14 +1,12 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { startServer, type RunningServer } from "../../server/src/start.js";
 import { launchBrowser } from "./journeyBrowser.js";
 
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 const PASSWORD = "correct horse";
 
 let webDir: string;
@@ -20,7 +18,7 @@ let setupLink: string;
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   dataDir = mkdtempSync(join(tmpdir(), "redline-signin-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   server = await startServer({
     dataDir,
     port: 0,

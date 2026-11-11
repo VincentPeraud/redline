@@ -1,8 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import { type Browser } from "playwright";
 import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -11,7 +10,6 @@ import { startServer, type RunningServer } from "../../server/src/start.js";
 import { admitSsoPeople } from "../../server/test/sso-people.js";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 const HUMAN = "h".repeat(32);
 const sso = (user: string, name: string) => ({ "x-redline-proxy-secret": HUMAN, "remote-user": user, "remote-name": name, "remote-email": `${user}@example.com` });
 const ariane = sso("amartin", "Ariane Martin");
@@ -40,7 +38,7 @@ async function seed(base: string, authors: Record<string, string>[], titles: str
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   dataDir = mkdtempSync(join(tmpdir(), "redline-sso-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   // Before the SSO the server had no accounts: the "Before SSO" session is started then, on the same data.
   const beforeSso = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1" });
   await seed(beforeSso.url, [anonymous], ["Before SSO"]);

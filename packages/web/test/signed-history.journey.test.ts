@@ -1,8 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import { type Browser, type Page } from "playwright";
 import { launchBrowser } from "./journeyBrowser.js";
 import WebSocket from "ws";
@@ -13,7 +12,6 @@ import { startServer, type RunningServer } from "../../server/src/start.js";
 import { admitSsoPeople } from "../../server/test/sso-people.js";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 const HUMAN = "h".repeat(32);
 const person = (user: string, name: string) => ({ "x-redline-proxy-secret": HUMAN, "remote-user": user, "remote-name": name, "remote-email": `${user}@example.com` });
 const ariane = person("amartin", "Ariane Martin");
@@ -70,7 +68,7 @@ async function claudeRun(pageId: string, who: Record<string, string>, comment: {
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   dataDir = mkdtempSync(join(tmpdir(), "redline-signed-history-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   // Before the SSO the server had no accounts: what nobody signed is written then, on the same data.
   const beforeSsoServer = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1" });
   const old = call(beforeSsoServer.url, beforeSso);

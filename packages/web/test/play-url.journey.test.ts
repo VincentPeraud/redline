@@ -1,14 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import { type Browser, type BrowserContext, type Page } from "playwright";
 import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
-
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 
 let server: TestServer;
 let browser: Browser;
@@ -17,7 +14,7 @@ let context: BrowserContext;
 
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   server = await startTestServer({ webDir });
   browser = await launchBrowser();
   context = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ["clipboard-read", "clipboard-write"] });
