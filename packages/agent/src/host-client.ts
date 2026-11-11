@@ -80,8 +80,8 @@ export class HostClient {
   }
 
   /** Resolves once the agent's worker has exited. */
-  async stop(agentId: string): Promise<HostAgent> {
-    return (await this.request({ type: "stop", agentId })).agent;
+  async stop(agentId: string, reason?: string): Promise<HostAgent> {
+    return (await this.request({ type: "stop", agentId, reason })).agent;
   }
 
   /** Removes the agent from the host's list and deletes its log. */

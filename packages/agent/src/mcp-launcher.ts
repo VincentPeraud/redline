@@ -1,7 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
-import { addressOf, currentInstallation, resolveFolder, type InstanceLabel, type Installation, type InstallationsDeps } from "./installations.js";
+import { ServerApi } from "./server-api.js";
+import { createTerminalMcpServer } from "./terminal-mcp.js";
+import { addressOf, hasLegacyLayout, currentInstallation, resolveFolder, type InstanceLabel, type Installation, type InstallationsDeps } from "./installations.js";
 
 /** What the launcher gives an installation's own MCP entry point. */
 export interface McpHandOver extends Pick<Installation, "serverUrl" | "token"> {
@@ -22,6 +24,11 @@ export function setupNeededServer(message: string): McpServer {
   server.registerTool("setup_needed", { description: "Redline cannot be used from this folder yet: tells what the user has to do." }, async () => ({ content: [{ type: "text" as const, text: message }] }));
   return server;
 }
+
+export const LEGACY_MCP_MESSAGE = "Redline changed: this computer still has the old single installation. Tell the user to run redline migrate in a terminal, then /mcp and reconnect redline.";
+
+/** The old single installation is still there: the usual tools exist, and each one answers the migrate message (no call reaches a server). */
+const legacyServer = (folder: string): McpServer => createTerminalMcpServer({ api: new ServerApi("http://127.0.0.1:0", ""), folder, refusal: LEGACY_MCP_MESSAGE });
 
 const unlinkedMessage = (folder: string, installations: Installation[], home: string): string =>
   installations.length === 0
@@ -47,6 +54,7 @@ const tooOldMessage = ({ name, serverUrl, version }: Installation): string =>
  * handed-over code serves stdio in this same process) or returns the minimal MCP the caller serves instead.
  */
 export async function launchMcp({ configDir, folder, home, fetchInstance, handOver }: { configDir: string; folder: string; home: string; fetchInstance: InstallationsDeps["fetchInstance"]; handOver(to: McpHandOver): Promise<unknown> }): Promise<McpServer | undefined> {
+  if (hasLegacyLayout(configDir)) return legacyServer(folder);
   const resolved = resolveFolder(configDir, folder);
   if (resolved.kind === "unlinked") return setupNeededServer(unlinkedMessage(folder, resolved.installations, home));
   if (resolved.kind === "orphan") return setupNeededServer(orphanMessage(resolved.serverUrl));

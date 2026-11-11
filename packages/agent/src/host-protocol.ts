@@ -63,7 +63,8 @@ export type HostRequest =
   | ({ type: "launch" } & LaunchSettings & ClientEnvironment)
   /** Keeps the host alive while the connection is open, and returns the agent. */
   | { type: "attach"; agentId: string }
-  | { type: "stop"; agentId: string }
+  /** `reason` is shown as the agent's stop reason (`redline migrate` gives its own). */
+  | { type: "stop"; agentId: string; reason?: string }
   /** Removes the agent from the registry and deletes its log, stopping its worker first if it runs. */
   | { type: "remove"; agentId: string }
   /** Starts a stopped agent with its stored settings; an agent that is not stopped is returned as it is (`started` false). */
