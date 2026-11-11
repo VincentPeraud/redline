@@ -1368,6 +1368,8 @@ export interface AgentHello extends ModelChoice {
   projectId?: string;
   /** Hash of the CLI build the agent runs ("dev" from sources). */
   buildHash?: string;
+  /** Host protocol of the build the agent runs; absent from a build installed before instances. */
+  hostProtocol?: number;
 }
 
 /** The agent could not install the update; it keeps running its previous build. */
@@ -1398,9 +1400,9 @@ export interface AgentInfo extends ModelChoice {
   lastSeenAt: string;
   /** Present when this connected agent runs another CLI build than the server's. */
   outdated?: true;
+  /** The agent was asked to update and has not come back (or failed) yet: the server sends it no new work. */
   /** Host protocol of the build the agent runs; absent from a build installed before instances. */
   hostProtocol?: number;
-  /** The agent was asked to update and has not come back (or failed) yet: the server sends it no new work. */
   updating?: true;
   /** Why the last update failed; the agent kept running its previous build. */
   updateError?: string;
