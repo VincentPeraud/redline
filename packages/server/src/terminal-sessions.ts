@@ -1,4 +1,4 @@
-import type { Person, TerminalHolder, TerminalPickedPage, WorkItem } from "@redline/shared";
+import { threadTargetLabel, type Person, type TerminalCommentsPage, type TerminalHolder, type TerminalPickedPage, type TerminalWaitingComment, type Thread, type WorkItem } from "@redline/shared";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 import { dispatchToAgent, type TerminalPresence } from "./work.js";
@@ -129,6 +129,27 @@ export class TerminalSessions implements TerminalPresence {
     return [...counts].map(([pageId, count]) => ({ pageId, title: this.titleOf(pageId), count }));
   }
 
+  /** Every page with comments waiting for a terminal session, with who holds it and the comments themselves. Takes nothing. */
+  waitingComments(): TerminalCommentsPage[] {
+    const pages = new Map<string, TerminalCommentsPage>();
+    for (const { pageId, threadIds } of this.lock.terminalWaiting()) {
+      const page = this.store.getPage(pageId);
+      if (!page) continue;
+      const entry = pages.get(pageId) ?? { pageId, title: page.title, projectTitle: this.store.getProject(page.projectId)?.title ?? "", holder: this.holderSummary(pageId), comments: [] };
+      for (const threadId of threadIds) {
+        const thread = this.store.getThread(threadId);
+        if (thread) entry.comments.push(...waitingCommentsOf(thread));
+      }
+      pages.set(pageId, entry);
+    }
+    return [...pages.values()].map(({ holder, ...rest }) => (holder ? { ...rest, holder } : rest));
+  }
+
+  private holderSummary(pageId: string): TerminalCommentsPage["holder"] {
+    const holder = this.holderOf(pageId);
+    return holder && { folder: holder.folder, machine: holder.machine, since: holder.since };
+  }
+
   /**
    * The hold on the page ends and what waited for its terminal session goes to the agents, until a terminal session publishes again.
    * A person releases the whole page (`handedOverBy`); a session (`onlySession`) releases its own work and threads only.
@@ -220,4 +241,15 @@ export class TerminalSessions implements TerminalPresence {
   private announceHolds(sessionId: string): void {
     for (const { pageId, sessionId: holder } of this.store.heldPages()) if (holder === sessionId) this.store.emit({ type: "terminal-hold-changed", pageId });
   }
+}
+
+const personLabel = (who: { person?: Person; linkAuthor?: { name: string }; automatic?: true }): string =>
+  who.automatic ? "Redline" : who.person ? who.person.name || who.person.email : (who.linkAuthor?.name ?? "Someone");
+
+/** What waits in a thread: its first comment, or the user's replies since Claude last answered. */
+function waitingCommentsOf(thread: Thread): TerminalWaitingComment[] {
+  const target = thread.target.kind === "element" ? `${thread.target.artboard}, ${thread.target.elementName ?? thread.target.selector}` : thread.target.kind === "artboard" ? `${thread.target.artboard}, whole artboard` : threadTargetLabel(thread.target);
+  const lastAnswer = thread.replies.map((r) => r.author).lastIndexOf("claude");
+  if (lastAnswer < 0) return [{ author: personLabel(thread), at: thread.createdAt, target, text: thread.body }];
+  return thread.replies.slice(lastAnswer + 1).filter((r) => r.author === "user").map((r) => ({ author: personLabel(r), at: r.createdAt, target, text: r.body }));
 }

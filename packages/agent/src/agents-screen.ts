@@ -1,3 +1,5 @@
+import { commentsLoaded } from "./comments-tab.js";
+import type { CommentsResult } from "./comments-source.js";
 import { agentStarted, applyEvent, folderLinked, initialState, logLoaded, newAgentFailed, newAgentQuestions, onKey, projectsLoaded, render, tick, type ScreenCommand, type ScreenState, type Size } from "./agents-view.js";
 import type { HostClient } from "./host-client.js";
 import type { FolderLine, InstanceEntry } from "./instance-list.js";
@@ -31,6 +33,9 @@ export interface AgentsScreenOptions {
   folderLine: FolderLine;
   /** Links the folder to the instance at that address (`l`, as `redline link`); resolves with the new "This folder" line. */
   linkFolder(serverUrl: string): Promise<FolderLine>;
+  /** Reads the comments waiting for terminal sessions (Comments tab); called at the start, then every `commentsRefreshMs`. Without it the tab stays empty. */
+  comments?: () => Promise<CommentsResult>;
+  commentsRefreshMs?: number;
   /** Starts an agent for the folder (`n`). */
   newAgent: NewAgentFlow;
   /** Opens an address in the user's browser (`o`). */
@@ -62,8 +67,9 @@ function execute(host: ScreenHost, command: ScreenCommand): Promise<unknown> {
 }
 
 /** Runs the agents screen until the user closes it; resolves with the final state (for `closeSummary`). The terminal is restored on any outcome. */
-export async function runAgentsScreen({ host, terminal, selectedId, now = Date.now, home, folder, instances, folderLine, linkFolder, newAgent, openUrl, tickMs = 1000 }: AgentsScreenOptions): Promise<ScreenState> {
+export async function runAgentsScreen({ host, terminal, selectedId, now = Date.now, home, folder, instances, folderLine, linkFolder, newAgent, openUrl, tickMs = 1000, comments, commentsRefreshMs = 20_000 }: AgentsScreenOptions): Promise<ScreenState> {
   let timer: NodeJS.Timeout | undefined;
+  let commentsTimer: NodeJS.Timeout | undefined;
   try {
     let state = initialState({ agents: [], now: now(), home, folder, instances, folderLine });
     let drawn: string[] = [];
@@ -119,6 +125,22 @@ export async function runAgentsScreen({ host, terminal, selectedId, now = Date.n
         }
       });
       terminal.onResize(() => draw());
+      if (comments) {
+        // A failed read shows as a failure of the tab, never as the end of the screen; reads do not overlap.
+        let reading = false;
+        const refresh = () => {
+          if (reading) return;
+          reading = true;
+          comments()
+            .then((result) => (state = commentsLoaded(state, result)), (error: Error) => (state = commentsLoaded(state, { entries: [], failures: [{ instance: "Redline", message: error.message }] })))
+            .finally(() => {
+              reading = false;
+              draw();
+            });
+        };
+        refresh();
+        commentsTimer = setInterval(refresh, commentsRefreshMs);
+      }
       timer = setInterval(() => {
         state = tick(state, now());
         draw(true);
@@ -127,6 +149,7 @@ export async function runAgentsScreen({ host, terminal, selectedId, now = Date.n
     });
   } finally {
     clearInterval(timer);
+    clearInterval(commentsTimer);
     terminal.close();
   }
 }

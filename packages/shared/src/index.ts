@@ -340,6 +340,26 @@ export interface TerminalWaitingPage {
   count: number;
 }
 
+/** One comment waiting for a terminal session, as the agents screen shows it. */
+export interface TerminalWaitingComment {
+  author: string;
+  /** When it was written (ISO time). */
+  at: string;
+  /** "accueil.html, the hero title" style label of what it is about. */
+  target: string;
+  text: string;
+}
+
+/** `GET /agent-api/terminal-comments`: the pages with comments waiting for a terminal session, read-only (nothing is taken). */
+export interface TerminalCommentsPage {
+  pageId: string;
+  title: string;
+  projectTitle: string;
+  /** The present session holding the page; absent when none is present. */
+  holder?: { folder: string; machine: string; since: string };
+  comments: TerminalWaitingComment[];
+}
+
 /** `POST /agent-api/terminal-sessions/:id/release`: one page of the session, or all of them without `pageId`. Answers with what was handed over. */
 export interface TerminalReleaseRequest {
   pageId?: string;

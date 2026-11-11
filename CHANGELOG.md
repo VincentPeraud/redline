@@ -8,6 +8,7 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ### Added
 
+- The agents screen's Comments tab lists, for every installation, the pages whose threads wait for a terminal session (who holds the page, each comment with author, time and target, `o` opens the page in Redline). It reads them through the new read-only `GET /agent-api/terminal-comments`, which never takes a thread.
 - `redline doctor` prints the command and agent host versions, the MCP registration, each installation (SemVer, plus a short build hash when two builds share a version, token, reachability) with the command that fixes each problem, skipped folders under `instances/`, and the current folder's link. It also works before `redline migrate`.
 - The server has an instance name (`REDLINE_INSTANCE_NAME`, for example "Lumora"): `/api/config` returns it with the version and the build hash, and the Agents page shows "<name> · v<version>" next to its title. The production compose project name is now a setting (`REDLINE_COMPOSE_PROJECT`, default `redline`) so a second copy can run on the same host.
 - `redline setup <address> [--name <name>]` creates one installation per Redline instance under the CLI config dir (`instances/<id>/`: its own login and the build its server serves), named after the server, registers the `redline` MCP once, and refuses while the old single login exists. The same address again replaces the token and restarts the agents the old token had stopped. The server answers `GET /agent-api/instance` (name, version, build hash) for the CLI.

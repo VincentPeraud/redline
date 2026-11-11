@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createInterface, type Interface } from "node:readline/promises";
 import { HostAlreadyRunningError, startAgentHost } from "./agent-host.js";
 import { runAgentsScreen } from "./agents-screen.js";
+import { loadComments } from "./comments-source.js";
 import { closeSummary } from "./agents-view.js";
 import { runAgentWorker } from "./agent-worker.js";
 import { buildHash } from "./build-hash.js";
@@ -296,6 +297,7 @@ async function showAgentsScreen(host: HostClient, selectedId?: string): Promise<
     home: homedir(),
     folder,
     instances: instanceEntries(installations),
+    comments: () => loadComments(installations),
     folderLine: folderLineOf(resolution, titles),
     linkFolder: async (serverUrl) => {
       linkFolderToServer(folder, serverUrl);

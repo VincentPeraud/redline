@@ -2,6 +2,7 @@ import { EFFORTS, MODEL_CHOICES, agentsHash, modelLabel, pageHash, type Effort }
 import { MIGRATE_STOP_REASON, publishedOutcome, wording } from "./activity.js";
 import { sanitizeForTerminal } from "./sanitize.js";
 import { COMMANDS, commandCell } from "./commands-help.js";
+import { commentsBar, commentsBody, commentsCount, commentsHeaderInstance, commentsOnKey, initialComments, type CommentsState } from "./comments-tab.js";
 import type { FolderLine, InstanceEntry } from "./instance-list.js";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "./host-protocol.js";
 import type { NewAgentAnswers, NewAgentQuestions, ProjectOption } from "./new-agent.js";
@@ -41,8 +42,8 @@ export interface ScreenState {
   instances: InstanceEntry[];
   /** What the "This folder" line says. */
   folderLine: FolderLine;
-  /** Comments waiting for terminal sessions, for the tab's count (the Comments tab fills it). */
-  commentCount: number;
+  /** The Comments tab: what waits for terminal sessions, the selected page and the scroll of its comments. */
+  comments: CommentsState;
 }
 
 export type TabId = "agents" | "instances" | "comments";
@@ -130,7 +131,7 @@ export interface InitialState {
 
 export function initialState({ agents, selectedId, now, home, folder, freshStartAt, instances = [], folderLine = { kind: "unlinked" }, tab = "agents" }: InitialState): ScreenState {
   const selected = agents.some((agent) => agent.id === selectedId) ? selectedId : agents[0]?.id;
-  return { agents, selectedId: selected, logs: {}, loaded: {}, now, home, folder, freshStartAt, tab, focus: "list", logScroll: 0, instances, folderLine, commentCount: 0 };
+  return { agents, selectedId: selected, logs: {}, loaded: {}, now, home, folder, freshStartAt, tab, focus: "list", logScroll: 0, instances, folderLine, comments: initialComments };
 }
 
 /** The folder was linked from the screen: the line says so. */
@@ -368,7 +369,7 @@ const EFFORT_OPTIONS: readonly (Effort | undefined)[] = [undefined, ...EFFORTS];
 
 // ---- Cells ---------------------------------------------------------------------------------------------------
 
-const C = {
+export const C = {
   bg: "#18181B",
   bar: "#111113",
   selected: "#27272A",
@@ -381,25 +382,25 @@ const C = {
   red: "#D92D20",
 };
 
-interface Span {
+export interface Span {
   text: string;
   fg?: string;
   bg?: string;
   bold?: boolean;
 }
-interface Row {
+export interface Row {
   spans: Span[];
   /** A horizontal rule: it joins the vertical border with a tee. */
   rule?: boolean;
 }
 
 /** Every text of the screen is made here, so it is cleaned here (see `sanitizeForTerminal`). */
-const span = (text: string, fg: string = C.text, bold = false, bg?: string): Span => ({ text: sanitizeForTerminal(text), fg, bold, bg });
+export const span = (text: string, fg: string = C.text, bold = false, bg?: string): Span => ({ text: sanitizeForTerminal(text), fg, bold, bg });
 const width = (spans: Span[]) => spans.reduce((total, s) => total + [...s.text].length, 0);
-const spaces = (count: number) => " ".repeat(Math.max(0, count));
+export const spaces = (count: number) => " ".repeat(Math.max(0, count));
 
 /** Cuts the spans to `limit` cells, ending with an ellipsis when something was cut. */
-function clip(spans: Span[], limit: number): Span[] {
+export function clip(spans: Span[], limit: number): Span[] {
   if (width(spans) <= limit) return spans;
   const out: Span[] = [];
   let left = Math.max(0, limit - 1);
@@ -437,11 +438,11 @@ function toAnsi(spans: Span[], paint = true): string {
 /** The visible text of ANSI lines, for tests and captures. */
 export const plainText = (lines: string[]): string[] => lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
 
-const ruleRow = (): Row => ({ spans: [], rule: true });
+export const ruleRow = (): Row => ({ spans: [], rule: true });
 
 // ---- Formatting ----------------------------------------------------------------------------------------------
 
-const clock = (iso: string, seconds = true) => {
+export const clock = (iso: string, seconds = true) => {
   const d = new Date(iso);
   const two = (n: number) => String(n).padStart(2, "0");
   return `${two(d.getHours())}:${two(d.getMinutes())}${seconds ? `:${two(d.getSeconds())}` : ""}`;
@@ -603,7 +604,7 @@ function logRows(log: HostLogEntry[], now: number, cells: number, where: (server
 
 // ---- Screen --------------------------------------------------------------------------------------------------
 
-const MARGIN = 2;
+export const MARGIN = 2;
 const RIGHT_WIDTH = 46;
 const LABEL_WIDTH = 10;
 /** The fields of an agent detail line up one column further than the dialog rows (boards). */
@@ -658,7 +659,7 @@ const TABS: Record<TabId, TabDef> = {
     body: (state, { left, right, height }) => ({ left: leftColumn(state, left, height), right: rightColumn(state, right, height) }),
   },
   instances: placeholderTab("Instances", (state) => state.instances.length, (state) => state.instances.reduce((total, entry) => total + (entry.problems ?? 0), 0)),
-  comments: placeholderTab("Comments", (state) => state.commentCount),
+  comments: { label: "Comments", count: commentsCount, headerInstance: commentsHeaderInstance, onKey: commentsOnKey, bar: commentsBar, body: commentsBody },
 };
 
 /** A tab that exists for the bar and its counts, until its own ticket fills it. */
@@ -692,7 +693,7 @@ function selectedAgent(state: ScreenState): HostAgent | undefined {
 const sameAddress = (a: string, b: string) => a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
 const instanceOf = (state: ScreenState, agent: HostAgent): InstanceEntry | undefined =>
   state.instances.find((entry) => (agent.installation ? entry.id === agent.installation : sameAddress(entry.serverUrl, agent.serverUrl))) ?? state.instances.find((entry) => sameAddress(entry.serverUrl, agent.serverUrl));
-const addressText = (serverUrl: string) => serverUrl.replace(/^https?:\/\//, "");
+export const addressText = (serverUrl: string) => serverUrl.replace(/^https?:\/\//, "");
 /** `Lumora · redline.lumora.com · v0.2.0`: the name, the address, the version when known. */
 const instanceText = (entry: Pick<InstanceEntry, "name" | "serverUrl" | "version">) => [entry.name, addressText(entry.serverUrl), ...(entry.version ? [`v${entry.version}`] : [])].join(" · ");
 const instanceLabel = (state: ScreenState, agent: HostAgent): string => {
@@ -799,7 +800,7 @@ function leftColumn(state: ScreenState, cells: number, height: number): Row[] {
 const ITEM_ROWS = 3;
 
 /** The items of a list that fit `height` rows below a first row that stays free for "↑ n more": the window keeps the selection one item from its top. */
-function listWindow(total: number, selected: number, height: number): { first: number; shown: number } {
+export function listWindow(total: number, selected: number, height: number): { first: number; shown: number } {
   const room = Math.max(0, height - 1);
   const fits = Math.max(1, Math.floor(room / ITEM_ROWS));
   if (total <= fits) return { first: 0, shown: total };
