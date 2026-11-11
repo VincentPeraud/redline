@@ -35,7 +35,9 @@ export function validateServerUrl(url: string): string {
   }
   const secure = parsed.protocol === "https:" || (parsed.protocol === "http:" && LOOPBACK_HOST.test(parsed.hostname));
   if (!secure) {
-    throw new Error("The server URL must start with https:// (http:// is only accepted for localhost, *.localhost and 127.0.0.1).");
+    if (parsed.protocol !== "http:") throw new Error("The server URL must start with https://.");
+    const path = parsed.pathname === "/" ? "" : parsed.pathname;
+    throw new Error(`http:// is only allowed for this computer (localhost, *.localhost, 127.0.0.1).\n  Use https://${parsed.host}${path}.`);
   }
   const clean =
     !parsed.username && !parsed.password && !/[?#]/.test(normalized) && SAFE_HOST.test(parsed.hostname) && SAFE_PATH.test(parsed.pathname);

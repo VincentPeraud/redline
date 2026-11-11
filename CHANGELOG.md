@@ -9,6 +9,7 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 ### Added
 
 - The server has an instance name (`REDLINE_INSTANCE_NAME`, for example "Lumora"): `/api/config` returns it with the version and the build hash, and the Agents page shows "<name> · v<version>" next to its title. The production compose project name is now a setting (`REDLINE_COMPOSE_PROJECT`, default `redline`) so a second copy can run on the same host.
+- `redline setup <address> [--name <name>]` creates one installation per Redline instance under the CLI config dir (`instances/<id>/`: its own login and the build its server serves), named after the server, registers the `redline` MCP once, and refuses while the old single login exists. The same address again replaces the token and restarts the agents the old token had stopped. The server answers `GET /agent-api/instance` (name, version, build hash) for the CLI.
 - A "Présenter" button in the page's top bar plays the page from its first artboard in reading order.
 
 ### Fixed

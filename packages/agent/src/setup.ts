@@ -1,6 +1,18 @@
 import { execFile } from "node:child_process";
-import { saveLogin, validateServerUrl } from "./login.js";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { AGENT_API_PREFIX, CLI_TARBALL_PATH, type ServerConfig } from "@redline/shared";
+import { TOKEN_REFUSED_REASON } from "./activity.js";
+import { cliVersion } from "./build-hash.js";
+import { HostClient } from "./host-client.js";
+import { npmInstall } from "./install-cli.js";
+import type { InstallationsDeps, InstanceInfo, McpStatus, SetupResult } from "./installations.js";
+import { normalizeServerUrl } from "./login.js";
 import { ServerApi } from "./server-api.js";
+
+/** Oldest installation (server build) this command works with: the first release that has installations. */
+export const OLDEST_ACCEPTED_VERSION = "0.2.0";
 
 interface ClaudeResult {
   ok: boolean;
@@ -22,34 +34,112 @@ function isRegistered(output: string): boolean {
 }
 
 /** Registers `redline mcp` in Claude Code at user scope; an identical entry is left alone, a different one replaced. */
-async function registerMcp(env: NodeJS.ProcessEnv): Promise<void> {
+export async function registerMcp(env: NodeJS.ProcessEnv): Promise<McpStatus> {
   const existing = await claude(["mcp", "get", "redline"], env);
-  if (existing.missing) {
-    throw new Error("Claude Code is not installed. Install it (https://docs.claude.com/claude-code), then run `redline setup` again.");
-  }
-  if (existing.ok && isRegistered(existing.stdout)) return;
+  if (existing.missing) return "claude-missing";
+  if (existing.ok && isRegistered(existing.stdout)) return "already";
   if (existing.ok) await claude(["mcp", "remove", "--scope", "user", "redline"], env);
   const added = await claude(["mcp", "add", "--scope", "user", "redline", "--", "redline", "mcp"], env);
   if (!added.ok) throw new Error("`claude mcp add` failed. Run it yourself: claude mcp add --scope user redline -- redline mcp");
+  return "registered";
 }
 
-export interface SetupOptions {
-  configDir: string;
-  serverUrl: string;
-  token: string;
-  env?: NodeJS.ProcessEnv;
-}
-
-/** Checks the URL and the token, stores the server, and registers the Redline MCP in Claude Code. Safe to rerun. */
-export async function setupServer({ configDir, serverUrl, token, env = process.env }: SetupOptions): Promise<void> {
-  const url = validateServerUrl(serverUrl);
-  const cleanToken = token.trim();
-  if (!cleanToken) throw new Error("A token is required.");
+/** The server's own description of itself; an older server has no such route, and then only the token is checked. */
+async function fetchInstance(serverUrl: string, token: string): Promise<InstanceInfo> {
+  let answer: Response;
   try {
-    await new ServerApi(url, cleanToken).listProjects();
+    answer = await fetch(`${serverUrl}${AGENT_API_PREFIX}/instance`, { headers: { authorization: `Bearer ${token}` }, redirect: "error" });
   } catch (error) {
-    throw new Error(`Cannot use ${url} with this token: ${(error as Error).message}`);
+    throw new Error(`cannot reach it (${(error as Error).message})`);
   }
-  saveLogin({ configDir, serverUrl: url, token: cleanToken });
-  await registerMcp(env);
+  if (answer.status === 401) throw new Error("the server refused it");
+  if (answer.status === 404) {
+    await new ServerApi(serverUrl, token).listProjects();
+    return {};
+  }
+  if (!answer.ok) throw new Error(`the server answered ${answer.status}`);
+  const { instanceName, version, buildHash } = (await answer.json()) as ServerConfig;
+  return { instanceName, version, buildHash };
+}
+
+/** Downloads the tarball the server serves, then installs it under the prefix. */
+async function install(serverUrl: string, prefix: string): Promise<void> {
+  const url = `${serverUrl}${CLI_TARBALL_PATH}`;
+  const answer = await fetch(url).catch((error: Error) => {
+    throw new Error(`${url} cannot be reached (${error.message})`);
+  });
+  if (!answer.ok) throw new Error(`${url} answered ${answer.status}`);
+  const folder = mkdtempSync(join(tmpdir(), "redline-cli-"));
+  try {
+    const tarball = join(folder, "redline-cli.tgz");
+    writeFileSync(tarball, Buffer.from(await answer.arrayBuffer()));
+    await npmInstall(tarball, prefix);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+}
+
+/** Agents of that address stopped by a refused token, restarted through the running host (no host: nothing to restart). */
+async function restartStoppedAgents(configDir: string, serverUrl: string, env: NodeJS.ProcessEnv): Promise<string[]> {
+  let host: HostClient;
+  try {
+    host = await HostClient.connect(configDir, env);
+  } catch {
+    return [];
+  }
+  try {
+    const stopped = (await host.list()).filter(
+      (agent) => agent.state === "stopped" && normalizeServerUrl(agent.serverUrl) === serverUrl && agent.reason?.startsWith(TOKEN_REFUSED_REASON),
+    );
+    const restarted: string[] = [];
+    for (const agent of stopped) if ((await host.restart(agent.id)).started) restarted.push(agent.name);
+    return restarted;
+  } finally {
+    host.close();
+  }
+}
+
+/** The real npm, Claude Code, server and host. */
+export function systemDeps(configDir: string, env: NodeJS.ProcessEnv = process.env): InstallationsDeps {
+  return {
+    fetchInstance,
+    install,
+    registerMcp: () => registerMcp(env),
+    restartStoppedAgents: (serverUrl) => restartStoppedAgents(configDir, serverUrl, env),
+    commandVersion: cliVersion(),
+    oldestAccepted: OLDEST_ACCEPTED_VERSION,
+  };
+}
+
+const STYLES = { bold: "1", muted: "38;2;161;161;170", green: "38;2;74;222;128", amber: "38;2;251;191;36", red: "38;2;217;45;32" } as const;
+
+/** The lines `redline setup` prints for a finished setup (texts of the setup.html mock-up); `color` paints them for a terminal. */
+export function setupReport(
+  { installation, created, mcp, tooOld, restarted }: SetupResult,
+  { deps, color = false, home = homedir() }: { deps: Pick<InstallationsDeps, "commandVersion" | "oldestAccepted">; color?: boolean; home?: string },
+): string[] {
+  const paint = (style: keyof typeof STYLES, text: string) => (color ? `\u001b[${STYLES[style]}m${text}\u001b[0m` : text);
+  const shown = (path: string) => (path.startsWith(home) ? `~${path.slice(home.length)}` : path);
+  const lines: string[] = [];
+  if (created) {
+    const address = installation.serverUrl.replace(/^https?:\/\//, "");
+    lines.push(`${paint("green", "✓ ")}${paint("bold", installation.name)}${paint("muted", ` · ${address}${installation.version ? ` · v${installation.version}` : ""}`)}`);
+    lines.push(paint("muted", `  Installed in ${shown(installation.dir)}`));
+  } else {
+    lines.push(`${paint("green", "✓ ")}${paint("bold", installation.name)}: token replaced (name and build kept).`);
+    if (restarted.length > 0) lines.push(`  Restarted ${restarted.length} agent${restarted.length === 1 ? "" : "s"} stopped by the old token: ${restarted.join(", ")}.`);
+  }
+  if (mcp === "registered") {
+    lines.push(`${paint("green", "✓ ")}Claude Code: registered the ${paint("bold", "redline")} MCP for every session. In a folder linked to ${installation.name}, it runs this installation.`);
+    if (created) lines.push(`  Next: ${paint("bold", "redline link")} in a project folder, or ${paint("bold", "redline agent")} to start an agent there.`);
+  } else if (mcp === "already" && created) {
+    lines.push(`  Claude Code: the ${paint("bold", "redline")} MCP is already registered.`);
+  } else if (mcp === "claude-missing") {
+    lines.push(paint("red", "✗ ") + paint("red", "Claude Code is not installed. Install it (https://docs.claude.com/claude-code), then run redline setup again."));
+  }
+  if (tooOld) {
+    lines.push(paint("amber", `! v${installation.version} is too old for this redline command (v${deps.commandVersion}, accepts v${deps.oldestAccepted} and later):`));
+    lines.push(paint("muted", `  its agents will be refused until ${installation.name}'s server is upgraded. Its MCP works.`));
+  }
+  return lines;
 }

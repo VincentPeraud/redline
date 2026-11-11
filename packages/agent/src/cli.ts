@@ -13,25 +13,46 @@ import { claudeCodeEngine } from "./claude-code-engine.js";
 import { ensureHost, type HostClient } from "./host-client.js";
 import { chooseModelEffort } from "./launch-choice.js";
 import { linkFolder, linkedServer, serverForFolder, type LinkChoice, type MoreChoice } from "./link.js";
-import { defaultConfigDir, pickServer, requireLogins, type Login } from "./login.js";
+import { SetupRefusal, checkedAddress, requireKnownLogins as requireLogins, setupInstallation } from "./installations.js";
+import { defaultConfigDir, pickServer, type Login } from "./login.js";
 import { sanitizeForTerminal } from "./sanitize.js";
 import { servingAgent } from "./serving-agent.js";
 import { askSecret } from "./secret-prompt.js";
 import { ServerApi } from "./server-api.js";
 import { serveAgent } from "./serve-agent.js";
-import { setupServer } from "./setup.js";
+import { setupReport, systemDeps } from "./setup.js";
 import { createNewAgentFlow } from "./new-agent.js";
 import { openWithSystem } from "./open-url.js";
 import { openTerminal } from "./terminal-driver.js";
 import { RELAUNCHED_ENV, UPDATE_EXIT_CODE, WORKER_ENV, superviseAgent } from "./supervisor.js";
 import { serveTerminalMcp } from "./terminal-mcp.js";
 
-async function runSetup(args: string[]): Promise<void> {
-  const serverUrl = args[0]?.startsWith("--") ? undefined : args[0];
-  if (!serverUrl) throw new Error("Usage: redline setup <server-url> --token <token>");
-  const token = flagValue(args, "--token") ?? (await askSecret("Agents' token (shown on the Agents screen): "));
-  await setupServer({ configDir: defaultConfigDir(), serverUrl, token });
-  console.log("Server saved and Redline registered in Claude Code. Run `redline agent` in a project folder to connect.");
+/** `redline setup <address> [--name <name>] [--token <token>]`; `redline login` is the same, asking for the address when it is not given. */
+async function runSetup(args: string[], { askAddress }: { askAddress: boolean }): Promise<void> {
+  const positional = args[0]?.startsWith("--") ? undefined : args[0];
+  const serverUrl = positional ?? (askAddress ? await ask("Server URL: ") : undefined);
+  if (!serverUrl) throw new Error("Usage: redline setup <address> [--name <name>] [--token <token>]");
+  const configDir = defaultConfigDir();
+  const deps = systemDeps(configDir);
+  const color = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
+  try {
+    checkedAddress(serverUrl);
+    const token = flagValue(args, "--token") ?? (await askSecret("Agents' token (shown on the Agents screen): "));
+    const result = await setupInstallation({
+      configDir,
+      serverUrl,
+      token,
+      name: flagValue(args, "--name"),
+      askName: () => ask("The server has no instance name (REDLINE_INSTANCE_NAME). Name for this installation: "),
+      deps,
+    });
+    for (const line of setupReport(result, { deps, color })) console.log(line);
+    if (result.mcp === "claude-missing") process.exitCode = 1;
+  } catch (error) {
+    if (!(error instanceof SetupRefusal)) throw error;
+    console.error(`${color ? "\u001b[38;2;217;45;32m✗ " : "✗ "}${(error as Error).message}${color ? "\u001b[0m" : ""}`);
+    process.exitCode = 1;
+  }
 }
 
 async function ask(question: string): Promise<string> {
@@ -41,15 +62,6 @@ async function ask(question: string): Promise<string> {
   } finally {
     rl.close();
   }
-}
-
-/** Interactive alias of `redline setup`: asks for the URL (unless given) and the token, then does the same. */
-async function runLogin(serverUrl: string | undefined): Promise<void> {
-  const url = serverUrl ?? (await ask("Server URL: "));
-  if (!url) throw new Error("A server URL is required.");
-  const token = await askSecret("Agents' token (shown on the Agents screen): ");
-  await setupServer({ configDir: defaultConfigDir(), serverUrl: url, token });
-  console.log("Server saved and Redline registered in Claude Code. Run `redline agent` in a project folder to connect.");
 }
 
 async function askServer(servers: Login[]): Promise<Login> {
@@ -254,15 +266,15 @@ async function runMcp(): Promise<void> {
 
 const [command, ...args] = process.argv.slice(2);
 try {
-  if (command === "setup") await runSetup(args);
-  else if (command === "login") await runLogin(args[0]);
+  if (command === "setup") await runSetup(args, { askAddress: false });
+  else if (command === "login") await runSetup(args, { askAddress: true });
   else if (command === "agent") await superviseOrRunAgent(args);
   else if (command === "agents") await runAgents();
   else if (command === "mcp") await runMcp();
   else if (command === "host") await runHost();
   else if (command === "worker") runAgentWorker({ engine: claudeCodeEngine() });
   else if (command === "build-hash") console.log(buildHash());
-  else throw new Error("Usage: redline setup <server-url> --token <token> | redline login [<server-url>] | redline mcp | redline agents | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
+  else throw new Error("Usage: redline setup <address> [--name <name>] [--token <token>] | redline login [<address>] | redline mcp | redline agents | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
 } catch (error) {
   console.error((error as Error).message);
   process.exit(1);

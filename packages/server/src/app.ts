@@ -179,7 +179,7 @@ export async function buildMainApp(
     agents.disconnectPerson(personId);
     terminalSessions.releaseSessionsOf(personId);
   });
-  await registerAgentApi(app, store, pageLock, terminalSessions, access, options.publicUrl);
+  await registerAgentApi(app, store, pageLock, terminalSessions, access, config, options.publicUrl);
   await registerProjectFileRoutes(app, store);
   registerProjectDesignSystemRoutes(app, store);
   registerEventRoutes(app, store, pageLock, access);

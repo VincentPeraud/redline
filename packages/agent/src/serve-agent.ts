@@ -1,5 +1,5 @@
 import { cliUpdateCommand, type ModelChoice } from "@redline/shared";
-import { formatActivity, type AgentActivity } from "./activity.js";
+import { TOKEN_REFUSED_REASON, formatActivity, type AgentActivity } from "./activity.js";
 import { startAgent, type AgentOptions } from "./agent.js";
 import { ServerUnreachableError } from "./connection.js";
 
@@ -81,7 +81,7 @@ export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () =
           log(`This agent is not up to date. Update it with: ${cliUpdateCommand(options.serverUrl)}`);
         }
         const { reason } = await connection.closed;
-        if (reason === "unauthorized") throw new Error("The token was regenerated. Run `redline setup <server-url> --token <token>` again with the new token from the Agents screen.");
+        if (reason === "unauthorized") throw new Error(`${TOKEN_REFUSED_REASON} Run \`redline setup <server-url> --token <token>\` again with the new token from the Agents screen.`);
         if (stopped) return finish();
         lostReported = true;
         report({ type: "connection-lost" });

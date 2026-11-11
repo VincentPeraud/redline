@@ -6,7 +6,8 @@ import type { HostClient } from "./host-client.js";
 import type { HostAgent } from "./host-protocol.js";
 import { lastLaunchChoice, rememberChoice } from "./launch-choice.js";
 import { linkFolder, linkedServer, listProjects, readLinkedProjectIds, servedElsewhere, type LinkChoice } from "./link.js";
-import { findLogin, requireLogins, type Login } from "./login.js";
+import { requireKnownLogins as requireLogins } from "./installations.js";
+import { findLogin, type Login } from "./login.js";
 
 export interface ProjectOption {
   id: string;

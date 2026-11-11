@@ -24,6 +24,7 @@ import {
   starterDesignSystemFiles,
   starterPageFiles,
   type AgentDesignSystem,
+  type ServerConfig,
 } from "@redline/shared";
 import { manifestTitleError, mergeOntoCurrent } from "./publish.js";
 import { agentGaps } from "./gaps.js";
@@ -61,7 +62,7 @@ export function workOrigin(store: Store, pageLock: PageLock, workId: unknown, pa
 }
 
 /** HTTP API for agents and their sessions' MCP tools, guarded by the agent token (see `AGENT_API_PREFIX`). */
-export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock, terminalSessions: TerminalSessions, access: Access, publicUrl?: string): Promise<void> {
+export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock, terminalSessions: TerminalSessions, access: Access, config: ServerConfig, publicUrl?: string): Promise<void> {
   const signInLinkTimes = new Map<string, number[]>();
   /** A running work item (`workId`) that does not belong to `projectId`, or whose run is over: its session may not act there. */
   const workOutsideProject = (workId: unknown, projectId: string | undefined): boolean => {
@@ -136,6 +137,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         store.accounts.log(`Agent sign-in link issued for ${account.email}.`);
         return { url: `${base}/#/connexion-agent/${token}${path === undefined ? "" : `?to=${encodeURIComponent(path)}`}` };
       });
+
+      // `redline setup` and the update check read the instance from here: `/api/config` is behind the SSO in production.
+      api.get("/instance", async (): Promise<ServerConfig> => config);
 
       // `redline agent` picks or creates the projects a folder serves, before they have anything else to call.
       // `?all=1` (folder links) includes archived projects, so that a folder linked to one is not linked elsewhere.

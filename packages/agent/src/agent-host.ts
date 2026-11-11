@@ -25,7 +25,8 @@ import {
 import type { AgentActivity } from "./activity.js";
 import { claudeEnvironment, workerEnvironment } from "./worker-environment.js";
 import { spawnWorker, type WorkerProcess } from "./worker-process.js";
-import { loginFor, normalizeServerUrl } from "./login.js";
+import { knownLoginFor as loginFor } from "./installations.js";
+import { normalizeServerUrl } from "./login.js";
 import { UPDATE_EXIT_CODE } from "./supervisor.js";
 
 export interface AgentHostOptions {
