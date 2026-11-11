@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { fallbackName, findInstallation, hasLegacyLayout, installationId, listInstallations, resolveFolder, setupInstallation, type SetupResult } from "../src/installations.js";
+import { fallbackName, findInstallation, hasLegacyLayout, installationId, listInstallations, pickInstallation, resolveFolder, setupInstallation, type SetupResult } from "../src/installations.js";
 import { saveLogin } from "../src/login.js";
 import { addInstallation, fakeWorld, folderWithLink, readJson, tempDir } from "./support/installations.js";
 
@@ -139,18 +139,18 @@ describe("redline setup and Claude Code", () => {
 describe("redline setup, an instance too old for the command", () => {
   it("installs it and reports it too old", async () => {
     const { world, configDir, run } = setup();
-    world.servers.set("https://redline.brightco.fr", { instanceName: "Brightco", version: "0.1.0" });
+    world.servers.set("https://redline.brightco.fr", { instanceName: "Brightco", version: "0.1.0", hostProtocol: 0 });
     const result = await run({ serverUrl: "https://redline.brightco.fr" });
     expect(result.tooOld).toBe(true);
     expect(listInstallations(configDir)[0]).toMatchObject({ id: "brightco", version: "0.1.0" });
   });
 
-  it("reads the version from the installed build when the server does not tell it", async () => {
+  it("counts a build without a host protocol (older than the installations) as too old, and reads its version from the build", async () => {
     const { world, run } = setup();
     world.servers.set(LUMORA, { instanceName: "Lumora" });
     world.deps.install = async (_url, prefix) => {
       const { writeInstalledBuild } = await import("./support/installations.js");
-      writeInstalledBuild(prefix, { version: "0.1.0" });
+      writeInstalledBuild(prefix, { version: "0.1.0", hostProtocol: null });
     };
     expect(await run()).toMatchObject({ tooOld: true, installation: { version: "0.1.0" } });
   });
@@ -245,5 +245,33 @@ describe("resolving the installation of a folder", () => {
       expect(result.kind).toBe("unlinked");
       expect(result.kind === "unlinked" && result.installations.map((i) => i.name)).toEqual(["Local", "Lumora"]);
     }
+  });
+});
+
+describe("choosing the instance of a global agent (--instance, alias --server)", () => {
+  const world = () => {
+    const configDir = tempDir();
+    addInstallation(configDir, { name: "Local", serverUrl: "http://redline.localhost" });
+    addInstallation(configDir, { name: "Lumora", serverUrl: "https://redline.lumora.com" });
+    return configDir;
+  };
+
+  it("takes a name, an address with or without its scheme", () => {
+    const configDir = world();
+    expect(pickInstallation(configDir, "lumora").name).toBe("Lumora");
+    expect(pickInstallation(configDir, "https://redline.lumora.com/").name).toBe("Lumora");
+    expect(pickInstallation(configDir, "redline.lumora.com").name).toBe("Lumora");
+  });
+
+  it("takes the only instance without being told, and asks to be told when there are several", () => {
+    const configDir = tempDir();
+    addInstallation(configDir, { name: "Local", serverUrl: "http://redline.localhost" });
+    expect(pickInstallation(configDir).name).toBe("Local");
+    addInstallation(configDir, { name: "Lumora", serverUrl: "https://redline.lumora.com" });
+    expect(() => pickInstallation(configDir)).toThrow("Several Redline instances are set up (Local, Lumora): pass --instance <name|address>.");
+  });
+
+  it("says when the instance is not set up", () => {
+    expect(() => pickInstallation(world(), "brightco")).toThrow("brightco is not set up. Run `redline setup brightco` first.");
   });
 });

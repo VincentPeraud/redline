@@ -441,6 +441,7 @@ function logRows(log: HostLogEntry[], now: number): Row[] {
       case "connected":
       case "refused":
       case "stopped":
+      case "host-updated":
         progress.clear();
         break;
     }
@@ -485,6 +486,9 @@ function logRows(log: HostLogEntry[], now: number): Row[] {
       }
       case "run-failed":
         rows.push(line(at, ...title("✗", C.red, "Run failed"), span(placeOf(projects.get(event.workId), event.page)), span(`  ${event.reason}`, C.muted)));
+        break;
+      case "host-updated":
+        rows.push(line(at, span("↻ ", C.muted), span("Host restarted  ", C.text, true), span(`redline command changed to v${event.version}`, C.muted)));
         break;
       case "stopped":
         if (event.reason === "failed") rows.push(line(at, ...title("✗", C.red, "Stopped"), span(event.error, C.muted)));

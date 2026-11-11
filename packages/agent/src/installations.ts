@@ -1,7 +1,8 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { acceptsProtocol, hostProtocol } from "./host-protocol.js";
 import { findLink } from "./link.js";
-import { findLogin, normalizeServerUrl, readLogins, validateServerUrl, type Login } from "./login.js";
+import { normalizeServerUrl, readLogins, validateServerUrl, type Login } from "./login.js";
 
 /**
  * One installation per Redline instance, in a folder of its own: `<configDir>/instances/<id>/` holds `login.json` (address,
@@ -24,6 +25,8 @@ export interface Installation {
   /** Version of the installed build; absent when it cannot be read. */
   version?: string;
   buildHash?: string;
+  /** Host protocol version the installed build speaks; absent for a build older than the installations. */
+  hostProtocol?: number;
 }
 
 /** What the server tells about itself (`GET /agent-api/instance`); an old server tells nothing. */
@@ -31,6 +34,8 @@ export interface InstanceInfo {
   instanceName?: string;
   version?: string;
   buildHash?: string;
+  /** Host protocol of the CLI build the server serves. */
+  hostProtocol?: number;
 }
 
 export type McpStatus = "registered" | "already" | "claude-missing";
@@ -47,7 +52,9 @@ export interface InstallationsDeps {
   restartStoppedAgents(serverUrl: string): Promise<string[]>;
   /** Version of this redline command. */
   commandVersion: string;
-  /** Oldest installation version this command accepts: older ones get a warning, their agents are refused. */
+  /** Host protocol version of this command: an installation more than one version behind gets a warning, its agents are refused. */
+  hostProtocol: number;
+  /** First release speaking the oldest protocol this command accepts, for the warning. */
   oldestAccepted: string;
 }
 
@@ -83,7 +90,7 @@ function readText(file: string): string | undefined {
   }
 }
 
-function installedBuild(prefix: string): { version?: string; buildHash?: string } {
+function installedBuild(prefix: string): { version?: string; buildHash?: string; hostProtocol?: number } {
   const dir = installedPackageDir(prefix);
   let version: string | undefined;
   try {
@@ -91,7 +98,8 @@ function installedBuild(prefix: string): { version?: string; buildHash?: string 
   } catch {
     // no readable package.json: the version stays unknown
   }
-  return { version, buildHash: readText(join(dir, "build-hash.txt")) };
+  const protocol = Number.parseInt(readText(join(dir, "host-protocol.txt")) ?? "", 10);
+  return { version, buildHash: readText(join(dir, "build-hash.txt")), hostProtocol: Number.isInteger(protocol) ? protocol : undefined };
 }
 
 interface StoredLogin {
@@ -142,15 +150,29 @@ export function findInstallation(configDir: string, wanted: string): Installatio
   return listInstallations(configDir).find((installation) => installation.serverUrl === address || installation.id === id);
 }
 
+/**
+ * The installation `--instance <name|address>` (or its alias `--server`) names, or the only one set up. The address may be written
+ * with or without its scheme.
+ */
+export function pickInstallation(configDir: string, wanted?: string): Installation {
+  const all = listInstallations(configDir);
+  if (wanted) {
+    const id = installationId(wanted);
+    const bare = normalizeServerUrl(wanted).replace(/^https?:\/\//, "");
+    const found = all.find((installation) => installation.id === id || normalizeServerUrl(installation.serverUrl).replace(/^https?:\/\//, "") === bare);
+    if (!found) throw new Error(`${wanted} is not set up. Run \`redline setup ${wanted}\` first.`);
+    return found;
+  }
+  if (all.length === 0) throw new Error("No Redline instance is set up. Run `redline setup <address>` first.");
+  if (all.length > 1) throw new Error(`Several Redline instances are set up (${all.map((installation) => installation.name).join(", ")}): pass --instance <name|address>.`);
+  return all[0];
+}
+
 /** The old single login is still there: every command but `migrate` refuses. */
 export const hasLegacyLayout = (configDir: string): boolean => existsSync(join(configDir, "login.json")) && readLogins(configDir).length > 0;
 
 /** The logins of the installations, for the code that still speaks in `Login`s. */
 export const installationLogins = (configDir: string): Login[] => listInstallations(configDir).map(({ serverUrl, token }) => ({ serverUrl, token }));
-
-/** Bridge until the agent host runs per installation (ticket 05): it still reads the legacy login file too. */
-export const knownLoginFor = (configDir: string, serverUrl: string): Login | undefined =>
-  findLogin([...readLogins(configDir).filter((login) => !findLogin(installationLogins(configDir), login.serverUrl)), ...installationLogins(configDir)], serverUrl);
 
 export type FolderResolution =
   /** `root` is the folder holding the link; absent when the only installation was taken for a folder with no usable link. */
@@ -235,20 +257,10 @@ export interface SetupResult {
   /** False when the address was already set up: only the token changed. */
   created: boolean;
   mcp: McpStatus;
-  /** The installed build is older than the command accepts. */
+  /** The installed build speaks a host protocol older than the command accepts (or none). */
   tooOld: boolean;
   /** Agents restarted after a token replacement. */
   restarted: string[];
-}
-
-const versionParts = (version: string) => version.split(".").map((part) => Number.parseInt(part, 10) || 0);
-
-function isOlder(version: string, than: string): boolean {
-  const [a, b] = [versionParts(version), versionParts(than)];
-  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
-    if ((a[index] ?? 0) !== (b[index] ?? 0)) return (a[index] ?? 0) < (b[index] ?? 0);
-  }
-  return false;
 }
 
 async function chooseName(options: SetupOptions, info: InstanceInfo, url: string): Promise<{ name: string; chosen: boolean }> {
@@ -287,7 +299,7 @@ export async function setupInstallation(options: SetupOptions): Promise<SetupRes
     writeLogin(existing.dir, { serverUrl: url, token, name: existing.name, nameChosen: existing.nameChosen });
     const restarted = await deps.restartStoppedAgents(url);
     const mcp = await deps.registerMcp();
-    return { installation, created: false, mcp, tooOld: isTooOld(existing.version, deps), restarted };
+    return { installation, created: false, mcp, tooOld: isTooOld(existing, deps), restarted };
   }
 
   const { name, chosen } = await chooseName(options, info, url);
@@ -313,7 +325,7 @@ export async function setupInstallation(options: SetupOptions): Promise<SetupRes
   const installation = readInstallation(configDir, id)!;
   const withInfo = { ...installation, version: installation.version ?? info.version, buildHash: installation.buildHash ?? info.buildHash };
   const mcp = await deps.registerMcp();
-  return { installation: withInfo, created: true, mcp, tooOld: isTooOld(withInfo.version, deps), restarted: [] };
+  return { installation: withInfo, created: true, mcp, tooOld: isTooOld(withInfo, deps), restarted: [] };
 }
 
-const isTooOld = (version: string | undefined, deps: InstallationsDeps) => version !== undefined && isOlder(version, deps.oldestAccepted);
+const isTooOld = (installation: Installation, deps: InstallationsDeps) => !acceptsProtocol(hostProtocol(deps.commandVersion, deps.hostProtocol), installation.hostProtocol);

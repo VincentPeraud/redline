@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 export const TARBALL_NAME = "redline-cli.tgz";
 export const HASH_FILE = "build-hash.txt";
+export const PROTOCOL_FILE = "host-protocol.txt";
 
 function filesUnder(dir) {
   return readdirSync(dir, { withFileTypes: true, recursive: true })
@@ -39,12 +40,17 @@ export function packCli({ agentDir, sharedDir, outDir }) {
     JSON.stringify({ name: shared.name, version: shared.version, type: shared.type, main: shared.main, types: shared.types }, null, 2),
   );
 
+  // The host protocol version the build speaks, so that the host can tell it before running any of its code.
+  const protocol = /export const HOST_PROTOCOL_VERSION = (\d+);/.exec(readFileSync(join(sharedDir, "dist", "index.js"), "utf8"));
+  if (!protocol) throw new Error("HOST_PROTOCOL_VERSION not found in the built shared package.");
+  writeFileSync(join(root, PROTOCOL_FILE), protocol[1]);
+
   const hash = hashBuiltFiles(root);
   writeFileSync(join(root, HASH_FILE), hash);
 
   const manifest = JSON.parse(readFileSync(join(agentDir, "package.json"), "utf8"));
   delete manifest.scripts;
-  manifest.files = ["dist", HASH_FILE];
+  manifest.files = ["dist", HASH_FILE, PROTOCOL_FILE];
   manifest.bundleDependencies = ["@redline/shared"];
   writeFileSync(join(root, "package.json"), JSON.stringify(manifest, null, 2));
 

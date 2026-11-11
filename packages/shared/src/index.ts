@@ -365,6 +365,15 @@ export interface CreatePageRequest {
   files: Record<string, string>;
 }
 
+/**
+ * Version of the protocol between the agent host (the global `redline` command) and the workers of the installations: bump it when
+ * the messages change. A host accepts workers of its version and of the previous one.
+ */
+export const HOST_PROTOCOL_VERSION = 1;
+
+/** `GET /agent-api/instance`: the server's configuration, plus the host protocol of the CLI build it serves. */
+export type InstanceResponse = ServerConfig & { hostProtocol: number };
+
 /** `GET /api/config`. */
 export interface ServerConfig {
   artboardOrigin: string;

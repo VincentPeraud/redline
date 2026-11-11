@@ -2,17 +2,15 @@ import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENT_API_PREFIX, CLI_TARBALL_PATH, type ServerConfig } from "@redline/shared";
+import { AGENT_API_PREFIX, CLI_TARBALL_PATH, HOST_PROTOCOL_VERSION, type InstanceResponse } from "@redline/shared";
 import { TOKEN_REFUSED_REASON } from "./activity.js";
 import { cliVersion } from "./build-hash.js";
 import { HostClient } from "./host-client.js";
+import { hostProtocol } from "./host-protocol.js";
 import { npmInstall } from "./install-cli.js";
 import type { InstallationsDeps, InstanceInfo, McpStatus, SetupResult } from "./installations.js";
 import { normalizeServerUrl } from "./login.js";
 import { ServerApi } from "./server-api.js";
-
-/** Oldest installation (server build) this command works with: the first release that has installations. */
-export const OLDEST_ACCEPTED_VERSION = "0.2.0";
 
 interface ClaudeResult {
   ok: boolean;
@@ -58,8 +56,8 @@ async function fetchInstance(serverUrl: string, token: string): Promise<Instance
     return {};
   }
   if (!answer.ok) throw new Error(`the server answered ${answer.status}`);
-  const { instanceName, version, buildHash } = (await answer.json()) as ServerConfig;
-  return { instanceName, version, buildHash };
+  const { instanceName, version, buildHash, hostProtocol } = (await answer.json()) as Partial<InstanceResponse>;
+  return { instanceName, version, buildHash, hostProtocol };
 }
 
 /** Downloads the tarball the server serves, then installs it under the prefix. */
@@ -107,7 +105,8 @@ export function systemDeps(configDir: string, env: NodeJS.ProcessEnv = process.e
     registerMcp: () => registerMcp(env),
     restartStoppedAgents: (serverUrl) => restartStoppedAgents(configDir, serverUrl, env),
     commandVersion: cliVersion(),
-    oldestAccepted: OLDEST_ACCEPTED_VERSION,
+    hostProtocol: HOST_PROTOCOL_VERSION,
+    oldestAccepted: hostProtocol(cliVersion()).oldestRelease ?? "",
   };
 }
 

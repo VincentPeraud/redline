@@ -29,12 +29,13 @@ esac
 }
 
 /** What a build installed from a server leaves under an npm prefix. */
-export function writeInstalledBuild(prefix: string, { version, buildHash }: { version: string; buildHash?: string }): void {
+export function writeInstalledBuild(prefix: string, { version, buildHash, hostProtocol = 1 }: { version: string; buildHash?: string; hostProtocol?: number | null }): void {
   const dir = installedPackageDir(prefix);
   mkdirSync(join(dir, "dist"), { recursive: true });
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "redline-cli", version }));
   writeFileSync(join(dir, "dist", "cli.js"), "");
   if (buildHash) writeFileSync(join(dir, "build-hash.txt"), buildHash);
+  if (hostProtocol !== null) writeFileSync(join(dir, "host-protocol.txt"), String(hostProtocol));
 }
 
 export interface FakeWorld {
@@ -53,6 +54,7 @@ export function fakeWorld(overrides: Partial<InstallationsDeps> = {}): FakeWorld
   const world: FakeWorld = { installs: [], servers: new Map(), mcp: { status: "registered", registrations: 0 }, restarted: [], deps: undefined as never };
   world.deps = {
     commandVersion: "0.3.0",
+    hostProtocol: 2,
     oldestAccepted: "0.2.0",
     async fetchInstance(serverUrl) {
       const info = world.servers.get(serverUrl);
@@ -62,7 +64,7 @@ export function fakeWorld(overrides: Partial<InstallationsDeps> = {}): FakeWorld
     async install(serverUrl, prefix) {
       world.installs.push({ serverUrl, prefix });
       if (world.failInstall) throw new Error(world.failInstall);
-      writeInstalledBuild(prefix, { version: world.servers.get(serverUrl)?.version ?? "0.2.0", buildHash: world.servers.get(serverUrl)?.buildHash });
+      writeInstalledBuild(prefix, { version: world.servers.get(serverUrl)?.version ?? "0.2.0", buildHash: world.servers.get(serverUrl)?.buildHash, hostProtocol: world.servers.get(serverUrl)?.hostProtocol });
     },
     async registerMcp() {
       const status = world.mcp.registrations === 0 ? world.mcp.status : "already";
@@ -80,12 +82,12 @@ export function fakeWorld(overrides: Partial<InstallationsDeps> = {}): FakeWorld
 export const readJson = (file: string) => JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
 
 /** An installation on disk, as setup leaves it (its build included unless `version` is left out). */
-export function addInstallation(configDir: string, { name, serverUrl, token = "abt_t", version = "0.2.0", nameChosen = false }: { name: string; serverUrl: string; token?: string; version?: string | null; nameChosen?: boolean }) {
+export function addInstallation(configDir: string, { name, serverUrl, token = "abt_t", version = "0.2.0", nameChosen = false, hostProtocol }: { name: string; serverUrl: string; token?: string; version?: string | null; nameChosen?: boolean; hostProtocol?: number | null }) {
   const id = installationId(name);
   const dir = join(configDir, "instances", id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "login.json"), JSON.stringify({ serverUrl, token, name, nameChosen }));
-  if (version) writeInstalledBuild(join(dir, "npm"), { version, buildHash: `h-${id}` });
+  if (version) writeInstalledBuild(join(dir, "npm"), { version, buildHash: `h-${id}`, hostProtocol });
   return findInstallation(configDir, id)!;
 }
 

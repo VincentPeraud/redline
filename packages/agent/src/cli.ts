@@ -14,10 +14,10 @@ import { claudeCodeEngine } from "./claude-code-engine.js";
 import { ensureHost, type HostClient } from "./host-client.js";
 import { chooseModelEffort } from "./launch-choice.js";
 import { linkFolder, linkFolderToServer, linkedServer, listProjects, type LinkChoice, type MoreChoice } from "./link.js";
-import { SetupRefusal, checkedAddress, installationLogins, listInstallations, resolveFolder, setupInstallation } from "./installations.js";
+import { SetupRefusal, type Installation, checkedAddress, installationLogins, addressOf, currentInstallation, listInstallations, pickInstallation, resolveFolder, setupInstallation } from "./installations.js";
 import { askInstallation, confirm, orphanLines, runLink } from "./link-command.js";
 import { importAndServe, launchMcp } from "./mcp-launcher.js";
-import { defaultConfigDir, pickServer, type Login } from "./login.js";
+import { defaultConfigDir, type Login } from "./login.js";
 import { sanitizeForTerminal } from "./sanitize.js";
 import { servingAgent } from "./serving-agent.js";
 import { askSecret } from "./secret-prompt.js";
@@ -66,17 +66,10 @@ async function ask(question: string): Promise<string> {
 }
 
 async function askServer(servers: Login[]): Promise<Login> {
-  console.log("Several servers are set up.");
-  servers.forEach((server, index) => console.log(`  ${index + 1}. ${server.serverUrl}`));
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    for (;;) {
-      const picked = servers[Number((await rl.question("Pick a server: ")).trim()) - 1];
-      if (picked) return picked;
-    }
-  } finally {
-    rl.close();
-  }
+  const known = listInstallations(defaultConfigDir()).filter((installation) => servers.some((server) => server.serverUrl === installation.serverUrl));
+  console.log("Several Redline instances are set up on this computer.");
+  const { serverUrl, token } = await askInstallation(known, { ask, out: console.log });
+  return { serverUrl, token };
 }
 
 const titles = (projects: Project[]) => projects.map((project) => sanitizeForTerminal(project.title)).join(", ");
@@ -106,8 +99,8 @@ async function askLinkChoice(projects: Project[]): Promise<LinkChoice> {
 }
 
 /** A linked folder can serve one more project, or one less (never none); Enter starts the agent as is. */
-async function askMoreProjects(linked: Project[], others: Project[]): Promise<MoreChoice | undefined> {
-  console.log(`This folder serves ${titles(linked)}.`);
+async function askMoreProjects(where: string, linked: Project[], others: Project[]): Promise<MoreChoice | undefined> {
+  console.log(`This folder serves ${titles(linked)}${where}.`);
   const canRemove = linked.length > 1;
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
@@ -205,7 +198,8 @@ interface AgentRequest {
 
 async function startOrOpenAgent({ args, flags, account, servers, kind, folder, host }: AgentRequest): Promise<void> {
   // Before any question: an agent that already serves this folder is opened as it is, and its choices stay untouched.
-  const known = host && (kind === "global" ? pickServer(servers, flagValue(args, "--server")) : linkedServer(folder, servers));
+  const wanted = flagValue(args, "--instance") ?? flagValue(args, "--server");
+  const known = host && (kind === "global" ? pickInstallation(defaultConfigDir(), wanted) : linkedServer(folder, servers));
   const serving = host && known && (await servingAgent({ host, folder, serverUrl: known.serverUrl }));
   if (host && serving) {
     console.log(`An agent already serves this folder (${serving.name}): opening it.`);
@@ -215,12 +209,21 @@ async function startOrOpenAgent({ args, flags, account, servers, kind, folder, h
   let server: Login;
   let projectIds: string[] | undefined;
   let projectNames: string[] | undefined;
-  if (kind === "global") server = pickServer(servers, flagValue(args, "--server"));
+  if (kind === "global") server = pickInstallation(defaultConfigDir(), wanted);
   else {
     let projects: Project[];
-    ({ projectIds, projects, server } = await linkFolder({ folder, servers, chooseServer: askServer, choose: askLinkChoice, chooseMore: canPrompt() ? askMoreProjects : undefined }));
+    const configDir = defaultConfigDir();
+    const here = resolveFolder(configDir, folder);
+    const label = async (installation: Installation) => {
+      const current = await currentInstallation(configDir, installation, systemDeps(configDir).fetchInstance);
+      return { name: current.name, address: `${addressOf(current.serverUrl)}${current.version ? ` · v${current.version}` : ""}` };
+    };
+    const linkedLabel = here.kind === "linked" && "root" in here ? await label(here.installation) : undefined;
+    const chooseMore = canPrompt() ? (linked: Project[], others: Project[]) => askMoreProjects(linkedLabel ? ` on ${linkedLabel.name} (${linkedLabel.address})` : "", linked, others) : undefined;
+    ({ projectIds, projects, server } = await linkFolder({ folder, servers, chooseServer: askServer, choose: askLinkChoice, chooseMore }));
     projectNames = projects.map((project) => project.title);
-    console.log(`Serving ${titles(projects)}.`);
+    const used = listInstallations(configDir).find((installation) => installation.serverUrl === server.serverUrl);
+    console.log(`Serving ${titles(projects)}${used ? ` on ${(await label(used)).name}` : ""}.`);
   }
   const { serverUrl, token } = server;
   const { model, effort } = await askModelEffort(folder, flags);
@@ -273,7 +276,12 @@ async function superviseOrRunAgent(args: string[]): Promise<void> {
 async function runHost(): Promise<void> {
   // Everything the host creates is private to the user, whatever the shell's umask.
   process.umask(0o077);
-  const host = await startAgentHost({ configDir: defaultConfigDir(), worker: { command: process.execPath, args: [process.argv[1], "worker"] } }).catch((error) => {
+  // Each worker runs its installation's own code; the replacement host, started when the global command changes, is this command's.
+  const host = await startAgentHost({
+    configDir: defaultConfigDir(),
+    worker: (installation) => ({ command: process.execPath, args: [installation.entry, "worker"] }),
+    respawn: { command: process.execPath, args: [process.argv[1], "host"] },
+  }).catch((error) => {
     if (error instanceof HostAlreadyRunningError) return undefined;
     throw error;
   });
@@ -315,7 +323,7 @@ try {
   else if (command === "host") await runHost();
   else if (command === "worker") runAgentWorker({ engine: claudeCodeEngine() });
   else if (command === "build-hash") console.log(buildHash());
-  else throw new Error("Usage: redline setup <address> [--name <name>] [--token <token>] | redline login [<address>] | redline link [<instance>] | redline mcp | redline agents | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
+  else throw new Error("Usage: redline setup <address> [--name <name>] [--token <token>] | redline login [<address>] | redline link [<instance>] | redline mcp | redline agents | redline agent [--global [--instance <name|address>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
 } catch (error) {
   console.error((error as Error).message);
   process.exit(1);

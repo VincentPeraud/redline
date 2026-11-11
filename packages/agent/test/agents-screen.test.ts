@@ -249,6 +249,17 @@ describe("stopping, removing and restarting from the view", () => {
     expect(onKey(none, "R").commands).toEqual([]);
   });
 
+  it("tells in the log that the host restarted for a new redline command", () => {
+    const log = [...lumoraLog, entry("09:58:40", { type: "host-updated", version: "0.3.0" })];
+    expect(text(open([lumora, radio], "a1", { a1: log }))).toContain("09:58:40  ↻ Host restarted  redline command changed to v0.3.0");
+  });
+
+  it("shows a refused installation's message in the log", () => {
+    const reason = "the Brightco installation (v0.1.0) is too old for this redline command (v0.3.0, which accepts v0.2.0 and later).";
+    const frame = text(open([lumora], "a1", { a1: [entry("10:44:02", { type: "refused", reason })] }));
+    expect(frame).toContain("10:44:02  ✗ Refused  the Brightco installation (v0.1.0) is too");
+  });
+
   it("shows the banner when every agent is stopped after a fresh start, and the log's stop line", () => {
     const log = [...lumoraLog, entry("18:42:10", { type: "stopped", reason: "host-restarted" })];
     let state = logLoaded(allStopped(new Date("2026-10-28T18:42:10").toISOString()), "a1", log);

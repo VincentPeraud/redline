@@ -1,4 +1,4 @@
-import { EFFORTS, MODEL_PATTERN, type AgentKind, type Effort } from "@redline/shared";
+import { EFFORTS, HOST_PROTOCOL_VERSION, MODEL_PATTERN, type AgentKind, type Effort } from "@redline/shared";
 import type { AgentActivity } from "./activity.js";
 
 /**
@@ -16,6 +16,8 @@ export interface HostAgent {
   folder: string;
   kind: AgentKind;
   serverUrl: string;
+  /** Id of the installation the agent runs with (its worker runs that installation's code); older registries have none: the address tells. */
+  installation?: string;
   projectIds?: string[];
   /** Titles of the projects, as the launching terminal knew them (shown by the agents screen). */
   projectNames?: string[];
@@ -105,7 +107,12 @@ export interface HostReplies {
 export type HostReply = { [Type in keyof HostReplies]: { id: number; ok: true } & HostReplies[Type] }[keyof HostReplies] | { id: number; ok: false; error: string };
 
 /** What an agent's run log records: the worker's activity, plus the failure of a worker that did not stop on request. */
-export type HostLogEvent = AgentActivity | { type: "stopped"; reason: "failed"; error: string } | { type: "stopped"; reason: "host-restarted" };
+export type HostLogEvent =
+  | AgentActivity
+  | { type: "stopped"; reason: "failed"; error: string }
+  | { type: "stopped"; reason: "host-restarted" }
+  /** The host restarted because the global `redline` command changed, and started this agent again (`version` is the new command's). */
+  | { type: "host-updated"; version: string };
 
 /** One line of an agent's run log: the event as structured data (the agents screen formats and colours it), and when it happened. */
 export interface HostLogEntry {
@@ -164,3 +171,33 @@ export function modelChoiceError({ model, effort }: { model?: unknown; effort?: 
 }
 
 export const isAgentId = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+/** First `redline` release of each host protocol version, to tell people which version of an installation is old enough to be refused. */
+const PROTOCOL_RELEASES: Record<number, string> = { 1: "0.2.0" };
+
+/** What a host accepts: the workers of its own protocol version and of the previous one (never below 1: older builds have none). */
+export interface HostProtocol {
+  version: number;
+  /** Version of the global command running the host. */
+  commandVersion: string;
+  /** Oldest protocol version accepted. */
+  oldest: number;
+  /** First release speaking `oldest`, when known. */
+  oldestRelease?: string;
+}
+
+export function hostProtocol(commandVersion: string, version = HOST_PROTOCOL_VERSION): HostProtocol {
+  const oldest = Math.max(1, version - 1);
+  return { version, commandVersion, oldest, oldestRelease: PROTOCOL_RELEASES[oldest] };
+}
+
+/** An installation that does not tell its protocol (a build older than the installations) is not accepted. */
+export const acceptsProtocol = ({ oldest }: HostProtocol, installationProtocol: number | undefined): boolean => installationProtocol !== undefined && installationProtocol >= oldest;
+
+/** What an agent's log and the setup report say about an installation the host refuses. */
+export function refusalMessage(protocol: HostProtocol, installation: { name: string; version?: string }): string {
+  const own = installation.version ? ` (v${installation.version})` : "";
+  const accepted = protocol.oldestRelease ? `v${protocol.oldestRelease}` : `host protocol ${protocol.oldest}`;
+  const server = installation.version ? `${installation.name}'s server runs v${installation.version}: it` : `${installation.name}'s server`;
+  return `the ${installation.name} installation${own} is too old for this redline command (v${protocol.commandVersion}, which accepts ${accepted} and later). ${server} must be upgraded, then updated (Instances tab).`;
+}

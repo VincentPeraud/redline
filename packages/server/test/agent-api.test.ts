@@ -193,7 +193,7 @@ it("refuses an agent version whose elements lack ids, naming each one, while the
   expect(lenient.status).toBe(201);
 });
 
-it("tells the CLI the instance name, version and build hash behind its token", async () => {
+it("tells the CLI the instance name, version, build hash and host protocol behind its token", async () => {
   const cliDir = mkdtempSync(join(tmpdir(), "redline-cli-"));
   writeFileSync(join(cliDir, "redline-cli.tgz"), "tarball");
   writeFileSync(join(cliDir, "build-hash.txt"), "abc123\n");
@@ -201,7 +201,7 @@ it("tells the CLI the instance name, version and build hash behind its token", a
   try {
     const namedToken = ((await (await named.get("/api/agent-token")).json()) as AgentTokenResponse).token;
     const answer = await fetch(`${named.url}${AGENT_API_PREFIX}/instance`, { headers: { authorization: `Bearer ${namedToken}` } });
-    expect(await answer.json()).toEqual({ artboardOrigin: named.artboardOrigin, instanceName: "Lumora", version: serverVersion, buildHash: "abc123" });
+    expect(await answer.json()).toEqual({ artboardOrigin: named.artboardOrigin, instanceName: "Lumora", version: serverVersion, buildHash: "abc123", hostProtocol: 1 });
     expect((await fetch(`${named.url}${AGENT_API_PREFIX}/instance`)).status).toBe(401);
   } finally {
     await named.stop();
