@@ -47,12 +47,12 @@ export const restartInstallationAgents = (configDir: string, installation: Insta
   withHost(configDir, env, async (host) => (await host.installationUpdated(installation.id)).map((agent) => agent.name), () => []);
 
 /** The agents of the installation, `running` meaning anything but stopped. */
-export const agentsOfInstallation = (configDir: string, installation: Installation, env: NodeJS.ProcessEnv): Promise<{ name: string; running: boolean }[]> =>
+export const agentsOfInstallation = (configDir: string, installation: Installation, env: NodeJS.ProcessEnv): Promise<{ name: string; running: boolean; folder: string }[]> =>
   withHost(
     configDir,
     env,
-    async (host) => (await host.list()).filter((agent) => agentOf(agent, installation)).map((agent) => ({ name: agent.name, running: agent.state !== "stopped" })),
-    () => savedAgents(configDir).filter((agent) => agentOf(agent, installation)).map((agent) => ({ name: agent.name, running: false })),
+    async (host) => (await host.list()).filter((agent) => agentOf(agent, installation)).map((agent) => ({ name: agent.name, running: agent.state !== "stopped", folder: agent.folder })),
+    () => savedAgents(configDir).filter((agent) => agentOf(agent, installation)).map((agent) => ({ name: agent.name, running: false, folder: agent.folder })),
   );
 
 /** Removes the installation's stopped agents and their logs, through the host or, when none runs, from the saved list. */
