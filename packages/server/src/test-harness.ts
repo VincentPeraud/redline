@@ -101,6 +101,7 @@ export async function startTestServer(options: { webDir?: string; cliDir?: strin
         model: options.model,
         effort: options.effort,
         buildHash: options.buildHash,
+        hostProtocol: options.hostProtocol,
       };
       socket.send(JSON.stringify(message));
       return { hello, messages, send: (m) => socket.send(JSON.stringify(m)), closed, close: () => socket.close() };

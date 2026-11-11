@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { cliUpdateCommand, modelLabel, type AgentOverview, type AgentTokenResponse, type RefusedAgent, type ServerConfig, type Settings } from "@redline/shared";
+import { CLI_TARBALL_PATH, cliSetupCommand, instanceFallbackName, instanceHandle, modelLabel, refusedAgentCommand, type AgentOverview, type AgentTokenResponse, type RefusedAgent, type ServerConfig, type Settings } from "@redline/shared";
 import { Avatar } from "./Avatar.js";
 import { agentName } from "./agentName.js";
 import { routeHref } from "./router.js";
@@ -8,7 +8,7 @@ import { Button, Card, PageContent, PageHeader, StatusBadge, cx } from "./ui/ind
 import { useHome } from "./useHome.js";
 import styles from "./AgentsScreen.module.css";
 
-function InstanceBadge() {
+function useConfig(): ServerConfig | null {
   const [config, setConfig] = useState<ServerConfig | null>(null);
 
   useEffect(() => {
@@ -17,6 +17,10 @@ function InstanceBadge() {
       .then(setConfig);
   }, []);
 
+  return config;
+}
+
+function InstanceBadge({ config }: { config: ServerConfig | null }) {
   if (!config) return null;
   const text = config.instanceName ? `${config.instanceName} · v${config.version}` : `v${config.version}`;
   return (
@@ -192,6 +196,7 @@ function AgentRow({ agent }: { agent: AgentOverview }) {
 
 function RefusedAgentRow({ agent }: { agent: RefusedAgent }) {
   const [copied, copy] = useCopy();
+  const command = refusedAgentCommand(window.location.origin, agent.beforeInstances === true);
 
   return (
     <div role="row" className={cx(styles.row, styles.refused)} data-testid="refused-agent-card">
@@ -217,7 +222,9 @@ function RefusedAgentRow({ agent }: { agent: RefusedAgent }) {
         <div className={styles.badges}>
           <StatusBadge tone="danger">Pas à jour · refusé</StatusBadge>
         </div>
-        <Button className={styles.rowAction} onClick={() => void copy(cliUpdateCommand(window.location.origin))}>
+        {agent.beforeInstances && <span className={styles.secondary}>Installé avant les instances : la commande met Redline à jour puis déplace son installation.</span>}
+        <code className={styles.refusedCommand}>{command}</code>
+        <Button className={styles.rowAction} onClick={() => void copy(command)}>
           {copied ? "Copié" : "Copier la commande"}
         </Button>
       </div>
@@ -274,7 +281,7 @@ function TokenSection({ token, onToken }: { token: string; onToken: (token: stri
   );
 }
 
-function LaunchPanel({ closing, onClose, onClosed, trigger }: { closing: boolean; onClose: () => void; onClosed: () => void; trigger: RefObject<HTMLButtonElement | null> }) {
+function LaunchPanel({ closing, config, onClose, onClosed, trigger }: { closing: boolean; config: ServerConfig | null; onClose: () => void; onClosed: () => void; trigger: RefObject<HTMLButtonElement | null> }) {
   const [token, setToken] = useState("");
   const panel = useRef<HTMLElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -307,9 +314,10 @@ function LaunchPanel({ closing, onClose, onClosed, trigger }: { closing: boolean
     };
   }, [onClose, trigger]);
 
-  const install = cliUpdateCommand(origin);
-  const setupCommand = `${install} && redline setup ${origin} --token ${token}`;
-  const shownCommand = `${install} \\\n  && redline setup ${origin} \\\n  --token ${token ? maskToken(token, 7) : ""}`;
+  const setupCommand = cliSetupCommand(origin, token);
+  const shownCommand = `npx -y ${origin}${CLI_TARBALL_PATH} \\\n  setup ${origin} --token ${token ? maskToken(token, 7) : ""}`;
+  const instanceName = config?.instanceName ?? instanceFallbackName(origin);
+  const handle = instanceHandle(instanceName);
 
   return (
     <aside
@@ -322,7 +330,10 @@ function LaunchPanel({ closing, onClose, onClosed, trigger }: { closing: boolean
     >
       <div className={styles.setup}>
         <div className={styles.setupHead}>
-          <h2 className={styles.setupTitle}>Lancer un agent</h2>
+          <div className={styles.setupTitles}>
+            <h2 className={styles.setupTitle}>Lancer un agent</h2>
+            <InstanceBadge config={config} />
+          </div>
           <button ref={closeButton} type="button" aria-label="Fermer" className={styles.close} onClick={onClose}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
               <path d="M6 6l12 12" />
@@ -335,37 +346,43 @@ function LaunchPanel({ closing, onClose, onClosed, trigger }: { closing: boolean
           title="Une fois par machine"
           text={
             <>
-              Claude Code doit être installé et connecté. La commande fait tout en une fois :
+              Claude Code doit être installé et connecté. La commande :
               <ol className={styles.setupSteps}>
                 <li>
-                  installe la commande <code className={styles.inlineCode}>redline</code> depuis ce serveur ;
+                  installe la commande <code className={styles.inlineCode}>redline</code> de ce serveur si elle manque ou si celle de ta machine est plus ancienne ;
                 </li>
-                <li>enregistre l'adresse du serveur et le jeton ;</li>
                 <li>
-                  <strong className={styles.strong}>connecte le MCP Redline à Claude Code</strong>, pour toutes tes sessions : depuis n'importe quel dossier, Claude peut créer des pages et publier des maquettes ici.
+                  crée l'installation de <strong className={styles.strong}>{instanceName}</strong> sur ta machine, à la version de ce serveur, avec ton jeton ;
+                </li>
+                <li>
+                  <strong className={styles.strong}>connecte le MCP Redline à Claude Code</strong> : dans un dossier lié à {instanceName}, Claude crée des pages et publie ici.
                 </li>
               </ol>
             </>
           }
           command={shownCommand}
         >
-          <Button className={styles.copyCommand} onClick={() => void copy(setupCommand)} disabled={!token}>
+          <Button variant="primary" className={styles.copyCommand} onClick={() => void copy(setupCommand)} disabled={!token}>
             {copied ? "Copié" : "Copier la commande"}
           </Button>
           <div className={styles.verify}>
-            Pour vérifier, tape <code className={styles.inlineCode}>/mcp</code> dans Claude Code : <code className={styles.inlineCode}>redline</code> doit être connecté. Après une mise à jour de Redline (bouton « Mettre à jour » ou commande
-            relancée), refais <code className={styles.inlineCode}>/mcp</code> → reconnecter <code className={styles.inlineCode}>redline</code> dans tes sessions ouvertes. Relance la commande pour ajouter un autre serveur.
+            Déjà d'autres instances sur ta machine ? Chacune garde sa version : celle-ci s'ajoute à côté. Pour vérifier, lance <code className={styles.inlineCode}>redline doctor</code>.
           </div>
         </Step>
         <Step
+          title="Lier un dossier"
+          text={`Dans le dossier du projet, sans agent : ses sessions Claude Code publient sur ${instanceName}.`}
+          command={`cd ~/projets/mon-projet\nredline link ${handle}`}
+        />
+        <Step
           title="Agent de projet"
           text="Dans le dossier du projet. La première fois, la commande te propose de le lier à un projet existant ou d'en créer un. Ses sessions ont le CLAUDE.md, le code et les MCP du dossier."
-          command={"cd ~/projets/mon-projet\nredline agent"}
+          command="redline agent"
         />
         <Step
           title="Agent global"
-          text="N'importe où. Il prend les projets qui l'autorisent quand aucun agent ne tourne pour eux. Avec plusieurs serveurs configurés, ajoute --server <adresse>."
-          command="redline agent --global"
+          text="N'importe où. Il prend les projets qui l'autorisent quand aucun agent ne tourne pour eux."
+          command={`redline agent --global --instance ${handle}`}
         />
         <div className={styles.spacer} />
         <TokenSection token={token} onToken={setToken} />
@@ -376,6 +393,7 @@ function LaunchPanel({ closing, onClose, onClosed, trigger }: { closing: boolean
 
 export function AgentsScreen() {
   const { home, refresh } = useHome();
+  const config = useConfig();
   /** The launch panel slides in when opened and out before it unmounts. */
   const [launch, setLaunch] = useState<"closed" | "open" | "closing">("closed");
   const launchButton = useRef<HTMLButtonElement>(null);
@@ -388,7 +406,7 @@ export function AgentsScreen() {
       <PageContent>
         <PageHeader
           title="Agents"
-          badge={<InstanceBadge />}
+          badge={<InstanceBadge config={config} />}
           subtitle="Chaque agent tourne avec le jeton de la personne qui l'a lancé, et n'a que ses droits."
           actions={
             <Button ref={launchButton} variant="accent" aria-expanded={launch === "open"} onClick={() => (launch === "open" ? closeLaunch() : setLaunch("open"))}>
@@ -417,7 +435,7 @@ export function AgentsScreen() {
         )}
         <GlobalTakeoverSetting onChange={refresh} />
       </PageContent>
-      {launch !== "closed" && <LaunchPanel closing={launch === "closing"} onClose={closeLaunch} onClosed={() => setLaunch("closed")} trigger={launchButton} />}
+      {launch !== "closed" && <LaunchPanel closing={launch === "closing"} config={config} onClose={closeLaunch} onClosed={() => setLaunch("closed")} trigger={launchButton} />}
     </>
   );
 }
