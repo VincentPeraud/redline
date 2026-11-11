@@ -6,6 +6,10 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+### Fixed
+
+- On Linux, a Claude Code crash showed "Claude Code ended without a result." instead of its own error message.
+
 ## [0.1.0] - 2026-11-10
 
 ### Added

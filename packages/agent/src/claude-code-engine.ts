@@ -191,6 +191,8 @@ export function claudeCodeEngine(options: ClaudeCodeEngineOptions = {}): Engine 
       stderr = (stderr + chunk.toString()).slice(-2000);
     });
     const spawnFailure = new Promise<Error>((resolve) => child.once("error", resolve));
+    // stdout can end before the last stderr chunk is read (Linux): "close" comes once every stream is drained
+    const streamsClosed = new Promise<void>((resolve) => child.once("close", () => resolve()));
     child.stdin.on("error", () => {});
     child.stdin.end(request.message);
 
@@ -211,6 +213,8 @@ export function claudeCodeEngine(options: ClaudeCodeEngineOptions = {}): Engine 
         if (next.done) break;
         yield* parser.push(next.value);
       }
+      // Bounded, for a process that closes stdout but keeps running
+      await Promise.race([streamsClosed, new Promise((resolve) => setTimeout(resolve, 2000).unref())]);
       yield* parser.end(stderr.trim());
     } finally {
       request.signal?.removeEventListener("abort", cancel);
