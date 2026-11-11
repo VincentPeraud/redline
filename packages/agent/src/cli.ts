@@ -27,7 +27,8 @@ import { sanitizeForTerminal } from "./sanitize.js";
 import { servingAgent } from "./serving-agent.js";
 import { askSecret } from "./secret-prompt.js";
 import { serveAgent } from "./serve-agent.js";
-import { setupReport, systemDeps } from "./setup.js";
+import { doctorReport, gatherDoctor } from "./doctor.js";
+import { setupReport, systemDeps, systemDoctorDeps } from "./setup.js";
 import { createNewAgentFlow } from "./new-agent.js";
 import { openWithSystem } from "./open-url.js";
 import { openTerminal } from "./terminal-driver.js";
@@ -364,6 +365,15 @@ async function reportRefusal(color: boolean, run: () => Promise<void>): Promise<
   }
 }
 
+/** `redline doctor`: works before the migration too; exits 1 when something is wrong. */
+async function runDoctor(): Promise<void> {
+  const configDir = defaultConfigDir();
+  const state = await gatherDoctor({ configDir, folder: process.cwd(), deps: systemDoctorDeps(configDir) });
+  const { lines, problems } = doctorReport(state, { color: Boolean(process.stdout.isTTY) && !process.env.NO_COLOR, home: homedir() });
+  for (const line of lines) console.log(line);
+  if (problems > 0) process.exitCode = 1;
+}
+
 /** `redline link [<instance>]`. */
 async function runLinkCommand(args: string[]): Promise<void> {
   const configDir = defaultConfigDir();
@@ -393,13 +403,14 @@ try {
   else if (command === "link") await runLinkCommand(args);
   else if (command === "update") await runUpdate(args);
   else if (command === "remove") await runRemove(args);
+  else if (command === "doctor") await runDoctor();
   else if (command === "agent") await superviseOrRunAgent(args);
   else if (command === "agents") await runAgents();
   else if (command === "mcp") await runMcp();
   else if (command === "host") await runHost();
   else if (command === "worker") runAgentWorker({ engine: claudeCodeEngine() });
   else if (command === "build-hash") console.log(buildHash());
-  else throw new Error("Usage: redline setup <address> [--name <name>] [--token <token>] | redline login [<address>] | redline link [<instance>] | redline update <instance|address> | redline remove <instance> | redline mcp | redline agents | redline agent [--global [--instance <name|address>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
+  else throw new Error("Usage: redline setup <address> [--name <name>] [--token <token>] | redline login [<address>] | redline link [<instance>] | redline update <instance|address> | redline remove <instance> | redline doctor | redline mcp | redline agents | redline agent [--global [--instance <name|address>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
 } catch (error) {
   console.error((error as Error).message);
   process.exit(1);

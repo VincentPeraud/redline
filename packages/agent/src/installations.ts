@@ -151,6 +151,18 @@ export function listInstallations(configDir: string): Installation[] {
   return ids.flatMap((id) => readInstallation(configDir, id) ?? []);
 }
 
+/** Folders under the installations dir that are not installations (no readable login): doctor reports them, nothing uses them. */
+export function skippedInstallationFolders(configDir: string): string[] {
+  try {
+    return readdirSync(installationsPath(configDir), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && !readInstallation(configDir, entry.name))
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
 /** By id, name (compared as an id) or address (compared normalized). */
 export function findInstallation(configDir: string, wanted: string): Installation | undefined {
   const address = normalizeServerUrl(wanted);
