@@ -1,6 +1,8 @@
 import { EFFORTS, MODEL_CHOICES, agentsHash, modelLabel, pageHash, type Effort } from "@redline/shared";
-import { publishedOutcome, wording } from "./activity.js";
+import { MIGRATE_STOP_REASON, publishedOutcome, wording } from "./activity.js";
 import { sanitizeForTerminal } from "./sanitize.js";
+import { COMMANDS, commandCell } from "./commands-help.js";
+import type { FolderLine, InstanceEntry } from "./instance-list.js";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "./host-protocol.js";
 import type { NewAgentAnswers, NewAgentQuestions, ProjectOption } from "./new-agent.js";
 
@@ -29,25 +31,46 @@ export interface ScreenState {
   freshStartAt?: string;
   /** The dialog open over the screen, if any: it takes every key until it closes. */
   dialog?: Dialog;
+  /** The tab shown. A tab owns the keys and the body of its own (see `TABS`); the tab bar, the folder line and the bar of common keys are the screen's. */
+  tab: TabId;
+  /** Which side ←→ moved the focus to: the list on the right, or the detail pane on the left (the agents' log). ↑↓ act on it. */
+  focus: Focus;
+  /** Lines the log is scrolled up from its end. */
+  logScroll: number;
+  /** The installations on this computer. */
+  instances: InstanceEntry[];
+  /** What the "This folder" line says. */
+  folderLine: FolderLine;
+  /** Comments waiting for terminal sessions, for the tab's count (the Comments tab fills it). */
+  commentCount: number;
 }
+
+export type TabId = "agents" | "instances" | "comments";
+export type Focus = "list" | "detail";
+const TAB_ORDER: TabId[] = ["agents", "instances", "comments"];
 
 /** A dialog open over the screen. Each type has its keys (`onDialogKey`), its box (`dialogBox`) and the condition that keeps it open (`dialogStillValid`). */
 export type Dialog =
   | { type: "stop"; agentId: string }
   /** The choices being edited; they reach the host only on Enter. */
   | { type: "model"; agentId: string; field: "model" | "effort"; model: string; effort?: Effort }
+  /** `?`: the keys and the commands. */
+  | { type: "help" }
+  /** `l` on a folder that is not linked, with several instances: which one. */
+  | { type: "link"; row: number }
   | NewAgentDialog;
 
 /**
- * `n`: the questions of a new agent. It opens `loading` while the folder is inspected, goes through `server` when several are set up
+ * `n`: the questions of a new agent. It opens `loading` while the folder is inspected, goes through `instance` when several are set up
  * and the folder is not linked, then `form`. The rows of the form are the projects, the create option, the model and the effort.
  * A folder not linked yet picks one project (radio rows); a linked folder ticks those its agent serves (checkbox rows).
  */
 export interface NewAgentDialog {
   type: "new";
-  stage: "loading" | "server" | "form";
-  servers: string[];
-  serverRow: number;
+  stage: "loading" | "instance" | "form";
+  /** The instances to pick from when several are set up and the folder is not linked. */
+  instances: InstanceEntry[];
+  instanceRow: number;
   serverUrl?: string;
   /** The titles of the projects of a linked folder: its projects are then ticked rather than picked. */
   linkedTitles?: string[];
@@ -79,7 +102,9 @@ export type ScreenCommand =
   | { type: "prepare-new" }
   | { type: "list-projects"; serverUrl: string }
   | { type: "start-new"; answers: NewAgentAnswers }
-  | { type: "open"; url: string };
+  | { type: "open"; url: string }
+  /** Links the folder to the instance (as `redline link` does). */
+  | { type: "link-folder"; serverUrl: string };
 
 export interface Update {
   state: ScreenState;
@@ -91,10 +116,25 @@ export interface Size {
   rows: number;
 }
 
-export function initialState({ agents, selectedId, now, home, folder, freshStartAt }: { agents: HostAgent[]; selectedId?: string; now: number; home: string; folder: string; freshStartAt?: string }): ScreenState {
-  const selected = agents.some((agent) => agent.id === selectedId) ? selectedId : agents[0]?.id;
-  return { agents, selectedId: selected, logs: {}, loaded: {}, now, home, folder, freshStartAt };
+export interface InitialState {
+  agents: HostAgent[];
+  selectedId?: string;
+  now: number;
+  home: string;
+  folder: string;
+  freshStartAt?: string;
+  instances?: InstanceEntry[];
+  folderLine?: FolderLine;
+  tab?: TabId;
 }
+
+export function initialState({ agents, selectedId, now, home, folder, freshStartAt, instances = [], folderLine = { kind: "unlinked" }, tab = "agents" }: InitialState): ScreenState {
+  const selected = agents.some((agent) => agent.id === selectedId) ? selectedId : agents[0]?.id;
+  return { agents, selectedId: selected, logs: {}, loaded: {}, now, home, folder, freshStartAt, tab, focus: "list", logScroll: 0, instances, folderLine, commentCount: 0 };
+}
+
+/** The folder was linked from the screen: the line says so. */
+export const folderLinked = (state: ScreenState, folderLine: FolderLine): ScreenState => ({ ...state, folderLine });
 
 export const tick = (state: ScreenState, now: number): ScreenState => ({ ...state, now });
 
@@ -143,12 +183,34 @@ function nextSelection(agents: HostAgent[], removedId: string): string | undefin
 
 export function onKey(state: ScreenState, key: Key): Update {
   if (state.dialog) return onDialogKey(state, state.dialog, key);
+  if (key === "q" || key === "ctrl-c") return { state, commands: [{ type: "close" }] };
+  if (key === "?") return { state: { ...state, dialog: { type: "help" } }, commands: [] };
+  if (key === "\t") return { state: switchTab(state, TAB_ORDER[(TAB_ORDER.indexOf(state.tab) + 1) % TAB_ORDER.length]), commands: [] };
+  if (key === "1" || key === "2" || key === "3") return { state: switchTab(state, TAB_ORDER[Number(key) - 1]), commands: [] };
+  if (key === "left" || key === "right") return { state: { ...state, focus: key === "left" ? "detail" : "list" }, commands: [] };
+  if (key === "l" && state.folderLine.kind === "unlinked" && state.instances.length > 0) {
+    if (state.instances.length === 1) return { state, commands: [{ type: "link-folder", serverUrl: state.instances[0].serverUrl }] };
+    return { state: { ...state, dialog: { type: "link", row: 0 } }, commands: [] };
+  }
+  return TABS[state.tab].onKey(state, key);
+}
+
+const switchTab = (state: ScreenState, tab: TabId): ScreenState => ({ ...state, tab, focus: "list" });
+
+/** Selecting an agent starts its log at the end again. */
+const selectAgent = (state: ScreenState, agentId: string): ScreenState => ({ ...state, selectedId: agentId, logScroll: 0 });
+
+function onAgentsKey(state: ScreenState, key: Key): Update {
   const index = state.agents.findIndex((agent) => agent.id === state.selectedId);
   if (key === "up" || key === "down") {
+    if (state.focus === "detail") {
+      const agent = selectedAgent(state);
+      const last = agent ? Math.max(0, logRows(state.logs[agent.id] ?? [], state.now, 0).length - 1) : 0;
+      return { state: { ...state, logScroll: Math.min(last, Math.max(0, state.logScroll + (key === "up" ? 1 : -1))) }, commands: [] };
+    }
     const next = state.agents[Math.min(state.agents.length - 1, Math.max(0, index + (key === "up" ? -1 : 1)))];
-    return { state: next ? { ...state, selectedId: next.id } : state, commands: [] };
+    return { state: next && next.id !== state.selectedId ? selectAgent(state, next.id) : state, commands: [] };
   }
-  if (key === "q" || key === "ctrl-c") return { state, commands: [{ type: "close" }] };
   const selected = selectedAgent(state);
   if (key === "x" && selected) {
     if (selected.state === "running") return { state: { ...state, dialog: { type: "stop", agentId: selected.id } }, commands: [] };
@@ -156,8 +218,8 @@ export function onKey(state: ScreenState, key: Key): Update {
   }
   if (key === "n") {
     const served = state.agents.find((agent) => agent.kind === "project" && agent.folder === state.folder);
-    if (served) return { state: { ...state, selectedId: served.id }, commands: [] };
-    return { state: { ...state, dialog: { type: "new", stage: "loading", servers: [], serverRow: 0, projects: [], ticked: [], row: 0, picked: 0, kept: 0, title: "", model: MODEL_CHOICES[0].id } }, commands: [{ type: "prepare-new" }] };
+    if (served) return { state: selectAgent(state, served.id), commands: [] };
+    return { state: { ...state, dialog: { type: "new", stage: "loading", instances: [], instanceRow: 0, projects: [], ticked: [], row: 0, picked: 0, kept: 0, title: "", model: MODEL_CHOICES[0].id } }, commands: [{ type: "prepare-new" }] };
   }
   if (key === "o" && selected && selected.state !== "stopped") return { state, commands: [{ type: "open", url: addressOf(selected) }] };
   if (key === "m" && selected) return { state: { ...state, dialog: { type: "model", agentId: selected.id, field: "model", model: selected.model ?? MODEL_CHOICES[0].id, effort: selected.effort } }, commands: [] };
@@ -175,6 +237,12 @@ const closeDialog = (state: ScreenState): ScreenState => ({ ...state, dialog: un
 function onDialogKey(state: ScreenState, dialog: Dialog, key: Key): Update {
   if (key === "escape") return { state: closeDialog(state), commands: [] };
   switch (dialog.type) {
+    case "help":
+      return key === "?" ? { state: closeDialog(state), commands: [] } : { state, commands: [] };
+    case "link": {
+      if (key === "up" || key === "down") return { state: { ...state, dialog: { ...dialog, row: Math.min(state.instances.length - 1, Math.max(0, dialog.row + (key === "up" ? -1 : 1))) } }, commands: [] };
+      return key === "enter" ? { state: closeDialog(state), commands: [{ type: "link-folder", serverUrl: state.instances[dialog.row].serverUrl }] } : { state, commands: [] };
+    }
     case "new":
       return onNewKey(state, dialog, key);
     case "stop":
@@ -199,7 +267,7 @@ function onDialogKey(state: ScreenState, dialog: Dialog, key: Key): Update {
 
 /** A stop dialog is about a run: it goes with the run. The model dialog stays while its agent is listed, the new agent dialog is about no agent. */
 function dialogStillValid(state: ScreenState, dialog: Dialog): boolean {
-  if (dialog.type === "new") return true;
+  if (dialog.type === "new" || dialog.type === "help" || dialog.type === "link") return true;
   const agent = state.agents.find((a) => a.id === dialog.agentId);
   return dialog.type === "stop" ? agent?.state === "running" : agent !== undefined;
 }
@@ -215,14 +283,14 @@ function openForm(dialog: NewAgentDialog, serverUrl: string, projects: ProjectOp
   return { ...dialog, stage: "form", serverUrl, projects, row: 0, picked: 0, kept: 0 };
 }
 
-/** The folder was inspected: ask for the server, or go to the form. */
+/** The folder was inspected: ask for the instance, or go to the form. */
 export function newAgentQuestions(state: ScreenState, questions: NewAgentQuestions): ScreenState {
   if (state.dialog?.type !== "new") return state;
-  const dialog: NewAgentDialog = { ...state.dialog, servers: questions.servers, model: questions.model, effort: questions.effort, linkedTitles: questions.linkedTitles, ticked: questions.linkedIds ?? [] };
-  return { ...state, dialog: questions.serverUrl ? openForm(dialog, questions.serverUrl, questions.projects ?? []) : { ...dialog, stage: "server" } };
+  const dialog: NewAgentDialog = { ...state.dialog, instances: questions.instances, model: questions.model, effort: questions.effort, linkedTitles: questions.linkedTitles, ticked: questions.linkedIds ?? [] };
+  return { ...state, dialog: questions.serverUrl ? openForm(dialog, questions.serverUrl, questions.projects ?? []) : { ...dialog, stage: "instance" } };
 }
 
-/** The projects of the server picked came back. */
+/** The projects of the instance picked came back. */
 export function projectsLoaded(state: ScreenState, serverUrl: string, projects: ProjectOption[]): ScreenState {
   return state.dialog?.type === "new" && state.dialog.stage === "loading" ? { ...state, dialog: openForm(state.dialog, serverUrl, projects) } : state;
 }
@@ -231,7 +299,7 @@ export function projectsLoaded(state: ScreenState, serverUrl: string, projects: 
 export function newAgentFailed(state: ScreenState, message: string): ScreenState {
   if (state.dialog?.type !== "new") return state;
   const { dialog } = state;
-  return { ...state, dialog: { ...dialog, busy: false, error: message, stage: dialog.stage === "loading" && dialog.servers.length > 1 && !dialog.serverUrl ? "server" : dialog.stage } };
+  return { ...state, dialog: { ...dialog, busy: false, error: message, stage: dialog.stage === "loading" && dialog.instances.length > 1 && !dialog.serverUrl ? "instance" : dialog.stage } };
 }
 
 /** The agent was started: the new dialog closes and the agent is selected (it may reach the list just after). */
@@ -242,10 +310,12 @@ export function agentStarted(state: ScreenState, agentId: string): ScreenState {
 function onNewKey(state: ScreenState, dialog: NewAgentDialog, key: Key): Update {
   if (dialog.stage === "loading" || dialog.busy) return { state, commands: [] };
   const clear = { ...dialog, error: undefined };
-  if (dialog.stage === "server") {
-    if (key === "up" || key === "down") return withNew(state, { ...clear, serverRow: Math.min(dialog.servers.length - 1, Math.max(0, dialog.serverRow + (key === "up" ? -1 : 1))) });
+  if (dialog.stage === "instance") {
+    if (key === "up" || key === "down") return withNew(state, { ...clear, instanceRow: Math.min(dialog.instances.length - 1, Math.max(0, dialog.instanceRow + (key === "up" ? -1 : 1))) });
     if (key !== "enter") return { state, commands: [] };
-    const serverUrl = dialog.servers[dialog.serverRow];
+    const picked = dialog.instances[dialog.instanceRow];
+    if (picked.tooOld) return withNew(state, { ...clear, error: `${picked.name} is too old for this command: it must be updated first (Instances tab).` });
+    const serverUrl = picked.serverUrl;
     return { state: { ...state, dialog: { ...clear, stage: "loading" } }, commands: [{ type: "list-projects", serverUrl }] };
   }
   const model = MODEL_ROW(dialog);
@@ -400,7 +470,7 @@ const folderLabel = (folder: string, home: string) => (home && (folder === home 
 
 type RunStarted = Extract<HostLogEvent, { type: "run-started" }>;
 const lastStarted = (log: HostLogEntry[]): RunStarted | undefined => log.map((e) => e.event).filter((e): e is RunStarted => e.type === "run-started").at(-1);
-const placeOf = (project: string | undefined, page: string) => (project ? `${project} / ${page}` : page);
+const placeOf = (project: string | undefined, page: string) => (project ? `${project} › ${page}` : page);
 
 /** What an agent is doing, in one phrase: `running · Lumora Pro / Tarifs`. */
 function activityLabel(agent: HostAgent, log: HostLogEntry[]): string {
@@ -417,8 +487,30 @@ const dot = (agent: HostAgent) => (agent.state === "stopped" ? "○" : "●");
 // ---- Run log -------------------------------------------------------------------------------------------------
 
 const TIME_WIDTH = 10;
+const LABEL_COLUMN = 14;
+/** Where what an event says starts, after the time, the glyph and the label. */
+const VALUE_COLUMN = TIME_WIDTH + 2 + LABEL_COLUMN;
 
-function logRows(log: HostLogEntry[], now: number): Row[] {
+/** Cuts a text into lines of at most `limit` characters at word boundaries (a longer word is cut). */
+function wrap(text: string, limit: number): string[] {
+  const out: string[] = [];
+  let current = "";
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    if (current && [...current].length + 1 + [...word].length > limit) {
+      out.push(current);
+      current = "";
+    }
+    current = current ? `${current} ${word}` : word;
+    while ([...current].length > limit && limit > 0) {
+      out.push([...current].slice(0, limit).join(""));
+      current = [...current].slice(limit).join("");
+    }
+  }
+  return current ? [...out, current] : out;
+}
+
+/** `cells` is the width the lines may take; a refusal wraps under its first line within it (0: no wrapping). */
+function logRows(log: HostLogEntry[], now: number, cells: number, where: (serverUrl: string) => string = (serverUrl) => serverUrl): Row[] {
   // A run's progress shows under its start line, its time counted from the start of the run, only while the run is in progress: a later end of the run, or of the worker, drops it.
   const progress = new Map<string, Extract<HostLogEvent, { type: "run-progress" }>>();
   const lastStart = new Map<string, number>();
@@ -448,15 +540,16 @@ function logRows(log: HostLogEntry[], now: number): Row[] {
   });
 
   const rows: Row[] = [];
-  const indent = spaces(TIME_WIDTH);
   const line = (at: string, ...rest: Span[]): Row => ({ spans: [span(`${clock(at)}  `, C.dim), ...rest] });
-  const detail = (text: string): Row => ({ spans: [span(`${indent}  ${text}`, C.dim)] });
-  const title = (glyph: string, color: string, label: string) => [span(`${glyph} `, color), span(`${label}  `, C.text, true)];
+  const detail = (text: string): Row => ({ spans: [span(`${spaces(VALUE_COLUMN)}  ${text}`, C.dim)] });
+  /** The events' labels share a column, so that what they say lines up (a label as wide as the column keeps two spaces). */
+  const labelled = (label: string) => `${label.padEnd(LABEL_COLUMN)}${label.length >= LABEL_COLUMN ? "  " : ""}`;
+  const title = (glyph: string, color: string, label: string) => [span(`${glyph} `, color), span(labelled(label), C.text, true)];
 
   log.forEach(({ at, event }, index) => {
     switch (event.type) {
       case "connected":
-        rows.push(line(at, span(`${wording.connected(event.serverUrl, event.kind)}.`, C.muted)));
+        rows.push(line(at, ...title("●", C.green, "Connected"), span(where(event.serverUrl), C.muted)));
         break;
       case "connection-lost":
         rows.push(line(at, span(wording.connectionLost(event.reason), C.muted)));
@@ -465,7 +558,12 @@ function logRows(log: HostLogEntry[], now: number): Row[] {
         rows.push(line(at, span(wording.reconnected, C.muted)));
         break;
       case "refused":
-        rows.push(line(at, ...title("✗", C.red, "Refused"), span(event.reason, C.muted)));
+        {
+          const lead = VALUE_COLUMN;
+          const [first = "", ...more] = cells > lead + 10 ? wrap(event.reason, cells - lead) : [event.reason];
+          rows.push(line(at, ...title("✗", C.red, "Refused"), span(first, C.muted)));
+          for (const rest of more) rows.push({ spans: [span(spaces(lead)), span(rest, C.muted)] });
+        }
         break;
       case "run-started": {
         const who = event.author ? ` ${event.kind === "conversation" ? "with" : "by"} ${event.author}` : "";
@@ -488,7 +586,8 @@ function logRows(log: HostLogEntry[], now: number): Row[] {
         rows.push(line(at, ...title("✗", C.red, "Run failed"), span(placeOf(projects.get(event.workId), event.page)), span(`  ${event.reason}`, C.muted)));
         break;
       case "host-updated":
-        rows.push(line(at, span("↻ ", C.muted), span("Host restarted  ", C.text, true), span(`redline command changed to v${event.version}`, C.muted)));
+        rows.push(line(at, span("↻ ", C.muted), span(labelled("Host restarted"), C.text, true), span(`redline command changed to v${event.version}`, C.muted)));
+        rows.push({ spans: [span(`${spaces(VALUE_COLUMN)}(waited for the runs in progress)`, C.dim)] });
         break;
       case "stopped":
         if (event.reason === "failed") rows.push(line(at, ...title("✗", C.red, "Stopped"), span(event.error, C.muted)));
@@ -507,6 +606,12 @@ function logRows(log: HostLogEntry[], now: number): Row[] {
 const MARGIN = 2;
 const RIGHT_WIDTH = 46;
 const LABEL_WIDTH = 10;
+/** The fields of an agent detail line up one column further than the dialog rows (boards). */
+const DETAIL_LABEL_WIDTH = 11;
+/** Rows of the screen around the body: the blank row, header, folder line, blank row, tabs, two rules and the key bar. */
+const CHROME_ROWS = 8;
+/** The first row of the body on screen: the board lets the commands box start there. */
+const TOP_ROW = 6;
 
 export interface BarItem {
   key: string;
@@ -515,34 +620,91 @@ export interface BarItem {
   muted?: boolean;
 }
 
-/** The keys that apply to the selected agent. */
-export function actionBar(state: ScreenState): BarItem[] {
-  const agent = selectedAgent(state);
-  const newHere = { key: "n", label: "new agent here" };
-  if (agent?.state === "stopped") {
-    return [
-      { key: "↑↓", label: "agent" },
-      { key: "r", label: "restart" },
-      { key: "R", label: "restart all" },
-      newHere,
-      { key: "m", label: "model/effort" },
-      { key: "x", label: "remove" },
-      { key: "q", label: "close", muted: true },
-    ];
-  }
-  const keys = agent ? [{ key: "↑↓", label: "agent" }, newHere, { key: "m", label: "model/effort" }, { key: "o", label: "open in Redline" }, { key: "x", label: "stop" }] : [newHere];
-  return [...keys, { key: "q", label: "close · agents keep running", muted: true }];
+/** The two panes of a tab's body, as rows, plus what its header says. */
+interface TabBody {
+  left: Row[];
+  right: Row[];
 }
+
+/**
+ * A tab of the home screen. The screen draws the header, the folder line, the tab bar and the common keys (Tab, 1 2 3, ←→, ?, q, l);
+ * a tab brings its own state (a field of `ScreenState`), its keys (`onKey`, called for the keys the screen did not take, ↑↓ included, with
+ * `state.focus` telling the side), its body (the left pane, `detail`, and the right pane, `list`), the keys it adds to the bar, its count
+ * and its header text. Tests drive a tab with `onKey` and `render`.
+ */
+interface TabDef {
+  label: string;
+  count(state: ScreenState): number;
+  /** The "! n" next to the count, when n > 0. */
+  problems?(state: ScreenState): number;
+  /** The instance the header names, when the tab has a selection that belongs to one. */
+  headerInstance(state: ScreenState): string | undefined;
+  onKey(state: ScreenState, key: Key): Update;
+  /** The keys of the bar before the common ones. */
+  bar(state: ScreenState): BarItem[];
+  body(state: ScreenState, size: { left: number; right: number; height: number }): TabBody;
+}
+
+const TABS: Record<TabId, TabDef> = {
+  agents: {
+    label: "Agents",
+    count: (state) => state.agents.length,
+    headerInstance: (state) => {
+      const agent = selectedAgent(state);
+      return agent ? instanceLabel(state, agent) : undefined;
+    },
+    onKey: onAgentsKey,
+    bar: agentsBar,
+    body: (state, { left, right, height }) => ({ left: leftColumn(state, left, height), right: rightColumn(state, right, height) }),
+  },
+  instances: placeholderTab("Instances", (state) => state.instances.length, (state) => state.instances.reduce((total, entry) => total + (entry.problems ?? 0), 0)),
+  comments: placeholderTab("Comments", (state) => state.commentCount),
+};
+
+/** A tab that exists for the bar and its counts, until its own ticket fills it. */
+function placeholderTab(label: string, count: TabDef["count"], problems?: TabDef["problems"]): TabDef {
+  return {
+    label,
+    count,
+    problems,
+    headerInstance: () => undefined,
+    onKey: (state) => ({ state, commands: [] }),
+    bar: () => [],
+    body: () => ({ left: [{ spans: [] }, { spans: [span(`${spaces(MARGIN)}The ${label} view is not available yet.`, C.muted)] }], right: [] }),
+  };
+}
+
+/** The keys that apply to the selected agent. */
+function agentsBar(state: ScreenState): BarItem[] {
+  const agent = selectedAgent(state);
+  const move = [{ key: "↑↓", label: "agent" }, { key: "←→", label: "log/list" }];
+  if (agent?.state === "stopped") return [...move, { key: "r", label: "restart" }, { key: "R", label: "restart all" }, { key: "x", label: "remove" }];
+  return agent ? [...move, { key: "n", label: "new" }, { key: "m", label: "model" }, { key: "x", label: "stop" }] : [{ key: "n", label: "new" }];
+}
+
+/** The keys shown on the bar: the tab's, then the screen's. */
+export const actionBar = (state: ScreenState): BarItem[] => [...TABS[state.tab].bar(state), { key: "?", label: "commands" }, { key: "Tab", label: "next tab" }, { key: "q", label: "close", muted: true }];
 
 function selectedAgent(state: ScreenState): HostAgent | undefined {
   return state.agents.find((agent) => agent.id === state.selectedId);
 }
 
+const sameAddress = (a: string, b: string) => a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
+const instanceOf = (state: ScreenState, agent: HostAgent): InstanceEntry | undefined =>
+  state.instances.find((entry) => (agent.installation ? entry.id === agent.installation : sameAddress(entry.serverUrl, agent.serverUrl))) ?? state.instances.find((entry) => sameAddress(entry.serverUrl, agent.serverUrl));
+const addressText = (serverUrl: string) => serverUrl.replace(/^https?:\/\//, "");
+/** `Lumora · redline.lumora.com · v0.2.0`: the name, the address, the version when known. */
+const instanceText = (entry: Pick<InstanceEntry, "name" | "serverUrl" | "version">) => [entry.name, addressText(entry.serverUrl), ...(entry.version ? [`v${entry.version}`] : [])].join(" · ");
+const instanceLabel = (state: ScreenState, agent: HostAgent): string => {
+  const entry = instanceOf(state, agent);
+  return entry ? `${entry.name} · ${addressText(entry.serverUrl)}` : addressText(agent.serverUrl);
+};
+
 function headerRow(state: ScreenState, columns: number): Row {
-  const agent = selectedAgent(state);
   const runs = state.agents.filter((a) => a.state === "running").length;
   const allStopped = state.agents.length > 0 && state.agents.every((a) => a.state === "stopped");
-  const left = [span("redline", C.text, true), span(" agents", C.muted), ...(agent ? [span(`  ${agent.serverUrl}`, C.dim)] : [])];
+  const where = TABS[state.tab].headerInstance(state);
+  const left = [span("redline", C.text, true), ...(where ? [span(`  ${where}`, C.dim)] : [])];
   const right = [
     span(plural(state.agents.length, "agent"), C.muted),
     span(" · ", C.dim),
@@ -550,6 +712,28 @@ function headerRow(state: ScreenState, columns: number): Row {
   ];
   const gap = columns - 2 * MARGIN - width(left) - width(right);
   return { spans: [span(spaces(MARGIN)), ...left, span(spaces(gap)), ...right] };
+}
+
+/** "This folder ~/claude-projects/agora → Agora on Lumora", or what is missing. */
+function folderRow(state: ScreenState): Row {
+  const { folderLine: line } = state;
+  const head = [span(spaces(MARGIN)), span("This folder ", C.dim), span(folderLabel(state.folder, state.home), C.muted)];
+  if (line.kind === "linked") return { spans: [...head, span(" → ", C.dim), ...(line.project ? [span(line.project, C.text, true), span(" on ", C.muted)] : []), span(line.instance, C.text, true)] };
+  if (line.kind === "orphan") return { spans: [...head, span(`  linked to ${line.address}, which is not installed here · `, C.dim), span("redline setup", C.text, true)] };
+  return { spans: [...head, span("  not linked to an instance · ", C.dim), span("l", C.text, true), span(" links it", C.dim)] };
+}
+
+/** The tabs: the shown one in a cap, the others muted, their counts, the instances' problems, and the key that switches. */
+function tabRow(state: ScreenState): Row {
+  const spans: Span[] = [span(spaces(MARGIN))];
+  for (const id of TAB_ORDER) {
+    const tab = TABS[id];
+    const shown = id === state.tab;
+    const problems = tab.problems?.(state) ?? 0;
+    spans.push(shown ? span(` ${tab.label} `, C.bg, true, C.text) : span(` ${tab.label} `, C.muted), span(` ${tab.count(state)}`, shown ? C.text : C.dim, shown), ...(problems > 0 ? [span(` ! ${problems}`, C.amber)] : []), span("    "));
+  }
+  spans.push(span(" "), span("Tab", C.text, true), span(" switches", C.dim));
+  return { spans };
 }
 
 function detailRows(state: ScreenState, agent: HostAgent, log: HostLogEntry[], cells: number): Row[] {
@@ -561,12 +745,14 @@ function detailRows(state: ScreenState, agent: HostAgent, log: HostLogEntry[], c
         : [span(`● ${agent.state} since ${clock(agent.since, false)}`, STATE_COLOR[agent.state])];
   const left = [span(agent.name, C.text, true), span("  "), span(folderLabel(agent.folder, state.home), C.muted)];
   const gap = cells - 2 * MARGIN - width(left) - width(status);
-  const field = (label: string, value: string, color: string = C.text): Row => ({ spans: [span(spaces(MARGIN)), span(label.padEnd(LABEL_WIDTH), C.dim), span(value, color)] });
+  const field = (label: string, value: string, color: string = C.text): Row => ({ spans: [span(spaces(MARGIN)), span(label.padEnd(DETAIL_LABEL_WIDTH), C.dim), span(value, color)] });
   const projects = agent.kind === "global" ? "All projects" : (agent.projectNames?.join(", ") ?? "-");
   const machine = [agent.machine ?? "-", ...(agent.state !== "stopped" && agent.startedAt ? [`up ${uptime(state.now - Date.parse(agent.startedAt))}`] : [])].join(" · ");
+  const instance = instanceOf(state, agent);
   return [
     { spans: [] },
     { spans: [span(spaces(MARGIN)), ...left, span(spaces(gap)), ...status] },
+    field("Instance", instance ? instanceText(instance) : addressText(agent.serverUrl), instance?.tooOld ? C.amber : C.text),
     field("Projects", projects),
     field("Model", modelText(agent.model)),
     field("Effort", effortText(agent.effort)),
@@ -575,16 +761,18 @@ function detailRows(state: ScreenState, agent: HostAgent, log: HostLogEntry[], c
   ];
 }
 
-/** After a fresh start of the host, while some agent is still stopped: says why, and which keys bring them back. */
-function bannerRows(state: ScreenState, cells: number): Row[] {
-  if (!state.freshStartAt || !state.agents.some((agent) => agent.state === "stopped")) return [];
+/** Says why the agents are stopped, and which keys bring them back: `redline migrate` stopped the selected one, or the host started fresh while some agent is still stopped. */
+function bannerRows(state: ScreenState, agent: HostAgent, cells: number): Row[] {
+  const migrated = agent.state === "stopped" && agent.reason === MIGRATE_STOP_REASON;
+  if (!migrated && (!state.freshStartAt || !state.agents.some((a) => a.state === "stopped"))) return [];
   const inner = cells - 2 * MARGIN - 2;
   const edge = (text: string) => span(text, C.rule, false, C.bar);
   const line = (...content: Span[]): Row => ({ spans: [span(spaces(MARGIN)), edge("│"), ...fit([span(" ", C.text, false, C.bar), ...content.map((s) => ({ ...s, bg: C.bar }))], inner, C.bar), edge("│")] });
   const border = (left: string, right: string): Row => ({ spans: [span(spaces(MARGIN)), edge(`${left}${"─".repeat(inner)}${right}`)] });
+  const why = migrated ? MIGRATE_STOP_REASON : `The agents stopped (the Mac restarted or the session closed at ${clock(state.freshStartAt!, false)}).`;
   return [
     border("┌", "┐"),
-    line(span("○ ", C.dim), span(`The agents stopped (the Mac restarted or the session closed at ${clock(state.freshStartAt, false)}).`, C.muted)),
+    line(span("○ ", C.dim), span(why, C.muted)),
     line(span("  "), span("r", C.text, true), span(" restarts the selected one with the same folder, model and effort · ", C.muted), span("R", C.text, true), span(" restarts all.", C.muted)),
     border("└", "┘"),
   ];
@@ -596,42 +784,59 @@ function leftColumn(state: ScreenState, cells: number, height: number): Row[] {
     return [{ spans: [] }, { spans: [span(`${spaces(MARGIN)}No agent yet. Press n to start one in this folder.`, C.muted)] }];
   }
   const log = state.logs[agent.id] ?? [];
-  const head = [...detailRows(state, agent, log, cells), ruleRow(), ...bannerRows(state, cells), { spans: [span(`${spaces(MARGIN)}LOG`, C.muted, true)] }];
-  const lines = logRows(log, state.now).map((row) => ({ spans: [span(spaces(MARGIN)), ...row.spans] }));
-  return [...head, ...lines.slice(-Math.max(0, height - head.length))];
+  const scrolling = state.focus === "detail";
+  const title = [scrolling ? span("▎", C.red) : span(" "), span(" "), span("LOG", C.muted, true), span(scrolling ? "  ↑↓ scroll · → back to the list" : "  ← to scroll it", C.dim)];
+  const head = [...detailRows(state, agent, log, cells), ruleRow(), ...bannerRows(state, agent, cells), { spans: title }];
+  const lines = logRows(log, state.now, cells - 2 * MARGIN, (serverUrl) => {
+    const entry = state.instances.find((candidate) => sameAddress(candidate.serverUrl, serverUrl));
+    return entry ? instanceText(entry) : addressText(serverUrl);
+  }).map((row) => ({ spans: [span(spaces(MARGIN)), ...row.spans] }));
+  const room = Math.max(0, height - head.length);
+  const end = Math.max(Math.min(room, lines.length), lines.length - state.logScroll);
+  return [...head, ...lines.slice(Math.max(0, end - room), end)];
 }
 
 const ITEM_ROWS = 3;
 
+/** The items of a list that fit `height` rows below a first row that stays free for "↑ n more": the window keeps the selection one item from its top. */
+function listWindow(total: number, selected: number, height: number): { first: number; shown: number } {
+  const room = Math.max(0, height - 1);
+  const fits = Math.max(1, Math.floor(room / ITEM_ROWS));
+  if (total <= fits) return { first: 0, shown: total };
+  // The "↓ n more" row takes the room of the last items' spacing.
+  const shown = Math.max(1, Math.floor((room - 1) / ITEM_ROWS));
+  return { first: Math.max(0, Math.min(selected - 1, total - shown)), shown };
+}
+
 function rightColumn(state: ScreenState, cells: number, height: number): Row[] {
-  const rows: Row[] = [
-    { spans: [span(spaces(MARGIN)), span("AGENTS", C.muted, true), span(` · ${state.agents.length}`, C.dim)] },
-    ruleRow(),
-    { spans: [] },
-  ];
-  const visible = Math.max(1, Math.floor((height - rows.length) / ITEM_ROWS));
   const selected = Math.max(0, state.agents.findIndex((agent) => agent.id === state.selectedId));
-  const firstShown = Math.max(0, Math.min(selected - visible + 1, state.agents.length - visible));
-  const nameWidth = Math.max(14, ...state.agents.map((agent) => [...agent.name].length));
-  for (const agent of state.agents.slice(firstShown, firstShown + visible)) {
+  const { first, shown } = listWindow(state.agents.length, selected, height);
+  const above = first;
+  const below = state.agents.length - first - shown;
+  const more = (text: string): Row => ({ spans: [span(`${spaces(MARGIN)}${text}`, C.dim)] });
+  const rows: Row[] = [above > 0 ? more(`↑ ${above} more`) : { spans: [] }];
+  const nameWidth = Math.max(16, ...state.agents.map((agent) => [...agent.name].length));
+  const marker = state.focus === "list" ? C.red : C.dim;
+  for (const agent of state.agents.slice(first, first + shown)) {
     const isSelected = agent.id === state.selectedId;
     const bg = isSelected ? C.selected : undefined;
     const stopped = agent.state === "stopped";
     const name = clip([span(agent.name)], nameWidth).map((s) => s.text).join("").padEnd(nameWidth);
-    const model = modelText(agent.model);
+    const entry = instanceOf(state, agent);
+    const second = [span("    ", C.text, false, bg), span(`${entry?.name ?? addressText(agent.serverUrl)} · ${agent.model || agent.effort ? `${modelText(agent.model)} · ${effortText(agent.effort)}` : modelText(undefined)}`, C.dim, false, bg)];
     const nameLine = [
-      span(isSelected ? "▎" : " ", C.red, false, bg),
+      span(isSelected ? "▎" : " ", marker, false, bg),
       span(" ", C.text, false, bg),
-      isSelected ? span("› ", C.red, true, bg) : span("  ", C.text, false, bg),
+      isSelected ? span("› ", marker, true, bg) : span("  ", C.text, false, bg),
       span(`${dot(agent)} `, STATE_COLOR[agent.state], false, bg),
       span(name, stopped ? C.dim : C.text, isSelected, bg),
       span(agent.state.padStart(10), STATE_COLOR[agent.state], false, bg),
     ];
-    const second = [span("    ", C.text, false, bg), span(`${model} · ${effortText(agent.effort)}`, C.dim, false, bg)];
     rows.push({ spans: fit(nameLine, cells, bg) });
-    rows.push({ spans: fit([span(isSelected ? "▎" : " ", C.red, false, bg), span(" ", C.text, false, bg), ...second], cells, bg) });
+    rows.push({ spans: fit([span(isSelected ? "▎" : " ", marker, false, bg), span(" ", C.text, false, bg), ...second], cells, bg) });
     rows.push({ spans: [] });
   }
+  if (below > 0) rows.push(more(`↓ ${below} more`));
   return rows;
 }
 
@@ -667,6 +872,8 @@ interface DialogBox {
   width: number;
   /** Where the box starts, as a share of the free height (the boards place each dialog by hand). Default 0.4. */
   top?: number;
+  /** Or the screen row it starts at. */
+  row?: number;
   rows(inner: number): Row[];
 }
 
@@ -755,22 +962,57 @@ function tickRows(dialog: NewAgentDialog): Span[][] {
   ];
 }
 
+/** The instances as radio rows: name, address and version in columns; one too old for this command is dimmed and says so. */
+function instanceRows(instances: InstanceEntry[], focused: number): Span[][] {
+  const names = Math.max(...instances.map((entry) => [...entry.name].length)) + 1;
+  const addresses = Math.max(...instances.map((entry) => [...addressText(entry.serverUrl)].length)) + 3;
+  return instances.map((entry, index) => {
+    const row = [span(addressText(entry.serverUrl).padEnd(addresses), entry.tooOld ? C.dim : C.muted), span(entry.version ? `v${entry.version}` : "", entry.tooOld ? C.dim : C.muted), ...(entry.tooOld ? [span(" · too old for this command", C.dim)] : [])];
+    const label = [span(entry.name.padEnd(names), entry.tooOld ? C.dim : index === focused ? C.text : C.text, index === focused && !entry.tooOld), ...row];
+    return radioRow(label, index === focused, index === focused);
+  });
+}
+
+/** `?`: the keys, then the commands (board `aide.html`). */
+function helpBox(): DialogBox {
+  const key = (name: string) => span(name, C.text, true);
+  const row = (...spans: Span[]): Row => ({ spans });
+  const body: Row[] = [
+    row(span("KEYS", C.muted, true)),
+    row(key("Tab"), span(" next tab · ", C.muted), key("1 2 3"), span(" Agents, Instances, Comments · ", C.muted), key("↑↓"), span(" move or scroll · ", C.muted), key("← →"), span(" left pane / list", C.muted)),
+    row(),
+    row(span("COMMANDS", C.muted, true)),
+    ...COMMANDS.flatMap(({ command, description, options }) => [row(span(commandCell(command), C.text), span(description, C.muted)), ...(options ? [row(span(`        ${options}`, C.muted))] : [])]),
+  ];
+  return { width: 102, row: TOP_ROW, rows: (inner) => dialogFrame([span("Commands", C.text, true)], body, [{ key: "Esc", label: "close" }], inner) };
+}
+
+/** `l` with several instances: which one the folder is linked to. */
+function linkBox(state: ScreenState, dialog: Extract<Dialog, { type: "link" }>): DialogBox {
+  const body: Row[] = [{ spans: [span(folderLabel(state.folder, state.home), C.muted), span("  isn't linked to an instance yet.", C.dim)] }, { spans: [] }, { spans: [span("Instance", C.text, true)] }, ...instanceRows(state.instances, dialog.row).map((spans) => ({ spans })), { spans: [] }, { spans: [span("No project and no agent yet: redline agent picks one.", C.dim)] }];
+  return { width: 82, top: 0.35, rows: (inner) => dialogFrame([span("Link this folder", C.text, true)], body, [{ key: "↑↓", label: "choose" }, { key: "Enter", label: "link" }, { key: "Esc", label: "cancel" }], inner) };
+}
+
 function newBox(state: ScreenState, dialog: NewAgentDialog): DialogBox {
   const where = folderLabel(state.folder, state.home);
   const body: Span[][] = [];
   const keys: BarItem[] = [{ key: "Esc", label: "cancel" }];
   const known = dialog.stage !== "loading" || dialog.serverUrl !== undefined || dialog.error !== undefined;
-  body.push(dialog.linkedTitles ? [span(where, C.muted), span(`  serves ${dialog.linkedTitles.join(", ")}.`, C.dim)] : known ? [span(where, C.muted), span("  isn't linked to a project yet.", C.dim)] : [span(where, C.muted)], []);
+  const notLinked = state.folderLine.kind === "linked" ? "project" : "instance";
+  body.push(dialog.linkedTitles ? [span(where, C.muted), span(`  serves ${dialog.linkedTitles.join(", ")}.`, C.dim)] : known ? [span(where, C.muted), span(`  isn't linked to an ${notLinked} yet.`.replace("an project", "a project"), C.dim)] : [span(where, C.muted)], []);
   if (dialog.stage === "loading" && !dialog.error) body.push([span("Checking this folder…", C.dim)]);
-  if (dialog.stage === "server") {
-    body.push([span("Server", C.text, true)], ...dialog.servers.map((url, index) => radioRow([span(url, index === dialog.serverRow ? C.text : C.muted)], index === dialog.serverRow, index === dialog.serverRow)));
-    keys.unshift({ key: "↑↓", label: "server" }, { key: "Enter", label: "next" });
+  if (dialog.stage === "instance") {
+    body.push([span("Instance", C.text, true)], ...instanceRows(dialog.instances, dialog.instanceRow));
+    const focused = dialog.instances[dialog.instanceRow];
+    body.push([], [span("Project", C.text, true), span(`  on ${focused.name}, after the instance`, C.dim)]);
+    keys.unshift({ key: "↑↓", label: "choose" }, { key: "Enter", label: "next" });
   }
   if (dialog.stage === "form") {
     const model = MODEL_ROW(dialog);
     if (dialog.linkedTitles) body.push(...tickRows(dialog));
     else {
-      body.push([span("Project", C.text, true)]);
+      const on = dialog.instances.length > 1 ? state.instances.find((entry) => entry.serverUrl === dialog.serverUrl) : undefined;
+      body.push([span("Project", C.text, true), ...(on ? [span(`  on ${on.name}`, C.dim)] : [])]);
       dialog.projects.forEach((project, index) => body.push(radioRow([span(project.title, dialog.picked === index ? C.text : C.muted)], dialog.row === index, dialog.picked === index)));
       const create = CREATE_ROW(dialog);
       const focused = dialog.row === create;
@@ -788,6 +1030,8 @@ function newBox(state: ScreenState, dialog: NewAgentDialog): DialogBox {
 
 function dialogBox(state: ScreenState, dialog: Dialog): DialogBox | undefined {
   if (dialog.type === "new") return newBox(state, dialog);
+  if (dialog.type === "help") return helpBox();
+  if (dialog.type === "link") return linkBox(state, dialog);
   const agent = state.agents.find((a) => a.id === dialog.agentId);
   if (!agent) return undefined;
   return dialog.type === "stop" ? stopBox(state, agent) : modelBox(state, agent, dialog);
@@ -795,17 +1039,19 @@ function dialogBox(state: ScreenState, dialog: Dialog): DialogBox | undefined {
 
 /** The whole screen: exactly `rows` lines of `columns` cells, with ANSI colours (24-bit) and background. */
 export function render(state: ScreenState, { columns, rows }: Size): string[] {
-  const rightCells = Math.min(RIGHT_WIDTH, Math.floor(columns / 3));
+  const rightCells = Math.min(RIGHT_WIDTH, Math.floor(columns * 0.4));
   const leftCells = Math.max(1, columns - rightCells - 1);
-  const bodyHeight = Math.max(0, rows - 5);
-  const left = leftColumn(state, leftCells, bodyHeight);
-  const right = rightColumn(state, rightCells, bodyHeight);
+  const bodyHeight = Math.max(0, rows - CHROME_ROWS);
+  const { left, right } = TABS[state.tab].body(state, { left: leftCells, right: rightCells, height: bodyHeight });
   const rule = (cells: number) => span("─".repeat(cells), C.rule);
   const out: Span[][] = [];
 
   // A blank row above the header, so the title does not touch the terminal's tab bar.
   out.push(fit([], columns));
   out.push(fit(headerRow(state, columns).spans, columns));
+  out.push(fit(folderRow(state).spans, columns));
+  out.push(fit([], columns));
+  out.push(fit(tabRow(state).spans, columns));
   out.push([span("─".repeat(leftCells), C.rule), span("┬", C.rule), rule(rightCells)]);
   for (let i = 0; i < bodyHeight; i++) {
     const l = left[i] ?? { spans: [] };
@@ -820,10 +1066,10 @@ export function render(state: ScreenState, { columns, rows }: Size): string[] {
 
   const asked = state.dialog && dialogBox(state, state.dialog);
   if (!asked) return frame.map((line) => toAnsi(line));
-  const { width: wanted, rows: boxRows, top: topShare = 0.4 } = asked;
+  const { width: wanted, rows: boxRows, top: topShare = 0.4, row } = asked;
   const boxWidth = Math.min(wanted, columns - 4);
   const box = boxRows(boxWidth - 2);
-  const top = Math.max(1, Math.floor((rows - box.length) * topShare));
+  const top = row ?? Math.max(1, Math.floor((rows - box.length) * topShare));
   const boxLeft = Math.floor((columns - boxWidth) / 2);
   return frame.map((line, index) => {
     const row = box[index - top];

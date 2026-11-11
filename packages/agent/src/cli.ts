@@ -28,6 +28,8 @@ import { askSecret } from "./secret-prompt.js";
 import { serveAgent } from "./serve-agent.js";
 import { setupReport, systemDeps } from "./setup.js";
 import { createNewAgentFlow } from "./new-agent.js";
+import { helpLines } from "./commands-help.js";
+import { folderLineOf, instanceEntries } from "./instance-list.js";
 import { openWithSystem } from "./open-url.js";
 import { openTerminal } from "./terminal-driver.js";
 import { RELAUNCHED_ENV, UPDATE_EXIT_CODE, WORKER_ENV, superviseAgent } from "./supervisor.js";
@@ -280,12 +282,38 @@ const connectHost = () => ensureHost({ configDir: defaultConfigDir(), hostComman
 /** Opens the agents screen, then prints, in the shell, the agents that keep running. */
 async function showAgentsScreen(host: HostClient, selectedId?: string): Promise<void> {
   const folder = process.cwd();
-  const newAgent = createNewAgentFlow({ folder, configDir: defaultConfigDir(), claudeSettingsFile: claudeSettingsFileOf(), host, checkClaude });
-  const closed = await runAgentsScreen({ host, terminal: openTerminal(), selectedId, home: homedir(), folder, newAgent, openUrl: openWithSystem });
+  const configDir = defaultConfigDir();
+  const newAgent = createNewAgentFlow({ folder, configDir, claudeSettingsFile: claudeSettingsFileOf(), host, checkClaude });
+  const installations = await Promise.all(listInstallations(configDir).map((installation) => currentInstallation(configDir, installation, systemDeps(configDir).fetchInstance)));
+  const resolution = resolveFolder(configDir, folder);
+  const titles = resolution.kind === "linked" && resolution.projectIds.length > 0 ? await projectTitles(resolution.installation, resolution.projectIds) : undefined;
+  const closed = await runAgentsScreen({
+    host,
+    terminal: openTerminal(),
+    selectedId,
+    home: homedir(),
+    folder,
+    instances: instanceEntries(installations),
+    folderLine: folderLineOf(resolution, titles),
+    linkFolder: async (serverUrl) => {
+      linkFolderToServer(folder, serverUrl);
+      return folderLineOf(resolveFolder(configDir, folder));
+    },
+    newAgent,
+    openUrl: openWithSystem,
+  });
   for (const line of closeSummary(closed)) console.log(line);
 }
 
-/** `redline agents`: the agents screen on the first agent, launching nothing. */
+/** What the folder's link serves, by title, for the screen's folder line; nothing when the server does not answer in time. */
+async function projectTitles(installation: Installation, projectIds: string[]): Promise<string | undefined> {
+  const timeout = new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3000).unref());
+  const projects = await Promise.race([listProjects(installation, true).catch(() => undefined), timeout]);
+  const served = projects?.filter((project) => projectIds.includes(project.id)).map((project) => sanitizeForTerminal(project.title));
+  return served && served.length > 0 ? served.join(", ") : undefined;
+}
+
+/** `redline agents`, and bare `redline` in a terminal: the agents screen on the first agent, launching nothing. */
 async function runAgents(): Promise<void> {
   if (!runsInBackground()) throw new Error("`redline agents` needs a terminal (not available on Windows yet).");
   const host = await connectHost();
@@ -345,6 +373,8 @@ async function runLinkCommand(args: string[]): Promise<void> {
   });
 }
 
+const printHelp = () => helpLines().forEach((line) => console.log(line));
+
 const [command, ...args] = process.argv.slice(2);
 /** What still works while the old single installation remains: migrate, doctor, help, and the processes the commands start. */
 const WORKS_BEFORE_MIGRATE = ["migrate", "doctor", "help", "mcp", "host", "worker", "build-hash"];
@@ -359,11 +389,13 @@ try {
   else if (command === "link") await runLinkCommand(args);
   else if (command === "agent") await superviseOrRunAgent(args);
   else if (command === "agents") await runAgents();
+  else if (command === undefined) await (runsInBackground() && process.stdout.isTTY ? runAgents() : printHelp());
+  else if (command === "help") printHelp();
   else if (command === "mcp") await runMcp();
   else if (command === "host") await runHost();
   else if (command === "worker") runAgentWorker({ engine: claudeCodeEngine() });
   else if (command === "build-hash") console.log(buildHash());
-  else throw new Error("Usage: redline setup <address> [--name <name>] [--token <token>] | redline login [<address>] | redline link [<instance>] | redline mcp | redline agents | redline agent [--global [--instance <name|address>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
+  else throw new Error(`Unknown command: ${command}. \`redline help\` lists the commands.`);
 } catch (error) {
   console.error((error as Error).message);
   process.exit(1);

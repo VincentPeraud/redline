@@ -689,7 +689,7 @@ describe("the agent host's process", { timeout: 20_000 }, () => {
     const screens = [0, 1].map(async () => {
       const terminal = new RecordingTerminal();
       const host = await client();
-      const done = runAgentsScreen({ host, terminal, selectedId: agent.id, home: "/nowhere", folder: "/nowhere", newAgent: noNewAgent, openUrl: () => undefined });
+      const done = runAgentsScreen({ host, terminal, selectedId: agent.id, home: "/nowhere", folder: "/nowhere", instances: [], folderLine: { kind: "unlinked" }, linkFolder: noLink, newAgent: noNewAgent, openUrl: () => undefined });
       return { terminal, done };
     });
     const [first, second] = await Promise.all(screens);
@@ -697,8 +697,8 @@ describe("the agent host's process", { timeout: 20_000 }, () => {
 
     for (const { terminal } of [first, second]) {
       await until(() => terminal.frame.includes("Published"));
-      expect(terminal.frame).toMatch(/Run started {2}Acme \/ Home/);
-      expect(terminal.frame).toContain("Projects  Acme");
+      expect(terminal.frame).toMatch(/Run started {3}Acme › Home/);
+      expect(terminal.frame).toContain("Projects   Acme");
     }
     first.terminal.keyListener("q");
     second.terminal.keyListener("ctrl-c");
@@ -715,7 +715,7 @@ describe("starting an agent from the agents screen", { timeout: 20_000 }, () => 
     const folder = tempDir("rl-folder-");
     const flow = createNewAgentFlow({ folder, configDir, claudeSettingsFile: join(configDir, "settings.json"), host, checkClaude: async () => "me@example.com" });
     const terminal = new RecordingTerminal();
-    const done = runAgentsScreen({ host, terminal, home: "/nowhere", folder, newAgent: flow, openUrl: () => undefined });
+    const done = runAgentsScreen({ host, terminal, home: "/nowhere", folder, instances: [], folderLine: { kind: "unlinked" }, linkFolder: noLink, newAgent: flow, openUrl: () => undefined });
     await until(() => terminal.frame.includes("No agent yet"));
 
     terminal.keyListener("n");
@@ -730,12 +730,14 @@ describe("starting an agent from the agents screen", { timeout: 20_000 }, () => 
     expect(created).toBeDefined();
     expect(JSON.parse(readFileSync(join(folder, ".redline", "project.json"), "utf8"))).toEqual({ serverUrl: s.url, projectIds: [created.id] });
     expect(created.servedBy).toMatchObject({ folder, kind: "project" });
-    await until(() => terminal.frame.includes("Projects  CV Vincent") && terminal.frame.includes("Account   me@example.com"));
+    await until(() => terminal.frame.includes("Projects   CV Vincent") && terminal.frame.includes("Account    me@example.com"));
     expect(terminal.frame).toContain("› ● ");
     terminal.keyListener("q");
     await done;
   });
 });
+
+const noLink = async () => ({ kind: "unlinked" as const });
 
 const noNewAgent: NewAgentFlow = {
   inspect: async () => {

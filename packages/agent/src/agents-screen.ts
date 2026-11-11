@@ -1,5 +1,6 @@
-import { agentStarted, applyEvent, initialState, logLoaded, newAgentFailed, newAgentQuestions, onKey, projectsLoaded, render, tick, type ScreenCommand, type ScreenState, type Size } from "./agents-view.js";
+import { agentStarted, applyEvent, folderLinked, initialState, logLoaded, newAgentFailed, newAgentQuestions, onKey, projectsLoaded, render, tick, type ScreenCommand, type ScreenState, type Size } from "./agents-view.js";
 import type { HostClient } from "./host-client.js";
+import type { FolderLine, InstanceEntry } from "./instance-list.js";
 import type { NewAgentFlow } from "./new-agent.js";
 
 /** What the screen needs from the agent host: a `HostClient` provides it, tests give a fake. Later tickets add their commands here. */
@@ -25,6 +26,11 @@ export interface AgentsScreenOptions {
   home: string;
   /** The folder the screen was opened from, for `n`. */
   folder: string;
+  /** The installations on this computer, and what the folder uses (the resolver's answer). */
+  instances: InstanceEntry[];
+  folderLine: FolderLine;
+  /** Links the folder to the instance at that address (`l`, as `redline link`); resolves with the new "This folder" line. */
+  linkFolder(serverUrl: string): Promise<FolderLine>;
   /** Starts an agent for the folder (`n`). */
   newAgent: NewAgentFlow;
   /** Opens an address in the user's browser (`o`). */
@@ -45,6 +51,7 @@ function execute(host: ScreenHost, command: ScreenCommand): Promise<unknown> {
       return host.restartAll();
     case "set-model-effort":
       return host.setModelEffort(command.agentId, { model: command.model, effort: command.effort });
+    case "link-folder":
     case "close":
     case "open":
     case "prepare-new":
@@ -55,10 +62,10 @@ function execute(host: ScreenHost, command: ScreenCommand): Promise<unknown> {
 }
 
 /** Runs the agents screen until the user closes it; resolves with the final state (for `closeSummary`). The terminal is restored on any outcome. */
-export async function runAgentsScreen({ host, terminal, selectedId, now = Date.now, home, folder, newAgent, openUrl, tickMs = 1000 }: AgentsScreenOptions): Promise<ScreenState> {
+export async function runAgentsScreen({ host, terminal, selectedId, now = Date.now, home, folder, instances, folderLine, linkFolder, newAgent, openUrl, tickMs = 1000 }: AgentsScreenOptions): Promise<ScreenState> {
   let timer: NodeJS.Timeout | undefined;
   try {
-    let state = initialState({ agents: [], now: now(), home, folder });
+    let state = initialState({ agents: [], now: now(), home, folder, instances, folderLine });
     let drawn: string[] = [];
     const draw = (onlyIfChanged = false) => {
       const lines = render(state, terminal.size());
@@ -89,7 +96,7 @@ export async function runAgentsScreen({ host, terminal, selectedId, now = Date.n
       draw();
     });
     const { agents, freshStartAt } = await host.snapshot();
-    state = initialState({ agents, selectedId, now: now(), home, folder, freshStartAt });
+    state = initialState({ agents, selectedId, now: now(), home, folder, freshStartAt, instances, folderLine });
     await Promise.all(agents.map((agent) => loadLog(agent.id)));
 
     return await new Promise<ScreenState>((resolve, reject) => {
@@ -101,6 +108,12 @@ export async function runAgentsScreen({ host, terminal, selectedId, now = Date.n
         // The host reports the effect of a command as events; a failing host ends the screen like any other host failure.
         for (const command of update.commands) {
           if (command.type === "open") openUrl(command.url);
+          if (command.type === "link-folder") {
+            linkFolder(command.serverUrl).then((line) => {
+              state = folderLinked(state, line);
+              draw();
+            }, reject);
+          }
           askNewAgent(command);
           execute(host, command).catch(reject);
         }
