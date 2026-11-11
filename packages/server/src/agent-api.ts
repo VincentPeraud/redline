@@ -105,7 +105,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       api.get<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/waiting", async (req): Promise<TerminalWaitingPage[]> => terminalSessions.waitingFor(req.params.sessionId));
 
       // The agents screen's Comments tab: every waiting page, read-only (unlike `pick`, it takes nothing).
-      api.get("/terminal-comments", async (): Promise<TerminalCommentsPage[]> => terminalSessions.waitingComments());
+      api.get("/terminal-comments", async (req): Promise<TerminalCommentsPage[]> => terminalSessions.waitingComments((projectId) => access.may(req.viewer, "read", { projectId })));
 
       // `release_page`: the session hands one page it holds (or all of them) over to the agents.
       api.post<{ Params: { sessionId: string }; Body: Partial<TerminalReleaseRequest> }>("/terminal-sessions/:sessionId/release", async (req, reply): Promise<TerminalWaitingPage[] | void> => {

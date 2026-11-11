@@ -129,12 +129,12 @@ export class TerminalSessions implements TerminalPresence {
     return [...counts].map(([pageId, count]) => ({ pageId, title: this.titleOf(pageId), count }));
   }
 
-  /** Every page with comments waiting for a terminal session, with who holds it and the comments themselves. Takes nothing. */
-  waitingComments(): TerminalCommentsPage[] {
+  /** Every page `canRead` accepts (by project) with comments waiting for a terminal session, with who holds it and the comments themselves. Takes nothing. */
+  waitingComments(canRead: (projectId: string) => boolean): TerminalCommentsPage[] {
     const pages = new Map<string, TerminalCommentsPage>();
     for (const { pageId, threadIds } of this.lock.terminalWaiting()) {
       const page = this.store.getPage(pageId);
-      if (!page) continue;
+      if (!page || !canRead(page.projectId)) continue;
       const entry = pages.get(pageId) ?? { pageId, title: page.title, projectTitle: this.store.getProject(page.projectId)?.title ?? "", holder: this.holderSummary(pageId), comments: [] };
       for (const threadId of threadIds) {
         const thread = this.store.getThread(threadId);
