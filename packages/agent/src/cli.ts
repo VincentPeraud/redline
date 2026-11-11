@@ -20,7 +20,7 @@ import { removeInstallation, removeReport, updateInstallation, updateReport } fr
 import { askInstallation, confirm, orphanLines, runLink } from "./link-command.js";
 import { ensureGlobalCommand, launchedThroughNpx, systemGlobalCommand } from "./global-command.js";
 import { importAndServe, launchMcp } from "./mcp-launcher.js";
-import { connectMigrateHost, legacyRefusal, migrateLegacy } from "./migrate.js";
+import { connectMigrateHost, legacyGateRefuses, legacyRefusal, migrateLegacy } from "./migrate.js";
 import { cliVersion } from "./build-hash.js";
 import { fileURLToPath } from "node:url";
 import { defaultConfigDir, type Login } from "./login.js";
@@ -446,10 +446,8 @@ async function runLinkCommand(args: string[]): Promise<void> {
 const printHelp = () => helpLines().forEach((line) => console.log(line));
 
 const [command, ...args] = process.argv.slice(2);
-/** What still works while the old single installation remains: migrate, doctor, help, and the processes the commands start. */
-const WORKS_BEFORE_MIGRATE = ["migrate", "doctor", "help", "mcp", "host", "worker", "build-hash"];
 try {
-  if (hasLegacyLayout(defaultConfigDir()) && !WORKS_BEFORE_MIGRATE.includes(command ?? "")) {
+  if (hasLegacyLayout(defaultConfigDir()) && legacyGateRefuses(command, { throughNpx: launchedThroughNpx(process.env, fileURLToPath(new URL("..", import.meta.url))) })) {
     console.error(`✗ ${legacyRefusal(command === undefined)}`);
     process.exit(1);
   }

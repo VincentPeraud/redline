@@ -13,6 +13,16 @@ export { MIGRATE_STOP_REASON };
 export const legacyRefusal = (short: boolean): string =>
   `This computer still has the old Redline installation (one login for every server).\n  Run redline migrate first${short ? "." : ": it moves each server to its own installation."}`;
 
+/** What still works while the old single installation remains: migrate, doctor, help, and the processes the commands start. */
+const WORKS_BEFORE_MIGRATE = ["migrate", "doctor", "help", "mcp", "host", "worker", "build-hash"];
+
+/**
+ * Whether the legacy gate stops this command. `setup` goes through when launched by npx (the web panel's command): it migrates
+ * the old installation itself before setting the new one up. Typed against the global command, it still sends the user to migrate.
+ */
+export const legacyGateRefuses = (command: string | undefined, { throughNpx }: { throughNpx: boolean }): boolean =>
+  !WORKS_BEFORE_MIGRATE.includes(command ?? "") && !(command === "setup" && throughNpx);
+
 /** What migrate asks of the agent host: its agents, and to stop one with a reason. Absent when no host runs. */
 export interface MigrateHost {
   agents(): Promise<HostAgent[]>;
