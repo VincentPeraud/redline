@@ -4,6 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { instanceLine } from "../src/installations.js";
+import { liveSessions } from "../src/mcp-sessions.js";
 import { launchMcp, type McpHandOver } from "../src/mcp-launcher.js";
 import { addInstallation, fakeWorld, folderWithLink, tempDir } from "./support/installations.js";
 
@@ -39,6 +40,17 @@ function computer() {
 }
 
 describe("the MCP launcher", () => {
+  it("records the session of the installation while it is served, and forgets it afterwards", async () => {
+    const { configDir, launch } = computer();
+    const folder = folderWithLink({ serverUrl: "https://redline.lumora.com", projectIds: [] });
+    const lumora = join(configDir, "instances", "lumora");
+    let during: unknown;
+    await launch(folder, async () => void (during = liveSessions(lumora)));
+    expect(during).toEqual([{ pid: process.pid, folder }]);
+    expect(liveSessions(lumora)).toEqual([]);
+    expect(liveSessions(join(configDir, "instances", "local"))).toEqual([]);
+  });
+
   it("serves only setup_needed in a folder linked to nothing when several instances are installed", async () => {
     const { launch, handedOver } = computer();
     const folder = join("/home/me", "Downloads");

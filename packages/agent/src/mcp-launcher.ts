@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { recordSession } from "./mcp-sessions.js";
 import { ServerApi } from "./server-api.js";
 import { createTerminalMcpServer } from "./terminal-mcp.js";
 import { addressOf, hasLegacyLayout, currentInstallation, resolveFolder, type InstanceLabel, type Installation, type InstallationsDeps } from "./installations.js";
@@ -60,10 +61,13 @@ export async function launchMcp({ configDir, folder, home, fetchInstance, handOv
   if (resolved.kind === "orphan") return setupNeededServer(orphanMessage(resolved.serverUrl));
   const installation = await currentInstallation(configDir, resolved.installation, fetchInstance);
   const entry = join(dirname(installation.entry), "installation-mcp.js");
+  const forget = recordSession(installation.dir, folder);
   try {
     await handOver({ entry, folder, serverUrl: installation.serverUrl, token: installation.token, instance: { name: installation.name, address: addressOf(installation.serverUrl), version: installation.version } });
   } catch {
     return setupNeededServer(tooOldMessage(installation));
+  } finally {
+    forget();
   }
   return undefined;
 }

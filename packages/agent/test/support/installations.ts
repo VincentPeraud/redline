@@ -47,11 +47,17 @@ export interface FakeWorld {
   /** Agent names the fake host restarts, per call. */
   restarted: string[];
   failInstall?: string;
+  /** Agents of the fake host, by installation id; `running` is anything but stopped. */
+  agents: { installation: string; name: string; running: boolean }[];
+  /** Installation ids the fake host was told were updated. */
+  updated: string[];
+  /** Addresses the global command was installed from. */
+  globalInstalls: string[];
 }
 
 /** Fake npm, Claude Code, servers and host for the installations module; `world.failInstall` makes the next install fail. */
 export function fakeWorld(overrides: Partial<InstallationsDeps> = {}): FakeWorld {
-  const world: FakeWorld = { installs: [], servers: new Map(), mcp: { status: "registered", registrations: 0 }, restarted: [], deps: undefined as never };
+  const world: FakeWorld = { installs: [], servers: new Map(), mcp: { status: "registered", registrations: 0 }, restarted: [], agents: [], updated: [], globalInstalls: [], deps: undefined as never };
   world.deps = {
     commandVersion: "0.3.0",
     hostProtocol: 2,
@@ -73,6 +79,21 @@ export function fakeWorld(overrides: Partial<InstallationsDeps> = {}): FakeWorld
     },
     async restartStoppedAgents() {
       return world.restarted;
+    },
+    async installGlobalCommand(serverUrl) {
+      world.globalInstalls.push(serverUrl);
+    },
+    async restartAgents({ id }) {
+      world.updated.push(id);
+      return world.agents.filter((agent) => agent.installation === id && agent.running).map((agent) => agent.name);
+    },
+    async agentsOf({ id }) {
+      return world.agents.filter((agent) => agent.installation === id).map(({ name, running }) => ({ name, running }));
+    },
+    async removeStoppedAgents({ id }) {
+      const gone = world.agents.filter((agent) => agent.installation === id && !agent.running);
+      world.agents = world.agents.filter((agent) => !gone.includes(agent));
+      return gone.map((agent) => agent.name);
     },
     ...overrides,
   };

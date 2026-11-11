@@ -3,13 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENT_API_PREFIX, CLI_TARBALL_PATH, HOST_PROTOCOL_VERSION, type InstanceResponse } from "@redline/shared";
-import { TOKEN_REFUSED_REASON } from "./activity.js";
 import { cliVersion } from "./build-hash.js";
-import { HostClient } from "./host-client.js";
+import { agentsOfInstallation, removeStoppedAgents, restartInstallationAgents, restartStoppedAgents } from "./installation-agents.js";
 import { hostProtocol } from "./host-protocol.js";
 import { npmInstall } from "./install-cli.js";
 import type { InstallationsDeps, InstanceInfo, McpStatus, SetupResult } from "./installations.js";
-import { normalizeServerUrl } from "./login.js";
 import { ServerApi } from "./server-api.js";
 
 interface ClaudeResult {
@@ -77,26 +75,6 @@ async function install(serverUrl: string, prefix: string): Promise<void> {
   }
 }
 
-/** Agents of that address stopped by a refused token, restarted through the running host (no host: nothing to restart). */
-async function restartStoppedAgents(configDir: string, serverUrl: string, env: NodeJS.ProcessEnv): Promise<string[]> {
-  let host: HostClient;
-  try {
-    host = await HostClient.connect(configDir, env);
-  } catch {
-    return [];
-  }
-  try {
-    const stopped = (await host.list()).filter(
-      (agent) => agent.state === "stopped" && normalizeServerUrl(agent.serverUrl) === serverUrl && agent.reason?.startsWith(TOKEN_REFUSED_REASON),
-    );
-    const restarted: string[] = [];
-    for (const agent of stopped) if ((await host.restart(agent.id)).started) restarted.push(agent.name);
-    return restarted;
-  } finally {
-    host.close();
-  }
-}
-
 /** The real npm, Claude Code, server and host. */
 export function systemDeps(configDir: string, env: NodeJS.ProcessEnv = process.env): InstallationsDeps {
   return {
@@ -104,6 +82,10 @@ export function systemDeps(configDir: string, env: NodeJS.ProcessEnv = process.e
     install,
     registerMcp: () => registerMcp(env),
     restartStoppedAgents: (serverUrl) => restartStoppedAgents(configDir, serverUrl, env),
+    installGlobalCommand: (serverUrl) => npmInstall(`${serverUrl}${CLI_TARBALL_PATH}`, undefined),
+    restartAgents: (installation) => restartInstallationAgents(configDir, installation, env),
+    agentsOf: (installation) => agentsOfInstallation(configDir, installation, env),
+    removeStoppedAgents: (installation) => removeStoppedAgents(configDir, installation, env),
     commandVersion: cliVersion(),
     hostProtocol: HOST_PROTOCOL_VERSION,
     oldestAccepted: hostProtocol(cliVersion()).oldestRelease ?? "",

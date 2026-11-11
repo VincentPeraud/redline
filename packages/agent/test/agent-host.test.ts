@@ -13,6 +13,9 @@ import { plainText } from "../src/agents-view.js";
 import { ensureHost, HostClient } from "../src/host-client.js";
 import { hostProtocol } from "../src/host-protocol.js";
 import { agentLogPath, hostLockPath, hostSocketPath, type HostEvent, type HostLogEntry, type LaunchSettings } from "../src/host-protocol.js";
+import { TOKEN_REFUSED_REASON } from "../src/activity.js";
+import { agentsOfInstallation, removeStoppedAgents, restartInstallationAgents, restartStoppedAgents } from "../src/installation-agents.js";
+import { findInstallation } from "../src/installations.js";
 import { chooseModelEffort } from "../src/launch-choice.js";
 import { addInstallation, writeInstalledBuild } from "./support/installations.js";
 import { hostWorkerCommand, tsxCommand } from "./support/host-launch.js";
@@ -1158,6 +1161,89 @@ describe("the agent host, one installation per instance", { timeout: 30_000 }, (
     });
   });
 
+  describe("when an installation is updated", () => {
+    const globalAt = (launchSettings: () => LaunchSettings) => ({ ...launchSettings(), kind: "global" as const, projectIds: undefined });
+
+    it("restarts the idle agents of that installation with its new files, and leaves other installations alone", async () => {
+      const { configDir, launchSettings, startHost, client } = await setup();
+      const second = await startTestServer();
+      try {
+        const secondToken = ((await (await second.get("/api/agent-token")).json()) as AgentTokenResponse).token;
+        addInstallation(configDir, { name: "Lumora", serverUrl: second.url, token: secondToken, version: "0.9.0" });
+        const starts = join(configDir, "starts.log");
+        await startHost({ REDLINE_TEST_REPORT: starts });
+        const api = await client();
+        const local = (await api.launch(launchSettings())).agent;
+        const lumora = (await api.launch({ ...launchSettings(), kind: "global", projectIds: undefined, serverUrl: second.url })).agent;
+        await until(async () => (await api.list()).every((agent) => agent.state === "idle"));
+
+        const restarted = await api.installationUpdated("lumora");
+
+        expect(restarted.map((agent) => agent.id)).toEqual([lumora.id]);
+        await until(() => startedBy(starts).length === 3);
+        await until(async () => (await api.list()).every((agent) => agent.state === "idle"));
+        expect(startedBy(starts).map((start) => start.installation).sort()).toEqual(["local", "lumora", "lumora"]);
+        expect((await api.list()).find((agent) => agent.id === local.id)?.startedAt).toBe(local.startedAt);
+      } finally {
+        await second.stop();
+      }
+    });
+
+    it("lets a run finish, never cancels it, and restarts the agent once it ends", async () => {
+      const { configDir, onServer, launchSettings, startHost, client, comment } = await setup();
+      const hold = join(configDir, "hold");
+      const starts = join(configDir, "starts.log");
+      writeFileSync(hold, "");
+      await startHost({ REDLINE_TEST_STEPS: "1", REDLINE_TEST_HOLD_RUN: hold, REDLINE_TEST_REPORT: starts });
+      const api = await client();
+      const { agent } = await api.launch(launchSettings());
+      await until(async () => (await onServer())[0]?.status === "online");
+      await comment();
+      await until(async () => (await api.list())[0].state === "running");
+
+      const restarted = await api.installationUpdated("local");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      expect(restarted.map((entry) => entry.id)).toEqual([agent.id]);
+      expect((await api.list())[0].state).toBe("running");
+      expect(startedBy(starts)).toHaveLength(1);
+
+      rmSync(hold);
+      await until(() => startedBy(starts).length === 2);
+      await until(async () => (await api.list())[0].state === "idle");
+      const events = (await api.log(agent.id)).map((entry) => entry.event.type);
+      expect(events).toContain("run-published");
+      expect(events).not.toContain("run-failed");
+    });
+
+    it("does not start an agent the user stopped", async () => {
+      const { configDir, launchSettings, startHost, client } = await setup();
+      const starts = join(configDir, "starts.log");
+      await startHost({ REDLINE_TEST_REPORT: starts });
+      const api = await client();
+      const { agent } = await api.launch(launchSettings());
+      await api.stop(agent.id);
+
+      expect(await api.installationUpdated("local")).toEqual([]);
+      expect((await api.list())[0].state).toBe("stopped");
+      expect(startedBy(starts)).toHaveLength(1);
+    });
+
+    it("restarts the other agents of the installation when one of them updates itself from the browser (worker exit 75)", async () => {
+      const { configDir, launchSettings, startHost, client } = await setup();
+      const starts = join(configDir, "starts.log");
+      await startHost({ REDLINE_TEST_REPORT: starts, REDLINE_TEST_UPDATE_ONCE: join(configDir, "updated") });
+      const api = await client();
+      await api.launch(launchSettings());
+      await api.launch({ ...globalAt(launchSettings), folder: tempDir("rl-folder-") });
+
+      // two first starts, the update relaunch of the one that exited, and the restart of the other
+      await until(() => startedBy(starts).length === 4);
+      await until(async () => (await api.list()).every((agent) => agent.state === "idle"));
+      expect(startedBy(starts)).toHaveLength(4);
+    });
+  });
+
   describe("when the global command changes", () => {
     const changing = () => {
       let installed = "build-1";
@@ -1209,7 +1295,8 @@ describe("the agent host, one installation per instance", { timeout: 30_000 }, (
       const host = await startHost({}, 60_000, undefined, { command, commandCheckMs: 50, respawn: respawn(configDir) });
       const api = await client();
       await api.launch(launchSettings());
-      const stopped = (await api.launch(launchSettings())).agent;
+      // A global agent: two project agents on the same project refuse each other, and the one stopped could win the connection.
+      const stopped = (await api.launch({ ...launchSettings(), kind: "global", projectIds: undefined })).agent;
       await api.stop(stopped.id);
       await until(async () => (await api.list()).some((agent) => agent.state === "idle"));
 
@@ -1224,5 +1311,58 @@ describe("the agent host, one installation per instance", { timeout: 30_000 }, (
       await until(async () => (await again.list()).filter((agent) => agent.state === "idle").length === 1);
       expect((await again.list()).find((agent) => agent.id === stopped.id)?.state).toBe("stopped");
     });
+  });
+});
+
+describe("what update, remove and setup ask of the host", { timeout: 30_000 }, () => {
+  const env = process.env;
+
+  it("restarts the agents a refused token had stopped, and only those", async () => {
+    const { configDir, server: s, launchSettings, startHost, client } = await setup();
+    await startHost();
+    const api = await client();
+    const refused = (await api.launch(launchSettings())).agent;
+    const byUser = (await api.launch({ ...launchSettings(), kind: "global", projectIds: undefined })).agent;
+    await until(async () => (await api.list()).every((agent) => agent.state === "idle"));
+    await api.stop(refused.id, `${TOKEN_REFUSED_REASON} (test)`);
+    await api.stop(byUser.id);
+
+    expect(await restartStoppedAgents(configDir, s.url, env)).toEqual([refused.name]);
+    await until(async () => (await api.list()).find((agent) => agent.id === refused.id)?.state === "idle");
+    expect((await api.list()).find((agent) => agent.id === byUser.id)?.state).toBe("stopped");
+  });
+
+  it("lists the agents of an installation, tells the host it was updated, and removes the stopped ones", async () => {
+    const { configDir, launchSettings, startHost, client } = await setup();
+    await startHost();
+    const api = await client();
+    const running = (await api.launch(launchSettings())).agent;
+    const stopped = (await api.launch({ ...launchSettings(), kind: "global", projectIds: undefined })).agent;
+    await api.stop(stopped.id);
+    const local = findInstallation(configDir, "local")!;
+
+    expect((await agentsOfInstallation(configDir, local, env)).sort((a, b) => a.name.localeCompare(b.name))).toEqual([
+      { name: stopped.name, running: false },
+      { name: running.name, running: true },
+    ].sort((a, b) => a.name.localeCompare(b.name)));
+    expect(await restartInstallationAgents(configDir, local, env)).toEqual([running.name]);
+    expect(await removeStoppedAgents(configDir, local, env)).toEqual([stopped.name]);
+    expect((await api.list()).map((agent) => agent.id)).toEqual([running.id]);
+  });
+
+  it("works from the saved agents when no host runs: nothing runs, the installation's agents can be removed", async () => {
+    const { configDir, launchSettings, startHost, client } = await setup();
+    const host = await startHost();
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+    await until(async () => (await api.list())[0].state === "idle");
+    await host.stop();
+    hosts = [];
+    const local = findInstallation(configDir, "local")!;
+
+    expect(await agentsOfInstallation(configDir, local, env)).toEqual([{ name: agent.name, running: false }]);
+    expect(await restartInstallationAgents(configDir, local, env)).toEqual([]);
+    expect(await removeStoppedAgents(configDir, local, env)).toEqual([agent.name]);
+    expect(await agentsOfInstallation(configDir, local, env)).toEqual([]);
   });
 });

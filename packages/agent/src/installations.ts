@@ -50,6 +50,14 @@ export interface InstallationsDeps {
   registerMcp(): Promise<McpStatus>;
   /** Restarts the agents of that address that the host stopped because their token was refused; returns their names. */
   restartStoppedAgents(serverUrl: string): Promise<string[]>;
+  /** `npm i -g` of the build `serverUrl` serves: refreshes the global `redline` command. */
+  installGlobalCommand(serverUrl: string): Promise<void>;
+  /** Tells the host the installation was updated: its agents restart, each after its run. Returns the names of those that will (none when no host runs). */
+  restartAgents(installation: Installation): Promise<string[]>;
+  /** The host's agents of this installation (`running` is anything but stopped); the saved ones, all stopped, when no host runs. */
+  agentsOf(installation: Installation): Promise<{ name: string; running: boolean }[]>;
+  /** Removes the installation's stopped agents from the host (or from the saved list when no host runs); returns their names. */
+  removeStoppedAgents(installation: Installation): Promise<string[]>;
   /** Version of this redline command. */
   commandVersion: string;
   /** Host protocol version of this command: an installation more than one version behind gets a warning, its agents are refused. */

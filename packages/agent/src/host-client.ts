@@ -99,6 +99,11 @@ export class HostClient {
     return (await this.request({ type: "restart-all", env: claudeEnvironment(this.env) })).agents;
   }
 
+  /** Tells the host an installation was updated: its agents restart, each after its run. Returns those agents. */
+  async installationUpdated(installation: string): Promise<HostAgent[]> {
+    return (await this.request({ type: "installation-updated", installation })).agents;
+  }
+
   /** Sets the model and effort (absent = Claude's default) the agent's next runs use; a run in progress keeps its own. */
   async setModelEffort(agentId: string, { model, effort }: { model: string; effort?: Effort }): Promise<HostAgent> {
     return (await this.request({ type: "set-model-effort", agentId, model, effort })).agent;
