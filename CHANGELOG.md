@@ -6,6 +6,10 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+### Added
+
+- A "Présenter" button in the page's top bar plays the page from its first artboard in reading order.
+
 ### Fixed
 
 - On Linux, a Claude Code crash showed "Claude Code ended without a result." instead of its own error message.

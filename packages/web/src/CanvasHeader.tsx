@@ -12,8 +12,8 @@ import { avatarClassName } from "./Avatar.js";
 import { useMe, useWho } from "./useMe.js";
 import type { Who } from "./historyLabels.js";
 import type { TocItem } from "./tocItems.js";
-import { routeHref } from "./router.js";
-import { Logo, cx } from "./ui/index.js";
+import { navigateTo, playRoute, routeHref } from "./router.js";
+import { Button, Logo, cx } from "./ui/index.js";
 import { VisitorHeader } from "./VisitorHeader.js";
 import { SharePageButton } from "./PageSharing.js";
 import { useVisitor } from "./visitor.js";
@@ -274,6 +274,13 @@ export function CanvasHeader({ project, designSystemId, designSystemTitle, versi
       ? { id: designSystemId, title: designSystemTitle, kind: "designSystem" }
       : null;
   if (visitor) return <VisitorHeader visitor={visitor} pageId={pageId} pageTitle={pageTitle} firstArtboard={toc.items[0]?.file} picking={picking} onPickingChange={onPickingChange} />;
+  // Same button as a share link's top bar: plays the page from its first artboard in reading order.
+  const firstArtboard = toc.items[0]?.file;
+  const present = (
+    <Button disabled={firstArtboard === undefined} onClick={() => firstArtboard !== undefined && navigateTo(playRoute(pageId, firstArtboard))}>
+      Présenter
+    </Button>
+  );
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -318,12 +325,15 @@ export function CanvasHeader({ project, designSystemId, designSystemTitle, versi
       <div className={styles.spacer} />
       {previewOf !== undefined ? (
         <div className={styles.previewNote}>Commentaires et conversations désactivés pendant l'aperçu</div>
-      ) : archived && !commentOnly ? null : (
+      ) : archived && !commentOnly ? (
+        present
+      ) : (
         <>
           {!archived && <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />}
           {!archived && <TerminalPill pageId={pageId} />}
           {!archived && <AgentPill project={project} running={runningCount} />}
           {!archived && !designSystemId && <SharePageButton pageId={pageId} pageTitle={pageTitle} project={project} />}
+          {present}
           <div role="group" aria-label="Mode du canvas" className={styles.modes}>
             <button type="button" aria-pressed={!picking} className={cx(styles.mode, !picking && styles.modeInteract)} onClick={() => onPickingChange(false)}>
               Interagir (P)

@@ -214,3 +214,13 @@ it("shows ‹ n / N › as 44 px targets in the phone bar, ends disabled, and th
   expect(await menu.count()).toBe(0);
   await tab.close();
 }, 60_000);
+
+it("starts the presentation from the page's top bar on the first artboard in reading order", async () => {
+  const pageId = await createPage();
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${pageId}`);
+  await tab.getByRole("button", { name: "Présenter" }).click();
+  await tab.getByTestId("play").getByText("Flow · Gamma").waitFor();
+  expect(await hashOf(tab)).toBe(`#/pages/${pageId}/play/c.html`);
+  await tab.close();
+});
