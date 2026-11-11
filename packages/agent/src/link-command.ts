@@ -73,7 +73,7 @@ export async function runLink({ configDir, folder, wanted, home, fetchInstance, 
   } else if (ownLink?.kind === "orphan") {
     out(`This folder's link file names ${addressOf(ownLink.serverUrl)}, which is not installed on this computer.`);
     if (!(await confirm(ask, `Link it to ${target.name} instead? (y/N): `))) return void out("Nothing changed.");
-  } else if (found?.kind === "linked" && found.installation.id !== target.id) {
+  } else if (found?.kind === "linked" && found.root !== undefined && found.installation.id !== target.id) {
     out(`The parent folder ${shown(found.root, home)} is linked to ${found.installation.name}. Link this folder to ${target.name} instead, below it?`);
     if (!(await confirm(ask, `Link only this folder to ${target.name}? (y/N): `))) return void out("Nothing changed.");
   } else if (found?.kind === "orphan") {

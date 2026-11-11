@@ -118,8 +118,24 @@ describe("the MCP launcher", () => {
   it("serves a setup message naming the update when the installation has no hand-over entry point", async () => {
     const { launch } = computer();
     const folder = folderWithLink({ serverUrl: "https://redline.lumora.com", projectIds: [] });
-    const claude = await connect((await launch(folder, async () => Promise.reject(new Error("entry missing"))))!);
+    const claude = await connect((await launch(folder, async (to) => Promise.reject(Object.assign(new Error(`Cannot find module '${to.entry}' imported from /x`), { code: "ERR_MODULE_NOT_FOUND" }))))!);
     expect(text(await claude.callTool({ name: "setup_needed", arguments: {} }))).toContain("redline update https://redline.lumora.com");
+  });
+
+  it("names the installation and the real error when its MCP fails for another reason, without asking for an update", async () => {
+    const { launch } = computer();
+    const folder = folderWithLink({ serverUrl: "https://redline.lumora.com", projectIds: [] });
+    const claude = await connect((await launch(folder, async () => Promise.reject(new Error("EACCES: permission denied"))))!);
+    const message = text(await claude.callTool({ name: "setup_needed", arguments: {} }));
+    expect(message).toContain("Lumora");
+    expect(message).toContain("EACCES: permission denied");
+    expect(message).not.toContain("redline update");
+  });
+
+  it("passes its own config directory to the installation's MCP", async () => {
+    const { launch, handedOver, configDir } = computer();
+    await launch(folderWithLink({ serverUrl: "https://redline.lumora.com", projectIds: [] }));
+    expect(handedOver[0].configDir).toBe(configDir);
   });
 
   it("says no instance is set up on a computer with none", async () => {

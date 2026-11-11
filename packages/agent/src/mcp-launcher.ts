@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import { recordSession } from "./mcp-sessions.js";
+import { sanitizeForTerminal } from "./sanitize.js";
 import { ServerApi } from "./server-api.js";
 import { createTerminalMcpServer } from "./terminal-mcp.js";
 import { addressOf, hasLegacyLayout, currentInstallation, resolveFolder, type InstanceLabel, type Installation, type InstallationsDeps } from "./installations.js";
@@ -11,6 +12,8 @@ export interface McpHandOver extends Pick<Installation, "serverUrl" | "token"> {
   /** `dist/installation-mcp.js` of the installation's build. */
   entry: string;
   folder: string;
+  /** The launcher's own config directory (it lists the other instances from there). */
+  configDir: string;
   instance: InstanceLabel & { version?: string };
 }
 
@@ -51,6 +54,12 @@ const orphanMessage = (serverUrl: string): string =>
 const tooOldMessage = ({ name, serverUrl, version }: Installation): string =>
   `The ${name} installation${version ? ` (v${version})` : ""} is too old to serve the MCP from here. Tell the user to run \`redline update ${serverUrl}\`, then /mcp and reconnect redline.`;
 
+const failedMessage = ({ name }: Installation, error: unknown): string =>
+  `The ${name} installation could not start its MCP: ${error instanceof Error ? sanitizeForTerminal(error.message) : String(error)}. Tell the user to run \`redline doctor\`, then /mcp and reconnect redline.`;
+
+/** Only a missing `installation-mcp.js` means an old build; a module missing inside a build that has one is a real failure. */
+const isMissingEntry = (error: unknown, entry: string): boolean => (error as { code?: string }).code === "ERR_MODULE_NOT_FOUND" && String((error as Error).message).includes(entry);
+
 /**
  * `redline mcp`: resolves the folder, then either hands over to the linked installation's own MCP (returns nothing: the
  * handed-over code serves stdio in this same process) or returns the minimal MCP the caller serves instead.
@@ -64,9 +73,9 @@ export async function launchMcp({ configDir, folder, home, fetchInstance, handOv
   const entry = join(dirname(installation.entry), "installation-mcp.js");
   const forget = recordSession(installation.dir, folder);
   try {
-    await handOver({ entry, folder, serverUrl: installation.serverUrl, token: installation.token, instance: { name: installation.name, address: addressOf(installation.serverUrl), version: installation.version } });
-  } catch {
-    return setupNeededServer(tooOldMessage(installation));
+    await handOver({ entry, folder, configDir, serverUrl: installation.serverUrl, token: installation.token, instance: { name: installation.name, address: addressOf(installation.serverUrl), version: installation.version } });
+  } catch (error) {
+    return setupNeededServer(isMissingEntry(error, entry) ? tooOldMessage(installation) : failedMessage(installation, error));
   } finally {
     forget();
   }
