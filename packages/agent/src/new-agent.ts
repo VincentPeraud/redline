@@ -6,7 +6,7 @@ import type { HostClient } from "./host-client.js";
 import type { HostAgent } from "./host-protocol.js";
 import { lastLaunchChoice, rememberChoice } from "./launch-choice.js";
 import { linkFolder, linkedServer, listProjects, readLinkedProjectIds, servedElsewhere, type LinkChoice } from "./link.js";
-import { requireKnownLogins as requireLogins } from "./installations.js";
+import { installationLogins } from "./installations.js";
 import { findLogin, type Login } from "./login.js";
 
 export interface ProjectOption {
@@ -74,7 +74,7 @@ function takenBy(project: Project, folder: string): string | undefined {
 }
 
 export function createNewAgentFlow({ folder, configDir, claudeSettingsFile, host, checkClaude }: NewAgentFlowOptions): NewAgentFlow {
-  const servers = () => requireLogins(configDir);
+  const servers = () => installationLogins(configDir);
   const choice = () => lastLaunchChoice({ folder, configDir, claudeSettingsFile });
   const open = (all: Login[]) => ({ servers: all.map((server) => server.serverUrl), ...choice() });
   return {

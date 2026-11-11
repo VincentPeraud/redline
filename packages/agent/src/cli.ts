@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { EFFORTS, modelLabel, type AgentKind, type Effort, type ModelChoice, type Project } from "@redline/shared";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface, type Interface } from "node:readline/promises";
@@ -12,20 +13,20 @@ import { checkClaude, claudeConfigDirOf, claudeSettingsFileOf } from "./claude.j
 import { claudeCodeEngine } from "./claude-code-engine.js";
 import { ensureHost, type HostClient } from "./host-client.js";
 import { chooseModelEffort } from "./launch-choice.js";
-import { linkFolder, linkedServer, serverForFolder, type LinkChoice, type MoreChoice } from "./link.js";
-import { SetupRefusal, checkedAddress, requireKnownLogins as requireLogins, setupInstallation } from "./installations.js";
+import { linkFolder, linkFolderToServer, linkedServer, listProjects, type LinkChoice, type MoreChoice } from "./link.js";
+import { SetupRefusal, checkedAddress, installationLogins, listInstallations, resolveFolder, setupInstallation } from "./installations.js";
+import { askInstallation, confirm, orphanLines, runLink } from "./link-command.js";
+import { importAndServe, launchMcp } from "./mcp-launcher.js";
 import { defaultConfigDir, pickServer, type Login } from "./login.js";
 import { sanitizeForTerminal } from "./sanitize.js";
 import { servingAgent } from "./serving-agent.js";
 import { askSecret } from "./secret-prompt.js";
-import { ServerApi } from "./server-api.js";
 import { serveAgent } from "./serve-agent.js";
 import { setupReport, systemDeps } from "./setup.js";
 import { createNewAgentFlow } from "./new-agent.js";
 import { openWithSystem } from "./open-url.js";
 import { openTerminal } from "./terminal-driver.js";
 import { RELAUNCHED_ENV, UPDATE_EXIT_CODE, WORKER_ENV, superviseAgent } from "./supervisor.js";
-import { serveTerminalMcp } from "./terminal-mcp.js";
 
 /** `redline setup <address> [--name <name>] [--token <token>]`; `redline login` is the same, asking for the address when it is not given. */
 async function runSetup(args: string[], { askAddress }: { askAddress: boolean }): Promise<void> {
@@ -157,9 +158,11 @@ async function askModelEffort(folder: string, flags: ModelChoice) {
 async function runAgent(args: string[]): Promise<void> {
   const flags = { model: flagValue(args, "--model"), effort: parseEffort(flagValue(args, "--effort")) };
   const account = await checkClaude();
-  const servers = requireLogins(defaultConfigDir());
   const kind = args.includes("--global") ? "global" : "project";
   const folder = process.cwd();
+  if (kind === "project" && !(await resolveOrphanedLink(folder))) return;
+  const servers = installationLogins(defaultConfigDir());
+  if (servers.length === 0) throw new Error("No server set up. Run `redline setup <address> --token <token>` first.");
   const host = runsInBackground() ? await connectHost() : undefined;
   try {
     // Attached from now on: the host would exit, with no agent yet, while the questions are being answered.
@@ -168,6 +171,25 @@ async function runAgent(args: string[]): Promise<void> {
   } finally {
     host?.close();
   }
+}
+
+/** A folder linked to an address with no installation here: says so, and re-links it only when the user agrees. False: stop. */
+async function resolveOrphanedLink(folder: string): Promise<boolean> {
+  const configDir = defaultConfigDir();
+  const resolved = resolveFolder(configDir, folder);
+  if (resolved.kind !== "orphan") return true;
+  const [problem, remedy] = orphanLines(resolved.serverUrl);
+  console.error(`✗ ${problem}`);
+  console.error(remedy);
+  const installations = listInstallations(configDir);
+  if (installations.length === 0 || !(await confirm(ask, "Link this folder to another instance instead? (y/N): "))) {
+    console.log("Nothing changed.");
+    process.exitCode = 1;
+    return false;
+  }
+  const target = await askInstallation(installations, { ask, out: console.log });
+  linkFolderToServer(folder, target.serverUrl);
+  return true;
 }
 
 interface AgentRequest {
@@ -260,21 +282,40 @@ async function runHost(): Promise<void> {
 
 /** Terminal mode: an MCP server on stdio for the user's own Claude Code (registered by `redline setup`). */
 async function runMcp(): Promise<void> {
-  const { serverUrl, token } = serverForFolder(process.cwd(), requireLogins(defaultConfigDir()));
-  await serveTerminalMcp({ api: new ServerApi(serverUrl, token), folder: process.cwd() });
+  const configDir = defaultConfigDir();
+  const fallback = await launchMcp({ configDir, folder: process.cwd(), home: homedir(), fetchInstance: systemDeps(configDir).fetchInstance, handOver: importAndServe });
+  if (!fallback) return;
+  await fallback.connect(new StdioServerTransport());
+  await new Promise<void>((resolve) => process.stdin.on("end", resolve));
+}
+
+/** `redline link [<instance>]`. */
+async function runLinkCommand(args: string[]): Promise<void> {
+  const configDir = defaultConfigDir();
+  await runLink({
+    configDir,
+    folder: process.cwd(),
+    wanted: args[0],
+    home: homedir(),
+    fetchInstance: systemDeps(configDir).fetchInstance,
+    projectNames: async ({ serverUrl, token }, ids) => (await listProjects({ serverUrl, token }, true)).filter((project) => ids.includes(project.id)).map((project) => sanitizeForTerminal(project.title)),
+    ask,
+    out: console.log,
+  });
 }
 
 const [command, ...args] = process.argv.slice(2);
 try {
   if (command === "setup") await runSetup(args, { askAddress: false });
   else if (command === "login") await runSetup(args, { askAddress: true });
+  else if (command === "link") await runLinkCommand(args);
   else if (command === "agent") await superviseOrRunAgent(args);
   else if (command === "agents") await runAgents();
   else if (command === "mcp") await runMcp();
   else if (command === "host") await runHost();
   else if (command === "worker") runAgentWorker({ engine: claudeCodeEngine() });
   else if (command === "build-hash") console.log(buildHash());
-  else throw new Error("Usage: redline setup <address> [--name <name>] [--token <token>] | redline login [<address>] | redline mcp | redline agents | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
+  else throw new Error("Usage: redline setup <address> [--name <name>] [--token <token>] | redline login [<address>] | redline link [<instance>] | redline mcp | redline agents | redline agent [--global [--server <url>]] [--model <model>] [--effort <low|medium|high|xhigh|max>]");
 } catch (error) {
   console.error((error as Error).message);
   process.exit(1);

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 import { connectToServer } from "../src/connection.js";
-import { linkFolder, serverForFolder, type LinkChoice } from "../src/link.js";
+import { linkFolder, type LinkChoice } from "../src/link.js";
 
 const on = (serverUrl: string, token: string) => ({
   servers: [{ serverUrl, token }],
@@ -228,29 +228,5 @@ describe("linking a folder to a project", () => {
     } finally {
       await other.stop();
     }
-  });
-});
-
-describe("the server `redline mcp` talks to from a folder", () => {
-  const a = { serverUrl: "https://a.example.fr", token: "a" };
-  const b = { serverUrl: "https://b.example.fr", token: "b" };
-  const linked = (link: object) => {
-    const dir = mkdtempSync(join(tmpdir(), "redline-folder-"));
-    mkdirSync(join(dir, ".redline"));
-    writeFileSync(join(dir, ".redline", "project.json"), JSON.stringify(link));
-    return dir;
-  };
-
-  it("is the folder's own server", () => {
-    expect(serverForFolder(linked({ serverUrl: "https://b.example.fr", projectId: "p" }), [a, b])).toBe(b);
-  });
-
-  it("is the only server for a folder that is not linked, and for an old link", () => {
-    expect(serverForFolder(mkdtempSync(join(tmpdir(), "redline-folder-")), [a])).toBe(a);
-    expect(serverForFolder(linked({ projectId: "p" }), [a])).toBe(a);
-  });
-
-  it("is ambiguous for an unlinked folder when several servers are set up", () => {
-    expect(() => serverForFolder(mkdtempSync(join(tmpdir(), "redline-folder-")), [a, b])).toThrow(/--server/);
   });
 });

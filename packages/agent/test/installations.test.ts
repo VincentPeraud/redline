@@ -1,9 +1,9 @@
-import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { fallbackName, findInstallation, hasLegacyLayout, installationId, listInstallations, setupInstallation, type SetupResult } from "../src/installations.js";
+import { fallbackName, findInstallation, hasLegacyLayout, installationId, listInstallations, resolveFolder, setupInstallation, type SetupResult } from "../src/installations.js";
 import { saveLogin } from "../src/login.js";
-import { fakeWorld, readJson, tempDir } from "./support/installations.js";
+import { addInstallation, fakeWorld, folderWithLink, readJson, tempDir } from "./support/installations.js";
 
 const LUMORA = "https://redline.lumora.com";
 
@@ -191,5 +191,59 @@ describe("finding installations", () => {
     expect(findInstallation(configDir, `${LUMORA}/`)?.id).toBe("lumora-preprod");
     expect(findInstallation(configDir, "other")).toBeUndefined();
     expect(hasLegacyLayout(configDir)).toBe(false);
+  });
+});
+
+describe("resolving the installation of a folder", () => {
+  const LOCAL = "https://redline.localhost";
+
+  it("is the installation the folder is linked to, matched on the address", () => {
+    const configDir = tempDir();
+    addInstallation(configDir, { name: "Local", serverUrl: LOCAL });
+    const lumora = addInstallation(configDir, { name: "Lumora", serverUrl: LUMORA });
+    const folder = folderWithLink({ serverUrl: `${LUMORA}/`, projectIds: ["p1"] });
+    expect(resolveFolder(configDir, folder)).toMatchObject({ kind: "linked", installation: { id: lumora.id }, root: folder, projectIds: ["p1"] });
+  });
+
+  it("finds the link in a parent folder", () => {
+    const configDir = tempDir();
+    addInstallation(configDir, { name: "Local", serverUrl: LOCAL });
+    addInstallation(configDir, { name: "Lumora", serverUrl: LUMORA });
+    const root = folderWithLink({ serverUrl: LUMORA, projectIds: ["p1"] });
+    const sub = join(root, "src", "deep");
+    mkdirSync(sub, { recursive: true });
+    expect(resolveFolder(configDir, sub)).toMatchObject({ kind: "linked", installation: { id: "lumora" }, root });
+  });
+
+  it("accepts a link with an address and no project", () => {
+    const configDir = tempDir();
+    addInstallation(configDir, { name: "Local", serverUrl: LOCAL });
+    addInstallation(configDir, { name: "Lumora", serverUrl: LUMORA });
+    expect(resolveFolder(configDir, folderWithLink({ serverUrl: LUMORA, projectIds: [] }))).toMatchObject({ kind: "linked", installation: { id: "lumora" }, projectIds: [] });
+  });
+
+  it("reports a link to an address that is not installed here, whatever else is installed", () => {
+    const configDir = tempDir();
+    addInstallation(configDir, { name: "Lumora", serverUrl: LUMORA });
+    const folder = folderWithLink({ serverUrl: "https://redline.tda.fr", projectIds: ["p1"] });
+    expect(resolveFolder(configDir, folder)).toEqual({ kind: "orphan", serverUrl: "https://redline.tda.fr", root: folder });
+  });
+
+  it("falls back to the only installation when the folder is not linked, and for an old link without an address", () => {
+    const configDir = tempDir();
+    addInstallation(configDir, { name: "Lumora", serverUrl: LUMORA });
+    expect(resolveFolder(configDir, folderWithLink())).toMatchObject({ kind: "linked", installation: { id: "lumora" } });
+    expect(resolveFolder(configDir, folderWithLink({ projectId: "p" }))).toMatchObject({ kind: "linked", installation: { id: "lumora" } });
+  });
+
+  it("stays unlinked with several installations, for no link and for an old link, and lists them", () => {
+    const configDir = tempDir();
+    addInstallation(configDir, { name: "Local", serverUrl: LOCAL });
+    addInstallation(configDir, { name: "Lumora", serverUrl: LUMORA });
+    for (const folder of [folderWithLink(), folderWithLink({ projectId: "p" })]) {
+      const result = resolveFolder(configDir, folder);
+      expect(result.kind).toBe("unlinked");
+      expect(result.kind === "unlinked" && result.installations.map((i) => i.name)).toEqual(["Local", "Lumora"]);
+    }
   });
 });

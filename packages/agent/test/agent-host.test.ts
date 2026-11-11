@@ -14,6 +14,7 @@ import { ensureHost, HostClient } from "../src/host-client.js";
 import { agentLogPath, hostLockPath, hostSocketPath, type HostEvent, type HostLogEntry, type LaunchSettings } from "../src/host-protocol.js";
 import { chooseModelEffort } from "../src/launch-choice.js";
 import { saveLogin } from "../src/login.js";
+import { addInstallation } from "./support/installations.js";
 import { hostWorkerCommand, tsxCommand } from "./support/host-launch.js";
 
 const PAGE_FILES = {
@@ -695,6 +696,7 @@ describe("starting an agent from the agents screen", { timeout: 20_000 }, () => 
     await startHost();
     const host = await client();
     const folder = tempDir("rl-folder-");
+    addInstallation(configDir, { name: "Test", serverUrl: s.url, token: ((await (await s.get("/api/agent-token")).json()) as AgentTokenResponse).token });
     const flow = createNewAgentFlow({ folder, configDir, claudeSettingsFile: join(configDir, "settings.json"), host, checkClaude: async () => "me@example.com" });
     const terminal = new RecordingTerminal();
     const done = runAgentsScreen({ host, terminal, home: "/nowhere", folder, newAgent: flow, openUrl: () => undefined });

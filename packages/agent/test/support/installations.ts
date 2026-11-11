@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installedPackageDir, type InstallationsDeps, type InstanceInfo, type McpStatus } from "../../src/installations.js";
+import { findInstallation, installationId, installedPackageDir, type InstallationsDeps, type InstanceInfo, type McpStatus } from "../../src/installations.js";
 
 export const tempDir = (prefix = "redline-inst-") => mkdtempSync(join(tmpdir(), prefix));
 
@@ -78,3 +78,22 @@ export function fakeWorld(overrides: Partial<InstallationsDeps> = {}): FakeWorld
 }
 
 export const readJson = (file: string) => JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+
+/** An installation on disk, as setup leaves it (its build included unless `version` is left out). */
+export function addInstallation(configDir: string, { name, serverUrl, token = "abt_t", version = "0.2.0", nameChosen = false }: { name: string; serverUrl: string; token?: string; version?: string | null; nameChosen?: boolean }) {
+  const id = installationId(name);
+  const dir = join(configDir, "instances", id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "login.json"), JSON.stringify({ serverUrl, token, name, nameChosen }));
+  if (version) writeInstalledBuild(join(dir, "npm"), { version, buildHash: `h-${id}` });
+  return findInstallation(configDir, id)!;
+}
+
+/** A folder, with `.redline/project.json` holding `link` when given. */
+export function folderWithLink(link?: object, parent = tempDir("redline-folder-")): string {
+  if (link) {
+    mkdirSync(join(parent, ".redline"), { recursive: true });
+    writeFileSync(join(parent, ".redline", "project.json"), JSON.stringify(link));
+  }
+  return parent;
+}

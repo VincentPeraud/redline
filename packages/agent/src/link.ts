@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { AGENT_API_PREFIX, type Project } from "@redline/shared";
-import { normalizeServerUrl, pickServer, type Login } from "./login.js";
+import { normalizeServerUrl, type Login } from "./login.js";
 
 export type LinkChoice = { existing: string } | { create: string };
 /** What to do with a folder that is already linked: add a project, or stop serving one (never the last). */
@@ -39,9 +39,19 @@ export function readLink(folder: string): FolderLink | undefined {
     // `projectId`: a link made before a folder could serve several projects.
     const link = JSON.parse(readFileSync(join(folder, ".redline", LINK_FILE), "utf8")) as Partial<FolderLink> & { projectId?: string };
     const projectIds = Array.isArray(link.projectIds) ? link.projectIds.filter((id) => typeof id === "string") : link.projectId ? [link.projectId] : [];
-    return projectIds.length > 0 ? { projectIds, serverUrl: link.serverUrl } : undefined;
+    // An address with no project is a link too (`redline link`).
+    return projectIds.length > 0 || typeof link.serverUrl === "string" ? { projectIds, serverUrl: link.serverUrl } : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/** The nearest link, from `folder` up to the root of the file system, and the folder that holds it. */
+export function findLink(folder: string): { link: FolderLink; root: string } | undefined {
+  for (let root = resolve(folder); ; root = dirname(root)) {
+    const link = readLink(root);
+    if (link) return { link, root };
+    if (dirname(root) === root) return undefined;
   }
 }
 
@@ -49,17 +59,18 @@ export function readLinkedProjectIds(folder: string): string[] {
   return [...new Set(readLink(folder)?.projectIds ?? [])];
 }
 
-/** The server the folder is linked to: its own, or for an old link the only (or first) one set up. */
+/** The server the folder is linked to (in the folder or a parent): its own address, or for an old link without one the only server set up. */
 export function linkedServer(folder: string, servers: Login[]): Login | undefined {
-  const link = readLink(folder);
-  if (!link) return undefined;
-  const wanted = link.serverUrl && normalizeServerUrl(link.serverUrl);
-  return wanted ? servers.find((server) => normalizeServerUrl(server.serverUrl) === wanted) : servers[0];
+  const found = findLink(folder);
+  if (!found) return undefined;
+  const wanted = found.link.serverUrl && normalizeServerUrl(found.link.serverUrl);
+  return wanted ? servers.find((server) => normalizeServerUrl(server.serverUrl) === wanted) : servers.length === 1 ? servers[0] : undefined;
 }
 
-/** The server `redline mcp` talks to from `folder`: the folder's own, else the only one set up. */
-export function serverForFolder(folder: string, servers: Login[]): Login {
-  return linkedServer(folder, servers) ?? pickServer(servers);
+/** Links the folder to a server and no project (a project comes later, with `redline agent`), keeping `.redline/` out of git. */
+export function linkFolderToServer(folder: string, serverUrl: string): void {
+  writeLink(folder, { serverUrl, projectIds: [] });
+  ensureGitignored(folder);
 }
 
 function writeLink(folder: string, link: FolderLink): void {
@@ -114,7 +125,8 @@ export async function linkFolder({ folder, servers, chooseServer, choose, choose
   const pick = async (choice: LinkChoice): Promise<Project> =>
     "existing" in choice ? projects.find((p) => p.id === choice.existing)! : callProjects<Project>(server!, { method: "POST", body: { title: choice.create } });
   if (!server || linked.length === 0) {
-    server = servers.length === 1 ? servers[0] : await chooseServer(servers);
+    // A link that names a server keeps it, even without a project yet.
+    server = server ?? (servers.length === 1 ? servers[0] : await chooseServer(servers));
     projects = await listProjects(server);
     linked = [await pick(await choose(projects))];
   } else if (target) {

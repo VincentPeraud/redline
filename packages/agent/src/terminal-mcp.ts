@@ -8,6 +8,7 @@ import { uploadChangedAssets } from "./assets.js";
 import { readLinkedProjectIds } from "./link.js";
 import { pageAddresses } from "./page-addresses.js";
 import { buildHash } from "./build-hash.js";
+import { instanceLine, type InstanceLabel } from "./installations.js";
 import type { ServerApi } from "./server-api.js";
 import { CREATE_PAGE_TOOL, createRedlineMcpServer, type ToolResult } from "./session-mcp.js";
 import { designSystemHint, designSystemNote, gapsNote, layoutNote } from "./design-system-note.js";
@@ -78,7 +79,7 @@ interface Checkout {
  * No thread or conversation is involved.
  */
 /** `runningBuild` is the build this process loaded; `installedBuild` reads the one installed now (an update replaces it on disk). */
-export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(), runningBuild = buildHash(), installedBuild = buildHash }: { api: ServerApi; folder: string; sessionId?: string; runningBuild?: string; installedBuild?: () => string }): McpServer {
+export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(), runningBuild = buildHash(), installedBuild = buildHash, instance }: { api: ServerApi; folder: string; sessionId?: string; runningBuild?: string; installedBuild?: () => string; instance?: InstanceLabel }): McpServer {
   let current: Checkout | undefined;
   let removalsConfirmed = false;
   let changes: ChangeRecordInput[] = [];
@@ -87,18 +88,26 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     return current;
   };
   let noticeSent = false;
+  const withInstanceLine = (result: ToolResult): ToolResult => {
+    if (!instance) return result;
+    const [first, ...rest] = result.content;
+    const line = instanceLine(instance);
+    return { ...result, content: [{ type: "text", text: first ? `${line}\n${first.text}` : line }, ...rest] };
+  };
+  // One line, in the first answer only, once the server has said this CLI is out of date.
+  const withNotices = async (result: ToolResult): Promise<ToolResult> => {
+    const waiting = await waitingLine(api, sessionId);
+    const withWaiting: ToolResult = waiting ? { ...result, content: [...result.content, { type: "text", text: waiting }] } : result;
+    if (noticeSent || !api.outdated) return withWaiting;
+    noticeSent = true;
+    const [first, ...rest] = withWaiting.content;
+    const notice = `Redline: this CLI is not up to date. Tell the user to update it with \`${api.updateCommand()}\`, then to type /mcp in Claude Code and reconnect redline.`;
+    return { ...withWaiting, content: [{ type: "text", text: first ? `${notice}\n${first.text}` : notice }, ...rest] };
+  };
   const server = createRedlineMcpServer({
     api,
-    // One line, in the first answer only, once the server has said this CLI is out of date.
-    decorateResult: async (result) => {
-      const waiting = await waitingLine(api, sessionId);
-      const withWaiting: ToolResult = waiting ? { ...result, content: [...result.content, { type: "text", text: waiting }] } : result;
-      if (noticeSent || !api.outdated) return withWaiting;
-      noticeSent = true;
-      const [first, ...rest] = withWaiting.content;
-      const notice = `Redline: this CLI is not up to date. Tell the user to update it with \`${api.updateCommand()}\`, then to type /mcp in Claude Code and reconnect redline.`;
-      return { ...withWaiting, content: [{ type: "text", text: first ? `${notice}\n${first.text}` : notice }, ...rest] };
-    },
+    instructions: instance ? `${instanceLine(instance)}\nEvery tool of this MCP works on this Redline instance only.` : undefined,
+    decorateResult: async (result) => withInstanceLine(await withNotices(result)),
     // The CLI was reinstalled under this running MCP (the Agents screen's update, or npm by hand): its code is the previous one
     // until Claude Code reconnects it, so no tool runs. "dev" (sources, or a file being replaced) never pauses.
     refuseCall: () => {
@@ -408,9 +417,9 @@ export function startPresence({ api, sessionId, folder, machine = hostname(), in
 }
 
 /** Serves the terminal MCP server on stdin/stdout until the client goes away. */
-export async function serveTerminalMcp({ api, folder }: { api: ServerApi; folder: string }): Promise<void> {
+export async function serveTerminalMcp({ api, folder, instance }: { api: ServerApi; folder: string; instance?: InstanceLabel }): Promise<void> {
   const sessionId = randomUUID();
-  const server = createTerminalMcpServer({ api, folder, sessionId });
+  const server = createTerminalMcpServer({ api, folder, sessionId, instance });
   const transport = new StdioServerTransport();
   const presence = startPresence({ api, sessionId, folder });
   let signalled = false;

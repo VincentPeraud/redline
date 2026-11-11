@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { findLink } from "./link.js";
 import { findLogin, normalizeServerUrl, readLogins, validateServerUrl, type Login } from "./login.js";
 
 /**
@@ -144,21 +145,59 @@ export function findInstallation(configDir: string, wanted: string): Installatio
 /** The old single login is still there: every command but `migrate` refuses. */
 export const hasLegacyLayout = (configDir: string): boolean => existsSync(join(configDir, "login.json")) && readLogins(configDir).length > 0;
 
+/** The logins of the installations, for the code that still speaks in `Login`s. */
+export const installationLogins = (configDir: string): Login[] => listInstallations(configDir).map(({ serverUrl, token }) => ({ serverUrl, token }));
+
+/** Bridge until the agent host runs per installation (ticket 05): it still reads the legacy login file too. */
+export const knownLoginFor = (configDir: string, serverUrl: string): Login | undefined =>
+  findLogin([...readLogins(configDir).filter((login) => !findLogin(installationLogins(configDir), login.serverUrl)), ...installationLogins(configDir)], serverUrl);
+
+export type FolderResolution =
+  /** `root` is the folder holding the link; absent when the only installation was taken for a folder with no usable link. */
+  | { kind: "linked"; installation: Installation; root?: string; projectIds: string[] }
+  | { kind: "orphan"; serverUrl: string; root: string }
+  /** Several installations (or none) and no usable link. */
+  | { kind: "unlinked"; installations: Installation[] };
+
 /**
- * Bridge until the MCP and the agent host run per installation (tickets 03 and 05): the logins `redline agent`, `redline mcp`
- * and the host still read, which are those of the legacy file plus every installation's.
+ * The installation a folder uses: the one its nearest link (here or in a parent) names, a link to an address that is not
+ * installed here, or the only installation when the folder has no usable link. An old link without an address is no link.
+ * Nothing is ever rewritten.
  */
-export function knownLogins(configDir: string): Login[] {
-  const installed = listInstallations(configDir).map(({ serverUrl, token }) => ({ serverUrl, token }));
-  return [...readLogins(configDir).filter((login) => !findLogin(installed, login.serverUrl)), ...installed];
+export function resolveFolder(configDir: string, folder: string): FolderResolution {
+  const installations = listInstallations(configDir);
+  const found = findLink(folder);
+  if (found?.link.serverUrl) {
+    const wanted = normalizeServerUrl(found.link.serverUrl);
+    const installation = installations.find((candidate) => normalizeServerUrl(candidate.serverUrl) === wanted);
+    return installation ? { kind: "linked", installation, root: found.root, projectIds: found.link.projectIds } : { kind: "orphan", serverUrl: found.link.serverUrl, root: found.root };
+  }
+  return installations.length === 1 ? { kind: "linked", installation: installations[0], projectIds: [] } : { kind: "unlinked", installations };
 }
 
-export const knownLoginFor = (configDir: string, serverUrl: string): Login | undefined => findLogin(knownLogins(configDir), serverUrl);
+/** The address as people read it: no scheme. */
+export const addressOf = (serverUrl: string): string => serverUrl.replace(/^https?:\/\//, "");
 
-export function requireKnownLogins(configDir: string): Login[] {
-  const logins = knownLogins(configDir);
-  if (logins.length === 0) throw new Error("No server set up. Run `redline setup <server-url> --token <token>` first.");
-  return logins;
+export interface InstanceLabel {
+  name: string;
+  address: string;
+  version?: string;
+}
+
+/** First line of every MCP answer: where Claude publishes. */
+export const instanceLine = ({ name, address, version }: InstanceLabel): string => `Instance: ${name} (${address}${version ? `, v${version}` : ""})`;
+
+/**
+ * The display name of an installation now: the name given at setup is kept, otherwise the server's instance name wins.
+ * The server being unreachable (or slow) leaves the stored name. A new name is stored, so that lists elsewhere show it too.
+ */
+export async function currentInstallation(configDir: string, installation: Installation, fetchInstance: InstallationsDeps["fetchInstance"], timeoutMs = 3000): Promise<Installation> {
+  if (installation.nameChosen) return installation;
+  const timeout = new Promise<InstanceInfo>((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs).unref());
+  const info = await Promise.race([fetchInstance(installation.serverUrl, installation.token), timeout]).catch(() => undefined);
+  if (!info?.instanceName || info.instanceName === installation.name) return installation;
+  writeLogin(installation.dir, { serverUrl: installation.serverUrl, token: installation.token, name: info.instanceName, nameChosen: false });
+  return { ...installation, name: info.instanceName };
 }
 
 function writeLogin(dir: string, stored: StoredLogin): void {

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentTokenResponse, Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 import type { LaunchSettings } from "../src/host-protocol.js";
-import { saveLogin } from "../src/login.js";
+import { addInstallation } from "./support/installations.js";
 import { createNewAgentFlow } from "../src/new-agent.js";
 
 let dirs: string[] = [];
@@ -30,7 +30,7 @@ async function linkedFolder() {
   const [acme, beta, gamma] = [await create("Acme"), await create("Beta"), await create("Gamma")];
   const { token } = (await (await s.get("/api/agent-token")).json()) as AgentTokenResponse;
   const configDir = tempDir("rl-config-");
-  saveLogin({ configDir, serverUrl: s.url, token });
+  addInstallation(configDir, { name: "Test", serverUrl: s.url, token });
   const folder = tempDir("rl-folder-");
   mkdirSync(join(folder, ".redline"));
   writeFileSync(join(folder, ".redline", "project.json"), JSON.stringify({ serverUrl: s.url, projectIds: [acme.id, beta.id] }));
