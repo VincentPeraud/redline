@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { initialState, onKey, plainText, render, type ScreenState } from "../src/agents-view.js";
+import { initialState, onKey, render, type ScreenState } from "../src/agents-view.js";
+import { plainText } from "../src/terminal-draw.js";
 import { commentsLoaded, type CommentsEntry } from "../src/comments-tab.js";
 import type { InstanceEntry } from "../src/instance-list.js";
 

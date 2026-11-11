@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { runAgentsScreen, type InstancesPort, type ScreenHost, type ScreenTerminal } from "../src/agents-screen.js";
 import { SetupRefusal } from "../src/installations.js";
-import { initialState, onKey, plainText, render, type ScreenCommand, type ScreenState } from "../src/agents-view.js";
+import { initialState, onKey, render, type ScreenCommand, type ScreenState } from "../src/agents-view.js";
+import { plainText } from "../src/terminal-draw.js";
 import { instanceActionDone, instanceInspected } from "../src/instances-tab.js";
 import type { InstanceDetails } from "../src/instance-details.js";
 import type { InstanceEntry } from "../src/instance-list.js";

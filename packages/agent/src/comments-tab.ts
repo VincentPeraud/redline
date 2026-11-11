@@ -1,5 +1,6 @@
 import type { TerminalCommentsPage } from "@redline/shared";
-import { C, MARGIN, clock, clip, listWindow, ruleRow, span, spaces, addressText, type BarItem, type Key, type Row, type ScreenState, type Span, type Update } from "./agents-view.js";
+import { COLOURS, span, spaces, clip, ruleRow, clock, MARGIN, listWindow, addressText, type Span, type Row, type BarItem, type Key } from "./terminal-draw.js";
+import type { ScreenState, Update } from "./agents-view.js";
 
 /** One page of one instance with comments waiting for a terminal session. */
 export interface CommentsEntry {
@@ -35,7 +36,6 @@ export function commentsLoaded(state: ScreenState, { entries, failures }: { entr
 
 const selectedEntry = (comments: CommentsState): CommentsEntry | undefined => comments.entries[comments.selected];
 
-// Function declarations: agents-view imports this module and this one imports it back, so only hoisted names are safe at load time.
 export function commentsCount(state: ScreenState): number {
   return state.comments.entries.reduce((total, entry) => total + entry.page.comments.length, 0);
 }
@@ -66,22 +66,22 @@ export function commentsBody(state: ScreenState, { left, right, height }: { left
   return { left: detailPane(state, left, height), right: listPane(state, right, height) };
 }
 
-const note = (text: string): Row => ({ spans: [span(`${spaces(MARGIN)}${text}`, C.muted)] });
+const note = (text: string): Row => ({ spans: [span(`${spaces(MARGIN)}${text}`, COLOURS.muted)] });
 
 function listPane(state: ScreenState, cells: number, height: number): Row[] {
   const { entries, failures, selected } = state.comments;
-  const failed = failures.map((failure) => ({ spans: [span(`${spaces(MARGIN)}${failure.instance}: ${failure.message}`, C.amber)] }));
+  const failed = failures.map((failure) => ({ spans: [span(`${spaces(MARGIN)}${failure.instance}: ${failure.message}`, COLOURS.amber)] }));
   if (entries.length === 0) return [...(failures.length > 0 ? [{ spans: [] }] : []), ...failed];
   const { first, shown } = listWindow(entries.length, selected, height - failures.length);
-  const hidden = (text: string): Row => ({ spans: [span(`${spaces(MARGIN)}${text}`, C.dim)] });
-  const rows: Row[] = [first > 0 ? hidden(`↑ ${first} more`) : { spans: [span(`${spaces(MARGIN)}waiting for a terminal session`, C.dim)] }];
-  const marker = state.focus === "list" ? C.red : C.dim;
+  const hidden = (text: string): Row => ({ spans: [span(`${spaces(MARGIN)}${text}`, COLOURS.dim)] });
+  const rows: Row[] = [first > 0 ? hidden(`↑ ${first} more`) : { spans: [span(`${spaces(MARGIN)}waiting for a terminal session`, COLOURS.dim)] }];
+  const marker = state.focus === "list" ? COLOURS.red : COLOURS.dim;
   entries.slice(first, first + shown).forEach((entry, offset) => {
     const isSelected = first + offset === selected;
-    const bg = isSelected ? C.selected : undefined;
+    const bg = isSelected ? COLOURS.selected : undefined;
     const bar = span(isSelected ? "▎" : " ", marker, false, bg);
-    const title = [bar, span(" ", C.text, false, bg), isSelected ? span("› ", marker, true, bg) : span("  ", C.text, false, bg), span(`${entry.page.comments.length} `, C.amber, false, bg), ...clip([span(entry.page.title, C.text, true, bg)], cells - 8)];
-    const place = [bar, span(" ", C.text, false, bg), ...clip([span(`${spaces(6)}${entry.page.projectTitle}`, C.dim, false, bg)], cells - 2)];
+    const title = [bar, span(" ", COLOURS.text, false, bg), isSelected ? span("› ", marker, true, bg) : span("  ", COLOURS.text, false, bg), span(`${entry.page.comments.length} `, COLOURS.amber, false, bg), ...clip([span(entry.page.title, COLOURS.text, true, bg)], cells - 8)];
+    const place = [bar, span(" ", COLOURS.text, false, bg), ...clip([span(`${spaces(6)}${entry.page.projectTitle}`, COLOURS.dim, false, bg)], cells - 2)];
     rows.push({ spans: fill(title, cells, bg) }, { spans: fill(place, cells, bg) }, { spans: [] });
   });
   const below = entries.length - first - shown;
@@ -101,26 +101,26 @@ function detailPane(state: ScreenState, cells: number, height: number): Row[] {
   if (!entry) return [{ spans: [] }, note(status === "loading" ? "Loading the comments…" : "No comment is waiting for a terminal session.")];
   const { page } = entry;
   const holder = page.holder
-    ? [span("the Claude Code session in ", C.text), span(page.holder.folder, C.text), span(` (published ${clock(page.holder.since, false)})`, C.text)]
-    : [span("no terminal session is present", C.muted)];
+    ? [span("the Claude Code session in ", COLOURS.text), span(page.holder.folder, COLOURS.text), span(` (published ${clock(page.holder.since, false)})`, COLOURS.text)]
+    : [span("no terminal session is present", COLOURS.muted)];
   const focused = state.focus === "detail";
   const count = page.comments.length;
   const head: Row[] = [
     { spans: [] },
-    { spans: [span(spaces(MARGIN)), span(page.title, C.text, true), span(`  ${page.projectTitle}`, C.muted), span(" on ", C.dim), span(entry.instance, C.muted)] },
-    { spans: [span(spaces(MARGIN)), span("Held by    ", C.dim), ...holder] },
+    { spans: [span(spaces(MARGIN)), span(page.title, COLOURS.text, true), span(`  ${page.projectTitle}`, COLOURS.muted), span(" on ", COLOURS.dim), span(entry.instance, COLOURS.muted)] },
+    { spans: [span(spaces(MARGIN)), span("Held by    ", COLOURS.dim), ...holder] },
     ruleRow(),
-    { spans: [span(focused ? "▎" : " ", C.red), span(" "), span(`${count} ${count === 1 ? "COMMENT" : "COMMENTS"}`, C.text, true), span(focused ? "  focused: ↑↓ scroll, → back to the list" : "  ← to scroll them", C.dim)] },
+    { spans: [span(focused ? "▎" : " ", COLOURS.red), span(" "), span(`${count} ${count === 1 ? "COMMENT" : "COMMENTS"}`, COLOURS.text, true), span(focused ? "  focused: ↑↓ scroll, → back to the list" : "  ← to scroll them", COLOURS.dim)] },
   ];
   const lines = page.comments.flatMap((comment, index): Row[] => [
     ...(index > 0 ? [{ spans: [] }] : []),
-    { spans: [span(spaces(MARGIN)), span(comment.author, C.text, true), span(`  ${clock(comment.at, false)} · ${comment.target}`, C.dim)] },
-    ...wrap(`« ${comment.text} »`, cells - MARGIN).map((line): Row => ({ spans: [span(spaces(MARGIN)), span(line, C.muted)] })),
+    { spans: [span(spaces(MARGIN)), span(comment.author, COLOURS.text, true), span(`  ${clock(comment.at, false)} · ${comment.target}`, COLOURS.dim)] },
+    ...wrap(`« ${comment.text} »`, cells - MARGIN).map((line): Row => ({ spans: [span(spaces(MARGIN)), span(line, COLOURS.muted)] })),
   ]);
   const hint: Row[] = [
     ruleRow(),
-    { spans: [span(spaces(MARGIN)), span("In that session, ask Claude: ", C.dim), span("traite mes commentaires", C.text, true)] },
-    { spans: [span(spaces(MARGIN)), span("o", C.text, true), span(" opens the page in Redline.", C.dim)] },
+    { spans: [span(spaces(MARGIN)), span("In that session, ask Claude: ", COLOURS.dim), span("traite mes commentaires", COLOURS.text, true)] },
+    { spans: [span(spaces(MARGIN)), span("o", COLOURS.text, true), span(" opens the page in Redline.", COLOURS.dim)] },
   ];
   const room = Math.max(0, height - head.length - hint.length);
   if (lines.length <= room) return [...head, ...lines, ...hint];

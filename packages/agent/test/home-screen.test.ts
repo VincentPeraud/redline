@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { initialState, logLoaded, newAgentQuestions, onKey, plainText, render, type ScreenState } from "../src/agents-view.js";
+import { initialState, logLoaded, newAgentQuestions, onKey, render, type ScreenState } from "../src/agents-view.js";
+import { plainText } from "../src/terminal-draw.js";
 import { helpLines } from "../src/commands-help.js";
 import type { InstanceEntry } from "../src/instance-list.js";
 import type { HostAgent, HostLogEntry } from "../src/host-protocol.js";

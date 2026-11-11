@@ -9,7 +9,7 @@ import { startTestServer, type TestServer } from "@redline/server/test-harness";
 import { startAgentHost, HostAlreadyRunningError, type AgentHost, type AgentHostOptions } from "../src/agent-host.js";
 import { createNewAgentFlow, type NewAgentFlow } from "../src/new-agent.js";
 import { runAgentsScreen, type ScreenTerminal } from "../src/agents-screen.js";
-import { plainText } from "../src/agents-view.js";
+import { plainText } from "../src/terminal-draw.js";
 import { ensureHost, HostClient } from "../src/host-client.js";
 import { hostProtocol } from "../src/host-protocol.js";
 import { agentLogPath, hostLockPath, hostSocketPath, type HostEvent, type HostLogEntry, type LaunchSettings } from "../src/host-protocol.js";

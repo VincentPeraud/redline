@@ -1,6 +1,7 @@
 import { EFFORTS, MODEL_CHOICES, agentsHash, modelLabel, pageHash, type Effort } from "@redline/shared";
 import { MIGRATE_STOP_REASON, publishedOutcome, wording } from "./activity.js";
 import { sanitizeForTerminal } from "./sanitize.js";
+import { COLOURS, span, width, spaces, clip, fit, toAnsi, ruleRow, clock, wrap, MARGIN, DETAIL_LABEL_WIDTH, listWindow, plural, folderLabel, addressText, type Span, type Row, type BarItem, type TabBody, type Key } from "./terminal-draw.js";
 import { COMMANDS, commandCell } from "./commands-help.js";
 import { commentsBar, commentsBody, commentsCount, commentsHeaderInstance, commentsOnKey, initialComments, type CommentsState } from "./comments-tab.js";
 import type { FolderLine, InstanceEntry } from "./instance-list.js";
@@ -12,9 +13,6 @@ import type { NewAgentAnswers, NewAgentQuestions, ProjectOption } from "./new-ag
  * The agents screen as pure functions: state + key -> next state + commands, state + size -> frame lines.
  * Layout, colours and copy follow the `AgentsTui` and `AgentsTuiShell` boards of the Redline concept artifact.
  */
-
-/** "up", "down", "ctrl-c", or the character typed. */
-export type Key = string;
 
 export interface ScreenState {
   agents: HostAgent[];
@@ -376,87 +374,7 @@ const modelOptions = (model: string | undefined): string[] => [...MODEL_CHOICES.
 /** `undefined` leaves the effort to Claude (shown as "default"). */
 const EFFORT_OPTIONS: readonly (Effort | undefined)[] = [undefined, ...EFFORTS];
 
-// ---- Cells ---------------------------------------------------------------------------------------------------
-
-export const C = {
-  bg: "#18181B",
-  bar: "#111113",
-  selected: "#27272A",
-  text: "#E4E4E7",
-  muted: "#A1A1AA",
-  dim: "#71717A",
-  rule: "#3F3F46",
-  amber: "#FBBF24",
-  green: "#4ADE80",
-  red: "#D92D20",
-  redText: "#F87171",
-};
-
-export interface Span {
-  text: string;
-  fg?: string;
-  bg?: string;
-  bold?: boolean;
-}
-export interface Row {
-  spans: Span[];
-  /** A horizontal rule: it joins the vertical border with a tee. */
-  rule?: boolean;
-}
-
-/** Every text of the screen is made here, so it is cleaned here (see `sanitizeForTerminal`). */
-export const span = (text: string, fg: string = C.text, bold = false, bg?: string): Span => ({ text: sanitizeForTerminal(text), fg, bold, bg });
-export const width = (spans: Span[]) => spans.reduce((total, s) => total + [...s.text].length, 0);
-export const spaces = (count: number) => " ".repeat(Math.max(0, count));
-
-/** Cuts the spans to `limit` cells, ending with an ellipsis when something was cut. */
-export function clip(spans: Span[], limit: number): Span[] {
-  if (width(spans) <= limit) return spans;
-  const out: Span[] = [];
-  let left = Math.max(0, limit - 1);
-  for (const s of spans) {
-    const chars = [...s.text];
-    if (chars.length <= left) {
-      out.push(s);
-      left -= chars.length;
-    } else {
-      out.push({ ...s, text: chars.slice(0, left).join("") });
-      break;
-    }
-  }
-  const last = out.at(-1);
-  return [...out, { text: "…", fg: last?.fg, bg: last?.bg }];
-}
-
-export function fit(spans: Span[], cells: number, bg?: string): Span[] {
-  const clipped = clip(spans, cells);
-  return [...clipped, { text: spaces(cells - width(clipped)), bg }];
-}
-
-const hexToSgr = (hex: string, layer: 38 | 48) => `${layer};2;${parseInt(hex.slice(1, 3), 16)};${parseInt(hex.slice(3, 5), 16)};${parseInt(hex.slice(5, 7), 16)}`;
-
-/** `paint` draws the board's background; the shell summary leaves the terminal's own. */
-function toAnsi(spans: Span[], paint = true): string {
-  return (
-    spans
-      .filter((s) => s.text)
-      .map((s) => `\x1b[0;${[...(paint ? [hexToSgr(s.bg ?? C.bg, 48)] : []), hexToSgr(s.fg ?? C.text, 38), ...(s.bold ? ["1"] : [])].join(";")}m${s.text}`)
-      .join("") + "\x1b[0m"
-  );
-}
-
-/** The visible text of ANSI lines, for tests and captures. */
-export const plainText = (lines: string[]): string[] => lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
-
-export const ruleRow = (): Row => ({ spans: [], rule: true });
-
 // ---- Formatting ----------------------------------------------------------------------------------------------
-
-export const clock = (iso: string, seconds = true) => {
-  const d = new Date(iso);
-  const two = (n: number) => String(n).padStart(2, "0");
-  return `${two(d.getHours())}:${two(d.getMinutes())}${seconds ? `:${two(d.getSeconds())}` : ""}`;
-};
 
 function duration(ms: number): string {
   const total = Math.max(1, Math.round(ms / 1000));
@@ -476,8 +394,6 @@ function uptime(ms: number): string {
 
 const modelText = (model: string | undefined) => (model ? modelLabel(model) : "Claude's default");
 const effortText = (effort: Effort | undefined) => effort ?? "Claude's default";
-export const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
-export const folderLabel = (folder: string, home: string) => (home && (folder === home || folder.startsWith(`${home}/`)) ? `~${folder.slice(home.length)}` : folder);
 
 type RunStarted = Extract<HostLogEvent, { type: "run-started" }>;
 const lastStarted = (log: HostLogEntry[]): RunStarted | undefined => log.map((e) => e.event).filter((e): e is RunStarted => e.type === "run-started").at(-1);
@@ -492,7 +408,7 @@ function activityLabel(agent: HostAgent, log: HostLogEntry[]): string {
   return `running · ${placeOf(started?.page === page ? started.project : undefined, page)}`;
 }
 
-const STATE_COLOR: Record<HostAgent["state"], string> = { running: C.amber, idle: C.green, reconnecting: C.amber, stopped: C.dim };
+const STATE_COLOR: Record<HostAgent["state"], string> = { running: COLOURS.amber, idle: COLOURS.green, reconnecting: COLOURS.amber, stopped: COLOURS.dim };
 const dot = (agent: HostAgent) => (agent.state === "stopped" ? "○" : "●");
 
 // ---- Run log -------------------------------------------------------------------------------------------------
@@ -501,24 +417,6 @@ const TIME_WIDTH = 10;
 const LABEL_COLUMN = 14;
 /** Where what an event says starts, after the time, the glyph and the label. */
 const VALUE_COLUMN = TIME_WIDTH + 2 + LABEL_COLUMN;
-
-/** Cuts a text into lines of at most `limit` characters at word boundaries (a longer word is cut). */
-export function wrap(text: string, limit: number): string[] {
-  const out: string[] = [];
-  let current = "";
-  for (const word of text.split(/\s+/).filter(Boolean)) {
-    if (current && [...current].length + 1 + [...word].length > limit) {
-      out.push(current);
-      current = "";
-    }
-    current = current ? `${current} ${word}` : word;
-    while ([...current].length > limit && limit > 0) {
-      out.push([...current].slice(0, limit).join(""));
-      current = [...current].slice(limit).join("");
-    }
-  }
-  return current ? [...out, current] : out;
-}
 
 /** `cells` is the width the lines may take; a refusal wraps under its first line within it (0: no wrapping). */
 function logRows(log: HostLogEntry[], now: number, cells: number, where: (serverUrl: string) => string = (serverUrl) => serverUrl): Row[] {
@@ -551,35 +449,35 @@ function logRows(log: HostLogEntry[], now: number, cells: number, where: (server
   });
 
   const rows: Row[] = [];
-  const line = (at: string, ...rest: Span[]): Row => ({ spans: [span(`${clock(at)}  `, C.dim), ...rest] });
-  const detail = (text: string): Row => ({ spans: [span(`${spaces(VALUE_COLUMN)}  ${text}`, C.dim)] });
+  const line = (at: string, ...rest: Span[]): Row => ({ spans: [span(`${clock(at)}  `, COLOURS.dim), ...rest] });
+  const detail = (text: string): Row => ({ spans: [span(`${spaces(VALUE_COLUMN)}  ${text}`, COLOURS.dim)] });
   /** The events' labels share a column, so that what they say lines up (a label as wide as the column keeps two spaces). */
   const labelled = (label: string) => `${label.padEnd(LABEL_COLUMN)}${label.length >= LABEL_COLUMN ? "  " : ""}`;
-  const title = (glyph: string, color: string, label: string) => [span(`${glyph} `, color), span(labelled(label), C.text, true)];
+  const title = (glyph: string, color: string, label: string) => [span(`${glyph} `, color), span(labelled(label), COLOURS.text, true)];
 
   log.forEach(({ at, event }, index) => {
     switch (event.type) {
       case "connected":
-        rows.push(line(at, ...title("●", C.green, "Connected"), span(where(event.serverUrl), C.muted)));
+        rows.push(line(at, ...title("●", COLOURS.green, "Connected"), span(where(event.serverUrl), COLOURS.muted)));
         break;
       case "connection-lost":
-        rows.push(line(at, span(wording.connectionLost(event.reason), C.muted)));
+        rows.push(line(at, span(wording.connectionLost(event.reason), COLOURS.muted)));
         break;
       case "reconnected":
-        rows.push(line(at, span(wording.reconnected, C.muted)));
+        rows.push(line(at, span(wording.reconnected, COLOURS.muted)));
         break;
       case "refused":
         {
           const lead = VALUE_COLUMN;
           const [first = "", ...more] = cells > lead + 10 ? wrap(event.reason, cells - lead) : [event.reason];
-          rows.push(line(at, ...title("✗", C.red, "Refused"), span(first, C.muted)));
-          for (const rest of more) rows.push({ spans: [span(spaces(lead)), span(rest, C.muted)] });
+          rows.push(line(at, ...title("✗", COLOURS.red, "Refused"), span(first, COLOURS.muted)));
+          for (const rest of more) rows.push({ spans: [span(spaces(lead)), span(rest, COLOURS.muted)] });
         }
         break;
       case "run-started": {
         const who = event.author ? ` ${event.kind === "conversation" ? "with" : "by"} ${event.author}` : "";
         const attempt = event.attempt > 1 ? ` · attempt ${event.attempt}` : "";
-        rows.push(line(at, ...title("▸", C.amber, "Run started"), span(placeOf(event.project, event.page)), span(`  ${event.kind}${who}${attempt}`, C.muted)));
+        rows.push(line(at, ...title("▸", COLOURS.amber, "Run started"), span(placeOf(event.project, event.page)), span(`  ${event.kind}${who}${attempt}`, COLOURS.muted)));
         if (event.excerpt) rows.push(detail(`« ${event.excerpt} »`));
         const latest = progress.get(event.workId);
         if (latest && lastStart.get(event.workId) === index) rows.push(detail([...latest.steps.slice(-2), duration(now - Date.parse(at))].join(" · ")));
@@ -590,21 +488,21 @@ function logRows(log: HostLogEntry[], now: number, cells: number, where: (server
       case "run-published": {
         const place = placeOf(projects.get(event.workId), event.page);
         const outcome = publishedOutcome(event.changed, event.artboards);
-        rows.push(line(at, ...title("✓", C.green, event.changed.length > 0 ? "Published" : "Finished"), span(place), span(`  ${outcome} · ${duration(event.durationMs)}`, C.muted)));
+        rows.push(line(at, ...title("✓", COLOURS.green, event.changed.length > 0 ? "Published" : "Finished"), span(place), span(`  ${outcome} · ${duration(event.durationMs)}`, COLOURS.muted)));
         break;
       }
       case "run-failed":
-        rows.push(line(at, ...title("✗", C.red, "Run failed"), span(placeOf(projects.get(event.workId), event.page)), span(`  ${event.reason}`, C.muted)));
+        rows.push(line(at, ...title("✗", COLOURS.red, "Run failed"), span(placeOf(projects.get(event.workId), event.page)), span(`  ${event.reason}`, COLOURS.muted)));
         break;
       case "host-updated":
-        rows.push(line(at, span("↻ ", C.muted), span(labelled("Host restarted"), C.text, true), span(`redline command changed to v${event.version}`, C.muted)));
-        rows.push({ spans: [span(`${spaces(VALUE_COLUMN)}(waited for the runs in progress)`, C.dim)] });
+        rows.push(line(at, span("↻ ", COLOURS.muted), span(labelled("Host restarted"), COLOURS.text, true), span(`redline command changed to v${event.version}`, COLOURS.muted)));
+        rows.push({ spans: [span(`${spaces(VALUE_COLUMN)}(waited for the runs in progress)`, COLOURS.dim)] });
         break;
       case "stopped":
-        if (event.reason === "failed") rows.push(line(at, ...title("✗", C.red, "Stopped"), span(event.error, C.muted)));
+        if (event.reason === "failed") rows.push(line(at, ...title("✗", COLOURS.red, "Stopped"), span(event.error, COLOURS.muted)));
         else {
           const why = { updated: "updating, restarting", stopped: "stopped on request", "host-restarted": "the Mac restarted or the session closed" }[event.reason];
-          rows.push(line(at, span("○ Stopped", C.muted, true), span(`  ${why}`, C.dim)));
+          rows.push(line(at, span("○ Stopped", COLOURS.muted, true), span(`  ${why}`, COLOURS.dim)));
         }
         break;
     }
@@ -614,28 +512,12 @@ function logRows(log: HostLogEntry[], now: number, cells: number, where: (server
 
 // ---- Screen --------------------------------------------------------------------------------------------------
 
-export const MARGIN = 2;
 const RIGHT_WIDTH = 46;
 const LABEL_WIDTH = 10;
-/** The fields of an agent detail line up one column further than the dialog rows (boards). */
-export const DETAIL_LABEL_WIDTH = 11;
 /** Rows of the screen around the body: the blank row, header, folder line, blank row, tabs, two rules and the key bar. */
 const CHROME_ROWS = 8;
 /** The first row of the body on screen: the board lets the commands box start there. */
 const TOP_ROW = 6;
-
-export interface BarItem {
-  key: string;
-  label: string;
-  /** The closing key is drawn with a greyer cap. */
-  muted?: boolean;
-}
-
-/** The two panes of a tab's body, as rows, plus what its header says. */
-export interface TabBody {
-  left: Row[];
-  right: Row[];
-}
 
 /**
  * A tab of the home screen. The screen draws the header, the folder line, the tab bar and the common keys (Tab, 1 2 3, ←→, ?, q, l);
@@ -702,8 +584,6 @@ function selectedAgent(state: ScreenState): HostAgent | undefined {
 const sameAddress = (a: string, b: string) => a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
 const instanceOf = (state: ScreenState, agent: HostAgent): InstanceEntry | undefined =>
   state.instances.find((entry) => (agent.installation ? entry.id === agent.installation : sameAddress(entry.serverUrl, agent.serverUrl))) ?? state.instances.find((entry) => sameAddress(entry.serverUrl, agent.serverUrl));
-export const addressText = (serverUrl: string) => serverUrl.replace(/^https?:\/\//, "");
-/** `Lumora · redline.lumora.com · v0.2.0`: the name, the address, the version when known. */
 const instanceText = (entry: Pick<InstanceEntry, "name" | "serverUrl" | "version">) => [entry.name, addressText(entry.serverUrl), ...(entry.version ? [`v${entry.version}`] : [])].join(" · ");
 const instanceLabel = (state: ScreenState, agent: HostAgent): string => {
   const entry = instanceOf(state, agent);
@@ -714,11 +594,11 @@ function headerRow(state: ScreenState, columns: number): Row {
   const runs = state.agents.filter((a) => a.state === "running").length;
   const allStopped = state.agents.length > 0 && state.agents.every((a) => a.state === "stopped");
   const where = TABS[state.tab].headerInstance(state);
-  const left = [span("redline", C.text, true), ...(where ? [span(`  ${where}`, C.dim)] : [])];
+  const left = [span("redline", COLOURS.text, true), ...(where ? [span(`  ${where}`, COLOURS.dim)] : [])];
   const right = TABS[state.tab].summary?.(state) ?? [
-    span(plural(state.agents.length, "agent"), C.muted),
-    span(" · ", C.dim),
-    allStopped ? span("all stopped", C.dim) : runs > 0 ? span(`${plural(runs, "run")} in progress`, C.amber) : span("no run in progress", C.dim),
+    span(plural(state.agents.length, "agent"), COLOURS.muted),
+    span(" · ", COLOURS.dim),
+    allStopped ? span("all stopped", COLOURS.dim) : runs > 0 ? span(`${plural(runs, "run")} in progress`, COLOURS.amber) : span("no run in progress", COLOURS.dim),
   ];
   const gap = columns - 2 * MARGIN - width(left) - width(right);
   return { spans: [span(spaces(MARGIN)), ...left, span(spaces(gap)), ...right] };
@@ -727,10 +607,10 @@ function headerRow(state: ScreenState, columns: number): Row {
 /** "This folder ~/claude-projects/agora → Agora on Lumora", or what is missing. */
 function folderRow(state: ScreenState): Row {
   const { folderLine: line } = state;
-  const head = [span(spaces(MARGIN)), span("This folder ", C.dim), span(folderLabel(state.folder, state.home), C.muted)];
-  if (line.kind === "linked") return { spans: [...head, span(" → ", C.dim), ...(line.project ? [span(line.project, C.text, true), span(" on ", C.muted)] : []), span(line.instance, C.text, true)] };
-  if (line.kind === "orphan") return { spans: [...head, span(`  linked to ${line.address}, which is not installed here · `, C.dim), span("redline setup", C.text, true)] };
-  return { spans: [...head, span("  not linked to an instance · ", C.dim), span("l", C.text, true), span(" links it", C.dim)] };
+  const head = [span(spaces(MARGIN)), span("This folder ", COLOURS.dim), span(folderLabel(state.folder, state.home), COLOURS.muted)];
+  if (line.kind === "linked") return { spans: [...head, span(" → ", COLOURS.dim), ...(line.project ? [span(line.project, COLOURS.text, true), span(" on ", COLOURS.muted)] : []), span(line.instance, COLOURS.text, true)] };
+  if (line.kind === "orphan") return { spans: [...head, span(`  linked to ${line.address}, which is not installed here · `, COLOURS.dim), span("redline setup", COLOURS.text, true)] };
+  return { spans: [...head, span("  not linked to an instance · ", COLOURS.dim), span("l", COLOURS.text, true), span(" links it", COLOURS.dim)] };
 }
 
 /** The tabs: the shown one in a cap, the others muted, their counts, the instances' problems, and the key that switches. */
@@ -740,34 +620,34 @@ function tabRow(state: ScreenState): Row {
     const tab = TABS[id];
     const shown = id === state.tab;
     const problems = tab.problems?.(state) ?? 0;
-    spans.push(shown ? span(` ${tab.label} `, C.bg, true, C.text) : span(` ${tab.label} `, C.muted), span(` ${tab.count(state)}`, shown ? C.text : C.dim, shown), ...(problems > 0 ? [span(` ! ${problems}`, C.amber)] : []), span("    "));
+    spans.push(shown ? span(` ${tab.label} `, COLOURS.bg, true, COLOURS.text) : span(` ${tab.label} `, COLOURS.muted), span(` ${tab.count(state)}`, shown ? COLOURS.text : COLOURS.dim, shown), ...(problems > 0 ? [span(` ! ${problems}`, COLOURS.amber)] : []), span("    "));
   }
-  spans.push(span(" "), span("Tab", C.text, true), span(" switches", C.dim));
+  spans.push(span(" "), span("Tab", COLOURS.text, true), span(" switches", COLOURS.dim));
   return { spans };
 }
 
 function detailRows(state: ScreenState, agent: HostAgent, log: HostLogEntry[], cells: number): Row[] {
   const status =
     agent.state === "stopped"
-      ? [span(`○ stopped since ${clock(agent.since, false)}`, C.dim)]
+      ? [span(`○ stopped since ${clock(agent.since, false)}`, COLOURS.dim)]
       : agent.state === "running"
-        ? [span(`● ${activityLabel(agent, log)}`, C.amber)]
+        ? [span(`● ${activityLabel(agent, log)}`, COLOURS.amber)]
         : [span(`● ${agent.state} since ${clock(agent.since, false)}`, STATE_COLOR[agent.state])];
-  const left = [span(agent.name, C.text, true), span("  "), span(folderLabel(agent.folder, state.home), C.muted)];
+  const left = [span(agent.name, COLOURS.text, true), span("  "), span(folderLabel(agent.folder, state.home), COLOURS.muted)];
   const gap = cells - 2 * MARGIN - width(left) - width(status);
-  const field = (label: string, value: string, color: string = C.text): Row => ({ spans: [span(spaces(MARGIN)), span(label.padEnd(DETAIL_LABEL_WIDTH), C.dim), span(value, color)] });
+  const field = (label: string, value: string, color: string = COLOURS.text): Row => ({ spans: [span(spaces(MARGIN)), span(label.padEnd(DETAIL_LABEL_WIDTH), COLOURS.dim), span(value, color)] });
   const projects = agent.kind === "global" ? "All projects" : (agent.projectNames?.join(", ") ?? "-");
   const machine = [agent.machine ?? "-", ...(agent.state !== "stopped" && agent.startedAt ? [`up ${uptime(state.now - Date.parse(agent.startedAt))}`] : [])].join(" · ");
   const instance = instanceOf(state, agent);
   return [
     { spans: [] },
     { spans: [span(spaces(MARGIN)), ...left, span(spaces(gap)), ...status] },
-    field("Instance", instance ? instanceText(instance) : addressText(agent.serverUrl), instance?.tooOld ? C.amber : C.text),
+    field("Instance", instance ? instanceText(instance) : addressText(agent.serverUrl), instance?.tooOld ? COLOURS.amber : COLOURS.text),
     field("Projects", projects),
     field("Model", modelText(agent.model)),
     field("Effort", effortText(agent.effort)),
     field("Account", agent.account ?? "unknown"),
-    field("Machine", machine, C.muted),
+    field("Machine", machine, COLOURS.muted),
   ];
 }
 
@@ -776,14 +656,14 @@ function bannerRows(state: ScreenState, agent: HostAgent, cells: number): Row[] 
   const migrated = agent.state === "stopped" && agent.reason === MIGRATE_STOP_REASON;
   if (!migrated && (!state.freshStartAt || !state.agents.some((a) => a.state === "stopped"))) return [];
   const inner = cells - 2 * MARGIN - 2;
-  const edge = (text: string) => span(text, C.rule, false, C.bar);
-  const line = (...content: Span[]): Row => ({ spans: [span(spaces(MARGIN)), edge("│"), ...fit([span(" ", C.text, false, C.bar), ...content.map((s) => ({ ...s, bg: C.bar }))], inner, C.bar), edge("│")] });
+  const edge = (text: string) => span(text, COLOURS.rule, false, COLOURS.bar);
+  const line = (...content: Span[]): Row => ({ spans: [span(spaces(MARGIN)), edge("│"), ...fit([span(" ", COLOURS.text, false, COLOURS.bar), ...content.map((s) => ({ ...s, bg: COLOURS.bar }))], inner, COLOURS.bar), edge("│")] });
   const border = (left: string, right: string): Row => ({ spans: [span(spaces(MARGIN)), edge(`${left}${"─".repeat(inner)}${right}`)] });
   const why = migrated ? MIGRATE_STOP_REASON : `The agents stopped (the Mac restarted or the session closed at ${clock(state.freshStartAt!, false)}).`;
   return [
     border("┌", "┐"),
-    line(span("○ ", C.dim), span(why, C.muted)),
-    line(span("  "), span("r", C.text, true), span(" restarts the selected one with the same folder, model and effort · ", C.muted), span("R", C.text, true), span(" restarts all.", C.muted)),
+    line(span("○ ", COLOURS.dim), span(why, COLOURS.muted)),
+    line(span("  "), span("r", COLOURS.text, true), span(" restarts the selected one with the same folder, model and effort · ", COLOURS.muted), span("R", COLOURS.text, true), span(" restarts all.", COLOURS.muted)),
     border("└", "┘"),
   ];
 }
@@ -791,11 +671,11 @@ function bannerRows(state: ScreenState, agent: HostAgent, cells: number): Row[] 
 function leftColumn(state: ScreenState, cells: number, height: number): Row[] {
   const agent = selectedAgent(state);
   if (!agent) {
-    return [{ spans: [] }, { spans: [span(`${spaces(MARGIN)}No agent yet. Press n to start one in this folder.`, C.muted)] }];
+    return [{ spans: [] }, { spans: [span(`${spaces(MARGIN)}No agent yet. Press n to start one in this folder.`, COLOURS.muted)] }];
   }
   const log = state.logs[agent.id] ?? [];
   const scrolling = state.focus === "detail";
-  const title = [scrolling ? span("▎", C.red) : span(" "), span(" "), span("LOG", C.muted, true), span(scrolling ? "  ↑↓ scroll · → back to the list" : "  ← to scroll it", C.dim)];
+  const title = [scrolling ? span("▎", COLOURS.red) : span(" "), span(" "), span("LOG", COLOURS.muted, true), span(scrolling ? "  ↑↓ scroll · → back to the list" : "  ← to scroll it", COLOURS.dim)];
   const head = [...detailRows(state, agent, log, cells), ruleRow(), ...bannerRows(state, agent, cells), { spans: title }];
   const lines = logRows(log, state.now, cells - 2 * MARGIN, (serverUrl) => {
     const entry = state.instances.find((candidate) => sameAddress(candidate.serverUrl, serverUrl));
@@ -806,44 +686,32 @@ function leftColumn(state: ScreenState, cells: number, height: number): Row[] {
   return [...head, ...lines.slice(Math.max(0, end - room), end)];
 }
 
-const ITEM_ROWS = 3;
-
-/** The items of a list that fit `height` rows below a first row that stays free for "↑ n more": the window keeps the selection one item from its top. */
-export function listWindow(total: number, selected: number, height: number): { first: number; shown: number } {
-  const room = Math.max(0, height - 1);
-  const fits = Math.max(1, Math.floor(room / ITEM_ROWS));
-  if (total <= fits) return { first: 0, shown: total };
-  // The "↓ n more" row takes the room of the last items' spacing.
-  const shown = Math.max(1, Math.floor((room - 1) / ITEM_ROWS));
-  return { first: Math.max(0, Math.min(selected - 1, total - shown)), shown };
-}
-
 function rightColumn(state: ScreenState, cells: number, height: number): Row[] {
   const selected = Math.max(0, state.agents.findIndex((agent) => agent.id === state.selectedId));
   const { first, shown } = listWindow(state.agents.length, selected, height);
   const above = first;
   const below = state.agents.length - first - shown;
-  const more = (text: string): Row => ({ spans: [span(`${spaces(MARGIN)}${text}`, C.dim)] });
+  const more = (text: string): Row => ({ spans: [span(`${spaces(MARGIN)}${text}`, COLOURS.dim)] });
   const rows: Row[] = [above > 0 ? more(`↑ ${above} more`) : { spans: [] }];
   const nameWidth = Math.max(16, ...state.agents.map((agent) => [...agent.name].length));
-  const marker = state.focus === "list" ? C.red : C.dim;
+  const marker = state.focus === "list" ? COLOURS.red : COLOURS.dim;
   for (const agent of state.agents.slice(first, first + shown)) {
     const isSelected = agent.id === state.selectedId;
-    const bg = isSelected ? C.selected : undefined;
+    const bg = isSelected ? COLOURS.selected : undefined;
     const stopped = agent.state === "stopped";
     const name = clip([span(agent.name)], nameWidth).map((s) => s.text).join("").padEnd(nameWidth);
     const entry = instanceOf(state, agent);
-    const second = [span("    ", C.text, false, bg), span(`${entry?.name ?? addressText(agent.serverUrl)} · ${agent.model || agent.effort ? `${modelText(agent.model)} · ${effortText(agent.effort)}` : modelText(undefined)}`, C.dim, false, bg)];
+    const second = [span("    ", COLOURS.text, false, bg), span(`${entry?.name ?? addressText(agent.serverUrl)} · ${agent.model || agent.effort ? `${modelText(agent.model)} · ${effortText(agent.effort)}` : modelText(undefined)}`, COLOURS.dim, false, bg)];
     const nameLine = [
       span(isSelected ? "▎" : " ", marker, false, bg),
-      span(" ", C.text, false, bg),
-      isSelected ? span("› ", marker, true, bg) : span("  ", C.text, false, bg),
+      span(" ", COLOURS.text, false, bg),
+      isSelected ? span("› ", marker, true, bg) : span("  ", COLOURS.text, false, bg),
       span(`${dot(agent)} `, STATE_COLOR[agent.state], false, bg),
-      span(name, stopped ? C.dim : C.text, isSelected, bg),
+      span(name, stopped ? COLOURS.dim : COLOURS.text, isSelected, bg),
       span(agent.state.padStart(10), STATE_COLOR[agent.state], false, bg),
     ];
     rows.push({ spans: fit(nameLine, cells, bg) });
-    rows.push({ spans: fit([span(isSelected ? "▎" : " ", marker, false, bg), span(" ", C.text, false, bg), ...second], cells, bg) });
+    rows.push({ spans: fit([span(isSelected ? "▎" : " ", marker, false, bg), span(" ", COLOURS.text, false, bg), ...second], cells, bg) });
     rows.push({ spans: [] });
   }
   if (below > 0) rows.push(more(`↓ ${below} more`));
@@ -852,17 +720,17 @@ function rightColumn(state: ScreenState, cells: number, height: number): Row[] {
 
 /** Inverse-video key caps, each followed by its label. */
 function keyCaps(items: BarItem[]): Span[] {
-  return items.flatMap((item) => [span(` ${item.key} `, C.bg, true, item.muted ? C.muted : C.text), span(" ", C.muted, false, C.bar), span(item.label, C.muted, false, C.bar), span("   ", C.muted, false, C.bar)]);
+  return items.flatMap((item) => [span(` ${item.key} `, COLOURS.bg, true, item.muted ? COLOURS.muted : COLOURS.text), span(" ", COLOURS.muted, false, COLOURS.bar), span(item.label, COLOURS.muted, false, COLOURS.bar), span("   ", COLOURS.muted, false, COLOURS.bar)]);
 }
 
-const barRow = (state: ScreenState, columns: number): Span[] => fit([span(spaces(MARGIN), C.text, false, C.bar), ...keyCaps(actionBar(state))], columns, C.bar);
+const barRow = (state: ScreenState, columns: number): Span[] => fit([span(spaces(MARGIN), COLOURS.text, false, COLOURS.bar), ...keyCaps(actionBar(state))], columns, COLOURS.bar);
 
 // ---- Dialogs -------------------------------------------------------------------------------------------------
 
 /** The board dims the screen behind a dialog with 55 % black. */
 const DIM = 0.45;
 const dimmed = (hex: string) => `#${[1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * DIM).toString(16).padStart(2, "0")).join("")}`;
-const dim = (spans: Span[]): Span[] => spans.map((s) => ({ ...s, fg: dimmed(s.fg ?? C.text), bg: dimmed(s.bg ?? C.bg) }));
+const dim = (spans: Span[]): Span[] => spans.map((s) => ({ ...s, fg: dimmed(s.fg ?? COLOURS.text), bg: dimmed(s.bg ?? COLOURS.bg) }));
 
 /** The cells from `from` up to `to` of a line. */
 function cut(spans: Span[], from: number, to: number): Span[] {
@@ -889,16 +757,16 @@ interface DialogBox {
 
 /** The shared frame of the dialogs: title, a separator, the body, a separator, and the keys on the darker bar. */
 function dialogFrame(title: Span[], body: Row[], keys: BarItem[], inner: number): Row[] {
-  const edge = (text: string, bg = C.bg) => span(text, C.muted, false, bg);
-  const line = (bg: string, spans: Span[]): Row => ({ spans: [edge("│", bg), ...fit([span(" ", C.text, false, bg), ...spans.map((s) => ({ ...s, bg: s.bg ?? bg }))], inner, bg), edge("│", bg)] });
-  const separator: Row = { spans: [edge("├"), span("─".repeat(inner), C.rule), edge("┤")] };
+  const edge = (text: string, bg = COLOURS.bg) => span(text, COLOURS.muted, false, bg);
+  const line = (bg: string, spans: Span[]): Row => ({ spans: [edge("│", bg), ...fit([span(" ", COLOURS.text, false, bg), ...spans.map((s) => ({ ...s, bg: s.bg ?? bg }))], inner, bg), edge("│", bg)] });
+  const separator: Row = { spans: [edge("├"), span("─".repeat(inner), COLOURS.rule), edge("┤")] };
   return [
     { spans: [edge(`┌${"─".repeat(inner)}┐`)] },
-    line(C.bg, title),
+    line(COLOURS.bg, title),
     separator,
-    ...body.map((row) => line(C.bg, row.spans)),
+    ...body.map((row) => line(COLOURS.bg, row.spans)),
     separator,
-    line(C.bar, keyCaps(keys)),
+    line(COLOURS.bar, keyCaps(keys)),
     { spans: [edge(`└${"─".repeat(inner)}┘`)] },
   ];
 }
@@ -913,19 +781,19 @@ function runOf(state: ScreenState, agent: HostAgent): { place: string; elapsed: 
 function stopBox(state: ScreenState, agent: HostAgent): DialogBox {
   const { place, elapsed } = runOf(state, agent);
   const body = [
-    [span("A run is in progress on ", C.muted), span(place), span(`${elapsed}.`, C.muted)],
-    [span("Stopping cancels it; the conversation stays open in Redline.", C.muted)],
+    [span("A run is in progress on ", COLOURS.muted), span(place), span(`${elapsed}.`, COLOURS.muted)],
+    [span("Stopping cancels it; the conversation stays open in Redline.", COLOURS.muted)],
     [],
-    [span("The agent stays in the list as stopped: ", C.dim), span("r", C.text, true), span(" restarts it, ", C.dim), span("x", C.text, true), span(" again removes it.", C.dim)],
+    [span("The agent stays in the list as stopped: ", COLOURS.dim), span("r", COLOURS.text, true), span(" restarts it, ", COLOURS.dim), span("x", COLOURS.text, true), span(" again removes it.", COLOURS.dim)],
   ];
-  return { width: 90, rows: (inner) => dialogFrame([span(`Stop ${agent.name}?`, C.text, true)], body.map((spans) => ({ spans })), [{ key: "y", label: "stop" }, { key: "Esc", label: "keep running" }], inner) };
+  return { width: 90, rows: (inner) => dialogFrame([span(`Stop ${agent.name}?`, COLOURS.text, true)], body.map((spans) => ({ spans })), [{ key: "y", label: "stop" }, { key: "Esc", label: "keep running" }], inner) };
 }
 
 /** One row of choices: the picked one in a cap, white when its field is the active one. */
 function choiceRow(label: string, active: boolean, options: string[], picked: number): Span[] {
   return [
-    span(label.padEnd(LABEL_WIDTH), active ? C.text : C.dim, active),
-    ...options.flatMap((option, index) => [index === picked ? span(` ${option} `, C.bg, true, active ? C.text : C.muted) : span(` ${option} `, C.muted), span(" ")]),
+    span(label.padEnd(LABEL_WIDTH), active ? COLOURS.text : COLOURS.dim, active),
+    ...options.flatMap((option, index) => [index === picked ? span(` ${option} `, COLOURS.bg, true, active ? COLOURS.text : COLOURS.muted) : span(` ${option} `, COLOURS.muted), span(" ")]),
   ];
 }
 
@@ -936,38 +804,38 @@ function modelBox(state: ScreenState, agent: HostAgent, dialog: Extract<Dialog, 
   if (agent.state === "running") {
     const { place } = runOf(state, agent);
     const current = `${modelText(agent.model)} · ${effortText(agent.effort)}`;
-    body.push([], [span("! ", C.amber), span(`A run is in progress (${place}): it finishes with ${current}.`, C.muted)], [span("  The new choice applies from the next run, without restarting the agent.", C.muted)]);
+    body.push([], [span("! ", COLOURS.amber), span(`A run is in progress (${place}): it finishes with ${current}.`, COLOURS.muted)], [span("  The new choice applies from the next run, without restarting the agent.", COLOURS.muted)]);
   }
   const keys: BarItem[] = [{ key: "↑↓", label: "field" }, { key: "←→", label: "choice" }, { key: "Enter", label: "apply" }, { key: "Esc", label: "cancel" }];
-  return { width: 82, rows: (inner) => dialogFrame([span("Model and effort", C.text, true), span(`  · ${agent.name}`, C.muted)], body.map((spans) => ({ spans })), keys, inner) };
+  return { width: 82, rows: (inner) => dialogFrame([span("Model and effort", COLOURS.text, true), span(`  · ${agent.name}`, COLOURS.muted)], body.map((spans) => ({ spans })), keys, inner) };
 }
 
 /** One row of a radio list: the focused row has the red marker, the picked one is filled. */
 function radioRow(label: Span[], focused: boolean, picked: boolean): Span[] {
-  return [focused ? span("› ", C.red, true) : span("  "), picked ? span("● ", C.text) : span("○ ", C.dim), ...label];
+  return [focused ? span("› ", COLOURS.red, true) : span("  "), picked ? span("● ", COLOURS.text) : span("○ ", COLOURS.dim), ...label];
 }
 
 /** The field of the project to create: the cursor while focused, else the title typed or a placeholder. */
 function titleField(dialog: NewAgentDialog, focused: boolean): Span {
-  if (focused) return span(` ${dialog.title}▏`, C.text, false, C.selected);
-  return dialog.title ? span(` ${dialog.title} `, C.muted, false, C.selected) : span(" Project title ", C.dim, false, C.selected);
+  if (focused) return span(` ${dialog.title}▏`, COLOURS.text, false, COLOURS.selected);
+  return dialog.title ? span(` ${dialog.title} `, COLOURS.muted, false, COLOURS.selected) : span(" Project title ", COLOURS.dim, false, COLOURS.selected);
 }
 
 /** The projects of a linked folder, as a checklist: a project served by another agent cannot be ticked. */
 function tickRows(dialog: NewAgentDialog): Span[][] {
-  const marker = (row: number) => (dialog.row === row ? span("› ", C.red, true) : span("  "));
+  const marker = (row: number) => (dialog.row === row ? span("› ", COLOURS.red, true) : span("  "));
   const rows = dialog.projects.map((project, index) => {
     const ticked = dialog.ticked.includes(project.id);
-    const box = project.takenBy ? span("– ", C.dim) : ticked ? span("■ ", C.text) : span("□ ", C.dim);
-    const served = project.takenBy ? [span(`  served by ${project.takenBy}`, C.dim)] : [];
-    return [marker(index), box, span(project.title, project.takenBy ? C.dim : ticked ? C.text : C.muted), ...served];
+    const box = project.takenBy ? span("– ", COLOURS.dim) : ticked ? span("■ ", COLOURS.text) : span("□ ", COLOURS.dim);
+    const served = project.takenBy ? [span(`  served by ${project.takenBy}`, COLOURS.dim)] : [];
+    return [marker(index), box, span(project.title, project.takenBy ? COLOURS.dim : ticked ? COLOURS.text : COLOURS.muted), ...served];
   });
   const create = CREATE_ROW(dialog);
   const typed = dialog.title.trim() !== "";
   return [
-    [span("Projects", C.text, true), span("  this folder's agent serves every ticked project", C.dim)],
+    [span("Projects", COLOURS.text, true), span("  this folder's agent serves every ticked project", COLOURS.dim)],
     ...rows,
-    [marker(create), span("+ ", typed ? C.text : C.dim), span("Create a new project:", typed ? C.text : C.muted), span("  "), titleField(dialog, dialog.row === create)],
+    [marker(create), span("+ ", typed ? COLOURS.text : COLOURS.dim), span("Create a new project:", typed ? COLOURS.text : COLOURS.muted), span("  "), titleField(dialog, dialog.row === create)],
     [],
   ];
 }
@@ -977,30 +845,30 @@ function instanceRows(instances: InstanceEntry[], focused: number): Span[][] {
   const names = Math.max(...instances.map((entry) => [...entry.name].length)) + 1;
   const addresses = Math.max(...instances.map((entry) => [...addressText(entry.serverUrl)].length)) + 3;
   return instances.map((entry, index) => {
-    const row = [span(addressText(entry.serverUrl).padEnd(addresses), entry.tooOld ? C.dim : C.muted), span(entry.version ? `v${entry.version}` : "", entry.tooOld ? C.dim : C.muted), ...(entry.tooOld ? [span(" · too old for this command", C.dim)] : [])];
-    const label = [span(entry.name.padEnd(names), entry.tooOld ? C.dim : index === focused ? C.text : C.text, index === focused && !entry.tooOld), ...row];
+    const row = [span(addressText(entry.serverUrl).padEnd(addresses), entry.tooOld ? COLOURS.dim : COLOURS.muted), span(entry.version ? `v${entry.version}` : "", entry.tooOld ? COLOURS.dim : COLOURS.muted), ...(entry.tooOld ? [span(" · too old for this command", COLOURS.dim)] : [])];
+    const label = [span(entry.name.padEnd(names), entry.tooOld ? COLOURS.dim : index === focused ? COLOURS.text : COLOURS.text, index === focused && !entry.tooOld), ...row];
     return radioRow(label, index === focused, index === focused);
   });
 }
 
 /** `?`: the keys, then the commands (board `aide.html`). */
 function helpBox(): DialogBox {
-  const key = (name: string) => span(name, C.text, true);
+  const key = (name: string) => span(name, COLOURS.text, true);
   const row = (...spans: Span[]): Row => ({ spans });
   const body: Row[] = [
-    row(span("KEYS", C.muted, true)),
-    row(key("Tab"), span(" next tab · ", C.muted), key("1 2 3"), span(" Agents, Instances, Comments · ", C.muted), key("↑↓"), span(" move or scroll · ", C.muted), key("← →"), span(" left pane / list", C.muted)),
+    row(span("KEYS", COLOURS.muted, true)),
+    row(key("Tab"), span(" next tab · ", COLOURS.muted), key("1 2 3"), span(" Agents, Instances, Comments · ", COLOURS.muted), key("↑↓"), span(" move or scroll · ", COLOURS.muted), key("← →"), span(" left pane / list", COLOURS.muted)),
     row(),
-    row(span("COMMANDS", C.muted, true)),
-    ...COMMANDS.flatMap(({ command, description, options }) => [row(span(commandCell(command), C.text), span(description, C.muted)), ...(options ? [row(span(`        ${options}`, C.muted))] : [])]),
+    row(span("COMMANDS", COLOURS.muted, true)),
+    ...COMMANDS.flatMap(({ command, description, options }) => [row(span(commandCell(command), COLOURS.text), span(description, COLOURS.muted)), ...(options ? [row(span(`        ${options}`, COLOURS.muted))] : [])]),
   ];
-  return { width: 102, row: TOP_ROW, rows: (inner) => dialogFrame([span("Commands", C.text, true)], body, [{ key: "Esc", label: "close" }], inner) };
+  return { width: 102, row: TOP_ROW, rows: (inner) => dialogFrame([span("Commands", COLOURS.text, true)], body, [{ key: "Esc", label: "close" }], inner) };
 }
 
 /** `l` with several instances: which one the folder is linked to. */
 function linkBox(state: ScreenState, dialog: Extract<Dialog, { type: "link" }>): DialogBox {
-  const body: Row[] = [{ spans: [span(folderLabel(state.folder, state.home), C.muted), span("  isn't linked to an instance yet.", C.dim)] }, { spans: [] }, { spans: [span("Instance", C.text, true)] }, ...instanceRows(state.instances, dialog.row).map((spans) => ({ spans })), { spans: [] }, { spans: [span("No project and no agent yet: redline agent picks one.", C.dim)] }];
-  return { width: 82, top: 0.35, rows: (inner) => dialogFrame([span("Link this folder", C.text, true)], body, [{ key: "↑↓", label: "choose" }, { key: "Enter", label: "link" }, { key: "Esc", label: "cancel" }], inner) };
+  const body: Row[] = [{ spans: [span(folderLabel(state.folder, state.home), COLOURS.muted), span("  isn't linked to an instance yet.", COLOURS.dim)] }, { spans: [] }, { spans: [span("Instance", COLOURS.text, true)] }, ...instanceRows(state.instances, dialog.row).map((spans) => ({ spans })), { spans: [] }, { spans: [span("No project and no agent yet: redline agent picks one.", COLOURS.dim)] }];
+  return { width: 82, top: 0.35, rows: (inner) => dialogFrame([span("Link this folder", COLOURS.text, true)], body, [{ key: "↑↓", label: "choose" }, { key: "Enter", label: "link" }, { key: "Esc", label: "cancel" }], inner) };
 }
 
 function newBox(state: ScreenState, dialog: NewAgentDialog): DialogBox {
@@ -1009,12 +877,12 @@ function newBox(state: ScreenState, dialog: NewAgentDialog): DialogBox {
   const keys: BarItem[] = [{ key: "Esc", label: "cancel" }];
   const known = dialog.stage !== "loading" || dialog.serverUrl !== undefined || dialog.error !== undefined;
   const notLinked = state.folderLine.kind === "linked" ? "project" : "instance";
-  body.push(dialog.linkedTitles ? [span(where, C.muted), span(`  serves ${dialog.linkedTitles.join(", ")}.`, C.dim)] : known ? [span(where, C.muted), span(`  isn't linked to an ${notLinked} yet.`.replace("an project", "a project"), C.dim)] : [span(where, C.muted)], []);
-  if (dialog.stage === "loading" && !dialog.error) body.push([span("Checking this folder…", C.dim)]);
+  body.push(dialog.linkedTitles ? [span(where, COLOURS.muted), span(`  serves ${dialog.linkedTitles.join(", ")}.`, COLOURS.dim)] : known ? [span(where, COLOURS.muted), span(`  isn't linked to an ${notLinked} yet.`.replace("an project", "a project"), COLOURS.dim)] : [span(where, COLOURS.muted)], []);
+  if (dialog.stage === "loading" && !dialog.error) body.push([span("Checking this folder…", COLOURS.dim)]);
   if (dialog.stage === "instance") {
-    body.push([span("Instance", C.text, true)], ...instanceRows(dialog.instances, dialog.instanceRow));
+    body.push([span("Instance", COLOURS.text, true)], ...instanceRows(dialog.instances, dialog.instanceRow));
     const focused = dialog.instances[dialog.instanceRow];
-    body.push([], [span("Project", C.text, true), span(`  on ${focused.name}, after the instance`, C.dim)]);
+    body.push([], [span("Project", COLOURS.text, true), span(`  on ${focused.name}, after the instance`, COLOURS.dim)]);
     keys.unshift({ key: "↑↓", label: "choose" }, { key: "Enter", label: "next" });
   }
   if (dialog.stage === "form") {
@@ -1022,20 +890,20 @@ function newBox(state: ScreenState, dialog: NewAgentDialog): DialogBox {
     if (dialog.linkedTitles) body.push(...tickRows(dialog));
     else {
       const on = dialog.instances.length > 1 ? state.instances.find((entry) => entry.serverUrl === dialog.serverUrl) : undefined;
-      body.push([span("Project", C.text, true), ...(on ? [span(`  on ${on.name}`, C.dim)] : [])]);
-      dialog.projects.forEach((project, index) => body.push(radioRow([span(project.title, dialog.picked === index ? C.text : C.muted)], dialog.row === index, dialog.picked === index)));
+      body.push([span("Project", COLOURS.text, true), ...(on ? [span(`  on ${on.name}`, COLOURS.dim)] : [])]);
+      dialog.projects.forEach((project, index) => body.push(radioRow([span(project.title, dialog.picked === index ? COLOURS.text : COLOURS.muted)], dialog.row === index, dialog.picked === index)));
       const create = CREATE_ROW(dialog);
       const focused = dialog.row === create;
-      body.push(radioRow([span("Create a new project:", dialog.picked === create ? C.text : C.muted), span("  "), titleField(dialog, focused)], focused, dialog.picked === create), []);
+      body.push(radioRow([span("Create a new project:", dialog.picked === create ? COLOURS.text : COLOURS.muted), span("  "), titleField(dialog, focused)], focused, dialog.picked === create), []);
     }
     const models = modelOptions(dialog.model);
     const efforts = EFFORT_OPTIONS.map((effort) => effort ?? "default");
     body.push(choiceRow("Model", dialog.row <= model, models, models.indexOf(dialog.model)), choiceRow("Effort", dialog.row === model + 1, efforts, EFFORT_OPTIONS.indexOf(dialog.effort)), []);
-    body.push(dialog.busy ? [span("Starting…", C.dim)] : [span("Last choice for this folder is preselected.", C.dim)]);
+    body.push(dialog.busy ? [span("Starting…", COLOURS.dim)] : [span("Last choice for this folder is preselected.", COLOURS.dim)]);
     keys.unshift({ key: "↑↓", label: "field" }, ...(dialog.linkedTitles && dialog.row < CREATE_ROW(dialog) ? [{ key: "Space", label: "tick" }] : []), { key: "←→", label: "choice" }, { key: "Enter", label: "start" });
   }
-  if (dialog.error) body.push([], [span("✗ ", C.red), span(dialog.error, C.muted)]);
-  return { width: 82, top: 0.35, rows: (inner) => dialogFrame([span("New agent", C.text, true), span("  in the current folder", C.muted)], body.map((spans) => ({ spans })), keys, inner) };
+  if (dialog.error) body.push([], [span("✗ ", COLOURS.red), span(dialog.error, COLOURS.muted)]);
+  return { width: 82, top: 0.35, rows: (inner) => dialogFrame([span("New agent", COLOURS.text, true), span("  in the current folder", COLOURS.muted)], body.map((spans) => ({ spans })), keys, inner) };
 }
 
 function dialogBox(state: ScreenState, dialog: Dialog): DialogBox | undefined {
@@ -1053,7 +921,7 @@ export function render(state: ScreenState, { columns, rows }: Size): string[] {
   const leftCells = Math.max(1, columns - rightCells - 1);
   const bodyHeight = Math.max(0, rows - CHROME_ROWS);
   const { left, right } = TABS[state.tab].body(state, { left: leftCells, right: rightCells, height: bodyHeight });
-  const rule = (cells: number) => span("─".repeat(cells), C.rule);
+  const rule = (cells: number) => span("─".repeat(cells), COLOURS.rule);
   const out: Span[][] = [];
 
   // A blank row above the header, so the title does not touch the terminal's tab bar.
@@ -1062,15 +930,15 @@ export function render(state: ScreenState, { columns, rows }: Size): string[] {
   out.push(fit(folderRow(state).spans, columns));
   out.push(fit([], columns));
   out.push(fit(tabRow(state).spans, columns));
-  out.push([span("─".repeat(leftCells), C.rule), span("┬", C.rule), rule(rightCells)]);
+  out.push([span("─".repeat(leftCells), COLOURS.rule), span("┬", COLOURS.rule), rule(rightCells)]);
   for (let i = 0; i < bodyHeight; i++) {
     const l = left[i] ?? { spans: [] };
     const r = right[i] ?? { spans: [] };
     const joint = l.rule && r.rule ? "┼" : l.rule ? "┤" : r.rule ? "├" : "│";
     const side = (row: Row, cells: number) => (row.rule ? [rule(cells)] : fit(row.spans, cells));
-    out.push([...side(l, leftCells), span(joint, C.rule), ...side(r, rightCells)]);
+    out.push([...side(l, leftCells), span(joint, COLOURS.rule), ...side(r, rightCells)]);
   }
-  out.push([span("─".repeat(leftCells), C.rule), span("┴", C.rule), rule(rightCells)]);
+  out.push([span("─".repeat(leftCells), COLOURS.rule), span("┴", COLOURS.rule), rule(rightCells)]);
   out.push(barRow(state, columns));
   const frame = out.slice(0, rows);
 
@@ -1096,8 +964,8 @@ export function closeSummary(state: ScreenState): string[] {
   const lines = [toAnsi([span(heading)], false)];
   for (const agent of state.agents) {
     const stopped = agent.state === "stopped";
-    lines.push(toAnsi([span("  "), span(`${dot(agent)} `, STATE_COLOR[agent.state]), span(agent.name.padEnd(nameWidth), stopped ? C.dim : C.text), span(activityLabel(agent, state.logs[agent.id] ?? []), stopped ? C.dim : C.muted)], false));
+    lines.push(toAnsi([span("  "), span(`${dot(agent)} `, STATE_COLOR[agent.state]), span(agent.name.padEnd(nameWidth), stopped ? COLOURS.dim : COLOURS.text), span(activityLabel(agent, state.logs[agent.id] ?? []), stopped ? COLOURS.dim : COLOURS.muted)], false));
   }
-  lines.push(toAnsi([span("Run ", C.muted), span("redline agents", C.text, true), span(" to see them again.", C.muted)], false));
+  lines.push(toAnsi([span("Run ", COLOURS.muted), span("redline agents", COLOURS.text, true), span(" to see them again.", COLOURS.muted)], false));
   return lines;
 }

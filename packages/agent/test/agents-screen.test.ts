@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, closeSummary, initialState, logLoaded, newAgentFailed, newAgentQuestions, onKey, plainText, render, tick, type ScreenState } from "../src/agents-view.js";
+import { applyEvent, closeSummary, initialState, logLoaded, newAgentFailed, newAgentQuestions, onKey, render, tick, type ScreenState } from "../src/agents-view.js";
+import { plainText } from "../src/terminal-draw.js";
 import { runAgentsScreen, type ScreenHost, type ScreenTerminal } from "../src/agents-screen.js";
 import type { Effort } from "@redline/shared";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "../src/host-protocol.js";

@@ -1,24 +1,5 @@
-import {
-  C,
-  DETAIL_LABEL_WIDTH,
-  MARGIN,
-  addressText,
-  clip,
-  fit,
-  folderLabel,
-  plural,
-  ruleRow,
-  span,
-  spaces,
-  width,
-  wrap,
-  type BarItem,
-  type Row,
-  type ScreenState,
-  type Span,
-  type TabBody,
-  type Update,
-} from "./agents-view.js";
+import { COLOURS, span, width, spaces, clip, fit, ruleRow, wrap, MARGIN, DETAIL_LABEL_WIDTH, plural, folderLabel, addressText, type Span, type Row, type BarItem, type TabBody } from "./terminal-draw.js";
+import type { ScreenState, Update } from "./agents-view.js";
 import type { InstanceDetails } from "./instance-details.js";
 import type { InstanceEntry } from "./instance-list.js";
 
@@ -87,7 +68,7 @@ export const instancesHeaderInstance = (state: ScreenState): string | undefined 
 
 export function instancesSummary(state: ScreenState): Span[] {
   const problems = instancesProblems(state);
-  return [span(plural(state.instances.length, "instance"), C.muted), span(" · ", C.dim), problems > 0 ? span(plural(problems, "problem"), C.amber) : span("no problem", C.dim)];
+  return [span(plural(state.instances.length, "instance"), COLOURS.muted), span(" · ", COLOURS.dim), problems > 0 ? span(plural(problems, "problem"), COLOURS.amber) : span("no problem", COLOURS.dim)];
 }
 
 export const instancesBar = (state: ScreenState): BarItem[] => [
@@ -162,18 +143,18 @@ function window(total: number, selected: number, height: number): { first: numbe
 
 /** The icon, the short state and their colours, as the list and the detail title say them. */
 function badge(loaded: InstanceDetails | undefined): { icon: string; iconColor: string; label: string; labelColor: string } {
-  if (!loaded) return { icon: "…", iconColor: C.dim, label: "checking", labelColor: C.dim };
+  if (!loaded) return { icon: "…", iconColor: COLOURS.dim, label: "checking", labelColor: COLOURS.dim };
   switch (loaded.diagnosis.state) {
     case "update-available":
-      return { icon: "!", iconColor: C.amber, label: "update available", labelColor: C.amber };
+      return { icon: "!", iconColor: COLOURS.amber, label: "update available", labelColor: COLOURS.amber };
     case "too-old":
-      return { icon: "✗", iconColor: C.red, label: "too old", labelColor: C.redText };
+      return { icon: "✗", iconColor: COLOURS.red, label: "too old", labelColor: COLOURS.redText };
     case "token-refused":
-      return { icon: "✗", iconColor: C.red, label: "token refused", labelColor: C.redText };
+      return { icon: "✗", iconColor: COLOURS.red, label: "token refused", labelColor: COLOURS.redText };
     case "unreachable":
-      return { icon: "✗", iconColor: C.red, label: "unreachable", labelColor: C.redText };
+      return { icon: "✗", iconColor: COLOURS.red, label: "unreachable", labelColor: COLOURS.redText };
     case "up-to-date":
-      return { icon: "✓", iconColor: C.green, label: "up to date", labelColor: C.dim };
+      return { icon: "✓", iconColor: COLOURS.green, label: "up to date", labelColor: COLOURS.dim };
   }
 }
 
@@ -183,25 +164,25 @@ function listRows(state: ScreenState, cells: number, height: number): Row[] {
   const selected = selectedInstance(state);
   const { first, shown } = window(sorted.length, selected ? sorted.indexOf(selected) : 0, height);
   const below = sorted.length - first - shown;
-  const more = (text: string): Row => ({ spans: [span(`${spaces(MARGIN)}${text}`, C.dim)] });
+  const more = (text: string): Row => ({ spans: [span(`${spaces(MARGIN)}${text}`, COLOURS.dim)] });
   const rows: Row[] = [first > 0 ? more(`↑ ${first} more`) : more("problems first")];
   const nameWidth = Math.max(10, ...sorted.map((entry) => [...entry.name].length + 2));
   const versionWidth = Math.max(...sorted.map((entry) => [...`v${entry.version ?? "?"}`].length)) + 2;
-  const marker = state.focus === "list" ? C.red : C.dim;
+  const marker = state.focus === "list" ? COLOURS.red : COLOURS.dim;
   for (const entry of sorted.slice(first, first + shown)) {
     const isSelected = entry === selected;
-    const bg = isSelected ? C.selected : undefined;
+    const bg = isSelected ? COLOURS.selected : undefined;
     const { icon, iconColor, label, labelColor } = badge(state.instancesTab.details[entry.id]);
     const name = clip([span(entry.name)], nameWidth).map((s) => s.text).join("").padEnd(nameWidth);
     rows.push({
       spans: fit(
         [
           span(isSelected ? "▎" : " ", marker, false, bg),
-          span(" ", C.text, false, bg),
-          isSelected ? span("› ", marker, true, bg) : span("  ", C.text, false, bg),
+          span(" ", COLOURS.text, false, bg),
+          isSelected ? span("› ", marker, true, bg) : span("  ", COLOURS.text, false, bg),
           span(`${icon} `, iconColor, false, bg),
-          span(name, C.text, true, bg),
-          span(`v${entry.version ?? "?"}`.padEnd(versionWidth), C.muted, false, bg),
+          span(name, COLOURS.text, true, bg),
+          span(`v${entry.version ?? "?"}`.padEnd(versionWidth), COLOURS.muted, false, bg),
           span(label, labelColor, false, bg),
         ],
         cells,
@@ -224,12 +205,12 @@ const wrapped = (text: string, cells: number, indent = ""): string[] => wrap(tex
 
 function fieldRows(label: string, value: string, color: string, cells: number): Row[] {
   const lines = wrapped(value, cells, " ".repeat(DETAIL_LABEL_WIDTH));
-  return lines.map((line, index) => ({ spans: [span(spaces(MARGIN)), span(index === 0 ? label.padEnd(DETAIL_LABEL_WIDTH) : spaces(DETAIL_LABEL_WIDTH), C.dim), span(line, color)] }));
+  return lines.map((line, index) => ({ spans: [span(spaces(MARGIN)), span(index === 0 ? label.padEnd(DETAIL_LABEL_WIDTH) : spaces(DETAIL_LABEL_WIDTH), COLOURS.dim), span(line, color)] }));
 }
 
 /** A paragraph that starts with a bold key: `u installs v0.2.1...`; its lines wrap at the pane's width. */
 function keyParagraph(key: string, text: string, color: string, cells: number): Row[] {
-  return wrapped(`${key} ${text}`, cells).map((line, index) => ({ spans: [span(spaces(MARGIN)), ...(index === 0 ? [span(key, C.text, true), span(line.slice(key.length), color)] : [span(line, color)])] }));
+  return wrapped(`${key} ${text}`, cells).map((line, index) => ({ spans: [span(spaces(MARGIN)), ...(index === 0 ? [span(key, COLOURS.text, true), span(line.slice(key.length), color)] : [span(line, color)])] }));
 }
 
 const sentence = (names: string[]): string => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`);
@@ -247,14 +228,14 @@ function updateText(loaded: InstanceDetails): string {
 
 function resultRows(state: ScreenState, entry: InstanceEntry, cells: number): Row[] {
   const { busy, result } = state.instancesTab;
-  if (busy) return [blank, { spans: [span(spaces(MARGIN)), span(`${busy.action === "update" ? "Updating" : "Removing"} ${entry.name}...`, C.muted)] }];
+  if (busy) return [blank, { spans: [span(spaces(MARGIN)), span(`${busy.action === "update" ? "Updating" : "Removing"} ${entry.name}...`, COLOURS.muted)] }];
   if (!result) return [];
   const rows = result.lines.flatMap((text, index) =>
     wrapped(text, cells, "  ").map((line, position): Row => {
       const mark = result.ok ? (line.startsWith("✓ ") ? "✓ " : "") : index === 0 && position === 0 ? "✗ " : "";
       const body = line.startsWith("✓ ") && result.ok ? line.slice(2) : line;
       const indent = !mark && !result.ok ? "  " : "";
-      return { spans: [span(spaces(MARGIN)), ...(mark ? [span(mark, result.ok ? C.green : C.red)] : [span(indent)]), span(body, result.ok ? C.muted : C.redText)] };
+      return { spans: [span(spaces(MARGIN)), ...(mark ? [span(mark, result.ok ? COLOURS.green : COLOURS.red)] : [span(indent)]), span(body, result.ok ? COLOURS.muted : COLOURS.redText)] };
     }),
   );
   return [blank, ...rows];
@@ -264,33 +245,33 @@ function resultRows(state: ScreenState, entry: InstanceEntry, cells: number): Ro
 function leftRows(state: ScreenState, entry: InstanceEntry, cells: number): Row[] {
   const loaded = state.instancesTab.details[entry.id];
   const { icon, iconColor, label, labelColor } = badge(loaded);
-  const head = [span(entry.name, C.text, true), span("  "), span(addressText(entry.serverUrl), C.muted)];
-  const status = [span(`${icon} ${label}`, loaded?.diagnosis.severity === "problem" ? C.redText : labelColor)];
+  const head = [span(entry.name, COLOURS.text, true), span("  "), span(addressText(entry.serverUrl), COLOURS.muted)];
+  const status = [span(`${icon} ${label}`, loaded?.diagnosis.severity === "problem" ? COLOURS.redText : labelColor)];
   const rows: Row[] = [blank, { spans: [span(spaces(MARGIN)), ...head, span(spaces(cells - MARGIN - STATUS_MARGIN - width(head) - width(status))), ...status] }];
   if (!loaded) {
-    rows.push(...fieldRows("Installed", `v${entry.version ?? "?"}`, C.text, cells), blank, { spans: [span(spaces(MARGIN)), span("Checking the server and what uses this installation...", C.dim)] }, ...resultRows(state, entry, cells));
+    rows.push(...fieldRows("Installed", `v${entry.version ?? "?"}`, COLOURS.text, cells), blank, { spans: [span(spaces(MARGIN)), span("Checking the server and what uses this installation...", COLOURS.dim)] }, ...resultRows(state, entry, cells));
     return rows;
   }
   const { diagnosis } = loaded;
   const token =
     diagnosis.state === "token-refused"
-      ? { text: diagnosis.status.replace(/^token /, ""), color: C.redText }
+      ? { text: diagnosis.status.replace(/^token /, ""), color: COLOURS.redText }
       : diagnosis.state === "unreachable"
-        ? { text: "not checked: the server cannot be reached", color: C.muted }
-        : { text: "OK", color: C.green };
+        ? { text: "not checked: the server cannot be reached", color: COLOURS.muted }
+        : { text: "OK", color: COLOURS.green };
   rows.push(
-    ...fieldRows("Installed", `v${loaded.installedVersion ?? "?"} · ${folderLabel(loaded.dir, state.home)}`, C.text, cells),
-    ...fieldRows("Server", loaded.serverVersion ? `v${loaded.serverVersion}` : "unknown", loaded.serverVersion ? C.text : C.dim, cells),
-    ...(diagnosis.state === "too-old" ? fieldRows("Status", diagnosis.status, C.redText, cells) : []),
+    ...fieldRows("Installed", `v${loaded.installedVersion ?? "?"} · ${folderLabel(loaded.dir, state.home)}`, COLOURS.text, cells),
+    ...fieldRows("Server", loaded.serverVersion ? `v${loaded.serverVersion}` : "unknown", loaded.serverVersion ? COLOURS.text : COLOURS.dim, cells),
+    ...(diagnosis.state === "too-old" ? fieldRows("Status", diagnosis.status, COLOURS.redText, cells) : []),
     ...fieldRows("Token", token.text, token.color, cells),
-    ...fieldRows("Agents", loaded.agents.length > 0 ? loaded.agents.join(", ") : "none", loaded.agents.length > 0 ? C.text : C.dim, cells),
-    ...fieldRows("Folders", loaded.folders.length > 0 ? loaded.folders.map((folder) => folderLabel(folder, state.home)).join(", ") : "none", loaded.folders.length > 0 ? C.text : C.dim, cells),
-    ...fieldRows("Sessions", loaded.sessions > 0 ? `${plural(loaded.sessions, "Claude Code session")} ${loaded.sessions === 1 ? "uses" : "use"} it` : "none", loaded.sessions > 0 ? C.text : C.dim, cells),
+    ...fieldRows("Agents", loaded.agents.length > 0 ? loaded.agents.join(", ") : "none", loaded.agents.length > 0 ? COLOURS.text : COLOURS.dim, cells),
+    ...fieldRows("Folders", loaded.folders.length > 0 ? loaded.folders.map((folder) => folderLabel(folder, state.home)).join(", ") : "none", loaded.folders.length > 0 ? COLOURS.text : COLOURS.dim, cells),
+    ...fieldRows("Sessions", loaded.sessions > 0 ? `${plural(loaded.sessions, "Claude Code session")} ${loaded.sessions === 1 ? "uses" : "use"} it` : "none", loaded.sessions > 0 ? COLOURS.text : COLOURS.dim, cells),
     ruleRow(),
   );
   const scrolling = state.focus === "detail";
-  rows.push({ spans: [scrolling ? span("▎", C.red) : span(" "), span(" "), span("WHAT TO DO", C.muted, true), ...(scrolling ? [span("  ↑↓ scroll · → back to the list", C.dim)] : [])] });
-  if (diagnosis.state === "update-available") rows.push(...keyParagraph("u", updateText(loaded), C.muted, cells));
+  rows.push({ spans: [scrolling ? span("▎", COLOURS.red) : span(" "), span(" "), span("WHAT TO DO", COLOURS.muted, true), ...(scrolling ? [span("  ↑↓ scroll · → back to the list", COLOURS.dim)] : [])] });
+  if (diagnosis.state === "update-available") rows.push(...keyParagraph("u", updateText(loaded), COLOURS.muted, cells));
   else if (diagnosis.fix) {
     const text = `→ ${diagnosis.fix.before}${diagnosis.fix.command}`;
     const lines = wrapped(text, cells);
@@ -301,16 +282,16 @@ function leftRows(state: ScreenState, entry: InstanceEntry, cells: number): Row[
       const start = text.indexOf(line, offset);
       offset = start + line.length;
       const bold = Math.max(0, at - start);
-      rows.push({ spans: [span(spaces(MARGIN)), span(line.slice(0, bold), C.muted), span(line.slice(bold), C.text, true)] });
+      rows.push({ spans: [span(spaces(MARGIN)), span(line.slice(0, bold), COLOURS.muted), span(line.slice(bold), COLOURS.text, true)] });
     }
-  } else rows.push({ spans: [span(spaces(MARGIN)), span("Nothing to do: up to date.", C.muted)] });
-  rows.push(blank, ...keyParagraph("x", "removes it (refused while an agent or a session uses it).", C.dim, cells), ...resultRows(state, entry, cells));
+  } else rows.push({ spans: [span(spaces(MARGIN)), span("Nothing to do: up to date.", COLOURS.muted)] });
+  rows.push(blank, ...keyParagraph("x", "removes it (refused while an agent or a session uses it).", COLOURS.dim, cells), ...resultRows(state, entry, cells));
   return rows;
 }
 
 export function instancesBody(state: ScreenState, { left, right, height }: { left: number; right: number; height: number }): TabBody {
   const entry = selectedInstance(state);
-  if (!entry) return { left: [blank, { spans: [span(`${spaces(MARGIN)}No instance is set up on this computer. Press s to set one up.`, C.muted)] }], right: [] };
+  if (!entry) return { left: [blank, { spans: [span(`${spaces(MARGIN)}No instance is set up on this computer. Press s to set one up.`, COLOURS.muted)] }], right: [] };
   const rows = leftRows(state, entry, left);
   const offset = Math.min(state.instancesTab.scroll, Math.max(0, rows.length - height));
   return { left: rows.slice(offset), right: listRows(state, right, height) };
