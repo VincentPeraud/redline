@@ -122,7 +122,7 @@ export type DoctorState =
 
 const refused = (error: unknown) => /refused/i.test((error as Error).message);
 
-async function probe(installation: Installation, deps: DoctorDeps): Promise<InstallationProbe> {
+export async function probe(installation: Installation, deps: Pick<DoctorDeps, "fetchInstance" | "timeoutMs">): Promise<InstallationProbe> {
   const answer = await Promise.race([
     deps.fetchInstance(installation.serverUrl, installation.token).then((info): Pick<InstallationProbe, "info" | "failure"> => ({ info })),
     new Promise<Pick<InstallationProbe, "failure">>((resolve) => setTimeout(() => resolve({ failure: "unreachable" }), deps.timeoutMs ?? 5000).unref()),

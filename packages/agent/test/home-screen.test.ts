@@ -68,8 +68,8 @@ describe("the home screen", () => {
     expect(press(state, "3").tab).toBe("comments");
     expect(press(state, "3", "1").tab).toBe("agents");
     expect(press(state, "2").tab).toBe("instances");
-    const placeholder = text(press(state, "2"));
-    expect(placeholder).toContain("The Instances view is not available yet.");
+    const placeholder = text(press(state, "3"));
+    expect(placeholder).toContain("Loading the comments");
     expect(placeholder).toMatch(/Tab +next tab/);
   });
 

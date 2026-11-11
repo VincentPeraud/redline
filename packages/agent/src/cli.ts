@@ -5,7 +5,7 @@ import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface, type Interface } from "node:readline/promises";
 import { HostAlreadyRunningError, startAgentHost } from "./agent-host.js";
-import { runAgentsScreen } from "./agents-screen.js";
+import { runAgentsScreen, type InstancesPort } from "./agents-screen.js";
 import { loadComments } from "./comments-source.js";
 import { closeSummary } from "./agents-view.js";
 import { runAgentWorker } from "./agent-worker.js";
@@ -15,7 +15,7 @@ import { claudeCodeEngine } from "./claude-code-engine.js";
 import { ensureHost, type HostClient } from "./host-client.js";
 import { chooseModelEffort } from "./launch-choice.js";
 import { linkFolder, linkFolderToServer, linkedServer, listProjects, type LinkChoice, type MoreChoice } from "./link.js";
-import { SetupRefusal, type Installation, addressOf, checkedAddress, currentInstallation, hasLegacyLayout, installationLogins, listInstallations, pickInstallation, resolveFolder, setupInstallation } from "./installations.js";
+import { SetupRefusal, type Installation, addressOf, checkedAddress, currentInstallation, findInstallation, hasLegacyLayout, installationLogins, listInstallations, pickInstallation, resolveFolder, setupInstallation } from "./installations.js";
 import { removeInstallation, removeReport, updateInstallation, updateReport } from "./installation-update.js";
 import { askInstallation, confirm, orphanLines, runLink } from "./link-command.js";
 import { ensureGlobalCommand, launchedThroughNpx, systemGlobalCommand } from "./global-command.js";
@@ -29,6 +29,7 @@ import { servingAgent } from "./serving-agent.js";
 import { askSecret } from "./secret-prompt.js";
 import { serveAgent } from "./serve-agent.js";
 import { doctorReport, gatherDoctor } from "./doctor.js";
+import { inspectInstallation } from "./instance-details.js";
 import { setupReport, systemDeps, systemDoctorDeps } from "./setup.js";
 import { createNewAgentFlow } from "./new-agent.js";
 import { helpLines } from "./commands-help.js";
@@ -304,9 +305,32 @@ async function showAgentsScreen(host: HostClient, selectedId?: string): Promise<
       return folderLineOf(resolveFolder(configDir, folder));
     },
     newAgent,
+    instancesPort: instancesPort(configDir),
     openUrl: openWithSystem,
   });
   for (const line of closeSummary(closed)) console.log(line);
+  // `s` on the Instances tab: the screen is closed, so that the setup can ask for the address and the token.
+  if (closed.instancesTab.setupAfter) await runSetup([], { askAddress: true });
+}
+
+/** The Instances tab's diagnoses and actions: doctor's diagnosis, `redline update` and `redline remove` for one installation. */
+function instancesPort(configDir: string): InstancesPort {
+  const deps = systemDeps(configDir);
+  const installationOf = (id: string): Installation => {
+    const installation = findInstallation(configDir, id);
+    if (!installation) throw new SetupRefusal(`${id} is not installed on this computer.`);
+    return installation;
+  };
+  return {
+    inspect: (id) => inspectInstallation(installationOf(id), { ...deps, timeoutMs: 5000 }),
+    async update(id) {
+      const result = await updateInstallation({ configDir, wanted: id, deps });
+      return { lines: updateReport(result), version: result.to };
+    },
+    async remove(id) {
+      return removeReport(await removeInstallation({ configDir, wanted: id, deps, home: homedir() }), { home: homedir() });
+    },
+  };
 }
 
 /** What the folder's link serves, by title, for the screen's folder line; nothing when the server does not answer in time. */

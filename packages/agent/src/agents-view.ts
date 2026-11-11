@@ -4,6 +4,7 @@ import { sanitizeForTerminal } from "./sanitize.js";
 import { COMMANDS, commandCell } from "./commands-help.js";
 import { commentsBar, commentsBody, commentsCount, commentsHeaderInstance, commentsOnKey, initialComments, type CommentsState } from "./comments-tab.js";
 import type { FolderLine, InstanceEntry } from "./instance-list.js";
+import { initialInstancesTab, instancesBar, instancesBody, instancesHeaderInstance, instancesOnKey, instancesProblems, instancesSummary, type InstancesTabState } from "./instances-tab.js";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "./host-protocol.js";
 import type { NewAgentAnswers, NewAgentQuestions, ProjectOption } from "./new-agent.js";
 
@@ -44,6 +45,8 @@ export interface ScreenState {
   folderLine: FolderLine;
   /** The Comments tab: what waits for terminal sessions, the selected page and the scroll of its comments. */
   comments: CommentsState;
+  /** What the Instances tab keeps: its selection, the diagnoses gathered, the action in progress. */
+  instancesTab: InstancesTabState;
 }
 
 export type TabId = "agents" | "instances" | "comments";
@@ -105,7 +108,13 @@ export type ScreenCommand =
   | { type: "start-new"; answers: NewAgentAnswers }
   | { type: "open"; url: string }
   /** Links the folder to the instance (as `redline link` does). */
-  | { type: "link-folder"; serverUrl: string };
+  | { type: "link-folder"; serverUrl: string }
+  /** Gathers the diagnosis of an installation (the Instances tab). */
+  | { type: "inspect-instance"; id: string }
+  /** `redline update` for the installation. */
+  | { type: "update-instance"; id: string }
+  /** `redline remove` for the installation. */
+  | { type: "remove-instance"; id: string };
 
 export interface Update {
   state: ScreenState;
@@ -131,7 +140,7 @@ export interface InitialState {
 
 export function initialState({ agents, selectedId, now, home, folder, freshStartAt, instances = [], folderLine = { kind: "unlinked" }, tab = "agents" }: InitialState): ScreenState {
   const selected = agents.some((agent) => agent.id === selectedId) ? selectedId : agents[0]?.id;
-  return { agents, selectedId: selected, logs: {}, loaded: {}, now, home, folder, freshStartAt, tab, focus: "list", logScroll: 0, instances, folderLine, comments: initialComments };
+  return { agents, selectedId: selected, logs: {}, loaded: {}, now, home, folder, freshStartAt, tab, focus: "list", logScroll: 0, instances, folderLine, comments: initialComments, instancesTab: initialInstancesTab() };
 }
 
 /** The folder was linked from the screen: the line says so. */
@@ -380,6 +389,7 @@ export const C = {
   amber: "#FBBF24",
   green: "#4ADE80",
   red: "#D92D20",
+  redText: "#F87171",
 };
 
 export interface Span {
@@ -396,7 +406,7 @@ export interface Row {
 
 /** Every text of the screen is made here, so it is cleaned here (see `sanitizeForTerminal`). */
 export const span = (text: string, fg: string = C.text, bold = false, bg?: string): Span => ({ text: sanitizeForTerminal(text), fg, bold, bg });
-const width = (spans: Span[]) => spans.reduce((total, s) => total + [...s.text].length, 0);
+export const width = (spans: Span[]) => spans.reduce((total, s) => total + [...s.text].length, 0);
 export const spaces = (count: number) => " ".repeat(Math.max(0, count));
 
 /** Cuts the spans to `limit` cells, ending with an ellipsis when something was cut. */
@@ -418,7 +428,7 @@ export function clip(spans: Span[], limit: number): Span[] {
   return [...out, { text: "…", fg: last?.fg, bg: last?.bg }];
 }
 
-function fit(spans: Span[], cells: number, bg?: string): Span[] {
+export function fit(spans: Span[], cells: number, bg?: string): Span[] {
   const clipped = clip(spans, cells);
   return [...clipped, { text: spaces(cells - width(clipped)), bg }];
 }
@@ -466,8 +476,8 @@ function uptime(ms: number): string {
 
 const modelText = (model: string | undefined) => (model ? modelLabel(model) : "Claude's default");
 const effortText = (effort: Effort | undefined) => effort ?? "Claude's default";
-const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
-const folderLabel = (folder: string, home: string) => (home && (folder === home || folder.startsWith(`${home}/`)) ? `~${folder.slice(home.length)}` : folder);
+export const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+export const folderLabel = (folder: string, home: string) => (home && (folder === home || folder.startsWith(`${home}/`)) ? `~${folder.slice(home.length)}` : folder);
 
 type RunStarted = Extract<HostLogEvent, { type: "run-started" }>;
 const lastStarted = (log: HostLogEntry[]): RunStarted | undefined => log.map((e) => e.event).filter((e): e is RunStarted => e.type === "run-started").at(-1);
@@ -493,7 +503,7 @@ const LABEL_COLUMN = 14;
 const VALUE_COLUMN = TIME_WIDTH + 2 + LABEL_COLUMN;
 
 /** Cuts a text into lines of at most `limit` characters at word boundaries (a longer word is cut). */
-function wrap(text: string, limit: number): string[] {
+export function wrap(text: string, limit: number): string[] {
   const out: string[] = [];
   let current = "";
   for (const word of text.split(/\s+/).filter(Boolean)) {
@@ -608,7 +618,7 @@ export const MARGIN = 2;
 const RIGHT_WIDTH = 46;
 const LABEL_WIDTH = 10;
 /** The fields of an agent detail line up one column further than the dialog rows (boards). */
-const DETAIL_LABEL_WIDTH = 11;
+export const DETAIL_LABEL_WIDTH = 11;
 /** Rows of the screen around the body: the blank row, header, folder line, blank row, tabs, two rules and the key bar. */
 const CHROME_ROWS = 8;
 /** The first row of the body on screen: the board lets the commands box start there. */
@@ -622,7 +632,7 @@ export interface BarItem {
 }
 
 /** The two panes of a tab's body, as rows, plus what its header says. */
-interface TabBody {
+export interface TabBody {
   left: Row[];
   right: Row[];
 }
@@ -638,6 +648,8 @@ interface TabDef {
   count(state: ScreenState): number;
   /** The "! n" next to the count, when n > 0. */
   problems?(state: ScreenState): number;
+  /** What the header says on the right, instead of the agents' counts. */
+  summary?(state: ScreenState): Span[];
   /** The instance the header names, when the tab has a selection that belongs to one. */
   headerInstance(state: ScreenState): string | undefined;
   onKey(state: ScreenState, key: Key): Update;
@@ -658,23 +670,19 @@ const TABS: Record<TabId, TabDef> = {
     bar: agentsBar,
     body: (state, { left, right, height }) => ({ left: leftColumn(state, left, height), right: rightColumn(state, right, height) }),
   },
-  instances: placeholderTab("Instances", (state) => state.instances.length, (state) => state.instances.reduce((total, entry) => total + (entry.problems ?? 0), 0)),
+  instances: {
+    label: "Instances",
+    count: (state) => state.instances.length,
+    problems: instancesProblems,
+    headerInstance: instancesHeaderInstance,
+    summary: instancesSummary,
+    onKey: instancesOnKey,
+    bar: instancesBar,
+    body: instancesBody,
+  },
   // Wrapped: comments-tab.ts imports this module back, so its names may not be bound yet when TABS is built.
   comments: { label: "Comments", count: (state) => commentsCount(state), headerInstance: (state) => commentsHeaderInstance(state), onKey: (state, key) => commentsOnKey(state, key), bar: (state) => commentsBar(state), body: (state, size) => commentsBody(state, size) },
 };
-
-/** A tab that exists for the bar and its counts, until its own ticket fills it. */
-function placeholderTab(label: string, count: TabDef["count"], problems?: TabDef["problems"]): TabDef {
-  return {
-    label,
-    count,
-    problems,
-    headerInstance: () => undefined,
-    onKey: (state) => ({ state, commands: [] }),
-    bar: () => [],
-    body: () => ({ left: [{ spans: [] }, { spans: [span(`${spaces(MARGIN)}The ${label} view is not available yet.`, C.muted)] }], right: [] }),
-  };
-}
 
 /** The keys that apply to the selected agent. */
 function agentsBar(state: ScreenState): BarItem[] {
@@ -707,7 +715,7 @@ function headerRow(state: ScreenState, columns: number): Row {
   const allStopped = state.agents.length > 0 && state.agents.every((a) => a.state === "stopped");
   const where = TABS[state.tab].headerInstance(state);
   const left = [span("redline", C.text, true), ...(where ? [span(`  ${where}`, C.dim)] : [])];
-  const right = [
+  const right = TABS[state.tab].summary?.(state) ?? [
     span(plural(state.agents.length, "agent"), C.muted),
     span(" · ", C.dim),
     allStopped ? span("all stopped", C.dim) : runs > 0 ? span(`${plural(runs, "run")} in progress`, C.amber) : span("no run in progress", C.dim),

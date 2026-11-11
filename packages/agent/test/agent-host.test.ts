@@ -1344,8 +1344,8 @@ describe("what update, remove and setup ask of the host", { timeout: 30_000 }, (
     const local = findInstallation(configDir, "local")!;
 
     expect((await agentsOfInstallation(configDir, local, env)).sort((a, b) => a.name.localeCompare(b.name))).toEqual([
-      { name: stopped.name, running: false },
-      { name: running.name, running: true },
+      { name: stopped.name, running: false, folder: stopped.folder },
+      { name: running.name, running: true, folder: running.folder },
     ].sort((a, b) => a.name.localeCompare(b.name)));
     expect(await restartInstallationAgents(configDir, local, env)).toEqual([running.name]);
     expect(await removeStoppedAgents(configDir, local, env)).toEqual([stopped.name]);
@@ -1362,7 +1362,7 @@ describe("what update, remove and setup ask of the host", { timeout: 30_000 }, (
     hosts = [];
     const local = findInstallation(configDir, "local")!;
 
-    expect(await agentsOfInstallation(configDir, local, env)).toEqual([{ name: agent.name, running: false }]);
+    expect(await agentsOfInstallation(configDir, local, env)).toEqual([{ name: agent.name, running: false, folder: agent.folder }]);
     expect(await restartInstallationAgents(configDir, local, env)).toEqual([]);
     expect(await removeStoppedAgents(configDir, local, env)).toEqual([agent.name]);
     expect(await agentsOfInstallation(configDir, local, env)).toEqual([]);
