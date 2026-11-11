@@ -25,7 +25,6 @@ import {
   type HostReply,
   type HostRequestEnvelope,
   type LaunchSettings,
-  type WorkerToHost,
 } from "./host-protocol.js";
 import type { AgentActivity } from "./activity.js";
 import { claudeEnvironment, workerEnvironment } from "./worker-environment.js";
@@ -193,12 +192,17 @@ export async function startAgentHost({
     if (restartingFor === undefined || settling || shuttingDown) return;
     settling = true;
     try {
+      // A worker that turns out busy (a run began as it was asked) is left alone: its activity brings us back here when the run ends.
+      const busy = new Set<Entry>();
       for (;;) {
-        const idle = [...entries.values()].filter((entry) => entry.worker && entry.agent.state !== "running");
+        const idle = [...entries.values()].filter((entry) => entry.worker && entry.agent.state !== "running" && !busy.has(entry));
         if (idle.length === 0) break;
         for (const entry of idle) {
           toResume.add(entry.agent.id);
-          await stopWorker(entry);
+          if (!(await stopWorkerWhenIdle(entry))) {
+            busy.add(entry);
+            toResume.delete(entry.agent.id);
+          }
         }
       }
       if ([...entries.values()].some((entry) => entry.worker)) return;
@@ -216,7 +220,10 @@ export async function startAgentHost({
     if (!entry.worker) restartAfterRun.delete(id);
     if (!restartAfterRun.has(id) || entry.agent.state === "running") return;
     restartAfterRun.delete(id);
-    await stopWorker(entry);
+    if (!(await stopWorkerWhenIdle(entry))) {
+      restartAfterRun.add(id);
+      return;
+    }
     if (!shuttingDown && restartingFor === undefined) startWorker(entry);
   }
 
@@ -271,7 +278,7 @@ export async function startAgentHost({
     const workerCommand = typeof worker === "function" ? worker(installation) : worker;
     // The environment of the client that launched the agent is kept in memory: an update relaunch reuses it, a restart replaces it.
     if (env) entry.env = claudeEnvironment(env);
-    const running = spawnWorker(workerCommand, workerEnvironment({ host: process.env, client: entry.env, extra: workerCommand.env, claudeConfigDir: agent.claudeConfigDir }), (message: WorkerToHost) => {
+    const running = spawnWorker(workerCommand, workerEnvironment({ host: process.env, client: entry.env, extra: workerCommand.env, claudeConfigDir: agent.claudeConfigDir }), (message) => {
       if (message.type === "failed") entry.failure = message.reason;
       else {
         record(entry, message.event);
@@ -315,6 +322,18 @@ export async function startAgentHost({
     entry.stopRequested = true;
     await entry.worker.stop(stopTimeoutMs);
     await entry.exited;
+  }
+
+  /** Stops the worker unless it runs something; false (the worker goes on) when a run began meanwhile. No update ever cancels a run. */
+  async function stopWorkerWhenIdle(entry: Entry): Promise<boolean> {
+    if (!entry.worker || !entry.exited) return true;
+    entry.stopRequested = true;
+    if (await entry.worker.stopWhenIdle(stopTimeoutMs)) {
+      await entry.exited;
+      return true;
+    }
+    entry.stopRequested = false;
+    return false;
   }
 
   function launch(settings: LaunchSettings, env?: Record<string, string>): { agent: HostAgent; started: boolean } {

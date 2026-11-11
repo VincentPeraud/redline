@@ -143,6 +143,8 @@ export type HostToWorker =
   | { type: "start"; config: WorkerConfig }
   /** Closes the connection, cancels the run in progress, and exits. */
   | { type: "stop" }
+  /** Stops like `stop`, but only if no run is in progress: the worker answers `busy` otherwise and goes on. No run is ever cancelled by it. */
+  | { type: "stop-when-idle" }
   /** The model and effort the next work items use when they carry none of their own. */
   | { type: "set-model-effort"; model?: string; effort?: Effort };
 
@@ -151,7 +153,9 @@ export type WorkerToHost =
   /** Each activity event of the agent loop, in order. */
   | { type: "activity"; event: AgentActivity }
   /** The agent cannot run (refused by the server, wrong token...): the host shows it stopped with this reason. */
-  | { type: "failed"; reason: string };
+  | { type: "failed"; reason: string }
+  /** The answer to `stop-when-idle` while a run is in progress. When idle, the worker stops and exits without answering. */
+  | { type: "busy" };
 
 export interface WorkerConfig {
   serverUrl: string;

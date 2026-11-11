@@ -17,6 +17,8 @@ export interface ServeAgentOptions extends Omit<AgentOptions, "onUpdated" | "sig
 export interface AgentService {
   /** Cancels the runs in progress, closes the connection and stops retrying. */
   stop(): void;
+  /** Like `stop()`, but only when no run is in progress: false (and nothing stopped) otherwise. Closes the race of a run starting as the agent is stopped. */
+  stopWhenIdle(): boolean;
   /** The model and effort of the work items to come that carry none of their own, now and after a reconnection. A run in progress keeps its own. */
   setModelEffort(choice: ModelChoice): void;
   /**
@@ -36,7 +38,7 @@ export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () =
   let stopped = false;
   let updated = false;
   let wake: () => void = () => undefined;
-  let current: { close(): void } | undefined;
+  let current: { close(): void; stopWhenIdle(): boolean } | undefined;
   const report = (event: AgentActivity) => {
     onActivity?.(event);
     log(formatActivity(event));
@@ -108,6 +110,11 @@ export function serveAgent({ reconnectDelaysMs = RECONNECT_DELAYS_MS, log = () =
   const service: AgentService = {
     setModelEffort(next) {
       choice = next;
+    },
+    stopWhenIdle() {
+      if (current && !current.stopWhenIdle()) return false;
+      service.stop();
+      return true;
     },
     stop() {
       stopped = true;
