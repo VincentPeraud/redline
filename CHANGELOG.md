@@ -24,6 +24,12 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 ### Fixed
 
 - On Linux, a Claude Code crash showed "Claude Code ended without a result." instead of its own error message.
+- `GET /agent-api/terminal-comments` only lists the pages of projects the token's account can read.
+- A folder link naming an unsafe server address (read from a cloned repo) is treated as no link, and instance names received from a server are cleaned of control characters and cut to 60 characters.
+- The panel's `npx ... setup` command no longer stops on "Run redline migrate first" on an old computer: setup goes through the legacy gate when npx launches it, then migrates.
+- `redline link` always asks before switching a folder linked to another instance (also one with no project yet), and before linking a subfolder of a linked folder to a different instance.
+- A run starting at the instant an idle agent is stopped for a host restart or an installation update is no longer cancelled: the host asks the worker to stop only when idle.
+- When a hand-over to an installation's MCP fails for a reason other than a missing entry point, the error is shown with the installation's name instead of asking for an update.
 
 ## [0.1.0] - 2026-11-10
 
