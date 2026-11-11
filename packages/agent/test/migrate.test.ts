@@ -59,7 +59,7 @@ describe("redline migrate", () => {
   it("creates one installation per server, moves each token, and reports in the mock-up's words", async () => {
     const world = fakeWorld();
     world.servers.set(LOCAL, { version: "0.2.0" });
-    world.servers.set(LUMORA, { instanceName: "Lumora", version: "0.2.0" });
+    world.servers.set(LUMORA, { redlineInstanceName: "Lumora", version: "0.2.0" });
     const agents = [agent("a", LOCAL), agent("b", LOCAL), agent("c", LUMORA)];
     const configDir = legacy([[LOCAL, "t_local"], [LUMORA, "t_lumora"]], agents);
     const { host, stopped } = fakeHost(agents);
@@ -82,7 +82,7 @@ describe("redline migrate", () => {
 
   it("waits for runs in progress and names them", async () => {
     const world = fakeWorld();
-    world.servers.set(LUMORA, { instanceName: "Lumora", version: "0.2.0" });
+    world.servers.set(LUMORA, { redlineInstanceName: "Lumora", version: "0.2.0" });
     const agents = [agent("lumora-site", LUMORA, { state: "running", run: { page: "Accueil", pageId: "p" }, projectNames: ["Site public"] })];
     const configDir = legacy([[LUMORA, "t"]], agents);
     const { host, stopped } = fakeHost(agents, 2);
@@ -94,7 +94,7 @@ describe("redline migrate", () => {
 
   it("stops runs at once with --now", async () => {
     const world = fakeWorld();
-    world.servers.set(LUMORA, { instanceName: "Lumora", version: "0.2.0" });
+    world.servers.set(LUMORA, { redlineInstanceName: "Lumora", version: "0.2.0" });
     const agents = [agent("x", LUMORA, { state: "running", run: { page: "Accueil", pageId: "p" } })];
     const configDir = legacy([[LUMORA, "t"]], agents);
     const { host } = fakeHost(agents, 1_000_000);
@@ -105,7 +105,7 @@ describe("redline migrate", () => {
 
   it("counts the agents of a computer with no host running from the registry", async () => {
     const world = fakeWorld();
-    world.servers.set(LUMORA, { instanceName: "Lumora", version: "0.2.0" });
+    world.servers.set(LUMORA, { redlineInstanceName: "Lumora", version: "0.2.0" });
     const configDir = legacy([[LUMORA, "t"]], [agent("x", LUMORA, { state: "stopped" })]);
     const { out } = await migrate(configDir, world);
     expect(out[0]).toMatch(/^✓ Lumora {2}redline\.lumora\.com {3}→ .*token moved · 1 agent$/);
@@ -115,7 +115,7 @@ describe("redline migrate", () => {
   it("is idempotent: a second run says nothing is left", async () => {
     const world = fakeWorld();
     world.servers.set(LOCAL, { version: "0.2.0" });
-    world.servers.set(LUMORA, { instanceName: "Lumora", version: "0.2.0" });
+    world.servers.set(LUMORA, { redlineInstanceName: "Lumora", version: "0.2.0" });
     const configDir = legacy([[LOCAL, "a"], [LUMORA, "b"]]);
     await migrate(configDir, world);
     const installs = world.installs.length;
@@ -126,8 +126,8 @@ describe("redline migrate", () => {
 
   it("leaves a server whose name is taken in the old login, and moves it with --name", async () => {
     const world = fakeWorld();
-    world.servers.set(LUMORA, { instanceName: "Lumora", version: "0.2.0" });
-    world.servers.set(STAGING, { instanceName: "Lumora", version: "0.2.0" });
+    world.servers.set(LUMORA, { redlineInstanceName: "Lumora", version: "0.2.0" });
+    world.servers.set(STAGING, { redlineInstanceName: "Lumora", version: "0.2.0" });
     const configDir = legacy([[LUMORA, "t1"], [STAGING, "t2"]]);
     const first = await migrate(configDir, world);
     expect(first.out.at(-5)).toMatch(/^✓ Lumora {2}redline\.lumora\.com {10}→ /);
@@ -144,7 +144,7 @@ describe("redline migrate", () => {
 
   it("leaves a server whose build cannot be installed in the old login, nothing saved for it", async () => {
     const world = fakeWorld();
-    world.servers.set(LUMORA, { instanceName: "Lumora", version: "0.2.0" });
+    world.servers.set(LUMORA, { redlineInstanceName: "Lumora", version: "0.2.0" });
     world.failInstall = "answered 502";
     const configDir = legacy([[LUMORA, "t1"]]);
     const { out } = await migrate(configDir, world);
@@ -156,7 +156,7 @@ describe("redline migrate", () => {
 
   it("keeps folders already linked working: their link holds the address", async () => {
     const world = fakeWorld();
-    world.servers.set(LUMORA, { instanceName: "Lumora", version: "0.2.0" });
+    world.servers.set(LUMORA, { redlineInstanceName: "Lumora", version: "0.2.0" });
     const configDir = legacy([[LUMORA, "t1"]]);
     await migrate(configDir, world);
     const folder = tempDir("linked-");

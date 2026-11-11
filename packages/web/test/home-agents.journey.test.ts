@@ -156,7 +156,7 @@ it("folds a long covered projects list behind « + N autres », and opens and cl
 
 it("shows the instance name and version next to the Agents title, and only the version when the server has no name", async () => {
   const version = (JSON.parse(readFileSync(new URL("../../server/package.json", import.meta.url), "utf8")) as { version: string }).version;
-  const named = await startTestServer({ webDir, instanceName: "Lumora" });
+  const named = await startTestServer({ webDir, redlineInstanceName: "Lumora" });
   try {
     const tab = await browser.newPage();
     await tab.goto(`${named.url}/#/agents`);

@@ -20,7 +20,7 @@ function send(socket: WebSocket, message: ServerToAgentMessage): void {
 }
 
 /** A build installed before instances sends no host protocol. */
-const beforeInstances = (hello: AgentHello): boolean => hello.hostProtocol === undefined || hello.hostProtocol < 1;
+const beforeInstallations = (hello: AgentHello): boolean => hello.hostProtocol === undefined || hello.hostProtocol < 1;
 
 function parseHello(raw: string): AgentHello | undefined {
   try {
@@ -117,12 +117,12 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         return socket.close(AgentCloseCode.Unauthorized, "unauthorized");
       }
       if (hello.protocolVersion !== PROTOCOL_VERSION) {
-        store.recordRefusedAgent({ ...hello, beforeInstances: beforeInstances(hello) });
+        store.recordRefusedAgent({ ...hello, beforeInstallations: beforeInstallations(hello) });
         store.emit({ type: "agents-updated" });
         send(socket, {
           type: "error",
           code: "incompatible_protocol",
-          message: `Agent protocol ${hello.protocolVersion} is not supported (server uses ${PROTOCOL_VERSION}). Update the agent with: ${refusedAgentCommand(origin, beforeInstances(hello))}`,
+          message: `Agent protocol ${hello.protocolVersion} is not supported (server uses ${PROTOCOL_VERSION}). Update the agent with: ${refusedAgentCommand(origin, beforeInstallations(hello))}`,
         });
         return socket.close(AgentCloseCode.IncompatibleProtocol, "incompatible protocol");
       }

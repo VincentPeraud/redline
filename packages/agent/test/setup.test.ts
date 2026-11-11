@@ -39,7 +39,7 @@ describe("redline setup against a real server", () => {
     process.env.PATH = originalPath;
   });
   beforeEach(async () => {
-    server = await startTestServer({ instanceName: "Acme" });
+    server = await startTestServer({ redlineInstanceName: "Acme" });
     token = ((await (await server.get("/api/agent-token")).json()) as { token: string }).token;
   });
   afterEach(() => server.stop());
@@ -65,7 +65,7 @@ echo '{"name":"redline-cli","version":"0.2.0"}' > "$prefix/lib/node_modules/redl
     const cliDir = tempDir("redline-cli-dir-");
     writeFileSync(join(cliDir, "redline-cli.tgz"), "tarball");
     writeFileSync(join(cliDir, "build-hash.txt"), "abc\n");
-    const served = await startTestServer({ instanceName: "Acme", cliDir });
+    const served = await startTestServer({ redlineInstanceName: "Acme", cliDir });
     try {
       const servedToken = ((await (await served.get("/api/agent-token")).json()) as { token: string }).token;
       const claude = fakeClaude();

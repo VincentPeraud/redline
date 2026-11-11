@@ -1,7 +1,8 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findInstallation, installationId, installedPackageDir, type InstallationsDeps, type InstanceInfo, type McpStatus } from "../../src/installations.js";
+import { redlineInstanceHandle } from "@redline/shared";
+import { findInstallation, installedPackageDir, type InstallationsDeps, type InstanceInfo, type McpStatus } from "../../src/installations.js";
 
 export const tempDir = (prefix = "redline-inst-") => mkdtempSync(join(tmpdir(), prefix));
 
@@ -104,7 +105,7 @@ export const readJson = (file: string) => JSON.parse(readFileSync(file, "utf8"))
 
 /** An installation on disk, as setup leaves it (its build included unless `version` is left out). */
 export function addInstallation(configDir: string, { name, serverUrl, token = "abt_t", version = "0.2.0", nameChosen = false, hostProtocol }: { name: string; serverUrl: string; token?: string; version?: string | null; nameChosen?: boolean; hostProtocol?: number | null }) {
-  const id = installationId(name);
+  const id = redlineInstanceHandle(name);
   const dir = join(configDir, "instances", id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "login.json"), JSON.stringify({ serverUrl, token, name, nameChosen }));

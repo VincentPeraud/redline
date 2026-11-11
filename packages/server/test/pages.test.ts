@@ -87,9 +87,9 @@ describe("pages over the server HTTP API", () => {
     const cliDir = mkdtempSync(join(tmpdir(), "redline-cli-"));
     writeFileSync(join(cliDir, "redline-cli.tgz"), "tarball");
     writeFileSync(join(cliDir, "build-hash.txt"), "abc123\n");
-    const named = await startTestServer({ instanceName: "Lumora", cliDir });
+    const named = await startTestServer({ redlineInstanceName: "Lumora", cliDir });
     try {
-      expect(await (await named.get("/api/config")).json()).toEqual({ artboardOrigin: named.artboardOrigin, instanceName: "Lumora", version: serverVersion, buildHash: "abc123" });
+      expect(await (await named.get("/api/config")).json()).toEqual({ artboardOrigin: named.artboardOrigin, redlineInstanceName: "Lumora", version: serverVersion, buildHash: "abc123" });
     } finally {
       await named.stop();
       rmSync(cliDir, { recursive: true, force: true });

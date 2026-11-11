@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { redlineInstanceFallbackName, redlineInstanceHandle } from "@redline/shared";
 import { acceptsProtocol, hostProtocol } from "./host-protocol.js";
 import { findLink } from "./link.js";
 import { receivedInstanceName } from "./sanitize.js";
@@ -32,7 +33,7 @@ export interface Installation {
 
 /** What the server tells about itself (`GET /agent-api/instance`); an old server tells nothing. */
 export interface InstanceInfo {
-  instanceName?: string;
+  redlineInstanceName?: string;
   version?: string;
   buildHash?: string;
   /** Host protocol of the CLI build the server serves. */
@@ -70,22 +71,6 @@ export interface InstallationsDeps {
 export const INSTALLATIONS_FOLDER = "instances";
 
 export const installationsPath = (configDir: string) => join(configDir, INSTALLATIONS_FOLDER);
-
-/** "Lumora Préprod" gives `lumora-preprod`. */
-export function installationId(name: string): string {
-  return name
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-/** The first label of the address, skipping a leading `redline` label: `redline.lumora.com` gives "lumora". */
-export function fallbackName(serverUrl: string): string {
-  const labels = new URL(serverUrl).hostname.split(".");
-  return (labels[0] === "redline" && labels.length > 1 ? labels[1] : labels[0]) ?? "";
-}
 
 /** Where npm puts a package installed globally under `prefix`. */
 export const installedPackageDir = (prefix: string): string =>
@@ -167,7 +152,7 @@ export function skippedInstallationFolders(configDir: string): string[] {
 /** By id, name (compared as an id) or address (compared normalized). */
 export function findInstallation(configDir: string, wanted: string): Installation | undefined {
   const address = normalizeServerUrl(wanted);
-  const id = installationId(wanted);
+  const id = redlineInstanceHandle(wanted);
   return listInstallations(configDir).find((installation) => installation.serverUrl === address || installation.id === id);
 }
 
@@ -178,7 +163,7 @@ export function findInstallation(configDir: string, wanted: string): Installatio
 export function pickInstallation(configDir: string, wanted?: string): Installation {
   const all = listInstallations(configDir);
   if (wanted) {
-    const id = installationId(wanted);
+    const id = redlineInstanceHandle(wanted);
     const bare = normalizeServerUrl(wanted).replace(/^https?:\/\//, "");
     const found = all.find((installation) => installation.id === id || normalizeServerUrl(installation.serverUrl).replace(/^https?:\/\//, "") === bare);
     if (!found) throw new Error(`${wanted} is not set up. Run \`redline setup ${wanted}\` first.`);
@@ -238,7 +223,7 @@ export async function currentInstallation(configDir: string, installation: Insta
   if (installation.nameChosen) return installation;
   const timeout = new Promise<InstanceInfo>((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs).unref());
   const info = await Promise.race([fetchInstance(installation.serverUrl, installation.token), timeout]).catch(() => undefined);
-  const name = info?.instanceName && receivedInstanceName(info.instanceName);
+  const name = info?.redlineInstanceName && receivedInstanceName(info.redlineInstanceName);
   if (!name || name === installation.name) return installation;
   writeLogin(installation.dir, { serverUrl: installation.serverUrl, token: installation.token, name, nameChosen: false });
   return { ...installation, name };
@@ -314,9 +299,9 @@ export function isOlder(version: string, than: string): boolean {
 
 async function chooseName(options: SetupOptions, info: InstanceInfo, url: string): Promise<{ name: string; chosen: boolean }> {
   if (options.name?.trim()) return { name: options.name.trim(), chosen: true };
-  const received = info.instanceName && receivedInstanceName(info.instanceName);
+  const received = info.redlineInstanceName && receivedInstanceName(info.redlineInstanceName);
   if (received) return { name: received, chosen: false };
-  const suggested = fallbackName(url);
+  const suggested = redlineInstanceFallbackName(url);
   if (suggested !== "localhost" && suggested !== "") return { name: suggested, chosen: false };
   if (!options.askName) throw new SetupRefusal("The server has no instance name (REDLINE_INSTANCE_NAME).\n  Name this installation: redline setup " + url + " --name <name>");
   const asked = (await options.askName(suggested)).trim();
@@ -353,9 +338,9 @@ export async function setupInstallation(options: SetupOptions): Promise<SetupRes
   }
 
   const { name, chosen } = await chooseName(options, info, url);
-  const id = installationId(name);
+  const id = redlineInstanceHandle(name);
   if (!id) throw new SetupRefusal(`"${name}" cannot make a folder name. Pick another one: redline setup ${url} --name <name>`);
-  const clash = listInstallations(configDir).find((installation) => installation.id === id || installationId(installation.name) === id);
+  const clash = listInstallations(configDir).find((installation) => installation.id === id || redlineInstanceHandle(installation.name) === id);
   if (clash) {
     throw new SetupRefusal(`The name "${name}" (${id}) is already used by ${clash.serverUrl}.\n  Pick another one: redline setup ${url} --name <name>`);
   }

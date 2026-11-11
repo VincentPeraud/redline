@@ -392,13 +392,13 @@ export interface CreatePageRequest {
 export const HOST_PROTOCOL_VERSION = 1;
 
 /** `GET /agent-api/instance`: the server's configuration, plus the host protocol of the CLI build it serves. */
-export type InstanceResponse = ServerConfig & { hostProtocol: number };
+export type RedlineInstanceResponse = ServerConfig & { hostProtocol: number };
 
 /** `GET /api/config`. */
 export interface ServerConfig {
   artboardOrigin: string;
   /** The Redline instance's name (for example "Lumora"); absent when the administrator set none. */
-  instanceName?: string;
+  redlineInstanceName?: string;
   /** The Redline version of the server. */
   version: string;
   /** Hash of the build the image carries; absent in development. */
@@ -1338,13 +1338,13 @@ export function redlineUpdateCommand(origin: string): string {
 }
 
 /** The name a computer gives this server's instance when the administrator set none: the first label of its address, skipping a leading `redline`. */
-export function instanceFallbackName(origin: string): string {
+export function redlineInstanceFallbackName(origin: string): string {
   const labels = new URL(origin).hostname.split(".");
   return (labels[0] === "redline" && labels.length > 1 ? labels[1] : labels[0]) ?? "";
 }
 
 /** The word `redline link` and `--instance` take for an instance: its name, lowercased, without accents or punctuation. */
-export function instanceHandle(name: string): string {
+export function redlineInstanceHandle(name: string): string {
   return name
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -1354,8 +1354,8 @@ export function instanceHandle(name: string): string {
 }
 
 /** What a refused agent runs: `migrate` when it was installed before instances (its hello has no host protocol), else `redline update`. */
-export function refusedAgentCommand(origin: string, beforeInstances: boolean): string {
-  return beforeInstances ? cliMigrateCommand(origin) : redlineUpdateCommand(origin);
+export function refusedAgentCommand(origin: string, beforeInstallations: boolean): string {
+  return beforeInstallations ? cliMigrateCommand(origin) : redlineUpdateCommand(origin);
 }
 
 /** WebSocket close codes sent by the server on the agent endpoint. */
@@ -1440,7 +1440,7 @@ export interface RefusedAgent {
   /** ISO time of the refusal. */
   refusedAt: string;
   /** Installed before instances (its hello has no host protocol): it needs `migrate`, not `redline update`. */
-  beforeInstances?: true;
+  beforeInstallations?: true;
 }
 
 export interface AgentTokenResponse {

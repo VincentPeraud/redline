@@ -28,8 +28,8 @@ const text = (result: unknown) => ((result as { content: { text: string }[] }).c
 function computer() {
   const configDir = tempDir();
   const world = fakeWorld();
-  world.servers.set("https://redline.localhost", { instanceName: "Local", version: "0.3.0" });
-  world.servers.set("https://redline.lumora.com", { instanceName: "Lumora", version: "0.2.0" });
+  world.servers.set("https://redline.localhost", { redlineInstanceName: "Local", version: "0.3.0" });
+  world.servers.set("https://redline.lumora.com", { redlineInstanceName: "Lumora", version: "0.2.0" });
   addInstallation(configDir, { name: "Local", serverUrl: "https://redline.localhost", version: "0.3.0" });
   addInstallation(configDir, { name: "Lumora", serverUrl: "https://redline.lumora.com", version: "0.2.0" });
   addInstallation(configDir, { name: "Brightco", serverUrl: "https://redline.brightco.fr", version: "0.1.0" });
@@ -91,11 +91,11 @@ describe("the MCP launcher", () => {
 
   it("follows the server's instance name unless the name was chosen", async () => {
     const { launch, handedOver, world, configDir } = computer();
-    world.servers.set("https://redline.lumora.com", { instanceName: "Lumora Group", version: "0.2.0" });
+    world.servers.set("https://redline.lumora.com", { redlineInstanceName: "Lumora Group", version: "0.2.0" });
     await launch(folderWithLink({ serverUrl: "https://redline.lumora.com", projectIds: [] }));
     expect(handedOver[0].instance.name).toBe("Lumora Group");
     addInstallation(configDir, { name: "Mine", serverUrl: "https://redline.mine.fr", nameChosen: true });
-    world.servers.set("https://redline.mine.fr", { instanceName: "Theirs", version: "0.2.0" });
+    world.servers.set("https://redline.mine.fr", { redlineInstanceName: "Theirs", version: "0.2.0" });
     await launch(folderWithLink({ serverUrl: "https://redline.mine.fr", projectIds: [] }));
     expect(handedOver[1].instance.name).toBe("Mine");
   });

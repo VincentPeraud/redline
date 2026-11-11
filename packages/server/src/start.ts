@@ -17,7 +17,7 @@ export interface StartOptions {
   /** Public origin of the artboard listener, when behind a proxy; defaults to the listener's address. */
   artboardOrigin?: string;
   /** Name of this Redline instance (for example "Lumora"), shown in the web app and used by the CLI. */
-  instanceName?: string;
+  redlineInstanceName?: string;
   webDir?: string;
   /** Folder holding `redline-cli.tgz` and `build-hash.txt`; when both exist the tarball is served at `/cli/redline-cli.tgz`. */
   cliDir?: string;
@@ -64,7 +64,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   const artboardOrigin = options.artboardOrigin ?? `http://${options.host}:${portOf(artboardApp.server.address())}`;
 
   const cliBuild = loadCliBuild(options.cliDir);
-  const config: ServerConfig = { artboardOrigin, version: serverVersion(), ...(options.instanceName ? { instanceName: options.instanceName } : {}), ...(cliBuild ? { buildHash: cliBuild.hash } : {}) };
+  const config: ServerConfig = { artboardOrigin, version: serverVersion(), ...(options.redlineInstanceName ? { redlineInstanceName: options.redlineInstanceName } : {}), ...(cliBuild ? { buildHash: cliBuild.hash } : {}) };
   const mainApp = await buildMainApp(store, config, options.webDir, {
     retryDelaysMs: options.retryDelaysMs,
     terminalPresenceTimeoutMs: options.terminalPresenceTimeoutMs,

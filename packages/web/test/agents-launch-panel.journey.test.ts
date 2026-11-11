@@ -15,7 +15,7 @@ let webDir: string;
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   copyBuiltWeb(webDir);
-  server = await startTestServer({ webDir, instanceName: "Lumora Studio" });
+  server = await startTestServer({ webDir, redlineInstanceName: "Lumora Studio" });
   browser = await launchBrowser();
 }, 60_000);
 

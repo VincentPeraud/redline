@@ -890,22 +890,22 @@ export class Store {
   }
 
   /** Remembers an agent refused for its protocol until it connects again. */
-  recordRefusedAgent({ machine, folder, kind, projectIds, projectId = projectIds?.[0], beforeInstances }: AgentIdentity & { beforeInstances: boolean }): void {
+  recordRefusedAgent({ machine, folder, kind, projectIds, projectId = projectIds?.[0], beforeInstallations }: AgentIdentity & { beforeInstallations: boolean }): void {
     this.db
       .prepare(
         "INSERT INTO refused_agents (machine, folder, kind, project_id, refused_at, before_instances) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, project_id = excluded.project_id, refused_at = excluded.refused_at, before_instances = excluded.before_instances",
       )
-      .run(machine, folder, kind, projectId ?? null, now(), beforeInstances ? 1 : 0);
+      .run(machine, folder, kind, projectId ?? null, now(), beforeInstallations ? 1 : 0);
   }
 
   listRefusedAgents(): RefusedAgent[] {
     const rows = this.db
       .prepare(
-        `SELECT r.machine, r.folder, r.kind, p.title AS project, r.refused_at AS refusedAt, r.before_instances AS beforeInstances
+        `SELECT r.machine, r.folder, r.kind, p.title AS project, r.refused_at AS refusedAt, r.before_instances AS beforeInstallations
          FROM refused_agents r LEFT JOIN projects p ON p.id = r.project_id ORDER BY r.machine, r.folder`,
       )
-      .all() as (Omit<RefusedAgent, "project" | "beforeInstances"> & { project: string | null; beforeInstances: number })[];
-    return rows.map(({ project, beforeInstances, ...agent }) => ({ ...agent, ...(project ? { project } : {}), ...(beforeInstances ? { beforeInstances: true as const } : {}) }));
+      .all() as (Omit<RefusedAgent, "project" | "beforeInstallations"> & { project: string | null; beforeInstallations: number })[];
+    return rows.map(({ project, beforeInstallations, ...agent }) => ({ ...agent, ...(project ? { project } : {}), ...(beforeInstallations ? { beforeInstallations: true as const } : {}) }));
   }
 
   private insertProject(title: string, id: string, instructions: string, designSystem: string | null, ownership: ProjectOwnership = {}): Project {

@@ -26,7 +26,7 @@ import {
   starterPageFiles,
   type AgentDesignSystem,
   HOST_PROTOCOL_VERSION,
-  type InstanceResponse,
+  type RedlineInstanceResponse,
   type ServerConfig,
 } from "@redline/shared";
 import { manifestTitleError, mergeOntoCurrent } from "./publish.js";
@@ -145,7 +145,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       });
 
       // `redline setup` and the update check read the instance from here: `/api/config` is behind the SSO in production.
-      api.get("/instance", async (): Promise<InstanceResponse> => ({ ...config, hostProtocol: HOST_PROTOCOL_VERSION }));
+      api.get("/instance", async (): Promise<RedlineInstanceResponse> => ({ ...config, hostProtocol: HOST_PROTOCOL_VERSION }));
 
       // `redline agent` picks or creates the projects a folder serves, before they have anything else to call.
       // `?all=1` (folder links) includes archived projects, so that a folder linked to one is not linked elsewhere.

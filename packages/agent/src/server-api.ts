@@ -31,7 +31,7 @@ import {
   type SendRequestRequest,
   type SendRequestResponse,
   cliUpdateCommand,
-  type InstanceResponse,
+  type RedlineInstanceResponse,
 } from "@redline/shared";
 import { buildHash as ownBuildHash } from "./build-hash.js";
 
@@ -55,7 +55,7 @@ export class ServerApi {
   }
 
   /** What the server tells about itself: its Redline version, instance name and host protocol. */
-  instance(): Promise<InstanceResponse> {
+  instance(): Promise<RedlineInstanceResponse> {
     return this.request("GET", "/instance");
   }
 

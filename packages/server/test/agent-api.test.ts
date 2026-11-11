@@ -197,11 +197,11 @@ it("tells the CLI the instance name, version, build hash and host protocol behin
   const cliDir = mkdtempSync(join(tmpdir(), "redline-cli-"));
   writeFileSync(join(cliDir, "redline-cli.tgz"), "tarball");
   writeFileSync(join(cliDir, "build-hash.txt"), "abc123\n");
-  const named = await startTestServer({ instanceName: "Lumora", cliDir });
+  const named = await startTestServer({ redlineInstanceName: "Lumora", cliDir });
   try {
     const namedToken = ((await (await named.get("/api/agent-token")).json()) as AgentTokenResponse).token;
     const answer = await fetch(`${named.url}${AGENT_API_PREFIX}/instance`, { headers: { authorization: `Bearer ${namedToken}` } });
-    expect(await answer.json()).toEqual({ artboardOrigin: named.artboardOrigin, instanceName: "Lumora", version: serverVersion, buildHash: "abc123", hostProtocol: 1 });
+    expect(await answer.json()).toEqual({ artboardOrigin: named.artboardOrigin, redlineInstanceName: "Lumora", version: serverVersion, buildHash: "abc123", hostProtocol: 1 });
     expect((await fetch(`${named.url}${AGENT_API_PREFIX}/instance`)).status).toBe(401);
   } finally {
     await named.stop();

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { CLI_TARBALL_PATH, cliSetupCommand, instanceFallbackName, instanceHandle, modelLabel, refusedAgentCommand, type AgentOverview, type AgentTokenResponse, type RefusedAgent, type ServerConfig, type Settings } from "@redline/shared";
+import { CLI_TARBALL_PATH, cliSetupCommand, redlineInstanceFallbackName, redlineInstanceHandle, modelLabel, refusedAgentCommand, type AgentOverview, type AgentTokenResponse, type RefusedAgent, type ServerConfig, type Settings } from "@redline/shared";
 import { Avatar } from "./Avatar.js";
 import { agentName } from "./agentName.js";
 import { routeHref } from "./router.js";
@@ -22,7 +22,7 @@ function useConfig(): ServerConfig | null {
 
 function InstanceBadge({ config }: { config: ServerConfig | null }) {
   if (!config) return null;
-  const text = config.instanceName ? `${config.instanceName} · v${config.version}` : `v${config.version}`;
+  const text = config.redlineInstanceName ? `${config.redlineInstanceName} · v${config.version}` : `v${config.version}`;
   return (
     <StatusBadge tone="neutral" className={styles.instanceBadge} data-testid="instance-badge">
       {text}
@@ -196,7 +196,7 @@ function AgentRow({ agent }: { agent: AgentOverview }) {
 
 function RefusedAgentRow({ agent }: { agent: RefusedAgent }) {
   const [copied, copy] = useCopy();
-  const command = refusedAgentCommand(window.location.origin, agent.beforeInstances === true);
+  const command = refusedAgentCommand(window.location.origin, agent.beforeInstallations === true);
 
   return (
     <div role="row" className={cx(styles.row, styles.refused)} data-testid="refused-agent-card">
@@ -222,7 +222,7 @@ function RefusedAgentRow({ agent }: { agent: RefusedAgent }) {
         <div className={styles.badges}>
           <StatusBadge tone="danger">Pas à jour · refusé</StatusBadge>
         </div>
-        {agent.beforeInstances && <span className={styles.secondary}>Installé avant les instances : la commande met Redline à jour puis déplace son installation.</span>}
+        {agent.beforeInstallations && <span className={styles.secondary}>Installé avant les instances : la commande met Redline à jour puis déplace son installation.</span>}
         <code className={styles.refusedCommand}>
           {command.split(/(?<=\/)/).map((part, index) => (
             <Fragment key={index}>
@@ -323,8 +323,8 @@ function LaunchPanel({ closing, config, onClose, onClosed, trigger }: { closing:
 
   const setupCommand = cliSetupCommand(origin, token);
   const shownCommand = `npx -y ${origin}${CLI_TARBALL_PATH} \\\n  setup ${origin} --token ${token ? maskToken(token, 7) : ""}`;
-  const instanceName = config?.instanceName ?? instanceFallbackName(origin);
-  const handle = instanceHandle(instanceName);
+  const redlineInstanceName = config?.redlineInstanceName ?? redlineInstanceFallbackName(origin);
+  const handle = redlineInstanceHandle(redlineInstanceName);
 
   return (
     <aside
@@ -359,10 +359,10 @@ function LaunchPanel({ closing, config, onClose, onClosed, trigger }: { closing:
                   installe la commande <code className={styles.inlineCode}>redline</code> de ce serveur si elle manque ou si celle de ta machine est plus ancienne ;
                 </li>
                 <li>
-                  crée l'installation de <strong className={styles.strong}>{instanceName}</strong> sur ta machine, à la version de ce serveur, avec ton jeton ;
+                  crée l'installation de <strong className={styles.strong}>{redlineInstanceName}</strong> sur ta machine, à la version de ce serveur, avec ton jeton ;
                 </li>
                 <li>
-                  <strong className={styles.strong}>connecte le MCP Redline à Claude Code</strong> : dans un dossier lié à {instanceName}, Claude crée des pages et publie ici.
+                  <strong className={styles.strong}>connecte le MCP Redline à Claude Code</strong> : dans un dossier lié à {redlineInstanceName}, Claude crée des pages et publie ici.
                 </li>
               </ol>
             </>
@@ -378,7 +378,7 @@ function LaunchPanel({ closing, config, onClose, onClosed, trigger }: { closing:
         </Step>
         <Step
           title="Lier un dossier"
-          text={`Dans le dossier du projet, sans agent : ses sessions Claude Code publient sur ${instanceName}.`}
+          text={`Dans le dossier du projet, sans agent : ses sessions Claude Code publient sur ${redlineInstanceName}.`}
           command={`cd ~/projets/mon-projet\nredline link ${handle}`}
         />
         <Step

@@ -3,7 +3,8 @@ import { AgentRegistry } from "./agent-registry.js";
 import { MIGRATE_STOP_REASON } from "./activity.js";
 import { HostClient } from "./host-client.js";
 import type { HostAgent } from "./host-protocol.js";
-import { createInstallation, fallbackName, installationId, listInstallations, type InstallationsDeps, type InstanceInfo } from "./installations.js";
+import { redlineInstanceFallbackName, redlineInstanceHandle } from "@redline/shared";
+import { createInstallation, listInstallations, type InstallationsDeps, type InstanceInfo } from "./installations.js";
 import { receivedInstanceName } from "./sanitize.js";
 import { normalizeServerUrl, readLogins, replaceLogins, type Login } from "./login.js";
 
@@ -108,7 +109,7 @@ export async function migrateLegacy(options: MigrateOptions): Promise<{ migrated
   for (const login of legacy) {
     const serverUrl = normalizeServerUrl(login.serverUrl);
     if (alreadyThere(login)) continue;
-    const label = fallbackName(serverUrl);
+    const label = redlineInstanceFallbackName(serverUrl);
     let info: InstanceInfo;
     try {
       info = await deps.fetchInstance(serverUrl, login.token);
@@ -118,8 +119,8 @@ export async function migrateLegacy(options: MigrateOptions): Promise<{ migrated
       continue;
     }
     const chosen = names[serverUrl];
-    const name = chosen ?? ((info.instanceName && receivedInstanceName(info.instanceName)) || undefined) ?? (label === "localhost" || label === "" ? "Local" : label);
-    const id = installationId(name);
+    const name = chosen ?? ((info.redlineInstanceName && receivedInstanceName(info.redlineInstanceName)) || undefined) ?? (label === "localhost" || label === "" ? "Local" : label);
+    const id = redlineInstanceHandle(name);
     const owner = taken.get(id);
     if (!id || owner) {
       problems.push({
@@ -164,7 +165,7 @@ export async function migrateLegacy(options: MigrateOptions): Promise<{ migrated
   const lines: { symbol: "✓" | "✗"; label: string; address: string; rest: string[] }[] = [];
   for (const entry of planned) {
     try {
-      const installation = await createInstallation({ configDir, id: installationId(entry.name), serverUrl: entry.serverUrl, token: entry.login.token, name: entry.name, nameChosen: entry.nameChosen, deps });
+      const installation = await createInstallation({ configDir, id: redlineInstanceHandle(entry.name), serverUrl: entry.serverUrl, token: entry.login.token, name: entry.name, nameChosen: entry.nameChosen, deps });
       const count = registered.filter((agent) => normalizeServerUrl(agent.serverUrl) === entry.serverUrl).length;
       moved.push(entry);
       lines.push({ symbol: "✓", label: entry.name, address: addressOf(entry.serverUrl), rest: [`→ ${shown(installation.dir)}   token moved${count > 0 ? ` · ${plural(count, "agent")}` : ""}`] });

@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENT_API_PREFIX, CLI_TARBALL_PATH, HOST_PROTOCOL_VERSION, type InstanceResponse } from "@redline/shared";
+import { AGENT_API_PREFIX, CLI_TARBALL_PATH, HOST_PROTOCOL_VERSION, type RedlineInstanceResponse } from "@redline/shared";
 import { cliVersion } from "./build-hash.js";
 import { agentsOfInstallation, removeStoppedAgents, restartInstallationAgents, restartStoppedAgents } from "./installation-agents.js";
 import type { DoctorDeps, McpRegistration } from "./doctor.js";
@@ -69,8 +69,8 @@ async function fetchInstance(serverUrl: string, token: string): Promise<Instance
     return {};
   }
   if (!answer.ok) throw new Error(`the server answered ${answer.status}`);
-  const { instanceName, version, buildHash, hostProtocol } = (await answer.json()) as Partial<InstanceResponse>;
-  return { instanceName, version, buildHash, hostProtocol };
+  const { redlineInstanceName, version, buildHash, hostProtocol } = (await answer.json()) as Partial<RedlineInstanceResponse>;
+  return { redlineInstanceName, version, buildHash, hostProtocol };
 }
 
 /** Downloads the tarball the server serves, then installs it under the prefix. */

@@ -12,7 +12,7 @@ function lumora({ version = "0.2.0", server = { version: "0.2.1", buildHash: "h-
   const world = fakeWorld();
   const configDir = tempDir();
   addInstallation(configDir, { name: "Lumora", serverUrl: LUMORA, version, hostProtocol: 2 });
-  world.servers.set(LUMORA, { instanceName: "Lumora", ...server });
+  world.servers.set(LUMORA, { redlineInstanceName: "Lumora", ...server });
   const update = (wanted = "lumora") => updateInstallation({ configDir, wanted, deps: world.deps });
   const remove = (wanted = "lumora") => removeInstallation({ configDir, wanted, deps: world.deps, home: "/home/me" });
   return { world, configDir, update, remove };
