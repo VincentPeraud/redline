@@ -20,7 +20,7 @@ import { removeInstallation, removeReport, updateInstallation, updateReport } fr
 import { askInstallation, confirm, orphanLines, runLink } from "./link-command.js";
 import { ensureGlobalCommand, launchedThroughNpx, systemGlobalCommand } from "./global-command.js";
 import { importAndServe, launchMcp } from "./mcp-launcher.js";
-import { connectMigrateHost, legacyGateRefuses, legacyRefusal, migrateLegacy } from "./migrate.js";
+import { connectMigrateHost, forgetLegacy, inLegacyLogin, legacyGateRefuses, legacyRefusal, migrateLegacy } from "./migrate.js";
 import { cliVersion } from "./build-hash.js";
 import { fileURLToPath } from "node:url";
 import { defaultConfigDir, type Login } from "./login.js";
@@ -81,9 +81,12 @@ async function prepareFromNpx(serverUrl: string, color: boolean): Promise<void> 
   }
 }
 
-/** `redline migrate [--now] [--name <address>=<name>]`. */
+/** `redline migrate [--now] [--name <address>=<name>]`, or `redline migrate --forget <address>`. */
 async function runMigrate(args: string[], color: boolean): Promise<void> {
   const configDir = defaultConfigDir();
+  const forget = args.flatMap((arg, index) => (arg === "--forget" ? [args[index + 1] ?? ""] : []));
+  if (forget.some((address) => !address || address.startsWith("--"))) throw new Error("--forget needs <address>.");
+  if (forget.length > 0) return forgetLegacy({ configDir, addresses: forget, out: console.log });
   const names: Record<string, string> = {};
   args.forEach((arg, index) => {
     if (arg !== "--name") return;
@@ -447,7 +450,7 @@ const printHelp = () => helpLines().forEach((line) => console.log(line));
 
 const [command, ...args] = process.argv.slice(2);
 try {
-  if (hasLegacyLayout(defaultConfigDir()) && legacyGateRefuses(command, { throughNpx: launchedThroughNpx(process.env, fileURLToPath(new URL("..", import.meta.url))) })) {
+  if (hasLegacyLayout(defaultConfigDir()) && legacyGateRefuses(command, { throughNpx: launchedThroughNpx(process.env, fileURLToPath(new URL("..", import.meta.url))), legacyAddress: command === "setup" && inLegacyLogin(defaultConfigDir(), args[0]) })) {
     console.error(`✗ ${legacyRefusal(command === undefined)}`);
     process.exit(1);
   }

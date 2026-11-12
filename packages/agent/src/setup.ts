@@ -162,7 +162,7 @@ export function setupReport(
   }
   if (tooOld) {
     lines.push(paint("amber", `! v${installation.version} is too old for this redline command (v${deps.commandVersion}, accepts v${deps.oldestAccepted} and later):`));
-    lines.push(paint("muted", `  its agents will be refused until ${installation.name}'s server is upgraded. Its MCP works.`));
+    lines.push(paint("muted", `  its agents and its MCP wait until ${installation.name}'s server is upgraded.`));
   }
   return lines;
 }

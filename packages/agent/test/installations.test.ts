@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { redlineInstanceFallbackName, redlineInstanceHandle } from "@redline/shared";
 import { currentInstallation, findInstallation, hasLegacyLayout, listInstallations, pickInstallation, resolveFolder, setupInstallation, type SetupResult } from "../src/installations.js";
-import { saveLogin } from "../src/login.js";
+import { readLogins, saveLogin } from "../src/login.js";
 import { addInstallation, fakeWorld, folderWithLink, readJson, tempDir } from "./support/installations.js";
 
 const LUMORA = "https://redline.lumora.com";
@@ -124,6 +124,25 @@ describe("redline setup, a new instance", () => {
     expect(hasLegacyLayout(configDir)).toBe(true);
     await expect(run()).rejects.toThrow("This computer still has the old Redline installation (one login for every server).\n  Run redline migrate first: it moves each server to its own installation.");
     expect(world.installs).toEqual([]);
+  });
+
+  it("completes the migration of a server still in the old login: installation created, entry removed from the old login", async () => {
+    const { world, configDir, run } = setup();
+    world.servers.set("https://old.example.fr", { redlineInstanceName: "Old", version: "0.2.0" });
+    saveLogin({ configDir, serverUrl: "https://old.example.fr", token: "abt_old" });
+    saveLogin({ configDir, serverUrl: "https://other.example.fr", token: "abt_other" });
+    const { installation } = await run({ serverUrl: "https://old.example.fr", token: "abt_new" });
+    expect(installation).toMatchObject({ id: "old", serverUrl: "https://old.example.fr", token: "abt_new" });
+    expect(readLogins(configDir)).toEqual([{ serverUrl: "https://other.example.fr", token: "abt_other" }]);
+    expect(hasLegacyLayout(configDir)).toBe(true);
+  });
+
+  it("ends the old layout when the completed server was the last one", async () => {
+    const { world, configDir, run } = setup();
+    world.servers.set("https://old.example.fr", { redlineInstanceName: "Old", version: "0.2.0" });
+    saveLogin({ configDir, serverUrl: "https://old.example.fr", token: "abt_old" });
+    await run({ serverUrl: "https://old.example.fr", token: "abt_new" });
+    expect(hasLegacyLayout(configDir)).toBe(false);
   });
 });
 

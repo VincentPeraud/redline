@@ -21,8 +21,28 @@ const WORKS_BEFORE_MIGRATE = ["migrate", "doctor", "help", "mcp", "host", "worke
  * Whether the legacy gate stops this command. `setup` goes through when launched by npx (the web panel's command): it migrates
  * the old installation itself before setting the new one up. Typed against the global command, it still sends the user to migrate.
  */
-export const legacyGateRefuses = (command: string | undefined, { throughNpx }: { throughNpx: boolean }): boolean =>
-  !WORKS_BEFORE_MIGRATE.includes(command ?? "") && !(command === "setup" && throughNpx);
+export const legacyGateRefuses = (command: string | undefined, { throughNpx, legacyAddress }: { throughNpx: boolean; legacyAddress: boolean }): boolean =>
+  !WORKS_BEFORE_MIGRATE.includes(command ?? "") && !(command === "setup" && (throughNpx || legacyAddress));
+
+/** Whether this address is still in the old single login: `redline setup <address>` then completes its migration. */
+export const inLegacyLogin = (configDir: string, address: string | undefined): boolean => {
+  if (!address || address.startsWith("--")) return false;
+  const wanted = normalizeServerUrl(/^https?:\/\//.test(address) ? address : `https://${address}`);
+  return readLogins(configDir).some((login) => normalizeServerUrl(login.serverUrl) === wanted);
+};
+
+/** `redline migrate --forget <address>`: drops servers that will not answer from the old login, so that the other commands work again. */
+export function forgetLegacy({ configDir, addresses, out }: { configDir: string; addresses: string[]; out(line: string): void }): void {
+  let logins = readLogins(configDir);
+  const wantedUrl = (address: string) => normalizeServerUrl(/^https?:\/\//.test(address) ? address : `https://${address}`);
+  for (const address of addresses) {
+    const wanted = wantedUrl(address);
+    if (!logins.some((login) => normalizeServerUrl(login.serverUrl) === wanted)) throw new Error(`${address} is not in the old login (${logins.map((login) => addressOf(login.serverUrl)).join(", ") || "empty"}).`);
+    logins = logins.filter((login) => normalizeServerUrl(login.serverUrl) !== wanted);
+    replaceLogins(configDir, logins);
+    out(logins.length === 0 ? `Dropped ${addressOf(wanted)} from the old login. No old login is left: every command works again.` : `Dropped ${addressOf(wanted)} from the old login (${plural(logins.length, "server")} left).`);
+  }
+}
 
 /** What migrate asks of the agent host: its agents, and to stop one with a reason. Absent when no host runs. */
 export interface MigrateHost {
@@ -114,7 +134,7 @@ export async function migrateLegacy(options: MigrateOptions): Promise<{ migrated
     try {
       info = await deps.fetchInstance(serverUrl, login.token);
     } catch (error) {
-      problems.push({ label, address: addressOf(serverUrl), serverUrl, text: [`cannot use it with this token (${(error as Error).message}).`, "Left in the old login. Run redline setup <address> once it answers, or redline migrate again."] });
+      problems.push({ label, address: addressOf(serverUrl), serverUrl, text: [`cannot use it with this token (${(error as Error).message}).`, `Left in the old login. Run redline setup ${addressOf(serverUrl)} once it answers, or redline migrate --forget ${addressOf(serverUrl)}.`] });
       stays.push(login);
       continue;
     }

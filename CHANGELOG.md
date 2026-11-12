@@ -29,6 +29,8 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 - The panel's `npx ... setup` command no longer stops on "Run redline migrate first" on an old computer: setup goes through the legacy gate when npx launches it, then migrates.
 - `redline link` always asks before switching a folder linked to another instance (also one with no project yet), and before linking a subfolder of a linked folder to a different instance.
 - A run starting at the instant an idle agent is stopped for a host restart or an installation update is no longer cancelled: the host asks the worker to stop only when idle.
+- A server that cannot be migrated (unreachable, token refused) no longer locks the computer: `redline migrate --forget <address>` drops it from the old login, and `redline setup <address>`, typed by hand, completes the migration of an address still in the old login. Migrate's line for such a server cites both.
+- Setup's too-old warning says that the installation's agents and its MCP wait for its server to be upgraded.
 - When a hand-over to an installation's MCP fails for a reason other than a missing entry point, the error is shown with the installation's name instead of asking for an update.
 
 ## [0.1.0] - 2026-11-10

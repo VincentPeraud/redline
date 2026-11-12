@@ -34,9 +34,14 @@ async function runOnOldComputer(args: string[], env: NodeJS.ProcessEnv): Promise
 
 describe("redline setup on a computer with the old installation", () => {
   it("stops on migrate when typed against the global command", async () => {
-    const { code, stderr } = await runOnOldComputer(["setup", "https://redline.example.com", "--token", "abt_new"], {});
+    const { code, stderr } = await runOnOldComputer(["setup", "https://other.example.com", "--token", "abt_new"], {});
     expect(code).toBe(1);
     expect(stderr).toContain("Run redline migrate first");
+  });
+
+  it("goes past the gate when typed by hand for the address still in the old login", async () => {
+    const { stderr } = await runOnOldComputer(["setup", "redline.example.com", "--token", "abt_new"], {});
+    expect(stderr).not.toContain("Run redline migrate first");
   });
 
   it("goes past the gate when npx launched it (here it stops later, on a refused address)", async () => {

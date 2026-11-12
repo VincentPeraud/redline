@@ -155,7 +155,7 @@ describe("what redline setup prints", () => {
       "  Installed in ~/.config/redline/instances/brightco",
       "  Claude Code: the redline MCP is already registered.",
       "! v0.1.0 is too old for this redline command (v0.3.0, accepts v0.2.0 and later):",
-      "  its agents will be refused until Brightco's server is upgraded. Its MCP works.",
+      "  its agents and its MCP wait until Brightco's server is upgraded.",
     ]);
   });
 

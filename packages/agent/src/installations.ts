@@ -4,7 +4,7 @@ import { redlineInstanceFallbackName, redlineInstanceHandle } from "@redline/sha
 import { acceptsProtocol, hostProtocol } from "./host-protocol.js";
 import { findLink } from "./link.js";
 import { receivedInstanceName } from "./sanitize.js";
-import { normalizeServerUrl, readLogins, validateServerUrl, type Login } from "./login.js";
+import { normalizeServerUrl, readLogins, replaceLogins, validateServerUrl, type Login } from "./login.js";
 
 /**
  * One installation per Redline instance, in a folder of its own: `<configDir>/instances/<id>/` holds `login.json` (address,
@@ -318,7 +318,9 @@ export async function setupInstallation(options: SetupOptions): Promise<SetupRes
   const url = checkedAddress(options.serverUrl);
   const token = options.token.trim();
   if (!token) throw new SetupRefusal("A token is required.");
-  if (hasLegacyLayout(configDir)) {
+  // A server still in the old login may be set up by hand (its migration did not complete): that finishes it.
+  const legacyEntry = readLogins(configDir).find((login) => normalizeServerUrl(login.serverUrl) === normalizeServerUrl(url));
+  if (hasLegacyLayout(configDir) && !legacyEntry) {
     throw new SetupRefusal("This computer still has the old Redline installation (one login for every server).\n  Run redline migrate first: it moves each server to its own installation.");
   }
   let info: InstanceInfo;
@@ -333,6 +335,7 @@ export async function setupInstallation(options: SetupOptions): Promise<SetupRes
     const installation = { ...existing, token };
     writeLogin(existing.dir, { serverUrl: url, token, name: existing.name, nameChosen: existing.nameChosen });
     const restarted = await deps.restartStoppedAgents(url);
+    if (legacyEntry) dropFromLegacyLogin(configDir, url);
     const mcp = await deps.registerMcp();
     return { installation, created: false, mcp, tooOld: isTooOld(existing, deps), restarted };
   }
@@ -350,10 +353,14 @@ export async function setupInstallation(options: SetupOptions): Promise<SetupRes
   } catch (error) {
     throw new SetupRefusal(`Could not install ${name}'s build: ${(error as Error).message.replace(/\.$/, "")}.\n  Nothing was saved. Check that the server is up, then run the command again.`);
   }
+  if (legacyEntry) dropFromLegacyLogin(configDir, url);
   const installation = readInstallation(configDir, id)!;
   const withInfo = { ...installation, version: installation.version ?? info.version, buildHash: installation.buildHash ?? info.buildHash };
   const mcp = await deps.registerMcp();
   return { installation: withInfo, created: true, mcp, tooOld: isTooOld(withInfo, deps), restarted: [] };
 }
+
+const dropFromLegacyLogin = (configDir: string, url: string): void =>
+  replaceLogins(configDir, readLogins(configDir).filter((login) => normalizeServerUrl(login.serverUrl) !== normalizeServerUrl(url)));
 
 const isTooOld = (installation: Installation, deps: InstallationsDeps) => !acceptsProtocol(hostProtocol(deps.commandVersion, deps.hostProtocol), installation.hostProtocol);

@@ -15,7 +15,7 @@ export const COMMANDS: CommandHelp[] = [
   { command: "redline update <instance|address>", description: "update an installation from its server" },
   { command: "redline remove <instance>", description: "remove an installation" },
   { command: "redline doctor", description: "check every installation, the MCP, this folder" },
-  { command: "redline migrate", description: "move the old single installation (once per computer)", options: "--now stops the runs in progress, --name <address>=<name> renames one" },
+  { command: "redline migrate", description: "move the old single installation (once per computer)", options: "--now stops the runs in progress, --name <address>=<name> renames one, --forget <address> drops a server that does not answer" },
   { command: "redline help", description: "this list, in the shell" },
 ];
 

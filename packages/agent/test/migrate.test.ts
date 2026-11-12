@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { HostAgent } from "../src/host-protocol.js";
 import { listInstallations, resolveFolder } from "../src/installations.js";
 import { launchMcp } from "../src/mcp-launcher.js";
-import { legacyRefusal, migrateLegacy, MIGRATE_STOP_REASON, type MigrateHost } from "../src/migrate.js";
+import { forgetLegacy, legacyGateRefuses, legacyRefusal, migrateLegacy, MIGRATE_STOP_REASON, type MigrateHost } from "../src/migrate.js";
 import { readLogins, saveLogin } from "../src/login.js";
 import { fakeWorld, tempDir } from "./support/installations.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -122,6 +122,38 @@ describe("redline migrate", () => {
     const { out } = await migrate(configDir, world);
     expect(out).toEqual(["Nothing to migrate: 2 instances are already installed (Local, Lumora)."]);
     expect(world.installs).toHaveLength(installs);
+  });
+
+  it("tells what to do with a server that does not answer: set it up by hand once it does, or forget it", async () => {
+    const world = fakeWorld();
+    const configDir = legacy([["https://old.example.com", "t_old"]]);
+    const { out } = await migrate(configDir, world);
+    expect(out[0]).toMatch(/^✗ old {2}old\.example\.com: cannot use it with this token/);
+    expect(out[1]).toBe("       Left in the old login. Run redline setup old.example.com once it answers, or redline migrate --forget old.example.com.");
+    expect(readLogins(configDir)).toEqual([{ serverUrl: "https://old.example.com", token: "t_old" }]);
+  });
+
+  it("--forget drops a server from the old login and says so; the last one ends the legacy layout", () => {
+    const configDir = legacy([["https://old.example.com", "t_old"], [LUMORA, "t2"]]);
+    const out: string[] = [];
+    forgetLegacy({ configDir, addresses: ["old.example.com"], out: (line) => out.push(line) });
+    expect(out).toEqual(["Dropped old.example.com from the old login (1 server left)."]);
+    expect(readLogins(configDir)).toEqual([{ serverUrl: LUMORA, token: "t2" }]);
+    forgetLegacy({ configDir, addresses: [LUMORA], out: (line) => out.push(line) });
+    expect(out.at(-1)).toBe("Dropped redline.lumora.com from the old login. No old login is left: every command works again.");
+    expect(existsSync(join(configDir, "login.json"))).toBe(false);
+  });
+
+  it("--forget refuses an address that is not in the old login", () => {
+    const configDir = legacy([[LUMORA, "t2"]]);
+    expect(() => forgetLegacy({ configDir, addresses: ["nope.example.com"], out: () => {} })).toThrow("nope.example.com is not in the old login (redline.lumora.com).");
+    expect(readLogins(configDir)).toHaveLength(1);
+  });
+
+  it("lets setup through the gate for an address still in the old login, and for no other", () => {
+    expect(legacyGateRefuses("setup", { throughNpx: false, legacyAddress: true })).toBe(false);
+    expect(legacyGateRefuses("setup", { throughNpx: false, legacyAddress: false })).toBe(true);
+    expect(legacyGateRefuses("link", { throughNpx: false, legacyAddress: true })).toBe(true);
   });
 
   it("leaves a server whose name is taken in the old login, and moves it with --name", async () => {
