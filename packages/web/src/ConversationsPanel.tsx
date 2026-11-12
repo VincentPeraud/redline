@@ -146,6 +146,9 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
         if (current === event.conversationId) void refreshDetail(current);
         return current;
       });
+    }, () => {
+      void refreshList();
+      if (activeRef.current) void refreshDetail(activeRef.current);
     });
   }, [pageId, refreshList, refreshDetail]);
 

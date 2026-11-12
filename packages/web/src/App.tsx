@@ -51,6 +51,9 @@ export function App({ route }: { route: PageRoute }) {
       subscribeServerEvents((event) => {
         if ((event.type === "page-updated" || event.type === "page-renamed" || event.type === "page-archive-changed") && event.pageId === pageId) void loadPage();
         if (event.type === "agents-updated" && page && !page.designSystem) void getJson<Project>(`/api/projects/${page.projectId}`).then(setProject);
+      }, () => {
+        void loadPage();
+        setReloads((count) => count + 1);
       }),
     [pageId, page?.projectId],
   );

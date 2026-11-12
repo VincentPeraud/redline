@@ -465,7 +465,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     void load();
     return subscribeServerEvents((event) => {
       if (event.type === "thread-updated") void load();
-    });
+    }, () => void load());
   }, [projectWide, projectId]);
 
   const refreshQueue = useCallback(async () => {
@@ -480,6 +480,9 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
       if (event.type === "thread-updated" && event.pageId === pageId) void refresh();
       if (event.type === "queue-updated" && event.pageId === pageId) void refreshQueue();
       if (event.type === "design-system-updated" && event.pageIds.includes(pageId)) setTokensVersion((v) => v + 1);
+    }, () => {
+      void refresh();
+      void refreshQueue();
     });
   }, [refresh, refreshQueue, pageId]);
 
@@ -1398,6 +1401,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                 archivedLabel={archivedLabel}
                 unfolded={unfoldedResolved}
                 onUnfold={unfoldResolved}
+                onThreadsChanged={() => void refresh()}
                 onShowThread={showThread}
               />
             </PageTweaksContext.Provider>

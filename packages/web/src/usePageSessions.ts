@@ -20,7 +20,7 @@ export function usePageSessions(pageId: string): Map<string, SessionRow> {
       } else if (event.type === "run-updated" && event.run.pageId === pageId) {
         void refresh();
       }
-    });
+    }, () => void refresh());
   }, [refresh, pageId]);
 
   return sessions;

@@ -15,11 +15,24 @@ function sameViewer(opened: Viewer, now: Viewer): boolean {
   return now.kind === opened.kind;
 }
 
+/**
+ * How often an idle stream gets a `ping` event. A proxy in front of Redline (an SSO, a load balancer) cuts a response that stays
+ * silent too long, and the browser cannot tell a silent stream from a dead one: the ping keeps it open and lets the page notice when it stops.
+ */
+export const EVENTS_KEEP_ALIVE_MS = 25_000;
+
 /** Server-sent events: one `data: <ServerEvent JSON>` line per change, so the web UI can refresh live. Each viewer gets only the events of what they may see. */
-export function registerEventRoutes(app: FastifyInstance, store: Store, pageLock: PageLock, access: Access): void {
+export function registerEventRoutes(app: FastifyInstance, store: Store, pageLock: PageLock, access: Access, keepAliveMs: number = EVENTS_KEEP_ALIVE_MS): void {
   const streams = new Set<ServerResponse>();
 
+  // One timer pings every open stream.
+  const keepAlive = setInterval(() => {
+    for (const stream of streams) stream.write("event: ping\ndata: \n\n");
+  }, keepAliveMs);
+  keepAlive.unref();
+
   app.addHook("onClose", async () => {
+    clearInterval(keepAlive);
     for (const stream of streams) stream.end();
   });
 
@@ -39,7 +52,8 @@ export function registerEventRoutes(app: FastifyInstance, store: Store, pageLock
   app.get(SERVER_EVENTS_PATH, (req, reply) => {
     reply.hijack();
     const stream = reply.raw;
-    stream.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+    // `no-transform` and `x-accel-buffering: no` keep a proxy from compressing or buffering the stream, which would hold the events back.
+    stream.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache, no-transform", connection: "keep-alive", "x-accel-buffering": "no" });
     stream.write(": connected\n\n");
     streams.add(stream);
     const close = () => {

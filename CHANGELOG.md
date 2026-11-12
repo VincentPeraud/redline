@@ -12,6 +12,7 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ### Fixed
 
+- Behind a proxy or an SSO, the page stopped updating live ("Claude is working on this thread" stayed, "Résoudre" seemed to do nothing until a reload): the event stream now pings every 25 s, asks proxies not to buffer it, opens again when it is cut and reloads what the screen shows; resolving or reopening a thread updates the list at once.
 - On Linux, a Claude Code crash showed "Claude Code ended without a result." instead of its own error message.
 
 ## [0.1.0] - 2026-11-10

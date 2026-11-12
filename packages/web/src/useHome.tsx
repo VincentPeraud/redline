@@ -25,10 +25,11 @@ export function HomeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsubscribe = subscribeServerEvents(() => {
+    const reload = () => {
       clearTimeout(timer);
       timer = setTimeout(() => setVersion((v) => v + 1), REFRESH_DELAY_MS);
-    });
+    };
+    const unsubscribe = subscribeServerEvents(reload, reload);
     return () => {
       clearTimeout(timer);
       unsubscribe();

@@ -162,7 +162,7 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
     void load();
     return subscribeServerEvents((event) => {
       if (event.type === "thread-updated" && (projectWide || event.pageId === pageId)) void load();
-    });
+    }, () => void load());
   }, [canComment, pageId, projectWide, visitor]);
   useEffect(() => {
     if (!canComment || !writing) return;
