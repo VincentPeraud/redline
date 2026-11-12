@@ -17,6 +17,8 @@ export interface InstancesTabState {
   scroll: number;
   /** An update or a removal in progress: the keys wait for it. */
   busy?: { id: string; action: "update" | "remove" };
+  /** `x` was pressed on this installation: the removal waits for `y`. */
+  confirmRemove?: string;
   /** What the last update or removal said, until the selection moves. */
   result?: { ok: boolean; lines: string[] };
   /** `s` closed the screen to run the setup: the command asks for it after the screen. */
@@ -109,6 +111,13 @@ export function instanceActionDone(state: ScreenState, id: string, action: Insta
 export function instancesOnKey(state: ScreenState, key: string): Update {
   const tab = state.instancesTab;
   const selected = selectedInstance(state);
+  if (tab.confirmRemove) {
+    const cleared = { ...tab, confirmRemove: undefined };
+    if (key === "y" && selected?.id === tab.confirmRemove && !tab.busy) {
+      return { state: { ...state, instancesTab: { ...cleared, busy: { id: selected.id, action: "remove" }, result: undefined } }, commands: [{ type: "remove-instance", id: selected.id }] };
+    }
+    return { state: { ...state, instancesTab: cleared }, commands: [] };
+  }
   if (key === "s") return { state: { ...state, instancesTab: { ...tab, setupAfter: true } }, commands: [{ type: "close" }] };
   if (key === "up" || key === "down") {
     if (state.focus === "detail") {
@@ -122,7 +131,7 @@ export function instancesOnKey(state: ScreenState, key: string): Update {
   }
   const ready = selected && state.instancesTab.details[selected.id] && !tab.busy;
   if (ready && key === "u") return { state: { ...state, instancesTab: { ...tab, busy: { id: selected.id, action: "update" }, result: undefined } }, commands: [{ type: "update-instance", id: selected.id }] };
-  if (ready && key === "x") return { state: { ...state, instancesTab: { ...tab, busy: { id: selected.id, action: "remove" }, result: undefined } }, commands: [{ type: "remove-instance", id: selected.id }] };
+  if (ready && key === "x") return { state: { ...state, instancesTab: { ...tab, confirmRemove: selected.id, result: undefined } }, commands: [] };
   return { state, commands: [] };
 }
 
@@ -285,7 +294,12 @@ function leftRows(state: ScreenState, entry: InstanceEntry, cells: number): Row[
       rows.push({ spans: [span(spaces(MARGIN)), span(line.slice(0, bold), COLOURS.muted), span(line.slice(bold), COLOURS.text, true)] });
     }
   } else rows.push({ spans: [span(spaces(MARGIN)), span("Nothing to do: up to date.", COLOURS.muted)] });
-  rows.push(blank, ...keyParagraph("x", "removes it (refused while an agent or a session uses it).", COLOURS.dim, cells), ...resultRows(state, entry, cells));
+  if (state.instancesTab.confirmRemove === entry.id) {
+    const question = `Remove ${entry.name} (${addressText(entry.serverUrl)})? Its stopped agents go too; linked folders keep their link.`;
+    rows.push(blank, ...wrapped(question, cells).map((line): Row => ({ spans: [span(spaces(MARGIN)), span(line, COLOURS.text, true)] })));
+    rows.push({ spans: [span(spaces(MARGIN)), span("y", COLOURS.text, true), span(" removes · ", COLOURS.muted), span("Esc", COLOURS.text, true), span(" cancels", COLOURS.muted)] });
+  } else rows.push(blank, ...keyParagraph("x", "removes it (refused while an agent or a session uses it).", COLOURS.dim, cells));
+  rows.push(...resultRows(state, entry, cells));
   return rows;
 }
 

@@ -115,7 +115,8 @@ describe("the Instances tab", () => {
   it("asks to update or remove the selected installation, once its diagnosis is known", () => {
     const state = open(instances, all);
     expect(commandsOf(state, "u")).toEqual([{ type: "update-instance", id: "lumora" }]);
-    expect(commandsOf(state, "x")).toEqual([{ type: "remove-instance", id: "lumora" }]);
+    expect(commandsOf(state, "x")).toEqual([]);
+    expect(commandsOf(onKey(state, "x").state, "y")).toEqual([{ type: "remove-instance", id: "lumora" }]);
     expect(text(onKey(state, "u").state)).toContain("Updating Lumora");
     expect(commandsOf(onKey(state, "u").state, "x")).toEqual([]);
   });
@@ -127,17 +128,29 @@ describe("the Instances tab", () => {
     expect(text(done)).toMatch(/… Lumora +v0\.2\.1 +checking/);
   });
 
+  it("asks before removing: y removes, Esc or any other key cancels", () => {
+    const asking = onKey(open(instances, all), "x").state;
+    const shown = text(asking, 160);
+    expect(shown).toContain("Remove Lumora (redline.lumora.com)? Its stopped agents go too; linked folders keep their link.");
+    expect(shown).toContain("y removes · Esc cancels");
+    expect(commandsOf(asking, "escape")).toEqual([]);
+    expect(text(onKey(asking, "escape").state, 160)).not.toContain("Remove Lumora (");
+    expect(commandsOf(asking, "n")).toEqual([]);
+    expect(text(onKey(asking, "n").state, 160)).not.toContain("Remove Lumora (");
+    expect(commandsOf(onKey(asking, "escape").state, "y")).toEqual([]);
+  });
+
   it("shows a refusal in the screen", () => {
-    const busy = onKey(open(instances, all), "x").state;
+    const busy = onKey(onKey(open(instances, all), "x").state, "y").state;
     const refusedRemoval = instanceActionDone(busy, "lumora", { ok: false, lines: ["Agents of Lumora are running (agora). Stop them first: redline, then x."] });
     expect(text(refusedRemoval, 140)).toContain("✗ Agents of Lumora are running (agora). Stop them first: redline, then x.");
     expect(text(refusedRemoval)).toContain("› ! Lumora");
-    expect(commandsOf(refusedRemoval, "x")).toEqual([{ type: "remove-instance", id: "lumora" }]);
+    expect(commandsOf(onKey(refusedRemoval, "x").state, "y")).toEqual([{ type: "remove-instance", id: "lumora" }]);
     expect(text(press(refusedRemoval, "down"))).not.toContain("Stop them first");
   });
 
   it("drops a removed installation from the list and the counts", () => {
-    const busy = onKey(open(instances, all), "x").state;
+    const busy = onKey(onKey(open(instances, all), "x").state, "y").state;
     const done = instanceActionDone(busy, "lumora", { ok: true, lines: ["✓ Removed Lumora (~/.config/redline/instances/lumora)."], removed: true });
     const shown = text(done);
     expect(shown).not.toMatch(/! Lumora/);
@@ -254,6 +267,7 @@ describe("the Instances tab over the screen runner", () => {
     expect(inspected.filter((id) => id === "lumora")).toHaveLength(2);
     refuse = true;
     terminal.keyListener("x");
+    terminal.keyListener("y");
     await settle();
     expect(terminal.frame).toContain("✗ Agents of Lumora are running (agora).");
     terminal.keyListener("q");
