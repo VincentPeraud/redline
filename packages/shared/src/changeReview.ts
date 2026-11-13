@@ -43,6 +43,8 @@ export interface ChangeReviewStepInput {
   tweaks?: StepTweaks;
   /** The step opens in the mobile rendering of a responsive artboard. */
   mobile?: boolean;
+  /** The page version "Avant" shows: always wins over the baseline Redline works out. */
+  baselineVersion?: string;
 }
 
 export interface RequestChangeReviewRequest {
@@ -91,6 +93,11 @@ export interface ChangeReviewStep extends ChangeReviewStepInput {
   modifiedBy?: string;
   /** When that version was published. */
   modifiedAt?: string;
+  /** The page version "Avant" shows (preview it with `versionPreviewPath`); absent when the artboard is new or no baseline is known. */
+  baselineVersionId?: string;
+  baselineAt?: string;
+  /** The artboard did not exist before the series: "Avant" is disabled and "Après" says "(nouveau)". */
+  isNew?: boolean;
 }
 
 /** A review as the web shows it, steps in review order. */
@@ -305,4 +312,39 @@ export interface PageChangeReview {
 export function bannerStateOf(state: Exclude<ChangeReviewState, "filed">, seen: number): ChangeReviewBannerState {
   if (state === "open") return seen === 0 ? "requested" : "in-progress";
   return state;
+}
+
+/** A page version as the baseline rules see it, oldest first and without tweak versions: `hash` is the artboard's file in it (absent: the artboard is not on the page then). */
+export interface BaselineVersion {
+  id: string;
+  createdAt: string;
+  origin: string;
+  originLabel?: string;
+  hash?: string;
+}
+
+/** Where "Avant" points: a page version, or `"new"` when the artboard did not exist before the series. */
+export type Baseline = { versionId: string } | "new";
+
+export interface BaselineInput {
+  versions: readonly BaselineVersion[];
+  /** Last segment of the requesting terminal session's folder: what its publishes are labelled with (terminal publishes are unsigned). */
+  requesterFolder: string;
+  /** When the last fetched or filed review covering the artboard was fetched or filed (ISO). */
+  afterReviewAt?: string;
+}
+
+/**
+ * The automatic baseline of an artboard ("Avant", when Claude gave no version):
+ * the version current right after the last fetched or filed review covering it; else the version before the requester's first publish of the artboard
+ * (the version before their latest publish when they did not change it); none when the requester never published.
+ */
+export function automaticBaseline({ versions, requesterFolder, afterReviewAt }: BaselineInput): Baseline | undefined {
+  const before = (index: number): Baseline => (index >= 0 && versions[index]!.hash !== undefined ? { versionId: versions[index]!.id } : "new");
+  if (afterReviewAt !== undefined) return before(versions.map((version) => version.createdAt <= afterReviewAt).lastIndexOf(true));
+  const publishedByRequester = (version: BaselineVersion) => version.origin === "terminal" && version.originLabel === requesterFolder;
+  const firstPublish = versions.findIndex((version, index) => publishedByRequester(version) && version.hash !== undefined && version.hash !== versions[index - 1]?.hash);
+  if (firstPublish >= 0) return before(firstPublish - 1);
+  const latestPublish = versions.map(publishedByRequester).lastIndexOf(true);
+  return latestPublish >= 0 ? before(latestPublish - 1) : undefined;
 }

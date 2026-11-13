@@ -7,6 +7,7 @@ import {
   stepIsModified,
   stepIsSeen,
   stepStatus,
+  versionPreviewPath,
   type ArtboardRendering,
   type ChangeReview,
   type ChangeReviewAnswer,
@@ -342,6 +343,7 @@ function TopBar({ review, view, controls, onGo, onLeave, onFinish }: { review: C
 
   const total = review.steps.length;
   const position = view === "recap" ? total : view;
+  const step = view === "recap" ? undefined : review.steps[view];
   const requester = review.requester.person;
   const place = review.requester.label ?? review.requester.folder.split(/[\\/]/).filter(Boolean).pop() ?? review.requester.folder;
   const backTo: Route = view === "recap" ? { name: "project", projectId: review.projectId } : { name: "page", pageId: review.steps[view]!.pageId };
@@ -411,6 +413,23 @@ function TopBar({ review, view, controls, onGo, onLeave, onFinish }: { review: C
         )}
       </div>
       <div className={styles.trail}>
+        {controls && step && (step.baselineVersionId || step.isNew) && (
+          <div role="group" aria-label="Version" className={styles.seg}>
+            <button
+              type="button"
+              aria-pressed={controls.showBefore}
+              disabled={step.isNew}
+              title={step.isNew ? "Nouveau, pas d'avant" : undefined}
+              className={cx(styles.segButton, controls.showBefore && styles.segButtonOn)}
+              onClick={() => controls.chooseBefore(true)}
+            >
+              Avant
+            </button>
+            <button type="button" aria-pressed={!controls.showBefore} className={cx(styles.segButton, !controls.showBefore && styles.segButtonOn)} onClick={() => controls.chooseBefore(false)}>
+              Après{step.isNew ? " (nouveau)" : ""}
+            </button>
+          </div>
+        )}
         {controls && controls.renderings.length > 0 && (
           <div role="group" aria-label="Rendu" className={styles.seg}>
             {controls.renderings.map((rendering) => (
@@ -648,7 +667,12 @@ function ReviewStage({ review, step, modified, controls }: { review: ChangeRevie
   const fitted = presentation && fitToStage(presentation, size);
   return (
     <main ref={stage} className={cx(styles.stage, controls.tweaksOpen && controls.tweaks.length > 0 && styles.stageTweaks)}>
-      {modified && (
+      {controls.showBefore && step.baselineAt && (
+        <span data-testid="review-before-tag" className={styles.tag}>
+          Avant · version du {formatWhen(step.baselineAt)}, avant la série
+        </span>
+      )}
+      {modified && !controls.showBefore && (
         <span data-testid="review-modified-tag" className={styles.tag}>
           Nouvelle version{step.modifiedBy ? ` de ${step.modifiedBy}` : ""} depuis ta revue{step.modifiedAt ? ` · ${relativeTime(step.modifiedAt)}` : ""}
         </span>
@@ -659,7 +683,7 @@ function ReviewStage({ review, step, modified, controls }: { review: ChangeRevie
             <ArtboardIframe
               ref={frame}
               title={`Revue / ${step.artboard}`}
-              src={`${origin}/pages/${step.pageId}/${step.artboard}`}
+              src={controls.showBefore && step.baselineVersionId ? `${origin}${versionPreviewPath(step.pageId, step.baselineVersionId, step.artboard)}` : `${origin}/pages/${step.pageId}/${step.artboard}`}
               sandbox="allow-scripts"
               className={styles.frame}
               style={{ width: fitted.viewport.width, height: fitted.viewport.height, transform: `scale(${fitted.scale})` }}

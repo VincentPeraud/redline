@@ -13,6 +13,9 @@ export interface StepControls {
   /** Values the artboard shows: the page's saved values, then Claude's for the step, then the reviewer's own. */
   values: TweakValues;
   setValue: (id: string, value: TweakValue) => void;
+  /** "Avant" is on: the stage shows the step's baseline version instead of the current one. */
+  showBefore: boolean;
+  chooseBefore: (before: boolean) => void;
   tweaksOpen: boolean;
   toggleTweaks: () => void;
 }
@@ -25,6 +28,7 @@ export function useReviewControls(): (step: ChangeReviewStep) => StepControls {
   const [tweaksOpen, toggleTweaks] = useStoredToggle("redline:review-tweaks", false);
   const [ownValues, setOwnValues] = useState<Record<string, TweakValues>>({});
   const [chosen, setChosen] = useState<Record<string, string>>({});
+  const [before, setBefore] = useState<Record<string, boolean>>({});
   const setValue = useCallback((stepId: string, id: string, value: TweakValue) => setOwnValues((current) => ({ ...current, [stepId]: { ...current[stepId], [id]: value } })), []);
 
   return (step) => {
@@ -38,6 +42,8 @@ export function useReviewControls(): (step: ChangeReviewStep) => StepControls {
       tweaks,
       values: resolveDeclaredTweakValues(tweaks, { ...step.savedTweaks, ...step.tweaks, ...ownValues[step.id] }),
       setValue: (id, value) => setValue(step.id, id, value),
+      showBefore: Boolean(before[step.id] && step.baselineVersionId),
+      chooseBefore: (next) => setBefore((current) => ({ ...current, [step.id]: next })),
       tweaksOpen,
       toggleTweaks,
     };

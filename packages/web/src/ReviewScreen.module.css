@@ -936,8 +936,13 @@
   transition: background 120ms;
 }
 
-.segButton:hover:not(.segButtonOn) {
+.segButton:hover:not(.segButtonOn):not(:disabled) {
   background: rgba(255, 255, 255, 0.12);
+}
+
+.segButton:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .segButtonOn {

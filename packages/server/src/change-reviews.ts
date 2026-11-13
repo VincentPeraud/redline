@@ -17,6 +17,8 @@ import {
   TWEAKS_PATH,
   responsiveFrameLayout,
   reviewResult,
+  automaticBaseline,
+  type BaselineVersion,
   progressOf,
   type ChangeReview,
   type ChangeReviewFeedback,
@@ -67,6 +69,18 @@ function currentArtboardVersion(records: VersionRecord[], file: string): Version
   return contentChanges(records, file).pop();
 }
 
+/** What "Avant" shows for a step, as stored: a page version id, or `""` for an artboard that is new in the series. A given version always wins. */
+function baselineOf(store: Store, step: ChangeReviewStepInput, requesterFolder: string, sameArtboard: { baseline?: string } | undefined): string | undefined {
+  const records = store.listVersionRecords(step.pageId);
+  if (step.baselineVersion !== undefined) return records.find((record) => record.id === step.baselineVersion)?.files[step.artboard] === undefined ? "" : step.baselineVersion;
+  if (sameArtboard?.baseline !== undefined) return sameArtboard.baseline;
+  const versions: BaselineVersion[] = records
+    .filter((record) => record.origin !== "tweak")
+    .map((record) => ({ id: record.id, createdAt: record.createdAt, origin: record.origin, ...(record.originLabel ? { originLabel: record.originLabel } : {}), ...(record.files[step.artboard] !== undefined ? { hash: record.files[step.artboard] } : {}) }));
+  const baseline = automaticBaseline({ versions, requesterFolder, afterReviewAt: store.changeReviews.lastLockedAt(step.pageId, step.artboard) });
+  return baseline === undefined ? undefined : baseline === "new" ? "" : baseline.versionId;
+}
+
 /** "Claude (folder)" for a terminal publish, "Claude de Ana" for a thread or conversation, or the person or link visitor who made the version by hand. */
 function authorOf(record: VersionRecord): string | undefined {
   const person = record.person?.name || record.person?.email;
@@ -88,6 +102,7 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
     const page = store.getPage(step.pageId);
     if (page && !recordsOfPage.has(step.pageId)) recordsOfPage.set(step.pageId, store.listVersionRecords(step.pageId));
     const current = page && currentArtboardVersion(recordsOfPage.get(step.pageId)!, step.artboard);
+    const baselineRecord = step.baseline ? recordsOfPage.get(step.pageId)?.find((record) => record.id === step.baseline) : undefined;
     const entry = page ? manifestOf(store, step.pageId).artboards.find((artboard) => artboard.file === step.artboard) : undefined;
     const stepAnswers = answers
       .filter((answer) => answer.stepId === step.id)
@@ -109,6 +124,8 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
       ...(page ? { artboardTweaks: manifestOf(store, step.pageId).tweaks.filter((tweak) => tweak.artboard === undefined || tweak.artboard === step.artboard), savedTweaks: savedTweaksOf(store, step.pageId) } : {}),
       ...(step.tweaks ? { tweaks: step.tweaks } : {}),
       ...(step.mobile ? { mobile: true } : {}),
+      ...(baselineRecord ? { baselineVersionId: baselineRecord.id, baselineAt: baselineRecord.createdAt } : {}),
+      ...(step.baseline === "" ? { isNew: true } : {}),
       answers: stepAnswers,
       ...(stepAnswers.some((answer) => answer.outdated) && current ? { ...(authorOf(current) ? { modifiedBy: authorOf(current) } : {}), modifiedAt: current.createdAt } : {}),
     };
@@ -179,7 +196,7 @@ function bannersOf(store: Store, pageId: string, viewer: Viewer): PageChangeRevi
 const nameOf = (person: Person | undefined): string => person?.name || person?.email || "someone";
 
 /** A terminal session declares a review: a 4xx message, or the new review's id. Rights are checked here: the route names no project. */
-export function declareChangeReview(store: Store, access: Access, viewer: Viewer, body: Partial<RequestChangeReviewRequest> | undefined): { error: string; status: number } | RequestChangeReviewResponse {
+export function declareChangeReview(store: Store, access: Access, viewer: Viewer, sessionFolder: string | undefined, body: Partial<RequestChangeReviewRequest> | undefined): { error: string; status: number } | RequestChangeReviewResponse {
   const { folder, label, steps } = body ?? {};
   if (!requiredString(folder) || folder.length > MAX_TERMINAL_TEXT_LENGTH) return { status: 400, error: "folder is required" };
   if (label !== undefined && (!requiredString(label) || label.length > MAX_TERMINAL_TEXT_LENGTH)) return { status: 400, error: "label must be a non-empty string" };
@@ -188,8 +205,8 @@ export function declareChangeReview(store: Store, access: Access, viewer: Viewer
     [step?.pageId, step?.artboard, step?.changed, step?.lookAt, step?.question].every((value) => requiredString(value) && value.length <= MAX_STEP_TEXT_LENGTH),
   );
   if (!valid) return { status: 400, error: "each step needs pageId, artboard, changed, lookAt and question" };
-  const shape = steps.every((step: Partial<ChangeReviewStepInput>) => (step.mobile === undefined || typeof step.mobile === "boolean") && (step.tweaks === undefined || (typeof step.tweaks === "object" && step.tweaks !== null && !Array.isArray(step.tweaks))));
-  if (!shape) return { status: 400, error: "a step's mobile must be a boolean and its tweaks an object of tweak id to value" };
+  const shape = steps.every((step: Partial<ChangeReviewStepInput>) => (step.mobile === undefined || typeof step.mobile === "boolean") && (step.baselineVersion === undefined || requiredString(step.baselineVersion)) && (step.tweaks === undefined || (typeof step.tweaks === "object" && step.tweaks !== null && !Array.isArray(step.tweaks))));
+  if (!shape) return { status: 400, error: "a step's mobile must be a boolean, its baselineVersion a version id and its tweaks an object of tweak id to value" };
   const declared = steps as ChangeReviewStepInput[];
 
   const unknownPages = [...new Set(declared.map((step) => step.pageId).filter((pageId) => !store.getPage(pageId) || store.getPage(pageId)!.archivedAt))];
@@ -212,6 +229,9 @@ export function declareChangeReview(store: Store, access: Access, viewer: Viewer
     };
   }
 
+  const unknownVersions = declared.filter((step) => step.baselineVersion !== undefined && !store.listVersionRecords(step.pageId).some((record) => record.id === step.baselineVersion)).map((step) => `${describe(step)}: version ${step.baselineVersion}`);
+  if (unknownVersions.length > 0) return { status: 400, error: `Unknown baseline versions (use a version id of the page, as given by publish_page), fix the declaration: ${unknownVersions.join("; ")}.` };
+
   const tweakErrors = declared.flatMap((step) => {
     const available = manifestOf(store, step.pageId).tweaks.filter((tweak) => tweak.artboard === undefined || tweak.artboard === step.artboard);
     return Object.entries(step.tweaks ?? {}).flatMap(([id, value]) => {
@@ -225,21 +245,28 @@ export function declareChangeReview(store: Store, access: Access, viewer: Viewer
 
   const requester = { personId: viewerPersonId(viewer), folder };
   const pages = store.listPages(projectId, "active");
-  const orderOf = (steps: readonly ChangeReviewStepInput[]) => {
+  const orderOf = <T extends ChangeReviewStepInput>(steps: readonly T[]) => {
     const readingOrderByPage: Record<string, string[]> = {};
     for (const page of pages) readingOrderByPage[page.id] = readingOrderOf(manifestOf(store, page.id));
     return orderSteps(steps, pages.map((page) => page.id), readingOrderByPage);
   };
 
   const open = store.changeReviews.latestOf(projectId, requester, "open");
+  // A step of this artboard already in the open review keeps its baseline: the oldest automatic one is the start of the series.
+  const known = open ? store.changeReviews.steps(open.id) : [];
+  const requesterFolder = (sessionFolder ?? folder).split(/[\\/]/).filter(Boolean).pop() ?? folder;
+  const withBaselines = declared.map((step) => {
+    const baseline = baselineOf(store, step, requesterFolder, known.find((other) => other.pageId === step.pageId && other.artboard === step.artboard && other.baseline !== undefined));
+    return baseline === undefined ? step : { ...step, baseline };
+  });
   if (open) {
-    const merged = orderOf(mergeSteps(store.changeReviews.steps(open.id), declared));
+    const merged = orderOf(mergeSteps(known, withBaselines));
     store.changeReviews.merge(open.id, merged, label);
     announceReviewChange(store, open.id);
     return { id: open.id, merged: true, stepCount: merged.length };
   }
   const unfetched = store.changeReviews.latestOf(projectId, requester, "finished");
-  const review = store.changeReviews.create(projectId, { ...requester, ...(label ? { label } : {}) }, orderOf(declared));
+  const review = store.changeReviews.create(projectId, { ...requester, ...(label ? { label } : {}) }, orderOf(withBaselines));
   announceReviewChange(store, review.id);
   return { id: review.id, merged: false, stepCount: declared.length, ...(unfetched ? { warning: "ta revue précédente est terminée mais pas récupérée" } : {}) };
 }
