@@ -455,3 +455,9 @@ Contracts for the UI. Types are in `@redline/shared`.
 - A declaration while the same requester's last review of the project is `finished` (not fetched) creates a new review and answers `warning: "ta revue précédente est terminée mais pas récupérée"`; `request_review` prints it.
 - The review's project is the first step's page. Artboards of another project and unknown files are both listed in one 400 ("une revue ne couvre qu'un projet").
 - Tests that declare several reviews from one session must use different folders, or the declarations merge.
+
+## Modified since your review (review-mode lot, ticket 07)
+- An answer stores `artboard_version`: the id of the version where the artboard's file hash last changed (`contentChanges` of `artboard-history.ts`, tweak versions skipped; compare hashes, never page version ids). `viewOf` marks an answer `outdated` when the artboard's current content version differs; answers from before the column existed have none and are never outdated.
+- Rules (`shared/changeReview.ts`): `stepStatus` ignores outdated OKs but keeps outdated remarks; `stepIsModified` = at least one answer and all outdated (red segment, "Modifié" in the menu, "Modifié depuis ta revue" chip); `stepIsSeen` follows the status, so a modified OK-only step is not seen and a modified remark stays seen. `reviewResult` flags `notSeen[].modifiedAfterOk` and `remarks[].artboardModified`.
+- `addOk` replaces an own OK that saw an older version (an OK on the current version keeps the first); an own remark still refuses OK with 409, so "Effacer ma remarque et valider" is a remark DELETE then an OK PUT from the web.
+- Terminal publishes stay unsigned (no person, see `signed-history.test.ts`) but a publish from a present session gets `origin_label` = last segment of its folder (`TerminalSessions.folderOf`). `modifiedBy` reads "Claude (folder)", "Claude de <person>" (thread, conversation) or the person who edited by hand.

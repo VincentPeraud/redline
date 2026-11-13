@@ -40,6 +40,8 @@ export interface ChangeReviewAnswer {
   person?: Person;
   at: string;
   mine: boolean;
+  /** The artboard was republished after this answer: it saw an older version. */
+  outdated?: boolean;
 }
 
 export interface ChangeReviewStep extends ChangeReviewStepInput {
@@ -49,6 +51,10 @@ export interface ChangeReviewStep extends ChangeReviewStepInput {
   /** The artboard's manifest entry (size, frame, address text); absent when the artboard no longer exists. */
   artboardEntry?: ManifestArtboard;
   answers: ChangeReviewAnswer[];
+  /** Who published the version that outdated the answers (present when at least one answer is outdated); absent when unknown. */
+  modifiedBy?: string;
+  /** When that version was published. */
+  modifiedAt?: string;
 }
 
 /** A review as the web shows it, steps in review order. */
@@ -66,7 +72,7 @@ export interface ChangeReview {
 
 export type ChangeReviewStatus = "unseen" | "ok" | "remark";
 
-export type ProgressSegment = "ok" | "remark" | "current" | "unseen";
+export type ProgressSegment = "ok" | "remark" | "current" | "unseen" | "modified";
 
 export interface ChangeReviewProgress {
   seen: number;
@@ -74,20 +80,26 @@ export interface ChangeReviewProgress {
   segments: ProgressSegment[];
 }
 
-/** "Remarque" as soon as anyone left a remark, "OK" when someone validated and nobody left one, else "Non vu". */
+type Answered = { answers: readonly ChangeReviewAnswer[] };
+
+/**
+ * "Remarque" as soon as anyone left a remark (kept even when its artboard changed), "OK" when someone validated the current version and nobody left a remark, else "Non vu".
+ * An OK on an older version of the artboard does not count.
+ */
 export const stepStatus = (answers: readonly ChangeReviewAnswer[]): ChangeReviewStatus =>
-  answers.some((answer) => answer.kind === "remark") ? "remark" : answers.length > 0 ? "ok" : "unseen";
+  answers.some((answer) => answer.kind === "remark") ? "remark" : answers.some((answer) => !answer.outdated) ? "ok" : "unseen";
 
-/** "Vu": the step has at least one answer, OK or remark (opening a step without answering does not count). */
-export const stepIsSeen = (step: { answers: readonly ChangeReviewAnswer[] }): boolean => step.answers.length > 0;
+/** "Modifié depuis ta revue": the artboard was republished after answers and nobody answered its current version. */
+export const stepIsModified = ({ answers }: Answered): boolean => answers.length > 0 && answers.every((answer) => answer.outdated);
 
-/** Seen / total, and one segment per step; the current step shows as current until it is answered. */
-export function progressOf(steps: readonly { answers: readonly ChangeReviewAnswer[] }[], currentIndex: number): ChangeReviewProgress {
-  return {
-    seen: steps.filter(stepIsSeen).length,
-    total: steps.length,
-    segments: steps.map((step, index) => (stepIsSeen(step) ? (stepStatus(step.answers) === "remark" ? "remark" : "ok") : index === currentIndex ? "current" : "unseen")),
-  };
+/** "Vu": the step has a remark or an OK on the current version (opening a step without answering does not count). */
+export const stepIsSeen = ({ answers }: Answered): boolean => stepStatus(answers) !== "unseen";
+
+/** Seen / total, and one segment per step; a modified step is red, the current step shows as current until it is answered. */
+export function progressOf(steps: readonly Answered[], currentIndex: number): ChangeReviewProgress {
+  const segmentOf = (step: Answered, index: number): ProgressSegment =>
+    stepIsModified(step) ? "modified" : stepIsSeen(step) ? (stepStatus(step.answers) === "remark" ? "remark" : "ok") : index === currentIndex ? "current" : "unseen";
+  return { seen: steps.filter(stepIsSeen).length, total: steps.length, segments: steps.map(segmentOf) };
 }
 
 /** Steps in page order, then in the reading order of their page. An artboard missing from the reading order goes last of its page. */
@@ -134,6 +146,8 @@ export interface ChangeReviewRemarkResult {
   text: string;
   /** Others who validated the same step ("Victor avait validé cette étape"). */
   alsoValidatedBy: string[];
+  /** The artboard was republished after this remark ("artboard modifié depuis la remarque"). */
+  artboardModified?: boolean;
   threadId?: string;
 }
 
@@ -142,7 +156,7 @@ export interface ChangeReviewResult {
   finishedBy: string;
   validated: { stepId: string; label: string; number: number; by: string[] }[];
   remarks: ChangeReviewRemarkResult[];
-  notSeen: { stepId: string; label: string; number: number }[];
+  notSeen: { stepId: string; label: string; number: number; /** Validated, then republished and not validated again ("modifié après le OK"). */ modifiedAfterOk?: boolean }[];
 }
 
 const nameOfAnswer = (answer: ChangeReviewAnswer): string => answer.person?.name || answer.person?.email || "someone";
@@ -153,7 +167,7 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
   return {
     requester,
     finishedBy,
-    validated: numbered.filter((step) => stepStatus(step.answers) === "ok").map((step) => ({ stepId: step.id, label: step.label, number: step.number, by: step.answers.map(nameOfAnswer) })),
+    validated: numbered.filter((step) => stepStatus(step.answers) === "ok").map((step) => ({ stepId: step.id, label: step.label, number: step.number, by: step.answers.filter((answer) => !answer.outdated).map(nameOfAnswer) })),
     remarks: numbered.flatMap((step) =>
       step.answers
         .filter((answer) => answer.kind === "remark")
@@ -164,11 +178,14 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
           artboard: step.artboard,
           author: nameOfAnswer(answer),
           text: answer.text ?? "",
-          alsoValidatedBy: step.answers.filter((other) => other.kind === "ok").map(nameOfAnswer),
+          alsoValidatedBy: step.answers.filter((other) => other.kind === "ok" && !other.outdated).map(nameOfAnswer),
+          ...(answer.outdated ? { artboardModified: true } : {}),
           ...(threadIds[answer.id] ? { threadId: threadIds[answer.id] } : {}),
         })),
     ),
-    notSeen: numbered.filter((step) => !stepIsSeen(step)).map((step) => ({ stepId: step.id, label: step.label, number: step.number })),
+    notSeen: numbered
+      .filter((step) => !stepIsSeen(step))
+      .map((step) => ({ stepId: step.id, label: step.label, number: step.number, ...(step.answers.length > 0 ? { modifiedAfterOk: true } : {}) })),
   };
 }
 

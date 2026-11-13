@@ -281,7 +281,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const invalidRemoval = removalsError(store, req.params.pageId, result.files, styleChanged && store.isDesignSystemProject(projectId) ? projectStyle.content : result.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true) ?? instanceChangesError(store, req.params.pageId, result.files, req.body.confirmRemovals === true);
           if (invalidRemoval) return reply.code(400).send({ error: invalidRemoval });
           const from = workOrigin(store, pageLock, workId, req.params.pageId);
-          const ref: OriginRef | undefined = from && { originId: from.originId, originLabel: from.originLabel, person: from.person };
+          // A terminal publish stays unsigned (no person) but names the folder of its session, so a review can say who modified an artboard.
+          const terminalFolder = origin === "terminal" && req.body.terminalSessionId !== undefined ? terminalSessions.folderOf(req.body.terminalSessionId)?.split(/[\\/]/).filter(Boolean).pop() : undefined;
+          const ref: OriginRef | undefined = from ? { originId: from.originId, originLabel: from.originLabel, person: from.person } : terminalFolder ? { originLabel: terminalFolder } : undefined;
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
           if (changes?.length) askToUndoRefused(store, pageLock, terminalSessions, store.recordChanges(projectId, version.id, changes));
