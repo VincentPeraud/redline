@@ -328,3 +328,84 @@ describe("review_feedback without an id, and who can fetch", () => {
     expect(await (await seam!.server.get(`/api/pages/${pages.home}/change-reviews`)).json()).toHaveLength(1);
   });
 });
+
+describe("reopening and filing", () => {
+  const finish = (reviewId: string) => send("POST", `/api/change-reviews/${reviewId}/finish`);
+  const banners = async (pageId: string) => (await (await seam!.server.get(`/api/pages/${pageId}/change-reviews`)).json()) as { id: string; state: string }[];
+  const saveRemark = (reviewId: string, stepId: string, text: string) =>
+    fetch(`${seam!.server.url}/api/change-reviews/${reviewId}/steps/${stepId}/remark`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+
+  it("reopens a finished review: answers are possible again and the finish is forgotten", async () => {
+    const { reviewId } = await declared();
+    const first = (await reviewOf(reviewId)).steps[0]!;
+    await finish(reviewId);
+    expect((await send("PUT", `/api/change-reviews/${reviewId}/steps/${first.id}/ok`)).status).toBe(409);
+
+    const reopened = await send("POST", `/api/change-reviews/${reviewId}/reopen`);
+
+    expect(reopened.status).toBe(200);
+    expect(await reviewOf(reviewId)).toMatchObject({ state: "open" });
+    expect((await reviewOf(reviewId)).finishedAt).toBeUndefined();
+    expect((await send("PUT", `/api/change-reviews/${reviewId}/steps/${first.id}/ok`)).status).toBe(200);
+  });
+
+  it("refuses to reopen an open or a fetched review", async () => {
+    const { reviewId, terminal } = await declared();
+    expect((await send("POST", `/api/change-reviews/${reviewId}/reopen`)).status).toBe(409);
+    await finish(reviewId);
+    await terminal.call("review_feedback", { reviewId });
+
+    expect((await send("POST", `/api/change-reviews/${reviewId}/reopen`)).status).toBe(409);
+    expect(await reviewOf(reviewId)).toMatchObject({ state: "fetched" });
+  });
+
+  it("files a finished review for good: no reopening, no answer, and the banner goes", async () => {
+    const { reviewId, pages, terminal } = await declared();
+    const first = (await reviewOf(reviewId)).steps[0]!;
+    await finish(reviewId);
+
+    const filed = await send("POST", `/api/change-reviews/${reviewId}/file`);
+
+    expect(filed.status).toBe(200);
+    expect(await reviewOf(reviewId)).toMatchObject({ state: "filed", filedAt: expect.any(String) });
+    expect((await send("POST", `/api/change-reviews/${reviewId}/reopen`)).status).toBe(409);
+    expect((await send("POST", `/api/change-reviews/${reviewId}/file`)).status).toBe(409);
+    expect((await send("PUT", `/api/change-reviews/${reviewId}/steps/${first.id}/ok`)).status).toBe(409);
+    expect(await banners(pages.home)).toEqual([]);
+    expect(await terminal.call("review_feedback", { reviewId })).toMatch(/classée sans envoi par .* le /);
+    expect(await reviewOf(reviewId)).toMatchObject({ state: "filed" });
+  });
+
+  it("refuses to file an open or a fetched review", async () => {
+    const { reviewId, terminal } = await declared();
+    expect((await send("POST", `/api/change-reviews/${reviewId}/file`)).status).toBe(409);
+    await finish(reviewId);
+    await terminal.call("review_feedback", { reviewId });
+
+    expect((await send("POST", `/api/change-reviews/${reviewId}/file`)).status).toBe(409);
+  });
+
+  it("creates no thread for the remarks of a filed review and does not list it as waiting", async () => {
+    const { reviewId, pages, terminal } = await declared();
+    const first = (await reviewOf(reviewId)).steps[0]!;
+    await saveRemark(reviewId, first.id, "Nope");
+    await finish(reviewId);
+    await send("POST", `/api/change-reviews/${reviewId}/file`);
+    mkdirSync(join(seam!.folder, ".redline"), { recursive: true });
+    writeFileSync(join(seam!.folder, ".redline", "project.json"), JSON.stringify({ projectIds: [seam!.project.id] }));
+
+    await terminal.call("review_feedback", { reviewId });
+    const withoutId = await terminal.call("review_feedback", {});
+
+    expect(((await (await seam!.server.get(`/api/pages/${pages.home}/threads`)).json()) as Thread[]).length).toBe(0);
+    expect(withoutId).toMatch(/No review is waiting/);
+  });
+
+  it("shows a fetched review with the date of the fetch", async () => {
+    const { reviewId, terminal } = await declared();
+    await finish(reviewId);
+    await terminal.call("review_feedback", { reviewId });
+
+    expect(await reviewOf(reviewId)).toMatchObject({ state: "fetched", fetchedAt: expect.any(String) });
+  });
+});

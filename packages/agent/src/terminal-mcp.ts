@@ -436,6 +436,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
           ...feedback.reviews.map((review) => `  ${review.id} requested by ${review.requester} (${review.folder}): ${review.seen} / ${review.total} steps seen, ${review.remarks} remark${review.remarks === 1 ? "" : "s"}`),
         ].join("\n");
       }
+      if (feedback.status === "filed") return `Review filed: "classée sans envoi par ${feedback.filedBy} le ${feedback.filedAt}". Its remarks were never sent and nothing was created: handle nothing, and tell the person if they expected feedback.`;
       if (feedback.status === "open") return `Review not finished yet: ${feedback.seen} / ${feedback.total} steps seen. Tell the person to press "Terminer la revue", then call review_feedback again. Handle nothing for now.`;
       const line = (entry: { number: number; label: string }, suffix = "") => `${entry.number}. ${entry.label}${suffix}`;
       const remark = (entry: ChangeReviewRemarkResult) => [
