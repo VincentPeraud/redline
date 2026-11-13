@@ -12,6 +12,7 @@ export interface StoredReview {
   createdAt: string;
   finishedBy?: string;
   finishedAt?: string;
+  fetchedAt?: string;
 }
 
 export interface StoredStep extends ChangeReviewStepInput {
@@ -23,6 +24,10 @@ export interface StoredAnswer {
   id: string;
   stepId: string;
   personId?: string;
+  kind: "ok" | "remark";
+  text?: string;
+  /** The thread a remark became at fetch. */
+  threadId?: string;
   at: string;
 }
 
@@ -36,6 +41,7 @@ interface ReviewRow {
   created_at: string;
   finished_by: string | null;
   finished_at: string | null;
+  fetched_at: string | null;
 }
 
 /** Reviews of changes with their steps and answers, in their own tables. Not "diffusion review" (the design system one). */
@@ -68,9 +74,20 @@ export class ChangeReviewStore {
         step_id TEXT NOT NULL,
         person_id TEXT NOT NULL DEFAULT '',
         at TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'ok',
+        text TEXT,
+        thread_id TEXT,
         UNIQUE (step_id, person_id)
       );
     `);
+    // Tables created before remarks and fetching existed.
+    const addColumn = (table: string, column: string, definition: string) => {
+      if (!(db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    };
+    addColumn("change_review_answers", "kind", "TEXT NOT NULL DEFAULT 'ok'");
+    addColumn("change_review_answers", "text", "TEXT");
+    addColumn("change_review_answers", "thread_id", "TEXT");
+    addColumn("change_reviews", "fetched_at", "TEXT");
   }
 
   /** `steps` are already in review order. */
@@ -100,6 +117,7 @@ export class ChangeReviewStore {
         createdAt: row.created_at,
         ...(row.finished_by ? { finishedBy: row.finished_by } : {}),
         ...(row.finished_at ? { finishedAt: row.finished_at } : {}),
+        ...(row.fetched_at ? { fetchedAt: row.fetched_at } : {}),
       }
     );
   }
@@ -115,9 +133,28 @@ export class ChangeReviewStore {
 
   answers(reviewId: string): StoredAnswer[] {
     const rows = this.db
-      .prepare("SELECT a.id, a.step_id, a.person_id, a.at FROM change_review_answers a JOIN change_review_steps s ON s.id = a.step_id WHERE s.review_id = ? ORDER BY a.at, a.rowid")
-      .all(reviewId) as { id: string; step_id: string; person_id: string; at: string }[];
-    return rows.map((row) => ({ id: row.id, stepId: row.step_id, ...(row.person_id ? { personId: row.person_id } : {}), at: row.at }));
+      .prepare("SELECT a.id, a.step_id, a.person_id, a.kind, a.text, a.thread_id, a.at FROM change_review_answers a JOIN change_review_steps s ON s.id = a.step_id WHERE s.review_id = ? ORDER BY a.at, a.rowid")
+      .all(reviewId) as { id: string; step_id: string; person_id: string; kind: "ok" | "remark"; text: string | null; thread_id: string | null; at: string }[];
+    return rows.map((row) => ({
+      id: row.id,
+      stepId: row.step_id,
+      ...(row.person_id ? { personId: row.person_id } : {}),
+      kind: row.kind,
+      ...(row.text !== null ? { text: row.text } : {}),
+      ...(row.thread_id ? { threadId: row.thread_id } : {}),
+      at: row.at,
+    }));
+  }
+
+  /** The answer of one person on a step (an OK or a remark: one per person). */
+  answerOf(stepId: string, personId: string | undefined): StoredAnswer | undefined {
+    const row = this.db.prepare("SELECT review_id FROM change_review_steps WHERE id = ?").get(stepId) as { review_id: string } | undefined;
+    return row && this.answers(row.review_id).find((answer) => answer.stepId === stepId && (answer.personId ?? "") === (personId ?? ""));
+  }
+
+  /** The review an answer belongs to. */
+  reviewIdOfAnswer(answerId: string): string | undefined {
+    return (this.db.prepare("SELECT s.review_id FROM change_review_answers a JOIN change_review_steps s ON s.id = a.step_id WHERE a.id = ?").get(answerId) as { review_id: string } | undefined)?.review_id;
   }
 
   hasStep(reviewId: string, stepId: string): boolean {
@@ -126,11 +163,30 @@ export class ChangeReviewStore {
 
   /** One OK per person and step: answering again keeps the first. */
   addOk(stepId: string, personId: string | undefined): void {
-    this.db.prepare("INSERT OR IGNORE INTO change_review_answers (id, step_id, person_id, at) VALUES (?, ?, ?, ?)").run(randomUUID(), stepId, personId ?? "", new Date().toISOString());
+    this.db.prepare("INSERT OR IGNORE INTO change_review_answers (id, step_id, person_id, at, kind) VALUES (?, ?, ?, ?, 'ok')").run(randomUUID(), stepId, personId ?? "", new Date().toISOString());
   }
 
   removeOk(stepId: string, personId: string | undefined): void {
-    this.db.prepare("DELETE FROM change_review_answers WHERE step_id = ? AND person_id = ?").run(stepId, personId ?? "");
+    this.db.prepare("DELETE FROM change_review_answers WHERE step_id = ? AND person_id = ? AND kind = 'ok'").run(stepId, personId ?? "");
+  }
+
+  /** Saves the person's remark on the step; it replaces their OK. */
+  saveRemark(stepId: string, personId: string | undefined, text: string): void {
+    this.db
+      .prepare("INSERT INTO change_review_answers (id, step_id, person_id, at, kind, text) VALUES (?, ?, ?, ?, 'remark', ?) ON CONFLICT (step_id, person_id) DO UPDATE SET kind = 'remark', text = excluded.text, at = excluded.at")
+      .run(randomUUID(), stepId, personId ?? "", new Date().toISOString(), text);
+  }
+
+  removeAnswer(answerId: string): void {
+    this.db.prepare("DELETE FROM change_review_answers WHERE id = ?").run(answerId);
+  }
+
+  setThread(answerId: string, threadId: string): void {
+    this.db.prepare("UPDATE change_review_answers SET thread_id = ? WHERE id = ?").run(threadId, answerId);
+  }
+
+  markFetched(reviewId: string): void {
+    this.db.prepare("UPDATE change_reviews SET fetched_at = ? WHERE id = ? AND fetched_at IS NULL").run(new Date().toISOString(), reviewId);
   }
 
   finish(reviewId: string, personId: string | undefined): void {

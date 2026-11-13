@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { ChangeReview } from "@redline/shared";
+import type { ChangeReview, Thread } from "@redline/shared";
 import { FakeEngine, startSeam2, type Seam2 } from "./support/seam2.js";
 import { openTerminal, type Terminal } from "./support/terminal.js";
 
@@ -115,5 +115,86 @@ describe("answers and finishing", () => {
   it("answers 404 for a review that does not exist", async () => {
     await declared();
     expect((await seam!.server.get("/api/change-reviews/00000000-0000-4000-8000-000000000000")).status).toBe(404);
+  });
+});
+
+describe("remarks", () => {
+  const saveRemark = (reviewId: string, stepId: string, text: string) =>
+    fetch(`${seam!.server.url}/api/change-reviews/${reviewId}/steps/${stepId}/remark`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+  const threadsOf = async (pageId: string) => (await (await seam!.server.get(`/api/pages/${pageId}/threads`)).json()) as Thread[];
+
+  it("saves a remark in place of the person's OK, edits it, and deletes it", async () => {
+    const { reviewId } = await declared();
+    const first = (await reviewOf(reviewId)).steps[0]!;
+    await send("PUT", `/api/change-reviews/${reviewId}/steps/${first.id}/ok`);
+
+    expect((await saveRemark(reviewId, first.id, "Too dense")).status).toBe(200);
+    expect((await reviewOf(reviewId)).steps[0]!.answers).toMatchObject([{ kind: "remark", text: "Too dense", mine: true }]);
+
+    await saveRemark(reviewId, first.id, "Too dense, move it up");
+    const answers = (await reviewOf(reviewId)).steps[0]!.answers;
+    expect(answers).toMatchObject([{ kind: "remark", text: "Too dense, move it up" }]);
+    expect((await send("PUT", `/api/change-reviews/${reviewId}/steps/${first.id}/ok`)).status).toBe(409);
+
+    expect((await send("DELETE", `/api/change-reviews/${reviewId}/remarks/${answers[0]!.id}`)).status).toBe(200);
+    expect((await reviewOf(reviewId)).steps[0]!.answers).toEqual([]);
+  });
+
+  it("refuses an empty remark and any change once the review is finished", async () => {
+    const { reviewId } = await declared();
+    const first = (await reviewOf(reviewId)).steps[0]!;
+    await saveRemark(reviewId, first.id, "Keep me");
+    const remarkId = (await reviewOf(reviewId)).steps[0]!.answers[0]!.id;
+
+    expect((await saveRemark(reviewId, first.id, "  ")).status).toBe(400);
+    await send("POST", `/api/change-reviews/${reviewId}/finish`);
+
+    expect((await saveRemark(reviewId, first.id, "Late")).status).toBe(409);
+    expect((await send("DELETE", `/api/change-reviews/${reviewId}/remarks/${remarkId}`)).status).toBe(409);
+    expect((await reviewOf(reviewId)).steps[0]!.answers).toMatchObject([{ text: "Keep me" }]);
+  });
+
+  it("never turns a remark into a held comment or a thread before the review is fetched", async () => {
+    const { reviewId, pages } = await declared();
+    const first = (await reviewOf(reviewId)).steps[0]!;
+    await saveRemark(reviewId, first.id, "Too dense");
+
+    expect(await threadsOf(pages.home)).toEqual([]);
+    expect(await (await seam!.server.get(`/api/pages/${pages.home}/held`)).json()).toEqual([]);
+    expect(await (await seam!.server.get(`/api/pages/${pages.home}/queue`)).json()).toEqual([]);
+  });
+
+  it("opens one thread per remark at fetch, taken by the fetching session, and lists them with their ids", async () => {
+    const { terminal, reviewId, pages } = await declared();
+    const steps = (await reviewOf(reviewId)).steps;
+    await send("PUT", `/api/change-reviews/${reviewId}/steps/${steps[0]!.id}/ok`);
+    await saveRemark(reviewId, steps[1]!.id, "Show the empty state\nabove the fold");
+    await send("POST", `/api/change-reviews/${reviewId}/finish`);
+
+    const answer = await terminal.call("review_feedback", { reviewId });
+
+    const threads = await threadsOf(pages.home);
+    expect(threads).toHaveLength(1);
+    expect(threads[0]).toMatchObject({ body: "Show the empty state\nabove the fold", target: { kind: "artboard", artboard: "empty.html" } });
+    expect(answer).toMatch(/Validated \(1\)[\s\S]*1\. Home · List/);
+    expect(answer).toMatch(/Remarks \(1\)[\s\S]*2\. Home · Empty \(empty\.html\) · remark by [\s\S]*thread /);
+    expect(answer).toContain(`thread ${threads[0]!.id}`);
+    expect(answer).toContain("> Show the empty state");
+    expect(answer).toContain("> above the fold");
+    expect(await terminal.call("reply_in_thread", { threadId: threads[0]!.id, text: "Moved above the fold" })).toContain("Reply posted");
+    expect((await threadsOf(pages.home))[0]!.replies.map((r) => r.body)).toEqual(["Moved above the fold"]);
+  });
+
+  it("lists the step with a remark as a remark, not as validated", async () => {
+    const { terminal, reviewId } = await declared();
+    const steps = (await reviewOf(reviewId)).steps;
+    await saveRemark(reviewId, steps[0]!.id, "No");
+    await send("POST", `/api/change-reviews/${reviewId}/finish`);
+
+    const answer = await terminal.call("review_feedback", { reviewId });
+
+    expect(answer).toMatch(/Validated \(0\)/);
+    expect(answer).toMatch(/Remarks \(1\)/);
+    expect(answer).toMatch(/Not seen \(2\)/);
   });
 });

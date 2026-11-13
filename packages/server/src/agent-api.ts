@@ -124,7 +124,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       api.post<{ Params: { sessionId: string }; Body: Partial<ChangeReviewFeedbackRequest> }>("/terminal-sessions/:sessionId/review-feedback", async (req, reply) => {
         const reviewId = req.body?.reviewId;
         if (!requiredString(reviewId)) return reply.code(400).send({ error: "reviewId is required" });
-        const result = changeReviewFeedback(store, access, req.viewer, reviewId);
+        const result = changeReviewFeedback(store, access, pageLock, req.viewer, req.params.sessionId, reviewId);
         return "error" in result ? reply.code(result.status).send({ error: result.error }) : result;
       });
 

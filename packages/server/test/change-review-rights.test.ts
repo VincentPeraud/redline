@@ -41,6 +41,27 @@ describe("review of changes: rights", () => {
     expect((await thomas.get(`/api/change-reviews/${id}`)).status).toBe(200);
   });
 
+  it("lets a member see another member's remark, but not delete it; writing a remark only touches one's own", async () => {
+    const { id, thomas } = await declared("write");
+    const { ariane } = instance;
+    const stepId = (await ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).steps[0]!.id;
+    await ariane.send("PUT", `/api/change-reviews/${id}/steps/${stepId}/remark`, { text: "Ariane's remark" });
+
+    const seenByThomas = (await thomas.json<ChangeReview>(`/api/change-reviews/${id}`)).steps[0]!.answers;
+    expect(seenByThomas).toMatchObject([{ kind: "remark", text: "Ariane's remark", mine: false, person: { id: instance.people.ariane.id } }]);
+    expect((await thomas.send("DELETE", `/api/change-reviews/${id}/remarks/${seenByThomas[0]!.id}`)).status).toBe(403);
+
+    await thomas.send("PUT", `/api/change-reviews/${id}/steps/${stepId}/remark`, { text: "Thomas' remark" });
+    const answers = (await ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).steps[0]!.answers;
+    expect(answers.map((a) => [a.text, a.mine])).toEqual([["Ariane's remark", true], ["Thomas' remark", false]]);
+  });
+
+  it("refuses a remark from a member without Écriture", async () => {
+    const { id, thomas } = await declared("comment");
+    const stepId = (await instance.ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).steps[0]!.id;
+    expect((await thomas.send("PUT", `/api/change-reviews/${id}/steps/${stepId}/remark`, { text: "Hi" })).status).toBe(403);
+  });
+
   it("refuses a declaration by an agent whose account has no Écriture on the project", async () => {
     const { thomas, declare } = await declared("read");
     const thomasToken = ((await thomas.json<AgentTokenResponse>("/api/agent-token")) as AgentTokenResponse).token;

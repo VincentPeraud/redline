@@ -24,10 +24,12 @@ export interface RequestChangeReviewResponse {
   id: string;
 }
 
-/** One member's answer on a step: `mine` tells the viewer whether they wrote it. */
+/** One member's answer on a step (an OK or a remark, one per person): `mine` tells the viewer whether they wrote it. */
 export interface ChangeReviewAnswer {
   id: string;
-  kind: "ok";
+  kind: "ok" | "remark";
+  /** The remark's text; absent on an OK. */
+  text?: string;
   /** Absent when the instance has no accounts. */
   person?: Person;
   at: string;
@@ -56,9 +58,9 @@ export interface ChangeReview {
   steps: ChangeReviewStep[];
 }
 
-export type ChangeReviewStatus = "unseen" | "ok";
+export type ChangeReviewStatus = "unseen" | "ok" | "remark";
 
-export type ProgressSegment = "ok" | "current" | "unseen";
+export type ProgressSegment = "ok" | "remark" | "current" | "unseen";
 
 export interface ChangeReviewProgress {
   seen: number;
@@ -66,10 +68,11 @@ export interface ChangeReviewProgress {
   segments: ProgressSegment[];
 }
 
-/** "OK" when at least one member validated the step, else "Non vu". */
-export const stepStatus = (answers: readonly ChangeReviewAnswer[]): ChangeReviewStatus => (answers.length > 0 ? "ok" : "unseen");
+/** "Remarque" as soon as anyone left a remark, "OK" when someone validated and nobody left one, else "Non vu". */
+export const stepStatus = (answers: readonly ChangeReviewAnswer[]): ChangeReviewStatus =>
+  answers.some((answer) => answer.kind === "remark") ? "remark" : answers.length > 0 ? "ok" : "unseen";
 
-/** "Vu": the step has at least one answer (opening a step without answering does not count). */
+/** "Vu": the step has at least one answer, OK or remark (opening a step without answering does not count). */
 export const stepIsSeen = (step: { answers: readonly ChangeReviewAnswer[] }): boolean => step.answers.length > 0;
 
 /** Seen / total, and one segment per step; the current step shows as current until it is answered. */
@@ -77,7 +80,7 @@ export function progressOf(steps: readonly { answers: readonly ChangeReviewAnswe
   return {
     seen: steps.filter(stepIsSeen).length,
     total: steps.length,
-    segments: steps.map((step, index) => (stepIsSeen(step) ? "ok" : index === currentIndex ? "current" : "unseen")),
+    segments: steps.map((step, index) => (stepIsSeen(step) ? (stepStatus(step.answers) === "remark" ? "remark" : "ok") : index === currentIndex ? "current" : "unseen")),
   };
 }
 
@@ -94,23 +97,54 @@ export interface ChangeReviewResultInput {
   requester: string;
   finishedBy: string;
   /** In review order. */
-  steps: { id: string; label: string; answers: readonly ChangeReviewAnswer[] }[];
+  steps: { id: string; label: string; artboard: string; answers: readonly ChangeReviewAnswer[] }[];
+  /** The thread opened for each remark, by remark id. */
+  threadIds?: Readonly<Record<string, string>>;
+}
+
+export interface ChangeReviewRemarkResult {
+  stepId: string;
+  label: string;
+  number: number;
+  artboard: string;
+  author: string;
+  text: string;
+  /** Others who validated the same step ("Victor avait validé cette étape"). */
+  alsoValidatedBy: string[];
+  threadId?: string;
 }
 
 export interface ChangeReviewResult {
   requester: string;
   finishedBy: string;
   validated: { stepId: string; label: string; number: number; by: string[] }[];
+  remarks: ChangeReviewRemarkResult[];
   notSeen: { stepId: string; label: string; number: number }[];
 }
 
-/** What Claude gets from a finished review: the validated steps with who validated them, and the steps not seen. */
-export function reviewResult({ requester, finishedBy, steps }: ChangeReviewResultInput): ChangeReviewResult {
+const nameOfAnswer = (answer: ChangeReviewAnswer): string => answer.person?.name || answer.person?.email || "someone";
+
+/** What Claude gets from a finished review: the validated steps with who validated them, the remarks, and the steps not seen. */
+export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: ChangeReviewResultInput): ChangeReviewResult {
   const numbered = steps.map((step, index) => ({ ...step, number: index + 1 }));
   return {
     requester,
     finishedBy,
-    validated: numbered.filter((step) => stepIsSeen(step)).map((step) => ({ stepId: step.id, label: step.label, number: step.number, by: step.answers.map((answer) => answer.person?.name || answer.person?.email || "someone") })),
+    validated: numbered.filter((step) => stepStatus(step.answers) === "ok").map((step) => ({ stepId: step.id, label: step.label, number: step.number, by: step.answers.map(nameOfAnswer) })),
+    remarks: numbered.flatMap((step) =>
+      step.answers
+        .filter((answer) => answer.kind === "remark")
+        .map((answer) => ({
+          stepId: step.id,
+          label: step.label,
+          number: step.number,
+          artboard: step.artboard,
+          author: nameOfAnswer(answer),
+          text: answer.text ?? "",
+          alsoValidatedBy: step.answers.filter((other) => other.kind === "ok").map(nameOfAnswer),
+          ...(threadIds[answer.id] ? { threadId: threadIds[answer.id] } : {}),
+        })),
+    ),
     notSeen: numbered.filter((step) => !stepIsSeen(step)).map((step) => ({ stepId: step.id, label: step.label, number: step.number })),
   };
 }

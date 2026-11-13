@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { orderSteps, progressOf, reviewResult, stepIsSeen, stepStatus, type ChangeReviewAnswer, type ChangeReviewResultInput } from "@redline/shared";
 
 const ok = (name: string | undefined): ChangeReviewAnswer => ({ id: `a-${name}`, kind: "ok", at: "2026-11-13T10:00:00Z", mine: false, ...(name ? { person: { id: name, name, email: "", initials: name.slice(0, 2) } } : {}) });
+const remark = (name: string, text = "Move it up"): ChangeReviewAnswer => ({ ...ok(name), id: `r-${name}`, kind: "remark", text });
 const step = (id: string, answers: ChangeReviewAnswer[] = []) => ({ id, answers });
 
 describe("step status", () => {
@@ -9,6 +10,11 @@ describe("step status", () => {
     expect(stepStatus([])).toBe("unseen");
     expect(stepStatus([ok("Ana")])).toBe("ok");
     expect(stepStatus([ok("Ana"), ok("Victor")])).toBe("ok");
+  });
+
+  it("is Remarque as soon as anyone left a remark, even when others validated", () => {
+    expect(stepStatus([remark("Ana")])).toBe("remark");
+    expect(stepStatus([ok("Victor"), remark("Ana")])).toBe("remark");
   });
 
   it("counts a step as seen only when it has an answer", () => {
@@ -21,6 +27,10 @@ describe("progress", () => {
   it("counts seen steps and gives one segment per step, the current one marked unless answered", () => {
     const steps = [step("a", [ok("Ana")]), step("b"), step("c"), step("d", [ok("Ana")])];
     expect(progressOf(steps, 1)).toEqual({ seen: 2, total: 4, segments: ["ok", "current", "unseen", "ok"] });
+  });
+
+  it("colours a step with a remark as a remark", () => {
+    expect(progressOf([step("a", [ok("Ana")]), step("b", [ok("Victor"), remark("Ana")])], 0).segments).toEqual(["ok", "remark"]);
   });
 
   it("keeps the OK colour on an answered current step", () => {
@@ -46,8 +56,8 @@ describe("review result", () => {
     requester: "Ana",
     finishedBy: "Victor",
     steps: [
-      { id: "s1", label: "Home · list", answers: answers.s1 ?? [] },
-      { id: "s2", label: "Home · empty", answers: answers.s2 ?? [] },
+      { id: "s1", label: "Home · list", artboard: "list.html", answers: answers.s1 ?? [] },
+      { id: "s2", label: "Home · empty", artboard: "empty.html", answers: answers.s2 ?? [] },
     ],
   });
 
@@ -56,11 +66,20 @@ describe("review result", () => {
       requester: "Ana",
       finishedBy: "Victor",
       validated: [{ stepId: "s1", label: "Home · list", number: 1, by: ["Ana", "Victor"] }],
+      remarks: [],
       notSeen: [{ stepId: "s2", label: "Home · empty", number: 2 }],
     });
   });
 
   it("names an unsigned answer 'someone'", () => {
     expect(reviewResult(base({ s2: [ok(undefined)] })).validated[0]?.by).toEqual(["someone"]);
+  });
+
+  it("lists a remark with author, artboard, text, thread and the others who validated the step; the step is not validated", () => {
+    const result = reviewResult({ ...base({ s1: [ok("Victor"), remark("Ana", "Too dense")] }), threadIds: { "r-Ana": "thread-1" } });
+
+    expect(result.validated).toEqual([]);
+    expect(result.remarks).toEqual([{ stepId: "s1", label: "Home · list", number: 1, artboard: "list.html", author: "Ana", text: "Too dense", alsoValidatedBy: ["Victor"], threadId: "thread-1" }]);
+    expect(result.notSeen.map((entry) => entry.stepId)).toEqual(["s2"]);
   });
 });

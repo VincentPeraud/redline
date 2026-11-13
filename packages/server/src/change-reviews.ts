@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
   MANIFEST_PATH,
@@ -20,6 +21,7 @@ import {
 } from "@redline/shared";
 import type { Access, Viewer } from "./access.js";
 import type { StoredReview } from "./change-review-store.js";
+import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 import { MAX_TERMINAL_TEXT_LENGTH, requiredString } from "./validation.js";
 
@@ -65,7 +67,7 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
         .filter((answer) => answer.stepId === step.id)
         .map((answer) => {
           const person = store.getPerson(answer.personId);
-          return { id: answer.id, kind: "ok" as const, ...(person ? { person } : {}), at: answer.at, mine: (answer.personId ?? "") === own };
+          return { id: answer.id, kind: answer.kind, ...(answer.text !== undefined ? { text: answer.text } : {}), ...(person ? { person } : {}), at: answer.at, mine: (answer.personId ?? "") === own };
         }),
     };
   });
@@ -115,8 +117,18 @@ export function declareChangeReview(store: Store, access: Access, viewer: Viewer
   return { id: review.id };
 }
 
-/** What `review_feedback` gives for a review: its result once finished, its progress before. */
-export function changeReviewFeedback(store: Store, access: Access, viewer: Viewer, reviewId: string): { error: string; status: number } | ChangeReviewFeedback {
+/**
+ * What `review_feedback` gives for a review: its result once finished, its progress before.
+ * Fetching a finished review turns each remark into a thread on its artboard, taken by the fetching terminal session.
+ */
+export function changeReviewFeedback(
+  store: Store,
+  access: Access,
+  pageLock: PageLock,
+  viewer: Viewer,
+  sessionId: string,
+  reviewId: string,
+): { error: string; status: number } | ChangeReviewFeedback {
   const review = store.changeReviews.get(reviewId);
   if (!review) return { status: 404, error: "review not found" };
   if (access.levelOf(viewer, { projectId: review.projectId }) !== "write") return { status: 403, error: "your account does not have Écriture on this project" };
@@ -125,15 +137,40 @@ export function changeReviewFeedback(store: Store, access: Access, viewer: Viewe
     const { seen, total } = progressOf(view.steps, -1);
     return { status: "open", seen, total };
   }
+  const threadIds = openRemarkThreads(store, pageLock, view, sessionId);
+  store.changeReviews.markFetched(review.id);
   const result = reviewResult({
     requester: nameOf(view.requester.person),
     finishedBy: nameOf(view.finishedBy),
-    steps: view.steps.map((step) => ({ id: step.id, label: `${step.pageTitle} · ${step.artboardTitle}`, answers: step.answers })),
+    steps: view.steps.map((step) => ({ id: step.id, label: `${step.pageTitle} · ${step.artboardTitle}`, artboard: step.artboard, answers: step.answers })),
+    threadIds,
   });
   return { status: "finished", ...result };
 }
 
-/** The review screen's routes: reading a review, answering OK, cancelling it, finishing. Access is by the review's project (see `access.ts`). */
+/** One thread per remark on its artboard, signed by the remark's author and taken by `sessionId` (so `reply_in_thread` works on it). Thread ids by remark id. */
+function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview, sessionId: string): Record<string, string> {
+  const stored = new Map(store.changeReviews.answers(view.id).map((answer) => [answer.id, answer]));
+  const threadIds: Record<string, string> = {};
+  for (const step of view.steps) {
+    for (const answer of step.answers.filter((a) => a.kind === "remark")) {
+      const known = stored.get(answer.id)?.threadId;
+      if (known) {
+        threadIds[answer.id] = known;
+        continue;
+      }
+      const thread = store.createThread(step.pageId, { target: { kind: "artboard", artboard: step.artboard }, body: answer.text ?? "" }, answer.person);
+      const runId = randomUUID();
+      pageLock.showTerminalRun(step.pageId, runId, thread.id);
+      store.pickThreadForTerminalSession(thread.id, sessionId, runId);
+      store.changeReviews.setThread(answer.id, thread.id);
+      threadIds[answer.id] = thread.id;
+    }
+  }
+  return threadIds;
+}
+
+/** The review screen's routes: reading a review, answering OK or with a remark, cancelling, finishing. Access is by the review's project (see `access.ts`). */
 export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): void {
   const open = (reviewId: string) => store.changeReviews.get(reviewId);
 
@@ -146,6 +183,7 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     const review = open(req.params.reviewId);
     if (!review || !store.changeReviews.hasStep(review.id, req.params.stepId)) return reply.code(404).send({ error: "step not found" });
     if (review.state !== "open") return reply.code(409).send({ error: "this review is finished" });
+    if (store.changeReviews.answerOf(req.params.stepId, viewerPersonId(req.viewer))?.kind === "remark") return reply.code(409).send({ error: "you left a remark on this step: delete it before answering OK" });
     store.changeReviews.addOk(req.params.stepId, viewerPersonId(req.viewer));
     return viewOf(store, review, req.viewer);
   });
@@ -155,6 +193,27 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     if (!review || !store.changeReviews.hasStep(review.id, req.params.stepId)) return reply.code(404).send({ error: "step not found" });
     if (review.state !== "open") return reply.code(409).send({ error: "this review is finished" });
     store.changeReviews.removeOk(req.params.stepId, viewerPersonId(req.viewer));
+    return viewOf(store, review, req.viewer);
+  });
+
+  app.put<{ Params: { reviewId: string; stepId: string }; Body: { text?: unknown } }>("/api/change-reviews/:reviewId/steps/:stepId/remark", async (req, reply) => {
+    const review = open(req.params.reviewId);
+    if (!review || !store.changeReviews.hasStep(review.id, req.params.stepId)) return reply.code(404).send({ error: "step not found" });
+    if (review.state !== "open") return reply.code(409).send({ error: "this review is finished" });
+    const text = req.body?.text;
+    if (!requiredString(text) || text.length > MAX_STEP_TEXT_LENGTH) return reply.code(400).send({ error: `text must be a non-empty string of at most ${MAX_STEP_TEXT_LENGTH} characters` });
+    // Always the viewer's own remark: nobody can write on another member's.
+    store.changeReviews.saveRemark(req.params.stepId, viewerPersonId(req.viewer), text);
+    return viewOf(store, review, req.viewer);
+  });
+
+  app.delete<{ Params: { reviewId: string; answerId: string } }>("/api/change-reviews/:reviewId/remarks/:answerId", async (req, reply) => {
+    const review = open(req.params.reviewId);
+    const answer = review && store.changeReviews.answers(review.id).find((candidate) => candidate.id === req.params.answerId && candidate.kind === "remark");
+    if (!review || !answer) return reply.code(404).send({ error: "remark not found" });
+    if (review.state !== "open") return reply.code(409).send({ error: "this review is finished" });
+    if ((answer.personId ?? "") !== (viewerPersonId(req.viewer) ?? "")) return reply.code(403).send({ error: "only the author can delete a remark" });
+    store.changeReviews.removeAnswer(answer.id);
     return viewOf(store, review, req.viewer);
   });
 

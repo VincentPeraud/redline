@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { progressOf, stepIsSeen, type ChangeReview, type ChangeReviewStep } from "@redline/shared";
+import { progressOf, stepIsSeen, stepStatus, type ChangeReview, type ChangeReviewStep } from "@redline/shared";
 import { ArtboardIframe, useArtboardOrigin } from "./artboardCapability.js";
 import { fitToStage } from "./PlayMode.js";
 import { PlayFrame } from "./PlayFrame.js";
@@ -7,6 +7,7 @@ import { presentationOf } from "./playFrames.js";
 import { navigateTo, type Route } from "./router.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { cx } from "./ui/index.js";
+import { LeaveDialog, PersonDot, RemarkEditor, personName } from "./ReviewRemark.js";
 import styles from "./ReviewScreen.module.css";
 
 type Load = { status: "loading" } | { status: "missing" } | { status: "refused" } | { status: "error" } | { status: "ready"; review: ChangeReview };
@@ -29,12 +30,20 @@ function formatWhen(iso: string): string {
   return `${date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} ${date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
-const personName = (person: { name: string; email: string } | undefined) => person?.name || person?.email || "quelqu'un";
-
 /** The review mode: a variant of Present limited to the steps Claude declared, with its own red identity. */
 export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: number | "recap" }) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [failed, setFailed] = useState(false);
+  const [unsaved, setUnsaved] = useState(false);
+  const [leaving, setLeaving] = useState<(() => void) | undefined>();
+
+  // A remark Redline has not received: closing the tab asks first, and so does leaving the step.
+  useEffect(() => {
+    if (!unsaved) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsaved]);
 
   const reload = useCallback(async () => {
     try {
@@ -69,22 +78,44 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
 
   if (load.status !== "ready") return <StateScreen status={load.status} onRetry={() => void reload()} />;
   const view: View = step === undefined ? (review!.state === "finished" ? "recap" : nextUnanswered(review!, -1)) : step === "recap" || step > review!.steps.length ? "recap" : step - 1;
-  const go = (target: View) => navigateTo(stepRoute(reviewId, target), "replace");
+  const guard = (action: () => void) => (unsaved ? setLeaving(() => action) : action());
+  const navigate = (target: View) => navigateTo(stepRoute(reviewId, target), "replace");
+  const go = (target: View) => guard(() => navigate(target));
 
   const answerOk = async (index: number) => {
     const next = await change("PUT", `/steps/${review!.steps[index]!.id}/ok`);
-    if (next) go(nextUnanswered(next, index));
+    if (next) navigate(nextUnanswered(next, index));
   };
   const cancelOk = (index: number) => void change("DELETE", `/steps/${review!.steps[index]!.id}/ok`);
-  const finish = () => void change("POST", "/finish").then((next) => next && go("recap"));
+  const finish = () => void change("POST", "/finish").then((next) => next && navigate("recap"));
 
   return (
     <div data-testid="review" className={styles.review}>
-      <TopBar review={review!} view={view} onGo={go} onFinish={finish} />
+      <TopBar review={review!} view={view} onGo={go} onLeave={guard} onFinish={() => guard(finish)} />
       {view === "recap" ? (
-        <Recap review={review!} failed={failed} onGo={go} onFinish={finish} />
+        <Recap review={review!} failed={failed} onGo={go} onFinish={() => guard(finish)} />
       ) : (
-        <StepView key={review!.steps[view]!.id} review={review!} index={view} failed={failed} onGo={go} onOk={() => void answerOk(view)} onCancel={() => cancelOk(view)} />
+        <StepView
+          key={review!.steps[view]!.id}
+          review={review!}
+          index={view}
+          failed={failed}
+          onGo={go}
+          onOk={() => guard(() => void answerOk(view))}
+          onCancel={() => cancelOk(view)}
+          remark={{ reviewPath: reviewPath(reviewId), onReview: (next) => setLoad({ status: "ready", review: next }), onReload: () => void reload(), onUnsaved: setUnsaved }}
+        />
+      )}
+      {leaving && (
+        <LeaveDialog
+          onStay={() => setLeaving(undefined)}
+          onLeave={() => {
+            const action = leaving;
+            setLeaving(undefined);
+            setUnsaved(false);
+            action();
+          }}
+        />
       )}
     </div>
   );
@@ -112,7 +143,7 @@ function StateScreen({ status, onRetry }: { status: Exclude<Load["status"], "rea
   );
 }
 
-function TopBar({ review, view, onGo, onFinish }: { review: ChangeReview; view: View; onGo: (view: View) => void; onFinish: () => void }) {
+function TopBar({ review, view, onGo, onLeave, onFinish }: { review: ChangeReview; view: View; onGo: (view: View) => void; onLeave: (action: () => void) => void; onFinish: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -144,7 +175,7 @@ function TopBar({ review, view, onGo, onFinish }: { review: ChangeReview; view: 
   return (
     <header data-testid="review-top" className={styles.top}>
       <div className={styles.lead}>
-        <button type="button" className={styles.button} onClick={() => navigateTo(backTo)}>
+        <button type="button" className={styles.button} onClick={() => onLeave(() => navigateTo(backTo))}>
           ← Canvas
         </button>
         <span className={styles.mode}>Revue</span>
@@ -182,11 +213,11 @@ function TopBar({ review, view, onGo, onFinish }: { review: ChangeReview; view: 
                     }}
                   >
                     <span className={styles.menuNumber}>{index + 1}</span>
-                    <span className={cx(styles.dot, stepIsSeen(step) && styles.dotOk, index === view && styles.dotCurrent)} />
+                    <span className={cx(styles.dot, stepStatus(step.answers) === "ok" && styles.dotOk, stepStatus(step.answers) === "remark" && styles.dotRemark, index === view && styles.dotCurrent)} />
                     <span className={styles.menuTitle}>
                       {step.pageTitle} · {step.artboardTitle}
                     </span>
-                    <span className={styles.menuState}>{index === view ? "En cours" : stepIsSeen(step) ? "OK" : "Non vu"}</span>
+                    <span className={styles.menuState}>{index === view ? "En cours" : STATUS_LABEL[stepStatus(step.answers)]}</span>
                   </button>
                 ))}
               </div>
@@ -205,6 +236,8 @@ function TopBar({ review, view, onGo, onFinish }: { review: ChangeReview; view: 
   );
 }
 
+const STATUS_LABEL = { unseen: "Non vu", ok: "OK", remark: "Remarque" } as const;
+
 function Progress({ review, index }: { review: ChangeReview; index: number }) {
   const { seen, total, segments } = progressOf(review.steps, index);
   return (
@@ -217,16 +250,20 @@ function Progress({ review, index }: { review: ChangeReview; index: number }) {
       </div>
       <div className={styles.progressBar}>
         {segments.map((segment, position) => (
-          <i key={review.steps[position]!.id} className={cx(styles.segment, segment === "ok" && styles.segmentOk, segment === "current" && styles.segmentCurrent)} />
+          <i key={review.steps[position]!.id} className={cx(styles.segment, segment === "ok" && styles.segmentOk, segment === "remark" && styles.segmentRemark, segment === "current" && styles.segmentCurrent)} />
         ))}
       </div>
     </div>
   );
 }
 
-function StepView({ review, index, failed, onGo, onOk, onCancel }: { review: ChangeReview; index: number; failed: boolean; onGo: (view: View) => void; onOk: () => void; onCancel: () => void }) {
+type RemarkProps = { reviewPath: string; onReview: (review: ChangeReview) => void; onReload: () => void; onUnsaved: (unsaved: boolean) => void };
+
+function StepView({ review, index, failed, onGo, onOk, onCancel, remark }: { review: ChangeReview; index: number; failed: boolean; onGo: (view: View) => void; onOk: () => void; onCancel: () => void; remark: RemarkProps }) {
   const step = review.steps[index]!;
-  const mine = step.answers.some((answer) => answer.mine);
+  const own = step.answers.find((answer) => answer.mine);
+  const others = step.answers.filter((answer) => !answer.mine);
+  const status = stepStatus(step.answers);
   const finished = review.state === "finished";
   return (
     <div className={styles.body}>
@@ -239,7 +276,7 @@ function StepView({ review, index, failed, onGo, onOk, onCancel }: { review: Cha
               <span>
                 Page {step.pageTitle} · étape {index + 1} / {review.steps.length}
               </span>
-              <span className={cx(styles.chip, stepIsSeen(step) && styles.chipOk)}>{stepIsSeen(step) ? "✓ OK" : "Non vu"}</span>
+              <span className={cx(styles.chip, status === "ok" && styles.chipOk, status === "remark" && styles.chipRemark)}>{status === "ok" ? "✓ OK" : STATUS_LABEL[status]}</span>
             </div>
             <h2 className={styles.heading}>
               {step.pageTitle} · {step.artboardTitle}
@@ -255,16 +292,11 @@ function StepView({ review, index, failed, onGo, onOk, onCancel }: { review: Cha
           </section>
           <div className={styles.question}>
             <p>{step.question}</p>
-            {finished ? (
-              <div className={styles.lock}>
-                <span>
-                  <strong>Revue terminée</strong> par {personName(review.finishedBy)}
-                  {review.finishedAt ? ` le ${formatWhen(review.finishedAt)}` : ""} : plus de OK possible.
-                </span>
-              </div>
-            ) : (
+            {!finished && (
               <div className={styles.row}>
-                {mine ? (
+                {own?.kind === "remark" ? (
+                  <span className={styles.hint}>Ta remarque remplace ton OK pour cette étape.</span>
+                ) : own ? (
                   <button type="button" className={styles.panelButton} onClick={onCancel}>
                     ✓ Validé par toi · annuler
                   </button>
@@ -277,6 +309,28 @@ function StepView({ review, index, failed, onGo, onOk, onCancel }: { review: Cha
             )}
             {failed && <span className={cx(styles.hint, styles.error)}>Pas enregistré : Redline ne répond pas.</span>}
           </div>
+          {others.length > 0 && (
+            <section className={styles.section}>
+              <h3>Les autres</h3>
+              {others.map((answer) => (
+                <div key={answer.id} className={styles.other}>
+                  <PersonDot person={answer.person} />
+                  <span className={styles.otherText}>
+                    <strong>{personName(answer.person)}</strong> · {answer.kind === "ok" ? "✓ Validé" : answer.text}
+                  </span>
+                </div>
+              ))}
+            </section>
+          )}
+          {finished && (
+            <div className={styles.lock}>
+              <span>
+                <strong>Revue terminée</strong> par {personName(review.finishedBy)}
+                {review.finishedAt ? ` le ${formatWhen(review.finishedAt)}` : ""} : plus de OK ni de remarque.
+              </span>
+            </div>
+          )}
+          <RemarkEditor stepId={step.id} own={own} finished={finished} {...remark} />
         </div>
         <div className={styles.panelFoot}>
           <button type="button" className={styles.panelButton} disabled={index === 0} onClick={() => onGo(index - 1)}>
@@ -334,7 +388,8 @@ function ReviewStage({ review, step }: { review: ChangeReview; step: ChangeRevie
 }
 
 function Recap({ review, failed, onGo, onFinish }: { review: ChangeReview; failed: boolean; onGo: (view: View) => void; onFinish: () => void }) {
-  const seen = review.steps.filter(stepIsSeen);
+  const seen = review.steps.filter((step) => stepStatus(step.answers) === "ok");
+  const remarks = review.steps.filter((step) => stepStatus(step.answers) === "remark");
   const notSeen = review.steps.filter((step) => !stepIsSeen(step));
   const indexOf = (step: ChangeReviewStep) => review.steps.indexOf(step);
   if (review.state === "finished") {
@@ -346,7 +401,7 @@ function Recap({ review, failed, onGo, onFinish }: { review: ChangeReview; faile
           {review.finishedAt ? ` le ${formatWhen(review.finishedAt)}` : ""}. Plus de OK possible.
         </p>
         <p>Rien n'est envoyé à Claude : dis à ta conversation « j'ai fait mes retours » pour qu'elle récupère le résultat.</p>
-        <Summary seen={seen} notSeen={notSeen} indexOf={indexOf} onGo={onGo} />
+        <Summary seen={seen} remarks={remarks} notSeen={notSeen} indexOf={indexOf} onGo={onGo} />
       </div>
     );
   }
@@ -355,9 +410,10 @@ function Recap({ review, failed, onGo, onFinish }: { review: ChangeReview; faile
       <h1>Avant de terminer</h1>
       <div className={styles.counts}>
         <span className={cx(styles.chip, styles.chipOk)}>{seen.length} OK</span>
+        <span className={cx(styles.chip, styles.chipRemark)}>{remarks.length} {remarks.length > 1 ? "remarques" : "remarque"}</span>
         <span className={styles.chip}>{notSeen.length} non vus</span>
       </div>
-      <Summary seen={seen} notSeen={notSeen} indexOf={indexOf} onGo={onGo} />
+      <Summary seen={seen} remarks={remarks} notSeen={notSeen} indexOf={indexOf} onGo={onGo} />
       <div className={styles.actions}>
         <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onFinish}>
           Terminer la revue
@@ -368,7 +424,7 @@ function Recap({ review, failed, onGo, onFinish }: { review: ChangeReview; faile
   );
 }
 
-function Summary({ seen, notSeen, indexOf, onGo }: { seen: ChangeReviewStep[]; notSeen: ChangeReviewStep[]; indexOf: (step: ChangeReviewStep) => number; onGo: (view: View) => void }) {
+function Summary({ seen, remarks, notSeen, indexOf, onGo }: { seen: ChangeReviewStep[]; remarks: ChangeReviewStep[]; notSeen: ChangeReviewStep[]; indexOf: (step: ChangeReviewStep) => number; onGo: (view: View) => void }) {
   const row = (step: ChangeReviewStep, by: string) => (
     <button key={step.id} type="button" className={styles.listItem} onClick={() => onGo(indexOf(step))}>
       <span className={styles.menuNumber}>{indexOf(step) + 1}</span>
@@ -383,6 +439,10 @@ function Summary({ seen, notSeen, indexOf, onGo }: { seen: ChangeReviewStep[]; n
       <section className={styles.section}>
         <h3>OK ({seen.length})</h3>
         <div className={styles.list}>{seen.map((step) => row(step, step.answers.map((answer) => (answer.mine ? "Toi" : personName(answer.person))).join(", ")))}</div>
+      </section>
+      <section className={styles.section}>
+        <h3>Remarques ({remarks.length})</h3>
+        <div className={styles.list}>{remarks.map((step) => row(step, step.answers.filter((answer) => answer.kind === "remark").map((answer) => (answer.mine ? "Toi" : personName(answer.person))).join(", ")))}</div>
       </section>
       <section className={styles.section}>
         <h3>Non vus ({notSeen.length})</h3>
