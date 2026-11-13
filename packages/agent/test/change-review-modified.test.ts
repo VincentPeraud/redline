@@ -86,8 +86,8 @@ describe("an artboard republished after answers", () => {
 
     const answer = await terminal.call("review_feedback", { reviewId });
 
-    expect(answer).toMatch(/Validated \(1\)[\s\S]*Home · other\.html/);
-    expect(answer).toMatch(/Not seen \(1\)[\s\S]*Home · home\.html · modifié après le OK/);
+    expect(answer).toMatch(/Validated \(1\)[\s\S]*"Home · other\.html"/);
+    expect(answer).toMatch(/Not seen \(1\)[\s\S]*"Home · home\.html" · modifié après le OK/);
   });
 
   it("gives Claude a modified remark as a remark marked as modified since", async () => {

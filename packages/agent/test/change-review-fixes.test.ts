@@ -135,12 +135,18 @@ describe("a session that is not connected", () => {
     const { terminal, page } = await start();
     const id = idOf(await terminal.call("request_review", { steps: [{ pageId: page.id, artboard: "home.html", ...texts }] }));
     await send("POST", `/api/change-reviews/${id}/finish`);
-    await terminal.quit();
+    const { token } = (await (await seam!.server.get("/api/agent-token")).json()) as { token: string };
 
-    const answer = await terminal.call("review_feedback", { reviewId: id });
+    const refused = await fetch(`${seam!.server.url}/agent-api/terminal-sessions/7d6f3f6e-0000-4000-8000-0000000000bb/review-feedback`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ reviewId: id }),
+    });
 
-    expect(answer).toMatch(/not connected/);
-    expect(answer).not.toMatch(/background agent/i);
+    const { error } = (await refused.json()) as { error: string };
+    expect(refused.status).toBe(403);
+    expect(error).toMatch(/not connected/);
+    expect(error).not.toMatch(/background agent/i);
     expect((await reviewOf(id)).state).toBe("finished");
   });
 });
@@ -184,7 +190,7 @@ describe("fetching a review twice", () => {
     const again = await other.call("review_feedback", { reviewId: id });
 
     const [thread] = await threadsOf(page.id);
-    expect(again).toMatch(/held by another session \(\/work\/MacBook-Pro\)/);
+    expect(again).toMatch(/held by another session \("MacBook-Pro"\)/);
     expect(await other.call("reply_in_thread", { threadId: thread!.id, text: "Done" })).not.toContain("Reply posted");
   });
 });

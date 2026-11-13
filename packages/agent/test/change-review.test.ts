@@ -110,8 +110,8 @@ describe("answers and finishing", () => {
 
     expect(answer).toMatch(/Requested by/);
     expect(answer).toMatch(/Finished by/);
-    expect(answer).toMatch(/Validated \(2\)[\s\S]*1\. Home · List[\s\S]*3\. Settings · settings\.html/);
-    expect(answer).toMatch(/Not seen \(1\)[\s\S]*2\. Home · Empty/);
+    expect(answer).toMatch(/Validated \(2\)[\s\S]*1\. "Home · List"[\s\S]*3\. "Settings · settings\.html"/);
+    expect(answer).toMatch(/Not seen \(1\)[\s\S]*2\. "Home · Empty"/);
   });
 
   it("answers 404 for a review that does not exist", async () => {
@@ -178,8 +178,8 @@ describe("remarks", () => {
     const threads = await threadsOf(pages.home);
     expect(threads).toHaveLength(1);
     expect(threads[0]).toMatchObject({ body: "Show the empty state\nabove the fold", target: { kind: "artboard", artboard: "empty.html" } });
-    expect(answer).toMatch(/Validated \(1\)[\s\S]*1\. Home · List/);
-    expect(answer).toMatch(/Remarks \(1\)[\s\S]*2\. Home · Empty \(empty\.html\) · remark by [\s\S]*thread /);
+    expect(answer).toMatch(/Validated \(1\)[\s\S]*1\. "Home · List"/);
+    expect(answer).toMatch(/Remarks \(1\)[\s\S]*2\. "Home · Empty" \("empty\.html"\) · remark by [\s\S]*thread /);
     expect(answer).toContain(`thread ${threads[0]!.id}`);
     expect(answer).toContain("> Show the empty state");
     expect(answer).toContain("> above the fold");
@@ -313,7 +313,7 @@ describe("review_feedback without an id, and who can fetch", () => {
     expect(await threadsOf(pages.home)).toHaveLength(1);
   });
 
-  it("refuses a review request from a session that is not a terminal session (a background agent)", async () => {
+  it("refuses a review request from a session that is not connected, with no talk of a background agent", async () => {
     const { pages } = await declared();
     const { token } = (await (await seam!.server.get("/api/agent-token")).json()) as { token: string };
 
@@ -324,7 +324,7 @@ describe("review_feedback without an id, and who can fetch", () => {
     });
 
     expect(refused.status).toBe(403);
-    expect(((await refused.json()) as { error: string }).error).toMatch(/only a terminal session/);
+    expect(((await refused.json()) as { error: string }).error).toMatch(/not connected/);
     expect(await (await seam!.server.get(`/api/pages/${pages.home}/change-reviews`)).json()).toHaveLength(1);
   });
 });

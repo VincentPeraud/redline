@@ -103,7 +103,7 @@ describe("merging a declaration", () => {
     const second = idOf(await other.call("request_review", { steps: [step(home.id, "empty.html")] }));
 
     expect(second).not.toBe(first);
-    expect((await reviewOf(second)).requester.folder).toBe("/work/other-folder");
+    expect((await reviewOf(second)).requester.folder).toBe("other-folder");
     expect((await bannersOf(home.id)).map((banner) => banner.id)).toEqual([first, second]);
   });
 
@@ -115,7 +115,7 @@ describe("merging a declaration", () => {
     const answer = await terminal.call("request_review", { steps: [step(home.id, "empty.html")] });
 
     expect(idOf(answer)).not.toBe(first);
-    expect(answer).toContain("ta revue précédente est terminée mais pas récupérée");
+    expect(answer).toContain("your previous review is finished but was not fetched");
     expect((await reviewOf(first)).state).toBe("finished");
   });
 
@@ -128,7 +128,7 @@ describe("merging a declaration", () => {
     const answer = await terminal.call("request_review", { steps: [step(home.id, "empty.html")] });
 
     expect(idOf(answer)).not.toBe(first);
-    expect(answer).not.toContain("pas récupérée");
+    expect(answer).not.toContain("was not fetched");
   });
 });
 
@@ -141,8 +141,8 @@ describe("refusals", () => {
     const answer = await terminal.call("request_review", { steps: [step(home.id, "list.html"), step(home.id, "nope.html"), step(foreign.id, "x.html")] });
 
     expect(answer).toContain("nope.html");
-    expect(answer).toContain("une revue ne couvre qu'un projet");
-    expect(answer).toContain("Foreign: x.html");
+    expect(answer).toContain("A review covers one project only");
+    expect(answer).toContain(`${foreign.id}: x.html`);
     expect(answer).not.toMatch(/#\/reviews\//);
     expect(await bannersOf(home.id)).toEqual([]);
   });
