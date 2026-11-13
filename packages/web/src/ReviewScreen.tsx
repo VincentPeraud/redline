@@ -140,17 +140,33 @@ function StateScreen({ status, onRetry }: { status: Exclude<Load["status"], "rea
   const text = {
     loading: { title: "Chargement de la revue", detail: "" },
     missing: { title: "Revue introuvable", detail: "Le lien est incomplet, ou le projet a été supprimé." },
-    refused: { title: "Revue réservée à l'équipe", detail: "Une revue est ouverte aux membres qui ont Écriture sur le projet." },
+    refused: {
+      title: "Revue réservée aux membres de l'équipe en Écriture",
+      detail: "Ton accès à cette page (membre en Lecture ou Commentaire, ou lien de partage) ne permet pas de participer à la revue. Tu peux toujours commenter les artboards depuis le canvas si ton accès le permet.",
+    },
     error: { title: "La revue n'a pas pu se charger", detail: "Tes réponses déjà enregistrées sont gardées." },
   }[status];
   return (
     <div data-testid="review" className={styles.review}>
+      <header data-testid="review-top" className={styles.top}>
+        <div className={styles.lead}>
+          <button type="button" className={styles.button} onClick={() => navigateTo({ name: "home" })}>
+            ← Canvas
+          </button>
+          <span className={styles.mode}>Revue</span>
+        </div>
+      </header>
       <div className={styles.stateScreen} role={status === "loading" ? "status" : undefined}>
         <h1>{text.title}</h1>
         {text.detail && <p>{text.detail}</p>}
         {status === "error" && (
           <button type="button" className={cx(styles.panelButton, styles.accent)} style={{ flex: "0 0 auto" }} onClick={onRetry}>
             Réessayer
+          </button>
+        )}
+        {status === "refused" && (
+          <button type="button" className={styles.panelButton} style={{ flex: "0 0 auto" }} onClick={() => navigateTo({ name: "home" })}>
+            Retour au canvas
           </button>
         )}
       </div>

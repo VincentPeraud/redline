@@ -15,6 +15,7 @@ import {
   progressOf,
   type ChangeReview,
   type ChangeReviewFeedback,
+  type ChangeReviewFeedbackRequest,
   type ChangeReviewStepInput,
   type PageChangeReview,
   type Manifest,
@@ -157,9 +158,13 @@ export function declareChangeReview(store: Store, access: Access, viewer: Viewer
   return { id: review.id };
 }
 
+const folderNameOf = (review: StoredReview): string => review.label ?? (review.folder.split("/").filter(Boolean).pop() ?? review.folder);
+
 /**
- * What `review_feedback` gives for a review: its result once finished, its progress before.
- * Fetching a finished review turns each remark into a thread on its artboard, taken by the fetching terminal session.
+ * What `review_feedback` gives: the result of a review (its progress while it is open).
+ * With an id any member with Écriture on the project may take it. Without one, the finished, not yet fetched reviews of `projectIds`
+ * (the folder's linked projects): one is taken, several are listed and nothing is taken, none gives the open ones with their progress.
+ * Taking a review turns each remark into a thread on its artboard, owned by the terminal session; asking again returns the same result and creates nothing.
  */
 export function changeReviewFeedback(
   store: Store,
@@ -167,16 +172,47 @@ export function changeReviewFeedback(
   pageLock: PageLock,
   viewer: Viewer,
   sessionId: string,
-  reviewId: string,
+  request: ChangeReviewFeedbackRequest,
 ): { error: string; status: number } | ChangeReviewFeedback {
-  const review = store.changeReviews.get(reviewId);
-  if (!review) return { status: 404, error: "review not found" };
-  if (access.levelOf(viewer, { projectId: review.projectId }) !== "write") return { status: 403, error: "your account does not have Écriture on this project" };
+  const mayFetch = (projectId: string) => access.levelOf(viewer, { projectId }) === "write";
+  if (request.reviewId !== undefined) {
+    const review = store.changeReviews.get(request.reviewId);
+    if (!review) return { status: 404, error: "review not found" };
+    if (!mayFetch(review.projectId)) return { status: 403, error: "your account does not have Écriture on this project" };
+    return fetchReview(store, pageLock, viewer, sessionId, review);
+  }
+  const projectIds = (request.projectIds ?? []).filter(mayFetch);
+  if (projectIds.length === 0) return { status: 403, error: "pass reviewId, or link this folder to a project where your account has Écriture" };
+  const finished = store.changeReviews.inProjects(projectIds, ["finished"]);
+  if (finished.length === 1) return fetchReview(store, pageLock, viewer, sessionId, finished[0]!);
+  if (finished.length > 1) {
+    return {
+      status: "several",
+      reviews: finished.map((review) => ({ id: review.id, requester: nameOf(store.getPerson(review.requesterPersonId)), folder: folderNameOf(review), finishedAt: review.finishedAt ?? review.createdAt })),
+    };
+  }
+  const reviews = store.changeReviews.inProjects(projectIds, ["open"]).map((review) => {
+    const view = viewOf(store, review, viewer);
+    const { seen, total } = progressOf(view.steps, -1);
+    return {
+      id: review.id,
+      requester: nameOf(view.requester.person),
+      folder: folderNameOf(review),
+      seen,
+      total,
+      remarks: view.steps.flatMap((step) => step.answers).filter((answer) => answer.kind === "remark").length,
+    };
+  });
+  return { status: "none-finished", reviews };
+}
+
+function fetchReview(store: Store, pageLock: PageLock, viewer: Viewer, sessionId: string, review: StoredReview): ChangeReviewFeedback {
   const view = viewOf(store, review, viewer);
   if (view.state === "open") {
     const { seen, total } = progressOf(view.steps, -1);
     return { status: "open", seen, total };
   }
+  const alreadyFetchedAt = review.state === "fetched" ? review.fetchedAt : undefined;
   const threadIds = openRemarkThreads(store, pageLock, view, sessionId);
   store.changeReviews.markFetched(review.id, viewerPersonId(viewer));
   announceReviewChange(store, review.id);
@@ -186,7 +222,7 @@ export function changeReviewFeedback(
     steps: view.steps.map((step) => ({ id: step.id, label: `${step.pageTitle} · ${step.artboardTitle}`, artboard: step.artboard, answers: step.answers })),
     threadIds,
   });
-  return { status: "finished", ...result };
+  return { status: "finished", ...(alreadyFetchedAt ? { alreadyFetchedAt } : {}), ...result };
 }
 
 /** One thread per remark on its artboard, signed by the remark's author and taken by `sessionId` (so `reply_in_thread` works on it). Thread ids by remark id. */

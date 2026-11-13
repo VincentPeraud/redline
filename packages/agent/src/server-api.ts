@@ -111,8 +111,8 @@ export class ServerApi {
   }
 
   /** The result of a finished review (its progress while it is open). */
-  reviewFeedback(sessionId: string, reviewId: string): Promise<ChangeReviewFeedback> {
-    const body: ChangeReviewFeedbackRequest = { reviewId };
+  reviewFeedback(sessionId: string, request: ChangeReviewFeedbackRequest): Promise<ChangeReviewFeedback> {
+    const body: ChangeReviewFeedbackRequest = request;
     return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/review-feedback`, body);
   }
 

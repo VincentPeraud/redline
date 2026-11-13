@@ -409,11 +409,27 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
   server.registerTool(
     REVIEW_FEEDBACK_TOOL,
     {
-      description: "Get the result of a review you declared with request_review, when the person says they are done: who requested and finished it, the validated steps with who validated them, and the steps not seen.",
-      inputSchema: { reviewId: z.string().describe("Id of the review, as given by request_review") },
+      description:
+        "Get the result of a finished review when the person says they are done: who requested and finished it, the validated steps with who validated them, the remarks (each becomes a comment thread given to this session) and the steps not seen. Without reviewId it looks at the finished reviews of the projects linked to this folder: one is fetched, several are listed (nothing is fetched: ask the person which one), none finished says which open reviews are still going. Any conversation of a member with Écriture on the project can fetch a review, whoever requested it.",
+      inputSchema: { reviewId: z.string().optional().describe("Id of the review, as given by request_review or by the list of waiting reviews; leave out to look at the reviews of this folder's projects") },
     },
-    tool(async ({ reviewId }: { reviewId: string }) => {
-      const feedback = await api.reviewFeedback(sessionId, reviewId);
+    tool(async ({ reviewId }: { reviewId?: string }) => {
+      const projectIds = readLinkedProjectIds(folder);
+      if (reviewId === undefined && projectIds.length === 0) throw new Error("This folder is linked to no Redline project: pass reviewId.");
+      const feedback = await api.reviewFeedback(sessionId, reviewId === undefined ? { projectIds } : { reviewId });
+      if (feedback.status === "several") {
+        return [
+          `${feedback.reviews.length} finished reviews wait on this folder's projects: ask the person which one, then call review_feedback again with its reviewId. Nothing was fetched.`,
+          ...feedback.reviews.map((review) => `  ${review.id} requested by ${review.requester} (${review.folder}), finished ${review.finishedAt}`),
+        ].join("\n");
+      }
+      if (feedback.status === "none-finished") {
+        if (feedback.reviews.length === 0) return "No review is waiting on this folder's projects.";
+        return [
+          "Review not finished yet. Nobody pressed \"Terminer la revue\": tell the person, handle nothing.",
+          ...feedback.reviews.map((review) => `  ${review.id} requested by ${review.requester} (${review.folder}): ${review.seen} / ${review.total} steps seen, ${review.remarks} remark${review.remarks === 1 ? "" : "s"}`),
+        ].join("\n");
+      }
       if (feedback.status === "open") return `Review not finished yet: ${feedback.seen} / ${feedback.total} steps seen. Tell the person to press "Terminer la revue", then call review_feedback again. Handle nothing for now.`;
       const line = (entry: { number: number; label: string }, suffix = "") => `${entry.number}. ${entry.label}${suffix}`;
       const remark = (entry: ChangeReviewRemarkResult) => [
@@ -421,6 +437,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
         ...entry.text.split("\n").map((textLine) => `   > ${textLine}`),
       ];
       return [
+        ...(feedback.alreadyFetchedAt ? [`Already fetched on ${feedback.alreadyFetchedAt}: the same result as before, no new thread was created (the remark threads are the ones given earlier).`] : []),
         `Requested by ${feedback.requester}. Finished by ${feedback.finishedBy}.`,
         `Validated (${feedback.validated.length}):`,
         ...feedback.validated.map((entry) => line(entry, ` · validated by ${entry.by.join(", ")}`)),
