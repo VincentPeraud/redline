@@ -18,6 +18,12 @@ const TRANSITIONS: Readonly<Record<ChangeReviewAction, { from: ChangeReviewState
 /** The state `action` leads to from `state`, or undefined when the action is not allowed there. */
 export const nextReviewState = (state: ChangeReviewState, action: ChangeReviewAction): ChangeReviewState | undefined => (TRANSITIONS[action].from === state ? TRANSITIONS[action].to : undefined);
 
+/** The last segment of a folder path (`/Users/ana/work/site` gives `site`): what a review names its requester's folder with, never the whole path. */
+export const folderName = (folder: string): string => folder.split(/[\\/]/).filter(Boolean).pop() ?? folder;
+
+/** Where a review comes from: its label, else its folder's name. */
+export const reviewPlace = (requester: { folder: string; label?: string }): string => requester.label ?? folderName(requester.folder);
+
 /** A member of the review who is on a screen of it right now (in memory only, never stored). `step` is 1-based; absent on the recap. */
 export interface ChangeReviewPresence {
   person?: Person;
@@ -259,14 +265,25 @@ export function republishedSince(seen: SeenVersions, current: CurrentVersions): 
   };
 }
 
+type Mergeable = { pageId: string; artboard: string; others?: readonly (ArtboardRef & { baseline?: string })[]; tweaks?: StepTweaks; baseline?: string };
+
+/** A declared group seen from the example the review already has: the artboards are the same, so the step must not move to another page or artboard. */
+function withExample<T extends Mergeable>(declared: T, example: ArtboardRef): T {
+  const isExample = (ref: ArtboardRef) => ref.pageId === example.pageId && ref.artboard === example.artboard;
+  const target = declared.others?.find(isExample);
+  if (isExample(declared) || !target) return declared;
+  const asMember = { pageId: declared.pageId, artboard: declared.artboard, baseline: declared.baseline };
+  return { ...declared, pageId: target.pageId, artboard: target.artboard, baseline: target.baseline, others: [asMember, ...declared.others!.filter((member) => !isExample(member))] };
+}
+
 /**
  * A new declaration merged into the steps of an open review: a redeclared step keeps its id (so its answers stay) and takes the new texts,
- * the other known steps stay, new steps have no id. Not ordered: see `orderSteps`.
+ * the other known steps stay, new steps have no id. A group redeclared with another example keeps the example it had. Not ordered: see `orderSteps`.
  */
-export function mergeSteps<T extends { pageId: string; artboard: string; others?: readonly ArtboardRef[]; tweaks?: StepTweaks }>(existing: readonly (T & { id: string })[], declared: readonly T[]): (T & { id?: string })[] {
+export function mergeSteps<T extends Mergeable>(existing: readonly (T & { id: string })[], declared: readonly T[]): (T & { id?: string })[] {
   const latest = new Map(declared.map((step) => [stepKey(step), step]));
   const known = new Set(existing.map(stepKey));
-  return [...existing.map((step) => ({ ...(latest.get(stepKey(step)) ?? step), id: step.id })), ...[...latest].filter(([key]) => !known.has(key)).map(([, step]) => step)];
+  return [...existing.map((step) => ({ ...withExample(latest.get(stepKey(step)) ?? step, step), id: step.id })), ...[...latest].filter(([key]) => !known.has(key)).map(([, step]) => step)];
 }
 
 export interface ChangeReviewResultInput {
@@ -436,6 +453,8 @@ export interface BaselineVersion {
   origin: string;
   originLabel?: string;
   hash?: string;
+  /** The terminal session that published it; absent on versions from before sessions were recorded. */
+  terminalSessionId?: string;
 }
 
 /** Where "Avant" points: a page version, or `"new"` when the artboard did not exist before the series. */
@@ -445,6 +464,8 @@ export interface BaselineInput {
   versions: readonly BaselineVersion[];
   /** Last segment of the requesting terminal session's folder: what its publishes are labelled with (terminal publishes are unsigned). */
   requesterFolder: string;
+  /** The requesting terminal session: when versions record the session that published them, only its own publishes count (the folder is the fallback for the others). */
+  requesterSessionId?: string;
   /** When the last fetched or filed review covering the artboard was fetched or filed (ISO). */
   afterReviewAt?: string;
 }
@@ -454,10 +475,11 @@ export interface BaselineInput {
  * the version current right after the last fetched or filed review covering it; else the version before the requester's first publish of the artboard
  * (the version before their latest publish when they did not change it); none when the requester never published.
  */
-export function automaticBaseline({ versions, requesterFolder, afterReviewAt }: BaselineInput): Baseline | undefined {
+export function automaticBaseline({ versions, requesterFolder, requesterSessionId, afterReviewAt }: BaselineInput): Baseline | undefined {
   const before = (index: number): Baseline => (index >= 0 && versions[index]!.hash !== undefined ? { versionId: versions[index]!.id } : "new");
   if (afterReviewAt !== undefined) return before(versions.map((version) => version.createdAt <= afterReviewAt).lastIndexOf(true));
-  const publishedByRequester = (version: BaselineVersion) => version.origin === "terminal" && version.originLabel === requesterFolder;
+  const publishedByRequester = (version: BaselineVersion) =>
+    version.origin === "terminal" && (version.terminalSessionId !== undefined ? version.terminalSessionId === requesterSessionId : version.originLabel === requesterFolder);
   const firstPublish = versions.findIndex((version, index) => publishedByRequester(version) && version.hash !== undefined && version.hash !== versions[index - 1]?.hash);
   if (firstPublish >= 0) return before(firstPublish - 1);
   const latestPublish = versions.map(publishedByRequester).lastIndexOf(true);

@@ -3,11 +3,12 @@ import { automaticBaseline, type BaselineVersion } from "@redline/shared";
 
 const at = (day: string) => `2026-11-${day}T10:00:00Z`;
 /** A page version made on `day`, by the terminal folder `by` when given (else by a person); `hash` is the artboard's file in it. */
-const version = (id: string, day: string, hash: string | undefined, by?: string): BaselineVersion => ({
+const version = (id: string, day: string, hash: string | undefined, by?: string, session?: string): BaselineVersion => ({
   id,
   createdAt: at(day),
   origin: by ? "terminal" : "user",
   ...(by ? { originLabel: by } : {}),
+  ...(session ? { terminalSessionId: session } : {}),
   ...(hash ? { hash } : {}),
 });
 
@@ -43,5 +44,15 @@ describe("automatic baseline", () => {
 
   it("marks an artboard created by the very first version as new", () => {
     expect(automaticBaseline({ versions: [version("v1", "01", "a", "agora")], requesterFolder: "agora" })).toBe("new");
+  });
+
+  it("only counts the publishes of the requesting session when the versions record their session", () => {
+    const versions = [version("v1", "01", "a"), version("v2", "02", "b", "agora", "s-other"), version("v3", "03", "c", "agora", "s-me")];
+    expect(automaticBaseline({ versions, requesterFolder: "agora", requesterSessionId: "s-me" })).toEqual({ versionId: "v2" });
+  });
+
+  it("falls back to the folder for versions that did not record a session", () => {
+    const versions = [version("v1", "01", "a"), version("v2", "02", "b", "agora"), version("v3", "03", "c", "agora", "s-me")];
+    expect(automaticBaseline({ versions, requesterFolder: "agora", requesterSessionId: "s-me" })).toEqual({ versionId: "v1" });
   });
 });

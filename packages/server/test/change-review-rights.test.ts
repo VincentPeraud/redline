@@ -138,6 +138,19 @@ describe("review of changes: rights", () => {
     expect((await visit("PUT", `/api/change-reviews/${id}/steps/${stepId}/ok`)).status).toBe(403);
     expect((await visit("POST", `/api/change-reviews/${id}/finish`)).status).toBe(403);
   });
+
+  it("deletes a project's reviews with it, and refuses a fetch through the id of a project that is gone", async () => {
+    const { id, thomas } = await declared("write");
+    const { ariane } = instance;
+    const view = await ariane.json<ChangeReview>(`/api/change-reviews/${id}`);
+    await ariane.send("POST", `/api/change-reviews/${id}/finish`);
+    await ariane.send("POST", `/api/projects/${view.projectId}/archive`);
+    expect((await ariane.send("DELETE", `/api/projects/${view.projectId}`, { title: "Acme" })).status).toBe(204);
+
+    expect((await ariane.get(`/api/change-reviews/${id}`)).status).toBe(404);
+    const thomasToken = ((await thomas.json<AgentTokenResponse>("/api/agent-token")) as AgentTokenResponse).token;
+    expect((await fetchAs(thomasToken, { projectIds: [view.projectId] })).status).toBe(403);
+  });
 });
 
 describe("review of changes: presence, reopening, filing", () => {

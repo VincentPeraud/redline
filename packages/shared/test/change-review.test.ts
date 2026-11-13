@@ -134,6 +134,15 @@ describe("merging a declaration into an open review", () => {
     expect(merged.map((s) => s.id)).toEqual(["s1", undefined]);
   });
 
+  it("keeps the example of a group redeclared with another example, and the baselines of its artboards", () => {
+    const group = { pageId: "p", artboard: "a.html", changed: "c", lookAt: "l", question: "q", others: [{ pageId: "p", artboard: "b.html", baseline: "vb" }], baseline: "va" };
+    const redeclared = { pageId: "p", artboard: "b.html", changed: "c", lookAt: "l", question: "new?", others: [{ pageId: "p", artboard: "a.html", baseline: "va" }], baseline: "vb" };
+
+    const [merged] = mergeSteps([{ ...group, id: "g1" }], [redeclared]);
+
+    expect(merged).toEqual({ ...group, question: "new?", id: "g1" });
+  });
+
   it("keeps the last of two declarations of the same step", () => {
     expect(mergeSteps([], [declared("a.html", "first?"), declared("a.html", "second?")])).toEqual([declared("a.html", "second?")]);
   });
