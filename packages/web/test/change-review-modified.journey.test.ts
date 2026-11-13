@@ -36,6 +36,11 @@ async function declareReview(): Promise<{ reviewId: string; pageId: string }> {
   const page = await seam.createPage({ "list.html": "<!doctype html><h1>List screen</h1>", "empty.html": "<!doctype html><h1>Empty screen</h1>", "manifest.json": MANIFEST }, "Home");
   const { token } = (await (await seam.server.get("/api/agent-token")).json()) as AgentTokenResponse;
   const step = (artboard: string) => ({ pageId: page.id, artboard, changed: `The ${artboard} changed`, lookAt: `Look at ${artboard}`, question: `Is ${artboard} fine?` });
+  await fetch(`${seam.server.url}/agent-api/terminal-sessions/7d6f3f6e-0000-4000-8000-000000000002/heartbeat`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ folder: "/work/site", machine: "Mac" }),
+  });
   const response = await fetch(`${seam.server.url}/agent-api/terminal-sessions/7d6f3f6e-0000-4000-8000-000000000002/reviews`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
