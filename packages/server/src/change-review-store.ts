@@ -26,7 +26,12 @@ export interface StoredStep extends ChangeReviewStepInput {
   reviewId: string;
   /** Its page was archived when the review was finished: unarchiving it later does not bring the step back. */
   archivedAtFinish?: boolean;
+  /** What "Avant" shows, fixed at declaration: a page version id, `""` for an artboard that is new in the series; absent when no baseline was known. */
+  baseline?: string;
 }
+
+/** A step to store: its baseline is already worked out (see `baselineOf` in change-reviews.ts). */
+export type StepToStore = ChangeReviewStepInput & { id?: string; baseline?: string };
 
 export interface StoredAnswer {
   id: string;
@@ -109,6 +114,7 @@ export class ChangeReviewStore {
     if (!stepColumns.includes("archived_at_finish")) db.exec("ALTER TABLE change_review_steps ADD COLUMN archived_at_finish INTEGER NOT NULL DEFAULT 0");
     if (!stepColumns.includes("tweaks")) db.exec("ALTER TABLE change_review_steps ADD COLUMN tweaks TEXT");
     if (!stepColumns.includes("mobile")) db.exec("ALTER TABLE change_review_steps ADD COLUMN mobile INTEGER NOT NULL DEFAULT 0");
+    if (!stepColumns.includes("baseline_version")) db.exec("ALTER TABLE change_review_steps ADD COLUMN baseline_version TEXT");
     const columns = (db.prepare("PRAGMA table_info(change_reviews)").all() as { name: string }[]).map((column) => column.name);
     for (const column of ["fetched_by", "fetched_at", "filed_by", "filed_at"]) if (!columns.includes(column)) db.exec(`ALTER TABLE change_reviews ADD COLUMN ${column} TEXT`);
   }
@@ -135,15 +141,15 @@ export class ChangeReviewStore {
   }
 
   /** `steps` are already in review order. */
-  create(projectId: string, requester: { personId?: string; folder: string; label?: string }, steps: ChangeReviewStepInput[]): StoredReview {
+  create(projectId: string, requester: { personId?: string; folder: string; label?: string }, steps: StepToStore[]): StoredReview {
     const id = randomUUID();
     const createdAt = new Date().toISOString();
     this.db.transaction(() => {
       this.db
         .prepare("INSERT INTO change_reviews (id, project_id, state, requester_person_id, folder, label, created_at) VALUES (?, ?, 'open', ?, ?, ?, ?)")
         .run(id, projectId, requester.personId ?? null, requester.folder, requester.label ?? null, createdAt);
-      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-      steps.forEach((step, position) => insert.run(randomUUID(), id, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0));
+      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile, baseline_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      steps.forEach((step, position) => insert.run(randomUUID(), id, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0, step.baseline ?? null));
     })();
     return this.get(id)!;
   }
@@ -158,15 +164,15 @@ export class ChangeReviewStore {
 
   /**
    * Replaces the steps of an open review by `steps`, already in review order: a step with an id keeps its row (and its answers) and takes the new texts, the others are added.
-   * A given label renames the review.
+   * A given label renames the review. A step's baseline is replaced only when `baseline` is given (the oldest one is kept otherwise).
    */
-  merge(reviewId: string, steps: (ChangeReviewStepInput & { id?: string })[], label?: string): void {
+  merge(reviewId: string, steps: StepToStore[], label?: string): void {
     this.db.transaction(() => {
-      const update = this.db.prepare("UPDATE change_review_steps SET position = ?, changed = ?, look_at = ?, question = ?, mobile = ? WHERE id = ? AND review_id = ?");
-      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      const update = this.db.prepare("UPDATE change_review_steps SET position = ?, changed = ?, look_at = ?, question = ?, mobile = ?, baseline_version = COALESCE(?, baseline_version) WHERE id = ? AND review_id = ?");
+      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile, baseline_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       steps.forEach((step, position) => {
-        if (step.id) update.run(position, step.changed, step.lookAt, step.question, step.mobile ? 1 : 0, step.id, reviewId);
-        else insert.run(randomUUID(), reviewId, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0);
+        if (step.id) update.run(position, step.changed, step.lookAt, step.question, step.mobile ? 1 : 0, step.baseline ?? null, step.id, reviewId);
+        else insert.run(randomUUID(), reviewId, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0, step.baseline ?? null);
       });
       if (label) this.db.prepare("UPDATE change_reviews SET label = ? WHERE id = ?").run(label, reviewId);
     })();
@@ -199,7 +205,7 @@ export class ChangeReviewStore {
 
   steps(reviewId: string): StoredStep[] {
     const rows = this.db.prepare("SELECT * FROM change_review_steps WHERE review_id = ? ORDER BY position").all(reviewId) as {
-      id: string; page_id: string; artboard: string; changed: string; look_at: string; question: string; tweaks: string | null; mobile: number; archived_at_finish: number;
+      id: string; page_id: string; artboard: string; changed: string; look_at: string; question: string; tweaks: string | null; mobile: number; baseline_version: string | null; archived_at_finish: number;
     }[];
     return rows.map((row) => ({
       id: row.id,
@@ -212,6 +218,7 @@ export class ChangeReviewStore {
       ...(row.archived_at_finish ? { archivedAtFinish: true } : {}),
       ...(row.tweaks ? { tweaks: JSON.parse(row.tweaks) as StepTweaks } : {}),
       ...(row.mobile ? { mobile: true } : {}),
+      ...(row.baseline_version !== null ? { baseline: row.baseline_version } : {}),
     }));
   }
 
@@ -232,7 +239,8 @@ export class ChangeReviewStore {
     return this.db.transaction(() => {
       const steps = this.db.prepare("SELECT id, review_id FROM change_review_steps WHERE page_id = ? AND artboard = ?").all(fromPageId, file) as { id: string; review_id: string }[];
       for (const { id } of steps) {
-        this.db.prepare("UPDATE change_review_steps SET page_id = ? WHERE id = ?").run(toPageId, id);
+        // "Avant" named a version of the old page: it is not known on the new one.
+        this.db.prepare("UPDATE change_review_steps SET page_id = ?, baseline_version = NULL WHERE id = ?").run(toPageId, id);
         if (seenOnSource !== undefined && seenOnTarget !== undefined) this.db.prepare("UPDATE change_review_answers SET artboard_version = ? WHERE step_id = ? AND artboard_version = ?").run(seenOnTarget, id, seenOnSource);
       }
       return [...new Set(steps.map((step) => step.review_id))];
@@ -243,6 +251,17 @@ export class ChangeReviewStore {
   freezeArchived(stepIds: readonly string[]): void {
     const update = this.db.prepare("UPDATE change_review_steps SET archived_at_finish = 1 WHERE id = ?");
     for (const id of stepIds) update.run(id);
+  }
+
+  /** When the most recent fetched or filed review with a step on this artboard was fetched or filed (ISO). */
+  lastLockedAt(pageId: string, artboard: string): string | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(fetched_at, filed_at) AS at FROM change_reviews WHERE state IN ('fetched', 'filed')
+         AND id IN (SELECT review_id FROM change_review_steps WHERE page_id = ? AND artboard = ?) ORDER BY COALESCE(fetched_at, filed_at) DESC LIMIT 1`,
+      )
+      .get(pageId, artboard) as { at: string } | undefined;
+    return row?.at;
   }
 
   answers(reviewId: string): StoredAnswer[] {

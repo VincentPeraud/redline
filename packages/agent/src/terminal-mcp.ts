@@ -396,6 +396,10 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
                 .optional()
                 .describe("Optional tweak values the step opens with (tweak id to value, as declared in the manifest), to show a state other than the default. Local to the review: nothing is saved on the page."),
               mobile: z.boolean().optional().describe("Optional: true opens the step in the mobile rendering of a responsive artboard (and tells the person to look at it in mobile)"),
+              baselineVersion: z
+                .string()
+                .optional()
+                .describe("Optional: id of the page version \"Avant\" shows (a version id returned by publish_page). Leave it out and Redline picks the version before your first publish of this artboard in this session (or after the last review that covered it)."),
             }),
           )
           .describe("The steps of the review"),
