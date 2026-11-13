@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   RESPONSIVE_FORMATS,
+  activeSteps,
   progressOf,
   renderingKey,
   renderingLabel,
@@ -46,11 +47,24 @@ const reviewPath = (reviewId: string) => `/api/change-reviews/${encodeURICompone
 const PRESENCE_BEAT_MS = 20_000;
 const UNDO_REMOVAL_MS = 5_000;
 
-/** First step without an answer after `from`, else any earlier one, else the recap. */
+/** First step without an answer after `from`, else any earlier one, else the recap. A removed step is never asked about. */
 function nextUnanswered(review: ChangeReview, from: number): View {
-  const after = review.steps.findIndex((step, index) => index > from && !stepIsSeen(step));
-  const anywhere = after !== -1 ? after : review.steps.findIndex((step) => !stepIsSeen(step));
+  const unanswered = (step: ChangeReviewStep) => !step.removed && !stepIsSeen(step);
+  const after = review.steps.findIndex((step, index) => index > from && unanswered(step));
+  const anywhere = after !== -1 ? after : review.steps.findIndex(unanswered);
   return anywhere === -1 ? "recap" : anywhere;
+}
+
+/** The nearest step still in the review after (`1`) or before (`-1`) `from`, none when there is no more. */
+function neighbour(review: ChangeReview, from: number, direction: 1 | -1): number | undefined {
+  for (let index = from + direction; index >= 0 && index < review.steps.length; index += direction) if (!review.steps[index]!.removed) return index;
+  return undefined;
+}
+
+/** "Étape n" of a step: removed steps are not counted, and a removed one takes the number of the step that follows it. */
+function stepNumber(review: ChangeReview, index: number): number {
+  const kept = review.steps.slice(0, index + 1).filter((step) => !step.removed).length;
+  return Math.min(review.steps[index]!.removed ? kept + 1 : kept, Math.max(activeSteps(review.steps).length, 1));
 }
 
 const stepRoute = (reviewId: string, view: View): Route => ({ name: "review", reviewId, step: view === "recap" ? "recap" : view + 1 });
@@ -63,6 +77,8 @@ function formatWhen(iso: string): string {
 /** The review mode: a variant of Present limited to the steps Claude declared, with its own red identity. */
 export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: number | "recap" }) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
+  /** The last review shown, so a failed reload still names it in the header. */
+  const lastReview = useRef<ChangeReview>();
   const [failed, setFailed] = useState(false);
   const [unsaved, setUnsaved] = useState(false);
   const [leaving, setLeaving] = useState<(() => void) | undefined>();
@@ -146,7 +162,10 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     return next;
   }
 
-  if (load.status !== "ready") return <StateScreen status={load.status} onRetry={() => void reload()} />;
+  if (load.status !== "ready") return <StateScreen status={load.status} review={lastReview.current} onRetry={() => void reload()} />;
+  lastReview.current = review;
+  const hasRemarks = review!.steps.some((entry) => entry.answers.some((answer) => answer.kind === "remark"));
+  if (activeSteps(review!.steps).length === 0 && !hasRemarks && (review!.state === "open" || review!.state === "filed")) return <StateScreen status="empty" review={review} onRetry={() => void reload()} />;
   const view: View = step === undefined ? (review!.state !== "open" ? "recap" : nextUnanswered(review!, -1)) : step === "recap" || step > review!.steps.length ? "recap" : step - 1;
   const guard = (action: () => void) => (unsaved ? setLeaving(() => action) : action());
   const navigate = (target: View) => navigateTo(stepRoute(reviewId, target), "replace");
@@ -173,7 +192,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
       void reload().then((fresh) => {
         if (!fresh) return;
         if (fresh.state !== "open") return navigate("recap");
-        const notSeen = fresh.steps.filter((entry) => !stepIsSeen(entry)).length;
+        const notSeen = activeSteps(fresh.steps).filter((entry) => !stepIsSeen(entry)).length;
         if (notSeen > 0 || fresh.present.length > 0) setConfirming({ notSeen, present: fresh.present });
         else finish();
       });
@@ -204,6 +223,8 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
       <TopBar review={review!} view={view} controls={view === "recap" ? undefined : controlsOf(review!.steps[view]!)} onGo={go} onLeave={guard} onFinish={requestFinish} />
       {view === "recap" ? (
         <Recap review={review!} failed={failed} removed={removed} onGo={go} onFinish={requestFinish} onReopen={reopen} onFile={() => setFiling(true)} onRemove={removeRemark} onRestore={() => void restoreRemark()} />
+      ) : review!.steps[view]!.removed ? (
+        <RemovedStep review={review!} index={view} onGo={go} />
       ) : (
         <StepView
           key={review!.steps[view]!.id}
@@ -281,16 +302,29 @@ function filingWarning(review: ChangeReview): string {
   return `Les ${remarks.length} remarques${whose} ne seront jamais transmises à une conversation. ${final}`;
 }
 
-function StateScreen({ status, onRetry }: { status: Exclude<Load["status"], "ready">; onRetry: () => void }) {
-  const text = {
-    loading: { title: "Chargement de la revue", detail: "" },
-    missing: { title: "Revue introuvable", detail: "Le lien est incomplet, ou le projet a été supprimé." },
-    refused: {
-      title: "Revue réservée aux membres de l'équipe en Écriture",
-      detail: "Ton accès à cette page (membre en Lecture ou Commentaire, ou lien de partage) ne permet pas de participer à la revue. Tu peux toujours commenter les artboards depuis le canvas si ton accès le permet.",
-    },
-    error: { title: "La revue n'a pas pu se charger", detail: "Tes réponses déjà enregistrées sont gardées." },
-  }[status];
+const STATE_TEXTS = {
+  missing: { title: "Revue introuvable", detail: "Ce lien ne correspond à aucune revue : il est incomplet, ou le projet a été supprimé. Le lien d'une revue classée ouvre toujours son récapitulatif." },
+  refused: {
+    title: "Revue réservée aux membres de l'équipe en Écriture",
+    detail: "Ton accès à cette page (membre en Lecture ou Commentaire, ou lien de partage) ne permet pas de participer à la revue. Tu peux toujours commenter les artboards depuis le canvas si ton accès le permet.",
+  },
+  error: { title: "La revue n'a pas pu se charger", detail: "Le serveur Redline ne répond pas. Tes OK et tes remarques déjà faits sont enregistrés." },
+} as const;
+
+/** "Les 9 artboards de cette revue ont été supprimés depuis la demande." */
+function emptyDetail(review: ChangeReview): string {
+  const count = review.steps.length;
+  const verb = review.steps.every((entry) => entry.removed === "deleted") ? "supprimé" : "supprimé ou archivé";
+  const lead = count > 1 ? `Les ${count} artboards de cette revue ont été ${verb}s` : `L'artboard de cette revue a été ${verb}`;
+  return `${lead} depuis la demande. Demande à Claude de refaire la revue si besoin.`;
+}
+
+/** The screens with nothing to review: loading, error (the title of the last review shown stays), empty, refused, not found. */
+function StateScreen({ status, review, onRetry }: { status: Exclude<Load["status"], "ready"> | "empty"; review?: ChangeReview; onRetry: () => void }) {
+  const text = status === "loading" ? undefined : status === "empty" ? { title: "Plus rien à revoir", detail: emptyDetail(review!) } : STATE_TEXTS[status];
+  const toCanvas = () => navigateTo(review ? { name: "project", projectId: review.projectId } : { name: "home" });
+  const requester = review?.requester.person;
+  const place = review ? (review.requester.label ?? review.requester.folder.split(/[\\/]/).filter(Boolean).pop() ?? review.requester.folder) : "";
   return (
     <div data-testid="review" className={styles.review}>
       <header data-testid="review-top" className={styles.top}>
@@ -299,21 +333,60 @@ function StateScreen({ status, onRetry }: { status: Exclude<Load["status"], "rea
             ← Canvas
           </button>
           <span className={styles.mode}>Revue</span>
+          {review && (status === "error" || status === "empty") && (
+            <span data-testid="review-title" className={styles.title}>
+              Revue{requester ? <> de <strong>{personName(requester)}</strong></> : ""} · {place} · {review.projectTitle}
+            </span>
+          )}
         </div>
       </header>
-      <div className={styles.stateScreen} role={status === "loading" ? "status" : undefined}>
-        <h1>{text.title}</h1>
-        {text.detail && <p>{text.detail}</p>}
-        {status === "error" && (
-          <button type="button" className={cx(styles.panelButton, styles.accent)} style={{ flex: "0 0 auto" }} onClick={onRetry}>
-            Réessayer
-          </button>
+      <div className={styles.stateScreen}>
+        {text ? (
+          <div className={styles.stateBox} role={status === "error" ? "alert" : undefined}>
+            <h1>{text.title}</h1>
+            <p>{text.detail}</p>
+            <div className={styles.stateActions}>
+              {status === "error" && (
+                <button type="button" className={cx(styles.stateButton, styles.stateButtonLight)} onClick={onRetry}>
+                  Réessayer
+                </button>
+              )}
+              <button type="button" className={styles.stateButton} onClick={toCanvas}>
+                {status === "missing" ? "Retour au projet" : "Retour au canvas"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className={styles.stateBox} role="status">
+            <span className={styles.spinner} aria-hidden="true" />
+            <p>Chargement de la revue</p>
+          </div>
         )}
-        {status === "refused" && (
-          <button type="button" className={styles.panelButton} style={{ flex: "0 0 auto" }} onClick={() => navigateTo({ name: "home" })}>
-            Retour au canvas
+      </div>
+    </div>
+  );
+}
+
+/** A step whose artboard was deleted, or whose page is archived: nothing to review, and it is not counted. */
+function RemovedStep({ review, index, onGo }: { review: ChangeReview; index: number; onGo: (view: View) => void }) {
+  const step = review.steps[index]!;
+  const title = `${step.pageTitle} · ${step.artboardTitle}`;
+  const next = neighbour(review, index, 1);
+  const deleted = step.removed === "deleted";
+  return (
+    <div className={styles.stateScreen}>
+      <div className={styles.stateBox} data-testid="review-removed">
+        <h1>{deleted ? "Cet artboard n'existe plus" : "Cet artboard n'est plus disponible"}</h1>
+        <p>
+          {deleted
+            ? `« ${title} » a été supprimé depuis la demande de revue. L'étape est retirée du compte.`
+            : `« ${title} » est sur une page archivée. L'étape est retirée du compte${review.state === "open" ? " tant que la page n'est pas désarchivée." : "."}`}
+        </p>
+        <div className={styles.stateActions}>
+          <button type="button" className={cx(styles.stateButton, styles.stateButtonLight)} onClick={() => onGo(next ?? "recap")}>
+            {next === undefined ? "Récapitulatif →" : "Étape suivante →"}
           </button>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -340,12 +413,14 @@ function TopBar({ review, view, controls, onGo, onLeave, onFinish }: { review: C
     };
   }, [menuOpen]);
 
-  const total = review.steps.length;
-  const position = view === "recap" ? total : view;
+  const total = activeSteps(review.steps).length;
+  const previous = view === "recap" ? undefined : neighbour(review, view, -1);
+  const next = view === "recap" ? undefined : neighbour(review, view, 1);
   const requester = review.requester.person;
   const place = review.requester.label ?? review.requester.folder.split(/[\\/]/).filter(Boolean).pop() ?? review.requester.folder;
-  const backTo: Route = view === "recap" ? { name: "project", projectId: review.projectId } : { name: "page", pageId: review.steps[view]!.pageId };
+  const backTo: Route = view === "recap" || review.steps[view]!.removed ? { name: "project", projectId: review.projectId } : { name: "page", pageId: review.steps[view]!.pageId };
   const groups = review.steps.reduce<{ pageId: string; title: string; entries: { step: ChangeReviewStep; index: number }[] }[]>((acc, entryStep, index) => {
+    if (entryStep.removed) return acc;
     const last = acc[acc.length - 1];
     if (last && last.pageId === entryStep.pageId) last.entries.push({ step: entryStep, index });
     else acc.push({ pageId: entryStep.pageId, title: entryStep.pageTitle, entries: [{ step: entryStep, index }] });
@@ -365,19 +440,19 @@ function TopBar({ review, view, controls, onGo, onLeave, onFinish }: { review: C
       </div>
       <div ref={menu} className={styles.counterWrap}>
         {view !== "recap" && (
-          <button type="button" className={styles.button} aria-label="Étape précédente" disabled={view === 0} onClick={() => onGo(view - 1)}>
+          <button type="button" className={styles.button} aria-label="Étape précédente" disabled={previous === undefined} onClick={() => onGo(previous!)}>
             ←
           </button>
         )}
         <button type="button" className={styles.counter} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
-          {view === "recap" ? "Récapitulatif" : `Étape ${position + 1} / ${total}`}
+          {view === "recap" ? "Récapitulatif" : `Étape ${stepNumber(review, view)} / ${total}`}
           {view === "recap" && review.state === "open" && <small className={styles.counterSmall}>· {progressOf(review.steps, -1).seen} / {total} vus</small>}
           <span className={styles.chev} aria-hidden="true">
             ▼
           </span>
         </button>
         {view !== "recap" && (
-          <button type="button" className={styles.button} aria-label="Étape suivante" onClick={() => onGo(view + 1 < total ? view + 1 : "recap")}>
+          <button type="button" className={styles.button} aria-label="Étape suivante" onClick={() => onGo(next ?? "recap")}>
             →
           </button>
         )}
@@ -397,7 +472,7 @@ function TopBar({ review, view, controls, onGo, onLeave, onFinish }: { review: C
                       onGo(index);
                     }}
                   >
-                    <span className={styles.menuNumber}>{index + 1}</span>
+                    <span className={styles.menuNumber}>{stepNumber(review, index)}</span>
                     <span className={cx(styles.dot, stepDotClass(step), index === view && styles.dotCurrent)} />
                     <span className={styles.menuTitle}>
                       {step.pageTitle} · {step.artboardTitle}
@@ -457,7 +532,7 @@ function Progress({ review, index }: { review: ChangeReview; index: number }) {
       </div>
       <div className={styles.progressBar}>
         {segments.map((segment, position) => (
-          <i key={review.steps[position]!.id} className={cx(styles.segment, segment === "ok" && styles.segmentOk, segment === "remark" && styles.segmentRemark, segment === "current" && styles.segmentCurrent, segment === "modified" && styles.segmentChanged)} />
+          <i key={activeSteps(review.steps)[position]!.id} className={cx(styles.segment, segment === "ok" && styles.segmentOk, segment === "remark" && styles.segmentRemark, segment === "current" && styles.segmentCurrent, segment === "modified" && styles.segmentChanged)} />
         ))}
       </div>
     </div>
@@ -506,7 +581,7 @@ function StepView({
           <div>
             <div className={styles.kicker}>
               <span>
-                Page {step.pageTitle} · étape {index + 1} / {review.steps.length}
+                Page {step.pageTitle} · étape {stepNumber(review, index)} / {activeSteps(review.steps).length}
               </span>
               <span className={cx(styles.chip, !finished && !modified && status === "ok" && styles.chipOk, !finished && !modified && status === "remark" && styles.chipRemark, !finished && modified && styles.chipChanged)}>
                 {finished ? "Lecture seule" : modified ? "Modifié depuis ta revue" : status === "ok" ? "✓ OK" : STATUS_LABEL[status]}
@@ -588,10 +663,10 @@ function StepView({
           <RemarkEditor stepId={step.id} own={own} finished={finished} onKeptUnsaved={setKeptUnsaved} {...remark} />
         </div>
         <div className={styles.panelFoot}>
-          <button type="button" className={styles.panelButton} disabled={index === 0} onClick={() => onGo(index - 1)}>
+          <button type="button" className={styles.panelButton} disabled={neighbour(review, index, -1) === undefined} onClick={() => onGo(neighbour(review, index, -1)!)}>
             ← Précédente
           </button>
-          <button type="button" className={styles.panelButton} onClick={() => onGo(index + 1 < review.steps.length ? index + 1 : "recap")}>
+          <button type="button" className={styles.panelButton} onClick={() => onGo(neighbour(review, index, 1) ?? "recap")}>
             Suivante →
           </button>
         </div>
@@ -666,9 +741,7 @@ function ReviewStage({ review, step, modified, controls }: { review: ChangeRevie
             />
           </div>
         </PlayFrame>
-      ) : entry ? null : (
-        <p className={styles.hint}>Cet artboard n'existe plus · {step.artboard}</p>
-      )}
+      ) : null}
       {controls.tweaksOpen && controls.tweaks.length > 0 && (
         <aside aria-label="Tweaks" className={styles.tweaks}>
           <div className={styles.tweaksHead}>
@@ -728,9 +801,10 @@ function Recap({
   onRestore: () => void;
 }) {
   const open = review.state === "open";
-  const okSteps = review.steps.filter((step) => stepStatus(step.answers) === "ok");
+  const kept = activeSteps(review.steps);
+  const okSteps = kept.filter((step) => stepStatus(step.answers) === "ok");
   const remarks = review.steps.flatMap((step) => step.answers.filter((answer) => answer.kind === "remark").map((answer) => ({ step, answer })));
-  const notSeen = review.steps.filter((step) => !stepIsSeen(step));
+  const notSeen = kept.filter((step) => !stepIsSeen(step));
   const titleOf = (step: ChangeReviewStep) => `${step.pageTitle} · ${step.artboardTitle}`;
   const indexOf = (step: ChangeReviewStep) => review.steps.indexOf(step);
   const place = placeOf(review);
@@ -788,7 +862,7 @@ function Recap({
           </div>
           {open && (
             <div className={styles.recapFoot}>
-              <button type="button" className={styles.panelButton} onClick={() => onGo(review.steps.length - 1)} disabled={review.steps.length === 0}>
+              <button type="button" className={styles.panelButton} onClick={() => onGo(neighbour(review, review.steps.length, -1)!)} disabled={kept.length === 0}>
                 ← Revenir aux étapes
               </button>
               <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onFinish}>
@@ -833,7 +907,10 @@ function Recap({
             <div key={answer.id} className={styles.item}>
               <span className={cx(styles.dot, styles.dotRemark)} />
               <div className={styles.itemBody}>
-                <span className={styles.itemTitle}>{titleOf(step)}</span>
+                <span className={styles.itemTitle}>
+                  {titleOf(step)}
+                  {step.removed && ` · ${step.removed === "deleted" ? "artboard supprimé" : "page archivée"}`}
+                </span>
                 <span className={styles.itemText}>{answer.text}</span>
                 <span className={styles.itemBy}>
                   {nameOfAnswer(answer, "Toi")}
@@ -842,9 +919,11 @@ function Recap({
               </div>
               {open && answer.mine && (
                 <div className={styles.itemActions}>
-                  <button type="button" className={styles.panelButton} onClick={() => onGo(indexOf(step))}>
-                    Modifier
-                  </button>
+                  {!step.removed && (
+                    <button type="button" className={styles.panelButton} onClick={() => onGo(indexOf(step))}>
+                      Modifier
+                    </button>
+                  )}
                   <button type="button" className={styles.panelButton} onClick={() => onRemove(answer.id, step.id, answer.text ?? "", titleOf(step))}>
                     Effacer
                   </button>

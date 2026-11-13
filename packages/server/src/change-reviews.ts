@@ -323,7 +323,8 @@ function fetchReview(store: Store, pageLock: PageLock, viewer: Viewer, sessionId
   const view = viewOf(store, review, viewer);
   if (view.state === "filed") {
     const filedAt = review.filedAt ?? review.createdAt;
-    return view.filedBy ? { status: "filed", filedBy: nameOf(view.filedBy), filedAt } : { status: "nothing-left", filedAt };
+    const nothingLeft = activeSteps(view.steps).length === 0 && !view.steps.some((step) => step.answers.some((answer) => answer.kind === "remark"));
+    return nothingLeft ? { status: "nothing-left", filedAt } : { status: "filed", filedBy: nameOf(view.filedBy), filedAt };
   }
   if (view.state === "open") {
     const { seen, total } = progressOf(view.steps, -1);
