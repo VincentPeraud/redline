@@ -221,7 +221,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
 
   return (
     <div data-testid="review" className={styles.review}>
-      <TopBar review={review!} view={view} controls={view === "recap" ? undefined : controlsOf(review!.steps[view]!)} onGo={go} onLeave={guard} onFinish={requestFinish} />
+      <TopBar review={review!} view={view} controls={view === "recap" || review!.steps[view]!.removed ? undefined : controlsOf(review!.steps[view]!)} onGo={go} onLeave={guard} onFinish={requestFinish} />
       {view === "recap" ? (
         <Recap review={review!} failed={failed} removed={removed} onGo={go} onFinish={requestFinish} onReopen={reopen} onFile={() => setFiling(true)} onRemove={removeRemark} onRestore={() => void restoreRemark()} />
       ) : review!.steps[view]!.removed ? (
