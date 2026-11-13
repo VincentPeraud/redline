@@ -40,6 +40,17 @@
   --review-ok: #4ade80;
   --review-remark: #fbbf24;
   --review-changed: #f87171;
+  /* Review mode: the red bar's ink and hover states, the segmented switch, the overlay and the shadows of what opens over the stage */
+  --review-bar-text: rgba(255, 255, 255, 0.85);
+  --review-bar-text-muted: rgba(255, 255, 255, 0.8);
+  --review-bar-border: rgba(255, 255, 255, 0.45);
+  --review-bar-hover: rgba(0, 0, 0, 0.12);
+  --review-bar-pressed: rgba(0, 0, 0, 0.28);
+  --review-seg-track: rgba(0, 0, 0, 0.18);
+  --review-seg-hover: rgba(255, 255, 255, 0.12);
+  --review-overlay: rgba(0, 0, 0, 0.6);
+  --review-shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --review-shadow-sheet: 0 -12px 32px rgba(0, 0, 0, 0.4);
 
   /* Colours: warm warnings and danger actions */
   --color-warning-bg: #fdebdd;

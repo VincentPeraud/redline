@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { pageChangeReviewsPath, type PageChangeReview } from "@redline/shared";
+import { pageChangeReviewsPath, reviewPlace, type PageChangeReview } from "@redline/shared";
 import { navigateTo } from "./router.js";
 import { counted } from "./plural.js";
 import { relativeTime } from "./relativeTime.js";
@@ -14,7 +14,7 @@ const listed = (names: string[]) => (names.length < 2 ? names.join("") : `${name
 
 /** "la conversation de Vincent (agora-maquettes)": the label, else the last segment of the session's folder. */
 function conversationOf({ person, folder, label }: PageChangeReview["requester"], own: boolean): string {
-  const where = label ?? folder.split("/").filter(Boolean).pop() ?? folder;
+  const where = reviewPlace({ label, folder });
   const owner = own ? "ta conversation" : nameOf(person) ? `la conversation de ${nameOf(person)}` : "la conversation";
   return `${owner} (${where})`;
 }

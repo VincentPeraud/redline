@@ -61,7 +61,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-size-md);
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--review-bar-text);
 }
 
 .title strong {
@@ -77,7 +77,7 @@
   height: 36px;
   min-width: 36px;
   padding: 0 var(--space-3);
-  border: 1px solid rgba(255, 255, 255, 0.45);
+  border: 1px solid var(--review-bar-border);
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-surface);
@@ -91,7 +91,7 @@
 }
 
 .button:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.12);
+  background: var(--review-bar-hover);
 }
 
 .button:disabled {
@@ -117,7 +117,7 @@
   gap: var(--space-2);
   height: 36px;
   padding: 0 var(--space-3);
-  border: 1px solid rgba(255, 255, 255, 0.45);
+  border: 1px solid var(--review-bar-border);
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-surface);
@@ -130,12 +130,12 @@
 }
 
 .counter:hover {
-  background: rgba(0, 0, 0, 0.12);
+  background: var(--review-bar-hover);
 }
 
 .chev {
   font-size: var(--font-size-3xs);
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--review-bar-text-muted);
 }
 
 /* The steps menu opens over the content. */
@@ -153,7 +153,7 @@
   border-radius: var(--radius-2xl);
   background: var(--play-panel-bg);
   color: var(--play-text);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--review-shadow-popover);
 }
 
 .menu h4 {
@@ -449,6 +449,10 @@
 .hint {
   font-size: var(--font-size-xs);
   color: var(--play-text-muted);
+}
+
+.lock .panelButton {
+  flex: 0 0 auto;
 }
 
 .lock {
@@ -931,7 +935,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--review-overlay);
 }
 
 .leaveBox {
@@ -975,7 +979,7 @@
 }
 
 .buttonOn {
-  background: rgba(0, 0, 0, 0.28);
+  background: var(--review-bar-pressed);
 }
 
 /* The rendering switch of a responsive artboard, in the red bar. */
@@ -984,7 +988,7 @@
   gap: 2px;
   padding: 3px;
   border-radius: var(--radius-md);
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--review-seg-track);
 }
 
 .segButton {
@@ -993,7 +997,7 @@
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--review-bar-text-muted);
   font: inherit;
   font-size: var(--font-size-xs);
   font-weight: 500;
@@ -1003,7 +1007,7 @@
 }
 
 .segButton:hover:not(.segButtonOn):not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--review-seg-hover);
 }
 
 .segButton:disabled {
@@ -1039,7 +1043,7 @@
   border: 1px solid var(--play-border-strong);
   border-radius: var(--radius-2xl);
   background: var(--play-panel-bg);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--review-shadow-popover);
 }
 
 .tweaksHead {
@@ -1062,7 +1066,7 @@
 .counterSmall {
   font-size: var(--font-size-sm);
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--review-bar-text-muted);
 }
 
 .undoLine {
@@ -1181,7 +1185,7 @@
   display: block;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--play-panel-bg);
 }
 
@@ -1239,7 +1243,7 @@
   border-top: 1px solid var(--play-border-strong);
   border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
   background: var(--play-panel-bg);
-  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--review-shadow-sheet);
 }
 
 .grip {

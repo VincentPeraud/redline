@@ -4,6 +4,7 @@ import {
   activeSteps,
   progressOf,
   renderingKey,
+  reviewPlace,
   renderingLabel,
   stepIsGroup,
   stepIsModified,
@@ -45,6 +46,8 @@ type View = number | "recap";
 interface RemovedRemark {
   stepId: string;
   text: string;
+  /** The artboard of the group it was attached to (absent: the example). */
+  on?: ArtboardRef;
   title: string;
   lost?: boolean;
 }
@@ -105,20 +108,21 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     return () => window.removeEventListener("beforeunload", warn);
   }, [unsaved]);
 
-  /** Loads the review as it stands now and answers it (undefined when it cannot be shown). */
+  /** Loads the review as it stands now and answers it (undefined when it cannot be shown). A server that does not answer leaves a review already on screen alone: its unsaved text stays. */
   const reload = useCallback(async (): Promise<ChangeReview | undefined> => {
+    const unreachable = () => setLoad((current) => (current.status === "ready" ? current : { status: "error" }));
     try {
       const response = await fetch(reviewPath(reviewId));
       if (response.status === 404) setLoad({ status: "missing" });
       else if (response.status === 403) setLoad({ status: "refused" });
-      else if (!response.ok) setLoad({ status: "error" });
+      else if (!response.ok) unreachable();
       else {
         const next = (await response.json()) as ChangeReview;
         setLoad({ status: "ready", review: next });
         return next;
       }
     } catch {
-      setLoad({ status: "error" });
+      unreachable();
     }
     return undefined;
   }, [reviewId]);
@@ -212,18 +216,18 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     setFiling(false);
     void change("POST", "/file");
   };
-  const removeRemark = (answerId: string, stepId: string, text: string, title: string) => {
+  const removeRemark = (answerId: string, stepId: string, text: string, title: string, on?: ArtboardRef) => {
     clearTimeout(removedTimer.current);
     void change("DELETE", `/remarks/${answerId}`).then((next) => {
       if (!next) return;
-      setRemoved({ stepId, text, title });
+      setRemoved({ stepId, text, title, ...(on ? { on } : {}) });
       removedTimer.current = setTimeout(() => setRemoved(undefined), UNDO_REMOVAL_MS);
     });
   };
   const restoreRemark = async () => {
     if (!removed) return;
     clearTimeout(removedTimer.current);
-    const next = await change("PUT", `/steps/${removed.stepId}/remark`, { text: removed.text });
+    const next = await change("PUT", `/steps/${removed.stepId}/remark`, { text: removed.text, ...(removed.on ? { pageId: removed.on.pageId, artboard: removed.on.artboard } : {}) });
     // The review was locked meanwhile: the text stays here, read-only.
     setRemoved(next ? undefined : { ...removed, lost: true });
   };
@@ -336,7 +340,7 @@ function StateScreen({ status, review, onRetry }: { status: Exclude<Load["status
   const text = status === "loading" ? undefined : status === "empty" ? { title: "Plus rien à revoir", detail: emptyDetail(review!) } : STATE_TEXTS[status];
   const toCanvas = () => navigateTo(review ? { name: "project", projectId: review.projectId } : { name: "home" });
   const requester = review?.requester.person;
-  const place = review ? (review.requester.label ?? review.requester.folder.split(/[\\/]/).filter(Boolean).pop() ?? review.requester.folder) : "";
+  const place = review ? reviewPlace(review.requester) : "";
   return (
     <div data-testid="review" className={styles.review}>
       <header data-testid="review-top" className={styles.top}>
@@ -431,7 +435,7 @@ function TopBar({ review, view, shown, controls, onGo, onLeave, onFinish }: { re
   const next = view === "recap" ? undefined : neighbour(review, view, 1);
   const step = shown;
   const requester = review.requester.person;
-  const place = review.requester.label ?? review.requester.folder.split(/[\\/]/).filter(Boolean).pop() ?? review.requester.folder;
+  const place = reviewPlace(review.requester);
   const backTo: Route = view === "recap" || review.steps[view]!.removed ? { name: "project", projectId: review.projectId } : { name: "page", pageId: review.steps[view]!.pageId };
   // A group spanning several pages is listed apart, under "Sur plusieurs pages" (they come last in the review).
   const groups = review.steps.reduce<{ key: string; title: string; entries: { step: ChangeReviewStep; index: number }[] }[]>((acc, entryStep, index) => {
@@ -499,9 +503,9 @@ function TopBar({ review, view, shown, controls, onGo, onLeave, onFinish }: { re
                     }}
                   >
                     <span className={styles.menuNumber}>{stepNumber(review, index)}</span>
-                    <span className={cx(styles.dot, stepDotClass(step), index === view && styles.dotCurrent)} />
+                    <span className={cx(styles.dot, STEP_STATE[stepStateOf(step)].dot, index === view && styles.dotCurrent)} />
                     <span className={styles.menuTitle}>{stepLabel(step)}</span>
-                    <span className={styles.menuState}>{index === view ? "En cours" : stepIsModified(step) ? "Modifié" : STATUS_LABEL[stepStatus(step.answers)]}</span>
+                    <span className={styles.menuState}>{index === view ? "En cours" : STEP_STATE[stepStateOf(step)].label}</span>
                   </button>
                 ))}
               </div>
@@ -575,9 +579,15 @@ function TopBar({ review, view, shown, controls, onGo, onLeave, onFinish }: { re
   );
 }
 
-const STATUS_LABEL = { unseen: "Non vu", ok: "OK", remark: "Remarque" } as const;
+/** What each state of a step shows in the menu: its label and the colour of its dot. */
+const STEP_STATE = {
+  unseen: { label: "Non vu", dot: undefined },
+  ok: { label: "OK", dot: styles.dotOk },
+  remark: { label: "Remarque", dot: styles.dotRemark },
+  modified: { label: "Modifié", dot: styles.dotChanged },
+} as const;
 
-const stepDotClass = (step: ChangeReviewStep) => (stepIsModified(step) ? styles.dotChanged : stepStatus(step.answers) === "ok" ? styles.dotOk : stepStatus(step.answers) === "remark" ? styles.dotRemark : undefined);
+const stepStateOf = (step: ChangeReviewStep): keyof typeof STEP_STATE => (stepIsModified(step) ? "modified" : stepStatus(step.answers));
 
 function Progress({ review, index }: { review: ChangeReview; index: number }) {
   const { seen, total, segments } = progressOf(review.steps, index);
@@ -645,7 +655,7 @@ function StepView({
   const changedNames = (step.others ?? []).filter((member) => member.modified).map((member) => `${member.pageTitle} · ${member.artboardTitle}`);
   const exampleChanged = step.modifiedAt !== undefined ? [`${step.pageTitle} · ${step.artboardTitle}`] : [];
   const changedSince = [...exampleChanged, ...changedNames];
-  const chipText = finished ? "Lecture seule" : modified ? "Modifié depuis ta revue" : status === "ok" ? "✓ OK" : STATUS_LABEL[status];
+  const chipText = finished ? "Lecture seule" : modified ? "Modifié depuis ta revue" : status === "ok" ? "✓ OK" : STEP_STATE[status].label;
   const chipClass = cx(styles.chip, !finished && !modified && status === "ok" && styles.chipOk, !finished && !modified && status === "remark" && styles.chipRemark, !finished && modified && styles.chipChanged);
   const remarkEditor = (
     <RemarkEditor
@@ -684,7 +694,7 @@ function StepView({
         {lockWhen(review)} : plus de OK ni de remarque.{keptUnsaved ? " Ton texte non enregistré est gardé ci-dessous pour que tu le copies." : ""}
       </span>
       {review.state === "finished" && (
-        <button type="button" className={styles.panelButton} style={{ flex: "0 0 auto" }} onClick={onReopen}>
+        <button type="button" className={styles.panelButton} onClick={onReopen}>
           Rouvrir la revue
         </button>
       )}
@@ -798,9 +808,7 @@ function StepView({
               </span>
               <span className={styles.chips}>
                 {group && <span className={styles.chip}>Groupé</span>}
-                <span className={cx(styles.chip, !finished && !modified && status === "ok" && styles.chipOk, !finished && !modified && status === "remark" && styles.chipRemark, !finished && modified && styles.chipChanged)}>
-                  {finished ? "Lecture seule" : modified ? "Modifié depuis ta revue" : status === "ok" ? "✓ OK" : STATUS_LABEL[status]}
-                </span>
+                <span className={chipClass}>{chipText}</span>
               </span>
             </div>
             <h2 className={styles.heading}>{stepLabel(step)}</h2>
@@ -873,7 +881,7 @@ function StepView({
                 {lockWhen(review)} : plus de OK ni de remarque.{keptUnsaved ? " Ton texte non enregistré est gardé ci-dessous pour que tu le copies." : ""}
               </span>
               {review.state === "finished" && (
-                <button type="button" className={styles.panelButton} style={{ flex: "0 0 auto" }} onClick={onReopen}>
+                <button type="button" className={styles.panelButton} onClick={onReopen}>
                   Rouvrir la revue
                 </button>
               )}
@@ -1117,8 +1125,6 @@ function Thumbnail({ member, origin }: { member: ChangeReviewMember; origin: str
 
 const nameOfAnswer = (answer: ChangeReviewAnswer, own: string) => (answer.mine ? own : personName(answer.person));
 
-const placeOf = (review: ChangeReview) => review.requester.label ?? review.requester.folder.split(/[\\/]/).filter(Boolean).pop() ?? review.requester.folder;
-
 /** "Terminée par X", "Récupérée par la conversation de X", "Classée sans envoi par X": who locked the review. */
 function lockTitle(review: ChangeReview): string {
   if (review.state === "fetched") return `Récupérée par la conversation de ${personName(review.fetchedBy)}`;
@@ -1157,7 +1163,7 @@ function Recap({
   onFinish: () => void;
   onReopen: () => void;
   onFile: () => void;
-  onRemove: (answerId: string, stepId: string, text: string, title: string) => void;
+  onRemove: (answerId: string, stepId: string, text: string, title: string, on?: ArtboardRef) => void;
   onRestore: () => void;
 }) {
   const open = review.state === "open";
@@ -1167,7 +1173,7 @@ function Recap({
   const notSeen = kept.filter((step) => !stepIsSeen(step));
   const titleOf = stepLabel;
   const indexOf = (step: ChangeReviewStep) => review.steps.indexOf(step);
-  const place = placeOf(review);
+  const place = reviewPlace(review.requester);
   const requester = personName(review.requester.person);
   return (
     <div className={styles.screen}>
@@ -1285,7 +1291,7 @@ function Recap({
                       Modifier
                     </button>
                   )}
-                  <button type="button" className={styles.panelButton} onClick={() => onRemove(answer.id, step.id, answer.text ?? "", titleOf(step))}>
+                  <button type="button" className={styles.panelButton} onClick={() => onRemove(answer.id, step.id, answer.text ?? "", titleOf(step), answer.on)}>
                     Effacer
                   </button>
                 </div>

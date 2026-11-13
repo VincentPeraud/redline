@@ -123,3 +123,23 @@ it("shows the loading screen, then the error screen with Réessayer, and loads t
   await tab.getByRole("button", { name: /^Étape 1 \/ 1/ }).waitFor();
   await tab.close();
 });
+
+it("keeps the review and the text being typed when a background reload fails", async () => {
+  const { reviewId } = await declareReview(["list.html", "meeting.html"]);
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${seam.server.url}/#/reviews/${reviewId}/steps/1`);
+  const remark = tab.getByRole("textbox", { name: /remarque/ });
+  await remark.fill("Typed while the server hiccups");
+  await expect.poll(async () => (await reviewOf(reviewId)).steps[0]!.answers.length).toBe(1);
+
+  // Another member answers: the screen reloads, and the server does not answer this time.
+  await tab.route(`**/api/change-reviews/${reviewId}`, (route) => route.abort());
+  const second = (await reviewOf(reviewId)).steps[1]!;
+  await fetch(`${seam.server.url}/api/change-reviews/${reviewId}/steps/${second.id}/ok`, { method: "PUT" });
+  await tab.waitForTimeout(800);
+
+  expect(await tab.getByTestId("review-title").count()).toBe(1);
+  expect(await tab.getByRole("button", { name: "Réessayer" }).count()).toBe(0);
+  expect(await remark.inputValue()).toBe("Typed while the server hiccups");
+  await tab.close();
+});

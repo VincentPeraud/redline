@@ -115,3 +115,22 @@ it("validates the whole group once, and sends it back to Modifié, marking the a
   await tab.getByRole("button", { name: "Revoir et valider les 3" }).click();
   await expect.poll(async () => (await reviewOf(reviewId)).steps[1]!.answers.map((a) => a.outdated ?? false)).toEqual([false]);
 }, 60_000);
+
+it("puts a deleted group remark back on the artboard it was attached to", async () => {
+  const { reviewId, settings } = await declareReview();
+  const group = (await reviewOf(reviewId)).steps[1]!;
+  await fetch(`${seam.server.url}/api/change-reviews/${reviewId}/steps/${group.id}/remark`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text: "Badge too big", pageId: settings, artboard: "list.html" }),
+  });
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${seam.server.url}/#/reviews/${reviewId}/recap`);
+
+  await tab.getByRole("button", { name: "Effacer" }).click();
+  await expect.poll(async () => (await reviewOf(reviewId)).steps[1]!.answers).toEqual([]);
+  await tab.getByRole("button", { name: "Annuler" }).click();
+
+  await expect.poll(async () => (await reviewOf(reviewId)).steps[1]!.answers[0]).toMatchObject({ kind: "remark", text: "Badge too big", on: { pageId: settings, artboard: "list.html" } });
+  await tab.close();
+}, 60_000);
