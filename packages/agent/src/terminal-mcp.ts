@@ -435,7 +435,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       if (feedback.status === "open") return `Review not finished yet: ${feedback.seen} / ${feedback.total} steps seen. Tell the person to press "Terminer la revue", then call review_feedback again. Handle nothing for now.`;
       const line = (entry: { number: number; label: string }, suffix = "") => `${entry.number}. ${entry.label}${suffix}`;
       const remark = (entry: ChangeReviewRemarkResult) => [
-        `${entry.number}. ${entry.label} (${entry.artboard}) · remark by ${entry.author} · thread ${entry.threadId ?? "none"}${entry.alsoValidatedBy.length > 0 ? ` · ${entry.alsoValidatedBy.join(", ")} had validated this step` : ""}`,
+        `${entry.number}. ${entry.label} (${entry.artboard}) · remark by ${entry.author}${entry.artboardModified ? " · artboard modifié depuis la remarque" : ""} · thread ${entry.threadId ?? "none"}${entry.alsoValidatedBy.length > 0 ? ` · ${entry.alsoValidatedBy.join(", ")} had validated this step` : ""}`,
         ...entry.text.split("\n").map((textLine) => `   > ${textLine}`),
       ];
       return [
@@ -447,7 +447,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
         ...feedback.remarks.flatMap(remark),
         ...(feedback.remarks.length > 0 ? ["Each remark is now a comment thread on its artboard, given to this session: answer it with reply_in_thread (the thread id is above)."] : []),
         `Not seen (${feedback.notSeen.length}):`,
-        ...feedback.notSeen.map((entry) => line(entry)),
+        ...feedback.notSeen.map((entry) => line(entry, entry.modifiedAfterOk ? " · modifié après le OK" : "")),
       ].join("\n");
     }),
   );

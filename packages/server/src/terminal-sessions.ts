@@ -95,6 +95,12 @@ export class TerminalSessions implements TerminalPresence {
     return hold !== undefined && this.present.has(hold.sessionId);
   }
 
+  /** The folder a present session works in, shortened like the page's holder. */
+  folderOf(sessionId: string): string | undefined {
+    const session = this.present.get(sessionId);
+    return session && homeShortened(session.folder);
+  }
+
   /** The present session holding the page. */
   holderOf(pageId: string): TerminalHolder | undefined {
     const hold = this.store.holdOf(pageId);

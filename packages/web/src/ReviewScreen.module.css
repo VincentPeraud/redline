@@ -231,6 +231,7 @@
 }
 
 .stage {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -702,6 +703,38 @@
   margin: 0;
   max-width: 420px;
   line-height: 1.5;
+}
+
+.dotChanged {
+  background: var(--review-changed);
+}
+
+.segmentChanged {
+  background: var(--review-changed);
+}
+
+.chipChanged {
+  background: color-mix(in srgb, var(--review-changed) 16%, transparent);
+  color: var(--review-changed);
+}
+
+.tag {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 1;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  background: var(--play-panel-bg);
+  border: 1px solid var(--play-border-strong);
+  font-size: var(--font-size-xs);
+  color: var(--play-text);
+  white-space: nowrap;
 }
 
 .dotRemark {

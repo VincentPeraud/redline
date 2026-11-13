@@ -35,6 +35,8 @@ export interface StoredAnswer {
   /** The thread a remark became at fetch. */
   threadId?: string;
   at: string;
+  /** The artboard version (the version where its content last changed) the answer saw; absent on answers from before versions were recorded. */
+  artboardVersion?: string;
 }
 
 interface ReviewRow {
@@ -96,6 +98,7 @@ export class ChangeReviewStore {
     const answerColumns = (db.prepare("PRAGMA table_info(change_review_answers)").all() as { name: string }[]).map((column) => column.name);
     if (!answerColumns.includes("kind")) db.exec("ALTER TABLE change_review_answers ADD COLUMN kind TEXT NOT NULL DEFAULT 'ok'");
     if (!answerColumns.includes("text")) db.exec("ALTER TABLE change_review_answers ADD COLUMN text TEXT");
+    if (!answerColumns.includes("artboard_version")) db.exec("ALTER TABLE change_review_answers ADD COLUMN artboard_version TEXT");
     if (!answerColumns.includes("thread_id")) db.exec("ALTER TABLE change_review_answers ADD COLUMN thread_id TEXT");
     const columns = (db.prepare("PRAGMA table_info(change_reviews)").all() as { name: string }[]).map((column) => column.name);
     for (const column of ["fetched_by", "fetched_at", "filed_by", "filed_at"]) if (!columns.includes(column)) db.exec(`ALTER TABLE change_reviews ADD COLUMN ${column} TEXT`);
@@ -192,8 +195,8 @@ export class ChangeReviewStore {
 
   answers(reviewId: string): StoredAnswer[] {
     const rows = this.db
-      .prepare("SELECT a.id, a.step_id, a.person_id, a.kind, a.text, a.thread_id, a.at FROM change_review_answers a JOIN change_review_steps s ON s.id = a.step_id WHERE s.review_id = ? ORDER BY a.at, a.rowid")
-      .all(reviewId) as { id: string; step_id: string; person_id: string; kind: "ok" | "remark"; text: string | null; thread_id: string | null; at: string }[];
+      .prepare("SELECT a.id, a.step_id, a.person_id, a.kind, a.text, a.thread_id, a.artboard_version, a.at FROM change_review_answers a JOIN change_review_steps s ON s.id = a.step_id WHERE s.review_id = ? ORDER BY a.at, a.rowid")
+      .all(reviewId) as { id: string; step_id: string; person_id: string; kind: "ok" | "remark"; text: string | null; thread_id: string | null; artboard_version: string | null; at: string }[];
     return rows.map((row) => ({
       id: row.id,
       stepId: row.step_id,
@@ -201,6 +204,7 @@ export class ChangeReviewStore {
       kind: row.kind,
       ...(row.text !== null ? { text: row.text } : {}),
       ...(row.thread_id ? { threadId: row.thread_id } : {}),
+      ...(row.artboard_version ? { artboardVersion: row.artboard_version } : {}),
       at: row.at,
     }));
   }
@@ -220,9 +224,14 @@ export class ChangeReviewStore {
     return this.db.prepare("SELECT 1 FROM change_review_steps WHERE id = ? AND review_id = ?").get(stepId, reviewId) !== undefined;
   }
 
-  /** One OK per person and step: answering again keeps the first. */
-  addOk(stepId: string, personId: string | undefined): void {
-    this.db.prepare("INSERT OR IGNORE INTO change_review_answers (id, step_id, person_id, at, kind) VALUES (?, ?, ?, ?, 'ok')").run(randomUUID(), stepId, personId ?? "", new Date().toISOString());
+  /** One OK per person and step: answering again keeps the first, unless it saw an older version of the artboard (then it is replaced). */
+  addOk(stepId: string, personId: string | undefined, artboardVersion: string | undefined): void {
+    this.db
+      .prepare(
+        `INSERT INTO change_review_answers (id, step_id, person_id, at, kind, artboard_version) VALUES (?, ?, ?, ?, 'ok', ?)
+         ON CONFLICT (step_id, person_id) DO UPDATE SET at = excluded.at, artboard_version = excluded.artboard_version WHERE kind = 'ok' AND artboard_version IS NOT excluded.artboard_version`,
+      )
+      .run(randomUUID(), stepId, personId ?? "", new Date().toISOString(), artboardVersion ?? null);
   }
 
   removeOk(stepId: string, personId: string | undefined): void {
@@ -230,10 +239,12 @@ export class ChangeReviewStore {
   }
 
   /** Saves the person's remark on the step; it replaces their OK. */
-  saveRemark(stepId: string, personId: string | undefined, text: string): void {
+  saveRemark(stepId: string, personId: string | undefined, text: string, artboardVersion: string | undefined): void {
     this.db
-      .prepare("INSERT INTO change_review_answers (id, step_id, person_id, at, kind, text) VALUES (?, ?, ?, ?, 'remark', ?) ON CONFLICT (step_id, person_id) DO UPDATE SET kind = 'remark', text = excluded.text, at = excluded.at")
-      .run(randomUUID(), stepId, personId ?? "", new Date().toISOString(), text);
+      .prepare(
+        "INSERT INTO change_review_answers (id, step_id, person_id, at, kind, text, artboard_version) VALUES (?, ?, ?, ?, 'remark', ?, ?) ON CONFLICT (step_id, person_id) DO UPDATE SET kind = 'remark', text = excluded.text, at = excluded.at, artboard_version = excluded.artboard_version",
+      )
+      .run(randomUUID(), stepId, personId ?? "", new Date().toISOString(), text, artboardVersion ?? null);
   }
 
   removeAnswer(answerId: string): void {

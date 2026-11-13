@@ -155,7 +155,13 @@ export function RemarkEditor({
       ) : (
         <>
           <textarea id="remark" className={styles.textarea} value={text} placeholder="Ce qui ne va pas, ce que tu veux à la place" onChange={(event) => setText(event.target.value)} />
-          {savedText !== undefined && !unsaved && !failed && (
+          {own?.outdated && !unsaved && !failed && (
+            <span className={styles.author}>
+              <PersonDot person={own.person} />
+              Ta remarque d'avant la modification, gardée
+            </span>
+          )}
+          {savedText !== undefined && !own?.outdated && !unsaved && !failed && (
             <span className={styles.author}>
               <PersonDot person={own?.person} />
               Toi · enregistré · modifiable jusqu'à la fin de la revue

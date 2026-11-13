@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeSteps, nextReviewState, orderSteps, progressOf, stepKey, reviewResult, stepIsSeen, stepStatus, type ChangeReviewAnswer, type ChangeReviewResultInput } from "@redline/shared";
+import { stepIsModified, mergeSteps, nextReviewState, orderSteps, progressOf, stepKey, reviewResult, stepIsSeen, stepStatus, type ChangeReviewAnswer, type ChangeReviewResultInput } from "@redline/shared";
 
 const ok = (name: string | undefined): ChangeReviewAnswer => ({ id: `a-${name}`, kind: "ok", at: "2026-11-13T10:00:00Z", mine: false, ...(name ? { person: { id: name, name, email: "", initials: name.slice(0, 2) } } : {}) });
 const remark = (name: string, text = "Move it up"): ChangeReviewAnswer => ({ ...ok(name), id: `r-${name}`, kind: "remark", text });
@@ -133,5 +133,45 @@ describe("allowed transitions", () => {
     expect(nextReviewState("fetched", "reopen")).toBeUndefined();
     expect(nextReviewState("fetched", "file")).toBeUndefined();
     for (const action of ["finish", "reopen", "file", "fetch"] as const) expect(nextReviewState("filed", action)).toBeUndefined();
+
+describe("steps modified after an answer", () => {
+  const old = (answer: ChangeReviewAnswer): ChangeReviewAnswer => ({ ...answer, outdated: true });
+
+  it("ignores an OK on an older version: the step is not seen and is modified", () => {
+    expect(stepStatus([old(ok("Ana"))])).toBe("unseen");
+    expect(stepIsSeen(step("s", [old(ok("Ana"))]))).toBe(false);
+    expect(stepIsModified(step("s", [old(ok("Ana"))]))).toBe(true);
+  });
+
+  it("keeps an outdated remark as a remark, and counts it as seen", () => {
+    expect(stepStatus([old(remark("Ana"))])).toBe("remark");
+    expect(stepIsSeen(step("s", [old(remark("Ana"))]))).toBe(true);
+    expect(stepIsModified(step("s", [old(remark("Ana"))]))).toBe(true);
+  });
+
+  it("is not modified when someone answered the current version", () => {
+    const answers = [old(ok("Ana")), ok("Victor")];
+    expect(stepIsModified(step("s", answers))).toBe(false);
+    expect(stepStatus(answers)).toBe("ok");
+    expect(stepIsModified(step("s"))).toBe(false);
+  });
+
+  it("gives a modified step a red segment", () => {
+    expect(progressOf([step("a", [old(ok("Ana"))]), step("b", [ok("Ana")]), step("c", [old(remark("Ana"))])], 0)).toEqual({ seen: 2, total: 3, segments: ["modified", "ok", "modified"] });
+  });
+
+  it("lists a step with only outdated OKs as not seen, modified after the OK, and marks an outdated remark", () => {
+    const result = reviewResult({
+      requester: "Ana",
+      finishedBy: "Victor",
+      steps: [
+        { id: "s1", label: "Home · list", artboard: "list.html", answers: [old(ok("Ana"))] },
+        { id: "s2", label: "Home · empty", artboard: "empty.html", answers: [old(remark("Ana")), ok("Victor")] },
+        { id: "s3", label: "Home · other", artboard: "other.html", answers: [] },
+      ],
+    });
+    expect(result.notSeen).toEqual([{ stepId: "s1", label: "Home · list", number: 1, modifiedAfterOk: true }, { stepId: "s3", label: "Home · other", number: 3 }]);
+    expect(result.validated).toEqual([]);
+    expect(result.remarks).toMatchObject([{ stepId: "s2", artboardModified: true, alsoValidatedBy: ["Victor"] }]);
   });
 });

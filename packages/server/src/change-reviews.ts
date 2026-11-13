@@ -28,8 +28,9 @@ import {
 } from "@redline/shared";
 import type { Access, Viewer } from "./access.js";
 import type { StoredReview } from "./change-review-store.js";
+import { contentChanges } from "./artboard-history.js";
 import type { PageLock } from "./page-lock.js";
-import type { Store } from "./store.js";
+import type { Store, VersionRecord } from "./store.js";
 import { MAX_TERMINAL_TEXT_LENGTH, requiredString } from "./validation.js";
 
 const MAX_STEPS = 200;
@@ -51,15 +52,40 @@ function readingOrderOf(manifest: Manifest): string[] {
   return readingOrder(boxes, groupTitlesOf(manifest)).map((artboard) => artboard.file);
 }
 
+/** The version in which the artboard's content last changed (tweak versions do not count); none when the artboard has no content. */
+function currentArtboardVersion(records: VersionRecord[], file: string): VersionRecord | undefined {
+  return contentChanges(records, file).pop();
+}
+
+/** "Claude (folder)" for a terminal publish, "Claude de Ana" for a thread or conversation, or the person or link visitor who made the version by hand. */
+function authorOf(record: VersionRecord): string | undefined {
+  const person = record.person?.name || record.person?.email;
+  if (record.origin === "terminal" || record.origin === "thread" || record.origin === "conversation") {
+    const folder = record.origin === "terminal" && record.originLabel ? ` (${record.originLabel})` : "";
+    return `Claude${person ? ` de ${person}` : ""}${folder}`;
+  }
+  return person ?? record.linkAuthor?.name;
+}
+
 const viewerPersonId = (viewer: Viewer): string | undefined => (viewer.kind === "account" || viewer.kind === "agent" ? viewer.person?.id : undefined);
 
 /** The review as `viewer` sees it, steps in review order. */
 function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeReview {
   const answers = store.changeReviews.answers(review.id);
   const own = viewerPersonId(viewer) ?? "";
+  const recordsOfPage = new Map<string, VersionRecord[]>();
   const steps = store.changeReviews.steps(review.id).map((step) => {
     const page = store.getPage(step.pageId);
+    if (page && !recordsOfPage.has(step.pageId)) recordsOfPage.set(step.pageId, store.listVersionRecords(step.pageId));
+    const current = page && currentArtboardVersion(recordsOfPage.get(step.pageId)!, step.artboard);
     const entry = page ? manifestOf(store, step.pageId).artboards.find((artboard) => artboard.file === step.artboard) : undefined;
+    const stepAnswers = answers
+      .filter((answer) => answer.stepId === step.id)
+      .map((answer) => {
+        const person = store.getPerson(answer.personId);
+        const outdated = current !== undefined && answer.artboardVersion !== undefined && answer.artboardVersion !== current.id;
+        return { id: answer.id, kind: answer.kind, ...(answer.text !== undefined ? { text: answer.text } : {}), ...(person ? { person } : {}), at: answer.at, mine: (answer.personId ?? "") === own, ...(outdated ? { outdated } : {}) };
+      });
     return {
       pageId: step.pageId,
       artboard: step.artboard,
@@ -70,12 +96,8 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
       pageTitle: page?.title ?? "",
       artboardTitle: entry?.title ?? step.artboard,
       ...(entry ? { artboardEntry: entry } : {}),
-      answers: answers
-        .filter((answer) => answer.stepId === step.id)
-        .map((answer) => {
-          const person = store.getPerson(answer.personId);
-          return { id: answer.id, kind: answer.kind, ...(answer.text !== undefined ? { text: answer.text } : {}), ...(person ? { person } : {}), at: answer.at, mine: (answer.personId ?? "") === own };
-        }),
+      answers: stepAnswers,
+      ...(stepAnswers.some((answer) => answer.outdated) && current ? { ...(authorOf(current) ? { modifiedBy: authorOf(current) } : {}), modifiedAt: current.createdAt } : {}),
     };
   });
   const requester = store.getPerson(review.requesterPersonId);
@@ -289,6 +311,11 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
 /** The review screen's routes: reading a review, answering OK or with a remark, cancelling, finishing. Access is by the review's project (see `access.ts`). */
 export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): void {
   const open = (reviewId: string) => store.changeReviews.get(reviewId);
+  /** The artboard version an answer given now sees. */
+  const versionSeenBy = (reviewId: string, stepId: string): string | undefined => {
+    const step = store.changeReviews.steps(reviewId).find((candidate) => candidate.id === stepId);
+    return step && currentArtboardVersion(store.listVersionRecords(step.pageId), step.artboard)?.id;
+  };
 
   app.get<{ Params: { reviewId: string } }>("/api/change-reviews/:reviewId", async (req, reply) => {
     const review = open(req.params.reviewId);
@@ -302,7 +329,7 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     if (!review || !store.changeReviews.hasStep(review.id, req.params.stepId)) return reply.code(404).send({ error: "step not found" });
     if (review.state !== "open") return reply.code(409).send({ error: "this review is finished" });
     if (store.changeReviews.answerOf(req.params.stepId, viewerPersonId(req.viewer))?.kind === "remark") return reply.code(409).send({ error: "you left a remark on this step: delete it before answering OK" });
-    store.changeReviews.addOk(req.params.stepId, viewerPersonId(req.viewer));
+    store.changeReviews.addOk(req.params.stepId, viewerPersonId(req.viewer), versionSeenBy(review.id, req.params.stepId));
     announceReviewChange(store, review.id);
     return viewOf(store, review, req.viewer);
   });
@@ -323,7 +350,7 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     const text = req.body?.text;
     if (!requiredString(text) || text.length > MAX_STEP_TEXT_LENGTH) return reply.code(400).send({ error: `text must be a non-empty string of at most ${MAX_STEP_TEXT_LENGTH} characters` });
     // Always the viewer's own remark: nobody can write on another member's.
-    store.changeReviews.saveRemark(req.params.stepId, viewerPersonId(req.viewer), text);
+    store.changeReviews.saveRemark(req.params.stepId, viewerPersonId(req.viewer), text, versionSeenBy(review.id, req.params.stepId));
     announceReviewChange(store, review.id);
     return viewOf(store, review, req.viewer);
   });

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { progressOf, stepIsSeen, stepStatus, type ChangeReview, type ChangeReviewAnswer, type ChangeReviewPresence, type ChangeReviewStep } from "@redline/shared";
+import { progressOf, stepIsModified, stepIsSeen, stepStatus, type ChangeReview, type ChangeReviewAnswer, type ChangeReviewPresence, type ChangeReviewStep } from "@redline/shared";
 import { ArtboardIframe, useArtboardOrigin } from "./artboardCapability.js";
 import { fitToStage } from "./PlayMode.js";
 import { PlayFrame } from "./PlayFrame.js";
 import { presentationOf } from "./playFrames.js";
+import { relativeTime } from "./relativeTime.js";
 import { navigateTo, type Route } from "./router.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import { useDocumentTitle } from "./documentTitle.js";
@@ -138,6 +139,12 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     const next = await change("PUT", `/steps/${review!.steps[index]!.id}/ok`);
     if (next) navigate(nextUnanswered(next, index));
   };
+  const clearRemarkAndValidate = async (index: number) => {
+    const step = review!.steps[index]!;
+    const remarkId = step.answers.find((answer) => answer.mine && answer.kind === "remark")?.id;
+    if (remarkId && !(await change("DELETE", `/remarks/${remarkId}`))) return;
+    await answerOk(index);
+  };
   const cancelOk = (index: number) => void change("DELETE", `/steps/${review!.steps[index]!.id}/ok`);
   const finish = () => {
     setConfirming(undefined);
@@ -188,6 +195,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
           failed={failed}
           onGo={go}
           onOk={() => guard(() => void answerOk(view))}
+          onClearAndValidate={() => guard(() => void clearRemarkAndValidate(view))}
           onCancel={() => cancelOk(view)}
           onReopen={reopen}
           remark={{ reviewPath: reviewPath(reviewId), onReview: (next) => setLoad({ status: "ready", review: next }), onReload: () => void reload(), onUnsaved: setUnsaved }}
@@ -368,11 +376,11 @@ function TopBar({ review, view, onGo, onLeave, onFinish }: { review: ChangeRevie
                     }}
                   >
                     <span className={styles.menuNumber}>{index + 1}</span>
-                    <span className={cx(styles.dot, stepStatus(step.answers) === "ok" && styles.dotOk, stepStatus(step.answers) === "remark" && styles.dotRemark, index === view && styles.dotCurrent)} />
+                    <span className={cx(styles.dot, stepDotClass(step), index === view && styles.dotCurrent)} />
                     <span className={styles.menuTitle}>
                       {step.pageTitle} · {step.artboardTitle}
                     </span>
-                    <span className={styles.menuState}>{index === view ? "En cours" : STATUS_LABEL[stepStatus(step.answers)]}</span>
+                    <span className={styles.menuState}>{index === view ? "En cours" : stepIsModified(step) ? "Modifié" : STATUS_LABEL[stepStatus(step.answers)]}</span>
                   </button>
                 ))}
               </div>
@@ -393,6 +401,8 @@ function TopBar({ review, view, onGo, onLeave, onFinish }: { review: ChangeRevie
 
 const STATUS_LABEL = { unseen: "Non vu", ok: "OK", remark: "Remarque" } as const;
 
+const stepDotClass = (step: ChangeReviewStep) => (stepIsModified(step) ? styles.dotChanged : stepStatus(step.answers) === "ok" ? styles.dotOk : stepStatus(step.answers) === "remark" ? styles.dotRemark : undefined);
+
 function Progress({ review, index }: { review: ChangeReview; index: number }) {
   const { seen, total, segments } = progressOf(review.steps, index);
   return (
@@ -405,7 +415,7 @@ function Progress({ review, index }: { review: ChangeReview; index: number }) {
       </div>
       <div className={styles.progressBar}>
         {segments.map((segment, position) => (
-          <i key={review.steps[position]!.id} className={cx(styles.segment, segment === "ok" && styles.segmentOk, segment === "remark" && styles.segmentRemark, segment === "current" && styles.segmentCurrent)} />
+          <i key={review.steps[position]!.id} className={cx(styles.segment, segment === "ok" && styles.segmentOk, segment === "remark" && styles.segmentRemark, segment === "current" && styles.segmentCurrent, segment === "modified" && styles.segmentChanged)} />
         ))}
       </div>
     </div>
@@ -414,16 +424,38 @@ function Progress({ review, index }: { review: ChangeReview; index: number }) {
 
 type RemarkProps = { reviewPath: string; onReview: (review: ChangeReview) => void; onReload: () => void; onUnsaved: (unsaved: boolean) => void };
 
-function StepView({ review, index, failed, onGo, onOk, onCancel, onReopen, remark }: { review: ChangeReview; index: number; failed: boolean; onGo: (view: View) => void; onOk: () => void; onCancel: () => void; onReopen: () => void; remark: RemarkProps }) {
+function StepView({
+  review,
+  index,
+  failed,
+  onGo,
+  onOk,
+  onClearAndValidate,
+  onCancel,
+  onReopen,
+  remark,
+}: {
+  review: ChangeReview;
+  index: number;
+  failed: boolean;
+  onGo: (view: View) => void;
+  onOk: () => void;
+  onClearAndValidate: () => void;
+  onCancel: () => void;
+  onReopen: () => void;
+  remark: RemarkProps;
+}) {
   const step = review.steps[index]!;
   const own = step.answers.find((answer) => answer.mine);
   const others = step.answers.filter((answer) => !answer.mine);
   const status = stepStatus(step.answers);
   const finished = review.state !== "open";
   const [keptUnsaved, setKeptUnsaved] = useState(false);
+  // The member's own answer saw an older version of the artboard.
+  const modified = stepIsModified(step) || own?.outdated === true;
   return (
     <div className={styles.body}>
-      <ReviewStage review={review} step={step} />
+      <ReviewStage review={review} step={step} modified={modified} />
       <aside aria-label="Question de l'étape" className={styles.panel}>
         <div className={styles.panelScroll}>
           <Progress review={review} index={index} />
@@ -432,8 +464,8 @@ function StepView({ review, index, failed, onGo, onOk, onCancel, onReopen, remar
               <span>
                 Page {step.pageTitle} · étape {index + 1} / {review.steps.length}
               </span>
-              <span className={cx(styles.chip, !finished && status === "ok" && styles.chipOk, !finished && status === "remark" && styles.chipRemark)}>
-                {finished ? "Lecture seule" : status === "ok" ? "✓ OK" : STATUS_LABEL[status]}
+              <span className={cx(styles.chip, !finished && !modified && status === "ok" && styles.chipOk, !finished && !modified && status === "remark" && styles.chipRemark, !finished && modified && styles.chipChanged)}>
+                {finished ? "Lecture seule" : modified ? "Modifié depuis ta revue" : status === "ok" ? "✓ OK" : STATUS_LABEL[status]}
               </span>
             </div>
             <h2 className={styles.heading}>
@@ -452,7 +484,15 @@ function StepView({ review, index, failed, onGo, onOk, onCancel, onReopen, remar
             <p>{step.question}</p>
             {!finished && (
               <div className={styles.row}>
-                {own?.kind === "remark" ? (
+                {own?.outdated && own.kind === "remark" ? (
+                  <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onClearAndValidate}>
+                    Effacer ma remarque et valider
+                  </button>
+                ) : own?.outdated ? (
+                  <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onOk}>
+                    Revoir et valider
+                  </button>
+                ) : own?.kind === "remark" ? (
                   <span className={styles.hint}>Ta remarque remplace ton OK pour cette étape.</span>
                 ) : own ? (
                   <button type="button" className={styles.panelButton} onClick={onCancel}>
@@ -474,7 +514,7 @@ function StepView({ review, index, failed, onGo, onOk, onCancel, onReopen, remar
                 <div key={answer.id} className={styles.other}>
                   <PersonDot person={answer.person} />
                   <span className={styles.otherText}>
-                    <strong>{personName(answer.person)}</strong> · {answer.kind === "ok" ? "✓ Validé" : answer.text}
+                    <strong>{personName(answer.person)}</strong> · {answer.kind === "ok" ? (answer.outdated ? "Validé (ancienne version)" : "✓ Validé") : answer.text}
                   </span>
                 </div>
               ))}
@@ -509,7 +549,7 @@ function StepView({ review, index, failed, onGo, onOk, onCancel, onReopen, remar
 }
 
 /** The artboard of the step at full size, in the same frame and fit as Present. */
-function ReviewStage({ review, step }: { review: ChangeReview; step: ChangeReviewStep }) {
+function ReviewStage({ review, step, modified }: { review: ChangeReview; step: ChangeReviewStep; modified: boolean }) {
   const origin = useArtboardOrigin(review.projectId);
   const stage = useRef<HTMLElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -531,6 +571,11 @@ function ReviewStage({ review, step }: { review: ChangeReview; step: ChangeRevie
   const fitted = presentation && fitToStage(presentation, size);
   return (
     <main ref={stage} className={styles.stage}>
+      {modified && (
+        <span data-testid="review-modified-tag" className={styles.tag}>
+          Nouvelle version{step.modifiedBy ? ` de ${step.modifiedBy}` : ""} depuis ta revue{step.modifiedAt ? ` · ${relativeTime(step.modifiedAt)}` : ""}
+        </span>
+      )}
       {entry && presentation && fitted && origin ? (
         <PlayFrame frame={presentation.frame} url={entry.url}>
           <div className={styles.viewport} style={{ width: fitted.viewport.width * fitted.scale, height: fitted.viewport.height * fitted.scale }}>
@@ -568,7 +613,7 @@ const lockWhen = (review: ChangeReview): string => {
 
 /** "Victor avait validé cette étape" next to a remark of someone else on a step several people looked at. */
 function alsoValidated(step: ChangeReviewStep): string {
-  const validators = step.answers.filter((answer) => answer.kind === "ok");
+  const validators = step.answers.filter((answer) => answer.kind === "ok" && !answer.outdated);
   if (validators.length === 0) return "";
   if (validators.length === 1) return validators[0]!.mine ? " · tu avais validé cette étape" : ` · ${personName(validators[0]!.person)} avait validé cette étape`;
   return ` · ${validators.map((answer) => nameOfAnswer(answer, "toi")).join(" et ")} avaient validé cette étape`;
@@ -725,7 +770,7 @@ function Recap({
             <div className={styles.item}>
               <span className={cx(styles.dot, styles.dotOk)} />
               <div className={styles.itemBody}>
-                <span className={styles.stepList}>{okSteps.map((step) => `${titleOf(step)} (${step.answers.map((answer) => nameOfAnswer(answer, "toi")).join(", ")})`).join(", ")}</span>
+                <span className={styles.stepList}>{okSteps.map((step) => `${titleOf(step)} (${step.answers.filter((answer) => !answer.outdated).map((answer) => nameOfAnswer(answer, "toi")).join(", ")})`).join(", ")}</span>
               </div>
             </div>
           )}
@@ -741,6 +786,7 @@ function Recap({
                       <button type="button" className={styles.stepLink} onClick={() => onGo(indexOf(step))}>
                         {titleOf(step)}
                       </button>
+                      {step.answers.length > 0 && " (modifié depuis ton OK)"}
                     </span>
                   ))}
                 </span>
