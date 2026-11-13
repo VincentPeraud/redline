@@ -449,3 +449,9 @@ Contracts for the UI. Types are in `@redline/shared`.
 - Step status rule (`stepStatus`): Remarque as soon as anyone left one, OK when someone validated and nobody left one. `reviewResult` lists remarks apart from validated steps.
 - Fetching a finished review (`changeReviewFeedback`) opens one thread per remark (whole-artboard target, signed by the author, `thread_id` kept on the answer so a second fetch reuses it), taken by the fetching session like a `pending_comments` pick, then marks the review `fetched`.
 - The review screen puts the step in the address as soon as it shows, so answering never moves the member to another step. A remark Redline has not received asks before the member leaves the step (`LeaveDialog`, `beforeunload`).
+
+## Review merge and refusals (review-mode lot, ticket 04)
+- A declaration is merged into the open review of the same requester (person and folder, `ChangeReviewStore.latestOf`) on the same project; another person or another folder opens a second review (one banner each). The merge is the pure `mergeSteps` (shared): a step is identified by `stepKey` (page, artboard and tweak values), a redeclared step keeps its id, so its answers stay, and takes the new texts; the union is ordered again by page order then reading order (`orderSteps`). A given label renames the review.
+- A declaration while the same requester's last review of the project is `finished` (not fetched) creates a new review and answers `warning: "ta revue précédente est terminée mais pas récupérée"`; `request_review` prints it.
+- The review's project is the first step's page. Artboards of another project and unknown files are both listed in one 400 ("une revue ne couvre qu'un projet").
+- Tests that declare several reviews from one session must use different folders, or the declarations merge.

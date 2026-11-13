@@ -22,6 +22,12 @@ export interface RequestChangeReviewRequest {
 
 export interface RequestChangeReviewResponse {
   id: string;
+  /** The steps went into the requester's open review of the project instead of a new one. */
+  merged: boolean;
+  /** Steps of the review after the declaration. */
+  stepCount: number;
+  /** Something the requester should know, for example that the previous review was not fetched. */
+  warning?: string;
 }
 
 /** One member's answer on a step (an OK or a remark, one per person): `mine` tells the viewer whether they wrote it. */
@@ -91,6 +97,23 @@ export function orderSteps<T extends { pageId: string; artboard: string }>(steps
     return index === -1 ? Number.MAX_SAFE_INTEGER : index;
   };
   return [...steps].sort((a, b) => rank(pageOrder, a.pageId) - rank(pageOrder, b.pageId) || rank(readingOrderOf[a.pageId], a.artboard) - rank(readingOrderOf[b.pageId], b.artboard));
+}
+
+/** Tweak values a step shows (name to value). */
+export type StepTweaks = Readonly<Record<string, string | number | boolean>>;
+
+/** What identifies a step: its artboard and its tweak values (two states of one artboard are two steps). */
+export const stepKey = ({ pageId, artboard, tweaks = {} }: { pageId: string; artboard: string; tweaks?: StepTweaks }): string =>
+  JSON.stringify([pageId, artboard, Object.entries(tweaks).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))]);
+
+/**
+ * A new declaration merged into the steps of an open review: a redeclared step keeps its id (so its answers stay) and takes the new texts,
+ * the other known steps stay, new steps have no id. Not ordered: see `orderSteps`.
+ */
+export function mergeSteps<T extends { pageId: string; artboard: string; tweaks?: StepTweaks }>(existing: readonly (T & { id: string })[], declared: readonly T[]): (T & { id?: string })[] {
+  const latest = new Map(declared.map((step) => [stepKey(step), step]));
+  const known = new Set(existing.map(stepKey));
+  return [...existing.map((step) => ({ ...(latest.get(stepKey(step)) ?? step), id: step.id })), ...[...latest].filter(([key]) => !known.has(key)).map(([, step]) => step)];
 }
 
 export interface ChangeReviewResultInput {

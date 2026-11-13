@@ -11,6 +11,7 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 - Review mode: a terminal session declares a review of its changes with `request_review`; members with Écriture open the link, go through the steps (page order, then reading order) in a red review screen, answer OK (cancellable), finish the review, and the conversation reads the result with `review_feedback`.
 - Review mode: pages covered by a review show a banner under the canvas header (requested, in progress, finished waiting for fetch, fetched), and review changes reach other members live.
 - Review mode: a member can write a remark instead of an OK on a step (saved as they type, editable and deletable with an undo until the review is finished, others' answers shown under "Les autres"); when the conversation fetches the review, each remark becomes a thread on its artboard, taken by that session and answerable with `reply_in_thread`.
+- Review mode: a review can cover several pages (steps listed by page in the counter menu); a new `request_review` from the same conversation merges into its open review (a redeclared step gets the new question and keeps its remarks), another conversation opens its own review, and a declaration refuses unknown files and artboards of another project.
 - A "Présenter" button in the page's top bar plays the page from its first artboard in reading order.
 
 ### Changed

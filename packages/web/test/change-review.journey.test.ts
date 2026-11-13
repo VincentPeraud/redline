@@ -40,7 +40,7 @@ async function declareReview(): Promise<string> {
   const response = await fetch(`${seam.server.url}/agent-api/terminal-sessions/7d6f3f6e-0000-4000-8000-000000000001/reviews`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ folder: "/work/site", steps: [step("list.html", "Is the list fine?"), step("empty.html", "Is the empty state fine?")] }),
+    body: JSON.stringify({ folder: `/work/${page.id}/site`, steps: [step("list.html", "Is the list fine?"), step("empty.html", "Is the empty state fine?")] }),
   });
   return ((await response.json()) as { id: string }).id;
 }

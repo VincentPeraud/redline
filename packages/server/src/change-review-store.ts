@@ -116,6 +116,30 @@ export class ChangeReviewStore {
     return this.get(id)!;
   }
 
+  /** The latest review of this requester (person and folder) on the project in `state`. */
+  latestOf(projectId: string, requester: { personId?: string; folder: string }, state: ChangeReviewState): StoredReview | undefined {
+    const row = this.db
+      .prepare("SELECT id FROM change_reviews WHERE project_id = ? AND state = ? AND folder = ? AND COALESCE(requester_person_id, '') = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(projectId, state, requester.folder, requester.personId ?? "") as { id: string } | undefined;
+    return row && this.get(row.id);
+  }
+
+  /**
+   * Replaces the steps of an open review by `steps`, already in review order: a step with an id keeps its row (and its answers) and takes the new texts, the others are added.
+   * A given label renames the review.
+   */
+  merge(reviewId: string, steps: (ChangeReviewStepInput & { id?: string })[], label?: string): void {
+    this.db.transaction(() => {
+      const update = this.db.prepare("UPDATE change_review_steps SET position = ?, changed = ?, look_at = ?, question = ? WHERE id = ? AND review_id = ?");
+      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      steps.forEach((step, position) => {
+        if (step.id) update.run(position, step.changed, step.lookAt, step.question, step.id, reviewId);
+        else insert.run(randomUUID(), reviewId, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question);
+      });
+      if (label) this.db.prepare("UPDATE change_reviews SET label = ? WHERE id = ?").run(label, reviewId);
+    })();
+  }
+
   get(id: string): StoredReview | undefined {
     const row = this.db.prepare("SELECT * FROM change_reviews WHERE id = ?").get(id) as ReviewRow | undefined;
     return (
