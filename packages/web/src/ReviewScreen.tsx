@@ -30,6 +30,7 @@ import { navigateTo, type Route } from "./router.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { useReviewControls, type StepControls } from "./useReviewControls.js";
+import { usePhone } from "./usePhone.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { cx } from "./ui/index.js";
 import { counted } from "./plural.js";
@@ -409,6 +410,7 @@ const renderingOptionLabel = (renderings: ArtboardRendering[], rendering: Artboa
 
 function TopBar({ review, view, shown, controls, onGo, onLeave, onFinish }: { review: ChangeReview; view: View; shown?: ChangeReviewStep; controls?: StepControls; onGo: (view: View) => void; onLeave: (action: () => void) => void; onFinish: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const phone = usePhone();
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!menuOpen) return;
@@ -445,28 +447,37 @@ function TopBar({ review, view, shown, controls, onGo, onLeave, onFinish }: { re
   return (
     <header data-testid="review-top" className={styles.top}>
       <div className={styles.lead}>
-        <button type="button" className={styles.button} onClick={() => onLeave(() => navigateTo(backTo))}>
-          ← Canvas
-        </button>
-        <span className={styles.mode}>Revue</span>
-        <span data-testid="review-title" className={styles.title}>
-          Revue{requester ? <> de <strong>{personName(requester)}</strong></> : ""} · {place} · {review.projectTitle}
-        </span>
+        {phone ? (
+          <button type="button" className={styles.button} aria-label="Retour au canvas" onClick={() => onLeave(() => navigateTo(backTo))}>
+            ←
+          </button>
+        ) : (
+          <>
+            <button type="button" className={styles.button} onClick={() => onLeave(() => navigateTo(backTo))}>
+              ← Canvas
+            </button>
+            <span className={styles.mode}>Revue</span>
+            <span data-testid="review-title" className={styles.title}>
+              Revue{requester ? <> de <strong>{personName(requester)}</strong></> : ""} · {place} · {review.projectTitle}
+            </span>
+          </>
+        )}
       </div>
       <div ref={menu} className={styles.counterWrap}>
-        {view !== "recap" && (
+        {phone && <span className={styles.mode}>Revue</span>}
+        {view !== "recap" && !phone && (
           <button type="button" className={styles.button} aria-label="Étape précédente" disabled={previous === undefined} onClick={() => onGo(previous!)}>
             ←
           </button>
         )}
         <button type="button" className={styles.counter} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
-          {view === "recap" ? "Récapitulatif" : `Étape ${stepNumber(review, view)} / ${total}`}
+          {view === "recap" ? "Récapitulatif" : `${phone ? "" : "Étape "}${stepNumber(review, view)} / ${total}`}
           {view === "recap" && review.state === "open" && <small className={styles.counterSmall}>· {progressOf(review.steps, -1).seen} / {total} vus</small>}
           <span className={styles.chev} aria-hidden="true">
             ▼
           </span>
         </button>
-        {view !== "recap" && (
+        {view !== "recap" && !phone && (
           <button type="button" className={styles.button} aria-label="Étape suivante" onClick={() => onGo(next ?? "recap")}>
             →
           </button>
@@ -495,11 +506,29 @@ function TopBar({ review, view, shown, controls, onGo, onLeave, onFinish }: { re
                 ))}
               </div>
             ))}
+            {phone && review.state === "open" && (
+              <button
+                type="button"
+                role="menuitem"
+                className={cx(styles.menuItem, styles.menuFinish)}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onFinish();
+                }}
+              >
+                Terminer la revue
+              </button>
+            )}
           </div>
         )}
       </div>
       <div className={styles.trail}>
-        {controls && step && !step.removed && (step.baselineVersionId || step.isNew) && (
+        {phone && controls && step && !step.removed && (step.baselineVersionId || step.isNew) && (
+          <button type="button" aria-label="Avant ou après" aria-pressed={controls.showBefore} disabled={step.isNew} className={cx(styles.button, controls.showBefore && styles.buttonOn)} onClick={() => controls.chooseBefore(!controls.showBefore)}>
+            Avant
+          </button>
+        )}
+        {!phone && controls && step && !step.removed && (step.baselineVersionId || step.isNew) && (
           <div role="group" aria-label="Version" className={styles.seg}>
             <button
               type="button"
@@ -516,7 +545,7 @@ function TopBar({ review, view, shown, controls, onGo, onLeave, onFinish }: { re
             </button>
           </div>
         )}
-        {controls && controls.renderings.length > 0 && (
+        {!phone && controls && controls.renderings.length > 0 && (
           <div role="group" aria-label="Rendu" className={styles.seg}>
             {controls.renderings.map((rendering) => (
               <button
@@ -531,12 +560,12 @@ function TopBar({ review, view, shown, controls, onGo, onLeave, onFinish }: { re
             ))}
           </div>
         )}
-        {controls && controls.tweaks.length > 0 && (
+        {!phone && controls && controls.tweaks.length > 0 && (
           <button type="button" aria-pressed={controls.tweaksOpen} className={cx(styles.button, controls.tweaksOpen && styles.buttonOn)} onClick={controls.toggleTweaks}>
             Tweaks
           </button>
         )}
-        {review.state === "open" && view !== "recap" && (
+        {!phone && review.state === "open" && view !== "recap" && (
           <button type="button" className={cx(styles.button, styles.buttonLight)} onClick={onFinish}>
             Terminer la revue
           </button>
@@ -604,6 +633,9 @@ function StepView({
   const status = stepStatus(step.answers);
   const finished = review.state !== "open";
   const [keptUnsaved, setKeptUnsaved] = useState(false);
+  const phone = usePhone();
+  const [remarkOpen, setRemarkOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   // The member's own answer saw an older version of the artboard.
   const modified = stepIsModified(step) || own?.outdated === true;
   const group = stepIsGroup(step);
@@ -613,6 +645,146 @@ function StepView({
   const changedNames = (step.others ?? []).filter((member) => member.modified).map((member) => `${member.pageTitle} · ${member.artboardTitle}`);
   const exampleChanged = step.modifiedAt !== undefined ? [`${step.pageTitle} · ${step.artboardTitle}`] : [];
   const changedSince = [...exampleChanged, ...changedNames];
+  const chipText = finished ? "Lecture seule" : modified ? "Modifié depuis ta revue" : status === "ok" ? "✓ OK" : STATUS_LABEL[status];
+  const chipClass = cx(styles.chip, !finished && !modified && status === "ok" && styles.chipOk, !finished && !modified && status === "remark" && styles.chipRemark, !finished && modified && styles.chipChanged);
+  const remarkEditor = (
+    <RemarkEditor
+      stepId={step.id}
+      own={own}
+      finished={finished}
+      onKeptUnsaved={setKeptUnsaved}
+      placement={group ? { shown: { pageId: shown.pageId, artboard: shown.artboard }, example: { pageId: step.pageId, artboard: step.artboard }, titleOf: (ref) => titleOfArtboard(step, ref) } : undefined}
+      phone={phone ? { open: remarkOpen, onClose: () => setRemarkOpen(false) } : undefined}
+      {...remark}
+    />
+  );
+  const groupWarning = group && !finished && own?.outdated && own.kind === "ok" && changedSince.length > 0 && (
+    <span className={styles.hint}>
+      Ton OK du {formatWhen(own.at)} ne compte plus : {changedSince.map((name) => `« ${name} »`).join(", ")} {changedSince.length > 1 ? "ont" : "a"} changé depuis.
+    </span>
+  );
+  const failedLine = failed && <span className={cx(styles.hint, styles.error)}>Pas enregistré : Redline ne répond pas.</span>;
+  const othersSection = others.length > 0 && (
+    <section className={styles.section}>
+      <h3>Les autres</h3>
+      {others.map((answer) => (
+        <div key={answer.id} className={styles.other}>
+          <PersonDot person={answer.person} />
+          <span className={styles.otherText}>
+            <strong>{personName(answer.person)}</strong> · {answer.kind === "ok" ? (answer.outdated ? "Validé (ancienne version)" : "✓ Validé") : answer.text}
+          </span>
+        </div>
+      ))}
+    </section>
+  );
+  const lockBox = finished && (
+    <div className={styles.lock}>
+      <span>
+        <strong>{lockTitle(review)}</strong>
+        {lockWhen(review)} : plus de OK ni de remarque.{keptUnsaved ? " Ton texte non enregistré est gardé ci-dessous pour que tu le copies." : ""}
+      </span>
+      {review.state === "finished" && (
+        <button type="button" className={styles.panelButton} style={{ flex: "0 0 auto" }} onClick={onReopen}>
+          Rouvrir la revue
+        </button>
+      )}
+    </div>
+  );
+  const stateShownHint = step.tweaks && Object.keys(step.tweaks).length > 0 && <p className={styles.hint}>État affiché : « {stateShown(step, controls.tweaks)} », fixé par Claude. Les autres états restent dans Tweaks.</p>;
+  const lookAt = (
+    <>
+      {step.mobile && (
+        <>
+          <strong>À regarder en mobile</strong> :{" "}
+        </>
+      )}
+      {step.lookAt}
+    </>
+  );
+  const next = neighbour(review, index, 1);
+
+  if (phone) {
+    return (
+      <div className={cx(styles.body, styles.bodyPhone, remarkOpen && !finished && styles.bodyRemarking)}>
+        <ReviewStage review={review} step={shown} example={step} modified={modified && (!group || shown.modifiedAt !== undefined)} controls={controls} openedMember={openedMember} onOpenMember={onOpenMember} />
+        <section aria-label="Question de l'étape" className={styles.sheet}>
+          <span className={styles.grip} aria-hidden="true" />
+          <Progress review={review} index={index} />
+          <div className={styles.sheetKicker}>
+            <span className={styles.sheetName}>{stepLabel(step)}</span>
+            <span className={styles.chips}>
+              {group && <span className={styles.chip}>Groupé</span>}
+              <span className={chipClass}>{chipText}</span>
+            </span>
+          </div>
+          <p className={styles.sheetQuestion}>{step.question}</p>
+          <button type="button" className={styles.more} aria-expanded={detailsOpen} onClick={() => setDetailsOpen(!detailsOpen)}>
+            Ce qui a changé et quoi regarder
+          </button>
+          {detailsOpen && (
+            <div className={styles.sheetDetails}>
+              <section className={styles.section}>
+                <h3>Ce qui a changé</h3>
+                <p>{step.changed}</p>
+              </section>
+              <section className={styles.section}>
+                <h3>Quoi regarder</h3>
+                <p>{lookAt}</p>
+                {stateShownHint}
+              </section>
+              {othersSection}
+            </div>
+          )}
+          {groupWarning}
+          {failedLine}
+          {lockBox}
+          {remarkEditor}
+          {!finished && !remarkOpen && (
+            <div className={styles.row}>
+              {own?.outdated ? (
+                <>
+                  <button type="button" className={styles.panelButton} onClick={() => setRemarkOpen(true)}>
+                    Remarque
+                  </button>
+                  <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={own.kind === "remark" ? onClearAndValidate : onOk}>
+                    {own.kind === "remark" ? "Effacer ma remarque et valider" : group ? `Revoir et valider les ${size}` : "Revoir et valider"}
+                  </button>
+                </>
+              ) : own?.kind === "remark" ? (
+                <>
+                  <button type="button" className={styles.panelButton} onClick={() => setRemarkOpen(true)}>
+                    Ma remarque
+                  </button>
+                  <button type="button" className={cx(styles.panelButton, styles.light)} onClick={() => onGo(next ?? "recap")}>
+                    Étape suivante
+                  </button>
+                </>
+              ) : own ? (
+                <>
+                  <button type="button" className={styles.panelButton} onClick={onCancel}>
+                    Validé · annuler
+                  </button>
+                  <button type="button" className={cx(styles.panelButton, styles.light)} onClick={() => onGo(next ?? "recap")}>
+                    Étape suivante
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" className={styles.panelButton} onClick={() => setRemarkOpen(true)}>
+                    Remarque
+                  </button>
+                  <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onOk}>
+                    {group ? `OK pour les ${size}` : "OK"}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.body}>
       <ReviewStage review={review} step={shown} example={step} modified={modified && (!group || shown.modifiedAt !== undefined)} controls={controls} openedMember={openedMember} onOpenMember={onOpenMember} />

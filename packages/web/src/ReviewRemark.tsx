@@ -30,6 +30,7 @@ export function RemarkEditor({
   own,
   finished,
   placement,
+  phone,
   onReview,
   onReload,
   onUnsaved,
@@ -41,6 +42,8 @@ export function RemarkEditor({
   finished: boolean;
   /** Present on a group: a remark is attached to the artboard shown when it was started. */
   placement?: RemarkPlacement;
+  /** On a phone the editor lives in the sheet: shown while `open`, kept mounted when closed so a pending save is not lost. */
+  phone?: { open: boolean; onClose: () => void };
   onReview: (review: ChangeReview) => void;
   onReload: () => void;
   onUnsaved: (unsaved: boolean) => void;
@@ -59,6 +62,11 @@ export function RemarkEditor({
   latest.current = { text, savedText, ownId: own?.id, startedOn };
   const placedOn = placement && (own?.kind === "remark" ? own.on ?? placement.example : startedOn);
   const deleteTimer = useRef<ReturnType<typeof setTimeout>>();
+  const field = useRef<HTMLTextAreaElement>(null);
+  const phoneOpen = phone?.open;
+  useEffect(() => {
+    if (phoneOpen) field.current?.focus();
+  }, [phoneOpen]);
 
   const unsaved = !finished && !deleting && text.trim() !== "" && text !== savedText;
   useEffect(() => onUnsaved(unsaved), [unsaved, onUnsaved]);
@@ -153,6 +161,63 @@ export function RemarkEditor({
             {copied ? "Copié" : "Copier"}
           </button>
         </span>
+      </div>
+    );
+  }
+
+  if (phone) {
+    const label = placement ? (placedOn ? `Remarque sur ${placement.titleOf(placedOn)}` : "Remarque pour tout le groupe") : "Ta remarque";
+    return (
+      <div className={styles.phoneRemark} hidden={!phone.open}>
+        <div className={styles.phoneRemarkHead}>
+          <label className={styles.label} htmlFor="remark">
+            {label}
+          </label>
+          <span className={styles.hint}>{failed ? "" : unsaved ? "Enregistrement" : savedText !== undefined && !deleting ? "Enregistrée" : ""}</span>
+        </div>
+        {deleting ? (
+          <span className={styles.author}>
+            Remarque effacée
+            <button type="button" className={cx(styles.linkButton, styles.hint)} onClick={undoDeleting}>
+              Annuler
+            </button>
+          </span>
+        ) : (
+          <textarea
+            ref={field}
+            id="remark"
+            className={styles.textarea}
+            value={text}
+            placeholder={placement ? "Elle s'attache à l'artboard affiché et cite les autres" : "Ce qui ne va pas, ce que tu veux à la place"}
+            onChange={(event) => {
+              setText(event.target.value);
+              if (placement && own?.kind !== "remark") setStartedOn(event.target.value.trim() === "" ? undefined : startedOn ?? placement.shown);
+            }}
+          />
+        )}
+        {failed && (
+          <span className={styles.errorLine} role="alert">
+            Pas enregistré : Redline ne répond pas.
+            <button type="button" className={styles.linkButton} onClick={() => void save()}>
+              Réessayer
+            </button>
+          </span>
+        )}
+        <div className={styles.row}>
+          <button type="button" className={styles.panelButton} disabled={deleting || text === ""} onClick={() => (savedText !== undefined ? startDeleting() : setText(""))}>
+            Effacer
+          </button>
+          <button
+            type="button"
+            className={cx(styles.panelButton, styles.light)}
+            onClick={() => {
+              if (unsaved && !failed) void save();
+              phone.onClose();
+            }}
+          >
+            Fermer
+          </button>
+        </div>
       </div>
     );
   }
