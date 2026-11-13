@@ -7,6 +7,7 @@ import {
   DESIGN_SYSTEM_TOKENS_PATH,
   PROJECT_STYLE_PATH,
   MAX_ASSET_BYTES,
+  folderName,
   type AgentCheckout,
   type ChangeReviewFeedbackRequest,
   type RequestChangeReviewRequest,
@@ -116,18 +117,20 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       api.post<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/pick", async (req): Promise<TerminalPickedPage[]> => terminalSessions.pick(req.params.sessionId));
 
       // `request_review` and `review_feedback`: a terminal session declares a review of its changes, then reads its result.
+      const notConnected = "this terminal session is not connected to Redline (it never sent its heartbeat, or lost it): restart or reconnect the terminal";
       api.post<{ Params: { sessionId: string }; Body: Partial<RequestChangeReviewRequest> }>("/terminal-sessions/:sessionId/reviews", async (req, reply) => {
-        if (!terminalSessions.isPresent(req.params.sessionId)) return reply.code(403).send({ error: "only a terminal session can request a review: this session has not announced itself" });
-        const result = declareChangeReview(store, access, req.viewer, terminalSessions.folderOf(req.params.sessionId), req.body);
+        if (!terminalSessions.isPresent(req.params.sessionId)) return reply.code(403).send({ error: notConnected });
+        const result = declareChangeReview({ store, access }, req.viewer, { id: req.params.sessionId, folder: terminalSessions.folderOf(req.params.sessionId) }, req.body);
         return "error" in result ? reply.code(result.status).send({ error: result.error }) : reply.code(201).send(result);
       });
 
       api.post<{ Params: { sessionId: string }; Body: Partial<ChangeReviewFeedbackRequest> }>("/terminal-sessions/:sessionId/review-feedback", async (req, reply) => {
+        if (!terminalSessions.isPresent(req.params.sessionId)) return reply.code(403).send({ error: notConnected });
         const { reviewId, projectIds } = req.body ?? {};
         if (reviewId !== undefined && !requiredString(reviewId)) return reply.code(400).send({ error: "reviewId must be a review id" });
         if (projectIds !== undefined && (!Array.isArray(projectIds) || !projectIds.every((id) => requiredString(id)))) return reply.code(400).send({ error: "projectIds must be a list of project ids" });
         if (reviewId === undefined && projectIds === undefined) return reply.code(400).send({ error: "reviewId or projectIds is required" });
-        const result = changeReviewFeedback(store, access, pageLock, req.viewer, req.params.sessionId, { reviewId, projectIds });
+        const result = changeReviewFeedback({ store, access, pageLock, terminalSessions }, req.viewer, req.params.sessionId, { reviewId, projectIds });
         return "error" in result ? reply.code(result.status).send({ error: result.error }) : result;
       });
 
@@ -254,6 +257,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         }
         if (!requiredString(baseVersionId)) return reply.code(400).send({ error: "baseVersionId is required" });
         if (req.body.terminalSessionId !== undefined && !isTerminalSessionId(req.body.terminalSessionId)) return reply.code(400).send({ error: "terminalSessionId must be a UUID" });
+        if (req.body.terminalSessionId !== undefined && !terminalSessions.claim(req.body.terminalSessionId, req.viewer.kind === "agent" ? req.viewer.person?.id : undefined)) {
+          return reply.code(403).send({ error: "this terminal session belongs to another account" });
+        }
         const invalidTitle = manifestTitleError(store, req.params.pageId, files, baseVersionId);
         if (invalidTitle) return reply.code(400).send({ error: invalidTitle });
         if (designMd !== undefined && (typeof designMd?.content !== "string" || typeof designMd.base !== "string")) {
@@ -285,8 +291,8 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           if (invalidRemoval) return reply.code(400).send({ error: invalidRemoval });
           const from = workOrigin(store, pageLock, workId, req.params.pageId);
           // A terminal publish stays unsigned (no person) but names the folder of its session, so a review can say who modified an artboard.
-          const terminalFolder = origin === "terminal" && req.body.terminalSessionId !== undefined ? terminalSessions.folderOf(req.body.terminalSessionId)?.split(/[\\/]/).filter(Boolean).pop() : undefined;
-          const ref: OriginRef | undefined = from ? { originId: from.originId, originLabel: from.originLabel, person: from.person } : terminalFolder ? { originLabel: terminalFolder } : undefined;
+          const terminalFolder = origin === "terminal" && req.body.terminalSessionId !== undefined ? terminalSessions.folderOf(req.body.terminalSessionId) : undefined;
+          const ref: OriginRef | undefined = from ? { originId: from.originId, originLabel: from.originLabel, person: from.person } : terminalFolder ? { originLabel: folderName(terminalFolder), terminalSessionId: req.body.terminalSessionId } : undefined;
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
           if (changes?.length) askToUndoRefused(store, pageLock, terminalSessions, store.recordChanges(projectId, version.id, changes));

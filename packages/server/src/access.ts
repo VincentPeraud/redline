@@ -209,7 +209,10 @@ export function createAccess({ mode, store, secrets, identity, firstAdminEmail }
     if (mode === "none" || (viewer.kind === "agent" && !viewer.person)) return "write";
     if (viewer.kind !== "account" && viewer.kind !== "agent") return undefined;
     const projectId = projectIdOf(resource);
-    return projectId === undefined ? "write" : levelIn(viewer, projectId);
+    if (projectId === undefined) return "write";
+    // A review whose project is gone is an orphan: nobody has access to it.
+    if (resource.reviewId !== undefined && !store.projectOwnership(projectId)) return undefined;
+    return levelIn(viewer, projectId);
   };
   const manages = (viewer: Viewer, projectId: string): boolean => {
     if (viewer.kind === "link") return false;

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
-import { artboardKey, type ArtboardRef, type ChangeReviewState, type ChangeReviewStepInput, type StepTweaks } from "@redline/shared";
+import { artboardKey, type ArtboardRef, type ChangeReviewResult, type ChangeReviewState, type ChangeReviewStepInput, type StepTweaks } from "@redline/shared";
 
 export interface StoredReview {
   id: string;
@@ -16,19 +16,23 @@ export interface StoredReview {
   fetchedAt?: string;
   filedBy?: string;
   filedAt?: string;
+  /** What the first fetch gave (threads included), so a second fetch gives the same; absent until the review is fetched. */
+  fetchedResult?: ChangeReviewResult;
+  /** The terminal session that fetched it, and holds the threads of its remarks. */
+  fetchedSessionId?: string;
 }
 
 /** A screen of the review heartbeats every ~20 s: someone not heard from for this long is gone. */
 export const REVIEW_PRESENCE_TIMEOUT_MS = 60_000;
 
 /** An artboard of a group other than its example, with its own baseline (same meaning as a step's). */
-export type StoredMember = ArtboardRef & { baseline?: string };
+export type StoredMember = ArtboardRef & { baseline?: string; /** Its page was archived when the review was finished: unarchiving it later does not bring it back. */ archivedAtFinish?: boolean };
 
 export interface StoredStep extends ChangeReviewStepInput {
   id: string;
   reviewId: string;
   others?: StoredMember[];
-  /** Its page was archived when the review was finished: unarchiving it later does not bring the step back. */
+  /** The example's page was archived when the review was finished: unarchiving it later does not bring the artboard back. */
   archivedAtFinish?: boolean;
   /** What "Avant" shows, fixed at declaration: a page version id, `""` for an artboard that is new in the series; absent when no baseline was known. */
   baseline?: string;
@@ -52,6 +56,8 @@ export interface StoredAnswer {
   memberVersions?: Record<string, string>;
   /** A remark on a group: the artboard it is attached to (absent: the example). */
   on?: ArtboardRef;
+  /** The step's question or texts changed after the answer was given: it counts as outdated until its author answers again. */
+  stale?: boolean;
 }
 
 /** What an answer given now saw of a step's artboards. */
@@ -74,6 +80,8 @@ interface ReviewRow {
   fetched_at: string | null;
   filed_by: string | null;
   filed_at: string | null;
+  fetched_result: string | null;
+  fetched_session: string | null;
 }
 
 /** The other artboards of a group as stored: JSON, or nothing for a single step. */
@@ -137,8 +145,9 @@ export class ChangeReviewStore {
     if (!stepColumns.includes("baseline_version")) db.exec("ALTER TABLE change_review_steps ADD COLUMN baseline_version TEXT");
     for (const column of ["others", "title"]) if (!stepColumns.includes(column)) db.exec(`ALTER TABLE change_review_steps ADD COLUMN ${column} TEXT`);
     for (const column of ["member_versions", "on_page_id", "on_artboard"]) if (!answerColumns.includes(column)) db.exec(`ALTER TABLE change_review_answers ADD COLUMN ${column} TEXT`);
+    if (!answerColumns.includes("stale")) db.exec("ALTER TABLE change_review_answers ADD COLUMN stale INTEGER NOT NULL DEFAULT 0");
     const columns = (db.prepare("PRAGMA table_info(change_reviews)").all() as { name: string }[]).map((column) => column.name);
-    for (const column of ["fetched_by", "fetched_at", "filed_by", "filed_at"]) if (!columns.includes(column)) db.exec(`ALTER TABLE change_reviews ADD COLUMN ${column} TEXT`);
+    for (const column of ["fetched_by", "fetched_at", "filed_by", "filed_at", "fetched_result", "fetched_session"]) if (!columns.includes(column)) db.exec(`ALTER TABLE change_reviews ADD COLUMN ${column} TEXT`);
   }
 
   /** Open and finished reviews with a step on the page, plus those fetched since `fetchedSince` (ISO), oldest first. */
@@ -192,13 +201,30 @@ export class ChangeReviewStore {
    */
   merge(reviewId: string, steps: StepToStore[], label?: string): void {
     this.db.transaction(() => {
+      const before = new Map((this.db.prepare("SELECT id, changed, look_at, question FROM change_review_steps WHERE review_id = ?").all(reviewId) as { id: string; changed: string; look_at: string; question: string }[]).map((row) => [row.id, row]));
       const update = this.db.prepare("UPDATE change_review_steps SET position = ?, changed = ?, look_at = ?, question = ?, mobile = ?, baseline_version = COALESCE(?, baseline_version), others = ?, title = ? WHERE id = ? AND review_id = ?");
       const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile, baseline_version, others, title) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      const outdate = this.db.prepare("UPDATE change_review_answers SET stale = 1 WHERE step_id = ?");
       steps.forEach((step, position) => {
-        if (step.id) update.run(position, step.changed, step.lookAt, step.question, step.mobile ? 1 : 0, step.baseline ?? null, othersColumn(step), step.title ?? null, step.id, reviewId);
-        else insert.run(randomUUID(), reviewId, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0, step.baseline ?? null, othersColumn(step), step.title ?? null);
+        if (!step.id) {
+          insert.run(randomUUID(), reviewId, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0, step.baseline ?? null, othersColumn(step), step.title ?? null);
+          return;
+        }
+        update.run(position, step.changed, step.lookAt, step.question, step.mobile ? 1 : 0, step.baseline ?? null, othersColumn(step), step.title ?? null, step.id, reviewId);
+        const old = before.get(step.id);
+        if (old && (old.changed !== step.changed || old.look_at !== step.lookAt || old.question !== step.question)) outdate.run(step.id);
       });
       if (label) this.db.prepare("UPDATE change_reviews SET label = ? WHERE id = ?").run(label, reviewId);
+    })();
+  }
+
+  /** Deletes the reviews of a project, with their steps and answers (the project is gone). */
+  deleteForProject(projectId: string): void {
+    const reviews = "SELECT id FROM change_reviews WHERE project_id = ?";
+    this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM change_review_answers WHERE step_id IN (SELECT id FROM change_review_steps WHERE review_id IN (${reviews}))`).run(projectId);
+      this.db.prepare(`DELETE FROM change_review_steps WHERE review_id IN (${reviews})`).run(projectId);
+      this.db.prepare("DELETE FROM change_reviews WHERE project_id = ?").run(projectId);
     })();
   }
 
@@ -219,6 +245,8 @@ export class ChangeReviewStore {
         ...(row.fetched_at ? { fetchedAt: row.fetched_at } : {}),
         ...(row.filed_by ? { filedBy: row.filed_by } : {}),
         ...(row.filed_at ? { filedAt: row.filed_at } : {}),
+        ...(row.fetched_result ? { fetchedResult: JSON.parse(row.fetched_result) as ChangeReviewResult } : {}),
+        ...(row.fetched_session ? { fetchedSessionId: row.fetched_session } : {}),
       }
     );
   }
@@ -293,10 +321,15 @@ export class ChangeReviewStore {
     })();
   }
 
-  /** Remembers which steps sat on an archived page when the review was finished. */
-  freezeArchived(stepIds: readonly string[]): void {
-    const update = this.db.prepare("UPDATE change_review_steps SET archived_at_finish = 1 WHERE id = ?");
-    for (const id of stepIds) update.run(id);
+  /** Remembers which artboards of the review sat on an archived page when it was finished (a group keeps each of its artboards apart). */
+  freezeArchived(reviewId: string, archived: readonly ArtboardRef[]): void {
+    const frozen = (ref: ArtboardRef) => archived.some((other) => other.pageId === ref.pageId && other.artboard === ref.artboard);
+    this.db.transaction(() => {
+      for (const step of this.steps(reviewId)) {
+        if (frozen(step)) this.db.prepare("UPDATE change_review_steps SET archived_at_finish = 1 WHERE id = ?").run(step.id);
+        if (step.others?.some(frozen)) this.db.prepare("UPDATE change_review_steps SET others = ? WHERE id = ?").run(JSON.stringify(step.others.map((member) => (frozen(member) ? { ...member, archivedAtFinish: true } : member))), step.id);
+      }
+    })();
   }
 
   /** When the most recent fetched or filed review with a step on this artboard was fetched or filed (ISO). */
@@ -315,8 +348,8 @@ export class ChangeReviewStore {
 
   answers(reviewId: string): StoredAnswer[] {
     const rows = this.db
-      .prepare("SELECT a.id, a.step_id, a.person_id, a.kind, a.text, a.thread_id, a.artboard_version, a.member_versions, a.on_page_id, a.on_artboard, a.at FROM change_review_answers a JOIN change_review_steps s ON s.id = a.step_id WHERE s.review_id = ? ORDER BY a.at, a.rowid")
-      .all(reviewId) as { id: string; step_id: string; person_id: string; kind: "ok" | "remark"; text: string | null; thread_id: string | null; artboard_version: string | null; member_versions: string | null; on_page_id: string | null; on_artboard: string | null; at: string }[];
+      .prepare("SELECT a.id, a.step_id, a.person_id, a.kind, a.text, a.thread_id, a.artboard_version, a.member_versions, a.on_page_id, a.on_artboard, a.stale, a.at FROM change_review_answers a JOIN change_review_steps s ON s.id = a.step_id WHERE s.review_id = ? ORDER BY a.at, a.rowid")
+      .all(reviewId) as { id: string; step_id: string; person_id: string; kind: "ok" | "remark"; text: string | null; thread_id: string | null; artboard_version: string | null; member_versions: string | null; on_page_id: string | null; on_artboard: string | null; stale: number; at: string }[];
     return rows.map((row) => ({
       id: row.id,
       stepId: row.step_id,
@@ -327,6 +360,7 @@ export class ChangeReviewStore {
       ...(row.artboard_version ? { artboardVersion: row.artboard_version } : {}),
       ...(row.member_versions ? { memberVersions: JSON.parse(row.member_versions) as Record<string, string> } : {}),
       ...(row.on_page_id && row.on_artboard ? { on: { pageId: row.on_page_id, artboard: row.on_artboard } } : {}),
+      ...(row.stale ? { stale: true } : {}),
       at: row.at,
     }));
   }
@@ -351,8 +385,8 @@ export class ChangeReviewStore {
     this.db
       .prepare(
         `INSERT INTO change_review_answers (id, step_id, person_id, at, kind, artboard_version, member_versions) VALUES (?, ?, ?, ?, 'ok', ?, ?)
-         ON CONFLICT (step_id, person_id) DO UPDATE SET at = excluded.at, artboard_version = excluded.artboard_version, member_versions = excluded.member_versions
-         WHERE kind = 'ok' AND (artboard_version IS NOT excluded.artboard_version OR member_versions IS NOT excluded.member_versions)`,
+         ON CONFLICT (step_id, person_id) DO UPDATE SET at = excluded.at, artboard_version = excluded.artboard_version, member_versions = excluded.member_versions, stale = 0
+         WHERE kind = 'ok' AND (stale = 1 OR artboard_version IS NOT excluded.artboard_version OR member_versions IS NOT excluded.member_versions)`,
       )
       .run(randomUUID(), stepId, personId ?? "", new Date().toISOString(), seen.artboardVersion ?? null, memberVersionsColumn(seen));
   }
@@ -366,7 +400,7 @@ export class ChangeReviewStore {
     this.db
       .prepare(
         `INSERT INTO change_review_answers (id, step_id, person_id, at, kind, text, artboard_version, member_versions, on_page_id, on_artboard) VALUES (?, ?, ?, ?, 'remark', ?, ?, ?, ?, ?)
-         ON CONFLICT (step_id, person_id) DO UPDATE SET text = excluded.text, at = excluded.at, artboard_version = excluded.artboard_version, member_versions = excluded.member_versions,
+         ON CONFLICT (step_id, person_id) DO UPDATE SET text = excluded.text, at = excluded.at, artboard_version = excluded.artboard_version, member_versions = excluded.member_versions, stale = 0,
          on_page_id = CASE WHEN kind = 'remark' THEN on_page_id ELSE excluded.on_page_id END, on_artboard = CASE WHEN kind = 'remark' THEN on_artboard ELSE excluded.on_artboard END, kind = 'remark'`,
       )
       .run(randomUUID(), stepId, personId ?? "", new Date().toISOString(), text, seen.artboardVersion ?? null, memberVersionsColumn(seen), on?.pageId ?? null, on?.artboard ?? null);
@@ -380,9 +414,16 @@ export class ChangeReviewStore {
     this.db.prepare("UPDATE change_review_answers SET thread_id = ? WHERE id = ?").run(threadId, answerId);
   }
 
-  /** The first fetch of a finished review: it is now `fetched`, by this person. */
-  markFetched(reviewId: string, personId: string | undefined): void {
-    this.db.prepare("UPDATE change_reviews SET state = 'fetched', fetched_by = ?, fetched_at = ? WHERE id = ? AND state = 'finished'").run(personId ?? null, new Date().toISOString(), reviewId);
+  /** The first fetch of a finished review: it is now `fetched`, by this person's terminal session, with the result it gave (a second fetch gives it again). */
+  markFetched(reviewId: string, personId: string | undefined, sessionId: string, result: ChangeReviewResult): void {
+    this.db
+      .prepare("UPDATE change_reviews SET state = 'fetched', fetched_by = ?, fetched_at = ?, fetched_session = ?, fetched_result = ? WHERE id = ? AND state = 'finished'")
+      .run(personId ?? null, new Date().toISOString(), sessionId, JSON.stringify(result), reviewId);
+  }
+
+  /** The terminal session now holding the threads of a fetched review's remarks. */
+  setFetchedSession(reviewId: string, sessionId: string): void {
+    this.db.prepare("UPDATE change_reviews SET fetched_session = ? WHERE id = ?").run(sessionId, reviewId);
   }
 
   finish(reviewId: string, personId: string | undefined): void {
@@ -393,6 +434,9 @@ export class ChangeReviewStore {
   reopen(reviewId: string): void {
     this.db.prepare("UPDATE change_reviews SET state = 'open', finished_by = NULL, finished_at = NULL WHERE id = ?").run(reviewId);
     this.db.prepare("UPDATE change_review_steps SET archived_at_finish = 0 WHERE review_id = ?").run(reviewId);
+    for (const step of this.steps(reviewId)) {
+      if (step.others?.some((member) => member.archivedAtFinish)) this.db.prepare("UPDATE change_review_steps SET others = ? WHERE id = ?").run(JSON.stringify(step.others.map(({ archivedAtFinish: _frozen, ...member }) => member)), step.id);
+    }
   }
 
   /** Puts a finished review aside for good, signed by this person. */
@@ -402,6 +446,7 @@ export class ChangeReviewStore {
 
   /** This person is on a screen of the review now; `step` is 1-based, absent on the recap. */
   markPresent(reviewId: string, personId: string | undefined, step: number | undefined): void {
+    this.forgetQuiet();
     const people = this.presence.get(reviewId) ?? new Map();
     people.set(personId ?? "", { ...(step !== undefined ? { step } : {}), at: Date.now() });
     this.presence.set(reviewId, people);
@@ -409,6 +454,15 @@ export class ChangeReviewStore {
 
   markGone(reviewId: string, personId: string | undefined): void {
     this.presence.get(reviewId)?.delete(personId ?? "");
+  }
+
+  /** Drops the people not heard from within the timeout, and the reviews nobody is on, so the map stays as small as the people actually there. */
+  private forgetQuiet(): void {
+    const limit = Date.now() - REVIEW_PRESENCE_TIMEOUT_MS;
+    for (const [reviewId, people] of this.presence) {
+      for (const [personId, { at }] of people) if (at < limit) people.delete(personId);
+      if (people.size === 0) this.presence.delete(reviewId);
+    }
   }
 
   /** The people other than `exceptPersonId` heard from within the timeout, as person ids ("" without accounts) with their step. */

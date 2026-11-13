@@ -369,8 +369,8 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
 
 /** What `review_feedback` answers: the result of a finished review, or its progress while it is still open. */
 export type ChangeReviewFeedback =
-  /** `alreadyFetchedAt` is set when the review had been fetched before: the same result, nothing created again. */
-  | ({ status: "finished"; alreadyFetchedAt?: string } & ChangeReviewResult)
+  /** `alreadyFetchedAt` is set when the review had been fetched before: the same result as at the first fetch, nothing created again. `heldBy` names the folder of the session that still holds the remark threads (another session than the asking one). */
+  | ({ status: "finished"; alreadyFetchedAt?: string; heldBy?: string } & ChangeReviewResult)
   | { status: "open"; seen: number; total: number }
   /** Without an id, several finished reviews wait: nothing was fetched. */
   | { status: "several"; reviews: WaitingChangeReview[] }
