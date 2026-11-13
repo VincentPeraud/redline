@@ -14,7 +14,12 @@ export interface StoredReview {
   finishedAt?: string;
   fetchedBy?: string;
   fetchedAt?: string;
+  filedBy?: string;
+  filedAt?: string;
 }
+
+/** A screen of the review heartbeats every ~20 s: someone not heard from for this long is gone. */
+export const REVIEW_PRESENCE_TIMEOUT_MS = 60_000;
 
 export interface StoredStep extends ChangeReviewStepInput {
   id: string;
@@ -44,10 +49,15 @@ interface ReviewRow {
   finished_at: string | null;
   fetched_by: string | null;
   fetched_at: string | null;
+  filed_by: string | null;
+  filed_at: string | null;
 }
 
 /** Reviews of changes with their steps and answers, in their own tables. Not "diffusion review" (the design system one). */
 export class ChangeReviewStore {
+  /** Who is on a screen of which review, in memory only: review id, then person id ("" without accounts). */
+  private readonly presence = new Map<string, Map<string, { step?: number; at: number }>>();
+
   constructor(private readonly db: Database.Database) {
     db.exec(`
       CREATE TABLE IF NOT EXISTS change_reviews (
@@ -88,7 +98,7 @@ export class ChangeReviewStore {
     if (!answerColumns.includes("text")) db.exec("ALTER TABLE change_review_answers ADD COLUMN text TEXT");
     if (!answerColumns.includes("thread_id")) db.exec("ALTER TABLE change_review_answers ADD COLUMN thread_id TEXT");
     const columns = (db.prepare("PRAGMA table_info(change_reviews)").all() as { name: string }[]).map((column) => column.name);
-    for (const column of ["fetched_by", "fetched_at"]) if (!columns.includes(column)) db.exec(`ALTER TABLE change_reviews ADD COLUMN ${column} TEXT`);
+    for (const column of ["fetched_by", "fetched_at", "filed_by", "filed_at"]) if (!columns.includes(column)) db.exec(`ALTER TABLE change_reviews ADD COLUMN ${column} TEXT`);
   }
 
   /** Open and finished reviews with a step on the page, plus those fetched since `fetchedSince` (ISO), oldest first. */
@@ -165,6 +175,8 @@ export class ChangeReviewStore {
         ...(row.finished_at ? { finishedAt: row.finished_at } : {}),
         ...(row.fetched_by ? { fetchedBy: row.fetched_by } : {}),
         ...(row.fetched_at ? { fetchedAt: row.fetched_at } : {}),
+        ...(row.filed_by ? { filedBy: row.filed_by } : {}),
+        ...(row.filed_at ? { filedAt: row.filed_at } : {}),
       }
     );
   }
@@ -239,5 +251,34 @@ export class ChangeReviewStore {
 
   finish(reviewId: string, personId: string | undefined): void {
     this.db.prepare("UPDATE change_reviews SET state = 'finished', finished_by = ?, finished_at = ? WHERE id = ?").run(personId ?? null, new Date().toISOString(), reviewId);
+  }
+
+  /** Back to `open`: the finish is forgotten (the caller checked it was finished, not fetched or filed). */
+  reopen(reviewId: string): void {
+    this.db.prepare("UPDATE change_reviews SET state = 'open', finished_by = NULL, finished_at = NULL WHERE id = ?").run(reviewId);
+  }
+
+  /** Puts a finished review aside for good, signed by this person. */
+  file(reviewId: string, personId: string | undefined): void {
+    this.db.prepare("UPDATE change_reviews SET state = 'filed', filed_by = ?, filed_at = ? WHERE id = ?").run(personId ?? null, new Date().toISOString(), reviewId);
+  }
+
+  /** This person is on a screen of the review now; `step` is 1-based, absent on the recap. */
+  markPresent(reviewId: string, personId: string | undefined, step: number | undefined): void {
+    const people = this.presence.get(reviewId) ?? new Map();
+    people.set(personId ?? "", { ...(step !== undefined ? { step } : {}), at: Date.now() });
+    this.presence.set(reviewId, people);
+  }
+
+  markGone(reviewId: string, personId: string | undefined): void {
+    this.presence.get(reviewId)?.delete(personId ?? "");
+  }
+
+  /** The people other than `exceptPersonId` heard from within the timeout, as person ids ("" without accounts) with their step. */
+  presentIn(reviewId: string, exceptPersonId: string | undefined): { personId: string; step?: number }[] {
+    const limit = Date.now() - REVIEW_PRESENCE_TIMEOUT_MS;
+    return [...(this.presence.get(reviewId) ?? [])]
+      .filter(([personId, { at }]) => personId !== (exceptPersonId ?? "") && at >= limit)
+      .map(([personId, { step }]) => ({ personId, ...(step !== undefined ? { step } : {}) }));
   }
 }

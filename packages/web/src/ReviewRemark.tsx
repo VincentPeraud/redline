@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ChangeReview, ChangeReviewAnswer } from "@redline/shared";
 import { cx } from "./ui/index.js";
 import styles from "./ReviewScreen.module.css";
@@ -25,6 +25,7 @@ export function RemarkEditor({
   onReview,
   onReload,
   onUnsaved,
+  onKeptUnsaved,
 }: {
   reviewPath: string;
   stepId: string;
@@ -33,6 +34,8 @@ export function RemarkEditor({
   onReview: (review: ChangeReview) => void;
   onReload: () => void;
   onUnsaved: (unsaved: boolean) => void;
+  /** Tells the step whether the locked review keeps text Redline never received. */
+  onKeptUnsaved: (unsaved: boolean) => void;
 }) {
   const savedText = own?.kind === "remark" ? own.text ?? "" : undefined;
   const [text, setText] = useState(savedText ?? "");
@@ -110,21 +113,25 @@ export function RemarkEditor({
     [reviewPath],
   );
 
+  // Locked while the member was typing: what they typed stays here, read-only, marked as not saved when Redline never received it.
+  const kept = text.trim() !== "" ? text : savedText ?? "";
+  const keptUnsaved = finished && kept.trim() !== "" && kept !== savedText;
+  useEffect(() => onKeptUnsaved(keptUnsaved), [keptUnsaved, onKeptUnsaved]);
+
   const copy = () => {
-    void navigator.clipboard?.writeText(text).then(() => setCopied(true));
+    void navigator.clipboard?.writeText(kept).then(() => setCopied(true));
   };
 
   if (finished) {
-    const kept = savedText ?? text;
     if (kept.trim() === "") return null;
     return (
       <div className={styles.section}>
         <label className={styles.label} htmlFor="remark">
-          Ta remarque{savedText === undefined ? " (non enregistrée)" : ""}
+          Ta remarque{keptUnsaved ? " (non enregistrée)" : ""}
         </label>
         <textarea id="remark" className={styles.textarea} readOnly value={kept} />
         <span className={styles.errorLine}>
-          {savedText === undefined ? "Non enregistré · " : ""}
+          {keptUnsaved ? "Non enregistré · " : ""}
           <button type="button" className={styles.linkButton} onClick={copy}>
             {copied ? "Copié" : "Copier"}
           </button>
@@ -185,6 +192,26 @@ export function LeaveDialog({ onStay, onLeave }: { onStay: () => void; onLeave: 
           </button>
           <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onLeave}>
             Quitter sans enregistrer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** A modal question with a way out and a way on, in the look of the leave warning. */
+export function ConfirmDialog({ title, cancel, confirm, onCancel, onConfirm, children }: { title: string; cancel: string; confirm: string; onCancel: () => void; onConfirm: () => void; children: ReactNode }) {
+  return (
+    <div className={styles.leaveOverlay}>
+      <div role="dialog" aria-modal="true" aria-labelledby="confirm-title" className={cx(styles.leaveBox, styles.confirmBox)}>
+        <h2 id="confirm-title">{title}</h2>
+        {children}
+        <div className={styles.leaveActions}>
+          <button type="button" className={styles.panelButton} onClick={onCancel} autoFocus>
+            {cancel}
+          </button>
+          <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onConfirm}>
+            {confirm}
           </button>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeSteps, orderSteps, progressOf, stepKey, reviewResult, stepIsSeen, stepStatus, type ChangeReviewAnswer, type ChangeReviewResultInput } from "@redline/shared";
+import { mergeSteps, nextReviewState, orderSteps, progressOf, stepKey, reviewResult, stepIsSeen, stepStatus, type ChangeReviewAnswer, type ChangeReviewResultInput } from "@redline/shared";
 
 const ok = (name: string | undefined): ChangeReviewAnswer => ({ id: `a-${name}`, kind: "ok", at: "2026-11-13T10:00:00Z", mine: false, ...(name ? { person: { id: name, name, email: "", initials: name.slice(0, 2) } } : {}) });
 const remark = (name: string, text = "Move it up"): ChangeReviewAnswer => ({ ...ok(name), id: `r-${name}`, kind: "remark", text });
@@ -111,5 +111,27 @@ describe("merging a declaration into an open review", () => {
 
   it("keeps the last of two declarations of the same step", () => {
     expect(mergeSteps([], [declared("a.html", "first?"), declared("a.html", "second?")])).toEqual([declared("a.html", "second?")]);
+  });
+});
+
+describe("allowed transitions", () => {
+  it("finishes an open review, and nothing else leaves open", () => {
+    expect(nextReviewState("open", "finish")).toBe("finished");
+    expect(nextReviewState("open", "reopen")).toBeUndefined();
+    expect(nextReviewState("open", "file")).toBeUndefined();
+    expect(nextReviewState("open", "fetch")).toBeUndefined();
+  });
+
+  it("reopens, files or fetches a finished review", () => {
+    expect(nextReviewState("finished", "reopen")).toBe("open");
+    expect(nextReviewState("finished", "file")).toBe("filed");
+    expect(nextReviewState("finished", "fetch")).toBe("fetched");
+    expect(nextReviewState("finished", "finish")).toBeUndefined();
+  });
+
+  it("cannot reopen a fetched review, and filing is final", () => {
+    expect(nextReviewState("fetched", "reopen")).toBeUndefined();
+    expect(nextReviewState("fetched", "file")).toBeUndefined();
+    for (const action of ["finish", "reopen", "file", "fetch"] as const) expect(nextReviewState("filed", action)).toBeUndefined();
   });
 });

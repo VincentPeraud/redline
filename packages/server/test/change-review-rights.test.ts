@@ -139,3 +139,67 @@ describe("review of changes: rights", () => {
     expect((await visit("POST", `/api/change-reviews/${id}/finish`)).status).toBe(403);
   });
 });
+
+describe("review of changes: presence, reopening, filing", () => {
+  let instance: AccountsInstance;
+  beforeEach(async () => {
+    instance = await new AccountsInstance().start();
+  });
+  afterEach(() => instance.close());
+
+  async function declared() {
+    const { ariane, thomas, people } = instance;
+    const project = await instance.createProject(ariane);
+    const pageId = await instance.createPage(ariane, project.id);
+    await ariane.send("PUT", `/api/projects/${project.id}/members/${people.thomas.id}`, { level: "write" });
+    const token = ((await ariane.json<AgentTokenResponse>("/api/agent-token")) as AgentTokenResponse).token;
+    const sessionId = randomUUID();
+    const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    await fetch(`${instance.server.url}/agent-api/terminal-sessions/${sessionId}/heartbeat`, { method: "POST", headers, body: JSON.stringify({ folder: "/work/site", machine: "Mac" }) });
+    const created = await fetch(`${instance.server.url}/agent-api/terminal-sessions/${sessionId}/reviews`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ folder: "/work/site", steps: [{ pageId, artboard: "home.html", changed: "c", lookAt: "l", question: "q" }] }),
+    });
+    const { id } = (await created.json()) as { id: string };
+    return { id, ariane: ariane as SignedIn, thomas: thomas as SignedIn };
+  }
+
+  it("shows another member who is on a screen of the review, with their step, and never the viewer", async () => {
+    const { id, ariane, thomas } = await declared();
+    await thomas.send("POST", `/api/change-reviews/${id}/presence`, { step: 1 });
+
+    const seenByAriane = await ariane.json<ChangeReview>(`/api/change-reviews/${id}`);
+    const seenByThomas = await thomas.json<ChangeReview>(`/api/change-reviews/${id}`);
+
+    expect(seenByAriane.present).toMatchObject([{ person: { id: instance.people.thomas.id }, step: 1 }]);
+    expect(seenByThomas.present).toEqual([]);
+  });
+
+  it("forgets a member who left the review", async () => {
+    const { id, ariane, thomas } = await declared();
+    await thomas.send("POST", `/api/change-reviews/${id}/presence`, { step: 1 });
+    await thomas.send("DELETE", `/api/change-reviews/${id}/presence`);
+
+    expect((await ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).present).toEqual([]);
+  });
+
+  it("refuses presence from a member without Écriture", async () => {
+    const { id } = await declared();
+    const project = (await instance.ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).projectId;
+    await instance.ariane.send("PUT", `/api/projects/${project}/members/${instance.people.thomas.id}`, { level: "comment" });
+
+    expect((await instance.thomas.send("POST", `/api/change-reviews/${id}/presence`, { step: 1 })).status).toBe(403);
+  });
+
+  it("lets any member with Écriture reopen and file, signing the filing", async () => {
+    const { id, ariane, thomas } = await declared();
+    await ariane.send("POST", `/api/change-reviews/${id}/finish`);
+
+    expect((await thomas.send("POST", `/api/change-reviews/${id}/reopen`)).status).toBe(200);
+    await ariane.send("POST", `/api/change-reviews/${id}/finish`);
+    expect((await thomas.send("POST", `/api/change-reviews/${id}/file`)).status).toBe(200);
+
+    expect(await ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).toMatchObject({ state: "filed", filedBy: { id: instance.people.thomas.id }, viewerIsRequester: true });
+  });
+});

@@ -93,7 +93,7 @@ it("goes through the steps with OK, cancels an OK, finishes the review and locks
   await tab.goto(`${seam.server.url}/#/reviews/${reviewId}/steps/1`);
   await expect.poll(() => counter(tab).textContent()).toContain("Étape 1 / 2");
   expect(await tab.getByRole("button", { name: "OK, étape suivante" }).count()).toBe(0);
-  expect(await tab.getByText(/Revue terminée/).count()).toBeGreaterThan(0);
+  expect(await tab.getByText(/Terminée par/).count()).toBeGreaterThan(0);
 }, 60_000);
 
 it("opens the review on the first step without an answer", async () => {
@@ -153,6 +153,7 @@ it("saves a remark on its own, replaces the OK, edits it, deletes it with an und
   await remarkField(tab).fill("Last word");
   await expect.poll(async () => (await stepsOf(reviewId))[0]!.answers.length).toBe(1);
   await tab.getByRole("button", { name: "Terminer la revue" }).first().click();
+  await tab.getByRole("button", { name: "Terminer quand même" }).click();
   await expect.poll(() => tab.getByText(/Revue terminée/).count()).toBeGreaterThan(0);
   await tab.goto(`${seam.server.url}/#/reviews/${reviewId}/steps/1`);
   await expect.poll(() => tab.getByRole("textbox", { name: "Ta remarque" }).inputValue()).toBe("Last word");

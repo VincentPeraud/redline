@@ -5,6 +5,7 @@ import {
   defaultManifest,
   groupTitlesOf,
   mergeSteps,
+  nextReviewState,
   orderSteps,
   parseManifest,
   bannerStateOf,
@@ -17,6 +18,7 @@ import {
   type ChangeReview,
   type ChangeReviewFeedback,
   type ChangeReviewFeedbackRequest,
+  type ChangeReviewPresenceRequest,
   type ChangeReviewStepInput,
   type PageChangeReview,
   type Manifest,
@@ -78,6 +80,12 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
   });
   const requester = store.getPerson(review.requesterPersonId);
   const finishedBy = store.getPerson(review.finishedBy);
+  const fetchedBy = store.getPerson(review.fetchedBy);
+  const filedBy = store.getPerson(review.filedBy);
+  const present = store.changeReviews.presentIn(review.id, viewerPersonId(viewer)).map(({ personId, step }) => {
+    const person = store.getPerson(personId);
+    return { ...(person ? { person } : {}), ...(step !== undefined ? { step } : {}) };
+  });
   return {
     id: review.id,
     projectId: review.projectId,
@@ -87,6 +95,12 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
     createdAt: review.createdAt,
     ...(finishedBy ? { finishedBy } : {}),
     ...(review.finishedAt ? { finishedAt: review.finishedAt } : {}),
+    ...(fetchedBy ? { fetchedBy } : {}),
+    ...(review.fetchedAt ? { fetchedAt: review.fetchedAt } : {}),
+    ...(filedBy ? { filedBy } : {}),
+    ...(review.filedAt ? { filedAt: review.filedAt } : {}),
+    viewerIsRequester: (review.requesterPersonId ?? "") === (viewerPersonId(viewer) ?? ""),
+    present,
     steps,
   };
 }
@@ -110,7 +124,7 @@ function bannersOf(store: Store, pageId: string, viewer: Viewer): PageChangeRevi
     const fetchedBy = store.getPerson(review.fetchedBy);
     return {
       id: review.id,
-      state: bannerStateOf(review.state, seen),
+      state: bannerStateOf(review.state as Exclude<typeof review.state, "filed">, seen),
       stepCount: view.steps.length,
       pageTitles: [...new Set(view.steps.map((step) => step.pageTitle))],
       seen,
@@ -118,7 +132,7 @@ function bannersOf(store: Store, pageId: string, viewer: Viewer): PageChangeRevi
       remarkCount: answers.filter((answer) => answer.kind === "remark").length,
       contributors,
       requester: view.requester,
-      viewerIsRequester: (review.requesterPersonId ?? "") === (viewerPersonId(viewer) ?? ""),
+      viewerIsRequester: view.viewerIsRequester,
       createdAt: review.createdAt,
       ...(view.finishedBy ? { finishedBy: view.finishedBy } : {}),
       ...(fetchedBy ? { fetchedBy } : {}),
@@ -232,6 +246,7 @@ export function changeReviewFeedback(
 
 function fetchReview(store: Store, pageLock: PageLock, viewer: Viewer, sessionId: string, review: StoredReview): ChangeReviewFeedback {
   const view = viewOf(store, review, viewer);
+  if (view.state === "filed") return { status: "filed", filedBy: nameOf(view.filedBy), filedAt: review.filedAt ?? review.createdAt };
   if (view.state === "open") {
     const { seen, total } = progressOf(view.steps, -1);
     return { status: "open", seen, total };
@@ -327,9 +342,40 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
   app.post<{ Params: { reviewId: string } }>("/api/change-reviews/:reviewId/finish", async (req, reply) => {
     const review = open(req.params.reviewId);
     if (!review) return reply.code(404).send({ error: "review not found" });
-    if (review.state !== "open") return reply.code(409).send({ error: "this review is already finished" });
+    if (!nextReviewState(review.state, "finish")) return reply.code(409).send({ error: "this review is already finished" });
     store.changeReviews.finish(review.id, viewerPersonId(req.viewer));
     announceReviewChange(store, review.id);
     return viewOf(store, open(review.id)!, req.viewer);
+  });
+
+  app.post<{ Params: { reviewId: string } }>("/api/change-reviews/:reviewId/reopen", async (req, reply) => {
+    const review = open(req.params.reviewId);
+    if (!review) return reply.code(404).send({ error: "review not found" });
+    if (!nextReviewState(review.state, "reopen")) return reply.code(409).send({ error: "only a finished review can be reopened, and not once it was fetched or filed" });
+    store.changeReviews.reopen(review.id);
+    announceReviewChange(store, review.id);
+    return viewOf(store, open(review.id)!, req.viewer);
+  });
+
+  app.post<{ Params: { reviewId: string } }>("/api/change-reviews/:reviewId/file", async (req, reply) => {
+    const review = open(req.params.reviewId);
+    if (!review) return reply.code(404).send({ error: "review not found" });
+    if (!nextReviewState(review.state, "file")) return reply.code(409).send({ error: "only a finished review can be filed, and not once it was fetched" });
+    store.changeReviews.file(review.id, viewerPersonId(req.viewer));
+    announceReviewChange(store, review.id);
+    return viewOf(store, open(review.id)!, req.viewer);
+  });
+
+  app.post<{ Params: { reviewId: string }; Body: Partial<ChangeReviewPresenceRequest> }>("/api/change-reviews/:reviewId/presence", async (req, reply) => {
+    if (!open(req.params.reviewId)) return reply.code(404).send({ error: "review not found" });
+    const step = req.body?.step;
+    if (step !== undefined && (!Number.isInteger(step) || step < 1)) return reply.code(400).send({ error: "step must be a positive integer" });
+    store.changeReviews.markPresent(req.params.reviewId, viewerPersonId(req.viewer), step);
+    return reply.code(204).send();
+  });
+
+  app.delete<{ Params: { reviewId: string } }>("/api/change-reviews/:reviewId/presence", async (req, reply) => {
+    store.changeReviews.markGone(req.params.reviewId, viewerPersonId(req.viewer));
+    return reply.code(204).send();
   });
 }

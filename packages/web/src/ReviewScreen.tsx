@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { progressOf, stepIsSeen, stepStatus, type ChangeReview, type ChangeReviewStep } from "@redline/shared";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { progressOf, stepIsSeen, stepStatus, type ChangeReview, type ChangeReviewAnswer, type ChangeReviewPresence, type ChangeReviewStep } from "@redline/shared";
 import { ArtboardIframe, useArtboardOrigin } from "./artboardCapability.js";
 import { fitToStage } from "./PlayMode.js";
 import { PlayFrame } from "./PlayFrame.js";
@@ -8,14 +8,26 @@ import { navigateTo, type Route } from "./router.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { cx } from "./ui/index.js";
-import { LeaveDialog, PersonDot, RemarkEditor, personName } from "./ReviewRemark.js";
+import { counted } from "./plural.js";
+import { ConfirmDialog, LeaveDialog, PersonDot, RemarkEditor, personName } from "./ReviewRemark.js";
 import styles from "./ReviewScreen.module.css";
 
 type Load = { status: "loading" } | { status: "missing" } | { status: "refused" } | { status: "error" } | { status: "ready"; review: ChangeReview };
 
 type View = number | "recap";
 
+/** A remark deleted from the recap: "Annuler" puts it back while the review is open; when it was locked meanwhile (`lost`) the text stays here to copy. */
+interface RemovedRemark {
+  stepId: string;
+  text: string;
+  title: string;
+  lost?: boolean;
+}
+
 const reviewPath = (reviewId: string) => `/api/change-reviews/${encodeURIComponent(reviewId)}`;
+
+const PRESENCE_BEAT_MS = 20_000;
+const UNDO_REMOVAL_MS = 5_000;
 
 /** First step without an answer after `from`, else any earlier one, else the recap. */
 function nextUnanswered(review: ChangeReview, from: number): View {
@@ -37,6 +49,10 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   const [failed, setFailed] = useState(false);
   const [unsaved, setUnsaved] = useState(false);
   const [leaving, setLeaving] = useState<(() => void) | undefined>();
+  const [confirming, setConfirming] = useState<{ notSeen: number; present: ChangeReviewPresence[] } | undefined>();
+  const [filing, setFiling] = useState(false);
+  const [removed, setRemoved] = useState<RemovedRemark | undefined>();
+  const removedTimer = useRef<ReturnType<typeof setTimeout>>();
 
   // A remark Redline has not received: closing the tab asks first, and so does leaving the step.
   useEffect(() => {
@@ -46,16 +62,22 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     return () => window.removeEventListener("beforeunload", warn);
   }, [unsaved]);
 
-  const reload = useCallback(async () => {
+  /** Loads the review as it stands now and answers it (undefined when it cannot be shown). */
+  const reload = useCallback(async (): Promise<ChangeReview | undefined> => {
     try {
       const response = await fetch(reviewPath(reviewId));
-      if (response.status === 404) return setLoad({ status: "missing" });
-      if (response.status === 403) return setLoad({ status: "refused" });
-      if (!response.ok) return setLoad({ status: "error" });
-      setLoad({ status: "ready", review: (await response.json()) as ChangeReview });
+      if (response.status === 404) setLoad({ status: "missing" });
+      else if (response.status === 403) setLoad({ status: "refused" });
+      else if (!response.ok) setLoad({ status: "error" });
+      else {
+        const next = (await response.json()) as ChangeReview;
+        setLoad({ status: "ready", review: next });
+        return next;
+      }
     } catch {
       setLoad({ status: "error" });
     }
+    return undefined;
   }, [reviewId]);
   useEffect(() => void reload(), [reload]);
   // Another member's answer, or the review's end, shows here at once.
@@ -69,6 +91,21 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
 
   const review = load.status === "ready" ? load.review : undefined;
 
+  // The others see who is in the review (for the confirmation before finishing): a heartbeat with the step shown, until the review is locked or the screen closes.
+  const reviewIsOpen = review?.state === "open";
+  const presenceStep = typeof step === "number" ? step : undefined;
+  useEffect(() => {
+    if (!reviewIsOpen) return;
+    const beat = () => void fetch(`${reviewPath(reviewId)}/presence`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(presenceStep === undefined ? {} : { step: presenceStep }) }).catch(() => undefined);
+    beat();
+    const timer = setInterval(beat, PRESENCE_BEAT_MS);
+    return () => clearInterval(timer);
+  }, [reviewId, reviewIsOpen, presenceStep]);
+  useEffect(() => {
+    if (!reviewIsOpen) return;
+    return () => void fetch(`${reviewPath(reviewId)}/presence`, { method: "DELETE", keepalive: true }).catch(() => undefined);
+  }, [reviewId, reviewIsOpen]);
+
   // The address names the step as soon as the review shows, so answering never moves the member to another one.
   useEffect(() => {
     if (review && step === undefined) navigateTo(stepRoute(reviewId, review.state !== "open" ? "recap" : nextUnanswered(review, -1)), "replace");
@@ -77,12 +114,12 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   useDocumentTitle(review ? `Revue · ${review.projectTitle}` : "Revue");
 
   /** Sends one change of the member's answer; the answer is the review as it stands then. */
-  async function change(method: "PUT" | "DELETE" | "POST", path: string): Promise<ChangeReview | undefined> {
+  async function change(method: "PUT" | "DELETE" | "POST", path: string, body?: unknown): Promise<ChangeReview | undefined> {
     setFailed(false);
-    const response = await fetch(`${reviewPath(reviewId)}${path}`, { method }).catch(() => undefined);
+    const response = await fetch(`${reviewPath(reviewId)}${path}`, { method, ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) }).catch(() => undefined);
     if (!response?.ok) {
       setFailed(true);
-      // A 409 means the review was finished meanwhile: show it as it is.
+      // A 409 means the review was locked meanwhile: show it as it is.
       if (response?.status === 409) void reload();
       return undefined;
     }
@@ -102,13 +139,47 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     if (next) navigate(nextUnanswered(next, index));
   };
   const cancelOk = (index: number) => void change("DELETE", `/steps/${review!.steps[index]!.id}/ok`);
-  const finish = () => void change("POST", "/finish").then((next) => next && navigate("recap"));
+  const finish = () => {
+    setConfirming(undefined);
+    void change("POST", "/finish").then((next) => next && navigate("recap"));
+  };
+  // Asks before finishing when steps were not seen or another member is still in the review; the presence is read fresh.
+  const requestFinish = () =>
+    guard(() => {
+      void reload().then((fresh) => {
+        if (!fresh) return;
+        if (fresh.state !== "open") return navigate("recap");
+        const notSeen = fresh.steps.filter((entry) => !stepIsSeen(entry)).length;
+        if (notSeen > 0 || fresh.present.length > 0) setConfirming({ notSeen, present: fresh.present });
+        else finish();
+      });
+    });
+  const reopen = () => void change("POST", "/reopen");
+  const file = () => {
+    setFiling(false);
+    void change("POST", "/file");
+  };
+  const removeRemark = (answerId: string, stepId: string, text: string, title: string) => {
+    clearTimeout(removedTimer.current);
+    void change("DELETE", `/remarks/${answerId}`).then((next) => {
+      if (!next) return;
+      setRemoved({ stepId, text, title });
+      removedTimer.current = setTimeout(() => setRemoved(undefined), UNDO_REMOVAL_MS);
+    });
+  };
+  const restoreRemark = async () => {
+    if (!removed) return;
+    clearTimeout(removedTimer.current);
+    const next = await change("PUT", `/steps/${removed.stepId}/remark`, { text: removed.text });
+    // The review was locked meanwhile: the text stays here, read-only.
+    setRemoved(next ? undefined : { ...removed, lost: true });
+  };
 
   return (
     <div data-testid="review" className={styles.review}>
-      <TopBar review={review!} view={view} onGo={go} onLeave={guard} onFinish={() => guard(finish)} />
+      <TopBar review={review!} view={view} onGo={go} onLeave={guard} onFinish={requestFinish} />
       {view === "recap" ? (
-        <Recap review={review!} failed={failed} onGo={go} onFinish={() => guard(finish)} />
+        <Recap review={review!} failed={failed} removed={removed} onGo={go} onFinish={requestFinish} onReopen={reopen} onFile={() => setFiling(true)} onRemove={removeRemark} onRestore={() => void restoreRemark()} />
       ) : (
         <StepView
           key={review!.steps[view]!.id}
@@ -118,8 +189,30 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
           onGo={go}
           onOk={() => guard(() => void answerOk(view))}
           onCancel={() => cancelOk(view)}
+          onReopen={reopen}
           remark={{ reviewPath: reviewPath(reviewId), onReview: (next) => setLoad({ status: "ready", review: next }), onReload: () => void reload(), onUnsaved: setUnsaved }}
         />
+      )}
+      {confirming && (
+        <ConfirmDialog
+          title={confirming.notSeen > 0 ? `${counted(confirming.notSeen, "étape non vue", "étapes non vues")} : terminer quand même ?` : "Terminer la revue ?"}
+          cancel="Continuer la revue"
+          confirm="Terminer quand même"
+          onCancel={() => setConfirming(undefined)}
+          onConfirm={finish}
+        >
+          <p>
+            {confirming.notSeen > 0
+              ? "Elles seront signalées à part à la conversation comme « non vues », jamais comme validées. Plus personne ne pourra ajouter de remarque, sauf si un membre rouvre la revue."
+              : "Plus personne ne pourra ajouter de remarque, sauf si un membre rouvre la revue."}
+          </p>
+          {confirming.present.length > 0 && <p>{presenceLine(confirming.present)}</p>}
+        </ConfirmDialog>
+      )}
+      {filing && (
+        <ConfirmDialog title="Classer sans envoyer ?" cancel="Annuler" confirm="Classer sans envoyer" onCancel={() => setFiling(false)} onConfirm={file}>
+          <p>{filingWarning(review!)}</p>
+        </ConfirmDialog>
       )}
       {leaving && (
         <LeaveDialog
@@ -134,6 +227,32 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
       )}
     </div>
   );
+}
+
+/** "Victor est encore dans la revue (étape 6)." / "Victor et Ariane sont encore dans la revue." */
+function presenceLine(present: ChangeReviewPresence[]): ReactNode {
+  const names = present.map((entry) => personName(entry.person));
+  const where = present.length === 1 && present[0]!.step !== undefined ? ` (étape ${present[0]!.step})` : "";
+  return (
+    <>
+      <span className={styles.who}>
+        {names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`} {names.length === 1 ? "est" : "sont"} encore dans la revue
+      </span>
+      {where}.
+    </>
+  );
+}
+
+/** What filing throws away: the remarks that were never sent, with whose they are. */
+function filingWarning(review: ChangeReview): string {
+  const remarks = review.steps.flatMap((entry) => entry.answers.filter((answer) => answer.kind === "remark"));
+  const final = "C'est définitif : la revue ne pourra plus être rouverte.";
+  if (remarks.length === 0) return `Cette revue n'a aucune remarque, mais elle ne sera jamais transmise à une conversation. ${final}`;
+  if (remarks.length === 1) return `${remarks[0]!.mine ? "Ta remarque" : `La remarque de ${personName(remarks[0]!.person)}`} ne sera jamais transmise à une conversation. ${final}`;
+  const others = remarks.filter((answer) => !answer.mine);
+  const names = [...new Set(others.map((answer) => personName(answer.person)))];
+  const whose = others.length === 0 ? "" : ` (dont ${others.length === 1 ? "celle" : "celles"} de ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`})`;
+  return `Les ${remarks.length} remarques${whose} ne seront jamais transmises à une conversation. ${final}`;
 }
 
 function StateScreen({ status, onRetry }: { status: Exclude<Load["status"], "ready">; onRetry: () => void }) {
@@ -215,18 +334,23 @@ function TopBar({ review, view, onGo, onLeave, onFinish }: { review: ChangeRevie
         </span>
       </div>
       <div ref={menu} className={styles.counterWrap}>
-        <button type="button" className={styles.button} aria-label="Étape précédente" disabled={view === "recap" ? total === 0 : view === 0} onClick={() => onGo(view === "recap" ? total - 1 : view - 1)}>
-          ←
-        </button>
+        {view !== "recap" && (
+          <button type="button" className={styles.button} aria-label="Étape précédente" disabled={view === 0} onClick={() => onGo(view - 1)}>
+            ←
+          </button>
+        )}
         <button type="button" className={styles.counter} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
-          {view === "recap" ? "Avant de terminer" : `Étape ${position + 1} / ${total}`}
+          {view === "recap" ? "Récapitulatif" : `Étape ${position + 1} / ${total}`}
+          {view === "recap" && review.state === "open" && <small className={styles.counterSmall}>· {progressOf(review.steps, -1).seen} / {total} vus</small>}
           <span className={styles.chev} aria-hidden="true">
             ▼
           </span>
         </button>
-        <button type="button" className={styles.button} aria-label="Étape suivante" disabled={view === "recap"} onClick={() => onGo(view !== "recap" && view + 1 < total ? view + 1 : "recap")}>
-          →
-        </button>
+        {view !== "recap" && (
+          <button type="button" className={styles.button} aria-label="Étape suivante" onClick={() => onGo(view + 1 < total ? view + 1 : "recap")}>
+            →
+          </button>
+        )}
         {menuOpen && (
           <div role="menu" aria-label="Étapes de la revue" className={styles.menu}>
             {groups.map((group) => (
@@ -257,7 +381,7 @@ function TopBar({ review, view, onGo, onLeave, onFinish }: { review: ChangeRevie
         )}
       </div>
       <div className={styles.trail}>
-        {review.state === "open" && (
+        {review.state === "open" && view !== "recap" && (
           <button type="button" className={cx(styles.button, styles.buttonLight)} onClick={onFinish}>
             Terminer la revue
           </button>
@@ -290,12 +414,13 @@ function Progress({ review, index }: { review: ChangeReview; index: number }) {
 
 type RemarkProps = { reviewPath: string; onReview: (review: ChangeReview) => void; onReload: () => void; onUnsaved: (unsaved: boolean) => void };
 
-function StepView({ review, index, failed, onGo, onOk, onCancel, remark }: { review: ChangeReview; index: number; failed: boolean; onGo: (view: View) => void; onOk: () => void; onCancel: () => void; remark: RemarkProps }) {
+function StepView({ review, index, failed, onGo, onOk, onCancel, onReopen, remark }: { review: ChangeReview; index: number; failed: boolean; onGo: (view: View) => void; onOk: () => void; onCancel: () => void; onReopen: () => void; remark: RemarkProps }) {
   const step = review.steps[index]!;
   const own = step.answers.find((answer) => answer.mine);
   const others = step.answers.filter((answer) => !answer.mine);
   const status = stepStatus(step.answers);
   const finished = review.state !== "open";
+  const [keptUnsaved, setKeptUnsaved] = useState(false);
   return (
     <div className={styles.body}>
       <ReviewStage review={review} step={step} />
@@ -307,7 +432,9 @@ function StepView({ review, index, failed, onGo, onOk, onCancel, remark }: { rev
               <span>
                 Page {step.pageTitle} · étape {index + 1} / {review.steps.length}
               </span>
-              <span className={cx(styles.chip, status === "ok" && styles.chipOk, status === "remark" && styles.chipRemark)}>{status === "ok" ? "✓ OK" : STATUS_LABEL[status]}</span>
+              <span className={cx(styles.chip, !finished && status === "ok" && styles.chipOk, !finished && status === "remark" && styles.chipRemark)}>
+                {finished ? "Lecture seule" : status === "ok" ? "✓ OK" : STATUS_LABEL[status]}
+              </span>
             </div>
             <h2 className={styles.heading}>
               {step.pageTitle} · {step.artboardTitle}
@@ -356,12 +483,17 @@ function StepView({ review, index, failed, onGo, onOk, onCancel, remark }: { rev
           {finished && (
             <div className={styles.lock}>
               <span>
-                <strong>Revue terminée</strong> par {personName(review.finishedBy)}
-                {review.finishedAt ? ` le ${formatWhen(review.finishedAt)}` : ""} : plus de OK ni de remarque.
+                <strong>{lockTitle(review)}</strong>
+                {lockWhen(review)} : plus de OK ni de remarque.{keptUnsaved ? " Ton texte non enregistré est gardé ci-dessous pour que tu le copies." : ""}
               </span>
+              {review.state === "finished" && (
+                <button type="button" className={styles.panelButton} style={{ flex: "0 0 auto" }} onClick={onReopen}>
+                  Rouvrir la revue
+                </button>
+              )}
             </div>
           )}
-          <RemarkEditor stepId={step.id} own={own} finished={finished} {...remark} />
+          <RemarkEditor stepId={step.id} own={own} finished={finished} onKeptUnsaved={setKeptUnsaved} {...remark} />
         </div>
         <div className={styles.panelFoot}>
           <button type="button" className={styles.panelButton} disabled={index === 0} onClick={() => onGo(index - 1)}>
@@ -418,67 +550,205 @@ function ReviewStage({ review, step }: { review: ChangeReview; step: ChangeRevie
   );
 }
 
-function Recap({ review, failed, onGo, onFinish }: { review: ChangeReview; failed: boolean; onGo: (view: View) => void; onFinish: () => void }) {
-  const seen = review.steps.filter((step) => stepStatus(step.answers) === "ok");
-  const remarks = review.steps.filter((step) => stepStatus(step.answers) === "remark");
-  const notSeen = review.steps.filter((step) => !stepIsSeen(step));
-  const indexOf = (step: ChangeReviewStep) => review.steps.indexOf(step);
-  if (review.state !== "open") {
-    return (
-      <div className={styles.screen}>
-        <h1>Revue terminée</h1>
-        <p>
-          Terminée par {personName(review.finishedBy)}
-          {review.finishedAt ? ` le ${formatWhen(review.finishedAt)}` : ""}. Plus de OK possible.
-        </p>
-        <p>Rien n'est envoyé à Claude : dis à ta conversation « j'ai fait mes retours » pour qu'elle récupère le résultat.</p>
-        <Summary seen={seen} remarks={remarks} notSeen={notSeen} indexOf={indexOf} onGo={onGo} />
-      </div>
-    );
-  }
-  return (
-    <div className={styles.screen}>
-      <h1>Avant de terminer</h1>
-      <div className={styles.counts}>
-        <span className={cx(styles.chip, styles.chipOk)}>{seen.length} OK</span>
-        <span className={cx(styles.chip, styles.chipRemark)}>{remarks.length} {remarks.length > 1 ? "remarques" : "remarque"}</span>
-        <span className={styles.chip}>{notSeen.length} non vus</span>
-      </div>
-      <Summary seen={seen} remarks={remarks} notSeen={notSeen} indexOf={indexOf} onGo={onGo} />
-      <div className={styles.actions}>
-        <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onFinish}>
-          Terminer la revue
-        </button>
-        {failed && <span className={cx(styles.hint, styles.error)}>Pas enregistré : Redline ne répond pas.</span>}
-      </div>
-    </div>
-  );
+const nameOfAnswer = (answer: ChangeReviewAnswer, own: string) => (answer.mine ? own : personName(answer.person));
+
+const placeOf = (review: ChangeReview) => review.requester.label ?? review.requester.folder.split(/[\\/]/).filter(Boolean).pop() ?? review.requester.folder;
+
+/** "Terminée par X", "Récupérée par la conversation de X", "Classée sans envoi par X": who locked the review. */
+function lockTitle(review: ChangeReview): string {
+  if (review.state === "fetched") return `Récupérée par la conversation de ${personName(review.fetchedBy)}`;
+  if (review.state === "filed") return `Classée sans envoi par ${personName(review.filedBy)}`;
+  return `Terminée par ${personName(review.finishedBy)}`;
 }
 
-function Summary({ seen, remarks, notSeen, indexOf, onGo }: { seen: ChangeReviewStep[]; remarks: ChangeReviewStep[]; notSeen: ChangeReviewStep[]; indexOf: (step: ChangeReviewStep) => number; onGo: (view: View) => void }) {
-  const row = (step: ChangeReviewStep, by: string) => (
-    <button key={step.id} type="button" className={styles.listItem} onClick={() => onGo(indexOf(step))}>
-      <span className={styles.menuNumber}>{indexOf(step) + 1}</span>
-      <span className={styles.listTitle}>
-        {step.pageTitle} · {step.artboardTitle}
-      </span>
-      <span className={styles.listBy}>{by}</span>
-    </button>
-  );
+const lockWhen = (review: ChangeReview): string => {
+  const at = review.state === "fetched" ? review.fetchedAt : review.state === "filed" ? review.filedAt : review.finishedAt;
+  return at ? ` le ${formatWhen(at)}` : "";
+};
+
+/** "Victor avait validé cette étape" next to a remark of someone else on a step several people looked at. */
+function alsoValidated(step: ChangeReviewStep): string {
+  const validators = step.answers.filter((answer) => answer.kind === "ok");
+  if (validators.length === 0) return "";
+  if (validators.length === 1) return validators[0]!.mine ? " · tu avais validé cette étape" : ` · ${personName(validators[0]!.person)} avait validé cette étape`;
+  return ` · ${validators.map((answer) => nameOfAnswer(answer, "toi")).join(" et ")} avaient validé cette étape`;
+}
+
+function Recap({
+  review,
+  failed,
+  removed,
+  onGo,
+  onFinish,
+  onReopen,
+  onFile,
+  onRemove,
+  onRestore,
+}: {
+  review: ChangeReview;
+  failed: boolean;
+  removed: RemovedRemark | undefined;
+  onGo: (view: View) => void;
+  onFinish: () => void;
+  onReopen: () => void;
+  onFile: () => void;
+  onRemove: (answerId: string, stepId: string, text: string, title: string) => void;
+  onRestore: () => void;
+}) {
+  const open = review.state === "open";
+  const okSteps = review.steps.filter((step) => stepStatus(step.answers) === "ok");
+  const remarks = review.steps.flatMap((step) => step.answers.filter((answer) => answer.kind === "remark").map((answer) => ({ step, answer })));
+  const notSeen = review.steps.filter((step) => !stepIsSeen(step));
+  const titleOf = (step: ChangeReviewStep) => `${step.pageTitle} · ${step.artboardTitle}`;
+  const indexOf = (step: ChangeReviewStep) => review.steps.indexOf(step);
+  const place = placeOf(review);
+  const requester = personName(review.requester.person);
   return (
-    <div className={styles.columns}>
-      <section className={styles.section}>
-        <h3>OK ({seen.length})</h3>
-        <div className={styles.list}>{seen.map((step) => row(step, step.answers.map((answer) => (answer.mine ? "Toi" : personName(answer.person))).join(", ")))}</div>
-      </section>
-      <section className={styles.section}>
-        <h3>Remarques ({remarks.length})</h3>
-        <div className={styles.list}>{remarks.map((step) => row(step, step.answers.filter((answer) => answer.kind === "remark").map((answer) => (answer.mine ? "Toi" : personName(answer.person))).join(", ")))}</div>
-      </section>
-      <section className={styles.section}>
-        <h3>Non vus ({notSeen.length})</h3>
-        <div className={styles.list}>{notSeen.map((step) => row(step, ""))}</div>
-      </section>
+    <div className={styles.screen}>
+      <div className={styles.recap}>
+        <div className={styles.recapSide}>
+          <div className={cx(styles.recapHead, !open && styles.recapHeadLocked)}>
+            <h1>{open ? "Avant de terminer" : "Revue terminée"}</h1>
+            {open && <p className={styles.recapNote}>Tant que la revue n'est pas terminée, chacun peut encore changer ses remarques.</p>}
+            {review.state === "finished" && (
+              <div className={styles.done}>
+                <strong>
+                  {lockTitle(review)} · {review.finishedAt ? formatWhen(review.finishedAt) : ""}
+                </strong>
+                <span>
+                  {review.viewerIsRequester ? "Dis maintenant à ta conversation" : `${requester} peut maintenant dire à sa conversation`} <span className={styles.quote}>{place}</span> que{" "}
+                  {review.viewerIsRequester ? "tes retours sont prêts (par exemple « j'ai fait mes retours »)" : "les retours sont prêts"} : elle viendra les chercher. Rien n'est envoyé avant.
+                </span>
+              </div>
+            )}
+            {review.state === "fetched" && (
+              <div className={styles.done}>
+                <strong>
+                  {lockTitle(review)} ({place}) · {review.fetchedAt ? formatWhen(review.fetchedAt) : ""}
+                </strong>
+                <span>
+                  {remarks.length === 0 ? "" : remarks.length === 1 ? "La remarque est devenue un fil sur son artboard. " : `Les ${remarks.length} remarques sont devenues des fils sur leurs artboards. `}Cette revue reste lisible ici.
+                </span>
+              </div>
+            )}
+            {review.state === "filed" && (
+              <div className={cx(styles.done, styles.doneNeutral)}>
+                <strong>
+                  {lockTitle(review)} · {review.filedAt ? formatWhen(review.filedAt) : ""}
+                </strong>
+                <span>Ces retours n'ont jamais été transmis à une conversation. La revue reste lisible ici et ne peut plus être rouverte.</span>
+              </div>
+            )}
+          </div>
+          <div className={styles.sum}>
+            <div className={styles.sumCard}>
+              <b>{okSteps.length}</b>
+              <span>OK</span>
+            </div>
+            <div className={styles.sumCard}>
+              <b>{remarks.length}</b>
+              <span>{remarks.length > 1 ? "Remarques" : "Remarque"}</span>
+            </div>
+            <div className={styles.sumCard}>
+              <b>{notSeen.length}</b>
+              <span>Non vus</span>
+            </div>
+          </div>
+          {open && (
+            <div className={styles.recapFoot}>
+              <button type="button" className={styles.panelButton} onClick={() => onGo(review.steps.length - 1)} disabled={review.steps.length === 0}>
+                ← Revenir aux étapes
+              </button>
+              <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onFinish}>
+                Terminer la revue
+              </button>
+              {failed && <span className={cx(styles.hint, styles.error)}>Pas enregistré : Redline ne répond pas.</span>}
+            </div>
+          )}
+          {review.state === "finished" && (
+            <div className={styles.twoButtons}>
+              <button type="button" className={styles.panelButton} onClick={onReopen}>
+                Rouvrir la revue
+              </button>
+              <button type="button" className={styles.panelButton} onClick={onFile}>
+                Classer sans envoyer
+              </button>
+            </div>
+          )}
+          {(review.state === "fetched" || review.state === "filed") && <span className={styles.recapNote}>Lecture seule : retour au canvas par le bouton en haut à gauche.</span>}
+          {failed && !open && <span className={cx(styles.hint, styles.error)}>Pas enregistré : Redline ne répond pas.</span>}
+          {removed && (
+            <div className={removed.lost ? styles.lostText : styles.undoLine}>
+              {removed.lost ? (
+                <>
+                  <span>La revue s'est terminée : la remarque effacée sur {removed.title} n'est pas remise. Son texte :</span>
+                  <textarea className={styles.textarea} readOnly value={removed.text} aria-label="Texte de la remarque effacée" />
+                </>
+              ) : (
+                <>
+                  Remarque effacée ({removed.title})
+                  <button type="button" className={styles.linkButton} onClick={onRestore}>
+                    Annuler
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        <div className={styles.recapList}>
+          {remarks.length > 0 && <div className={styles.group}>Remarques</div>}
+          {remarks.map(({ step, answer }) => (
+            <div key={answer.id} className={styles.item}>
+              <span className={cx(styles.dot, styles.dotRemark)} />
+              <div className={styles.itemBody}>
+                <span className={styles.itemTitle}>{titleOf(step)}</span>
+                <span className={styles.itemText}>{answer.text}</span>
+                <span className={styles.itemBy}>
+                  {nameOfAnswer(answer, "Toi")}
+                  {alsoValidated(step)}
+                </span>
+              </div>
+              {open && answer.mine && (
+                <div className={styles.itemActions}>
+                  <button type="button" className={styles.panelButton} onClick={() => onGo(indexOf(step))}>
+                    Modifier
+                  </button>
+                  <button type="button" className={styles.panelButton} onClick={() => onRemove(answer.id, step.id, answer.text ?? "", titleOf(step))}>
+                    Effacer
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          {okSteps.length > 0 && <div className={styles.group}>OK</div>}
+          {okSteps.length > 0 && (
+            <div className={styles.item}>
+              <span className={cx(styles.dot, styles.dotOk)} />
+              <div className={styles.itemBody}>
+                <span className={styles.stepList}>{okSteps.map((step) => `${titleOf(step)} (${step.answers.map((answer) => nameOfAnswer(answer, "toi")).join(", ")})`).join(", ")}</span>
+              </div>
+            </div>
+          )}
+          {notSeen.length > 0 && <div className={styles.group}>Non vus ({notSeen.length})</div>}
+          {notSeen.length > 0 && (
+            <div className={styles.item}>
+              <span className={styles.dot} />
+              <div className={styles.itemBody}>
+                <span className={styles.stepList}>
+                  {notSeen.map((step, position) => (
+                    <span key={step.id}>
+                      {position > 0 && ", "}
+                      <button type="button" className={styles.stepLink} onClick={() => onGo(indexOf(step))}>
+                        {titleOf(step)}
+                      </button>
+                    </span>
+                  ))}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

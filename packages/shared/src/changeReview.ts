@@ -1,8 +1,33 @@
 import type { ManifestArtboard } from "./index.js";
 import type { Person } from "./people.js";
 
-/** Where a review is: `open` (people answer), `finished` (locked, waiting for a conversation to fetch it), then `fetched` (its feedback was fetched). */
-export type ChangeReviewState = "open" | "finished" | "fetched";
+/** Where a review is: `open` (people answer), `finished` (locked, waiting for a conversation to fetch it), then `fetched` (its feedback was fetched) or `filed` (put aside without ever being sent). */
+export type ChangeReviewState = "open" | "finished" | "fetched" | "filed";
+
+export type ChangeReviewAction = "finish" | "reopen" | "file" | "fetch";
+
+const TRANSITIONS: Readonly<Record<ChangeReviewAction, { from: ChangeReviewState; to: ChangeReviewState }>> = {
+  finish: { from: "open", to: "finished" },
+  /** Only while nobody fetched or filed it. */
+  reopen: { from: "finished", to: "open" },
+  /** Final: only a finished review can be filed, and a filed one stays so. */
+  file: { from: "finished", to: "filed" },
+  fetch: { from: "finished", to: "fetched" },
+};
+
+/** The state `action` leads to from `state`, or undefined when the action is not allowed there. */
+export const nextReviewState = (state: ChangeReviewState, action: ChangeReviewAction): ChangeReviewState | undefined => (TRANSITIONS[action].from === state ? TRANSITIONS[action].to : undefined);
+
+/** A member of the review who is on a screen of it right now (in memory only, never stored). `step` is 1-based; absent on the recap. */
+export interface ChangeReviewPresence {
+  person?: Person;
+  step?: number;
+}
+
+/** What a screen of the review sends every few seconds while it is open: the step it shows (1-based), none on the recap. */
+export interface ChangeReviewPresenceRequest {
+  step?: number;
+}
 
 /** One step as declared by Claude's `request_review` (one artboard for now). */
 export interface ChangeReviewStepInput {
@@ -61,6 +86,14 @@ export interface ChangeReview {
   createdAt: string;
   finishedBy?: Person;
   finishedAt?: string;
+  fetchedBy?: Person;
+  fetchedAt?: string;
+  filedBy?: Person;
+  filedAt?: string;
+  /** The viewer is the requester (always true when the instance has no accounts). */
+  viewerIsRequester: boolean;
+  /** The other members on a screen of the review right now. */
+  present: ChangeReviewPresence[];
   steps: ChangeReviewStep[];
 }
 
@@ -180,7 +213,9 @@ export type ChangeReviewFeedback =
   /** Without an id, several finished reviews wait: nothing was fetched. */
   | { status: "several"; reviews: WaitingChangeReview[] }
   /** Without an id, no finished review waits: the open ones, with their progress (none at all gives an empty list). */
-  | { status: "none-finished"; reviews: OpenChangeReview[] };
+  | { status: "none-finished"; reviews: OpenChangeReview[] }
+  /** The review was put aside without being sent: nothing to handle, and nothing was created. */
+  | { status: "filed"; filedBy: string; filedAt: string };
 
 /** A finished review waiting to be fetched, as listed to Claude. */
 export interface WaitingChangeReview {
@@ -242,7 +277,7 @@ export interface PageChangeReview {
 }
 
 /** Which banner state a review is in: an open review splits on whether anybody answered. */
-export function bannerStateOf(state: ChangeReviewState, seen: number): ChangeReviewBannerState {
+export function bannerStateOf(state: Exclude<ChangeReviewState, "filed">, seen: number): ChangeReviewBannerState {
   if (state === "open") return seen === 0 ? "requested" : "in-progress";
   return state;
 }
