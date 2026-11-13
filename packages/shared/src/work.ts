@@ -157,6 +157,8 @@ export type ServerEvent =
   | { type: "run-updated"; pageId: string; run: ThreadRun }
   /** A terminal session took, released or lost the page, or connected or left while holding it (`GET /api/pages/:id/terminal-holder`). */
   | { type: "terminal-hold-changed"; pageId: string }
+  /** A review of changes was declared, answered, finished or fetched: the banners of the `pageIds` it covers and an open review screen reload. Members with Écriture only. */
+  | { type: "review-updated"; reviewId: string; projectId: string; pageIds: string[] }
   /** An agent connected or disconnected. */
   | { type: "agents-updated" };
 

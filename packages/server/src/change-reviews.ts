@@ -6,6 +6,8 @@ import {
   groupTitlesOf,
   orderSteps,
   parseManifest,
+  bannerStateOf,
+  FETCHED_BANNER_MS,
   readingOrder,
   renderingSlots,
   responsiveFrameLayout,
@@ -14,6 +16,7 @@ import {
   type ChangeReview,
   type ChangeReviewFeedback,
   type ChangeReviewStepInput,
+  type PageChangeReview,
   type Manifest,
   type Person,
   type RequestChangeReviewRequest,
@@ -86,6 +89,42 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
   };
 }
 
+/** Tells the members with Écriture that a review changed: banners and an open review screen reload. Call after every change of a review. */
+export function announceReviewChange(store: Store, reviewId: string): void {
+  const projectId = store.changeReviews.projectIdOf(reviewId);
+  if (!projectId) return;
+  const pageIds = [...new Set(store.changeReviews.steps(reviewId).map((step) => step.pageId))];
+  store.emit({ type: "review-updated", reviewId, projectId, pageIds });
+}
+
+/** The reviews that cover a page as its banner shows them: open, finished, and fetched within the hour. */
+function bannersOf(store: Store, pageId: string, viewer: Viewer): PageChangeReview[] {
+  const fetchedSince = new Date(Date.now() - FETCHED_BANNER_MS).toISOString();
+  return store.changeReviews.coveringPage(pageId, fetchedSince).map((review) => {
+    const view = viewOf(store, review, viewer);
+    const answers = view.steps.flatMap((step) => step.answers);
+    const contributors = answers.flatMap((answer) => (answer.person ? [answer.person] : [])).filter((person, index, all) => all.findIndex((other) => other.id === person.id) === index);
+    const { seen } = progressOf(view.steps, -1);
+    const fetchedBy = store.getPerson(review.fetchedBy);
+    return {
+      id: review.id,
+      state: bannerStateOf(review.state, seen),
+      stepCount: view.steps.length,
+      pageTitles: [...new Set(view.steps.map((step) => step.pageTitle))],
+      seen,
+      okCount: answers.filter((answer) => answer.kind === "ok").length,
+      remarkCount: answers.filter((answer) => answer.kind === "remark").length,
+      contributors,
+      requester: view.requester,
+      viewerIsRequester: (review.requesterPersonId ?? "") === (viewerPersonId(viewer) ?? ""),
+      createdAt: review.createdAt,
+      ...(view.finishedBy ? { finishedBy: view.finishedBy } : {}),
+      ...(fetchedBy ? { fetchedBy } : {}),
+      ...(review.fetchedAt ? { fetchedAt: review.fetchedAt } : {}),
+    };
+  });
+}
+
 const nameOf = (person: Person | undefined): string => person?.name || person?.email || "someone";
 
 /** A terminal session declares a review: a 4xx message, or the new review's id. Rights are checked here: the route names no project. */
@@ -114,6 +153,7 @@ export function declareChangeReview(store: Store, access: Access, viewer: Viewer
   for (const page of pages) readingOrderByPage[page.id] = readingOrderOf(manifestOf(store, page.id));
   const ordered = orderSteps(declared, pages.map((page) => page.id), readingOrderByPage);
   const review = store.changeReviews.create(projectId, { personId: viewerPersonId(viewer), folder, ...(label ? { label } : {}) }, ordered);
+  announceReviewChange(store, review.id);
   return { id: review.id };
 }
 
@@ -138,7 +178,8 @@ export function changeReviewFeedback(
     return { status: "open", seen, total };
   }
   const threadIds = openRemarkThreads(store, pageLock, view, sessionId);
-  store.changeReviews.markFetched(review.id);
+  store.changeReviews.markFetched(review.id, viewerPersonId(viewer));
+  announceReviewChange(store, review.id);
   const result = reviewResult({
     requester: nameOf(view.requester.person),
     finishedBy: nameOf(view.finishedBy),
@@ -179,12 +220,15 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     return review ? viewOf(store, review, req.viewer) : reply.code(404).send({ error: "review not found" });
   });
 
+  app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/change-reviews", async (req) => bannersOf(store, req.params.pageId, req.viewer));
+
   app.put<{ Params: { reviewId: string; stepId: string } }>("/api/change-reviews/:reviewId/steps/:stepId/ok", async (req, reply) => {
     const review = open(req.params.reviewId);
     if (!review || !store.changeReviews.hasStep(review.id, req.params.stepId)) return reply.code(404).send({ error: "step not found" });
     if (review.state !== "open") return reply.code(409).send({ error: "this review is finished" });
     if (store.changeReviews.answerOf(req.params.stepId, viewerPersonId(req.viewer))?.kind === "remark") return reply.code(409).send({ error: "you left a remark on this step: delete it before answering OK" });
     store.changeReviews.addOk(req.params.stepId, viewerPersonId(req.viewer));
+    announceReviewChange(store, review.id);
     return viewOf(store, review, req.viewer);
   });
 
@@ -193,6 +237,7 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     if (!review || !store.changeReviews.hasStep(review.id, req.params.stepId)) return reply.code(404).send({ error: "step not found" });
     if (review.state !== "open") return reply.code(409).send({ error: "this review is finished" });
     store.changeReviews.removeOk(req.params.stepId, viewerPersonId(req.viewer));
+    announceReviewChange(store, review.id);
     return viewOf(store, review, req.viewer);
   });
 
@@ -204,6 +249,7 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     if (!requiredString(text) || text.length > MAX_STEP_TEXT_LENGTH) return reply.code(400).send({ error: `text must be a non-empty string of at most ${MAX_STEP_TEXT_LENGTH} characters` });
     // Always the viewer's own remark: nobody can write on another member's.
     store.changeReviews.saveRemark(req.params.stepId, viewerPersonId(req.viewer), text);
+    announceReviewChange(store, review.id);
     return viewOf(store, review, req.viewer);
   });
 
@@ -214,6 +260,7 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     if (review.state !== "open") return reply.code(409).send({ error: "this review is finished" });
     if ((answer.personId ?? "") !== (viewerPersonId(req.viewer) ?? "")) return reply.code(403).send({ error: "only the author can delete a remark" });
     store.changeReviews.removeAnswer(answer.id);
+    announceReviewChange(store, review.id);
     return viewOf(store, review, req.viewer);
   });
 
@@ -222,6 +269,7 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     if (!review) return reply.code(404).send({ error: "review not found" });
     if (review.state !== "open") return reply.code(409).send({ error: "this review is already finished" });
     store.changeReviews.finish(review.id, viewerPersonId(req.viewer));
+    announceReviewChange(store, review.id);
     return viewOf(store, open(review.id)!, req.viewer);
   });
 }

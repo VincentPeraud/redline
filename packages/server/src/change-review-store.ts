@@ -12,6 +12,7 @@ export interface StoredReview {
   createdAt: string;
   finishedBy?: string;
   finishedAt?: string;
+  fetchedBy?: string;
   fetchedAt?: string;
 }
 
@@ -41,6 +42,7 @@ interface ReviewRow {
   created_at: string;
   finished_by: string | null;
   finished_at: string | null;
+  fetched_by: string | null;
   fetched_at: string | null;
 }
 
@@ -80,14 +82,24 @@ export class ChangeReviewStore {
         UNIQUE (step_id, person_id)
       );
     `);
-    // Tables created before remarks and fetching existed.
-    const addColumn = (table: string, column: string, definition: string) => {
-      if (!(db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-    };
-    addColumn("change_review_answers", "kind", "TEXT NOT NULL DEFAULT 'ok'");
-    addColumn("change_review_answers", "text", "TEXT");
-    addColumn("change_review_answers", "thread_id", "TEXT");
-    addColumn("change_reviews", "fetched_at", "TEXT");
+    // Answers created before remarks existed.
+    const answerColumns = (db.prepare("PRAGMA table_info(change_review_answers)").all() as { name: string }[]).map((column) => column.name);
+    if (!answerColumns.includes("kind")) db.exec("ALTER TABLE change_review_answers ADD COLUMN kind TEXT NOT NULL DEFAULT 'ok'");
+    if (!answerColumns.includes("text")) db.exec("ALTER TABLE change_review_answers ADD COLUMN text TEXT");
+    if (!answerColumns.includes("thread_id")) db.exec("ALTER TABLE change_review_answers ADD COLUMN thread_id TEXT");
+    const columns = (db.prepare("PRAGMA table_info(change_reviews)").all() as { name: string }[]).map((column) => column.name);
+    for (const column of ["fetched_by", "fetched_at"]) if (!columns.includes(column)) db.exec(`ALTER TABLE change_reviews ADD COLUMN ${column} TEXT`);
+  }
+
+  /** Open and finished reviews with a step on the page, plus those fetched since `fetchedSince` (ISO), oldest first. */
+  coveringPage(pageId: string, fetchedSince: string): StoredReview[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM change_reviews WHERE id IN (SELECT review_id FROM change_review_steps WHERE page_id = ?)
+         AND (state IN ('open', 'finished') OR (state = 'fetched' AND fetched_at >= ?)) ORDER BY created_at, rowid`,
+      )
+      .all(pageId, fetchedSince) as { id: string }[];
+    return rows.map((row) => this.get(row.id)!);
   }
 
   /** `steps` are already in review order. */
@@ -117,6 +129,7 @@ export class ChangeReviewStore {
         createdAt: row.created_at,
         ...(row.finished_by ? { finishedBy: row.finished_by } : {}),
         ...(row.finished_at ? { finishedAt: row.finished_at } : {}),
+        ...(row.fetched_by ? { fetchedBy: row.fetched_by } : {}),
         ...(row.fetched_at ? { fetchedAt: row.fetched_at } : {}),
       }
     );
@@ -185,8 +198,9 @@ export class ChangeReviewStore {
     this.db.prepare("UPDATE change_review_answers SET thread_id = ? WHERE id = ?").run(threadId, answerId);
   }
 
-  markFetched(reviewId: string): void {
-    this.db.prepare("UPDATE change_reviews SET fetched_at = ? WHERE id = ? AND fetched_at IS NULL").run(new Date().toISOString(), reviewId);
+  /** The first fetch of a finished review: it is now `fetched`, by this person. */
+  markFetched(reviewId: string, personId: string | undefined): void {
+    this.db.prepare("UPDATE change_reviews SET state = 'fetched', fetched_by = ?, fetched_at = ? WHERE id = ? AND state = 'finished'").run(personId ?? null, new Date().toISOString(), reviewId);
   }
 
   finish(reviewId: string, personId: string | undefined): void {

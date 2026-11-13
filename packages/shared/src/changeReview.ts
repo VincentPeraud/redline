@@ -1,8 +1,8 @@
 import type { ManifestArtboard } from "./index.js";
 import type { Person } from "./people.js";
 
-/** Where a review is: `open` (people answer) then `finished` (locked, waiting for the conversation to fetch it). */
-export type ChangeReviewState = "open" | "finished";
+/** Where a review is: `open` (people answer), `finished` (locked, waiting for a conversation to fetch it), then `fetched` (its feedback was fetched). */
+export type ChangeReviewState = "open" | "finished" | "fetched";
 
 /** One step as declared by Claude's `request_review` (one artboard for now). */
 export interface ChangeReviewStepInput {
@@ -157,4 +157,42 @@ export const reviewHash = (reviewId: string, step?: number): string => `#/review
 
 export interface ChangeReviewFeedbackRequest {
   reviewId: string;
+}
+
+/** Path of the reviews that cover a page, for the banner under the canvas header. */
+export const pageChangeReviewsPath = (pageId: string): string => `/api/pages/${encodeURIComponent(pageId)}/change-reviews`;
+
+/** How long a fetched review stays in the banner list, so the green "fetched" state shows on load. */
+export const FETCHED_BANNER_MS = 60 * 60 * 1000;
+
+/** The banner's four states: `requested` (nobody answered yet), `in-progress`, `finished` (waiting for fetch), `fetched`. */
+export type ChangeReviewBannerState = "requested" | "in-progress" | "finished" | "fetched";
+
+/** One review as the banner of a page shows it. */
+export interface PageChangeReview {
+  id: string;
+  state: ChangeReviewBannerState;
+  stepCount: number;
+  /** Titles of the pages of the review, in review order. */
+  pageTitles: string[];
+  seen: number;
+  /** Validations given on all steps. */
+  okCount: number;
+  /** Remarks left on all steps. */
+  remarkCount: number;
+  /** People who answered, in order of first answer. */
+  contributors: Person[];
+  requester: { person?: Person; folder: string; label?: string };
+  /** The viewer is the requester (always true when the instance has no accounts). */
+  viewerIsRequester: boolean;
+  createdAt: string;
+  finishedBy?: Person;
+  fetchedBy?: Person;
+  fetchedAt?: string;
+}
+
+/** Which banner state a review is in: an open review splits on whether anybody answered. */
+export function bannerStateOf(state: ChangeReviewState, seen: number): ChangeReviewBannerState {
+  if (state === "open") return seen === 0 ? "requested" : "in-progress";
+  return state;
 }

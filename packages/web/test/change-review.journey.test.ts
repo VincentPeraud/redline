@@ -152,6 +152,7 @@ it("saves a remark on its own, replaces the OK, edits it, deletes it with an und
   await remarkField(tab).fill("Last word");
   await expect.poll(async () => (await stepsOf(reviewId))[0]!.answers.length).toBe(1);
   await tab.getByRole("button", { name: "Terminer la revue" }).first().click();
+  await expect.poll(() => tab.getByText(/Revue terminée/).count()).toBeGreaterThan(0);
   await tab.goto(`${seam.server.url}/#/reviews/${reviewId}/steps/1`);
   await expect.poll(() => tab.getByRole("textbox", { name: "Ta remarque" }).inputValue()).toBe("Last word");
   expect(await tab.getByRole("textbox", { name: "Ta remarque" }).getAttribute("readonly")).not.toBeNull();

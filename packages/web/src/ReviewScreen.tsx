@@ -5,6 +5,7 @@ import { fitToStage } from "./PlayMode.js";
 import { PlayFrame } from "./PlayFrame.js";
 import { presentationOf } from "./playFrames.js";
 import { navigateTo, type Route } from "./router.js";
+import { subscribeServerEvents } from "./serverEvents.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { cx } from "./ui/index.js";
 import { LeaveDialog, PersonDot, RemarkEditor, personName } from "./ReviewRemark.js";
@@ -57,8 +58,22 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     }
   }, [reviewId]);
   useEffect(() => void reload(), [reload]);
+  // Another member's answer, or the review's end, shows here at once.
+  useEffect(
+    () =>
+      subscribeServerEvents((event) => {
+        if (event.type === "review-updated" && event.reviewId === reviewId) void reload();
+      }, () => void reload()),
+    [reviewId, reload],
+  );
 
   const review = load.status === "ready" ? load.review : undefined;
+
+  // The address names the step as soon as the review shows, so answering never moves the member to another one.
+  useEffect(() => {
+    if (review && step === undefined) navigateTo(stepRoute(reviewId, review.state !== "open" ? "recap" : nextUnanswered(review, -1)), "replace");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [review?.id, step]);
   useDocumentTitle(review ? `Revue · ${review.projectTitle}` : "Revue");
 
   /** Sends one change of the member's answer; the answer is the review as it stands then. */
@@ -77,7 +92,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   }
 
   if (load.status !== "ready") return <StateScreen status={load.status} onRetry={() => void reload()} />;
-  const view: View = step === undefined ? (review!.state === "finished" ? "recap" : nextUnanswered(review!, -1)) : step === "recap" || step > review!.steps.length ? "recap" : step - 1;
+  const view: View = step === undefined ? (review!.state !== "open" ? "recap" : nextUnanswered(review!, -1)) : step === "recap" || step > review!.steps.length ? "recap" : step - 1;
   const guard = (action: () => void) => (unsaved ? setLeaving(() => action) : action());
   const navigate = (target: View) => navigateTo(stepRoute(reviewId, target), "replace");
   const go = (target: View) => guard(() => navigate(target));
@@ -264,7 +279,7 @@ function StepView({ review, index, failed, onGo, onOk, onCancel, remark }: { rev
   const own = step.answers.find((answer) => answer.mine);
   const others = step.answers.filter((answer) => !answer.mine);
   const status = stepStatus(step.answers);
-  const finished = review.state === "finished";
+  const finished = review.state !== "open";
   return (
     <div className={styles.body}>
       <ReviewStage review={review} step={step} />
@@ -392,7 +407,7 @@ function Recap({ review, failed, onGo, onFinish }: { review: ChangeReview; faile
   const remarks = review.steps.filter((step) => stepStatus(step.answers) === "remark");
   const notSeen = review.steps.filter((step) => !stepIsSeen(step));
   const indexOf = (step: ChangeReviewStep) => review.steps.indexOf(step);
-  if (review.state === "finished") {
+  if (review.state !== "open") {
     return (
       <div className={styles.screen}>
         <h1>Revue terminée</h1>

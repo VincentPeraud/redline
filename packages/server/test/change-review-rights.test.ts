@@ -62,6 +62,19 @@ describe("review of changes: rights", () => {
     expect((await thomas.send("PUT", `/api/change-reviews/${id}/steps/${stepId}/remark`, { text: "Hi" })).status).toBe(403);
   });
 
+  it("lists a page's review banners to a member with Écriture only", async () => {
+    for (const level of ["comment", "read"] as const) {
+      const { id, thomas } = await declared(level);
+      const pageId = (await instance.ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).steps[0]!.pageId;
+      expect((await thomas.get(`/api/pages/${pageId}/change-reviews`)).status, level).toBe(403);
+    }
+    const { id, thomas } = await declared("write");
+    const pageId = (await instance.ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).steps[0]!.pageId;
+    const response = await thomas.get(`/api/pages/${pageId}/change-reviews`);
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { id: string; viewerIsRequester: boolean }[]).map((banner) => [banner.id, banner.viewerIsRequester])).toContainEqual([id, false]);
+  });
+
   it("refuses a declaration by an agent whose account has no Écriture on the project", async () => {
     const { thomas, declare } = await declared("read");
     const thomasToken = ((await thomas.json<AgentTokenResponse>("/api/agent-token")) as AgentTokenResponse).token;

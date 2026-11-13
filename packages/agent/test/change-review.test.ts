@@ -197,4 +197,19 @@ describe("remarks", () => {
     expect(answer).toMatch(/Remarks \(1\)/);
     expect(answer).toMatch(/Not seen \(2\)/);
   });
+
+  it("counts remarks apart from OKs in the banner, and marks the review fetched at the first fetch", async () => {
+    const { terminal, reviewId, pages } = await declared();
+    const steps = (await reviewOf(reviewId)).steps;
+    await send("PUT", `/api/change-reviews/${reviewId}/steps/${steps[0]!.id}/ok`);
+    await saveRemark(reviewId, steps[1]!.id, "No");
+    const banners = async () => (await (await seam!.server.get(`/api/pages/${pages.home}/change-reviews`)).json()) as { state: string; okCount: number; remarkCount: number }[];
+    expect((await banners())[0]).toMatchObject({ okCount: 1, remarkCount: 1 });
+    await send("POST", `/api/change-reviews/${reviewId}/finish`);
+
+    await terminal.call("review_feedback", { reviewId });
+
+    expect((await banners())[0]).toMatchObject({ state: "fetched", okCount: 1, remarkCount: 1 });
+    expect(await reviewOf(reviewId)).toMatchObject({ state: "fetched" });
+  });
 });
