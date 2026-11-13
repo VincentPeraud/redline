@@ -432,10 +432,12 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
         ].join("\n");
       }
       if (feedback.status === "filed") return `Review filed: "classée sans envoi par ${feedback.filedBy} le ${feedback.filedAt}". Its remarks were never sent and nothing was created: handle nothing, and tell the person if they expected feedback.`;
+      if (feedback.status === "nothing-left") return `Nothing left to review ("plus rien à revoir"): every artboard of this review was removed and it had no remark, so Redline filed it on ${feedback.filedAt}. Handle nothing.`;
       if (feedback.status === "open") return `Review not finished yet: ${feedback.seen} / ${feedback.total} steps seen. Tell the person to press "Terminer la revue", then call review_feedback again. Handle nothing for now.`;
       const line = (entry: { number: number; label: string }, suffix = "") => `${entry.number}. ${entry.label}${suffix}`;
+      const removedNote = { deleted: " · artboard supprimé", archived: " · page archivée" };
       const remark = (entry: ChangeReviewRemarkResult) => [
-        `${entry.number}. ${entry.label} (${entry.artboard}) · remark by ${entry.author}${entry.artboardModified ? " · artboard modifié depuis la remarque" : ""} · thread ${entry.threadId ?? "none"}${entry.alsoValidatedBy.length > 0 ? ` · ${entry.alsoValidatedBy.join(", ")} had validated this step` : ""}`,
+        `${entry.number ?? "-"}. ${entry.label} (${entry.artboard}) · remark by ${entry.author}${entry.removed ? `${removedNote[entry.removed]} (text only, no thread)` : ""}${entry.artboardModified ? " · artboard modifié depuis la remarque" : ""} · thread ${entry.threadId ?? "none"}${entry.alsoValidatedBy.length > 0 ? ` · ${entry.alsoValidatedBy.join(", ")} had validated this step` : ""}`,
         ...entry.text.split("\n").map((textLine) => `   > ${textLine}`),
       ];
       return [
@@ -445,7 +447,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
         ...feedback.validated.map((entry) => line(entry, ` · validated by ${entry.by.join(", ")}`)),
         `Remarks (${feedback.remarks.length}):`,
         ...feedback.remarks.flatMap(remark),
-        ...(feedback.remarks.length > 0 ? ["Each remark is now a comment thread on its artboard, given to this session: answer it with reply_in_thread (the thread id is above)."] : []),
+        ...(feedback.remarks.some((entry) => entry.threadId) ? ["Each remark with a thread id is now a comment thread on its artboard, given to this session: answer it with reply_in_thread (the thread id is above)."] : []),
         `Not seen (${feedback.notSeen.length}):`,
         ...feedback.notSeen.map((entry) => line(entry, entry.modifiedAfterOk ? " · modifié après le OK" : "")),
       ].join("\n");

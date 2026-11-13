@@ -69,8 +69,13 @@ export interface ChangeReviewAnswer {
   outdated?: boolean;
 }
 
+/** Why a step no longer counts: its artboard was deleted, or its page is archived (steps come back if the page is unarchived before the review is finished). */
+export type StepRemoval = "deleted" | "archived";
+
 export interface ChangeReviewStep extends ChangeReviewStepInput {
   id: string;
+  /** Set when the step is out of the review: it shows "Cet artboard n'existe plus" and is not counted. */
+  removed?: StepRemoval;
   pageTitle: string;
   artboardTitle: string;
   /** The artboard's manifest entry (size, frame, address text); absent when the artboard no longer exists. */
@@ -113,7 +118,10 @@ export interface ChangeReviewProgress {
   segments: ProgressSegment[];
 }
 
-type Answered = { answers: readonly ChangeReviewAnswer[] };
+type Answered = { answers: readonly ChangeReviewAnswer[]; removed?: StepRemoval };
+
+/** The steps still in the review: removed ones are not counted, not shown in the menu and not asked about. */
+export const activeSteps = <T extends { removed?: StepRemoval }>(steps: readonly T[]): T[] => steps.filter((step) => step.removed === undefined);
 
 /**
  * "Remarque" as soon as anyone left a remark (kept even when its artboard changed), "OK" when someone validated the current version and nobody left a remark, else "Non vu".
@@ -128,11 +136,12 @@ export const stepIsModified = ({ answers }: Answered): boolean => answers.length
 /** "Vu": the step has a remark or an OK on the current version (opening a step without answering does not count). */
 export const stepIsSeen = ({ answers }: Answered): boolean => stepStatus(answers) !== "unseen";
 
-/** Seen / total, and one segment per step; a modified step is red, the current step shows as current until it is answered. */
-export function progressOf(steps: readonly Answered[], currentIndex: number): ChangeReviewProgress {
+/** Seen / total, and one segment per step still in the review (`currentIndex` counts all steps); a modified step is red, the current step shows as current until it is answered. */
+export function progressOf<T extends Answered>(steps: readonly T[], currentIndex: number): ChangeReviewProgress {
   const segmentOf = (step: Answered, index: number): ProgressSegment =>
     stepIsModified(step) ? "modified" : stepIsSeen(step) ? (stepStatus(step.answers) === "remark" ? "remark" : "ok") : index === currentIndex ? "current" : "unseen";
-  return { seen: steps.filter(stepIsSeen).length, total: steps.length, segments: steps.map(segmentOf) };
+  const kept = steps.map((step, index) => ({ step, index })).filter(({ step }) => step.removed === undefined);
+  return { seen: kept.filter(({ step }) => stepIsSeen(step)).length, total: kept.length, segments: kept.map(({ step, index }) => segmentOf(step, index)) };
 }
 
 /** Steps in page order, then in the reading order of their page. An artboard missing from the reading order goes last of its page. */
@@ -165,7 +174,7 @@ export interface ChangeReviewResultInput {
   requester: string;
   finishedBy: string;
   /** In review order. */
-  steps: { id: string; label: string; artboard: string; answers: readonly ChangeReviewAnswer[] }[];
+  steps: { id: string; label: string; artboard: string; answers: readonly ChangeReviewAnswer[]; removed?: StepRemoval }[];
   /** The thread opened for each remark, by remark id. */
   threadIds?: Readonly<Record<string, string>>;
 }
@@ -173,7 +182,8 @@ export interface ChangeReviewResultInput {
 export interface ChangeReviewRemarkResult {
   stepId: string;
   label: string;
-  number: number;
+  /** Absent on a remark of a removed step, which has no place in the count. */
+  number?: number;
   artboard: string;
   author: string;
   text: string;
@@ -181,6 +191,8 @@ export interface ChangeReviewRemarkResult {
   alsoValidatedBy: string[];
   /** The artboard was republished after this remark ("artboard modifié depuis la remarque"). */
   artboardModified?: boolean;
+  /** The step's artboard was deleted ("artboard supprimé") or its page is archived ("page archivée"): the remark comes as text, without a thread. */
+  removed?: StepRemoval;
   threadId?: string;
 }
 
@@ -196,23 +208,25 @@ const nameOfAnswer = (answer: ChangeReviewAnswer): string => answer.person?.name
 
 /** What Claude gets from a finished review: the validated steps with who validated them, the remarks, and the steps not seen. */
 export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: ChangeReviewResultInput): ChangeReviewResult {
-  const numbered = steps.map((step, index) => ({ ...step, number: index + 1 }));
+  const numbered = activeSteps(steps).map((step, index) => ({ ...step, number: index + 1 }));
+  const numberOf = new Map(numbered.map((step) => [step.id, step.number]));
   return {
     requester,
     finishedBy,
     validated: numbered.filter((step) => stepStatus(step.answers) === "ok").map((step) => ({ stepId: step.id, label: step.label, number: step.number, by: step.answers.filter((answer) => !answer.outdated).map(nameOfAnswer) })),
-    remarks: numbered.flatMap((step) =>
+    remarks: steps.flatMap((step) =>
       step.answers
         .filter((answer) => answer.kind === "remark")
         .map((answer) => ({
           stepId: step.id,
           label: step.label,
-          number: step.number,
+          ...(numberOf.has(step.id) ? { number: numberOf.get(step.id)! } : {}),
           artboard: step.artboard,
           author: nameOfAnswer(answer),
           text: answer.text ?? "",
           alsoValidatedBy: step.answers.filter((other) => other.kind === "ok" && !other.outdated).map(nameOfAnswer),
           ...(answer.outdated ? { artboardModified: true } : {}),
+          ...(step.removed ? { removed: step.removed } : {}),
           ...(threadIds[answer.id] ? { threadId: threadIds[answer.id] } : {}),
         })),
     ),
@@ -232,7 +246,9 @@ export type ChangeReviewFeedback =
   /** Without an id, no finished review waits: the open ones, with their progress (none at all gives an empty list). */
   | { status: "none-finished"; reviews: OpenChangeReview[] }
   /** The review was put aside without being sent: nothing to handle, and nothing was created. */
-  | { status: "filed"; filedBy: string; filedAt: string };
+  | { status: "filed"; filedBy: string; filedAt: string }
+  /** Every step was removed and no remark is left: Redline filed the review by itself ("plus rien à revoir"). */
+  | { status: "nothing-left"; filedAt: string };
 
 /** A finished review waiting to be fetched, as listed to Claude. */
 export interface WaitingChangeReview {

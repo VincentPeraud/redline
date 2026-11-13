@@ -24,6 +24,8 @@ export const REVIEW_PRESENCE_TIMEOUT_MS = 60_000;
 export interface StoredStep extends ChangeReviewStepInput {
   id: string;
   reviewId: string;
+  /** Its page was archived when the review was finished: unarchiving it later does not bring the step back. */
+  archivedAtFinish?: boolean;
 }
 
 export interface StoredAnswer {
@@ -100,6 +102,8 @@ export class ChangeReviewStore {
     if (!answerColumns.includes("text")) db.exec("ALTER TABLE change_review_answers ADD COLUMN text TEXT");
     if (!answerColumns.includes("artboard_version")) db.exec("ALTER TABLE change_review_answers ADD COLUMN artboard_version TEXT");
     if (!answerColumns.includes("thread_id")) db.exec("ALTER TABLE change_review_answers ADD COLUMN thread_id TEXT");
+    const stepColumns = (db.prepare("PRAGMA table_info(change_review_steps)").all() as { name: string }[]).map((column) => column.name);
+    if (!stepColumns.includes("archived_at_finish")) db.exec("ALTER TABLE change_review_steps ADD COLUMN archived_at_finish INTEGER NOT NULL DEFAULT 0");
     const columns = (db.prepare("PRAGMA table_info(change_reviews)").all() as { name: string }[]).map((column) => column.name);
     for (const column of ["fetched_by", "fetched_at", "filed_by", "filed_at"]) if (!columns.includes(column)) db.exec(`ALTER TABLE change_reviews ADD COLUMN ${column} TEXT`);
   }
@@ -189,8 +193,55 @@ export class ChangeReviewStore {
   }
 
   steps(reviewId: string): StoredStep[] {
-    const rows = this.db.prepare("SELECT * FROM change_review_steps WHERE review_id = ? ORDER BY position").all(reviewId) as { id: string; page_id: string; artboard: string; changed: string; look_at: string; question: string }[];
-    return rows.map((row) => ({ id: row.id, reviewId, pageId: row.page_id, artboard: row.artboard, changed: row.changed, lookAt: row.look_at, question: row.question }));
+    const rows = this.db.prepare("SELECT * FROM change_review_steps WHERE review_id = ? ORDER BY position").all(reviewId) as {
+      id: string;
+      page_id: string;
+      artboard: string;
+      changed: string;
+      look_at: string;
+      question: string;
+      archived_at_finish: number;
+    }[];
+    return rows.map((row) => ({
+      id: row.id,
+      reviewId,
+      pageId: row.page_id,
+      artboard: row.artboard,
+      changed: row.changed,
+      lookAt: row.look_at,
+      question: row.question,
+      ...(row.archived_at_finish ? { archivedAtFinish: true } : {}),
+    }));
+  }
+
+  /** Open and finished reviews with a step on the page (a removal or an archive there changes them). */
+  liveCovering(pageId: string): StoredReview[] {
+    const rows = this.db
+      .prepare("SELECT id FROM change_reviews WHERE state IN ('open', 'finished') AND id IN (SELECT review_id FROM change_review_steps WHERE page_id = ?) ORDER BY created_at, rowid")
+      .all(pageId) as { id: string }[];
+    return rows.map((row) => this.get(row.id)!);
+  }
+
+  /**
+   * An artboard moved to another page of the project: its steps follow it. Answers that saw the artboard's current version on the old page
+   * (`seenOnSource`) now saw its version on the new one (`seenOnTarget`), so moving it does not count as modifying it.
+   * Returns the reviews concerned.
+   */
+  follow(file: string, fromPageId: string, toPageId: string, seenOnSource: string | undefined, seenOnTarget: string | undefined): string[] {
+    return this.db.transaction(() => {
+      const steps = this.db.prepare("SELECT id, review_id FROM change_review_steps WHERE page_id = ? AND artboard = ?").all(fromPageId, file) as { id: string; review_id: string }[];
+      for (const { id } of steps) {
+        this.db.prepare("UPDATE change_review_steps SET page_id = ? WHERE id = ?").run(toPageId, id);
+        if (seenOnSource !== undefined && seenOnTarget !== undefined) this.db.prepare("UPDATE change_review_answers SET artboard_version = ? WHERE step_id = ? AND artboard_version = ?").run(seenOnTarget, id, seenOnSource);
+      }
+      return [...new Set(steps.map((step) => step.review_id))];
+    })();
+  }
+
+  /** Remembers which steps sat on an archived page when the review was finished. */
+  freezeArchived(stepIds: readonly string[]): void {
+    const update = this.db.prepare("UPDATE change_review_steps SET archived_at_finish = 1 WHERE id = ?");
+    for (const id of stepIds) update.run(id);
   }
 
   answers(reviewId: string): StoredAnswer[] {
@@ -267,6 +318,7 @@ export class ChangeReviewStore {
   /** Back to `open`: the finish is forgotten (the caller checked it was finished, not fetched or filed). */
   reopen(reviewId: string): void {
     this.db.prepare("UPDATE change_reviews SET state = 'open', finished_by = NULL, finished_at = NULL WHERE id = ?").run(reviewId);
+    this.db.prepare("UPDATE change_review_steps SET archived_at_finish = 0 WHERE review_id = ?").run(reviewId);
   }
 
   /** Puts a finished review aside for good, signed by this person. */
