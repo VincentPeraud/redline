@@ -4,13 +4,18 @@ import {
   progressOf,
   renderingKey,
   renderingLabel,
+  stepIsGroup,
   stepIsModified,
+  stepIsMultiPage,
   stepIsSeen,
+  stepLabel,
   stepStatus,
   versionPreviewPath,
+  type ArtboardRef,
   type ArtboardRendering,
   type ChangeReview,
   type ChangeReviewAnswer,
+  type ChangeReviewMember,
   type ChangeReviewPresence,
   type ChangeReviewStep,
   type TweakValues,
@@ -71,6 +76,8 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   const [confirming, setConfirming] = useState<{ notSeen: number; present: ChangeReviewPresence[] } | undefined>();
   const [filing, setFiling] = useState(false);
   const [removed, setRemoved] = useState<RemovedRemark | undefined>();
+  /** The artboard of each group step on the stage: the index in its others, none for the example. Local to this screen. */
+  const [opened, setOpened] = useState<Record<string, number | undefined>>({});
   const removedTimer = useRef<ReturnType<typeof setTimeout>>();
 
   // A remark Redline has not received: closing the tab asks first, and so does leaving the step.
@@ -149,6 +156,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
 
   if (load.status !== "ready") return <StateScreen status={load.status} onRetry={() => void reload()} />;
   const view: View = step === undefined ? (review!.state !== "open" ? "recap" : nextUnanswered(review!, -1)) : step === "recap" || step > review!.steps.length ? "recap" : step - 1;
+  const shownOf = (step: ChangeReviewStep) => shownStep(step, opened[step.id]);
   const guard = (action: () => void) => (unsaved ? setLeaving(() => action) : action());
   const navigate = (target: View) => navigateTo(stepRoute(reviewId, target), "replace");
   const go = (target: View) => guard(() => navigate(target));
@@ -202,7 +210,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
 
   return (
     <div data-testid="review" className={styles.review}>
-      <TopBar review={review!} view={view} controls={view === "recap" ? undefined : controlsOf(review!.steps[view]!)} onGo={go} onLeave={guard} onFinish={requestFinish} />
+      <TopBar review={review!} view={view} shown={view === "recap" ? undefined : shownOf(review!.steps[view]!)} controls={view === "recap" ? undefined : controlsOf(shownOf(review!.steps[view]!))} onGo={go} onLeave={guard} onFinish={requestFinish} />
       {view === "recap" ? (
         <Recap review={review!} failed={failed} removed={removed} onGo={go} onFinish={requestFinish} onReopen={reopen} onFile={() => setFiling(true)} onRemove={removeRemark} onRestore={() => void restoreRemark()} />
       ) : (
@@ -210,7 +218,9 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
           key={review!.steps[view]!.id}
           review={review!}
           index={view}
-          controls={controlsOf(review!.steps[view]!)}
+          controls={controlsOf(shownOf(review!.steps[view]!))}
+          openedMember={opened[review!.steps[view]!.id]}
+          onOpenMember={(member) => setOpened((current) => ({ ...current, [review!.steps[view]!.id]: member }))}
           failed={failed}
           onGo={go}
           onOk={() => guard(() => void answerOk(view))}
@@ -324,7 +334,7 @@ function StateScreen({ status, onRetry }: { status: Exclude<Load["status"], "rea
 const renderingOptionLabel = (renderings: ArtboardRendering[], rendering: ArtboardRendering) =>
   renderings.filter((other) => other.format === rendering.format).length > 1 ? renderingLabel(rendering) : RESPONSIVE_FORMATS[rendering.format].label;
 
-function TopBar({ review, view, controls, onGo, onLeave, onFinish }: { review: ChangeReview; view: View; controls?: StepControls; onGo: (view: View) => void; onLeave: (action: () => void) => void; onFinish: () => void }) {
+function TopBar({ review, view, shown, controls, onGo, onLeave, onFinish }: { review: ChangeReview; view: View; shown?: ChangeReviewStep; controls?: StepControls; onGo: (view: View) => void; onLeave: (action: () => void) => void; onFinish: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -343,14 +353,17 @@ function TopBar({ review, view, controls, onGo, onLeave, onFinish }: { review: C
 
   const total = review.steps.length;
   const position = view === "recap" ? total : view;
-  const step = view === "recap" ? undefined : review.steps[view];
+  const step = shown;
   const requester = review.requester.person;
   const place = review.requester.label ?? review.requester.folder.split(/[\\/]/).filter(Boolean).pop() ?? review.requester.folder;
   const backTo: Route = view === "recap" ? { name: "project", projectId: review.projectId } : { name: "page", pageId: review.steps[view]!.pageId };
-  const groups = review.steps.reduce<{ pageId: string; title: string; entries: { step: ChangeReviewStep; index: number }[] }[]>((acc, entryStep, index) => {
+  // A group spanning several pages is listed apart, under "Sur plusieurs pages" (they come last in the review).
+  const groups = review.steps.reduce<{ key: string; title: string; entries: { step: ChangeReviewStep; index: number }[] }[]>((acc, entryStep, index) => {
+    const multi = stepIsMultiPage(entryStep);
+    const key = multi ? "" : entryStep.pageId;
     const last = acc[acc.length - 1];
-    if (last && last.pageId === entryStep.pageId) last.entries.push({ step: entryStep, index });
-    else acc.push({ pageId: entryStep.pageId, title: entryStep.pageTitle, entries: [{ step: entryStep, index }] });
+    if (last && last.key === key) last.entries.push({ step: entryStep, index });
+    else acc.push({ key, title: multi ? "Sur plusieurs pages" : entryStep.pageTitle, entries: [{ step: entryStep, index }] });
     return acc;
   }, []);
 
@@ -386,7 +399,7 @@ function TopBar({ review, view, controls, onGo, onLeave, onFinish }: { review: C
         {menuOpen && (
           <div role="menu" aria-label="Étapes de la revue" className={styles.menu}>
             {groups.map((group) => (
-              <div key={group.pageId}>
+              <div key={group.key || "multi"}>
                 <h4>{group.title}</h4>
                 {group.entries.map(({ step, index }) => (
                   <button
@@ -401,9 +414,7 @@ function TopBar({ review, view, controls, onGo, onLeave, onFinish }: { review: C
                   >
                     <span className={styles.menuNumber}>{index + 1}</span>
                     <span className={cx(styles.dot, stepDotClass(step), index === view && styles.dotCurrent)} />
-                    <span className={styles.menuTitle}>
-                      {step.pageTitle} · {step.artboardTitle}
-                    </span>
+                    <span className={styles.menuTitle}>{stepLabel(step)}</span>
                     <span className={styles.menuState}>{index === view ? "En cours" : stepIsModified(step) ? "Modifié" : STATUS_LABEL[stepStatus(step.answers)]}</span>
                   </button>
                 ))}
@@ -489,6 +500,8 @@ function StepView({
   review,
   index,
   controls,
+  openedMember,
+  onOpenMember,
   failed,
   onGo,
   onOk,
@@ -500,6 +513,8 @@ function StepView({
   review: ChangeReview;
   index: number;
   controls: StepControls;
+  openedMember: number | undefined;
+  onOpenMember: (member: number | undefined) => void;
   failed: boolean;
   onGo: (view: View) => void;
   onOk: () => void;
@@ -516,24 +531,32 @@ function StepView({
   const [keptUnsaved, setKeptUnsaved] = useState(false);
   // The member's own answer saw an older version of the artboard.
   const modified = stepIsModified(step) || own?.outdated === true;
+  const group = stepIsGroup(step);
+  const shown = shownStep(step, openedMember);
+  const size = group ? step.others!.length + 1 : 1;
+  const pageCount = new Set([step.pageId, ...(step.others ?? []).map((member) => member.pageId)]).size;
+  const changedNames = (step.others ?? []).filter((member) => member.modified).map((member) => `${member.pageTitle} · ${member.artboardTitle}`);
+  const exampleChanged = step.modifiedAt !== undefined ? [`${step.pageTitle} · ${step.artboardTitle}`] : [];
+  const changedSince = [...exampleChanged, ...changedNames];
   return (
     <div className={styles.body}>
-      <ReviewStage review={review} step={step} modified={modified} controls={controls} />
+      <ReviewStage review={review} step={shown} example={step} modified={modified && (!group || shown.modifiedAt !== undefined)} controls={controls} openedMember={openedMember} onOpenMember={onOpenMember} />
       <aside aria-label="Question de l'étape" className={styles.panel}>
         <div className={styles.panelScroll}>
           <Progress review={review} index={index} />
           <div>
-            <div className={styles.kicker}>
+            <div className={cx(styles.kicker, group && styles.kickerGroup)}>
               <span>
-                Page {step.pageTitle} · étape {index + 1} / {review.steps.length}
+                {group ? `${counted(pageCount, "page", "pages")} · ${size} artboards` : `Page ${step.pageTitle} · étape ${index + 1} / ${review.steps.length}`}
               </span>
-              <span className={cx(styles.chip, !finished && !modified && status === "ok" && styles.chipOk, !finished && !modified && status === "remark" && styles.chipRemark, !finished && modified && styles.chipChanged)}>
-                {finished ? "Lecture seule" : modified ? "Modifié depuis ta revue" : status === "ok" ? "✓ OK" : STATUS_LABEL[status]}
+              <span className={styles.chips}>
+                {group && <span className={styles.chip}>Groupé</span>}
+                <span className={cx(styles.chip, !finished && !modified && status === "ok" && styles.chipOk, !finished && !modified && status === "remark" && styles.chipRemark, !finished && modified && styles.chipChanged)}>
+                  {finished ? "Lecture seule" : modified ? "Modifié depuis ta revue" : status === "ok" ? "✓ OK" : STATUS_LABEL[status]}
+                </span>
               </span>
             </div>
-            <h2 className={styles.heading}>
-              {step.pageTitle} · {step.artboardTitle}
-            </h2>
+            <h2 className={styles.heading}>{stepLabel(step)}</h2>
           </div>
           <section className={styles.section}>
             <h3>Ce qui a changé</h3>
@@ -561,7 +584,7 @@ function StepView({
                   </button>
                 ) : own?.outdated ? (
                   <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onOk}>
-                    Revoir et valider
+                    {group ? `Revoir et valider les ${size}` : "Revoir et valider"}
                   </button>
                 ) : own?.kind === "remark" ? (
                   <span className={styles.hint}>Ta remarque remplace ton OK pour cette étape.</span>
@@ -571,10 +594,15 @@ function StepView({
                   </button>
                 ) : (
                   <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onOk}>
-                    OK, étape suivante
+                    {group ? `OK pour les ${size}` : "OK, étape suivante"}
                   </button>
                 )}
               </div>
+            )}
+            {group && !finished && own?.outdated && own.kind === "ok" && changedSince.length > 0 && (
+              <span className={styles.hint}>
+                Ton OK du {formatWhen(own.at)} ne compte plus : {changedSince.map((name) => `« ${name} »`).join(", ")} {changedSince.length > 1 ? "ont" : "a"} changé depuis.
+              </span>
             )}
             {failed && <span className={cx(styles.hint, styles.error)}>Pas enregistré : Redline ne répond pas.</span>}
           </div>
@@ -604,7 +632,7 @@ function StepView({
               )}
             </div>
           )}
-          <RemarkEditor stepId={step.id} own={own} finished={finished} onKeptUnsaved={setKeptUnsaved} {...remark} />
+          <RemarkEditor stepId={step.id} own={own} finished={finished} onKeptUnsaved={setKeptUnsaved} placement={group ? { shown: { pageId: shown.pageId, artboard: shown.artboard }, example: { pageId: step.pageId, artboard: step.artboard }, titleOf: (ref) => titleOfArtboard(step, ref) } : undefined} {...remark} />
         </div>
         <div className={styles.panelFoot}>
           <button type="button" className={styles.panelButton} disabled={index === 0} onClick={() => onGo(index - 1)}>
@@ -619,6 +647,36 @@ function StepView({
   );
 }
 
+/** The step as the top bar and the stage show it: the example, or the artboard of the group whose thumbnail was opened (its own fields; the example's tweak values and group do not apply to it). */
+function shownStep(step: ChangeReviewStep, member: number | undefined): ChangeReviewStep {
+  const other = member === undefined ? undefined : step.others?.[member];
+  if (!other) return step;
+  return {
+    ...step,
+    id: `${step.id}#${member}`,
+    others: undefined,
+    tweaks: undefined,
+    pageId: other.pageId,
+    artboard: other.artboard,
+    pageTitle: other.pageTitle,
+    artboardTitle: other.artboardTitle,
+    artboardEntry: other.artboardEntry,
+    artboardTweaks: other.artboardTweaks,
+    savedTweaks: other.savedTweaks,
+    baselineVersionId: other.baselineVersionId,
+    baselineAt: other.baselineAt,
+    isNew: other.isNew,
+    modifiedBy: other.modifiedBy,
+    modifiedAt: other.modifiedAt,
+  };
+}
+
+/** "Page · artboard" of an artboard of the step. */
+function titleOfArtboard(step: ChangeReviewStep, ref: ArtboardRef): string {
+  const member = step.others?.find((other) => other.pageId === ref.pageId && other.artboard === ref.artboard);
+  return member ? `${member.pageTitle} · ${member.artboardTitle}` : `${step.pageTitle} · ${step.artboardTitle}`;
+}
+
 /** The values Claude set for the step, named by their tweak labels: "État : sommaire, Dense : oui". */
 function stateShown(step: ChangeReviewStep, tweaks: StepControls["tweaks"]): string {
   const shown = (value: TweakValues[string]) => (typeof value === "boolean" ? (value ? "oui" : "non") : String(value));
@@ -631,9 +689,26 @@ function stateShown(step: ChangeReviewStep, tweaks: StepControls["tweaks"]): str
 const DEVICE_BEZEL: Partial<Record<string, number>> = { phone: 10, tablet: 14 };
 
 /** The artboard of the step at full size, in the same frame and fit as Present, with the Tweaks panel over its right side. */
-function ReviewStage({ review, step, modified, controls }: { review: ChangeReview; step: ChangeReviewStep; modified: boolean; controls: StepControls }) {
+function ReviewStage({
+  review,
+  step,
+  example,
+  modified,
+  controls,
+  openedMember,
+  onOpenMember,
+}: {
+  review: ChangeReview;
+  /** What the stage shows: the step, or the artboard of its group that was opened. */
+  step: ChangeReviewStep;
+  example: ChangeReviewStep;
+  modified: boolean;
+  controls: StepControls;
+  openedMember: number | undefined;
+  onOpenMember: (member: number | undefined) => void;
+}) {
   const origin = useArtboardOrigin(review.projectId);
-  const stage = useRef<HTMLElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   useLayoutEffect(() => {
@@ -666,7 +741,7 @@ function ReviewStage({ review, step, modified, controls }: { review: ChangeRevie
   const presentation = shown && { ...shown, stagePadding: DEVICE_BEZEL[shown.frame] ?? 0 };
   const fitted = presentation && fitToStage(presentation, size);
   return (
-    <main ref={stage} className={cx(styles.stage, controls.tweaksOpen && controls.tweaks.length > 0 && styles.stageTweaks)}>
+    <main className={cx(styles.stage, stepIsGroup(example) && styles.stageGroup, controls.tweaksOpen && controls.tweaks.length > 0 && styles.stageTweaks)}>
       {controls.showBefore && step.baselineAt && (
         <span data-testid="review-before-tag" className={styles.tag}>
           Avant · version du {formatWhen(step.baselineAt)}, avant la série
@@ -677,22 +752,25 @@ function ReviewStage({ review, step, modified, controls }: { review: ChangeRevie
           Nouvelle version{step.modifiedBy ? ` de ${step.modifiedBy}` : ""} depuis ta revue{step.modifiedAt ? ` · ${relativeTime(step.modifiedAt)}` : ""}
         </span>
       )}
-      {entry && presentation && fitted && origin ? (
-        <PlayFrame frame={presentation.frame} url={entry.url}>
-          <div className={styles.viewport} style={{ width: fitted.viewport.width * fitted.scale, height: fitted.viewport.height * fitted.scale }}>
-            <ArtboardIframe
-              ref={frame}
-              title={`Revue / ${step.artboard}`}
-              src={controls.showBefore && step.baselineVersionId ? `${origin}${versionPreviewPath(step.pageId, step.baselineVersionId, step.artboard)}` : `${origin}/pages/${step.pageId}/${step.artboard}`}
-              sandbox="allow-scripts"
-              className={styles.frame}
-              style={{ width: fitted.viewport.width, height: fitted.viewport.height, transform: `scale(${fitted.scale})` }}
-            />
-          </div>
-        </PlayFrame>
-      ) : entry ? null : (
-        <p className={styles.hint}>Cet artboard n'existe plus · {step.artboard}</p>
-      )}
+      <div ref={stage} className={styles.shotArea}>
+        {entry && presentation && fitted && origin ? (
+          <PlayFrame frame={presentation.frame} url={entry.url}>
+            <div className={styles.viewport} style={{ width: fitted.viewport.width * fitted.scale, height: fitted.viewport.height * fitted.scale }}>
+              <ArtboardIframe
+                ref={frame}
+                title={`Revue / ${step.artboard}`}
+                src={controls.showBefore && step.baselineVersionId ? `${origin}${versionPreviewPath(step.pageId, step.baselineVersionId, step.artboard)}` : `${origin}/pages/${step.pageId}/${step.artboard}`}
+                sandbox="allow-scripts"
+                className={styles.frame}
+                style={{ width: fitted.viewport.width, height: fitted.viewport.height, transform: `scale(${fitted.scale})` }}
+              />
+            </div>
+          </PlayFrame>
+        ) : entry ? null : (
+          <p className={styles.hint}>Cet artboard n'existe plus · {step.artboard}</p>
+        )}
+      </div>
+      {stepIsGroup(example) && <GroupThumbnails example={example} origin={origin} openedMember={openedMember} onOpenMember={onOpenMember} />}
       {controls.tweaksOpen && controls.tweaks.length > 0 && (
         <aside aria-label="Tweaks" className={styles.tweaks}>
           <div className={styles.tweaksHead}>
@@ -703,6 +781,90 @@ function ReviewStage({ review, step, modified, controls }: { review: ChangeRevie
         </aside>
       )}
     </main>
+  );
+}
+
+/** The thumbnails shown before "+ N autres" (two rows of four, the last cell being the "+ N autres" tile). */
+const THUMBNAILS_SHOWN = 7;
+
+/** The other artboards of a group as clickable thumbnails: a click shows one large, "Revenir à l'exemple" goes back. */
+function GroupThumbnails({ example, origin, openedMember, onOpenMember }: { example: ChangeReviewStep; origin: string; openedMember: number | undefined; onOpenMember: (member: number | undefined) => void }) {
+  const [all, setAll] = useState(false);
+  const members = example.others!;
+  const hidden = !all && members.length > THUMBNAILS_SHOWN + 1 ? members.length - THUMBNAILS_SHOWN : 0;
+  const shown = members.map((member, index) => ({ member, index })).slice(0, hidden > 0 ? THUMBNAILS_SHOWN : members.length);
+  const openedTitle = openedMember === undefined ? undefined : `${members[openedMember]!.pageTitle} · ${members[openedMember]!.artboardTitle}`;
+  return (
+    <section data-testid="review-others" className={styles.others}>
+      <div className={styles.othersHead}>
+        <h3>
+          {openedTitle
+            ? `Affiché : ${openedTitle}`
+            : `Exemple : ${example.pageTitle} · ${example.artboardTitle}. Même changement sur ${members.length} autre${members.length > 1 ? "s" : ""} artboard${members.length > 1 ? "s" : ""} (un clic l'affiche en grand)`}
+        </h3>
+        {openedTitle && (
+          <button type="button" className={cx(styles.panelButton, styles.backToExample)} onClick={() => onOpenMember(undefined)}>
+            Revenir à l'exemple
+          </button>
+        )}
+      </div>
+      <div className={styles.grid}>
+        {shown.map(({ member, index }) => (
+          <button
+            key={`${member.pageId}/${member.artboard}`}
+            type="button"
+            aria-pressed={index === openedMember}
+            title={`${member.pageTitle} · ${member.artboardTitle}`}
+            className={cx(styles.thumb, index === openedMember && styles.thumbOpened)}
+            onClick={() => onOpenMember(index)}
+          >
+            <Thumbnail member={member} origin={origin} />
+            <span>
+              {member.pageTitle} · {member.artboardTitle}
+            </span>
+            {member.modified && <span className={cx(styles.chip, styles.chipChanged, styles.thumbChip)}>Modifié depuis ta revue</span>}
+          </button>
+        ))}
+        {hidden > 0 && (
+          <button type="button" className={styles.thumb} onClick={() => setAll(true)}>
+            <span className={styles.thumbPreview} />
+            <span>+ {hidden} autres</span>
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** A live, scaled and inert view of the artboard in a 16:9 box. */
+function Thumbnail({ member, origin }: { member: ChangeReviewMember; origin: string }) {
+  const box = useRef<HTMLSpanElement>(null);
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const node = box.current;
+    if (!node) return;
+    const observer = new ResizeObserver(([entry]) => entry && setWidth(entry.contentRect.width));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const entry = member.artboardEntry;
+  const size = entry && (entry.responsive?.[0] ?? entry);
+  const scale = size && width > 0 ? Math.min(width / size.width, (width * 9) / 16 / size.height) : 0;
+  return (
+    <span ref={box} className={styles.thumbPreview}>
+      {size && origin && scale > 0 && (
+        <ArtboardIframe
+          title={`Miniature / ${member.artboard}`}
+          src={`${origin}/pages/${member.pageId}/${member.artboard}`}
+          sandbox="allow-scripts"
+          loading="lazy"
+          tabIndex={-1}
+          aria-hidden="true"
+          className={styles.thumbFrame}
+          style={{ width: size.width, height: size.height, transform: `scale(${scale})` }}
+        />
+      )}
+    </span>
   );
 }
 
@@ -755,7 +917,7 @@ function Recap({
   const okSteps = review.steps.filter((step) => stepStatus(step.answers) === "ok");
   const remarks = review.steps.flatMap((step) => step.answers.filter((answer) => answer.kind === "remark").map((answer) => ({ step, answer })));
   const notSeen = review.steps.filter((step) => !stepIsSeen(step));
-  const titleOf = (step: ChangeReviewStep) => `${step.pageTitle} · ${step.artboardTitle}`;
+  const titleOf = stepLabel;
   const indexOf = (step: ChangeReviewStep) => review.steps.indexOf(step);
   const place = placeOf(review);
   const requester = personName(review.requester.person);
@@ -857,7 +1019,10 @@ function Recap({
             <div key={answer.id} className={styles.item}>
               <span className={cx(styles.dot, styles.dotRemark)} />
               <div className={styles.itemBody}>
-                <span className={styles.itemTitle}>{titleOf(step)}</span>
+                <span className={styles.itemTitle}>
+                  {titleOf(step)}
+                  {stepIsGroup(step) && ` · sur ${titleOfArtboard(step, answer.on ?? step)}`}
+                </span>
                 <span className={styles.itemText}>{answer.text}</span>
                 <span className={styles.itemBy}>
                   {nameOfAnswer(answer, "Toi")}

@@ -381,13 +381,18 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     REQUEST_REVIEW_TOOL,
     {
       description:
-        "Declare a review of the changes you just published, so that the person checks them in Redline instead of reading a list in the chat: one step per artboard, with what changed, what to look at and a closed question. All the pages must belong to one project. A new declaration while your own review of the project is still open is merged into it (a step is its artboard and its tweak values; redeclaring one replaces its question; the same artboard with other tweak values is another step). Answers the review link: open it for the person. Nothing is pushed to you when they finish: call review_feedback when they tell you they are done.",
+        "Declare a review of the changes you just published, so that the person checks them in Redline instead of reading a list in the chat: one step per artboard, with what changed, what to look at and a closed question. All the pages must belong to one project. A new declaration while your own review of the project is still open is merged into it (a step is its artboard and its tweak values; redeclaring one replaces its question; the same artboard with other tweak values is another step). A change shared by many artboards is one step with an example and the other artboards in others. Answers the review link: open it for the person. Nothing is pushed to you when they finish: call review_feedback when they tell you they are done.",
       inputSchema: {
         steps: z
           .array(
             z.object({
               pageId: z.string().describe("Id of the page (see list_pages)"),
-              artboard: z.string().describe("File of the artboard, as in the manifest, for example home.html"),
+              artboard: z.string().describe("File of the artboard, as in the manifest, for example home.html. On a group: the example, shown large"),
+              others: z
+                .array(z.object({ pageId: z.string().describe("Id of the page of this artboard"), artboard: z.string().describe("File of this artboard") }))
+                .optional()
+                .describe("Optional: declare ONE step for a change shared by many artboards (a badge on 17 screens): the other artboards of the group, each listed once (the step's own pageId / artboard is the example, not repeated here). They may be on other pages of the project. The person validates the group once, with one OK and one question. Redeclaring one artboard of a group alone is another step."),
+              title: z.string().optional().describe("Optional name of a group, for example \"Badge cmux\" (shown as \"Badge cmux (17 artboards)\"); the example's title when absent"),
               changed: z.string().describe("What changed on this artboard"),
               lookAt: z.string().describe("What the person should look at"),
               question: z.string().describe("A closed question the person can answer with OK"),
@@ -444,8 +449,9 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       if (feedback.status === "open") return `Review not finished yet: ${feedback.seen} / ${feedback.total} steps seen. Tell the person to press "Terminer la revue", then call review_feedback again. Handle nothing for now.`;
       const line = (entry: { number: number; label: string }, suffix = "") => `${entry.number}. ${entry.label}${suffix}`;
       const remark = (entry: ChangeReviewRemarkResult) => [
-        `${entry.number}. ${entry.label} (${entry.artboard}) · remark by ${entry.author}${entry.artboardModified ? " · artboard modifié depuis la remarque" : ""} · thread ${entry.threadId ?? "none"}${entry.alsoValidatedBy.length > 0 ? ` · ${entry.alsoValidatedBy.join(", ")} had validated this step` : ""}`,
+        `${entry.number}. ${entry.label} (${entry.onLabel ?? entry.artboard}) · remark by ${entry.author}${entry.artboardModified ? " · artboard modifié depuis la remarque" : ""} · thread ${entry.threadId ?? "none"}${entry.alsoValidatedBy.length > 0 ? ` · ${entry.alsoValidatedBy.join(", ")} had validated this step` : ""}`,
         ...entry.text.split("\n").map((textLine) => `   > ${textLine}`),
+        ...(entry.alsoOn ? [`   The same change also concerns: ${entry.alsoOn.join(", ")}.`] : []),
       ];
       return [
         ...(feedback.alreadyFetchedAt ? [`Already fetched on ${feedback.alreadyFetchedAt}: the same result as before, no new thread was created (the remark threads are the ones given earlier).`] : []),

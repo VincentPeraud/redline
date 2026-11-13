@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stepIsModified, mergeSteps, nextReviewState, orderSteps, progressOf, stepKey, reviewResult, stepIsSeen, stepStatus, type ChangeReviewAnswer, type ChangeReviewResultInput } from "@redline/shared";
+import { stepIsModified, mergeSteps, stepLabel, republishedSince, nextReviewState, orderSteps, progressOf, stepKey, reviewResult, stepIsSeen, stepStatus, type ChangeReviewAnswer, type ChangeReviewResultInput } from "@redline/shared";
 
 const ok = (name: string | undefined): ChangeReviewAnswer => ({ id: `a-${name}`, kind: "ok", at: "2026-11-13T10:00:00Z", mine: false, ...(name ? { person: { id: name, name, email: "", initials: name.slice(0, 2) } } : {}) });
 const remark = (name: string, text = "Move it up"): ChangeReviewAnswer => ({ ...ok(name), id: `r-${name}`, kind: "remark", text });
@@ -153,6 +153,58 @@ describe("steps modified after an answer", () => {
     expect(result.notSeen).toEqual([{ stepId: "s1", label: "Home · list", number: 1, modifiedAfterOk: true }, { stepId: "s3", label: "Home · other", number: 3 }]);
     expect(result.validated).toEqual([]);
     expect(result.remarks).toMatchObject([{ stepId: "s2", artboardModified: true, alsoValidatedBy: ["Victor"] }]);
+  });
+});
+
+describe("grouped steps", () => {
+  const ref = (pageId: string, artboard: string) => ({ pageId, artboard });
+
+  it("identifies a group by its set of artboards: one of them alone is another step, whichever is the example", () => {
+    const group = { ...ref("p1", "a.html"), others: [ref("p1", "b.html"), ref("p2", "c.html")] };
+    expect(stepKey(group)).toBe(stepKey({ ...ref("p2", "c.html"), others: [ref("p1", "b.html"), ref("p1", "a.html")] }));
+    expect(stepKey(group)).not.toBe(stepKey(ref("p1", "a.html")));
+    expect(stepKey(ref("p1", "b.html"))).not.toBe(stepKey({ ...ref("p1", "a.html"), others: [ref("p1", "b.html")] }));
+  });
+
+  it("names a group with its size and a single step with its page and artboard", () => {
+    expect(stepLabel({ title: "Badge cmux", pageTitle: "Home", artboardTitle: "List", others: new Array(16).fill(0) })).toBe("Badge cmux (17 artboards)");
+    expect(stepLabel({ pageTitle: "Home", artboardTitle: "List", others: [{}, {}] })).toBe("Home · List (3 artboards)");
+    expect(stepLabel({ pageTitle: "Home", artboardTitle: "List" })).toBe("Home · List");
+  });
+
+  it("puts a single-page group at its first artboard and multi-page groups last", () => {
+    const steps = [
+      { id: "multi", ...ref("p1", "a.html"), others: [ref("p2", "a.html")] },
+      { id: "single", ...ref("p2", "b.html") },
+      { id: "group", ...ref("p1", "z.html"), others: [ref("p1", "b.html")] },
+      { id: "first", ...ref("p1", "a.html") },
+      { id: "alone", ...ref("p1", "c.html") },
+      { id: "multi2", ...ref("p2", "a.html"), others: [ref("p1", "c.html")] },
+    ];
+    const ordered = orderSteps(steps, ["p1", "p2"], { p1: ["a.html", "b.html", "c.html", "z.html"], p2: ["a.html", "b.html"] });
+    expect(ordered.map((s) => s.id)).toEqual(["first", "group", "alone", "single", "multi", "multi2"]);
+  });
+
+  it("finds which artboards were republished since an answer saw them", () => {
+    const seen = { artboardVersion: "v1", memberVersions: { b: "v1", c: "v2" } };
+    expect(republishedSince(seen, { example: "v1", others: { b: "v1", c: "v2" } })).toEqual({ example: false, others: [] });
+    expect(republishedSince(seen, { example: "v1", others: { b: "v3", c: "v2" } })).toEqual({ example: false, others: ["b"] });
+    expect(republishedSince(seen, { example: "v4", others: { b: "v1", c: undefined } })).toEqual({ example: true, others: [] });
+    expect(republishedSince({}, { example: "v4", others: { b: "v1" } })).toEqual({ example: false, others: [] });
+  });
+
+  it("attaches a group remark to its artboard and cites the others in the result", () => {
+    const members = [
+      { pageId: "p1", artboard: "a.html", label: "Home · a" },
+      { pageId: "p1", artboard: "b.html", label: "Home · b" },
+      { pageId: "p2", artboard: "c.html", label: "Settings · c" },
+    ];
+    const onB = { ...remark("Ana"), on: { pageId: "p1", artboard: "b.html" } };
+    const result = reviewResult({ requester: "Ana", finishedBy: "Ana", steps: [{ id: "g", label: "Badge (3 artboards)", artboard: "a.html", members, answers: [onB, remark("Victor")] }] });
+    expect(result.remarks).toMatchObject([
+      { author: "Ana", artboard: "b.html", onLabel: "Home · b", alsoOn: ["Home · a", "Settings · c"] },
+      { author: "Victor", artboard: "a.html", onLabel: "Home · a", alsoOn: ["Home · b", "Settings · c"] },
+    ]);
   });
 });
 

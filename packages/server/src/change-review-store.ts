@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { ChangeReviewState, ChangeReviewStepInput, StepTweaks } from "@redline/shared";
+import type { ArtboardRef, ChangeReviewState, ChangeReviewStepInput, StepTweaks } from "@redline/shared";
 
 export interface StoredReview {
   id: string;
@@ -21,15 +21,19 @@ export interface StoredReview {
 /** A screen of the review heartbeats every ~20 s: someone not heard from for this long is gone. */
 export const REVIEW_PRESENCE_TIMEOUT_MS = 60_000;
 
+/** An artboard of a group other than its example, with its own baseline (same meaning as a step's). */
+export type StoredMember = ArtboardRef & { baseline?: string };
+
 export interface StoredStep extends ChangeReviewStepInput {
   id: string;
   reviewId: string;
+  others?: StoredMember[];
   /** What "Avant" shows, fixed at declaration: a page version id, `""` for an artboard that is new in the series; absent when no baseline was known. */
   baseline?: string;
 }
 
 /** A step to store: its baseline is already worked out (see `baselineOf` in change-reviews.ts). */
-export type StepToStore = ChangeReviewStepInput & { id?: string; baseline?: string };
+export type StepToStore = Omit<ChangeReviewStepInput, "others"> & { others?: StoredMember[]; id?: string; baseline?: string };
 
 export interface StoredAnswer {
   id: string;
@@ -42,6 +46,16 @@ export interface StoredAnswer {
   at: string;
   /** The artboard version (the version where its content last changed) the answer saw; absent on answers from before versions were recorded. */
   artboardVersion?: string;
+  /** What the answer saw of the other artboards of a group, by `artboardKey`. */
+  memberVersions?: Record<string, string>;
+  /** A remark on a group: the artboard it is attached to (absent: the example). */
+  on?: ArtboardRef;
+}
+
+/** What an answer given now saw of a step's artboards. */
+export interface SeenNow {
+  artboardVersion?: string;
+  memberVersions?: Record<string, string>;
 }
 
 interface ReviewRow {
@@ -59,6 +73,12 @@ interface ReviewRow {
   filed_by: string | null;
   filed_at: string | null;
 }
+
+/** The other artboards of a group as stored: JSON, or nothing for a single step. */
+const othersColumn = (step: { others?: StoredMember[] }): string | null => (step.others && step.others.length > 0 ? JSON.stringify(step.others) : null);
+
+/** What an answer saw of the other artboards of a group: JSON, or nothing for a single step. */
+const memberVersionsColumn = (seen: SeenNow): string | null => (seen.memberVersions && Object.keys(seen.memberVersions).length > 0 ? JSON.stringify(seen.memberVersions) : null);
 
 /** The tweak values of a step as stored: JSON, or nothing when it sets none. */
 const tweaksColumn = (step: ChangeReviewStepInput): string | null => (step.tweaks && Object.keys(step.tweaks).length > 0 ? JSON.stringify(step.tweaks) : null);
@@ -112,6 +132,8 @@ export class ChangeReviewStore {
     if (!stepColumns.includes("tweaks")) db.exec("ALTER TABLE change_review_steps ADD COLUMN tweaks TEXT");
     if (!stepColumns.includes("mobile")) db.exec("ALTER TABLE change_review_steps ADD COLUMN mobile INTEGER NOT NULL DEFAULT 0");
     if (!stepColumns.includes("baseline_version")) db.exec("ALTER TABLE change_review_steps ADD COLUMN baseline_version TEXT");
+    for (const column of ["others", "title"]) if (!stepColumns.includes(column)) db.exec(`ALTER TABLE change_review_steps ADD COLUMN ${column} TEXT`);
+    for (const column of ["member_versions", "on_page_id", "on_artboard"]) if (!answerColumns.includes(column)) db.exec(`ALTER TABLE change_review_answers ADD COLUMN ${column} TEXT`);
     const columns = (db.prepare("PRAGMA table_info(change_reviews)").all() as { name: string }[]).map((column) => column.name);
     for (const column of ["fetched_by", "fetched_at", "filed_by", "filed_at"]) if (!columns.includes(column)) db.exec(`ALTER TABLE change_reviews ADD COLUMN ${column} TEXT`);
   }
@@ -120,10 +142,10 @@ export class ChangeReviewStore {
   coveringPage(pageId: string, fetchedSince: string): StoredReview[] {
     const rows = this.db
       .prepare(
-        `SELECT id FROM change_reviews WHERE id IN (SELECT review_id FROM change_review_steps WHERE page_id = ?)
+        `SELECT id FROM change_reviews WHERE id IN (SELECT review_id FROM change_review_steps s WHERE page_id = ? OR EXISTS (SELECT 1 FROM json_each(s.others) m WHERE json_extract(m.value, '$.pageId') = ?))
          AND (state IN ('open', 'finished') OR (state = 'fetched' AND fetched_at >= ?)) ORDER BY created_at, rowid`,
       )
-      .all(pageId, fetchedSince) as { id: string }[];
+      .all(pageId, pageId, fetchedSince) as { id: string }[];
     return rows.map((row) => this.get(row.id)!);
   }
 
@@ -145,8 +167,10 @@ export class ChangeReviewStore {
       this.db
         .prepare("INSERT INTO change_reviews (id, project_id, state, requester_person_id, folder, label, created_at) VALUES (?, ?, 'open', ?, ?, ?, ?)")
         .run(id, projectId, requester.personId ?? null, requester.folder, requester.label ?? null, createdAt);
-      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile, baseline_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-      steps.forEach((step, position) => insert.run(randomUUID(), id, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0, step.baseline ?? null));
+      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile, baseline_version, others, title) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      steps.forEach((step, position) =>
+        insert.run(randomUUID(), id, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0, step.baseline ?? null, othersColumn(step), step.title ?? null),
+      );
     })();
     return this.get(id)!;
   }
@@ -165,11 +189,11 @@ export class ChangeReviewStore {
    */
   merge(reviewId: string, steps: StepToStore[], label?: string): void {
     this.db.transaction(() => {
-      const update = this.db.prepare("UPDATE change_review_steps SET position = ?, changed = ?, look_at = ?, question = ?, mobile = ?, baseline_version = COALESCE(?, baseline_version) WHERE id = ? AND review_id = ?");
-      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile, baseline_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      const update = this.db.prepare("UPDATE change_review_steps SET position = ?, changed = ?, look_at = ?, question = ?, mobile = ?, baseline_version = COALESCE(?, baseline_version), others = ?, title = ? WHERE id = ? AND review_id = ?");
+      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile, baseline_version, others, title) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       steps.forEach((step, position) => {
-        if (step.id) update.run(position, step.changed, step.lookAt, step.question, step.mobile ? 1 : 0, step.baseline ?? null, step.id, reviewId);
-        else insert.run(randomUUID(), reviewId, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0, step.baseline ?? null);
+        if (step.id) update.run(position, step.changed, step.lookAt, step.question, step.mobile ? 1 : 0, step.baseline ?? null, othersColumn(step), step.title ?? null, step.id, reviewId);
+        else insert.run(randomUUID(), reviewId, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0, step.baseline ?? null, othersColumn(step), step.title ?? null);
       });
       if (label) this.db.prepare("UPDATE change_reviews SET label = ? WHERE id = ?").run(label, reviewId);
     })();
@@ -202,7 +226,7 @@ export class ChangeReviewStore {
 
   steps(reviewId: string): StoredStep[] {
     const rows = this.db.prepare("SELECT * FROM change_review_steps WHERE review_id = ? ORDER BY position").all(reviewId) as {
-      id: string; page_id: string; artboard: string; changed: string; look_at: string; question: string; tweaks: string | null; mobile: number; baseline_version: string | null;
+      id: string; page_id: string; artboard: string; changed: string; look_at: string; question: string; tweaks: string | null; mobile: number; baseline_version: string | null; others: string | null; title: string | null;
     }[];
     return rows.map((row) => ({
       id: row.id,
@@ -215,6 +239,8 @@ export class ChangeReviewStore {
       ...(row.tweaks ? { tweaks: JSON.parse(row.tweaks) as StepTweaks } : {}),
       ...(row.mobile ? { mobile: true } : {}),
       ...(row.baseline_version !== null ? { baseline: row.baseline_version } : {}),
+      ...(row.others ? { others: JSON.parse(row.others) as StoredMember[] } : {}),
+      ...(row.title ? { title: row.title } : {}),
     }));
   }
 
@@ -223,16 +249,19 @@ export class ChangeReviewStore {
     const row = this.db
       .prepare(
         `SELECT COALESCE(fetched_at, filed_at) AS at FROM change_reviews WHERE state IN ('fetched', 'filed')
-         AND id IN (SELECT review_id FROM change_review_steps WHERE page_id = ? AND artboard = ?) ORDER BY COALESCE(fetched_at, filed_at) DESC LIMIT 1`,
+         AND id IN (
+           SELECT review_id FROM change_review_steps s WHERE (page_id = ? AND artboard = ?)
+           OR EXISTS (SELECT 1 FROM json_each(s.others) m WHERE json_extract(m.value, '$.pageId') = ? AND json_extract(m.value, '$.artboard') = ?)
+         ) ORDER BY COALESCE(fetched_at, filed_at) DESC LIMIT 1`,
       )
-      .get(pageId, artboard) as { at: string } | undefined;
+      .get(pageId, artboard, pageId, artboard) as { at: string } | undefined;
     return row?.at;
   }
 
   answers(reviewId: string): StoredAnswer[] {
     const rows = this.db
-      .prepare("SELECT a.id, a.step_id, a.person_id, a.kind, a.text, a.thread_id, a.artboard_version, a.at FROM change_review_answers a JOIN change_review_steps s ON s.id = a.step_id WHERE s.review_id = ? ORDER BY a.at, a.rowid")
-      .all(reviewId) as { id: string; step_id: string; person_id: string; kind: "ok" | "remark"; text: string | null; thread_id: string | null; artboard_version: string | null; at: string }[];
+      .prepare("SELECT a.id, a.step_id, a.person_id, a.kind, a.text, a.thread_id, a.artboard_version, a.member_versions, a.on_page_id, a.on_artboard, a.at FROM change_review_answers a JOIN change_review_steps s ON s.id = a.step_id WHERE s.review_id = ? ORDER BY a.at, a.rowid")
+      .all(reviewId) as { id: string; step_id: string; person_id: string; kind: "ok" | "remark"; text: string | null; thread_id: string | null; artboard_version: string | null; member_versions: string | null; on_page_id: string | null; on_artboard: string | null; at: string }[];
     return rows.map((row) => ({
       id: row.id,
       stepId: row.step_id,
@@ -241,6 +270,8 @@ export class ChangeReviewStore {
       ...(row.text !== null ? { text: row.text } : {}),
       ...(row.thread_id ? { threadId: row.thread_id } : {}),
       ...(row.artboard_version ? { artboardVersion: row.artboard_version } : {}),
+      ...(row.member_versions ? { memberVersions: JSON.parse(row.member_versions) as Record<string, string> } : {}),
+      ...(row.on_page_id && row.on_artboard ? { on: { pageId: row.on_page_id, artboard: row.on_artboard } } : {}),
       at: row.at,
     }));
   }
@@ -261,26 +292,29 @@ export class ChangeReviewStore {
   }
 
   /** One OK per person and step: answering again keeps the first, unless it saw an older version of the artboard (then it is replaced). */
-  addOk(stepId: string, personId: string | undefined, artboardVersion: string | undefined): void {
+  addOk(stepId: string, personId: string | undefined, seen: SeenNow): void {
     this.db
       .prepare(
-        `INSERT INTO change_review_answers (id, step_id, person_id, at, kind, artboard_version) VALUES (?, ?, ?, ?, 'ok', ?)
-         ON CONFLICT (step_id, person_id) DO UPDATE SET at = excluded.at, artboard_version = excluded.artboard_version WHERE kind = 'ok' AND artboard_version IS NOT excluded.artboard_version`,
+        `INSERT INTO change_review_answers (id, step_id, person_id, at, kind, artboard_version, member_versions) VALUES (?, ?, ?, ?, 'ok', ?, ?)
+         ON CONFLICT (step_id, person_id) DO UPDATE SET at = excluded.at, artboard_version = excluded.artboard_version, member_versions = excluded.member_versions
+         WHERE kind = 'ok' AND (artboard_version IS NOT excluded.artboard_version OR member_versions IS NOT excluded.member_versions)`,
       )
-      .run(randomUUID(), stepId, personId ?? "", new Date().toISOString(), artboardVersion ?? null);
+      .run(randomUUID(), stepId, personId ?? "", new Date().toISOString(), seen.artboardVersion ?? null, memberVersionsColumn(seen));
   }
 
   removeOk(stepId: string, personId: string | undefined): void {
     this.db.prepare("DELETE FROM change_review_answers WHERE step_id = ? AND person_id = ? AND kind = 'ok'").run(stepId, personId ?? "");
   }
 
-  /** Saves the person's remark on the step; it replaces their OK. */
-  saveRemark(stepId: string, personId: string | undefined, text: string, artboardVersion: string | undefined): void {
+  /** Saves the person's remark on the step; it replaces their OK. On a group `on` names the artboard it is attached to: set once, an edit keeps the place. */
+  saveRemark(stepId: string, personId: string | undefined, text: string, seen: SeenNow, on?: ArtboardRef): void {
     this.db
       .prepare(
-        "INSERT INTO change_review_answers (id, step_id, person_id, at, kind, text, artboard_version) VALUES (?, ?, ?, ?, 'remark', ?, ?) ON CONFLICT (step_id, person_id) DO UPDATE SET kind = 'remark', text = excluded.text, at = excluded.at, artboard_version = excluded.artboard_version",
+        `INSERT INTO change_review_answers (id, step_id, person_id, at, kind, text, artboard_version, member_versions, on_page_id, on_artboard) VALUES (?, ?, ?, ?, 'remark', ?, ?, ?, ?, ?)
+         ON CONFLICT (step_id, person_id) DO UPDATE SET text = excluded.text, at = excluded.at, artboard_version = excluded.artboard_version, member_versions = excluded.member_versions,
+         on_page_id = CASE WHEN kind = 'remark' THEN on_page_id ELSE excluded.on_page_id END, on_artboard = CASE WHEN kind = 'remark' THEN on_artboard ELSE excluded.on_artboard END, kind = 'remark'`,
       )
-      .run(randomUUID(), stepId, personId ?? "", new Date().toISOString(), text, artboardVersion ?? null);
+      .run(randomUUID(), stepId, personId ?? "", new Date().toISOString(), text, seen.artboardVersion ?? null, memberVersionsColumn(seen), on?.pageId ?? null, on?.artboard ?? null);
   }
 
   removeAnswer(answerId: string): void {

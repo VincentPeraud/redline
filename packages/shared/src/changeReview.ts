@@ -32,10 +32,20 @@ export interface ChangeReviewPresenceRequest {
 /** Tweak values a step shows (name to value). */
 export type StepTweaks = Readonly<Record<string, string | number | boolean>>;
 
-/** One step as declared by Claude's `request_review` (one artboard for now). */
+/** An artboard of a page. */
+export interface ArtboardRef {
+  pageId: string;
+  artboard: string;
+}
+
+/** One step as declared by Claude's `request_review`: one artboard, or a group (`pageId` / `artboard` is then the example, `others` the rest). */
 export interface ChangeReviewStepInput {
   pageId: string;
   artboard: string;
+  /** The other artboards sharing the change: the step is then a group, whose first artboard is the example. */
+  others?: ArtboardRef[];
+  /** The name of a group ("Badge cmux"); the example's title when absent. */
+  title?: string;
   changed: string;
   lookAt: string;
   question: string;
@@ -74,12 +84,32 @@ export interface ChangeReviewAnswer {
   person?: Person;
   at: string;
   mine: boolean;
-  /** The artboard was republished after this answer: it saw an older version. */
+  /** The artboard was republished after this answer: it saw an older version (on a group: any of its artboards). */
   outdated?: boolean;
+  /** A remark on a group: the artboard it is attached to (the one shown when it was started); absent on the example. */
+  on?: ArtboardRef;
+}
+
+/** An artboard of a group other than its example, as the step shows it (the fields mirror the step's own, which describe the example). */
+export interface ChangeReviewMember extends ArtboardRef {
+  pageTitle: string;
+  artboardTitle: string;
+  artboardEntry?: ManifestArtboard;
+  artboardTweaks?: ManifestTweak[];
+  savedTweaks?: TweakValues;
+  baselineVersionId?: string;
+  baselineAt?: string;
+  isNew?: boolean;
+  /** Republished after one of the answers: marked in the thumbnails. */
+  modified?: boolean;
+  modifiedBy?: string;
+  modifiedAt?: string;
 }
 
 export interface ChangeReviewStep extends ChangeReviewStepInput {
   id: string;
+  /** The other artboards of a group, with what the step knows of each. */
+  others?: ChangeReviewMember[];
   pageTitle: string;
   artboardTitle: string;
   /** The artboard's manifest entry (size, frame, address text); absent when the artboard no longer exists. */
@@ -153,24 +183,78 @@ export function progressOf(steps: readonly Answered[], currentIndex: number): Ch
   return { seen: steps.filter(stepIsSeen).length, total: steps.length, segments: steps.map(segmentOf) };
 }
 
-/** Steps in page order, then in the reading order of their page. An artboard missing from the reading order goes last of its page. */
-export function orderSteps<T extends { pageId: string; artboard: string }>(steps: readonly T[], pageOrder: readonly string[], readingOrderOf: Readonly<Record<string, readonly string[]>>): T[] {
+/** The artboards a step covers, the example first. */
+export const stepArtboards = ({ pageId, artboard, others = [] }: { pageId: string; artboard: string; others?: readonly ArtboardRef[] }): ArtboardRef[] => [{ pageId, artboard }, ...others];
+
+/** A group of artboards: its example and at least one other. */
+export const stepIsGroup = ({ others }: { others?: readonly unknown[] }): boolean => (others?.length ?? 0) > 0;
+
+/** A group spanning several pages. */
+export const stepIsMultiPage = (step: { pageId: string; artboard: string; others?: readonly ArtboardRef[] }): boolean => new Set(stepArtboards(step).map((ref) => ref.pageId)).size > 1;
+
+/** "Badge cmux (17 artboards)" for a group (its title, else its example's), "Page · artboard" for a single step. */
+export const stepLabel = (step: { title?: string; pageTitle: string; artboardTitle: string; others?: readonly unknown[] }): string => {
+  const name = step.title ?? `${step.pageTitle} · ${step.artboardTitle}`;
+  return stepIsGroup(step) ? `${name} (${step.others!.length + 1} artboards)` : name;
+};
+
+/**
+ * Steps in page order, then in the reading order of their page. An artboard missing from the reading order goes last of its page.
+ * A group on one page sits at its first artboard in that order; a group spanning several pages goes after all the others, placed the same way by its first artboard.
+ */
+export function orderSteps<T extends { pageId: string; artboard: string; others?: readonly ArtboardRef[] }>(steps: readonly T[], pageOrder: readonly string[], readingOrderOf: Readonly<Record<string, readonly string[]>>): T[] {
   const rank = (list: readonly string[] | undefined, item: string) => {
     const index = list?.indexOf(item) ?? -1;
     return index === -1 ? Number.MAX_SAFE_INTEGER : index;
   };
-  return [...steps].sort((a, b) => rank(pageOrder, a.pageId) - rank(pageOrder, b.pageId) || rank(readingOrderOf[a.pageId], a.artboard) - rank(readingOrderOf[b.pageId], b.artboard));
+  const position = (step: T) =>
+    stepArtboards(step)
+      .map((ref) => [rank(pageOrder, ref.pageId), rank(readingOrderOf[ref.pageId], ref.artboard)] as const)
+      .reduce((first, next) => (next[0] < first[0] || (next[0] === first[0] && next[1] < first[1]) ? next : first));
+  return [...steps].sort((a, b) => Number(stepIsMultiPage(a)) - Number(stepIsMultiPage(b)) || position(a)[0] - position(b)[0] || position(a)[1] - position(b)[1]);
 }
 
-/** What identifies a step: its artboard and its tweak values (two states of one artboard are two steps). */
-export const stepKey = ({ pageId, artboard, tweaks = {} }: { pageId: string; artboard: string; tweaks?: StepTweaks }): string =>
-  JSON.stringify([pageId, artboard, Object.entries(tweaks).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))]);
+/** What identifies an artboard among the versions an answer records. */
+export const artboardKey = ({ pageId, artboard }: ArtboardRef): string => JSON.stringify([pageId, artboard]);
+
+/**
+ * What identifies a step: its artboards and its tweak values (two states of one artboard are two steps; an artboard of a group redeclared alone is another step).
+ * A group is identified by its set of artboards, whichever is the example.
+ */
+export const stepKey = ({ pageId, artboard, others, tweaks = {} }: { pageId: string; artboard: string; others?: readonly ArtboardRef[]; tweaks?: StepTweaks }): string => {
+  const sortedTweaks = Object.entries(tweaks).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  if (!stepIsGroup({ others })) return JSON.stringify([pageId, artboard, sortedTweaks]);
+  return JSON.stringify([stepArtboards({ pageId, artboard, others }).map(artboardKey).sort(), sortedTweaks]);
+};
+
+/** The artboard versions an answer saw: the example's, and each other artboard's by `artboardKey`. */
+export interface SeenVersions {
+  artboardVersion?: string;
+  memberVersions?: Readonly<Record<string, string>>;
+}
+
+/** The current version of each artboard of a step (absent when it has none, for example when it no longer exists). */
+export interface CurrentVersions {
+  example?: string;
+  others: Readonly<Record<string, string | undefined>>;
+}
+
+/** Which artboards of a step were republished since an answer saw them (only versions known on both sides count): the example, and the keys of the others. */
+export function republishedSince(seen: SeenVersions, current: CurrentVersions): { example: boolean; others: string[] } {
+  const changed = (before: string | undefined, now: string | undefined) => before !== undefined && now !== undefined && before !== now;
+  return {
+    example: changed(seen.artboardVersion, current.example),
+    others: Object.entries(current.others)
+      .filter(([key, now]) => changed(seen.memberVersions?.[key], now))
+      .map(([key]) => key),
+  };
+}
 
 /**
  * A new declaration merged into the steps of an open review: a redeclared step keeps its id (so its answers stay) and takes the new texts,
  * the other known steps stay, new steps have no id. Not ordered: see `orderSteps`.
  */
-export function mergeSteps<T extends { pageId: string; artboard: string; tweaks?: StepTweaks }>(existing: readonly (T & { id: string })[], declared: readonly T[]): (T & { id?: string })[] {
+export function mergeSteps<T extends { pageId: string; artboard: string; others?: readonly ArtboardRef[]; tweaks?: StepTweaks }>(existing: readonly (T & { id: string })[], declared: readonly T[]): (T & { id?: string })[] {
   const latest = new Map(declared.map((step) => [stepKey(step), step]));
   const known = new Set(existing.map(stepKey));
   return [...existing.map((step) => ({ ...(latest.get(stepKey(step)) ?? step), id: step.id })), ...[...latest].filter(([key]) => !known.has(key)).map(([, step]) => step)];
@@ -180,7 +264,14 @@ export interface ChangeReviewResultInput {
   requester: string;
   finishedBy: string;
   /** In review order. */
-  steps: { id: string; label: string; artboard: string; answers: readonly ChangeReviewAnswer[] }[];
+  steps: {
+    id: string;
+    label: string;
+    artboard: string;
+    /** A group's artboards, the example first, with their "Page · artboard" names. */
+    members?: { pageId: string; artboard: string; label: string }[];
+    answers: readonly ChangeReviewAnswer[];
+  }[];
   /** The thread opened for each remark, by remark id. */
   threadIds?: Readonly<Record<string, string>>;
 }
@@ -190,6 +281,9 @@ export interface ChangeReviewRemarkResult {
   label: string;
   number: number;
   artboard: string;
+  /** On a group: the artboard the remark is attached to ("Page · artboard") and the other artboards of the group it cites. */
+  onLabel?: string;
+  alsoOn?: string[];
   author: string;
   text: string;
   /** Others who validated the same step ("Victor avait validé cette étape"). */
@@ -219,17 +313,21 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
     remarks: numbered.flatMap((step) =>
       step.answers
         .filter((answer) => answer.kind === "remark")
-        .map((answer) => ({
-          stepId: step.id,
-          label: step.label,
-          number: step.number,
-          artboard: step.artboard,
-          author: nameOfAnswer(answer),
-          text: answer.text ?? "",
-          alsoValidatedBy: step.answers.filter((other) => other.kind === "ok" && !other.outdated).map(nameOfAnswer),
-          ...(answer.outdated ? { artboardModified: true } : {}),
-          ...(threadIds[answer.id] ? { threadId: threadIds[answer.id] } : {}),
-        })),
+        .map((answer) => {
+          const where = step.members && (step.members.find((member) => member.pageId === answer.on?.pageId && member.artboard === answer.on?.artboard) ?? step.members[0]);
+          return {
+            stepId: step.id,
+            label: step.label,
+            number: step.number,
+            artboard: where?.artboard ?? step.artboard,
+            ...(where ? { onLabel: where.label, alsoOn: step.members!.filter((member) => member !== where).map((member) => member.label) } : {}),
+            author: nameOfAnswer(answer),
+            text: answer.text ?? "",
+            alsoValidatedBy: step.answers.filter((other) => other.kind === "ok" && !other.outdated).map(nameOfAnswer),
+            ...(answer.outdated ? { artboardModified: true } : {}),
+            ...(threadIds[answer.id] ? { threadId: threadIds[answer.id] } : {}),
+          };
+        }),
     ),
     notSeen: numbered
       .filter((step) => !stepIsSeen(step))

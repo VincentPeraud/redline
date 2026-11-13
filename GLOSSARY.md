@@ -115,7 +115,7 @@ A set of steps a terminal session declares with `request_review` once it has fin
 _Avoid_: Revue (as a type name), diffusion review (design system), À relire (a thread status)
 
 **Step**:
-One artboard of a review, with what changed, what to look at and a closed question. Steps run in page order, then reading order of the page.
+One artboard of a review, or a group of artboards sharing one change (the first is the example), with what changed, what to look at and a closed question. Steps run in page order, then reading order of the page; groups spanning several pages come last.
 _Avoid_: Slide, screen
 
 **Answer**:

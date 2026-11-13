@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { ChangeReview, ChangeReviewAnswer } from "@redline/shared";
+import type { ArtboardRef, ChangeReview, ChangeReviewAnswer } from "@redline/shared";
 import { cx } from "./ui/index.js";
 import styles from "./ReviewScreen.module.css";
 
@@ -16,12 +16,20 @@ export function PersonDot({ person }: { person: { initials: string } | undefined
   ) : null;
 }
 
+/** What a remark on a group needs to know: the artboard on the stage, and how to name an artboard of the group. */
+export interface RemarkPlacement {
+  shown: ArtboardRef;
+  example: ArtboardRef;
+  titleOf: (artboard: ArtboardRef) => string;
+}
+
 /** The member's own remark on a step: saved on its own while they type, editable until the review is finished, deletable with a short undo. */
 export function RemarkEditor({
   reviewPath,
   stepId,
   own,
   finished,
+  placement,
   onReview,
   onReload,
   onUnsaved,
@@ -31,6 +39,8 @@ export function RemarkEditor({
   stepId: string;
   own: ChangeReviewAnswer | undefined;
   finished: boolean;
+  /** Present on a group: a remark is attached to the artboard shown when it was started. */
+  placement?: RemarkPlacement;
   onReview: (review: ChangeReview) => void;
   onReload: () => void;
   onUnsaved: (unsaved: boolean) => void;
@@ -43,8 +53,11 @@ export function RemarkEditor({
   const [deleting, setDeleting] = useState(false);
   const [copied, setCopied] = useState(false);
   const saving = useRef(false);
-  const latest = useRef({ text, savedText, ownId: own?.id });
-  latest.current = { text, savedText, ownId: own?.id };
+  /** Where a new remark on a group starts: the artboard shown at the first keystroke, kept when the stage changes. */
+  const [startedOn, setStartedOn] = useState<ArtboardRef | undefined>();
+  const latest = useRef({ text, savedText, ownId: own?.id, startedOn });
+  latest.current = { text, savedText, ownId: own?.id, startedOn };
+  const placedOn = placement && (own?.kind === "remark" ? own.on ?? placement.example : startedOn);
   const deleteTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const unsaved = !finished && !deleting && text.trim() !== "" && text !== savedText;
@@ -53,9 +66,13 @@ export function RemarkEditor({
 
   const save = useCallback(async () => {
     if (saving.current) return;
-    const { text: toSave } = latest.current;
+    const { text: toSave, startedOn: on } = latest.current;
     saving.current = true;
-    const response = await fetch(`${reviewPath}/steps/${stepId}/remark`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: toSave }) }).catch(() => undefined);
+    const response = await fetch(`${reviewPath}/steps/${stepId}/remark`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: toSave, ...(on ? { pageId: on.pageId, artboard: on.artboard } : {}) }),
+    }).catch(() => undefined);
     saving.current = false;
     if (!response?.ok) {
       setFailed(true);
@@ -143,7 +160,7 @@ export function RemarkEditor({
   return (
     <div className={styles.section}>
       <label className={styles.label} htmlFor="remark">
-        Ou une remarque
+        {placement ? (placedOn ? `Remarque sur ${placement.titleOf(placedOn)}` : "Ou une remarque pour tout le groupe") : "Ou une remarque"}
       </label>
       {deleting ? (
         <span className={styles.author}>
@@ -154,7 +171,16 @@ export function RemarkEditor({
         </span>
       ) : (
         <>
-          <textarea id="remark" className={styles.textarea} value={text} placeholder="Ce qui ne va pas, ce que tu veux à la place" onChange={(event) => setText(event.target.value)} />
+          <textarea
+            id="remark"
+            className={styles.textarea}
+            value={text}
+            placeholder={placement ? "Elle s'attache à l'artboard affiché et cite les autres" : "Ce qui ne va pas, ce que tu veux à la place"}
+            onChange={(event) => {
+              setText(event.target.value);
+              if (placement && own?.kind !== "remark") setStartedOn(event.target.value.trim() === "" ? undefined : startedOn ?? placement.shown);
+            }}
+          />
           {own?.outdated && !unsaved && !failed && (
             <span className={styles.author}>
               <PersonDot person={own.person} />

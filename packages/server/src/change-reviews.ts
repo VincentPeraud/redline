@@ -5,6 +5,11 @@ import {
   defaultManifest,
   groupTitlesOf,
   mergeSteps,
+  artboardKey,
+  republishedSince,
+  stepArtboards,
+  stepLabel,
+  type ArtboardRef,
   nextReviewState,
   orderSteps,
   parseManifest,
@@ -33,7 +38,7 @@ import {
   type RequestChangeReviewResponse,
 } from "@redline/shared";
 import type { Access, Viewer } from "./access.js";
-import type { StoredReview } from "./change-review-store.js";
+import type { SeenNow, StoredMember, StoredReview, StoredStep } from "./change-review-store.js";
 import { contentChanges } from "./artboard-history.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store, VersionRecord } from "./store.js";
@@ -70,7 +75,7 @@ function currentArtboardVersion(records: VersionRecord[], file: string): Version
 }
 
 /** What "Avant" shows for a step, as stored: a page version id, or `""` for an artboard that is new in the series. A given version always wins. */
-function baselineOf(store: Store, step: ChangeReviewStepInput, requesterFolder: string, sameArtboard: { baseline?: string } | undefined): string | undefined {
+function baselineOf(store: Store, step: Pick<ChangeReviewStepInput, "pageId" | "artboard" | "baselineVersion">, requesterFolder: string, sameArtboard: { baseline?: string } | undefined): string | undefined {
   const records = store.listVersionRecords(step.pageId);
   if (step.baselineVersion !== undefined) return records.find((record) => record.id === step.baselineVersion)?.files[step.artboard] === undefined ? "" : step.baselineVersion;
   if (sameArtboard?.baseline !== undefined) return sameArtboard.baseline;
@@ -98,19 +103,45 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
   const answers = store.changeReviews.answers(review.id);
   const own = viewerPersonId(viewer) ?? "";
   const recordsOfPage = new Map<string, VersionRecord[]>();
+  const recordsOf = (pageId: string): VersionRecord[] => {
+    if (!recordsOfPage.has(pageId)) recordsOfPage.set(pageId, store.getPage(pageId) ? store.listVersionRecords(pageId) : []);
+    return recordsOfPage.get(pageId)!;
+  };
+  const manifests = new Map<string, Manifest>();
+  const manifestOfPage = (pageId: string): Manifest => {
+    if (!manifests.has(pageId)) manifests.set(pageId, manifestOf(store, pageId));
+    return manifests.get(pageId)!;
+  };
+  /** What the step knows of one of its artboards: titles, size, tweaks, and the "Avant" version. */
+  const describe = (ref: ArtboardRef, baseline: string | undefined) => {
+    const page = store.getPage(ref.pageId);
+    const entry = page ? manifestOfPage(ref.pageId).artboards.find((artboard) => artboard.file === ref.artboard) : undefined;
+    const baselineRecord = baseline ? recordsOf(ref.pageId).find((record) => record.id === baseline) : undefined;
+    return {
+      pageTitle: page?.title ?? "",
+      artboardTitle: entry?.title ?? ref.artboard,
+      ...(entry ? { artboardEntry: entry } : {}),
+      ...(page ? { artboardTweaks: manifestOfPage(ref.pageId).tweaks.filter((tweak) => tweak.artboard === undefined || tweak.artboard === ref.artboard), savedTweaks: savedTweaksOf(store, ref.pageId) } : {}),
+      ...(baselineRecord ? { baselineVersionId: baselineRecord.id, baselineAt: baselineRecord.createdAt } : {}),
+      ...(baseline === "" ? { isNew: true } : {}),
+    };
+  };
   const steps = store.changeReviews.steps(review.id).map((step) => {
-    const page = store.getPage(step.pageId);
-    if (page && !recordsOfPage.has(step.pageId)) recordsOfPage.set(step.pageId, store.listVersionRecords(step.pageId));
-    const current = page && currentArtboardVersion(recordsOfPage.get(step.pageId)!, step.artboard);
-    const baselineRecord = step.baseline ? recordsOfPage.get(step.pageId)?.find((record) => record.id === step.baseline) : undefined;
-    const entry = page ? manifestOf(store, step.pageId).artboards.find((artboard) => artboard.file === step.artboard) : undefined;
+    const current = currentArtboardVersion(recordsOf(step.pageId), step.artboard);
+    const currentOthers = (step.others ?? []).map((member) => ({ member, current: currentArtboardVersion(recordsOf(member.pageId), member.artboard) }));
+    const now = { example: current?.id, others: Object.fromEntries(currentOthers.map(({ member, current: version }) => [artboardKey(member), version?.id])) };
+    const republished = { example: false, others: new Set<string>() };
     const stepAnswers = answers
       .filter((answer) => answer.stepId === step.id)
       .map((answer) => {
         const person = store.getPerson(answer.personId);
-        const outdated = current !== undefined && answer.artboardVersion !== undefined && answer.artboardVersion !== current.id;
-        return { id: answer.id, kind: answer.kind, ...(answer.text !== undefined ? { text: answer.text } : {}), ...(person ? { person } : {}), at: answer.at, mine: (answer.personId ?? "") === own, ...(outdated ? { outdated } : {}) };
+        const changed = republishedSince(answer, now);
+        const outdated = changed.example || changed.others.length > 0;
+        republished.example ||= changed.example;
+        for (const key of changed.others) republished.others.add(key);
+        return { id: answer.id, kind: answer.kind, ...(answer.text !== undefined ? { text: answer.text } : {}), ...(person ? { person } : {}), at: answer.at, mine: (answer.personId ?? "") === own, ...(outdated ? { outdated } : {}), ...(answer.on ? { on: answer.on } : {}) };
       });
+    const modifiedFields = (version: VersionRecord | undefined) => (version ? { ...(authorOf(version) ? { modifiedBy: authorOf(version) } : {}), modifiedAt: version.createdAt } : {});
     return {
       pageId: step.pageId,
       artboard: step.artboard,
@@ -118,16 +149,15 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
       lookAt: step.lookAt,
       question: step.question,
       id: step.id,
-      pageTitle: page?.title ?? "",
-      artboardTitle: entry?.title ?? step.artboard,
-      ...(entry ? { artboardEntry: entry } : {}),
-      ...(page ? { artboardTweaks: manifestOf(store, step.pageId).tweaks.filter((tweak) => tweak.artboard === undefined || tweak.artboard === step.artboard), savedTweaks: savedTweaksOf(store, step.pageId) } : {}),
+      ...(step.title ? { title: step.title } : {}),
+      ...describe(step, step.baseline),
+      ...(step.others
+        ? { others: currentOthers.map(({ member, current: version }) => ({ pageId: member.pageId, artboard: member.artboard, ...describe(member, member.baseline), ...(republished.others.has(artboardKey(member)) ? { modified: true, ...modifiedFields(version) } : {}) })) }
+        : {}),
       ...(step.tweaks ? { tweaks: step.tweaks } : {}),
       ...(step.mobile ? { mobile: true } : {}),
-      ...(baselineRecord ? { baselineVersionId: baselineRecord.id, baselineAt: baselineRecord.createdAt } : {}),
-      ...(step.baseline === "" ? { isNew: true } : {}),
       answers: stepAnswers,
-      ...(stepAnswers.some((answer) => answer.outdated) && current ? { ...(authorOf(current) ? { modifiedBy: authorOf(current) } : {}), modifiedAt: current.createdAt } : {}),
+      ...(republished.example ? modifiedFields(current) : {}),
     };
   });
   const requester = store.getPerson(review.requesterPersonId);
@@ -161,7 +191,7 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
 export function announceReviewChange(store: Store, reviewId: string): void {
   const projectId = store.changeReviews.projectIdOf(reviewId);
   if (!projectId) return;
-  const pageIds = [...new Set(store.changeReviews.steps(reviewId).map((step) => step.pageId))];
+  const pageIds = [...new Set(store.changeReviews.steps(reviewId).flatMap((step) => stepArtboards(step).map((ref) => ref.pageId)))];
   store.emit({ type: "review-updated", reviewId, projectId, pageIds });
 }
 
@@ -178,7 +208,7 @@ function bannersOf(store: Store, pageId: string, viewer: Viewer): PageChangeRevi
       id: review.id,
       state: bannerStateOf(review.state as Exclude<typeof review.state, "filed">, seen),
       stepCount: view.steps.length,
-      pageTitles: [...new Set(view.steps.map((step) => step.pageTitle))],
+      pageTitles: [...new Set(view.steps.flatMap((step) => [step.pageTitle, ...(step.others ?? []).map((member) => member.pageTitle)]))],
       seen,
       okCount: answers.filter((answer) => answer.kind === "ok").length,
       remarkCount: answers.filter((answer) => answer.kind === "remark").length,
@@ -205,18 +235,23 @@ export function declareChangeReview(store: Store, access: Access, viewer: Viewer
     [step?.pageId, step?.artboard, step?.changed, step?.lookAt, step?.question].every((value) => requiredString(value) && value.length <= MAX_STEP_TEXT_LENGTH),
   );
   if (!valid) return { status: 400, error: "each step needs pageId, artboard, changed, lookAt and question" };
+  const groups = steps.every((step: Partial<ChangeReviewStepInput>) => (step.title === undefined || (requiredString(step.title) && step.title.length <= MAX_STEP_TEXT_LENGTH)) && (step.others === undefined || (Array.isArray(step.others) && step.others.length > 0 && step.others.length <= MAX_STEPS && step.others.every((other) => requiredString(other?.pageId) && requiredString(other?.artboard)))));
+  if (!groups) return { status: 400, error: "a step's others must be a non-empty list of { pageId, artboard } (the other artboards sharing the change) and its title a non-empty string" };
   const shape = steps.every((step: Partial<ChangeReviewStepInput>) => (step.mobile === undefined || typeof step.mobile === "boolean") && (step.baselineVersion === undefined || requiredString(step.baselineVersion)) && (step.tweaks === undefined || (typeof step.tweaks === "object" && step.tweaks !== null && !Array.isArray(step.tweaks))));
   if (!shape) return { status: 400, error: "a step's mobile must be a boolean, its baselineVersion a version id and its tweaks an object of tweak id to value" };
-  const declared = steps as ChangeReviewStepInput[];
+  const declared = (steps as ChangeReviewStepInput[]).map((step) => (step.others ? { ...step, others: step.others.map(({ pageId, artboard }) => ({ pageId, artboard })) } : step));
+  const repeated = declared.filter((step) => new Set(stepArtboards(step).map(artboardKey)).size < stepArtboards(step).length).map((step) => `${step.pageId}: ${step.artboard}`);
+  if (repeated.length > 0) return { status: 400, error: `A group lists each artboard once, the example included, fix the declaration: ${repeated.join(", ")}.` };
 
-  const unknownPages = [...new Set(declared.map((step) => step.pageId).filter((pageId) => !store.getPage(pageId) || store.getPage(pageId)!.archivedAt))];
+  const unknownPages = [...new Set(declared.flatMap(stepArtboards).map((ref) => ref.pageId).filter((pageId) => !store.getPage(pageId) || store.getPage(pageId)!.archivedAt))];
   if (unknownPages.length > 0) return { status: 400, error: `Unknown or archived pages: ${unknownPages.join(", ")}` };
   // The review's project is the first step's: the artboards of any other project are refused.
   const projectId = store.getPage(declared[0]!.pageId)!.projectId;
   if (access.levelOf(viewer, { projectId }) !== "write") return { status: 403, error: "your account does not have Écriture on this project" };
-  const describe = (step: ChangeReviewStepInput) => `${store.getPage(step.pageId)!.title}: ${step.artboard}`;
-  const otherProject = declared.filter((step) => store.getPage(step.pageId)!.projectId !== projectId).map(describe);
-  const unknownArtboards = declared.filter((step) => store.getPage(step.pageId)!.projectId === projectId && !store.hasArtboard(step.pageId, step.artboard)).map(describe);
+  const describe = (step: ArtboardRef) => `${store.getPage(step.pageId)!.title}: ${step.artboard}`;
+  const artboards = declared.flatMap(stepArtboards);
+  const otherProject = artboards.filter((ref) => store.getPage(ref.pageId)!.projectId !== projectId).map(describe);
+  const unknownArtboards = artboards.filter((ref) => store.getPage(ref.pageId)!.projectId === projectId && !store.hasArtboard(ref.pageId, ref.artboard)).map(describe);
   if (otherProject.length > 0 || unknownArtboards.length > 0) {
     return {
       status: 400,
@@ -255,9 +290,15 @@ export function declareChangeReview(store: Store, access: Access, viewer: Viewer
   // A step of this artboard already in the open review keeps its baseline: the oldest automatic one is the start of the series.
   const known = open ? store.changeReviews.steps(open.id) : [];
   const requesterFolder = (sessionFolder ?? folder).split(/[\\/]/).filter(Boolean).pop() ?? folder;
+  const knownBaselines = known.flatMap((other): StoredMember[] => [other, ...(other.others ?? [])]).filter((other) => other.baseline !== undefined);
+  const sameArtboard = (ref: ArtboardRef) => knownBaselines.find((other) => other.pageId === ref.pageId && other.artboard === ref.artboard);
   const withBaselines = declared.map((step) => {
-    const baseline = baselineOf(store, step, requesterFolder, known.find((other) => other.pageId === step.pageId && other.artboard === step.artboard && other.baseline !== undefined));
-    return baseline === undefined ? step : { ...step, baseline };
+    const baseline = baselineOf(store, step, requesterFolder, sameArtboard(step));
+    const others = step.others?.map((member): StoredMember => {
+      const memberBaseline = baselineOf(store, member, requesterFolder, sameArtboard(member));
+      return memberBaseline === undefined ? member : { ...member, baseline: memberBaseline };
+    });
+    return { ...step, ...(others ? { others } : {}), ...(baseline === undefined ? {} : { baseline }) };
   });
   if (open) {
     const merged = orderOf(mergeSteps(known, withBaselines));
@@ -333,11 +374,23 @@ function fetchReview(store: Store, pageLock: PageLock, viewer: Viewer, sessionId
   const result = reviewResult({
     requester: nameOf(view.requester.person),
     finishedBy: nameOf(view.finishedBy),
-    steps: view.steps.map((step) => ({ id: step.id, label: `${step.pageTitle} · ${step.artboardTitle}`, artboard: step.artboard, answers: step.answers })),
+    steps: view.steps.map((step) => ({
+      id: step.id,
+      label: stepLabel(step),
+      artboard: step.artboard,
+      ...(step.others ? { members: membersOf(step) } : {}),
+      answers: step.answers,
+    })),
     threadIds,
   });
   return { status: "finished", ...(alreadyFetchedAt ? { alreadyFetchedAt } : {}), ...result };
 }
+
+/** The artboards of a group with their "Page · artboard" names, the example first. */
+const membersOf = (step: ChangeReview["steps"][number]) => [
+  { pageId: step.pageId, artboard: step.artboard, label: `${step.pageTitle} · ${step.artboardTitle}` },
+  ...(step.others ?? []).map((member) => ({ pageId: member.pageId, artboard: member.artboard, label: `${member.pageTitle} · ${member.artboardTitle}` })),
+];
 
 /** One thread per remark on its artboard, signed by the remark's author and taken by `sessionId` (so `reply_in_thread` works on it). Thread ids by remark id. */
 function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview, sessionId: string): Record<string, string> {
@@ -350,9 +403,14 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
         threadIds[answer.id] = known;
         continue;
       }
-      const thread = store.createThread(step.pageId, { target: { kind: "artboard", artboard: step.artboard }, body: answer.text ?? "" }, answer.person);
+      // A group remark goes on the artboard it was written on and cites the others of the group.
+      const members = step.others ? membersOf(step) : undefined;
+      const where = members?.find((member) => member.pageId === answer.on?.pageId && member.artboard === answer.on?.artboard) ?? members?.[0];
+      const pageId = where?.pageId ?? step.pageId;
+      const cited = members && where ? `\n\nRemarque sur le groupe « ${stepLabel(step)} » : le même changement concerne aussi ${members.filter((member) => member !== where).map((member) => member.label).join(", ")}.` : "";
+      const thread = store.createThread(pageId, { target: { kind: "artboard", artboard: where?.artboard ?? step.artboard }, body: `${answer.text ?? ""}${cited}` }, answer.person);
       const runId = randomUUID();
-      pageLock.showTerminalRun(step.pageId, runId, thread.id);
+      pageLock.showTerminalRun(pageId, runId, thread.id);
       store.pickThreadForTerminalSession(thread.id, sessionId, runId);
       store.changeReviews.setThread(answer.id, thread.id);
       threadIds[answer.id] = thread.id;
@@ -364,10 +422,13 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
 /** The review screen's routes: reading a review, answering OK or with a remark, cancelling, finishing. Access is by the review's project (see `access.ts`). */
 export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): void {
   const open = (reviewId: string) => store.changeReviews.get(reviewId);
-  /** The artboard version an answer given now sees. */
-  const versionSeenBy = (reviewId: string, stepId: string): string | undefined => {
-    const step = store.changeReviews.steps(reviewId).find((candidate) => candidate.id === stepId);
-    return step && currentArtboardVersion(store.listVersionRecords(step.pageId), step.artboard)?.id;
+  const stepOf = (reviewId: string, stepId: string): StoredStep | undefined => store.changeReviews.steps(reviewId).find((candidate) => candidate.id === stepId);
+  /** The artboard versions an answer given now sees: the example's, and each other artboard's of a group. */
+  const seenNow = (step: StoredStep | undefined): SeenNow => {
+    if (!step) return {};
+    const versionOf = (ref: ArtboardRef) => currentArtboardVersion(store.listVersionRecords(ref.pageId), ref.artboard)?.id;
+    const memberVersions = Object.fromEntries((step.others ?? []).flatMap((member) => (versionOf(member) ? [[artboardKey(member), versionOf(member)!]] : [])));
+    return { ...(versionOf(step) ? { artboardVersion: versionOf(step)! } : {}), memberVersions };
   };
 
   app.get<{ Params: { reviewId: string } }>("/api/change-reviews/:reviewId", async (req, reply) => {
@@ -382,7 +443,7 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     if (!review || !store.changeReviews.hasStep(review.id, req.params.stepId)) return reply.code(404).send({ error: "step not found" });
     if (review.state !== "open") return reply.code(409).send({ error: "this review is finished" });
     if (store.changeReviews.answerOf(req.params.stepId, viewerPersonId(req.viewer))?.kind === "remark") return reply.code(409).send({ error: "you left a remark on this step: delete it before answering OK" });
-    store.changeReviews.addOk(req.params.stepId, viewerPersonId(req.viewer), versionSeenBy(review.id, req.params.stepId));
+    store.changeReviews.addOk(req.params.stepId, viewerPersonId(req.viewer), seenNow(stepOf(review.id, req.params.stepId)));
     announceReviewChange(store, review.id);
     return viewOf(store, review, req.viewer);
   });
@@ -396,14 +457,19 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     return viewOf(store, review, req.viewer);
   });
 
-  app.put<{ Params: { reviewId: string; stepId: string }; Body: { text?: unknown } }>("/api/change-reviews/:reviewId/steps/:stepId/remark", async (req, reply) => {
+  app.put<{ Params: { reviewId: string; stepId: string }; Body: { text?: unknown; pageId?: unknown; artboard?: unknown } }>("/api/change-reviews/:reviewId/steps/:stepId/remark", async (req, reply) => {
     const review = open(req.params.reviewId);
     if (!review || !store.changeReviews.hasStep(review.id, req.params.stepId)) return reply.code(404).send({ error: "step not found" });
     if (review.state !== "open") return reply.code(409).send({ error: "this review is finished" });
     const text = req.body?.text;
     if (!requiredString(text) || text.length > MAX_STEP_TEXT_LENGTH) return reply.code(400).send({ error: `text must be a non-empty string of at most ${MAX_STEP_TEXT_LENGTH} characters` });
+    // On a group the remark is attached to the artboard shown when it was started: one of the step's artboards (the example is the default).
+    const step = stepOf(review.id, req.params.stepId)!;
+    const { pageId, artboard } = req.body;
+    if ((pageId !== undefined || artboard !== undefined) && !stepArtboards(step).some((ref) => ref.pageId === pageId && ref.artboard === artboard)) return reply.code(400).send({ error: "pageId and artboard must name an artboard of the step" });
+    const on = pageId !== undefined && !(pageId === step.pageId && artboard === step.artboard) ? { pageId: pageId as string, artboard: artboard as string } : undefined;
     // Always the viewer's own remark: nobody can write on another member's.
-    store.changeReviews.saveRemark(req.params.stepId, viewerPersonId(req.viewer), text, versionSeenBy(review.id, req.params.stepId));
+    store.changeReviews.saveRemark(req.params.stepId, viewerPersonId(req.viewer), text, seenNow(step), on);
     announceReviewChange(store, review.id);
     return viewOf(store, review, req.viewer);
   });

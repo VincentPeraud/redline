@@ -1016,3 +1016,135 @@
 .confirmBox {
   width: 460px;
 }
+
+/* Grouped step: the example on top, the other artboards as thumbnails below. */
+.shotArea {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+}
+
+.stageGroup {
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: var(--space-5);
+  overflow: auto;
+}
+
+.stageGroup .shotArea {
+  flex: 1 0 22rem;
+  align-self: stretch;
+}
+
+.chips {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.others {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.othersHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.others h3 {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--play-text-muted);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+}
+
+.thumb {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.thumb:hover {
+  background: var(--play-panel-bg);
+}
+
+.thumb > span:not(.thumbPreview):not(.thumbChip) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thumbOpened {
+  border-color: var(--play-text);
+  background: var(--play-panel-bg);
+}
+
+.thumbPreview {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--play-panel-bg);
+}
+
+.thumbFrame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  border: 0;
+  background: var(--color-surface);
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.thumbChip {
+  align-self: flex-start;
+}
+
+.backToExample {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* A group's kicker wraps its chips under the size line when they do not fit, as in the mock-up. */
+.kickerGroup {
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
+.kickerGroup > span:first-child {
+  white-space: nowrap;
+}
