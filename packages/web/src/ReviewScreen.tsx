@@ -5,6 +5,7 @@ import { fitToStage } from "./PlayMode.js";
 import { PlayFrame } from "./PlayFrame.js";
 import { presentationOf } from "./playFrames.js";
 import { navigateTo, type Route } from "./router.js";
+import { subscribeServerEvents } from "./serverEvents.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { cx } from "./ui/index.js";
 import styles from "./ReviewScreen.module.css";
@@ -48,6 +49,14 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     }
   }, [reviewId]);
   useEffect(() => void reload(), [reload]);
+  // Another member's answer, or the review's end, shows here at once.
+  useEffect(
+    () =>
+      subscribeServerEvents((event) => {
+        if (event.type === "review-updated" && event.reviewId === reviewId) void reload();
+      }, () => void reload()),
+    [reviewId, reload],
+  );
 
   const review = load.status === "ready" ? load.review : undefined;
   useDocumentTitle(review ? `Revue · ${review.projectTitle}` : "Revue");

@@ -12,6 +12,8 @@ export interface StoredReview {
   createdAt: string;
   finishedBy?: string;
   finishedAt?: string;
+  fetchedBy?: string;
+  fetchedAt?: string;
 }
 
 export interface StoredStep extends ChangeReviewStepInput {
@@ -36,6 +38,8 @@ interface ReviewRow {
   created_at: string;
   finished_by: string | null;
   finished_at: string | null;
+  fetched_by: string | null;
+  fetched_at: string | null;
 }
 
 /** Reviews of changes with their steps and answers, in their own tables. Not "diffusion review" (the design system one). */
@@ -71,6 +75,19 @@ export class ChangeReviewStore {
         UNIQUE (step_id, person_id)
       );
     `);
+    const columns = (db.prepare("PRAGMA table_info(change_reviews)").all() as { name: string }[]).map((column) => column.name);
+    for (const column of ["fetched_by", "fetched_at"]) if (!columns.includes(column)) db.exec(`ALTER TABLE change_reviews ADD COLUMN ${column} TEXT`);
+  }
+
+  /** Open and finished reviews with a step on the page, plus those fetched since `fetchedSince` (ISO), oldest first. */
+  coveringPage(pageId: string, fetchedSince: string): StoredReview[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM change_reviews WHERE id IN (SELECT review_id FROM change_review_steps WHERE page_id = ?)
+         AND (state IN ('open', 'finished') OR (state = 'fetched' AND fetched_at >= ?)) ORDER BY created_at, rowid`,
+      )
+      .all(pageId, fetchedSince) as { id: string }[];
+    return rows.map((row) => this.get(row.id)!);
   }
 
   /** `steps` are already in review order. */
@@ -100,6 +117,8 @@ export class ChangeReviewStore {
         createdAt: row.created_at,
         ...(row.finished_by ? { finishedBy: row.finished_by } : {}),
         ...(row.finished_at ? { finishedAt: row.finished_at } : {}),
+        ...(row.fetched_by ? { fetchedBy: row.fetched_by } : {}),
+        ...(row.fetched_at ? { fetchedAt: row.fetched_at } : {}),
       }
     );
   }

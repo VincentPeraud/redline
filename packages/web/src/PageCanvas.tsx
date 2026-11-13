@@ -44,6 +44,7 @@ import { useGaps } from "./useGaps.js";
 import { UndoToast } from "./UndoToast.js";
 import { CanvasHeader } from "./CanvasHeader.js";
 import { PreviewBanner } from "./PreviewBanner.js";
+import { ReviewBanners } from "./ReviewBanners.js";
 import { ArchivedBanner, type ArchiveKind } from "./ArchiveControls.js";
 import { useStoredToggle } from "./useStoredToggle.js";
 import { GuidesButton } from "./GuidesButton.js";
@@ -874,6 +875,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         archived={frozen}
         commentOnly={archived === undefined && !canWork && canComment}
       />
+      {!visitor && canWork && !archived && <ReviewBanners pageId={pageId} />}
       {archived && (
         <ArchivedBanner
           kind={archived.kind}

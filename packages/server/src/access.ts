@@ -62,7 +62,7 @@ const LINK_PROJECT_ONLY_ROUTES = new Set(["POST /api/projects/:projectId/pages"]
 const LINK_OPEN_ROUTES = new Set(["GET /api/link", "GET /api/config", "GET /api/events"]);
 
 /** Reads that stay with members in Écriture: they show what the team shares. */
-const READS_NEEDING_WRITE = new Set(["GET /api/change-reviews/:reviewId", "GET /api/pages/:pageId/links", "GET /api/projects/:projectId/links"]);
+const READS_NEEDING_WRITE = new Set(["GET /api/change-reviews/:reviewId", "GET /api/pages/:pageId/change-reviews","GET /api/pages/:pageId/links", "GET /api/projects/:projectId/links"]);
 
 /** What an action is about; empty means the instance itself (home, settings, design systems list). */
 export interface Resource {
