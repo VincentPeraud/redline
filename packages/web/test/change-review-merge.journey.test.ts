@@ -36,6 +36,11 @@ it("lists the steps of a review over two pages grouped by page, and jumps to a s
   const home = await seam.createPage({ "list.html": "<!doctype html><h1>List screen</h1>", "empty.html": "<!doctype html><h1>Empty screen</h1>", "manifest.json": MANIFEST }, "Home");
   const settings = await seam.createPage({ "settings.html": "<!doctype html><h1>Settings screen</h1>" }, "Settings");
   const { token } = (await (await seam.server.get("/api/agent-token")).json()) as AgentTokenResponse;
+  await fetch(`${seam.server.url}/agent-api/terminal-sessions/7d6f3f6e-0000-4000-8000-000000000002/heartbeat`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ folder: "/work/site", machine: "Mac" }),
+  });
   const declare = async (label: string | undefined, steps: { pageId: string; artboard: string }[]) =>
     ((await (
       await fetch(`${seam.server.url}/agent-api/terminal-sessions/7d6f3f6e-0000-4000-8000-000000000002/reviews`, {

@@ -105,6 +105,16 @@ export class ChangeReviewStore {
     return rows.map((row) => this.get(row.id)!);
   }
 
+  /** The reviews of these projects in one of these states, oldest first. */
+  inProjects(projectIds: readonly string[], states: readonly ChangeReviewState[]): StoredReview[] {
+    if (projectIds.length === 0 || states.length === 0) return [];
+    const marks = (list: readonly unknown[]) => list.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(`SELECT id FROM change_reviews WHERE project_id IN (${marks(projectIds)}) AND state IN (${marks(states)}) ORDER BY created_at, rowid`)
+      .all(...projectIds, ...states) as { id: string }[];
+    return rows.map((row) => this.get(row.id)!);
+  }
+
   /** `steps` are already in review order. */
   create(projectId: string, requester: { personId?: string; folder: string; label?: string }, steps: ChangeReviewStepInput[]): StoredReview {
     const id = randomUUID();

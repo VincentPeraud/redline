@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ChangeReview, Thread } from "@redline/shared";
 import { FakeEngine, startSeam2, type Seam2 } from "./support/seam2.js";
@@ -211,5 +213,118 @@ describe("remarks", () => {
 
     expect((await banners())[0]).toMatchObject({ state: "fetched", okCount: 1, remarkCount: 1 });
     expect(await reviewOf(reviewId)).toMatchObject({ state: "fetched" });
+  });
+});
+
+describe("review_feedback without an id, and who can fetch", () => {
+  const linkFolder = () => {
+    mkdirSync(join(seam!.folder, ".redline"), { recursive: true });
+    writeFileSync(join(seam!.folder, ".redline", "project.json"), JSON.stringify({ projectIds: [seam!.project.id] }));
+  };
+  const saveRemark = (reviewId: string, stepId: string, text: string) =>
+    fetch(`${seam!.server.url}/api/change-reviews/${reviewId}/steps/${stepId}/remark`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+  const threadsOf = async (pageId: string) => (await (await seam!.server.get(`/api/pages/${pageId}/threads`)).json()) as Thread[];
+  const finishWithRemark = async (reviewId: string, text = "Too dense") => {
+    const first = (await reviewOf(reviewId)).steps[0]!;
+    await saveRemark(reviewId, first.id, text);
+    await send("POST", `/api/change-reviews/${reviewId}/finish`);
+  };
+
+  it("fetches the only finished review of the folder's project, found without an id", async () => {
+    const { terminal, reviewId, pages } = await declared();
+    linkFolder();
+    await finishWithRemark(reviewId);
+
+    const answer = await terminal.call("review_feedback", {});
+
+    expect(answer).toMatch(/Remarks \(1\)/);
+    expect(await reviewOf(reviewId)).toMatchObject({ state: "fetched" });
+    expect(await threadsOf(pages.home)).toHaveLength(1);
+  });
+
+  it("lists several finished reviews with their id, requester and finish date, and fetches none", async () => {
+    const { terminal, reviewId, pages } = await declared();
+    linkFolder();
+    const otherFolder = await openTerminal(seam!, stops, "Mac-mini", {
+      wrapApi: (api) => Object.assign(Object.create(api) as typeof api, { requestReview: (sessionId: string, request: Parameters<typeof api.requestReview>[1]) => api.requestReview(sessionId, { ...request, folder: "/work/other-folder" }) }),
+    });
+    const second = idOf(await otherFolder.call("request_review", { steps: [step(pages.settings, "settings.html")] }));
+    await finishWithRemark(reviewId);
+    await send("POST", `/api/change-reviews/${second}/finish`);
+
+    const answer = await terminal.call("review_feedback", {});
+
+    expect(answer).toMatch(/2 finished reviews wait/);
+    expect(answer).toContain(reviewId);
+    expect(answer).toContain(second);
+    expect(await reviewOf(reviewId)).toMatchObject({ state: "finished" });
+    expect(await reviewOf(second)).toMatchObject({ state: "finished" });
+    expect(await threadsOf(pages.home)).toEqual([]);
+
+    expect(await terminal.call("review_feedback", { reviewId: second })).toMatch(/Requested by/);
+  });
+
+  it("says the open reviews are not finished, with their progress, and handles nothing", async () => {
+    const { terminal, reviewId } = await declared();
+    linkFolder();
+    const steps = (await reviewOf(reviewId)).steps;
+    await send("PUT", `/api/change-reviews/${reviewId}/steps/${steps[0]!.id}/ok`);
+    await saveRemark(reviewId, steps[1]!.id, "No");
+
+    const answer = await terminal.call("review_feedback", {});
+
+    expect(answer).toMatch(/not finished yet/);
+    expect(answer).toContain(reviewId);
+    expect(answer).toContain("2 / 3 steps seen, 1 remark");
+    expect(await reviewOf(reviewId)).toMatchObject({ state: "open" });
+  });
+
+  it("says no review waits when the folder's project has none", async () => {
+    seam = await startSeam2(new FakeEngine(() => []));
+    linkFolder();
+    const terminal = await openTerminal(seam, stops, "MacBook-Pro");
+
+    expect(await terminal.call("review_feedback", {})).toMatch(/No review is waiting/);
+  });
+
+  it("lets another conversation fetch a review it did not request, and gives it the threads", async () => {
+    const { reviewId, pages } = await declared();
+    linkFolder();
+    await finishWithRemark(reviewId, "From someone else");
+    const other = await openTerminal(seam!, stops, "iMac");
+
+    const answer = await other.call("review_feedback", {});
+
+    const [thread] = await threadsOf(pages.home);
+    expect(answer).toContain(`thread ${thread!.id}`);
+    expect(await other.call("reply_in_thread", { threadId: thread!.id, text: "Done" })).toContain("Reply posted");
+  });
+
+  it("returns the same result marked already fetched on a second call, and creates no thread again", async () => {
+    const { terminal, reviewId, pages } = await declared();
+    await finishWithRemark(reviewId);
+    const first = await terminal.call("review_feedback", { reviewId });
+
+    const again = await terminal.call("review_feedback", { reviewId });
+
+    expect(first).not.toMatch(/Already fetched/);
+    expect(again).toMatch(/Already fetched on \d{4}-/);
+    expect(again.replace(/^Already fetched.*\n/, "")).toBe(first);
+    expect(await threadsOf(pages.home)).toHaveLength(1);
+  });
+
+  it("refuses a review request from a session that is not a terminal session (a background agent)", async () => {
+    const { pages } = await declared();
+    const { token } = (await (await seam!.server.get("/api/agent-token")).json()) as { token: string };
+
+    const refused = await fetch(`${seam!.server.url}/agent-api/terminal-sessions/7d6f3f6e-0000-4000-8000-0000000000aa/reviews`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ folder: "/work/x", steps: [step(pages.home, "list.html")] }),
+    });
+
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { error: string }).error).toMatch(/only a terminal session/);
+    expect(await (await seam!.server.get(`/api/pages/${pages.home}/change-reviews`)).json()).toHaveLength(1);
   });
 });

@@ -190,13 +190,40 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
 }
 
 /** What `review_feedback` answers: the result of a finished review, or its progress while it is still open. */
-export type ChangeReviewFeedback = ({ status: "finished" } & ChangeReviewResult) | { status: "open"; seen: number; total: number };
+export type ChangeReviewFeedback =
+  /** `alreadyFetchedAt` is set when the review had been fetched before: the same result, nothing created again. */
+  | ({ status: "finished"; alreadyFetchedAt?: string } & ChangeReviewResult)
+  | { status: "open"; seen: number; total: number }
+  /** Without an id, several finished reviews wait: nothing was fetched. */
+  | { status: "several"; reviews: WaitingChangeReview[] }
+  /** Without an id, no finished review waits: the open ones, with their progress (none at all gives an empty list). */
+  | { status: "none-finished"; reviews: OpenChangeReview[] };
+
+/** A finished review waiting to be fetched, as listed to Claude. */
+export interface WaitingChangeReview {
+  id: string;
+  requester: string;
+  folder: string;
+  finishedAt: string;
+}
+
+/** An open review with its progress, as listed to Claude. */
+export interface OpenChangeReview {
+  id: string;
+  requester: string;
+  folder: string;
+  seen: number;
+  total: number;
+  remarks: number;
+}
 
 /** Web route (hash part) of a review, and of one of its steps (1-based). */
 export const reviewHash = (reviewId: string, step?: number): string => `#/reviews/${encodeURIComponent(reviewId)}${step === undefined ? "" : `/steps/${step}`}`;
 
+/** `review_feedback`: a review id, or none and the projects linked to the folder (the finished, not yet fetched reviews of those are looked at). */
 export interface ChangeReviewFeedbackRequest {
-  reviewId: string;
+  reviewId?: string;
+  projectIds?: string[];
 }
 
 /** Path of the reviews that cover a page, for the banner under the canvas header. */

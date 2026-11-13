@@ -117,14 +117,17 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
 
       // `request_review` and `review_feedback`: a terminal session declares a review of its changes, then reads its result.
       api.post<{ Params: { sessionId: string }; Body: Partial<RequestChangeReviewRequest> }>("/terminal-sessions/:sessionId/reviews", async (req, reply) => {
+        if (!terminalSessions.isPresent(req.params.sessionId)) return reply.code(403).send({ error: "only a terminal session can request a review: this session has not announced itself" });
         const result = declareChangeReview(store, access, req.viewer, req.body);
         return "error" in result ? reply.code(result.status).send({ error: result.error }) : reply.code(201).send(result);
       });
 
       api.post<{ Params: { sessionId: string }; Body: Partial<ChangeReviewFeedbackRequest> }>("/terminal-sessions/:sessionId/review-feedback", async (req, reply) => {
-        const reviewId = req.body?.reviewId;
-        if (!requiredString(reviewId)) return reply.code(400).send({ error: "reviewId is required" });
-        const result = changeReviewFeedback(store, access, pageLock, req.viewer, req.params.sessionId, reviewId);
+        const { reviewId, projectIds } = req.body ?? {};
+        if (reviewId !== undefined && !requiredString(reviewId)) return reply.code(400).send({ error: "reviewId must be a review id" });
+        if (projectIds !== undefined && (!Array.isArray(projectIds) || !projectIds.every((id) => requiredString(id)))) return reply.code(400).send({ error: "projectIds must be a list of project ids" });
+        if (reviewId === undefined && projectIds === undefined) return reply.code(400).send({ error: "reviewId or projectIds is required" });
+        const result = changeReviewFeedback(store, access, pageLock, req.viewer, req.params.sessionId, { reviewId, projectIds });
         return "error" in result ? reply.code(result.status).send({ error: result.error }) : result;
       });
 
