@@ -91,6 +91,11 @@ function PageMenu({ owner, pageId, pageTitle, artboardOrigin, deleted, onPutBack
   const [pages, setPages] = useState<MenuPage[]>([]);
   const root = useRef<HTMLDivElement>(null);
 
+  // A long list opens on the current page, once: thread counts arriving later do not scroll it back.
+  useEffect(() => {
+    if (open) root.current?.querySelector('[role="menu"] [aria-current="page"]')?.scrollIntoView({ block: "nearest" });
+  }, [open, pages.length]);
+
   useEffect(() => {
     if (!open || !owner) return;
     let cancelled = false;
@@ -186,12 +191,14 @@ function PageMenu({ owner, pageId, pageTitle, artboardOrigin, deleted, onPutBack
       {open && owner && (
         <div role="menu" aria-label={`${OWNER_LABELS[owner.kind].pages} ${owner.title}`} className={styles.menu}>
           <div className={styles.menuTitle}>{OWNER_LABELS[owner.kind].pages}</div>
+          <div className={styles.menuPages}>
           {pages.map(({ page, openThreads }) => (
             <a
               key={page.id}
               role="menuitem"
               href={routeHref({ name: "page", pageId: page.id, ...(previewOf === undefined ? {} : { previewOf }) })}
               className={cx(styles.menuItem, page.id === pageId && styles.menuItemCurrent)}
+              aria-current={page.id === pageId ? "page" : undefined}
               onClick={() => setOpen(false)}
             >
               <span className={styles.menuPageTitle}>{page.title}</span>
@@ -200,6 +207,7 @@ function PageMenu({ owner, pageId, pageTitle, artboardOrigin, deleted, onPutBack
               {openThreads > 0 ? <span className={styles.menuWarn}>{plural(openThreads, "fil", "fils")}</span> : null}
             </a>
           ))}
+          </div>
           <div className={styles.menuDivider} />
           {deleted.length > 0 && (
             <button

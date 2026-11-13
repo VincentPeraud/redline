@@ -10,6 +10,10 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 - A "Présenter" button in the page's top bar plays the page from its first artboard in reading order.
 
+### Changed
+
+- The page menu of a project with many pages scrolls inside a bounded height, opens on the current page, and keeps "Vue du projet" in view.
+
 ### Fixed
 
 - Behind a proxy or an SSO, the page stopped updating live ("Claude is working on this thread" stayed, "Résoudre" seemed to do nothing until a reload): the event stream now pings every 25 s, asks proxies not to buffer it, opens again when it is cut and reloads what the screen shows; resolving or reopening a thread updates the list at once.
