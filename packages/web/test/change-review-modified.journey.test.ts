@@ -53,7 +53,7 @@ const republishList = (pageId: string) =>
   fetch(`${seam.server.url}/api/pages/${pageId}/versions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ files: { "list.html": "<!doctype html><h1>List screen v2</h1>" }, message: "List again", origin: "terminal" }),
+    body: JSON.stringify({ files: { "list.html": "<!doctype html><h1>List screen v2</h1>", "empty.html": "<!doctype html><h1>Empty screen</h1>", "manifest.json": MANIFEST }, message: "List again", origin: "terminal" }),
   });
 const stepsOf = async (reviewId: string) => ((await (await fetch(`${seam.server.url}/api/change-reviews/${reviewId}`)).json()) as ChangeReview).steps;
 const counter = (tab: Page) => tab.getByRole("button", { name: /^Étape \d+ \/ \d+/ });

@@ -149,6 +149,22 @@ describe("answering a group", () => {
   });
 });
 
+describe("a moved artboard of a group", () => {
+  it("stays in the group on its new page, keeps its remark and does not count as modified", async () => {
+    const { home, reviewId, groupId } = await start();
+    const third = await seam!.createPage({ "other.html": "<!doctype html><h1>Other</h1>" }, "Third");
+    await send("PUT", `/api/change-reviews/${reviewId}/steps/${groupId}/remark`, { text: "Too big", pageId: home.id, artboard: "empty.html" });
+
+    const moved = await send("POST", `/api/pages/${home.id}/move-artboard`, { file: "empty.html", targetPageId: third.id });
+
+    expect(moved.status).toBe(200);
+    const group = (await reviewOf(reviewId)).steps.find((step) => step.id === groupId)!;
+    expect(group.others!.map((member) => `${member.pageTitle}/${member.artboard}`)).toEqual(["Third/empty.html", "Settings/home.html"]);
+    expect(group.answers[0]).toMatchObject({ on: { pageId: third.id, artboard: "empty.html" } });
+    expect(group.answers[0]).not.toHaveProperty("outdated");
+  });
+});
+
 describe("fetching a grouped step", () => {
   it("opens the remark thread on its artboard, citing the others, and lists the group by name", async () => {
     const { terminal, home, settings, reviewId, groupId } = await start();

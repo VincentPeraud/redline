@@ -25,6 +25,7 @@ import {
   automaticBaseline,
   type BaselineVersion,
   progressOf,
+  activeSteps,
   type ChangeReview,
   type ChangeReviewFeedback,
   type ChangeReviewFeedbackRequest,
@@ -36,6 +37,7 @@ import {
   type TweakValues,
   type RequestChangeReviewRequest,
   type RequestChangeReviewResponse,
+  type StepRemoval,
 } from "@redline/shared";
 import type { Access, Viewer } from "./access.js";
 import type { SeenNow, StoredMember, StoredReview, StoredStep } from "./change-review-store.js";
@@ -96,6 +98,28 @@ function authorOf(record: VersionRecord): string | undefined {
   return person ?? record.linkAuthor?.name;
 }
 
+/**
+ * Why a step is out of the review, if it is: its artboard was deleted (or its page), or its page is archived.
+ * An archived page brings its steps back while the review is open; a finished review keeps them out even if the page is unarchived later.
+ */
+function removalOf(store: Store, review: StoredReview, step: StoredStep, ref: ArtboardRef = step): StepRemoval | undefined {
+  const page = store.getPage(ref.pageId);
+  if (!page || !store.hasArtboard(ref.pageId, ref.artboard)) return "deleted";
+  if (page.archivedAt || (review.state !== "open" && step.archivedAtFinish)) return "archived";
+  return undefined;
+}
+
+/** The title an artboard had in the latest version that still had it (a deleted artboard is gone from the current manifest). */
+function lastTitleOf(store: Store, pageId: string, file: string): string | undefined {
+  for (const record of store.listVersionRecords(pageId).reverse()) {
+    const hash = record.files[MANIFEST_PATH];
+    if (hash === undefined || record.files[file] === undefined) continue;
+    const title = parseManifest(store.blobText(hash)).artboards.find((artboard) => artboard.file === file)?.title;
+    if (title) return title;
+  }
+  return undefined;
+}
+
 const viewerPersonId = (viewer: Viewer): string | undefined => (viewer.kind === "account" || viewer.kind === "agent" ? viewer.person?.id : undefined);
 
 /** The review as `viewer` sees it, steps in review order. */
@@ -113,13 +137,13 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
     return manifests.get(pageId)!;
   };
   /** What the step knows of one of its artboards: titles, size, tweaks, and the "Avant" version. */
-  const describe = (ref: ArtboardRef, baseline: string | undefined) => {
+  const describe = (ref: ArtboardRef, baseline: string | undefined, removal: StepRemoval | undefined) => {
     const page = store.getPage(ref.pageId);
-    const entry = page ? manifestOfPage(ref.pageId).artboards.find((artboard) => artboard.file === ref.artboard) : undefined;
+    const entry = page && removal !== "deleted" ? manifestOfPage(ref.pageId).artboards.find((artboard) => artboard.file === ref.artboard) : undefined;
     const baselineRecord = baseline ? recordsOf(ref.pageId).find((record) => record.id === baseline) : undefined;
     return {
       pageTitle: page?.title ?? "",
-      artboardTitle: entry?.title ?? ref.artboard,
+      artboardTitle: entry?.title ?? (page && removal === "deleted" ? lastTitleOf(store, ref.pageId, ref.artboard) : undefined) ?? ref.artboard,
       ...(entry ? { artboardEntry: entry } : {}),
       ...(page ? { artboardTweaks: manifestOfPage(ref.pageId).tweaks.filter((tweak) => tweak.artboard === undefined || tweak.artboard === ref.artboard), savedTweaks: savedTweaksOf(store, ref.pageId) } : {}),
       ...(baselineRecord ? { baselineVersionId: baselineRecord.id, baselineAt: baselineRecord.createdAt } : {}),
@@ -131,6 +155,9 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
     const currentOthers = (step.others ?? []).map((member) => ({ member, current: currentArtboardVersion(recordsOf(member.pageId), member.artboard) }));
     const now = { example: current?.id, others: Object.fromEntries(currentOthers.map(({ member, current: version }) => [artboardKey(member), version?.id])) };
     const republished = { example: false, others: new Set<string>() };
+    // A group is out of the review only when none of its artboards is left (the example's reason is given).
+    const removals = stepArtboards(step).map((ref) => removalOf(store, review, step, ref));
+    const removed = removals.every((reason) => reason !== undefined) ? removals[0] : undefined;
     const stepAnswers = answers
       .filter((answer) => answer.stepId === step.id)
       .map((answer) => {
@@ -150,9 +177,10 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
       question: step.question,
       id: step.id,
       ...(step.title ? { title: step.title } : {}),
-      ...describe(step, step.baseline),
+      ...describe(step, step.baseline, removals[0]),
+      ...(removed ? { removed } : {}),
       ...(step.others
-        ? { others: currentOthers.map(({ member, current: version }) => ({ pageId: member.pageId, artboard: member.artboard, ...describe(member, member.baseline), ...(republished.others.has(artboardKey(member)) ? { modified: true, ...modifiedFields(version) } : {}) })) }
+        ? { others: currentOthers.map(({ member, current: version }, index) => ({ pageId: member.pageId, artboard: member.artboard, ...describe(member, member.baseline, removals[index + 1]), ...(republished.others.has(artboardKey(member)) ? { modified: true, ...modifiedFields(version) } : {}) })) }
         : {}),
       ...(step.tweaks ? { tweaks: step.tweaks } : {}),
       ...(step.mobile ? { mobile: true } : {}),
@@ -200,15 +228,16 @@ function bannersOf(store: Store, pageId: string, viewer: Viewer): PageChangeRevi
   const fetchedSince = new Date(Date.now() - FETCHED_BANNER_MS).toISOString();
   return store.changeReviews.coveringPage(pageId, fetchedSince).map((review) => {
     const view = viewOf(store, review, viewer);
-    const answers = view.steps.flatMap((step) => step.answers);
+    const kept = activeSteps(view.steps);
+    const answers = kept.flatMap((step) => step.answers);
     const contributors = answers.flatMap((answer) => (answer.person ? [answer.person] : [])).filter((person, index, all) => all.findIndex((other) => other.id === person.id) === index);
     const { seen } = progressOf(view.steps, -1);
     const fetchedBy = store.getPerson(review.fetchedBy);
     return {
       id: review.id,
       state: bannerStateOf(review.state as Exclude<typeof review.state, "filed">, seen),
-      stepCount: view.steps.length,
-      pageTitles: [...new Set(view.steps.flatMap((step) => [step.pageTitle, ...(step.others ?? []).map((member) => member.pageTitle)]))],
+      stepCount: kept.length,
+      pageTitles: [...new Set(kept.flatMap((step) => [step.pageTitle, ...(step.others ?? []).map((member) => member.pageTitle)]))],
       seen,
       okCount: answers.filter((answer) => answer.kind === "ok").length,
       remarkCount: answers.filter((answer) => answer.kind === "remark").length,
@@ -362,7 +391,11 @@ export function changeReviewFeedback(
 
 function fetchReview(store: Store, pageLock: PageLock, viewer: Viewer, sessionId: string, review: StoredReview): ChangeReviewFeedback {
   const view = viewOf(store, review, viewer);
-  if (view.state === "filed") return { status: "filed", filedBy: nameOf(view.filedBy), filedAt: review.filedAt ?? review.createdAt };
+  if (view.state === "filed") {
+    const filedAt = review.filedAt ?? review.createdAt;
+    const nothingLeft = activeSteps(view.steps).length === 0 && !view.steps.some((step) => step.answers.some((answer) => answer.kind === "remark"));
+    return nothingLeft ? { status: "nothing-left", filedAt } : { status: "filed", filedBy: nameOf(view.filedBy), filedAt };
+  }
   if (view.state === "open") {
     const { seen, total } = progressOf(view.steps, -1);
     return { status: "open", seen, total };
@@ -380,6 +413,7 @@ function fetchReview(store: Store, pageLock: PageLock, viewer: Viewer, sessionId
       artboard: step.artboard,
       ...(step.others ? { members: membersOf(step) } : {}),
       answers: step.answers,
+      ...(step.removed ? { removed: step.removed } : {}),
     })),
     threadIds,
   });
@@ -396,7 +430,8 @@ const membersOf = (step: ChangeReview["steps"][number]) => [
 function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview, sessionId: string): Record<string, string> {
   const stored = new Map(store.changeReviews.answers(view.id).map((answer) => [answer.id, answer]));
   const threadIds: Record<string, string> = {};
-  for (const step of view.steps) {
+  // A remark on a removed step (deleted artboard, archived page) has nowhere to be a thread: it comes as text.
+  for (const step of activeSteps(view.steps)) {
     for (const answer of step.answers.filter((a) => a.kind === "remark")) {
       const known = stored.get(answer.id)?.threadId;
       if (known) {
@@ -405,7 +440,9 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
       }
       // A group remark goes on the artboard it was written on and cites the others of the group.
       const members = step.others ? membersOf(step) : undefined;
-      const where = members?.find((member) => member.pageId === answer.on?.pageId && member.artboard === answer.on?.artboard) ?? members?.[0];
+      // When the artboard it was written on is gone (or its page archived), the thread opens on the first artboard of the group that is left.
+      const written = members?.find((member) => member.pageId === answer.on?.pageId && member.artboard === answer.on?.artboard) ?? members?.[0];
+      const where = members && [written!, ...members].find((member) => store.hasArtboard(member.pageId, member.artboard) && !store.getPage(member.pageId)?.archivedAt);
       const pageId = where?.pageId ?? step.pageId;
       const cited = members && where ? `\n\nRemarque sur le groupe « ${stepLabel(step)} » : le même changement concerne aussi ${members.filter((member) => member !== where).map((member) => member.label).join(", ")}.` : "";
       const thread = store.createThread(pageId, { target: { kind: "artboard", artboard: where?.artboard ?? step.artboard }, body: `${answer.text ?? ""}${cited}` }, answer.person);
@@ -419,8 +456,55 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
   return threadIds;
 }
 
+/** Files a review by itself when no step is left to review and no remark is left to hand over ("plus rien à revoir"): final, so steps that may come back (archived page of an open review) keep it alive. */
+function fileIfNothingLeft(store: Store, reviewId: string): boolean {
+  const review = store.changeReviews.get(reviewId);
+  if (!review || (review.state !== "open" && review.state !== "finished")) return false;
+  const steps = store.changeReviews.steps(reviewId);
+  const removals = steps.map((step) => removalOf(store, review, step));
+  const nothingToReview = removals.every((removal) => removal === "deleted" || (review.state === "finished" && removal === "archived"));
+  if (!nothingToReview || store.changeReviews.answers(reviewId).some((answer) => answer.kind === "remark")) return false;
+  store.changeReviews.file(reviewId, undefined);
+  return true;
+}
+
+/**
+ * Keeps reviews in line with their pages: a publish or an archive on a page may remove steps (deleted artboard, archived page), so the reviews covering it are
+ * announced (screens and banners reload) and filed when nothing is left. Runs after the current change is complete: a move publishes to two pages one after the other.
+ */
+function watchRemovals(store: Store): () => void {
+  return store.onChange((event) => {
+    if (event.type !== "page-updated" && event.type !== "page-archive-changed") return;
+    const { pageId } = event;
+    queueMicrotask(() => {
+      for (const review of store.changeReviews.liveCovering(pageId)) {
+        fileIfNothingLeft(store, review.id);
+        announceReviewChange(store, review.id);
+      }
+    });
+  });
+}
+
+/**
+ * An artboard moved to another page of its project: the steps on it follow, and answers do not become "modified" for it (the receiving page's version of the artboard
+ * is the one the answers saw). Announces both pages.
+ */
+export function followMovedArtboard(store: Store, sourcePageId: string, file: string, targetPageId: string, seenOnSource: string | undefined): void {
+  const seenOnTarget = currentArtboardVersion(store.listVersionRecords(targetPageId), file)?.id;
+  for (const reviewId of store.changeReviews.follow(file, sourcePageId, targetPageId, seenOnSource, seenOnTarget)) {
+    const projectId = store.changeReviews.projectIdOf(reviewId)!;
+    const pageIds = [...new Set([sourcePageId, ...store.changeReviews.steps(reviewId).map((step) => step.pageId)])];
+    store.emit({ type: "review-updated", reviewId, projectId, pageIds });
+  }
+}
+
+/** The version of `file` a review answer on `pageId` would see now (see `followMovedArtboard`). */
+export const artboardVersionOf = (store: Store, pageId: string, file: string): string | undefined => currentArtboardVersion(store.listVersionRecords(pageId), file)?.id;
+
 /** The review screen's routes: reading a review, answering OK or with a remark, cancelling, finishing. Access is by the review's project (see `access.ts`). */
 export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): void {
+  const stopWatching = watchRemovals(store);
+  app.addHook("onClose", async () => stopWatching());
   const open = (reviewId: string) => store.changeReviews.get(reviewId);
   const stepOf = (reviewId: string, stepId: string): StoredStep | undefined => store.changeReviews.steps(reviewId).find((candidate) => candidate.id === stepId);
   /** The artboard versions an answer given now sees: the example's, and each other artboard's of a group. */
@@ -490,6 +574,9 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     if (!review) return reply.code(404).send({ error: "review not found" });
     if (!nextReviewState(review.state, "finish")) return reply.code(409).send({ error: "this review is already finished" });
     store.changeReviews.finish(review.id, viewerPersonId(req.viewer));
+    // Steps on an archived page stay out even if the page is unarchived later.
+    store.changeReviews.freezeArchived(store.changeReviews.steps(review.id).filter((step) => store.getPage(step.pageId)?.archivedAt).map((step) => step.id));
+    fileIfNothingLeft(store, review.id);
     announceReviewChange(store, review.id);
     return viewOf(store, open(review.id)!, req.viewer);
   });

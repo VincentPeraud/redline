@@ -38,6 +38,31 @@ describe("progress", () => {
   });
 });
 
+describe("removed steps", () => {
+  const gone = (id: string, answers: ChangeReviewAnswer[] = []) => ({ id, answers, removed: "deleted" as const });
+
+  it("drops out of the progress count and segments, whatever the current index", () => {
+    const steps = [step("a", [ok("Ana")]), gone("b"), step("c")];
+    expect(progressOf(steps, 2)).toEqual({ seen: 1, total: 2, segments: ["ok", "current"] });
+  });
+
+  it("is not listed as validated or not seen, and its remark comes as text with its reason, unnumbered", () => {
+    const result = reviewResult({
+      requester: "Ana",
+      finishedBy: "Victor",
+      steps: [
+        { id: "s1", label: "Home · list", artboard: "list.html", answers: [] },
+        { id: "s2", label: "Home · empty", artboard: "empty.html", answers: [remark("Ana", "Gone")], removed: "archived" },
+        { id: "s3", label: "Home · form", artboard: "form.html", answers: [ok("Ana")] },
+      ],
+    });
+
+    expect(result.validated).toEqual([{ stepId: "s3", label: "Home · form", number: 2, by: ["Ana"] }]);
+    expect(result.notSeen).toEqual([{ stepId: "s1", label: "Home · list", number: 1 }]);
+    expect(result.remarks).toEqual([{ stepId: "s2", label: "Home · empty", artboard: "empty.html", author: "Ana", text: "Gone", alsoValidatedBy: [], removed: "archived" }]);
+  });
+});
+
 describe("step order", () => {
   it("follows the page order, then the reading order of the page", () => {
     const steps = [

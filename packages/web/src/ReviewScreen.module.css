@@ -691,25 +691,91 @@
 .stateScreen {
   display: flex;
   flex: 1;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-3);
-  text-align: center;
-  color: var(--play-text-muted);
+  padding: var(--space-8);
 }
 
-.stateScreen h1 {
+.stateBox {
+  display: flex;
+  max-width: 460px;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.stateBox h1 {
   margin: 0;
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-h2);
   font-weight: 600;
   color: var(--play-text);
 }
 
-.stateScreen p {
+.stateBox p {
   margin: 0;
-  max-width: 420px;
+  font-size: var(--font-size-md);
+  color: var(--play-text-muted);
   line-height: 1.5;
+}
+
+.stateActions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.stateButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.stateButton:hover {
+  background: var(--play-panel-bg);
+}
+
+.stateButtonLight,
+.stateButtonLight:hover {
+  background: var(--play-text);
+  border-color: transparent;
+  color: var(--play-bg);
+  font-weight: 600;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--play-border-strong);
+  border-top-color: var(--play-text);
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
 }
 
 .dotChanged {

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { ArtboardRef, ChangeReviewState, ChangeReviewStepInput, StepTweaks } from "@redline/shared";
+import { artboardKey, type ArtboardRef, type ChangeReviewState, type ChangeReviewStepInput, type StepTweaks } from "@redline/shared";
 
 export interface StoredReview {
   id: string;
@@ -28,6 +28,8 @@ export interface StoredStep extends ChangeReviewStepInput {
   id: string;
   reviewId: string;
   others?: StoredMember[];
+  /** Its page was archived when the review was finished: unarchiving it later does not bring the step back. */
+  archivedAtFinish?: boolean;
   /** What "Avant" shows, fixed at declaration: a page version id, `""` for an artboard that is new in the series; absent when no baseline was known. */
   baseline?: string;
 }
@@ -129,6 +131,7 @@ export class ChangeReviewStore {
     if (!answerColumns.includes("artboard_version")) db.exec("ALTER TABLE change_review_answers ADD COLUMN artboard_version TEXT");
     if (!answerColumns.includes("thread_id")) db.exec("ALTER TABLE change_review_answers ADD COLUMN thread_id TEXT");
     const stepColumns = (db.prepare("PRAGMA table_info(change_review_steps)").all() as { name: string }[]).map((column) => column.name);
+    if (!stepColumns.includes("archived_at_finish")) db.exec("ALTER TABLE change_review_steps ADD COLUMN archived_at_finish INTEGER NOT NULL DEFAULT 0");
     if (!stepColumns.includes("tweaks")) db.exec("ALTER TABLE change_review_steps ADD COLUMN tweaks TEXT");
     if (!stepColumns.includes("mobile")) db.exec("ALTER TABLE change_review_steps ADD COLUMN mobile INTEGER NOT NULL DEFAULT 0");
     if (!stepColumns.includes("baseline_version")) db.exec("ALTER TABLE change_review_steps ADD COLUMN baseline_version TEXT");
@@ -226,7 +229,7 @@ export class ChangeReviewStore {
 
   steps(reviewId: string): StoredStep[] {
     const rows = this.db.prepare("SELECT * FROM change_review_steps WHERE review_id = ? ORDER BY position").all(reviewId) as {
-      id: string; page_id: string; artboard: string; changed: string; look_at: string; question: string; tweaks: string | null; mobile: number; baseline_version: string | null; others: string | null; title: string | null;
+      id: string; page_id: string; artboard: string; changed: string; look_at: string; question: string; tweaks: string | null; mobile: number; baseline_version: string | null; archived_at_finish: number; others: string | null; title: string | null;
     }[];
     return rows.map((row) => ({
       id: row.id,
@@ -236,12 +239,64 @@ export class ChangeReviewStore {
       changed: row.changed,
       lookAt: row.look_at,
       question: row.question,
+      ...(row.archived_at_finish ? { archivedAtFinish: true } : {}),
       ...(row.tweaks ? { tweaks: JSON.parse(row.tweaks) as StepTweaks } : {}),
       ...(row.mobile ? { mobile: true } : {}),
       ...(row.baseline_version !== null ? { baseline: row.baseline_version } : {}),
       ...(row.others ? { others: JSON.parse(row.others) as StoredMember[] } : {}),
       ...(row.title ? { title: row.title } : {}),
     }));
+  }
+
+  /** Open and finished reviews with a step on the page (a removal or an archive there changes them). */
+  liveCovering(pageId: string): StoredReview[] {
+    const rows = this.db
+      .prepare("SELECT id FROM change_reviews WHERE state IN ('open', 'finished') AND id IN (SELECT review_id FROM change_review_steps s WHERE page_id = ? OR EXISTS (SELECT 1 FROM json_each(s.others) m WHERE json_extract(m.value, '$.pageId') = ?)) ORDER BY created_at, rowid")
+      .all(pageId, pageId) as { id: string }[];
+    return rows.map((row) => this.get(row.id)!);
+  }
+
+  /**
+   * An artboard moved to another page of the project: its steps follow it. Answers that saw the artboard's current version on the old page
+   * (`seenOnSource`) now saw its version on the new one (`seenOnTarget`), so moving it does not count as modifying it.
+   * Returns the reviews concerned.
+   */
+  follow(file: string, fromPageId: string, toPageId: string, seenOnSource: string | undefined, seenOnTarget: string | undefined): string[] {
+    return this.db.transaction(() => {
+      const steps = this.db.prepare("SELECT id, review_id FROM change_review_steps WHERE page_id = ? AND artboard = ?").all(fromPageId, file) as { id: string; review_id: string }[];
+      for (const { id } of steps) {
+        // "Avant" named a version of the old page: it is not known on the new one.
+        this.db.prepare("UPDATE change_review_steps SET page_id = ?, baseline_version = NULL WHERE id = ?").run(toPageId, id);
+        if (seenOnSource !== undefined && seenOnTarget !== undefined) this.db.prepare("UPDATE change_review_answers SET artboard_version = ? WHERE step_id = ? AND artboard_version = ?").run(seenOnTarget, id, seenOnSource);
+      }
+      // The artboard as another artboard of a group: it keeps its place there, and the answers' versions and remarks follow it.
+      const groups = this.db
+        .prepare("SELECT s.id, s.review_id, s.others FROM change_review_steps s WHERE EXISTS (SELECT 1 FROM json_each(s.others) m WHERE json_extract(m.value, '$.pageId') = ? AND json_extract(m.value, '$.artboard') = ?)")
+        .all(fromPageId, file) as { id: string; review_id: string; others: string }[];
+      const fromKey = artboardKey({ pageId: fromPageId, artboard: file });
+      const toKey = artboardKey({ pageId: toPageId, artboard: file });
+      for (const group of groups) {
+        const others = (JSON.parse(group.others) as StoredMember[]).map((member) => (member.pageId === fromPageId && member.artboard === file ? { pageId: toPageId, artboard: file } : member));
+        this.db.prepare("UPDATE change_review_steps SET others = ? WHERE id = ?").run(JSON.stringify(others), group.id);
+        const answers = this.db.prepare("SELECT id, member_versions FROM change_review_answers WHERE step_id = ?").all(group.id) as { id: string; member_versions: string | null }[];
+        for (const answer of answers) {
+          const versions = answer.member_versions ? (JSON.parse(answer.member_versions) as Record<string, string>) : undefined;
+          if (!versions || versions[fromKey] === undefined) continue;
+          const seen = versions[fromKey];
+          delete versions[fromKey];
+          versions[toKey] = seenOnSource !== undefined && seenOnTarget !== undefined && seen === seenOnSource ? seenOnTarget : seen;
+          this.db.prepare("UPDATE change_review_answers SET member_versions = ? WHERE id = ?").run(JSON.stringify(versions), answer.id);
+        }
+        this.db.prepare("UPDATE change_review_answers SET on_page_id = ? WHERE step_id = ? AND on_page_id = ? AND on_artboard = ?").run(toPageId, group.id, fromPageId, file);
+      }
+      return [...new Set([...steps, ...groups].map((step) => step.review_id))];
+    })();
+  }
+
+  /** Remembers which steps sat on an archived page when the review was finished. */
+  freezeArchived(stepIds: readonly string[]): void {
+    const update = this.db.prepare("UPDATE change_review_steps SET archived_at_finish = 1 WHERE id = ?");
+    for (const id of stepIds) update.run(id);
   }
 
   /** When the most recent fetched or filed review with a step on this artboard was fetched or filed (ISO). */
@@ -337,6 +392,7 @@ export class ChangeReviewStore {
   /** Back to `open`: the finish is forgotten (the caller checked it was finished, not fetched or filed). */
   reopen(reviewId: string): void {
     this.db.prepare("UPDATE change_reviews SET state = 'open', finished_by = NULL, finished_at = NULL WHERE id = ?").run(reviewId);
+    this.db.prepare("UPDATE change_review_steps SET archived_at_finish = 0 WHERE review_id = ?").run(reviewId);
   }
 
   /** Puts a finished review aside for good, signed by this person. */
