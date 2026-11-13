@@ -1,8 +1,11 @@
-import type { ManifestArtboard } from "./index.js";
+import type { ManifestArtboard, ManifestTweak, TweakValues } from "./index.js";
 import type { Person } from "./people.js";
 
 /** Where a review is: `open` (people answer), `finished` (locked, waiting for a conversation to fetch it), then `fetched` (its feedback was fetched). */
 export type ChangeReviewState = "open" | "finished" | "fetched";
+
+/** Tweak values a step shows (name to value). */
+export type StepTweaks = Readonly<Record<string, string | number | boolean>>;
 
 /** One step as declared by Claude's `request_review` (one artboard for now). */
 export interface ChangeReviewStepInput {
@@ -11,6 +14,10 @@ export interface ChangeReviewStepInput {
   changed: string;
   lookAt: string;
   question: string;
+  /** Tweak values the step opens with (tweak id to value); they are never saved to the page. */
+  tweaks?: StepTweaks;
+  /** The step opens in the mobile rendering of a responsive artboard. */
+  mobile?: boolean;
 }
 
 export interface RequestChangeReviewRequest {
@@ -50,6 +57,10 @@ export interface ChangeReviewStep extends ChangeReviewStepInput {
   artboardTitle: string;
   /** The artboard's manifest entry (size, frame, address text); absent when the artboard no longer exists. */
   artboardEntry?: ManifestArtboard;
+  /** The tweaks the artboard shows (its own and the page's), for the Tweaks panel. */
+  artboardTweaks?: ManifestTweak[];
+  /** The values saved on the page (the tweaks file): what the step shows under Claude's values. */
+  savedTweaks?: TweakValues;
   answers: ChangeReviewAnswer[];
   /** Who published the version that outdated the answers (present when at least one answer is outdated); absent when unknown. */
   modifiedBy?: string;
@@ -110,9 +121,6 @@ export function orderSteps<T extends { pageId: string; artboard: string }>(steps
   };
   return [...steps].sort((a, b) => rank(pageOrder, a.pageId) - rank(pageOrder, b.pageId) || rank(readingOrderOf[a.pageId], a.artboard) - rank(readingOrderOf[b.pageId], b.artboard));
 }
-
-/** Tweak values a step shows (name to value). */
-export type StepTweaks = Readonly<Record<string, string | number | boolean>>;
 
 /** What identifies a step: its artboard and its tweak values (two states of one artboard are two steps). */
 export const stepKey = ({ pageId, artboard, tweaks = {} }: { pageId: string; artboard: string; tweaks?: StepTweaks }): string =>

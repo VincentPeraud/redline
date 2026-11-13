@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { progressOf, stepIsModified, stepIsSeen, stepStatus, type ChangeReview, type ChangeReviewStep } from "@redline/shared";
+import { RESPONSIVE_FORMATS, progressOf, renderingKey, renderingLabel, stepIsModified, stepIsSeen, stepStatus, type ArtboardRendering, type ChangeReview, type ChangeReviewStep, type TweakValues } from "@redline/shared";
 import { ArtboardIframe, useArtboardOrigin } from "./artboardCapability.js";
 import { fitToStage } from "./PlayMode.js";
 import { PlayFrame } from "./PlayFrame.js";
@@ -7,6 +7,8 @@ import { presentationOf } from "./playFrames.js";
 import { relativeTime } from "./relativeTime.js";
 import { navigateTo, type Route } from "./router.js";
 import { subscribeServerEvents } from "./serverEvents.js";
+import { TweaksPanel } from "./TweaksPanel.js";
+import { useReviewControls, type StepControls } from "./useReviewControls.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { cx } from "./ui/index.js";
 import { LeaveDialog, PersonDot, RemarkEditor, personName } from "./ReviewRemark.js";
@@ -38,6 +40,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   const [failed, setFailed] = useState(false);
   const [unsaved, setUnsaved] = useState(false);
   const [leaving, setLeaving] = useState<(() => void) | undefined>();
+  const controlsOf = useReviewControls();
 
   // A remark Redline has not received: closing the tab asks first, and so does leaving the step.
   useEffect(() => {
@@ -113,7 +116,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
 
   return (
     <div data-testid="review" className={styles.review}>
-      <TopBar review={review!} view={view} onGo={go} onLeave={guard} onFinish={() => guard(finish)} />
+      <TopBar review={review!} view={view} controls={view === "recap" ? undefined : controlsOf(review!.steps[view]!)} onGo={go} onLeave={guard} onFinish={() => guard(finish)} />
       {view === "recap" ? (
         <Recap review={review!} failed={failed} onGo={go} onFinish={() => guard(finish)} />
       ) : (
@@ -121,6 +124,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
           key={review!.steps[view]!.id}
           review={review!}
           index={view}
+          controls={controlsOf(review!.steps[view]!)}
           failed={failed}
           onGo={go}
           onOk={() => guard(() => void answerOk(view))}
@@ -182,7 +186,11 @@ function StateScreen({ status, onRetry }: { status: Exclude<Load["status"], "rea
   );
 }
 
-function TopBar({ review, view, onGo, onLeave, onFinish }: { review: ChangeReview; view: View; onGo: (view: View) => void; onLeave: (action: () => void) => void; onFinish: () => void }) {
+/** "Desktop", or "Desktop · 1440" when the artboard has several renderings of the same format. */
+const renderingOptionLabel = (renderings: ArtboardRendering[], rendering: ArtboardRendering) =>
+  renderings.filter((other) => other.format === rendering.format).length > 1 ? renderingLabel(rendering) : RESPONSIVE_FORMATS[rendering.format].label;
+
+function TopBar({ review, view, controls, onGo, onLeave, onFinish }: { review: ChangeReview; view: View; controls?: StepControls; onGo: (view: View) => void; onLeave: (action: () => void) => void; onFinish: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -265,6 +273,26 @@ function TopBar({ review, view, onGo, onLeave, onFinish }: { review: ChangeRevie
         )}
       </div>
       <div className={styles.trail}>
+        {controls && controls.renderings.length > 0 && (
+          <div role="group" aria-label="Rendu" className={styles.seg}>
+            {controls.renderings.map((rendering) => (
+              <button
+                key={renderingKey(rendering)}
+                type="button"
+                aria-pressed={rendering === controls.rendering}
+                className={cx(styles.segButton, rendering === controls.rendering && styles.segButtonOn)}
+                onClick={() => controls.chooseRendering(rendering)}
+              >
+                {renderingOptionLabel(controls.renderings, rendering)}
+              </button>
+            ))}
+          </div>
+        )}
+        {controls && controls.tweaks.length > 0 && (
+          <button type="button" aria-pressed={controls.tweaksOpen} className={cx(styles.button, controls.tweaksOpen && styles.buttonOn)} onClick={controls.toggleTweaks}>
+            Tweaks
+          </button>
+        )}
         {review.state === "open" && (
           <button type="button" className={cx(styles.button, styles.buttonLight)} onClick={onFinish}>
             Terminer la revue
@@ -303,6 +331,7 @@ type RemarkProps = { reviewPath: string; onReview: (review: ChangeReview) => voi
 function StepView({
   review,
   index,
+  controls,
   failed,
   onGo,
   onOk,
@@ -312,6 +341,7 @@ function StepView({
 }: {
   review: ChangeReview;
   index: number;
+  controls: StepControls;
   failed: boolean;
   onGo: (view: View) => void;
   onOk: () => void;
@@ -328,7 +358,7 @@ function StepView({
   const modified = stepIsModified(step) || own?.outdated === true;
   return (
     <div className={styles.body}>
-      <ReviewStage review={review} step={step} modified={modified} />
+      <ReviewStage review={review} step={step} modified={modified} controls={controls} />
       <aside aria-label="Question de l'étape" className={styles.panel}>
         <div className={styles.panelScroll}>
           <Progress review={review} index={index} />
@@ -351,7 +381,15 @@ function StepView({
           </section>
           <section className={styles.section}>
             <h3>Quoi regarder</h3>
-            <p>{step.lookAt}</p>
+            <p>
+              {step.mobile && (
+                <>
+                  <strong>À regarder en mobile</strong> :{" "}
+                </>
+              )}
+              {step.lookAt}
+            </p>
+            {step.tweaks && Object.keys(step.tweaks).length > 0 && <p className={styles.hint}>État affiché : « {stateShown(step, controls.tweaks)} », fixé par Claude. Les autres états restent dans Tweaks.</p>}
           </section>
           <div className={styles.question}>
             <p>{step.question}</p>
@@ -416,8 +454,19 @@ function StepView({
   );
 }
 
-/** The artboard of the step at full size, in the same frame and fit as Present. */
-function ReviewStage({ review, step, modified }: { review: ChangeReview; step: ChangeReviewStep; modified: boolean }) {
+/** The values Claude set for the step, named by their tweak labels: "État : sommaire, Dense : oui". */
+function stateShown(step: ChangeReviewStep, tweaks: StepControls["tweaks"]): string {
+  const shown = (value: TweakValues[string]) => (typeof value === "boolean" ? (value ? "oui" : "non") : String(value));
+  return Object.entries(step.tweaks ?? {})
+    .map(([id, value]) => `${tweaks.find((tweak) => tweak.id === id)?.label ?? id} : ${shown(value)}`)
+    .join(", ");
+}
+
+/** What a device frame draws outside the viewport (a shadow ring), which the stage padding does not count. */
+const DEVICE_BEZEL: Partial<Record<string, number>> = { phone: 10, tablet: 14 };
+
+/** The artboard of the step at full size, in the same frame and fit as Present, with the Tweaks panel over its right side. */
+function ReviewStage({ review, step, modified, controls }: { review: ChangeReview; step: ChangeReviewStep; modified: boolean; controls: StepControls }) {
   const origin = useArtboardOrigin(review.projectId);
   const stage = useRef<HTMLElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -434,11 +483,25 @@ function ReviewStage({ review, step, modified }: { review: ChangeReview; step: C
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [bridgeEpoch, setBridgeEpoch] = useState(0);
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.source === frame.current?.contentWindow && (event.data as { type?: string }).type === "redline:ready") setBridgeEpoch((epoch) => epoch + 1);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+  useEffect(() => {
+    if (bridgeEpoch > 0) frame.current?.contentWindow?.postMessage({ type: "redline:set-tweaks", values: controls.values }, "*");
+  }, [controls.values, bridgeEpoch]);
   const entry = step.artboardEntry;
-  const presentation = entry && presentationOf(entry, true, windowWidth);
+  /** The stage's own padding keeps the artboard off its edges, so the fit takes the space inside it. */
+  const shown = entry && presentationOf(entry, true, windowWidth, entry.responsive ? controls.rendering : undefined);
+  const presentation = shown && { ...shown, stagePadding: DEVICE_BEZEL[shown.frame] ?? 0 };
   const fitted = presentation && fitToStage(presentation, size);
   return (
-    <main ref={stage} className={styles.stage}>
+    <main ref={stage} className={cx(styles.stage, controls.tweaksOpen && controls.tweaks.length > 0 && styles.stageTweaks)}>
       {modified && (
         <span data-testid="review-modified-tag" className={styles.tag}>
           Nouvelle version{step.modifiedBy ? ` de ${step.modifiedBy}` : ""} depuis ta revue{step.modifiedAt ? ` · ${relativeTime(step.modifiedAt)}` : ""}
@@ -448,6 +511,7 @@ function ReviewStage({ review, step, modified }: { review: ChangeReview; step: C
         <PlayFrame frame={presentation.frame} url={entry.url}>
           <div className={styles.viewport} style={{ width: fitted.viewport.width * fitted.scale, height: fitted.viewport.height * fitted.scale }}>
             <ArtboardIframe
+              ref={frame}
               title={`Revue / ${step.artboard}`}
               src={`${origin}/pages/${step.pageId}/${step.artboard}`}
               sandbox="allow-scripts"
@@ -458,6 +522,15 @@ function ReviewStage({ review, step, modified }: { review: ChangeReview; step: C
         </PlayFrame>
       ) : entry ? null : (
         <p className={styles.hint}>Cet artboard n'existe plus · {step.artboard}</p>
+      )}
+      {controls.tweaksOpen && controls.tweaks.length > 0 && (
+        <aside aria-label="Tweaks" className={styles.tweaks}>
+          <div className={styles.tweaksHead}>
+            <strong>Tweaks</strong>
+            <span>Ces réglages restent dans ta revue : rien n'est enregistré sur la page.</span>
+          </div>
+          <TweaksPanel theme="dark" tweaks={controls.tweaks} values={controls.values} onChange={controls.setValue} previews={entry && origin ? { pageId: step.pageId, artboardOrigin: origin, artboard: entry } : undefined} />
+        </aside>
       )}
     </main>
   );

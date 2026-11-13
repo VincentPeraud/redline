@@ -11,6 +11,9 @@ import {
   FETCHED_BANNER_MS,
   readingOrder,
   renderingSlots,
+  tweakValueError,
+  parseTweaks,
+  TWEAKS_PATH,
   responsiveFrameLayout,
   reviewResult,
   progressOf,
@@ -21,6 +24,7 @@ import {
   type PageChangeReview,
   type Manifest,
   type Person,
+  type TweakValues,
   type RequestChangeReviewRequest,
   type RequestChangeReviewResponse,
 } from "@redline/shared";
@@ -38,6 +42,12 @@ const MAX_STEP_TEXT_LENGTH = 4_000;
 function manifestOf(store: Store, pageId: string): Manifest {
   const files = store.getPage(pageId)?.version.files ?? {};
   return files[MANIFEST_PATH] === undefined ? defaultManifest(Object.keys(files)) : parseManifest(store.blobText(files[MANIFEST_PATH]));
+}
+
+/** The tweak values saved on the page (its tweaks file, validated at publish). */
+function savedTweaksOf(store: Store, pageId: string): TweakValues {
+  const hash = store.getPage(pageId)?.version.files[TWEAKS_PATH];
+  return hash === undefined ? {} : parseTweaks(store.blobText(hash));
 }
 
 /** Files of a page in reading order, from the declared sizes (as the agent's page addresses do). */
@@ -94,6 +104,9 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
       pageTitle: page?.title ?? "",
       artboardTitle: entry?.title ?? step.artboard,
       ...(entry ? { artboardEntry: entry } : {}),
+      ...(page ? { artboardTweaks: manifestOf(store, step.pageId).tweaks.filter((tweak) => tweak.artboard === undefined || tweak.artboard === step.artboard), savedTweaks: savedTweaksOf(store, step.pageId) } : {}),
+      ...(step.tweaks ? { tweaks: step.tweaks } : {}),
+      ...(step.mobile ? { mobile: true } : {}),
       answers: stepAnswers,
       ...(stepAnswers.some((answer) => answer.outdated) && current ? { ...(authorOf(current) ? { modifiedBy: authorOf(current) } : {}), modifiedAt: current.createdAt } : {}),
     };
@@ -161,6 +174,8 @@ export function declareChangeReview(store: Store, access: Access, viewer: Viewer
     [step?.pageId, step?.artboard, step?.changed, step?.lookAt, step?.question].every((value) => requiredString(value) && value.length <= MAX_STEP_TEXT_LENGTH),
   );
   if (!valid) return { status: 400, error: "each step needs pageId, artboard, changed, lookAt and question" };
+  const shape = steps.every((step: Partial<ChangeReviewStepInput>) => (step.mobile === undefined || typeof step.mobile === "boolean") && (step.tweaks === undefined || (typeof step.tweaks === "object" && step.tweaks !== null && !Array.isArray(step.tweaks))));
+  if (!shape) return { status: 400, error: "a step's mobile must be a boolean and its tweaks an object of tweak id to value" };
   const declared = steps as ChangeReviewStepInput[];
 
   const unknownPages = [...new Set(declared.map((step) => step.pageId).filter((pageId) => !store.getPage(pageId) || store.getPage(pageId)!.archivedAt))];
@@ -182,6 +197,17 @@ export function declareChangeReview(store: Store, access: Access, viewer: Viewer
         .join(" "),
     };
   }
+
+  const tweakErrors = declared.flatMap((step) => {
+    const available = manifestOf(store, step.pageId).tweaks.filter((tweak) => tweak.artboard === undefined || tweak.artboard === step.artboard);
+    return Object.entries(step.tweaks ?? {}).flatMap(([id, value]) => {
+      const tweak = available.find((candidate) => candidate.id === id);
+      if (!tweak) return [`${describe(step)}: no tweak "${id}" (available: ${available.map((candidate) => candidate.id).join(", ") || "none"})`];
+      const error = tweakValueError(tweak, value);
+      return error ? [`${describe(step)}: tweak "${id}": ${error}`] : [];
+    });
+  });
+  if (tweakErrors.length > 0) return { status: 400, error: `Invalid tweak values, fix the declaration: ${tweakErrors.join("; ")}.` };
 
   const requester = { personId: viewerPersonId(viewer), folder };
   const pages = store.listPages(projectId, "active");
