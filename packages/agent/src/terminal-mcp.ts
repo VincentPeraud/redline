@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
-import type { ChangeRecordInput } from "@redline/shared";
+import type { ChangeRecordInput, ChangeReviewStepInput } from "@redline/shared";
 import { z } from "zod";
 import { uploadChangedAssets } from "./assets.js";
 import { readLinkedProjectIds } from "./link.js";
@@ -26,6 +26,8 @@ export const SET_PROJECT_DESIGN_SYSTEM_TOOL = "set_project_design_system";
 export const RELEASE_PAGE_TOOL = "release_page";
 export const BROWSER_SIGN_IN_TOOL = "browser_sign_in";
 export const PENDING_COMMENTS_TOOL = "pending_comments";
+export const REQUEST_REVIEW_TOOL = "request_review";
+export const REVIEW_FEEDBACK_TOOL = "review_feedback";
 
 /** How long a tool answer waits for the waiting-comments line before going out without it. */
 const WAITING_LINE_TIMEOUT_MS = 1_000;
@@ -373,6 +375,54 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       if (released.length === 0) return "This session holds no page: nothing to release.";
       const lines = released.map((page) => `- ${page.title}: ${page.count === 0 ? "no waiting comment" : `${page.count} comment${page.count > 1 ? "s" : ""} handed over to the agent`}`);
       return `Released ${released.length > 1 ? "these pages" : "this page"}; the agent now takes its comments until a terminal session publishes ${released.length > 1 ? "them" : "it"} again:\n${lines.join("\n")}`;
+    }),
+  );
+  server.registerTool(
+    REQUEST_REVIEW_TOOL,
+    {
+      description:
+        "Declare a review of the changes you just published, so that the person checks them in Redline instead of reading a list in the chat: one step per artboard, with what changed, what to look at and a closed question. All the pages must belong to one project. Answers the review link: open it for the person. Nothing is pushed to you when they finish: call review_feedback when they tell you they are done.",
+      inputSchema: {
+        steps: z
+          .array(
+            z.object({
+              pageId: z.string().describe("Id of the page (see list_pages)"),
+              artboard: z.string().describe("File of the artboard, as in the manifest, for example home.html"),
+              changed: z.string().describe("What changed on this artboard"),
+              lookAt: z.string().describe("What the person should look at"),
+              question: z.string().describe("A closed question the person can answer with OK"),
+            }),
+          )
+          .describe("The steps of the review"),
+        label: z.string().optional().describe("Optional name of the review, shown instead of the folder name"),
+      },
+    },
+    tool(async ({ steps, label }: { steps: ChangeReviewStepInput[]; label?: string }) => {
+      const { id } = await api.requestReview(sessionId, { folder, ...(label ? { label } : {}), steps });
+      return [
+        `Review declared: ${api.reviewUrl(id)}`,
+        `${steps.length} step${steps.length > 1 ? "s" : ""}. Open the link for the person (in Arc).`,
+        `Nothing is pushed to you when they finish. When they tell you they are done (for example "j'ai fait mes retours"), call review_feedback with reviewId ${id}.`,
+      ].join("\n");
+    }),
+  );
+  server.registerTool(
+    REVIEW_FEEDBACK_TOOL,
+    {
+      description: "Get the result of a review you declared with request_review, when the person says they are done: who requested and finished it, the validated steps with who validated them, and the steps not seen.",
+      inputSchema: { reviewId: z.string().describe("Id of the review, as given by request_review") },
+    },
+    tool(async ({ reviewId }: { reviewId: string }) => {
+      const feedback = await api.reviewFeedback(sessionId, reviewId);
+      if (feedback.status === "open") return `Review not finished yet: ${feedback.seen} / ${feedback.total} steps seen. Tell the person to press "Terminer la revue", then call review_feedback again. Handle nothing for now.`;
+      const line = (entry: { number: number; label: string }, suffix = "") => `${entry.number}. ${entry.label}${suffix}`;
+      return [
+        `Requested by ${feedback.requester}. Finished by ${feedback.finishedBy}.`,
+        `Validated (${feedback.validated.length}):`,
+        ...feedback.validated.map((entry) => line(entry, ` · validated by ${entry.by.join(", ")}`)),
+        `Not seen (${feedback.notSeen.length}):`,
+        ...feedback.notSeen.map((entry) => line(entry)),
+      ].join("\n");
     }),
   );
   server.registerTool(

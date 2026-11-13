@@ -1,0 +1,571 @@
+.review {
+  position: fixed;
+  inset: var(--banner-height, 0px) 0 0 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: var(--play-bg);
+  color: var(--play-text);
+  overflow: hidden;
+}
+
+/* The review identity: a red top bar, never mistaken for Present. */
+.top {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--space-4);
+  height: 56px;
+  flex-shrink: 0;
+  padding: 0 var(--space-5);
+  background: var(--color-accent);
+  color: var(--color-surface);
+}
+
+.lead,
+.trail,
+.counterWrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.trail {
+  justify-content: flex-end;
+}
+
+.counterWrap {
+  position: relative;
+  justify-content: center;
+}
+
+.mode {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-md);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.title strong {
+  font-weight: 600;
+  color: var(--color-surface);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-surface);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.button:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.buttonLight {
+  background: var(--color-surface);
+  border-color: transparent;
+  color: var(--color-accent-ink);
+  font-weight: 600;
+}
+
+.buttonLight:hover:not(:disabled) {
+  background: var(--color-surface);
+  opacity: 0.9;
+}
+
+.counter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-surface);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.counter:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.chev {
+  font-size: var(--font-size-3xs);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* The steps menu opens over the content. */
+.menu {
+  position: absolute;
+  top: 46px;
+  left: 50%;
+  z-index: 5;
+  width: 400px;
+  max-height: calc(100vh - 120px);
+  margin-left: -200px;
+  overflow: auto;
+  padding: var(--space-2) 0;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-2xl);
+  background: var(--play-panel-bg);
+  color: var(--play-text);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.menu h4 {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--play-text-muted);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 40px;
+  padding: 0 var(--space-4);
+  border: 0;
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.menuItem:hover,
+.menuItemCurrent {
+  background: var(--play-border-strong);
+}
+
+.menuNumber {
+  width: 18px;
+  color: var(--play-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.menuTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menuState {
+  font-size: var(--font-size-xs);
+  color: var(--play-text-muted);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--play-border-strong);
+}
+
+.dotOk {
+  background: var(--review-ok);
+}
+
+.dotCurrent {
+  background: var(--play-text);
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  flex: 1;
+  min-height: 0;
+}
+
+.stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+.viewport {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.frame {
+  display: block;
+  border: 0;
+  background: var(--color-surface);
+  transform-origin: 0 0;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--play-border-strong);
+  background: var(--play-panel-bg);
+}
+
+.panelScroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-6);
+  overflow: auto;
+  padding: var(--space-6);
+}
+
+.panelFoot {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--play-border-strong);
+}
+
+.panelFoot .panelButton {
+  flex: 1;
+}
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.progressHead {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-xs);
+  color: var(--play-text-muted);
+}
+
+.progressHead strong {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--play-text);
+}
+
+.progressBar {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 3px;
+  height: 6px;
+}
+
+.segment {
+  border-radius: var(--radius-pill);
+  background: var(--play-border-strong);
+}
+
+.segmentOk {
+  background: var(--review-ok);
+}
+
+.segmentCurrent {
+  background: var(--play-text);
+}
+
+.kicker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--play-text-muted);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--play-border-strong);
+  color: var(--play-text);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chipOk {
+  background: color-mix(in srgb, var(--review-ok) 16%, transparent);
+  color: var(--review-ok);
+}
+
+.heading {
+  margin: 6px 0 0;
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.section h3 {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--play-text-muted);
+}
+
+.section p {
+  margin: 0;
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: var(--space-4);
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--play-bg);
+}
+
+.question p {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.panelButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 6px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.panelButton:hover:not(:disabled) {
+  background: var(--play-panel-bg);
+}
+
+.panelButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.accent {
+  border-color: transparent;
+  background: var(--color-accent);
+  color: var(--color-surface);
+  font-weight: 600;
+}
+
+.accent:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.hint {
+  font-size: var(--font-size-xs);
+  color: var(--play-text-muted);
+}
+
+.lock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--space-3);
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+
+.error {
+  color: var(--review-changed);
+}
+
+/* The screens without an artboard (recap, finished, states) share the top bar's edges. */
+.screen {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-8) var(--space-5);
+}
+
+.screen h1 {
+  margin: 0;
+  font-size: var(--font-size-h2);
+  font-weight: 600;
+}
+
+.screen p {
+  margin: 0;
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  color: var(--play-text-muted);
+}
+
+.counts {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-8);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.listItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+
+button.listItem {
+  width: 100%;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+button.listItem:hover {
+  background: var(--play-panel-bg);
+}
+
+.listTitle {
+  flex: 1;
+  min-width: 0;
+}
+
+.listBy {
+  font-size: var(--font-size-xs);
+  color: var(--play-text-muted);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.actions .panelButton {
+  flex: 0 0 auto;
+}
+
+.stateScreen {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  text-align: center;
+  color: var(--play-text-muted);
+}
+
+.stateScreen h1 {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  color: var(--play-text);
+}
+
+.stateScreen p {
+  margin: 0;
+  max-width: 420px;
+  line-height: 1.5;
+}

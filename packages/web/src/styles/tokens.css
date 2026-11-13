@@ -36,6 +36,10 @@
   --play-border-strong: #3f3f46;
   --play-text: #f4f4f5;
   --play-text-muted: #a1a1aa;
+  /* Review mode: step states on the dark panel (green OK, amber remark, red changed since the review) */
+  --review-ok: #4ade80;
+  --review-remark: #fbbf24;
+  --review-changed: #f87171;
 
   /* Colours: warm warnings and danger actions */
   --color-warning-bg: #fdebdd;

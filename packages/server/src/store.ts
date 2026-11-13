@@ -4,6 +4,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { AccountStore } from "./accounts.js";
 import { LinkStore } from "./link-store.js";
+import { ChangeReviewStore } from "./change-review-store.js";
 import { componentFilesOf, projectComponents } from "./components.js";
 import { restoredVersionMessage } from "./version-dates.js";
 import {
@@ -98,6 +99,7 @@ export class Store {
   private serverBuildHash: string | undefined;
   readonly accounts: AccountStore;
   readonly links: LinkStore;
+  readonly changeReviews: ChangeReviewStore;
 
   constructor(dataDir: string) {
     this.blobDir = join(dataDir, "blobs");
@@ -347,6 +349,7 @@ export class Store {
     addColumn("pages", "archived_at", "TEXT");
     this.accounts = new AccountStore(this.db);
     this.links = new LinkStore(this.db);
+    this.changeReviews = new ChangeReviewStore(this.db);
     addColumn("pages", "held_by", "TEXT");
     addColumn("pages", "held_at", "TEXT");
     addColumn("versions", "origin_id", "TEXT");

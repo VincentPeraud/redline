@@ -62,7 +62,7 @@ const LINK_PROJECT_ONLY_ROUTES = new Set(["POST /api/projects/:projectId/pages"]
 const LINK_OPEN_ROUTES = new Set(["GET /api/link", "GET /api/config", "GET /api/events"]);
 
 /** Reads that stay with members in Écriture: they show what the team shares. */
-const READS_NEEDING_WRITE = new Set(["GET /api/pages/:pageId/links", "GET /api/projects/:projectId/links"]);
+const READS_NEEDING_WRITE = new Set(["GET /api/change-reviews/:reviewId", "GET /api/pages/:pageId/links", "GET /api/projects/:projectId/links"]);
 
 /** What an action is about; empty means the instance itself (home, settings, design systems list). */
 export interface Resource {
@@ -74,6 +74,8 @@ export interface Resource {
   conversationId?: string;
   /** A share link: it belongs to a page or a project, so to a project. */
   linkId?: string;
+  /** A review of changes: it belongs to one project. */
+  reviewId?: string;
 }
 
 /** The only place that knows the authentication mode: callers ask what a viewer may do, never which mode runs. */
@@ -178,7 +180,7 @@ export function createAccess({ mode, store, secrets, identity, firstAdminEmail }
   const projectIdOf = (resource: Resource): string | undefined => {
     const link = resource.linkId ? store.links.get(resource.linkId) : undefined;
     const pageId = resource.pageId ?? (link?.scope === "page" ? link.scopeId : undefined) ?? pageOfSubject(resource);
-    return resource.projectId ?? (link?.scope === "project" ? link.scopeId : undefined) ?? (pageId ? store.getPage(pageId)?.projectId : undefined);
+    return resource.projectId ?? (resource.reviewId ? store.changeReviews.projectIdOf(resource.reviewId) : undefined) ?? (link?.scope === "project" ? link.scopeId : undefined) ?? (pageId ? store.getPage(pageId)?.projectId : undefined);
   };
   const levelIn = (viewer: Viewer, projectId: string): AccessLevel | undefined => {
     if (mode === "none") return "write";
@@ -258,7 +260,7 @@ function actionOf(req: FastifyRequest): Action {
 
 function resourceOf(req: FastifyRequest): Resource {
   const params = (req.params ?? {}) as Record<string, string | undefined>;
-  return { projectId: params.projectId, pageId: params.pageId, designSystemId: params.designSystemId, threadId: params.threadId, conversationId: params.conversationId, linkId: params.linkId };
+  return { projectId: params.projectId, pageId: params.pageId, designSystemId: params.designSystemId, threadId: params.threadId, conversationId: params.conversationId, linkId: params.linkId, reviewId: params.reviewId };
 }
 
 /** The keys of the route tables that name no registered route: a renamed route would otherwise silently fall out of its rule. */

@@ -8,6 +8,8 @@ import {
   PROJECT_STYLE_PATH,
   MAX_ASSET_BYTES,
   type AgentCheckout,
+  type ChangeReviewFeedbackRequest,
+  type RequestChangeReviewRequest,
   type AgentGapsRequest,
   type AgentReplyRequest,
   type CreateSiblingRequest,
@@ -42,6 +44,7 @@ import { MAX_TERMINAL_TEXT_LENGTH, isTerminalSessionId, requiredString, titleErr
 import { projectContext, putProjectAsset } from "./project-files.js";
 import { designSystemChangeError } from "./project-design-system.js";
 import { switchDesignSystem } from "./switch-design-system.js";
+import { changeReviewFeedback, declareChangeReview } from "./change-reviews.js";
 import type { PageLock } from "./page-lock.js";
 import type { TerminalSessions } from "./terminal-sessions.js";
 import type { OriginRef, Store } from "./store.js";
@@ -111,6 +114,19 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
 
       // `pending_comments`: the waiting comments are handed to the session, which then answers them with `reply_in_thread`.
       api.post<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/pick", async (req): Promise<TerminalPickedPage[]> => terminalSessions.pick(req.params.sessionId));
+
+      // `request_review` and `review_feedback`: a terminal session declares a review of its changes, then reads its result.
+      api.post<{ Params: { sessionId: string }; Body: Partial<RequestChangeReviewRequest> }>("/terminal-sessions/:sessionId/reviews", async (req, reply) => {
+        const result = declareChangeReview(store, access, req.viewer, req.body);
+        return "error" in result ? reply.code(result.status).send({ error: result.error }) : reply.code(201).send(result);
+      });
+
+      api.post<{ Params: { sessionId: string }; Body: Partial<ChangeReviewFeedbackRequest> }>("/terminal-sessions/:sessionId/review-feedback", async (req, reply) => {
+        const reviewId = req.body?.reviewId;
+        if (!requiredString(reviewId)) return reply.code(400).send({ error: "reviewId is required" });
+        const result = changeReviewFeedback(store, access, req.viewer, reviewId);
+        return "error" in result ? reply.code(result.status).send({ error: result.error }) : result;
+      });
 
       api.post<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/bye", async (req, reply) => {
         terminalSessions.bye(req.params.sessionId);

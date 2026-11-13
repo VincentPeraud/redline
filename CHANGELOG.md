@@ -8,6 +8,7 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ### Added
 
+- Review mode: a terminal session declares a review of its changes with `request_review`; members with Écriture open the link, go through the steps (page order, then reading order) in a red review screen, answer OK (cancellable), finish the review, and the conversation reads the result with `review_feedback`.
 - A "Présenter" button in the page's top bar plays the page from its first artboard in reading order.
 
 ### Changed

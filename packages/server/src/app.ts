@@ -80,6 +80,7 @@ import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
+import { registerChangeReviewRoutes } from "./change-reviews.js";
 import { validTimeZone } from "./version-dates.js";
 import { registerGapRoutes } from "./gaps.js";
 import type { ArtboardCapabilities } from "./artboard-capabilities.js";
@@ -194,6 +195,7 @@ export async function buildMainApp(
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
   registerSessionRoutes(app, store, pageLock, runs, lastConversationWork, access);
   registerArtboardHistoryRoutes(app, store);
+  registerChangeReviewRoutes(app, store);
   registerGapRoutes(app, store);
   pageLock.restore();
   terminalSessions.restore();
