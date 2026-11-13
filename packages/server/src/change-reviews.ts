@@ -4,6 +4,7 @@ import {
   MANIFEST_PATH,
   defaultManifest,
   groupTitlesOf,
+  mergeSteps,
   orderSteps,
   parseManifest,
   bannerStateOf,
@@ -142,20 +143,43 @@ export function declareChangeReview(store: Store, access: Access, viewer: Viewer
 
   const unknownPages = [...new Set(declared.map((step) => step.pageId).filter((pageId) => !store.getPage(pageId) || store.getPage(pageId)!.archivedAt))];
   if (unknownPages.length > 0) return { status: 400, error: `Unknown or archived pages: ${unknownPages.join(", ")}` };
-  const projectIds = new Set(declared.map((step) => store.getPage(step.pageId)!.projectId));
-  if (projectIds.size > 1) return { status: 400, error: "A review covers one project only: these pages belong to several projects" };
-  const projectId = [...projectIds][0]!;
+  // The review's project is the first step's: the artboards of any other project are refused.
+  const projectId = store.getPage(declared[0]!.pageId)!.projectId;
   if (access.levelOf(viewer, { projectId }) !== "write") return { status: 403, error: "your account does not have Écriture on this project" };
-  const unknownArtboards = declared.filter((step) => !store.hasArtboard(step.pageId, step.artboard)).map((step) => `${store.getPage(step.pageId)!.title}: ${step.artboard}`);
-  if (unknownArtboards.length > 0) return { status: 400, error: `Unknown artboards, fix the declaration: ${[...new Set(unknownArtboards)].join(", ")}` };
+  const describe = (step: ChangeReviewStepInput) => `${store.getPage(step.pageId)!.title}: ${step.artboard}`;
+  const otherProject = declared.filter((step) => store.getPage(step.pageId)!.projectId !== projectId).map(describe);
+  const unknownArtboards = declared.filter((step) => store.getPage(step.pageId)!.projectId === projectId && !store.hasArtboard(step.pageId, step.artboard)).map(describe);
+  if (otherProject.length > 0 || unknownArtboards.length > 0) {
+    return {
+      status: 400,
+      error: [
+        otherProject.length > 0 ? `A review covers one project only ("une revue ne couvre qu'un projet"): these artboards are not in project "${store.getProject(projectId)?.title ?? projectId}": ${[...new Set(otherProject)].join(", ")}.` : "",
+        unknownArtboards.length > 0 ? `Unknown artboards, fix the declaration: ${[...new Set(unknownArtboards)].join(", ")}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    };
+  }
 
+  const requester = { personId: viewerPersonId(viewer), folder };
   const pages = store.listPages(projectId, "active");
-  const readingOrderByPage: Record<string, string[]> = {};
-  for (const page of pages) readingOrderByPage[page.id] = readingOrderOf(manifestOf(store, page.id));
-  const ordered = orderSteps(declared, pages.map((page) => page.id), readingOrderByPage);
-  const review = store.changeReviews.create(projectId, { personId: viewerPersonId(viewer), folder, ...(label ? { label } : {}) }, ordered);
+  const orderOf = (steps: readonly ChangeReviewStepInput[]) => {
+    const readingOrderByPage: Record<string, string[]> = {};
+    for (const page of pages) readingOrderByPage[page.id] = readingOrderOf(manifestOf(store, page.id));
+    return orderSteps(steps, pages.map((page) => page.id), readingOrderByPage);
+  };
+
+  const open = store.changeReviews.latestOf(projectId, requester, "open");
+  if (open) {
+    const merged = orderOf(mergeSteps(store.changeReviews.steps(open.id), declared));
+    store.changeReviews.merge(open.id, merged, label);
+    announceReviewChange(store, open.id);
+    return { id: open.id, merged: true, stepCount: merged.length };
+  }
+  const unfetched = store.changeReviews.latestOf(projectId, requester, "finished");
+  const review = store.changeReviews.create(projectId, { ...requester, ...(label ? { label } : {}) }, orderOf(declared));
   announceReviewChange(store, review.id);
-  return { id: review.id };
+  return { id: review.id, merged: false, stepCount: declared.length, ...(unfetched ? { warning: "ta revue précédente est terminée mais pas récupérée" } : {}) };
 }
 
 const folderNameOf = (review: StoredReview): string => review.label ?? (review.folder.split("/").filter(Boolean).pop() ?? review.folder);

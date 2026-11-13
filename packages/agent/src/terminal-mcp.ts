@@ -381,7 +381,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     REQUEST_REVIEW_TOOL,
     {
       description:
-        "Declare a review of the changes you just published, so that the person checks them in Redline instead of reading a list in the chat: one step per artboard, with what changed, what to look at and a closed question. All the pages must belong to one project. Answers the review link: open it for the person. Nothing is pushed to you when they finish: call review_feedback when they tell you they are done.",
+        "Declare a review of the changes you just published, so that the person checks them in Redline instead of reading a list in the chat: one step per artboard, with what changed, what to look at and a closed question. All the pages must belong to one project. A new declaration while your own review of the project is still open is merged into it (a step is its artboard; redeclaring one replaces its question). Answers the review link: open it for the person. Nothing is pushed to you when they finish: call review_feedback when they tell you they are done.",
       inputSchema: {
         steps: z
           .array(
@@ -398,10 +398,11 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       },
     },
     tool(async ({ steps, label }: { steps: ChangeReviewStepInput[]; label?: string }) => {
-      const { id } = await api.requestReview(sessionId, { folder, ...(label ? { label } : {}), steps });
+      const { id, merged, stepCount, warning } = await api.requestReview(sessionId, { folder, ...(label ? { label } : {}), steps });
       return [
-        `Review declared: ${api.reviewUrl(id)}`,
-        `${steps.length} step${steps.length > 1 ? "s" : ""}. Open the link for the person (in Arc).`,
+        `${merged ? "Review updated (merged into your open review)" : "Review declared"}: ${api.reviewUrl(id)}`,
+        `${stepCount} step${stepCount > 1 ? "s" : ""}. Open the link for the person (in Arc).`,
+        ...(warning ? [`Warning: ${warning}.`] : []),
         `Nothing is pushed to you when they finish. When they tell you they are done (for example "j'ai fait mes retours"), call review_feedback with reviewId ${id}.`,
       ].join("\n");
     }),

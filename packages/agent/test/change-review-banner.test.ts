@@ -54,7 +54,10 @@ describe("review banner of a page", () => {
 
   it("stacks one banner per review, oldest first", async () => {
     const { reviewId, home } = await declared();
-    const terminal = await openTerminal(seam!, stops, "MacBook-Pro");
+    // Another requester (another folder): the same one would merge into the open review.
+    const terminal = await openTerminal(seam!, stops, "MacBook-Pro", {
+      wrapApi: (api) => Object.assign(Object.create(api) as typeof api, { requestReview: (sessionId: string, request: Parameters<typeof api.requestReview>[1]) => api.requestReview(sessionId, { ...request, folder: "/work/other" }) }),
+    });
     const second = idOf(await terminal.call("request_review", { steps: [step(home, "list.html")] }));
 
     expect((await bannersOf(home)).map((banner) => banner.id)).toEqual([reviewId, second]);

@@ -245,7 +245,10 @@ describe("review_feedback without an id, and who can fetch", () => {
   it("lists several finished reviews with their id, requester and finish date, and fetches none", async () => {
     const { terminal, reviewId, pages } = await declared();
     linkFolder();
-    const second = idOf(await terminal.call("request_review", { steps: [step(pages.settings, "settings.html")] }));
+    const otherFolder = await openTerminal(seam!, stops, "Mac-mini", {
+      wrapApi: (api) => Object.assign(Object.create(api) as typeof api, { requestReview: (sessionId: string, request: Parameters<typeof api.requestReview>[1]) => api.requestReview(sessionId, { ...request, folder: "/work/other-folder" }) }),
+    });
+    const second = idOf(await otherFolder.call("request_review", { steps: [step(pages.settings, "settings.html")] }));
     await finishWithRemark(reviewId);
     await send("POST", `/api/change-reviews/${second}/finish`);
 

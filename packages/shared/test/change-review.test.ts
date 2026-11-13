@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { orderSteps, progressOf, reviewResult, stepIsSeen, stepStatus, type ChangeReviewAnswer, type ChangeReviewResultInput } from "@redline/shared";
+import { mergeSteps, orderSteps, progressOf, stepKey, reviewResult, stepIsSeen, stepStatus, type ChangeReviewAnswer, type ChangeReviewResultInput } from "@redline/shared";
 
 const ok = (name: string | undefined): ChangeReviewAnswer => ({ id: `a-${name}`, kind: "ok", at: "2026-11-13T10:00:00Z", mine: false, ...(name ? { person: { id: name, name, email: "", initials: name.slice(0, 2) } } : {}) });
 const remark = (name: string, text = "Move it up"): ChangeReviewAnswer => ({ ...ok(name), id: `r-${name}`, kind: "remark", text });
@@ -81,5 +81,35 @@ describe("review result", () => {
     expect(result.validated).toEqual([]);
     expect(result.remarks).toEqual([{ stepId: "s1", label: "Home · list", number: 1, artboard: "list.html", author: "Ana", text: "Too dense", alsoValidatedBy: ["Victor"], threadId: "thread-1" }]);
     expect(result.notSeen.map((entry) => entry.stepId)).toEqual(["s2"]);
+  });
+});
+
+describe("step identity", () => {
+  it("is the artboard and its tweak values, whatever the order of the tweaks", () => {
+    expect(stepKey({ pageId: "p", artboard: "a.html" })).toBe(stepKey({ pageId: "p", artboard: "a.html", tweaks: {} }));
+    expect(stepKey({ pageId: "p", artboard: "a.html", tweaks: { state: "empty", dark: true } })).toBe(stepKey({ pageId: "p", artboard: "a.html", tweaks: { dark: true, state: "empty" } }));
+    expect(stepKey({ pageId: "p", artboard: "a.html", tweaks: { state: "empty" } })).not.toBe(stepKey({ pageId: "p", artboard: "a.html", tweaks: { state: "full" } }));
+    expect(stepKey({ pageId: "p", artboard: "a.html" })).not.toBe(stepKey({ pageId: "q", artboard: "a.html" }));
+  });
+});
+
+describe("merging a declaration into an open review", () => {
+  const declared = (artboard: string, question: string) => ({ pageId: "p", artboard, changed: "c", lookAt: "l", question });
+  const known = (id: string, artboard: string, question: string) => ({ ...declared(artboard, question), id });
+
+  it("keeps the steps already there, adds the new ones, and gives a redeclared step the new texts under its id", () => {
+    const merged = mergeSteps([known("s1", "a.html", "old?"), known("s2", "b.html", "b?")], [declared("a.html", "new?"), declared("c.html", "c?")]);
+
+    expect(merged).toEqual([known("s1", "a.html", "new?"), known("s2", "b.html", "b?"), declared("c.html", "c?")]);
+  });
+
+  it("treats another tweak state of a known artboard as a new step", () => {
+    const merged = mergeSteps([known("s1", "a.html", "q")], [{ ...declared("a.html", "q"), tweaks: { state: "empty" } }]);
+
+    expect(merged.map((s) => s.id)).toEqual(["s1", undefined]);
+  });
+
+  it("keeps the last of two declarations of the same step", () => {
+    expect(mergeSteps([], [declared("a.html", "first?"), declared("a.html", "second?")])).toEqual([declared("a.html", "second?")]);
   });
 });
