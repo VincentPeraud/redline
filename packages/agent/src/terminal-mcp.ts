@@ -381,7 +381,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     REQUEST_REVIEW_TOOL,
     {
       description:
-        "Declare a review of the changes you just published, so that the person checks them in Redline instead of reading a list in the chat: one step per artboard, with what changed, what to look at and a closed question. All the pages must belong to one project. A new declaration while your own review of the project is still open is merged into it (a step is its artboard; redeclaring one replaces its question). Answers the review link: open it for the person. Nothing is pushed to you when they finish: call review_feedback when they tell you they are done.",
+        "Declare a review of the changes you just published, so that the person checks them in Redline instead of reading a list in the chat: one step per artboard, with what changed, what to look at and a closed question. All the pages must belong to one project. A new declaration while your own review of the project is still open is merged into it (a step is its artboard and its tweak values; redeclaring one replaces its question; the same artboard with other tweak values is another step). Answers the review link: open it for the person. Nothing is pushed to you when they finish: call review_feedback when they tell you they are done.",
       inputSchema: {
         steps: z
           .array(
@@ -391,6 +391,11 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
               changed: z.string().describe("What changed on this artboard"),
               lookAt: z.string().describe("What the person should look at"),
               question: z.string().describe("A closed question the person can answer with OK"),
+              tweaks: z
+                .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+                .optional()
+                .describe("Optional tweak values the step opens with (tweak id to value, as declared in the manifest), to show a state other than the default. Local to the review: nothing is saved on the page."),
+              mobile: z.boolean().optional().describe("Optional: true opens the step in the mobile rendering of a responsive artboard (and tells the person to look at it in mobile)"),
             }),
           )
           .describe("The steps of the review"),

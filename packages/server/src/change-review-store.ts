@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { ChangeReviewState, ChangeReviewStepInput } from "@redline/shared";
+import type { ChangeReviewState, ChangeReviewStepInput, StepTweaks } from "@redline/shared";
 
 export interface StoredReview {
   id: string;
@@ -57,6 +57,9 @@ interface ReviewRow {
   filed_at: string | null;
 }
 
+/** The tweak values of a step as stored: JSON, or nothing when it sets none. */
+const tweaksColumn = (step: ChangeReviewStepInput): string | null => (step.tweaks && Object.keys(step.tweaks).length > 0 ? JSON.stringify(step.tweaks) : null);
+
 /** Reviews of changes with their steps and answers, in their own tables. Not "diffusion review" (the design system one). */
 export class ChangeReviewStore {
   /** Who is on a screen of which review, in memory only: review id, then person id ("" without accounts). */
@@ -104,6 +107,8 @@ export class ChangeReviewStore {
     if (!answerColumns.includes("thread_id")) db.exec("ALTER TABLE change_review_answers ADD COLUMN thread_id TEXT");
     const stepColumns = (db.prepare("PRAGMA table_info(change_review_steps)").all() as { name: string }[]).map((column) => column.name);
     if (!stepColumns.includes("archived_at_finish")) db.exec("ALTER TABLE change_review_steps ADD COLUMN archived_at_finish INTEGER NOT NULL DEFAULT 0");
+    if (!stepColumns.includes("tweaks")) db.exec("ALTER TABLE change_review_steps ADD COLUMN tweaks TEXT");
+    if (!stepColumns.includes("mobile")) db.exec("ALTER TABLE change_review_steps ADD COLUMN mobile INTEGER NOT NULL DEFAULT 0");
     const columns = (db.prepare("PRAGMA table_info(change_reviews)").all() as { name: string }[]).map((column) => column.name);
     for (const column of ["fetched_by", "fetched_at", "filed_by", "filed_at"]) if (!columns.includes(column)) db.exec(`ALTER TABLE change_reviews ADD COLUMN ${column} TEXT`);
   }
@@ -137,8 +142,8 @@ export class ChangeReviewStore {
       this.db
         .prepare("INSERT INTO change_reviews (id, project_id, state, requester_person_id, folder, label, created_at) VALUES (?, ?, 'open', ?, ?, ?, ?)")
         .run(id, projectId, requester.personId ?? null, requester.folder, requester.label ?? null, createdAt);
-      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-      steps.forEach((step, position) => insert.run(randomUUID(), id, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question));
+      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      steps.forEach((step, position) => insert.run(randomUUID(), id, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0));
     })();
     return this.get(id)!;
   }
@@ -157,11 +162,11 @@ export class ChangeReviewStore {
    */
   merge(reviewId: string, steps: (ChangeReviewStepInput & { id?: string })[], label?: string): void {
     this.db.transaction(() => {
-      const update = this.db.prepare("UPDATE change_review_steps SET position = ?, changed = ?, look_at = ?, question = ? WHERE id = ? AND review_id = ?");
-      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      const update = this.db.prepare("UPDATE change_review_steps SET position = ?, changed = ?, look_at = ?, question = ?, mobile = ? WHERE id = ? AND review_id = ?");
+      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       steps.forEach((step, position) => {
-        if (step.id) update.run(position, step.changed, step.lookAt, step.question, step.id, reviewId);
-        else insert.run(randomUUID(), reviewId, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question);
+        if (step.id) update.run(position, step.changed, step.lookAt, step.question, step.mobile ? 1 : 0, step.id, reviewId);
+        else insert.run(randomUUID(), reviewId, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0);
       });
       if (label) this.db.prepare("UPDATE change_reviews SET label = ? WHERE id = ?").run(label, reviewId);
     })();
@@ -194,13 +199,7 @@ export class ChangeReviewStore {
 
   steps(reviewId: string): StoredStep[] {
     const rows = this.db.prepare("SELECT * FROM change_review_steps WHERE review_id = ? ORDER BY position").all(reviewId) as {
-      id: string;
-      page_id: string;
-      artboard: string;
-      changed: string;
-      look_at: string;
-      question: string;
-      archived_at_finish: number;
+      id: string; page_id: string; artboard: string; changed: string; look_at: string; question: string; tweaks: string | null; mobile: number; archived_at_finish: number;
     }[];
     return rows.map((row) => ({
       id: row.id,
@@ -211,6 +210,8 @@ export class ChangeReviewStore {
       lookAt: row.look_at,
       question: row.question,
       ...(row.archived_at_finish ? { archivedAtFinish: true } : {}),
+      ...(row.tweaks ? { tweaks: JSON.parse(row.tweaks) as StepTweaks } : {}),
+      ...(row.mobile ? { mobile: true } : {}),
     }));
   }
 
