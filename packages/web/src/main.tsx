@@ -13,6 +13,7 @@ import { DesignMdScreen } from "./DesignMdScreen";
 import { DiffusionProvider } from "./DiffusionDialog";
 import { HomeScreen } from "./HomeScreen";
 import { ProjectDesignSystemScreen } from "./ProjectDesignSystemScreen";
+import { ReviewScreen } from "./ReviewScreen.js";
 import { ProjectOverview } from "./ProjectOverview";
 import { ArchivedProjectsScreen, ProjectsScreen } from "./ProjectsScreen";
 import { Shell } from "./Sidebar";
@@ -75,6 +76,8 @@ function RouteScreen({ route }: { route: Route }) {
   switch (route.name) {
     case "page":
       return <App key={route.pageId} route={route} />;
+    case "review":
+      return <ReviewScreen key={route.reviewId} reviewId={route.reviewId} step={route.step} />;
     case "home":
       return <Shell><HomeScreen /></Shell>;
     case "agents":

@@ -5,7 +5,12 @@ import {
   artboardHash,
   pageHash,
   playHash,
+  reviewHash,
   type AgentCheckout,
+  type ChangeReviewFeedback,
+  type ChangeReviewFeedbackRequest,
+  type RequestChangeReviewRequest,
+  type RequestChangeReviewResponse,
   type AgentGapsRequest,
   type AgentDesignSystem,
   type AgentReplyRequest,
@@ -98,6 +103,17 @@ export class ServerApi {
   terminalRelease(sessionId: string, pageId?: string): Promise<TerminalWaitingPage[]> {
     const body: TerminalReleaseRequest = pageId ? { pageId } : {};
     return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/release`, body);
+  }
+
+  /** Declares a review of changes for this terminal session; answers the new review's id. */
+  requestReview(sessionId: string, request: RequestChangeReviewRequest): Promise<RequestChangeReviewResponse> {
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/reviews`, request);
+  }
+
+  /** The result of a finished review (its progress while it is open). */
+  reviewFeedback(sessionId: string, request: ChangeReviewFeedbackRequest): Promise<ChangeReviewFeedback> {
+    const body: ChangeReviewFeedbackRequest = request;
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/review-feedback`, body);
   }
 
   /** A 60-second single-use link that signs a headless test browser in as this token's account. */
@@ -213,6 +229,10 @@ export class ServerApi {
 
   playUrl(pageId: string, file: string): string {
     return `${this.serverUrl}/${playHash(pageId, file)}`;
+  }
+
+  reviewUrl(reviewId: string): string {
+    return `${this.serverUrl}/${reviewHash(reviewId)}`;
   }
 
   /** JSON in and out; a Buffer body is sent as raw bytes. */

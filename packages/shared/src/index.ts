@@ -1443,9 +1443,12 @@ function typeDefault(tweak: ManifestTweak): TweakValue {
 }
 
 /** Value of every declared tweak: stored value, else declared default, else the type's default. Undeclared or invalid stored values are ignored. */
-export function resolveTweakValues(manifest: Manifest, stored: TweakValues): TweakValues {
+export const resolveTweakValues = (manifest: Manifest, stored: TweakValues): TweakValues => resolveDeclaredTweakValues(manifest.tweaks, stored);
+
+/** `resolveTweakValues` for a list of declarations. */
+export function resolveDeclaredTweakValues(tweaks: readonly ManifestTweak[], stored: Readonly<Record<string, unknown>>): TweakValues {
   const values: TweakValues = {};
-  for (const tweak of manifest.tweaks) {
+  for (const tweak of tweaks) {
     const candidates: unknown[] = [stored[tweak.id], tweak.default];
     values[tweak.id] =
       (candidates.find((v) => v !== undefined && tweakValueError(tweak, v) === null) as TweakValue | undefined) ?? typeDefault(tweak);
@@ -1480,3 +1483,4 @@ export * from "./changeRecord.js";
 export * from "./diffusionReview.js";
 export * from "./componentComparison.js";
 export * from "./links.js";
+export * from "./changeReview.js";
