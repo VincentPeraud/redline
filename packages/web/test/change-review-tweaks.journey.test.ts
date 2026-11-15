@@ -133,3 +133,21 @@ it("shows and hides the device frame with Habillage, as in Present", async () =>
   await habillage.click();
   await tab.close();
 });
+
+it("frames the elements Claude points at, numbered in the declared order, and nothing on a step without targets", async () => {
+  const { reviewId } = await declare((id) => [step(id, "meeting.html", { targets: ["#missing", "h1"] }), step(id, "plain.html")]);
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${seam.server.url}/#/reviews/${reviewId}/steps/1`);
+
+  const badges = (file: string) => artboardFrame(tab, file)?.evaluate(() => Array.from(document.querySelectorAll("#__redline-compare [data-part='badge']"), (badge) => badge.textContent)).catch(() => null);
+  // An element that is not on the artboard is skipped: the others keep their number.
+  await expect.poll(() => badges("meeting.html")).toEqual(["2"]);
+
+  await tab.getByRole("button", { name: "Suivante →" }).click();
+  await expect.poll(() => counter(tab).textContent()).toContain("Étape 2 / 2");
+  await expect.poll(() => artboardFrame(tab, "plain.html")?.evaluate(() => document.readyState).catch(() => null)).toBe("complete");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(await badges("plain.html")).toEqual([]);
+  await tab.close();
+});
+

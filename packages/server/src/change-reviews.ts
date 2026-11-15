@@ -50,6 +50,8 @@ import type { TerminalSessions } from "./terminal-sessions.js";
 import { MAX_TERMINAL_TEXT_LENGTH, requiredString } from "./validation.js";
 
 const MAX_STEPS = 200;
+/** Elements a step frames at most: past that, nothing stands out any more. */
+const MAX_TARGETS = 10;
 /** Artboards in one review (its steps and the others of its groups together): a declaration is checked artboard by artboard. */
 const MAX_ARTBOARDS = 500;
 const MAX_STEP_TEXT_LENGTH = 4_000;
@@ -227,6 +229,7 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
         : {}),
       ...(step.tweaks ? { tweaks: step.tweaks } : {}),
       ...(step.mobile ? { mobile: true } : {}),
+      ...(step.targets ? { targets: step.targets } : {}),
       answers: stepAnswers,
       ...(republished.example ? modifiedFields(current) : {}),
     };
@@ -313,6 +316,8 @@ export function declareChangeReview({ store, access }: Pick<ReviewContext, "stor
   if (!groups) return { status: 400, error: "a step's others must be a non-empty list of { pageId, artboard } (the other artboards sharing the change) and its title a non-empty string" };
   const shape = steps.every((step: Partial<ChangeReviewStepInput>) => (step.mobile === undefined || typeof step.mobile === "boolean") && (step.baselineVersion === undefined || requiredString(step.baselineVersion)) && (step.tweaks === undefined || (typeof step.tweaks === "object" && step.tweaks !== null && !Array.isArray(step.tweaks))));
   if (!shape) return { status: 400, error: "a step's mobile must be a boolean, its baselineVersion a version id and its tweaks an object of tweak id to value" };
+  const targets = steps.every((step: Partial<ChangeReviewStepInput>) => step.targets === undefined || (Array.isArray(step.targets) && step.targets.length > 0 && step.targets.length <= MAX_TARGETS && step.targets.every((target) => requiredString(target) && target.trim() !== "" && target.length <= MAX_STEP_TEXT_LENGTH && !SEVERAL_LINES.test(target))));
+  if (!targets) return { status: 400, error: `a step's targets must be a list of 1 to ${MAX_TARGETS} CSS selectors (the elements to frame), each on one line` };
   const declared = (steps as ChangeReviewStepInput[]).map((step) => (step.others ? { ...step, others: step.others.map(({ pageId, artboard }) => ({ pageId, artboard })) } : step));
   const artboardCount = declared.flatMap(stepArtboards).length;
   if (artboardCount > MAX_ARTBOARDS) return { status: 400, error: `A review covers at most ${MAX_ARTBOARDS} artboards (this declaration lists ${artboardCount}): split it into several reviews.` };

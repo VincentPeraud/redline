@@ -9,7 +9,7 @@ import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokens
  *                     { type: "redline:set-pins", pins: [{ id, selector, elementName?, xPct, yPct, instanceState? }] }  (a selector "<instance> >>> <path>" anchors inside a component instance, see INSTANCE_ANCHOR_SEPARATOR; instanceState: the state the thread was written in)
  *                     { type: "redline:replay-state", id }  (sets the remembered instance state of the pin with that id, then reports the pins again)
  *                     { type: "redline:set-marks", marks: [{ number, selector }] }  (numbered selection marks, drawn whenever there are some)
- *                     { type: "redline:set-compare-markers", visible: boolean, markers: [{ number, selector }] }  (before / after view: numbered dashed markers on the touched zones)
+ *                     { type: "redline:set-compare-markers", visible: boolean, markers: [{ number, selector }] }  (before / after view, and the elements a review step targets: numbered dashed markers on the touched zones)
  *                     { type: "redline:set-gap", selector: string | null }  (outlines the element a design system gap points at, and answers redline:gap-rect when it exists)
  *                     { type: "redline:set-links", selectors: string[] | null }  (play mode: clicks on a match are reported, not performed)
  *                     { type: "redline:set-tweaks", values: { [tweakId]: string | number | boolean } }  (full set; applied as --tweak-<id> CSS variables, data-tweak-<id> attributes on <html>, window.redlineTweaks and a "redline:tweaks" window event)
@@ -672,6 +672,8 @@ export const BRIDGE_SOURCE = `(function () {
     compareMarkers.forEach(function (marker) {
       var found = resolve(marker.selector);
       if (!found.el || found.gone) return;
+      // A hidden element (display: none, or a closed state) has no box to frame.
+      if (typeof found.el.checkVisibility === "function" && !found.el.checkVisibility()) return;
       var rect = found.el.getBoundingClientRect();
       var outline = document.createElement("div");
       outline.setAttribute("data-part", "outline");
@@ -783,6 +785,8 @@ export const BRIDGE_SOURCE = `(function () {
       linkSelectors = event.data.selectors || null;
     } else if (event.data.type === "redline:set-tweaks") {
       applyTweaks(event.data.values || {});
+      // Another state moves the elements: the markers follow them (or leave when they are hidden).
+      drawCompare();
     } else if (event.data.type === "redline:set-marks") {
       marks = event.data.marks || [];
       drawMarks();

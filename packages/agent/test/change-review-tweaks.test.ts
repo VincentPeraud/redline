@@ -99,3 +99,27 @@ describe("per-step tweaks", () => {
     expect(plain!.tweaks).toBeUndefined();
   });
 });
+
+describe("targets", () => {
+  it("carries the elements to frame, replaces them on a redeclaration and leaves a step without them plain", async () => {
+    const { terminal, page } = await start();
+
+    const id = idOf(await terminal.call("request_review", { steps: [step(page.id, "meeting.html", { targets: ["h1", "#cta"] }), step(page.id, "plain.html")] }));
+    const [framed, plain] = (await reviewOf(id)).steps;
+    expect(framed!.targets).toEqual(["h1", "#cta"]);
+    expect(plain!.targets).toBeUndefined();
+
+    await terminal.call("request_review", { steps: [step(page.id, "meeting.html", { targets: [".badge"] })] });
+    expect((await reviewOf(id)).steps[0]!.targets).toEqual([".badge"]);
+  });
+
+  it("refuses targets that are not a short list of selectors", async () => {
+    const { terminal, page } = await start();
+
+    const empty = await terminal.call("request_review", { steps: [step(page.id, "meeting.html", { targets: [] })] });
+    const blank = await terminal.call("request_review", { steps: [step(page.id, "meeting.html", { targets: [" "] })] });
+    const tooMany = await terminal.call("request_review", { steps: [step(page.id, "meeting.html", { targets: Array.from({ length: 11 }, (_, i) => `#e${i}`) })] });
+
+    for (const answer of [empty, blank, tooMany]) expect(answer).toMatch(/targets must be a list of 1 to 10 CSS selectors/);
+  });
+});

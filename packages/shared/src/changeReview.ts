@@ -59,6 +59,8 @@ export interface ChangeReviewStepInput {
   tweaks?: StepTweaks;
   /** The step opens in the mobile rendering of a responsive artboard. */
   mobile?: boolean;
+  /** CSS selectors of the elements to look at: the stage frames each one, numbered in this order (on a group, on every artboard shown). */
+  targets?: string[];
   /** The page version "Avant" shows: always wins over the baseline Redline works out. */
   baselineVersion?: string;
 }

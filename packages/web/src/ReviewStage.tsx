@@ -61,6 +61,13 @@ export function ReviewStage({
   useEffect(() => {
     if (bridgeEpoch > 0) frame.current?.contentWindow?.postMessage({ type: "redline:set-tweaks", values: controls.values }, "*");
   }, [controls.values, bridgeEpoch]);
+  // The elements Claude points at: framed and numbered in the declared order (the same on every artboard of a group, before and after).
+  const targetsKey = JSON.stringify(example.targets ?? []);
+  useEffect(() => {
+    if (bridgeEpoch === 0) return;
+    const markers = (JSON.parse(targetsKey) as string[]).map((selector, index) => ({ number: index + 1, selector }));
+    frame.current?.contentWindow?.postMessage({ type: "redline:set-compare-markers", visible: markers.length > 0, markers }, "*");
+  }, [targetsKey, bridgeEpoch]);
   const entry = step.artboardEntry;
   /** The stage's own padding keeps the artboard off its edges, so the fit takes the space inside it. */
   const shown = entry && presentationOf(entry, controls.framed, windowWidth, entry.responsive ? controls.rendering : undefined);

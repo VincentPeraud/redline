@@ -418,6 +418,10 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
                 .optional()
                 .describe("Optional tweak values the step opens with (tweak id to value, as declared in the manifest), to show a state other than the default. Local to the review: nothing is saved on the page."),
               mobile: z.boolean().optional().describe("Optional: true opens the step in the mobile rendering of a responsive artboard (and tells the person to look at it in mobile)"),
+              targets: z
+                .array(z.string())
+                .optional()
+                .describe("Optional, recommended whenever the change is a precise element: CSS selectors of the elements to look at (1 to 10, for example [\"#cta\", \".plan-card .badge\"]). Redline frames each one on the artboard, numbered in this order (on a group: on every artboard shown, before and after); lookAt can cite the numbers. A selector that matches nothing is skipped."),
               baselineVersion: z
                 .string()
                 .optional()
