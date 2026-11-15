@@ -328,7 +328,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
   server.registerTool(
     PUBLISH_PAGE_TOOL,
     {
-      description: "Publish the changes made in the checked-out page as one new version. Waits if a Redline session is running on the page.",
+      description: "Publish the changes made in the checked-out page as one new version. Waits if a Redline session is running on the page. When the series of changes the person should check is finished (several artboards), call request_review instead of listing them in the chat.",
       inputSchema: { message: z.string().describe("Short description of the version") },
     },
     tool(async ({ message }: { message: string }) => {
@@ -398,7 +398,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     REQUEST_REVIEW_TOOL,
     {
       description:
-        "Declare a review of the changes you just published, so that the person checks them in Redline instead of reading a list in the chat: one step per artboard, with what changed, what to look at and a closed question. All the pages must belong to one project. A new declaration while your own review of the project is still open is merged into it (a step is its artboard and its tweak values; redeclaring one replaces its question; the same artboard with other tweak values is another step). A change shared by many artboards is one step with an example and the other artboards in others. Answers the review link: open it for the person. Nothing is pushed to you when they finish: call review_feedback when they tell you they are done.",
+        "Use it whenever you finish a series of changes the person should check (several artboards), instead of listing the artboards in the chat. Declares a review of the changes you just published, so that the person checks them in Redline: one step per artboard, with what changed, what to look at and a closed question. All the pages must belong to one project. A new declaration while your own review of the project is still open is merged into it (a step is its artboard and its tweak values; redeclaring one replaces its question; the same artboard with other tweak values is another step). A change shared by many artboards is one step with an example and the other artboards in others. Answers the review link: open it for the person. Nothing is pushed to you when they finish: call review_feedback when they tell you they are done.",
       inputSchema: {
         steps: z
           .array(
