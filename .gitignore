@@ -13,3 +13,4 @@ dist
 .env
 .scratch/eval-runs/
 secrets/
+.scratch/

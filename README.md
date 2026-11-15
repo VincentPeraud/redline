@@ -1,6 +1,10 @@
 # Redline
 
-Self-hosted mock-up tool for Claude Code. See `.scratch/redline/spec.md`.
+Self-hosted mock-up tool for Claude Code.
+
+Claude Code draws screens as HTML artboards through Redline's MCP server; people review them on a shared canvas, leave comments pinned to an artboard, and Claude answers and revises. Projects, pages, versions and design systems live on your own server.
+
+Licensed under the [MIT License](LICENSE).
 
 ## Run the server with Docker
 

@@ -59,7 +59,7 @@ interface Props {
 }
 
 /** Viewport and scale that fit the presentation on the stage; a `fill` presentation stretches to the stage instead. */
-function fitToStage(presentation: Presentation, stage: { width: number; height: number }) {
+export function fitToStage(presentation: Presentation, stage: { width: number; height: number }) {
   const { viewport, fill, stagePadding, frameHeight } = presentation;
   if (fill === "both") return { viewport: stage, scale: 1 };
   if (stage.width === 0) return { viewport, scale: 1 };
@@ -162,7 +162,7 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
     void load();
     return subscribeServerEvents((event) => {
       if (event.type === "thread-updated" && (projectWide || event.pageId === pageId)) void load();
-    });
+    }, () => void load());
   }, [canComment, pageId, projectWide, visitor]);
   useEffect(() => {
     if (!canComment || !writing) return;

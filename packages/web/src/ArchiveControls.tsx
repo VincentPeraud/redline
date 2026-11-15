@@ -56,7 +56,7 @@ export function useArchiveRefusal(kind: ArchiveKind, id: string): ArchiveRefusal
     void load();
     return subscribeServerEvents((event) => {
       if (event.type === "work" || event.type === "work-dispatched" || event.type === "run-updated" || event.type === "queue-updated") void load();
-    });
+    }, () => void load());
   }, [kind, id]);
   return refusal;
 }

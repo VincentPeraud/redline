@@ -53,6 +53,8 @@ interface Props {
   onUnfold: (threadId: string, open: boolean) => void;
   /** A click on a thread's card (not on one of its controls): the canvas goes to where the comment is. */
   onShowThread?: (threadId: string) => void;
+  /** A thread was resolved or reopened here: the list loads again at once, without waiting for the server event. */
+  onThreadsChanged?: () => void;
 }
 
 const GROUP_ORDER: Record<Thread["status"], number> = { held: 0, review: 1, open: 2, resolved: 3 };
@@ -137,7 +139,7 @@ function ThreadMessages({ thread }: { thread: Thread }) {
 }
 
 /** A resolved thread: one line, which unfolds the discussion read-only, with "Rouvrir" to put it back among the open threads. */
-function ResolvedThreadCard({ thread, session, readOnly, open, onOpen }: { thread: Thread; session: SessionRow | undefined; readOnly: boolean; open: boolean; onOpen: (open: boolean) => void }) {
+function ResolvedThreadCard({ thread, session, readOnly, open, onOpen, onReopen }: { thread: Thread; session: SessionRow | undefined; readOnly: boolean; open: boolean; onOpen: (open: boolean) => void; onReopen: () => void }) {
   return (
     <article data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.resolved, thread.removed && styles.removed)}>
       <button type="button" aria-expanded={open} className={styles.resolvedRow} onClick={() => onOpen(!open)}>
@@ -164,7 +166,7 @@ function ResolvedThreadCard({ thread, session, readOnly, open, onOpen }: { threa
             <SessionMeta session={session} />
             <span className={styles.spacer} />
             {!readOnly && (
-              <Button size="sm" onClick={() => void fetch(`/api/threads/${thread.id}/reopen`, { method: "POST" })}>
+              <Button size="sm" onClick={onReopen}>
                 Rouvrir
               </Button>
             )}
@@ -279,7 +281,12 @@ function ThreadCard({
 }
 
 /** The "Commentaires" tab: held bar, thread cards and the composer of a new pinned comment. */
-export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, commentOnly = false, archivedLabel = "Projet archivé", unfolded, onUnfold, onShowThread }: Props) {
+export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, commentOnly = false, archivedLabel = "Projet archivé", unfolded, onUnfold, onShowThread, onThreadsChanged }: Props) {
+  // The list follows the answer itself: behind a proxy that holds the event stream back, the click would otherwise seem to do nothing.
+  const act = (threadId: string, action: "resolve" | "reopen") =>
+    void fetch(`/api/threads/${threadId}/${action}`, { method: "POST" }).then((res) => {
+      if (res.ok) onThreadsChanged?.();
+    });
   const ordered = [...threads].sort((a, b) => GROUP_ORDER[a.status] - GROUP_ORDER[b.status] || a.number - b.number);
   const heldCount = threads.filter((t) => t.status === "held").length;
   const reviewCount = threads.filter((t) => t.status === "review").length;
@@ -307,7 +314,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
         {!readOnly && <ReviewBar pageId={pageId} count={reviewCount} choice={choice} canSend={!commentOnly} />}
         {ordered.map((thread) => {
           if (thread.status === "held") return <HeldThreadCard key={thread.id} thread={thread} />;
-          if (thread.status === "resolved") return <ResolvedThreadCard key={thread.id} thread={thread} session={sessions.get(thread.id)} readOnly={readOnly || commentOnly} open={unfolded.has(thread.id)} onOpen={(open) => onUnfold(thread.id, open)} />;
+          if (thread.status === "resolved") return <ResolvedThreadCard key={thread.id} thread={thread} session={sessions.get(thread.id)} readOnly={readOnly || commentOnly} open={unfolded.has(thread.id)} onOpen={(open) => onUnfold(thread.id, open)} onReopen={() => act(thread.id, "reopen")} />;
           return (
             <ThreadCard
               key={thread.id}
@@ -317,7 +324,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
               run={runs.filter((r) => r.threadIds.includes(thread.id)).slice(-1)[0]}
               session={sessions.get(thread.id)}
               choice={choice}
-              onResolve={commentOnly ? undefined : () => void fetch(`/api/threads/${thread.id}/resolve`, { method: "POST" })}
+              onResolve={commentOnly ? undefined : () => act(thread.id, "resolve")}
               onSend={commentOnly ? undefined : () => void sendToClaude(pageId, choice, [thread.id])}
               readOnly={readOnly}
             />

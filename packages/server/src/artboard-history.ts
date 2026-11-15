@@ -40,7 +40,7 @@ function artboardsOf(store: Store, record: VersionRecord): Map<string, ManifestA
 }
 
 /** Versions of `records` (oldest first) in which the content of `file` changed. Tweak versions never are part of the history. */
-function contentChanges(records: VersionRecord[], file: string): VersionRecord[] {
+export function contentChanges(records: VersionRecord[], file: string): VersionRecord[] {
   const changes: VersionRecord[] = [];
   let previous: string | undefined;
   for (const record of records) {

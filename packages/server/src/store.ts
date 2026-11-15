@@ -4,6 +4,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { AccountStore } from "./accounts.js";
 import { LinkStore } from "./link-store.js";
+import { ChangeReviewStore } from "./change-review-store.js";
 import { componentFilesOf, projectComponents } from "./components.js";
 import { restoredVersionMessage } from "./version-dates.js";
 import {
@@ -98,6 +99,7 @@ export class Store {
   private serverBuildHash: string | undefined;
   readonly accounts: AccountStore;
   readonly links: LinkStore;
+  readonly changeReviews: ChangeReviewStore;
 
   constructor(dataDir: string) {
     this.blobDir = join(dataDir, "blobs");
@@ -348,10 +350,12 @@ export class Store {
     addColumn("pages", "archived_at", "TEXT");
     this.accounts = new AccountStore(this.db);
     this.links = new LinkStore(this.db);
+    this.changeReviews = new ChangeReviewStore(this.db);
     addColumn("pages", "held_by", "TEXT");
     addColumn("pages", "held_at", "TEXT");
     addColumn("versions", "origin_id", "TEXT");
     addColumn("versions", "origin_label", "TEXT");
+    addColumn("versions", "terminal_session_id", "TEXT");
     addColumn("versions", "diffusion", "INTEGER");
     addColumn("threads", "element_name", "TEXT");
     addColumn("threads", "reopen_to", "TEXT");
@@ -1147,6 +1151,7 @@ export class Store {
     this.db.transaction(() => {
       for (const { id: pageId } of this.db.prepare(pages).all(id) as { id: string }[]) this.links.deleteFor("page", pageId);
       this.links.deleteFor("project", id);
+      this.changeReviews.deleteForProject(id);
       for (const sql of [
         ...pageRowDeletes(pages),
         "DELETE FROM component_changes WHERE design_system_id = ?",
@@ -2071,9 +2076,9 @@ export class Store {
   /** Every version of a page with its file hashes, OLDEST first. */
   listVersionRecords(pageId: string): VersionRecord[] {
     const rows = this.db
-      .prepare("SELECT id, files, message, origin, origin_id, origin_label, person_id, link_id, link_name, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
+      .prepare("SELECT id, files, message, origin, origin_id, origin_label, terminal_session_id, person_id, link_id, link_name, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
       .all(pageId) as (VersionRow & { files: string; diffusion: number | null })[];
-    return rows.map((row) => ({ ...this.toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1 }));
+    return rows.map((row) => ({ ...this.toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1, ...(row.terminal_session_id ? { terminalSessionId: row.terminal_session_id } : {}) }));
   }
 
   /** One file of one version of a page, or undefined if either is unknown. */
@@ -2186,10 +2191,10 @@ export class Store {
   }
 
   private insertVersion(pageId: string, filesJson: string, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
-    const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, person_id: ref?.person?.id ?? null, link_id: ref?.link?.linkId ?? null, link_name: ref?.link?.name ?? null, created_at: now() };
+    const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, terminal_session_id: ref?.terminalSessionId ?? null, person_id: ref?.person?.id ?? null, link_id: ref?.link?.linkId ?? null, link_name: ref?.link?.name ?? null, created_at: now() };
     this.db
-      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, person_id, link_id, link_name, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, row.person_id, row.link_id, row.link_name, this.diffusionForNewVersion(pageId, filesJson) ?? null);
+      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, terminal_session_id, person_id, link_id, link_name, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, row.terminal_session_id, row.person_id, row.link_id, row.link_name, this.diffusionForNewVersion(pageId, filesJson) ?? null);
     this.emit({ type: "page-updated", pageId, versionId: row.id });
     return this.toSummary(row);
   }
@@ -2471,6 +2476,7 @@ interface VersionRow {
   origin: VersionOrigin;
   origin_id?: string | null;
   origin_label?: string | null;
+  terminal_session_id?: string | null;
   person_id?: string | null;
   link_id?: string | null;
   link_name?: string | null;
@@ -2495,6 +2501,8 @@ export interface StoredRequest extends Omit<ThreadRequest, "origins"> {
 export interface OriginRef {
   originId?: string;
   originLabel?: string;
+  /** The terminal session that published the version (never shown: a review uses it to tell its requester's publishes from another session's of the same folder). */
+  terminalSessionId?: string;
   /** Who the version is signed with: the person acting, or the requesting person of a Claude run; none for terminal publishes. */
   person?: Person;
   /** Who the version is signed with when it was made through a share link. */
@@ -2506,6 +2514,8 @@ export interface VersionRecord extends PageVersionSummary {
   files: Record<string, string>;
   /** Diffusion recorded with the version (1 for versions from before diffusions); meaningless on a design system's own pages. */
   diffusion: number;
+  /** The terminal session that published it, when it was a terminal publish made by a session that announced itself. */
+  terminalSessionId?: string;
 }
 
 function now(): string {

@@ -80,6 +80,7 @@ import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
+import { registerChangeReviewRoutes } from "./change-reviews.js";
 import { validTimeZone } from "./version-dates.js";
 import { registerGapRoutes } from "./gaps.js";
 import type { ArtboardCapabilities } from "./artboard-capabilities.js";
@@ -147,7 +148,7 @@ export async function buildMainApp(
   store: Store,
   config: ServerConfig,
   webDir?: string,
-  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; firstAdminEmail?: string; publicUrl?: string; trustedProxy?: boolean; authMode?: AuthMode; cliBuild?: CliBuild; publicUntil?: Date; capabilities?: ArtboardCapabilities } = {},
+  options: { retryDelaysMs?: number[]; terminalPresenceTimeoutMs?: number; eventsKeepAliveMs?: number; proxySecrets?: ProxySecrets; identity?: IdentityConfig; firstAdminEmail?: string; publicUrl?: string; trustedProxy?: boolean; authMode?: AuthMode; cliBuild?: CliBuild; publicUntil?: Date; capabilities?: ArtboardCapabilities } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ bodyLimit: MAX_PAGE_BYTES, rewriteUrl: rewriteLinkUrl });
   registerPublicDeadline(app, options.publicUntil);
@@ -182,7 +183,7 @@ export async function buildMainApp(
   await registerAgentApi(app, store, pageLock, terminalSessions, access, config, options.publicUrl);
   await registerProjectFileRoutes(app, store);
   registerProjectDesignSystemRoutes(app, store);
-  registerEventRoutes(app, store, pageLock, access);
+  registerEventRoutes(app, store, pageLock, access, options.eventsKeepAliveMs);
   registerLinkRoutes(app, store, access);
   registerProjectSharingRoutes(app, store, access);
   registerDesignSystemReload(app, store);
@@ -194,6 +195,7 @@ export async function buildMainApp(
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
   registerSessionRoutes(app, store, pageLock, runs, lastConversationWork, access);
   registerArtboardHistoryRoutes(app, store);
+  registerChangeReviewRoutes(app, store);
   registerGapRoutes(app, store);
   pageLock.restore();
   terminalSessions.restore();

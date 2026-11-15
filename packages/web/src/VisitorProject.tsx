@@ -31,7 +31,7 @@ export function VisitorProject({ visitor }: { visitor: VisitorState }) {
     void fetch(`/api/projects/${shown.id}/design-system`).then(async (res) => setDesignSystem(res.ok ? ((await res.json()) as ProjectDesignSystem) : null));
     return subscribeServerEvents((event) => {
       if (event.type === "page-updated" || event.type === "page-renamed" || event.type === "page-archive-changed") void load();
-    });
+    }, () => void load());
   }, [shown.id]);
 
   return (

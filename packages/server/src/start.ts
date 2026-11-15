@@ -43,6 +43,8 @@ export interface StartOptions {
   retryDelaysMs?: number[];
   /** How long a terminal session may go without a heartbeat before it counts as gone; default 60 s. */
   terminalPresenceTimeoutMs?: number;
+  /** How often an idle event stream gets a ping (tests use a short one). */
+  eventsKeepAliveMs?: number;
 }
 
 export interface RunningServer {
@@ -68,6 +70,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   const mainApp = await buildMainApp(store, config, options.webDir, {
     retryDelaysMs: options.retryDelaysMs,
     terminalPresenceTimeoutMs: options.terminalPresenceTimeoutMs,
+    eventsKeepAliveMs: options.eventsKeepAliveMs,
     proxySecrets: options.proxySecrets,
     identity: options.identity,
     firstAdminEmail: options.firstAdminEmail,
