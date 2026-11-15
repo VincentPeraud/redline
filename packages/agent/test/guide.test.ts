@@ -141,3 +141,10 @@ it("tells Claude how to try variants of a design system component's look in a pr
   expect(REDLINE_GUIDE).toContain("send_request with the chosen trial");
   expect(REDLINE_GUIDE).toContain("never as the page's real component");
 });
+
+it("tells a terminal session to declare a review instead of listing changed artboards in the chat", () => {
+  expect(REDLINE_GUIDE).toContain("## Review of changes (terminal mode)");
+  expect(REDLINE_GUIDE).toContain("call request_review instead of listing the artboards in the chat");
+  expect(REDLINE_GUIDE).toContain("call review_feedback");
+  expect(REDLINE_GUIDE).toContain("Never call review_feedback on your own");
+});

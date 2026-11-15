@@ -8,6 +8,7 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ### Added
 
+- Claude declares a review on its own: the Redline guide and the `request_review` and `publish_page` descriptions tell a terminal session to declare a review when it finishes a series of changes, instead of listing the artboards in the chat.
 - Review mode: a terminal session declares a review of its changes with `request_review`; members with Écriture open the link, go through the steps (page order, then reading order) in a red review screen, answer OK (cancellable), finish the review, and the conversation reads the result with `review_feedback`.
 - Review mode: pages covered by a review show a banner under the canvas header (requested, in progress, finished waiting for fetch, fetched), and review changes reach other members live.
 - Review mode: a member can write a remark instead of an OK on a step (saved as they type, editable and deletable with an undo until the review is finished, others' answers shown under "Les autres"); when the conversation fetches the review, each remark becomes a thread on its artboard, taken by that session and answerable with `reply_in_thread`.
