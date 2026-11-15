@@ -240,11 +240,6 @@
   --tweaks-width: 320px;
 }
 
-/* An open Tweaks panel takes its place on the right of the stage: the artboard fits in what is left. */
-.stageTweaks {
-  padding-right: calc(var(--space-8) + var(--tweaks-width) + var(--space-4));
-}
-
 .viewport {
   position: relative;
   flex-shrink: 0;
@@ -1372,10 +1367,6 @@
 
   .stage {
     padding: var(--space-4);
-  }
-
-  .stageTweaks {
-    padding-right: var(--space-4);
   }
 
   .tweaks {

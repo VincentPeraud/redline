@@ -75,8 +75,14 @@ it("opens a step with Claude's values, keeps the reviewer's changes on this scre
   const panel = tab.getByRole("complementary", { name: "Question de l'étape" });
   expect(await panel.textContent()).toContain("État affiché : « State : ready », fixé par Claude. Les autres états restent dans Tweaks.");
 
-  // The reviewer looks at another state: it shows, and nothing is saved on the page.
+  // The Tweaks panel opens over the stage: the artboard keeps its place and size.
+  const frameBox = () => tab.locator("iframe[title='Revue / meeting.html']").boundingBox();
+  const closed = await frameBox();
   await top(tab).getByRole("button", { name: "Tweaks" }).click();
+  await tab.getByRole("complementary", { name: "Tweaks" }).waitFor();
+  expect(await frameBox()).toEqual(closed);
+
+  // The reviewer looks at another state: it shows, and nothing is saved on the page.
   await tab.getByRole("complementary", { name: "Tweaks" }).getByRole("button", { name: "idle" }).click();
   await expect.poll(() => stateOf(tab, "meeting.html")).toBe("idle");
   await new Promise((resolve) => setTimeout(resolve, 600));

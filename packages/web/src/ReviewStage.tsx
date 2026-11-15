@@ -67,7 +67,7 @@ export function ReviewStage({
   const presentation = shown && { ...shown, stagePadding: DEVICE_BEZEL[shown.frame] ?? 0 };
   const fitted = presentation && fitToStage(presentation, size);
   return (
-    <main className={cx(styles.stage, stepIsGroup(example) && styles.stageGroup, controls.tweaksOpen && controls.tweaks.length > 0 && styles.stageTweaks)}>
+    <main className={cx(styles.stage, stepIsGroup(example) && styles.stageGroup)}>
       {controls.showBefore && step.baselineAt && (
         <span data-testid="review-before-tag" className={styles.tag}>
           Avant · version du {formatWhen(step.baselineAt)}, avant la série
