@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { MIGRATE_STOP_REASON } from "./activity.js";
 import { isAgentId, registryPath, type HostAgent } from "./host-protocol.js";
 
 /** The host's agents, persisted in the config directory (no token in it: tokens stay in the logins). */
@@ -25,7 +26,7 @@ export class AgentRegistry {
     if (!Array.isArray(stored)) return { agents: [], interrupted: new Set() };
     const known = stored.filter((entry): entry is HostAgent => isAgentId(entry?.id) && typeof entry?.folder === "string" && typeof entry?.serverUrl === "string");
     return {
-      agents: known.map((agent) => ({ ...agent, state: "stopped" as const, since: agent.state === "stopped" && typeof agent.since === "string" ? agent.since : now, reason: undefined, run: undefined })),
+      agents: known.map((agent) => ({ ...agent, state: "stopped" as const, since: agent.state === "stopped" && typeof agent.since === "string" ? agent.since : now, reason: agent.state === "stopped" && agent.reason === MIGRATE_STOP_REASON ? agent.reason : undefined, run: undefined })),
       interrupted: new Set(known.filter((agent) => agent.state !== "stopped").map((agent) => agent.id)),
     };
   }

@@ -18,6 +18,7 @@ import {
   type TerminalHeartbeatRequest,
   type TerminalReleaseRequest,
   type TerminalPickedPage,
+  type TerminalCommentsPage,
   type TerminalWaitingPage,
   type MoveArtboardRequest,
   type RenamePageRequest,
@@ -27,6 +28,9 @@ import {
   starterDesignSystemFiles,
   starterPageFiles,
   type AgentDesignSystem,
+  HOST_PROTOCOL_VERSION,
+  type RedlineInstanceResponse,
+  type ServerConfig,
 } from "@redline/shared";
 import { manifestTitleError, mergeOntoCurrent } from "./publish.js";
 import { agentGaps } from "./gaps.js";
@@ -65,7 +69,7 @@ export function workOrigin(store: Store, pageLock: PageLock, workId: unknown, pa
 }
 
 /** HTTP API for agents and their sessions' MCP tools, guarded by the agent token (see `AGENT_API_PREFIX`). */
-export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock, terminalSessions: TerminalSessions, access: Access, publicUrl?: string): Promise<void> {
+export async function registerAgentApi(app: FastifyInstance, store: Store, pageLock: PageLock, terminalSessions: TerminalSessions, access: Access, config: ServerConfig, publicUrl?: string): Promise<void> {
   const signInLinkTimes = new Map<string, number[]>();
   /** A running work item (`workId`) that does not belong to `projectId`, or whose run is over: its session may not act there. */
   const workOutsideProject = (workId: unknown, projectId: string | undefined): boolean => {
@@ -103,6 +107,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       });
 
       api.get<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/waiting", async (req): Promise<TerminalWaitingPage[]> => terminalSessions.waitingFor(req.params.sessionId));
+
+      // The agents screen's Comments tab: every waiting page, read-only (unlike `pick`, it takes nothing).
+      api.get("/terminal-comments", async (req): Promise<TerminalCommentsPage[]> => terminalSessions.waitingComments((projectId) => access.may(req.viewer, "read", { projectId })));
 
       // `release_page`: the session hands one page it holds (or all of them) over to the agents.
       api.post<{ Params: { sessionId: string }; Body: Partial<TerminalReleaseRequest> }>("/terminal-sessions/:sessionId/release", async (req, reply): Promise<TerminalWaitingPage[] | void> => {
@@ -158,6 +165,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         store.accounts.log(`Agent sign-in link issued for ${account.email}.`);
         return { url: `${base}/#/connexion-agent/${token}${path === undefined ? "" : `?to=${encodeURIComponent(path)}`}` };
       });
+
+      // `redline setup` and the update check read the instance from here: `/api/config` is behind the SSO in production.
+      api.get("/instance", async (): Promise<RedlineInstanceResponse> => ({ ...config, hostProtocol: HOST_PROTOCOL_VERSION }));
 
       // `redline agent` picks or creates the projects a folder serves, before they have anything else to call.
       // `?all=1` (folder links) includes archived projects, so that a folder linked to one is not linked elsewhere.

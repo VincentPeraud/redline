@@ -1,4 +1,5 @@
 import type { AddressInfo } from "node:net";
+import type { ServerConfig } from "@redline/shared";
 import { assertModeCanStart, type AuthMode } from "./access.js";
 import { ArtboardCapabilities, loadCapabilityKey } from "./artboard-capabilities.js";
 import { buildArtboardApp, buildMainApp } from "./app.js";
@@ -6,6 +7,7 @@ import type { IdentityConfig } from "./identity.js";
 import { loadCliBuild } from "./cli-build.js";
 import { assertValidProxySecrets, type ProxySecrets } from "./proxy-secrets.js";
 import { Store } from "./store.js";
+import { serverVersion } from "./version.js";
 
 export interface StartOptions {
   dataDir: string;
@@ -14,6 +16,8 @@ export interface StartOptions {
   host: string;
   /** Public origin of the artboard listener, when behind a proxy; defaults to the listener's address. */
   artboardOrigin?: string;
+  /** Name of this Redline instance (for example "Lumora"), shown in the web app and used by the CLI. */
+  redlineInstanceName?: string;
   webDir?: string;
   /** Folder holding `redline-cli.tgz` and `build-hash.txt`; when both exist the tarball is served at `/cli/redline-cli.tgz`. */
   cliDir?: string;
@@ -61,7 +65,9 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
   await artboardApp.listen({ port: options.artboardPort, host: options.host });
   const artboardOrigin = options.artboardOrigin ?? `http://${options.host}:${portOf(artboardApp.server.address())}`;
 
-  const mainApp = await buildMainApp(store, { artboardOrigin }, options.webDir, {
+  const cliBuild = loadCliBuild(options.cliDir);
+  const config: ServerConfig = { artboardOrigin, version: serverVersion(), ...(options.redlineInstanceName ? { redlineInstanceName: options.redlineInstanceName } : {}), ...(cliBuild ? { buildHash: cliBuild.hash } : {}) };
+  const mainApp = await buildMainApp(store, config, options.webDir, {
     retryDelaysMs: options.retryDelaysMs,
     terminalPresenceTimeoutMs: options.terminalPresenceTimeoutMs,
     eventsKeepAliveMs: options.eventsKeepAliveMs,
@@ -73,7 +79,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     authMode,
     capabilities,
     publicUntil: options.publicUntil,
-    cliBuild: loadCliBuild(options.cliDir),
+    cliBuild,
   });
   await mainApp.listen({ port: options.port, host: options.host });
   const url = `http://${options.host}:${portOf(mainApp.server.address())}`;

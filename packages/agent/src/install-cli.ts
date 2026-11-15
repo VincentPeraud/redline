@@ -17,18 +17,22 @@ export function installPrefix(packageDir = fileURLToPath(new URL("..", import.me
   return process.platform !== "win32" && basename(above) === "lib" ? dirname(above) : above;
 }
 
+/** Runs `npm i -g <spec> --prefix <prefix>` without a shell (except on Windows, where `npm` is a script); `npm` may be a full path. */
+export const npmInstall = (spec: string, prefix: string | undefined, npm = "npm"): Promise<void> => runNpm([npm, "i", "-g", spec], prefix);
+
 /**
  * The command is `cliUpdateCommand(serverUrl)` (words separated by spaces, URL validated at setup), completed with `--prefix`:
  * it runs without a shell, except on Windows where `npm` is a script.
  */
-export const installCli = (command: string, prefix = installPrefix()): Promise<void> =>
+export const installCli = (command: string, prefix = installPrefix()): Promise<void> => runNpm(command.split(" "), prefix);
+
+const runNpm = ([file, ...args]: string[], prefix: string | undefined): Promise<void> =>
   new Promise((resolve, reject) => {
     const shell = process.platform === "win32";
-    const [file, ...args] = command.split(" ");
     if (prefix) args.push("--prefix", shell ? `"${prefix}"` : prefix);
     const child = spawn(file, args, { shell, stdio: ["ignore", "ignore", "pipe"] });
     let errors = "";
     child.stderr.on("data", (chunk: Buffer) => void (errors = (errors + chunk.toString()).slice(-2000)));
     child.on("error", reject);
-    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(errors.trim() || `${command} exited with code ${code}`))));
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(errors.trim() || `${[file, ...args].join(" ")} exited with code ${code}`))));
   });

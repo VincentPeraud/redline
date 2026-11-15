@@ -1,6 +1,6 @@
 # Production service behind an existing Traefik and SSO. Configured entirely from `.env` (see .env.dist and README, "Install on a server").
 # Standalone: do not combine it with the local compose files (they publish ports).
-name: redline
+name: ${REDLINE_COMPOSE_PROJECT:-redline}
 
 services:
   redline:
@@ -24,6 +24,7 @@ services:
     environment:
       TZ: ${TZ:-Europe/Paris}
       REDLINE_AUTH_MODE: proxy
+      REDLINE_INSTANCE_NAME: ${REDLINE_INSTANCE_NAME:-}
       REDLINE_FIRST_ADMIN_EMAIL: ${REDLINE_FIRST_ADMIN_EMAIL:?Set REDLINE_FIRST_ADMIN_EMAIL in .env}
       # Traefik sets X-Forwarded-For: the sign-in lockout counts the address it reports.
       REDLINE_TRUSTED_PROXY: "true"

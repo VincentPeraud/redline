@@ -4,17 +4,26 @@ import styles from "./PageHeader.module.css";
 
 export interface PageHeaderProps {
   title: ReactNode;
+  /** Chip next to the title, vertically centred on it. */
+  badge?: ReactNode;
   subtitle?: ReactNode;
   /** Buttons aligned on the right of the title. */
   actions?: ReactNode;
 }
 
 /** Screen title (28px, bold) with a muted subtitle line. */
-export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
+export function PageHeader({ title, badge, subtitle, actions }: PageHeaderProps) {
   return (
     <div className={styles.header}>
       <div className={styles.text}>
-        <h1 className={styles.title}>{title}</h1>
+        {badge ? (
+          <div className={styles.titleLine}>
+            <h1 className={styles.title}>{title}</h1>
+            {badge}
+          </div>
+        ) : (
+          <h1 className={styles.title}>{title}</h1>
+        )}
         {subtitle ? <div className={styles.subtitle}>{subtitle}</div> : null}
       </div>
       {actions ? <div className={styles.actions}>{actions}</div> : null}

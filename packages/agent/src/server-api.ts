@@ -24,6 +24,7 @@ import {
   type PageVersionSummary,
   type Project,
   type ProjectAsset,
+  type TerminalCommentsPage,
   type TerminalHeartbeatRequest,
   type TerminalReleaseRequest,
   type TerminalPickedPage,
@@ -35,6 +36,7 @@ import {
   type SendRequestRequest,
   type SendRequestResponse,
   cliUpdateCommand,
+  type RedlineInstanceResponse,
 } from "@redline/shared";
 import { buildHash as ownBuildHash } from "./build-hash.js";
 
@@ -43,7 +45,7 @@ export class ServerApi {
   private serverSaidOutdated = false;
 
   constructor(
-    private readonly serverUrl: string,
+    readonly serverUrl: string,
     private readonly token: string,
     private readonly buildHash: string = ownBuildHash(),
   ) {}
@@ -55,6 +57,11 @@ export class ServerApi {
 
   updateCommand(): string {
     return cliUpdateCommand(this.serverUrl);
+  }
+
+  /** What the server tells about itself: its Redline version, instance name and host protocol. */
+  instance(): Promise<RedlineInstanceResponse> {
+    return this.request("GET", "/instance");
   }
 
   checkout(pageId: string): Promise<AgentCheckout> {
@@ -97,6 +104,11 @@ export class ServerApi {
   /** The comments waiting for this terminal session, per page it holds. */
   terminalWaiting(sessionId: string): Promise<TerminalWaitingPage[]> {
     return this.request("GET", `/terminal-sessions/${encodeURIComponent(sessionId)}/waiting`);
+  }
+
+  /** Every page with comments waiting for a terminal session, read-only: nothing is taken. */
+  terminalComments(): Promise<TerminalCommentsPage[]> {
+    return this.request("GET", "/terminal-comments");
   }
 
   /** Hands one page this terminal session holds (or all of them) over to the agents; answers with what was handed over. */

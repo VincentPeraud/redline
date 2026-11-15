@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, rmSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { hostname } from "node:os";
-import { basename } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { encodeLine, lineReader } from "./ndjson.js";
 export { HostAlreadyRunningError } from "./host-lock.js";
 import { acquireLock, claimSocket, prepareHostDirectory } from "./host-lock.js";
@@ -11,27 +12,59 @@ import { rememberChoice } from "./launch-choice.js";
 import { AgentRegistry } from "./agent-registry.js";
 import {
   agentLogPath,
+  acceptsProtocol,
+  hostProtocol as currentProtocol,
   hostSocketPath,
   modelChoiceError,
+  refusalMessage,
   type HostAgent,
   type HostEvent,
   type HostLogEntry,
   type HostLogEvent,
+  type HostProtocol,
   type HostReply,
   type HostRequestEnvelope,
   type LaunchSettings,
-  type WorkerToHost,
 } from "./host-protocol.js";
 import type { AgentActivity } from "./activity.js";
 import { claudeEnvironment, workerEnvironment } from "./worker-environment.js";
 import { spawnWorker, type WorkerProcess } from "./worker-process.js";
-import { loginFor, normalizeServerUrl } from "./login.js";
+import { buildHash, cliVersion } from "./build-hash.js";
+import { listInstallations, type Installation } from "./installations.js";
+import { normalizeServerUrl } from "./login.js";
 import { UPDATE_EXIT_CODE } from "./supervisor.js";
+
+export interface WorkerCommand {
+  command: string;
+  args: string[];
+  env?: NodeJS.ProcessEnv;
+}
+
+/** The build of the global command: the host restarts when the files on disk are another build than the one it started with. */
+export interface CommandBuild {
+  /** The build the host runs. "dev" (from the sources) never changes. */
+  build: string;
+  /** The build installed on disk now. */
+  installedBuild(): string;
+  /** The version installed now, told in the agents' logs. */
+  version(): string;
+}
 
 export interface AgentHostOptions {
   configDir: string;
-  /** How a worker process is started; it receives its configuration on the parent channel (see `runAgentWorker`). */
-  worker: { command: string; args: string[]; env?: NodeJS.ProcessEnv };
+  /**
+   * How a worker process is started; it receives its configuration on the parent channel (see `runAgentWorker`). A function
+   * gets the installation of the agent, so that the worker runs that installation's own code.
+   */
+  worker: WorkerCommand | ((installation: Installation) => WorkerCommand);
+  /** The host protocol this host speaks and accepts. Default: this command's. */
+  protocol?: HostProtocol;
+  /** Default: this command's own build, against the one on disk. */
+  command?: CommandBuild;
+  /** How often the host looks at the global command's build. Default 5 s. */
+  commandCheckMs?: number;
+  /** Starts the host that replaces this one, once it has stopped because the global command changed. Without it, nothing replaces it. */
+  respawn?: WorkerCommand;
   /** How long the host waits, with no agent running and no client attached, before it exits. Default 5 s. */
   idleExitMs?: number;
   /** How long a worker gets to stop gracefully before it is killed. Default 10 s. */
@@ -61,7 +94,19 @@ interface Entry {
 }
 
 /** Starts the agent host: the registry, the workers, and the control API on a Unix socket only the user can use. */
-export async function startAgentHost({ configDir, worker, idleExitMs = 5000, stopTimeoutMs = 10_000, logCap = DEFAULT_LOG_CAP }: AgentHostOptions): Promise<AgentHost> {
+const resumePath = (configDir: string) => join(configDir, "host", "resume.json");
+
+export async function startAgentHost({
+  configDir,
+  worker,
+  protocol = currentProtocol(cliVersion()),
+  command = { build: buildHash(), installedBuild: buildHash, version: cliVersion },
+  commandCheckMs = 5000,
+  respawn,
+  idleExitMs = 5000,
+  stopTimeoutMs = 10_000,
+  logCap = DEFAULT_LOG_CAP,
+}: AgentHostOptions): Promise<AgentHost> {
   prepareHostDirectory(configDir);
   const releaseLock = acquireLock(configDir);
   const socketPath = hostSocketPath(configDir);
@@ -71,13 +116,22 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
   const loaded = registry.load(startedAt);
   const entries = new Map<string, Entry>(loaded.agents.map((agent) => [agent.id, { agent, log: logOf(agent.id) }]));
   for (const id of loaded.interrupted) entries.get(id)!.log.append({ at: startedAt, event: { type: "stopped", reason: "host-restarted" } });
+  /** The agents the previous host stopped to restart for a new global command: this host starts them again. */
+  const resumed = takeResumeList(configDir);
+  /** The agents this host stops for its own restart (the new command's version, once a change is seen), and those it will give back. */
+  let restartingFor: string | undefined;
+  const toResume = new Set<string>();
+  /** The agents of an updated installation whose worker restarts once its run ends. */
+  const restartAfterRun = new Set<string>();
   /** The agents the previous host died with, while they are still stopped: the fresh start lasts as long as one is. */
   const lost = loaded.interrupted;
   const clients = new Set<Socket>();
   const attached = new Set<Socket>();
   const subscribers = new Set<Socket>();
   let idleTimer: NodeJS.Timeout | undefined;
+  let commandTimer: NodeJS.Timeout | undefined;
   let shuttingDown = false;
+  let settling = false;
   let resolveClosed: () => void = () => undefined;
   const closed = new Promise<void>((resolve) => (resolveClosed = resolve));
 
@@ -93,6 +147,8 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     entry.agent = { ...entry.agent, ...change };
     persist();
     publish({ event: "agent-changed", agent: entry.agent });
+    if (restartingFor !== undefined) void settleRestart();
+    if (restartAfterRun.has(entry.agent.id)) void restartWhenIdle(entry);
   };
 
   const record = (entry: Entry, event: HostLogEvent) => {
@@ -127,6 +183,69 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     }
   };
 
+  /**
+   * The global command changed: no run is ever cancelled. Agents that are not running a piece of work are stopped at once (their
+   * work waits for the new host), the others when their run ends; once no worker is left, the host stops and its replacement starts
+   * the agents that were stopped here.
+   */
+  async function settleRestart(): Promise<void> {
+    if (restartingFor === undefined || settling || shuttingDown) return;
+    settling = true;
+    try {
+      // A worker that turns out busy (a run began as it was asked) is left alone: its activity brings us back here when the run ends.
+      const busy = new Set<Entry>();
+      for (;;) {
+        const idle = [...entries.values()].filter((entry) => entry.worker && entry.agent.state !== "running" && !busy.has(entry));
+        if (idle.length === 0) break;
+        for (const entry of idle) {
+          toResume.add(entry.agent.id);
+          if (!(await stopWorkerWhenIdle(entry))) {
+            busy.add(entry);
+            toResume.delete(entry.agent.id);
+          }
+        }
+      }
+      if ([...entries.values()].some((entry) => entry.worker)) return;
+      mkdirSync(dirname(resumePath(configDir)), { recursive: true, mode: 0o700 });
+      writeFileSync(resumePath(configDir), JSON.stringify([...toResume]), { mode: 0o600 });
+      await stop();
+      if (respawn) spawn(respawn.command, respawn.args, { detached: true, stdio: "ignore", env: { ...process.env, ...respawn.env } }).unref();
+    } finally {
+      settling = false;
+    }
+  }
+
+  async function restartWhenIdle(entry: Entry): Promise<void> {
+    const { id } = entry.agent;
+    if (!entry.worker) restartAfterRun.delete(id);
+    if (!restartAfterRun.has(id) || entry.agent.state === "running") return;
+    restartAfterRun.delete(id);
+    if (!(await stopWorkerWhenIdle(entry))) {
+      restartAfterRun.add(id);
+      return;
+    }
+    if (!shuttingDown && restartingFor === undefined) startWorker(entry);
+  }
+
+  /**
+   * An installation's files changed: its agents restart with them, each after its run (`except` already did, it is what exited to
+   * update). A host that is restarting anyway starts every agent from the new files already.
+   */
+  function restartInstallationAgents(installationId: string, except?: Entry): Entry[] {
+    const affected = [...entries.values()].filter((entry) => entry !== except && entry.worker && installationOf(entry.agent)?.id === installationId);
+    if (shuttingDown || restartingFor !== undefined) return affected;
+    for (const entry of affected) restartAfterRun.add(entry.agent.id);
+    for (const entry of affected) void restartWhenIdle(entry);
+    return affected;
+  }
+
+  function checkCommand(): void {
+    if (restartingFor !== undefined || shuttingDown) return;
+    if (command.installedBuild() === command.build) return;
+    restartingFor = command.version();
+    void settleRestart();
+  }
+
   function checkIdle(): void {
     const busy = attached.size > 0 || [...entries.values()].some((entry) => entry.worker);
     if (busy || shuttingDown) {
@@ -135,19 +254,31 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     } else idleTimer ??= setTimeout(() => void stop(), idleExitMs);
   }
 
+  const installationOf = ({ installation, serverUrl }: Pick<HostAgent, "installation" | "serverUrl">): Installation | undefined => {
+    const all = listInstallations(configDir);
+    return all.find((candidate) => candidate.id === installation) ?? all.find((candidate) => normalizeServerUrl(candidate.serverUrl) === normalizeServerUrl(serverUrl));
+  };
+
   function startWorker(entry: Entry, env?: Record<string, string>): void {
     const { agent } = entry;
-    const login = loginFor(configDir, agent.serverUrl);
-    if (!login) {
-      const error = `No token for ${agent.serverUrl}. Run \`redline setup\` first.`;
+    const installation = installationOf(agent);
+    if (!installation) {
+      const error = `${agent.serverUrl} is not set up. Run \`redline setup ${agent.serverUrl}\` first.`;
       record(entry, { type: "stopped", reason: "failed", error });
       stoppedAs(entry, error);
       return;
     }
     found(agent.id);
+    if (!acceptsProtocol(protocol, installation.hostProtocol)) {
+      const reason = refusalMessage(protocol, installation);
+      record(entry, { type: "refused", reason });
+      stoppedAs(entry, reason);
+      return;
+    }
+    const workerCommand = typeof worker === "function" ? worker(installation) : worker;
     // The environment of the client that launched the agent is kept in memory: an update relaunch reuses it, a restart replaces it.
     if (env) entry.env = claudeEnvironment(env);
-    const running = spawnWorker(worker, workerEnvironment({ host: process.env, client: entry.env, extra: worker.env, claudeConfigDir: agent.claudeConfigDir }), (message: WorkerToHost) => {
+    const running = spawnWorker(workerCommand, workerEnvironment({ host: process.env, client: entry.env, extra: workerCommand.env, claudeConfigDir: agent.claudeConfigDir }), (message) => {
       if (message.type === "failed") entry.failure = message.reason;
       else {
         record(entry, message.event);
@@ -161,7 +292,12 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       if (entry.stopRequested) {
         entry.stopRequested = false;
         stoppedAs(entry);
-      } else if (code === UPDATE_EXIT_CODE && !shuttingDown) startWorker(entry);
+      } else if (code === UPDATE_EXIT_CODE && !shuttingDown) {
+        startWorker(entry);
+        // The update replaced the installation's files: the other agents running them restart too.
+        const installation = installationOf(agent);
+        if (installation) restartInstallationAgents(installation.id, entry);
+      }
       else {
         const lastWords = stderrTail.trim().split("\n").at(-1)?.slice(0, 300);
         const how = signal ? `The agent process was killed (${signal})` : `The agent process exited (code ${code})`;
@@ -171,7 +307,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       }
       checkIdle();
     });
-    const { serverUrl, token } = login;
+    const { serverUrl, token } = installation;
     running.send({
       type: "start",
       config: { serverUrl, token, machine: hostname(), folder: agent.folder, kind: agent.kind, projectIds: agent.projectIds, model: agent.model, effort: agent.effort },
@@ -188,14 +324,27 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     await entry.exited;
   }
 
+  /** Stops the worker unless it runs something; false (the worker goes on) when a run began meanwhile. No update ever cancels a run. */
+  async function stopWorkerWhenIdle(entry: Entry): Promise<boolean> {
+    if (!entry.worker || !entry.exited) return true;
+    entry.stopRequested = true;
+    if (await entry.worker.stopWhenIdle(stopTimeoutMs)) {
+      await entry.exited;
+      return true;
+    }
+    entry.stopRequested = false;
+    return false;
+  }
+
   function launch(settings: LaunchSettings, env?: Record<string, string>): { agent: HostAgent; started: boolean } {
     const serverUrl = normalizeServerUrl(settings.serverUrl);
     const existing = [...entries.values()].find((entry) => entry.agent.folder === settings.folder && normalizeServerUrl(entry.agent.serverUrl) === serverUrl);
     if (existing && existing.agent.state !== "stopped") return { agent: existing.agent, started: false };
-    if (!loginFor(configDir, serverUrl)) {
+    const installation = installationOf({ serverUrl });
+    if (!installation) {
       throw new Error(`${serverUrl} is not set up. Run \`redline setup ${serverUrl} --token <token>\` first.`);
     }
-    const settled = { ...settings, serverUrl };
+    const settled = { ...settings, serverUrl, installation: installation.id };
     if (existing) {
       existing.agent = { ...existing.agent, ...settled };
       startWorker(existing, env);
@@ -256,6 +405,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
       case "stop": {
         const entry = entryOf(request.agentId);
         await stopWorker(entry);
+        if (request.reason && entry.agent.state === "stopped") setAgent(entry, { reason: request.reason });
         return { id: request.id, ok: true, agent: entry.agent };
       }
       case "remove": {
@@ -279,6 +429,8 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
         for (const entry of stopped) startWorker(entry, request.env);
         return { id: request.id, ok: true, agents: stopped.map((entry) => entry.agent) };
       }
+      case "installation-updated":
+        return { id: request.id, ok: true, agents: restartInstallationAgents(request.installation).map((entry) => entry.agent) };
       case "subscribe":
         attached.add(client);
         subscribers.add(client);
@@ -320,6 +472,7 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     if (shuttingDown) return closed;
     shuttingDown = true;
     clearTimeout(idleTimer);
+    clearInterval(commandTimer);
     await Promise.all([...entries.values()].map(stopWorker));
     for (const client of clients) client.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -339,6 +492,27 @@ export async function startAgentHost({ configDir, worker, idleExitMs = 5000, sto
     releaseLock();
     throw error;
   }
+  for (const id of resumed) {
+    const entry = entries.get(id);
+    if (!entry) continue;
+    entry.log.append({ at: new Date().toISOString(), event: { type: "host-updated", version: command.version() } });
+    startWorker(entry);
+  }
+  commandTimer = setInterval(checkCommand, commandCheckMs);
+  commandTimer.unref();
   checkIdle();
   return { stop, closed };
+}
+
+/** The agents the previous host stopped for its restart (read once: the list is deleted). */
+function takeResumeList(configDir: string): string[] {
+  const file = resumePath(configDir);
+  try {
+    const ids: unknown = JSON.parse(readFileSync(file, "utf8"));
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  } finally {
+    rmSync(file, { force: true });
+  }
 }

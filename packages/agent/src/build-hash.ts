@@ -8,3 +8,12 @@ export function buildHash(): string {
     return "dev";
   }
 }
+
+/** Version of this CLI: `package.json` sits one folder above `dist/` (and above `src/`). */
+export function cliVersion(): string {
+  try {
+    return (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
+  } catch {
+    return "dev";
+  }
+}

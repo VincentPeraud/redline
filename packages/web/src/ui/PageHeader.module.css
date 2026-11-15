@@ -20,6 +20,12 @@
   gap: 6px;
 }
 
+.titleLine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .title {
   font-size: var(--font-size-h1);
   font-weight: var(--font-weight-bold);

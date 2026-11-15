@@ -25,6 +25,18 @@ _Avoid_: Artboard URL, deep link
 The order in which a page's artboards are numbered: artboards whose vertical extents overlap form a row, rows go top to bottom and artboards of a row left to right, whatever the manifest order. Each artboard also falls under a group (the nearest group title above its row that covers it horizontally, or none).
 _Avoid_: Manifest order, artboard order
 
+**Redline instance**:
+One Redline server, known by its address and its instance name. The CLI's user-facing texts say "instance"; in code and docs use "Redline instance" or "server", never a bare "instance" next to component code.
+_Avoid_: Instance (alone), environment
+
+**Installation**:
+The CLI files of one Redline instance on one computer: its own npm prefix, its token and its build, in a folder of its own under the CLI config dir, named by the installation id.
+_Avoid_: Install, copy
+
+**Global command**:
+The `redline` command on the PATH: a thin launcher that knows every installation.
+_Avoid_: Global CLI
+
 **Design system**:
 A special project whose tokens, components and pages define a style that other projects use.
 _Avoid_: DS (in code and docs), theme, style guide

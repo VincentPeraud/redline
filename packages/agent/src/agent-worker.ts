@@ -52,6 +52,9 @@ export function runAgentWorker({ engine }: { engine: Engine }): void {
       );
     } else if (message.type === "set-model-effort") {
       service?.setModelEffort({ model: message.model, effort: message.effort });
+    } else if (message.type === "stop-when-idle") {
+      if (!service) exit(0);
+      else if (!service.stopWhenIdle()) send({ type: "busy" });
     } else if (message.type === "stop") {
       if (service) service.stop();
       else exit(0);

@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  cliUpdateCommand,
+  cliMigrateCommand,
+  redlineUpdateCommand,
   AgentCloseCode,
+  HOST_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   type AgentInfo,
   type AgentTokenResponse,
@@ -39,12 +41,20 @@ describe("agent endpoint", () => {
     expect(await agents()).toEqual([]);
   });
 
-  it("refuses an incompatible protocol version with the update command in the error", async () => {
-    const agent = await server.connectAgent({ token: await token(), protocolVersion: PROTOCOL_VERSION + 1 });
+  it("refuses an incompatible protocol with `redline update <address>` for an agent that knows instances", async () => {
+    const agent = await server.connectAgent({ token: await token(), protocolVersion: PROTOCOL_VERSION + 1, hostProtocol: HOST_PROTOCOL_VERSION });
     const reply = await agent.hello;
     expect(reply).toMatchObject({ type: "error", code: "incompatible_protocol" });
-    expect(reply.type === "error" && reply.message).toContain(cliUpdateCommand(server.url));
+    expect(reply.type === "error" && reply.message).toContain(redlineUpdateCommand(server.url));
     expect((await agent.closed).code).toBe(AgentCloseCode.IncompatibleProtocol);
+  });
+
+  it("refuses an incompatible protocol with the npx migrate command for an agent installed before instances", async () => {
+    const agent = await server.connectAgent({ token: await token(), protocolVersion: PROTOCOL_VERSION + 1 });
+    const reply = await agent.hello;
+    expect(reply.type === "error" && reply.message).toContain(`npx -y ${server.url}/cli/redline-cli.tgz migrate`);
+    expect(reply.type === "error" && reply.message).toContain(cliMigrateCommand(server.url));
+    expect(reply.type === "error" && reply.message).not.toContain("npm i -g");
   });
 
   it("lists connected agents with machine, folder and online status, then offline after disconnect", async () => {

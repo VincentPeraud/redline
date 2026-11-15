@@ -17,7 +17,7 @@ const runsReport = process.env.REDLINE_TEST_RUNS;
 
 process.on("message", (message: HostToWorker) => {
   if (message.type !== "start") return;
-  if (report) appendFileSync(report, `${JSON.stringify({ claudeConfigDir: process.env.CLAUDE_CONFIG_DIR, model: message.config.model, effort: message.config.effort, folder: message.config.folder })}\n`);
+  if (report) appendFileSync(report, `${JSON.stringify({ claudeConfigDir: process.env.CLAUDE_CONFIG_DIR, model: message.config.model, effort: message.config.effort, folder: message.config.folder, installation: process.env.REDLINE_TEST_INSTALLATION })}\n`);
   if (envReport) appendFileSync(envReport, `${JSON.stringify({ leak: process.env.REDLINE_TEST_LEAK, apiKey: process.env.ANTHROPIC_API_KEY, awsProfile: process.env.AWS_PROFILE, path: process.env.PATH })}\n`);
   if (crash === "exit") process.exit(3);
   if (crash === "throw") setTimeout(() => { throw new Error("boom in the worker"); }, 50);

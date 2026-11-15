@@ -6,7 +6,9 @@ import type { HostClient } from "./host-client.js";
 import type { HostAgent } from "./host-protocol.js";
 import { lastLaunchChoice, rememberChoice } from "./launch-choice.js";
 import { linkFolder, linkedServer, listProjects, readLinkedProjectIds, servedElsewhere, type LinkChoice } from "./link.js";
-import { findLogin, requireLogins, type Login } from "./login.js";
+import { installationLogins, listInstallations } from "./installations.js";
+import { instanceEntries, type InstanceEntry } from "./instance-list.js";
+import { findLogin, type Login } from "./login.js";
 
 export interface ProjectOption {
   id: string;
@@ -19,8 +21,8 @@ export interface ProjectOption {
 export interface NewAgentQuestions {
   /** Set when the server is known: the folder's own, or the only one set up. */
   serverUrl?: string;
-  /** The servers to pick from, when several are set up and the folder is not linked. */
-  servers: string[];
+  /** The instances to pick from, when several are set up and the folder is not linked. */
+  instances: InstanceEntry[];
   /** The projects of the folder's server it could be linked to; absent while the server is still to pick. */
   projects?: ProjectOption[];
   /** The titles of the projects of a folder that is already linked: `projects` are then ticked rather than picked. */
@@ -73,9 +75,9 @@ function takenBy(project: Project, folder: string): string | undefined {
 }
 
 export function createNewAgentFlow({ folder, configDir, claudeSettingsFile, host, checkClaude }: NewAgentFlowOptions): NewAgentFlow {
-  const servers = () => requireLogins(configDir);
+  const servers = () => installationLogins(configDir);
   const choice = () => lastLaunchChoice({ folder, configDir, claudeSettingsFile });
-  const open = (all: Login[]) => ({ servers: all.map((server) => server.serverUrl), ...choice() });
+  const open = (all: Login[]) => ({ instances: instanceEntries(listInstallations(configDir).filter((installation) => all.some((login) => login.serverUrl === installation.serverUrl))), ...choice() });
   return {
     async inspect() {
       const all = servers();

@@ -292,6 +292,7 @@ export class Store {
     if (!agentColumns.some((c) => c.name === "effort")) this.db.exec("ALTER TABLE agents ADD COLUMN effort TEXT");
     const refusedColumns = this.db.prepare("PRAGMA table_info(refused_agents)").all() as { name: string }[];
     if (!refusedColumns.some((c) => c.name === "project_id")) this.db.exec("ALTER TABLE refused_agents ADD COLUMN project_id TEXT");
+    if (!refusedColumns.some((c) => c.name === "before_instances")) this.db.exec("ALTER TABLE refused_agents ADD COLUMN before_instances INTEGER NOT NULL DEFAULT 0");
     const columnsOf = (table: string) => (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
     const addColumn = (table: string, column: string, definition: string) => {
       if (!columnsOf(table).includes(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
@@ -893,22 +894,22 @@ export class Store {
   }
 
   /** Remembers an agent refused for its protocol until it connects again. */
-  recordRefusedAgent({ machine, folder, kind, projectIds, projectId = projectIds?.[0] }: AgentIdentity): void {
+  recordRefusedAgent({ machine, folder, kind, projectIds, projectId = projectIds?.[0], beforeInstallations }: AgentIdentity & { beforeInstallations: boolean }): void {
     this.db
       .prepare(
-        "INSERT INTO refused_agents (machine, folder, kind, project_id, refused_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, project_id = excluded.project_id, refused_at = excluded.refused_at",
+        "INSERT INTO refused_agents (machine, folder, kind, project_id, refused_at, before_instances) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(machine, folder) DO UPDATE SET kind = excluded.kind, project_id = excluded.project_id, refused_at = excluded.refused_at, before_instances = excluded.before_instances",
       )
-      .run(machine, folder, kind, projectId ?? null, now());
+      .run(machine, folder, kind, projectId ?? null, now(), beforeInstallations ? 1 : 0);
   }
 
   listRefusedAgents(): RefusedAgent[] {
     const rows = this.db
       .prepare(
-        `SELECT r.machine, r.folder, r.kind, p.title AS project, r.refused_at AS refusedAt
+        `SELECT r.machine, r.folder, r.kind, p.title AS project, r.refused_at AS refusedAt, r.before_instances AS beforeInstallations
          FROM refused_agents r LEFT JOIN projects p ON p.id = r.project_id ORDER BY r.machine, r.folder`,
       )
-      .all() as (Omit<RefusedAgent, "project"> & { project: string | null })[];
-    return rows.map(({ project, ...agent }) => ({ ...agent, ...(project ? { project } : {}) }));
+      .all() as (Omit<RefusedAgent, "project" | "beforeInstallations"> & { project: string | null; beforeInstallations: number })[];
+    return rows.map(({ project, beforeInstallations, ...agent }) => ({ ...agent, ...(project ? { project } : {}), ...(beforeInstallations ? { beforeInstallations: true as const } : {}) }));
   }
 
   private insertProject(title: string, id: string, instructions: string, designSystem: string | null, ownership: ProjectOwnership = {}): Project {

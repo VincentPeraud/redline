@@ -1,6 +1,11 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { AGENT_API_PREFIX, CORE_TOKENS, type AgentCheckout, type AgentTokenResponse, type Page, type PageGaps, type PageVersionSummary, type Project, type Thread } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
+
+const serverVersion = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
 
 let server: TestServer;
 let token: string;
@@ -186,4 +191,20 @@ it("refuses an agent version whose elements lack ids, naming each one, while the
 
   const lenient = await server.post(`/api/pages/${page.id}/versions`, { files: { "home.html": "<h1>Hi</h1>", "manifest.json": manifest }, message: "m", origin: "tweak" });
   expect(lenient.status).toBe(201);
+});
+
+it("tells the CLI the instance name, version, build hash and host protocol behind its token", async () => {
+  const cliDir = mkdtempSync(join(tmpdir(), "redline-cli-"));
+  writeFileSync(join(cliDir, "redline-cli.tgz"), "tarball");
+  writeFileSync(join(cliDir, "build-hash.txt"), "abc123\n");
+  const named = await startTestServer({ redlineInstanceName: "Lumora", cliDir });
+  try {
+    const namedToken = ((await (await named.get("/api/agent-token")).json()) as AgentTokenResponse).token;
+    const answer = await fetch(`${named.url}${AGENT_API_PREFIX}/instance`, { headers: { authorization: `Bearer ${namedToken}` } });
+    expect(await answer.json()).toEqual({ artboardOrigin: named.artboardOrigin, redlineInstanceName: "Lumora", version: serverVersion, buildHash: "abc123", hostProtocol: 1 });
+    expect((await fetch(`${named.url}${AGENT_API_PREFIX}/instance`)).status).toBe(401);
+  } finally {
+    await named.stop();
+    rmSync(cliDir, { recursive: true, force: true });
+  }
 });

@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -35,7 +35,9 @@ export function validateServerUrl(url: string): string {
   }
   const secure = parsed.protocol === "https:" || (parsed.protocol === "http:" && LOOPBACK_HOST.test(parsed.hostname));
   if (!secure) {
-    throw new Error("The server URL must start with https:// (http:// is only accepted for localhost, *.localhost and 127.0.0.1).");
+    if (parsed.protocol !== "http:") throw new Error("The server URL must start with https://.");
+    const path = parsed.pathname === "/" ? "" : parsed.pathname;
+    throw new Error(`http:// is only allowed for this computer (localhost, *.localhost, 127.0.0.1).\n  Use https://${parsed.host}${path}.`);
   }
   const clean =
     !parsed.username && !parsed.password && !/[?#]/.test(normalized) && SAFE_HOST.test(parsed.hostname) && SAFE_PATH.test(parsed.pathname);
@@ -81,6 +83,17 @@ export function saveLogin({ configDir, serverUrl, token }: Login & { configDir: 
   const file = join(configDir, "login.json");
   writeFileSync(file, JSON.stringify([...others, entry], null, 2), { mode: 0o600 });
   // `mode` only applies when the file is created: tighten one that already existed.
+  chmodSync(file, 0o600);
+}
+
+/** Rewrites the legacy login file with these servers only; no server left removes the file. */
+export function replaceLogins(configDir: string, logins: Login[]): void {
+  const file = join(configDir, "login.json");
+  if (logins.length === 0) {
+    rmSync(file, { force: true });
+    return;
+  }
+  writeFileSync(file, JSON.stringify(logins, null, 2), { mode: 0o600 });
   chmodSync(file, 0o600);
 }
 

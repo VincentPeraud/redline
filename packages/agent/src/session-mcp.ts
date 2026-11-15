@@ -43,6 +43,8 @@ export interface RedlineToolsContext {
   onRemovalsConfirmed?: () => void;
   /** Called when the design system's session records a change: the caller sends it with the next publish. */
   onChangeRecorded?: (change: ChangeRecordInput) => void;
+  /** Sent to the MCP client as the server's instructions. */
+  instructions?: string;
   /** Applied to the result of every tool registered on the server (terminal mode adds its update notice there). */
   decorateResult?: (result: ToolResult) => ToolResult | Promise<ToolResult>;
   /** Checked before every tool runs: a result returned here is the answer and the tool does not run (terminal mode pauses a stale MCP). */
@@ -111,7 +113,7 @@ function dropArtboardFromWorkingCopy(dir: string, file: string): void {
 export function createRedlineMcpServer(context: RedlineToolsContext): McpServer {
   const { api, allowedThreadIds } = context;
   const postReply = context.postReply ?? ((threadId: string, text: string) => api.replyInThread(threadId, text, context.workId));
-  const server = new McpServer({ name: "redline", version: "0.0.0" });
+  const server = new McpServer({ name: "redline", version: "0.0.0" }, context.instructions ? { instructions: context.instructions } : undefined);
   const { decorateResult = (result: ToolResult): ToolResult | Promise<ToolResult> => result, refuseCall } = context;
   if (context.decorateResult || refuseCall) {
     const register = server.registerTool.bind(server) as (name: string, config: unknown, handler: (...args: unknown[]) => Promise<ToolResult>) => unknown;
