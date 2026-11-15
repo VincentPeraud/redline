@@ -6,6 +6,8 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-15
+
 ### Added
 
 - The agents screen's Comments tab lists, for every installation, the pages whose threads wait for a terminal session (who holds the page, each comment with author, time and target, `o` opens the page in Redline). It reads them through the new read-only `GET /agent-api/terminal-comments`, which never takes a thread.
