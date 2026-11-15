@@ -111,3 +111,19 @@ it("opens a mobile step in the mobile rendering and hides the toggle and the Twe
   expect(await top(tab).getByRole("button", { name: "Tweaks" }).count()).toBe(0);
   await tab.close();
 });
+
+it("shows and hides the device frame with Habillage, as in Present", async () => {
+  const { reviewId } = await declare((id) => [step(id, "plain.html")]);
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${seam.server.url}/#/reviews/${reviewId}/steps/1`);
+
+  const habillage = top(tab).getByRole("button", { name: "Habillage" });
+  await expect.poll(() => habillage.getAttribute("aria-pressed")).toBe("true");
+  await expect.poll(() => tab.locator("[data-frame='browser']").count()).toBe(1);
+
+  await habillage.click();
+  await expect.poll(() => habillage.getAttribute("aria-pressed")).toBe("false");
+  await expect.poll(() => tab.locator("[data-frame='browser']").count()).toBe(0);
+  await habillage.click();
+  await tab.close();
+});

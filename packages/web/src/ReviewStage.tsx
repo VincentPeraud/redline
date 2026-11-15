@@ -63,7 +63,7 @@ export function ReviewStage({
   }, [controls.values, bridgeEpoch]);
   const entry = step.artboardEntry;
   /** The stage's own padding keeps the artboard off its edges, so the fit takes the space inside it. */
-  const shown = entry && presentationOf(entry, true, windowWidth, entry.responsive ? controls.rendering : undefined);
+  const shown = entry && presentationOf(entry, controls.framed, windowWidth, entry.responsive ? controls.rendering : undefined);
   const presentation = shown && { ...shown, stagePadding: DEVICE_BEZEL[shown.frame] ?? 0 };
   const fitted = presentation && fitToStage(presentation, size);
   return (

@@ -6,6 +6,10 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+### Added
+
+- Review mode: an "Habillage" button in the top bar shows or hides the device frame or browser window around the artboard, as in Present (the same saved choice). Pressed toggles of the red bar (Habillage, Tweaks) are white.
+
 ## [0.2.0] - 2026-11-15
 
 ### Added

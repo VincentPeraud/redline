@@ -3,6 +3,7 @@ import { RESPONSIVE_FORMATS, activeSteps, progressOf, renderingKey, renderingLab
 import { navigateTo, type Route } from "./router.js";
 import { type StepControls } from "./useReviewControls.js";
 import { usePhone } from "./usePhone.js";
+import { presentationOf } from "./playFrames.js";
 import { cx } from "./ui/index.js";
 import { personName } from "./ReviewRemark.js";
 import { STEP_STATE, type View, neighbour, stepNumber, stepStateOf } from "./reviewView.js";
@@ -163,6 +164,30 @@ export function ReviewTopBar({ review, view, shown, controls, onGo, onLeave, onF
               </button>
             ))}
           </div>
+        )}
+        {!phone && controls && step?.artboardEntry && presentationOf(step.artboardEntry, controls.framed, window.innerWidth, controls.rendering).framable && (
+          <button
+            type="button"
+            aria-pressed={controls.framed}
+            title={(controls.rendering ? controls.rendering.format === "desktop" : step.artboardEntry.frame === "browser") ? "Afficher ou masquer la fenêtre de navigateur" : "Afficher ou masquer le cadre de l'appareil"}
+            className={cx(styles.button, controls.framed && styles.buttonOn)}
+            onClick={controls.toggleFramed}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {(controls.rendering ? controls.rendering.format === "desktop" : step.artboardEntry.frame === "browser") ? (
+                <>
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M3 9h18" />
+                </>
+              ) : (
+                <>
+                  <rect x="6" y="2" width="12" height="20" rx="3" />
+                  <path d="M11 18h2" />
+                </>
+              )}
+            </svg>
+            Habillage
+          </button>
         )}
         {!phone && controls && controls.tweaks.length > 0 && (
           <button type="button" aria-pressed={controls.tweaksOpen} className={cx(styles.button, controls.tweaksOpen && styles.buttonOn)} onClick={controls.toggleTweaks}>

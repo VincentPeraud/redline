@@ -978,8 +978,12 @@
   flex: 0 0 auto;
 }
 
-.buttonOn {
-  background: var(--review-bar-pressed);
+/* A pressed toggle of the red bar (Tweaks, Habillage, Avant on a phone) is white, like the pressed segment of a switch. */
+.buttonOn,
+.buttonOn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--color-surface);
+  color: var(--color-accent-ink);
 }
 
 /* The rendering switch of a responsive artboard, in the red bar. */

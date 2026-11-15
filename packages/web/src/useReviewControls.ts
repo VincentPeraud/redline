@@ -18,6 +18,9 @@ export interface StepControls {
   chooseBefore: (before: boolean) => void;
   tweaksOpen: boolean;
   toggleTweaks: () => void;
+  /** The device frame or browser window around the artboard, shown or hidden: the same choice as "Habillage" in Present. */
+  framed: boolean;
+  toggleFramed: () => void;
 }
 
 /**
@@ -26,6 +29,7 @@ export interface StepControls {
  */
 export function useReviewControls(): (step: ChangeReviewStep) => StepControls {
   const [tweaksOpen, toggleTweaks] = useStoredToggle("redline:review-tweaks", false);
+  const [framed, toggleFramed] = useStoredToggle("redline:play-framed", true);
   const [ownValues, setOwnValues] = useState<Record<string, TweakValues>>({});
   const [chosen, setChosen] = useState<Record<string, string>>({});
   const [before, setBefore] = useState<Record<string, boolean>>({});
@@ -46,6 +50,8 @@ export function useReviewControls(): (step: ChangeReviewStep) => StepControls {
       chooseBefore: (next) => setBefore((current) => ({ ...current, [step.id]: next })),
       tweaksOpen,
       toggleTweaks,
+      framed,
+      toggleFramed,
     };
   };
 }
