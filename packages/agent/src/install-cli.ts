@@ -17,8 +17,8 @@ export function installPrefix(packageDir = fileURLToPath(new URL("..", import.me
   return process.platform !== "win32" && basename(above) === "lib" ? dirname(above) : above;
 }
 
-/** Runs `npm i -g <spec> --prefix <prefix>` without a shell (except on Windows, where `npm` is a script). */
-export const npmInstall = (spec: string, prefix: string | undefined): Promise<void> => runNpm(["npm", "i", "-g", spec], prefix);
+/** Runs `npm i -g <spec> --prefix <prefix>` without a shell (except on Windows, where `npm` is a script); `npm` may be a full path. */
+export const npmInstall = (spec: string, prefix: string | undefined, npm = "npm"): Promise<void> => runNpm([npm, "i", "-g", spec], prefix);
 
 /**
  * The command is `cliUpdateCommand(serverUrl)` (words separated by spaces, URL validated at setup), completed with `--prefix`:

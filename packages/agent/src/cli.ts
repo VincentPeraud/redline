@@ -70,7 +70,7 @@ async function runSetup(args: string[], { askAddress }: { askAddress: boolean })
 /** Run by the panel's npx command: the global `redline` command is installed when missing or older, and an old computer migrates first. */
 async function prepareFromNpx(serverUrl: string, color: boolean): Promise<void> {
   try {
-    const done = await ensureGlobalCommand(serverUrl, cliVersion(), systemGlobalCommand);
+    const done = await ensureGlobalCommand(serverUrl, { version: cliVersion(), buildHash: buildHash() }, systemGlobalCommand());
     if (done !== "current") console.log(`✓ redline command ${done} (v${cliVersion()}).`);
   } catch (error) {
     throw new SetupRefusal(`Could not install the redline command: ${(error as Error).message}\n  Nothing else was changed. Run npm i -g ${serverUrl}/cli/redline-cli.tgz yourself, then run the command again.`);

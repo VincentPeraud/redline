@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { HostAgent } from "../src/host-protocol.js";
 import { listInstallations, resolveFolder } from "../src/installations.js";
 import { launchMcp } from "../src/mcp-launcher.js";
-import { forgetLegacy, legacyGateRefuses, legacyRefusal, migrateLegacy, MIGRATE_STOP_REASON, type MigrateHost } from "../src/migrate.js";
+import { forgetLegacy, legacyGateRefuses, legacyRefusal, migrateLegacy, MIGRATE_STOP_REASON, type MigrateHost, waitForHostExit } from "../src/migrate.js";
 import { readLogins, saveLogin } from "../src/login.js";
 import { fakeWorld, tempDir } from "./support/installations.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -218,5 +218,44 @@ describe("before migrate", () => {
       const answer = (await client.callTool({ name, arguments: name === "checkout_page" ? { pageId: "p" } : {} })) as { content: { text: string }[] };
       expect(answer.content[0].text).toBe("Redline changed: this computer still has the old single installation. Tell the user to run redline migrate in a terminal, then /mcp and reconnect redline.");
     }
+  });
+});
+
+describe("the old agent host after migrate stopped its agents", () => {
+  function clock() {
+    let now = 0;
+    return { now: () => now, sleep: async (ms: number) => void (now += ms) };
+  }
+
+  it("is left to exit by itself when it does", async () => {
+    const time = clock();
+    let checks = 0;
+    const killed: number[] = [];
+    await waitForHostExit({ answers: async () => ++checks < 3, lockPid: () => 42, kill: (pid) => void killed.push(pid), timeoutMs: 20_000, ...time });
+    expect(killed).toEqual([]);
+  });
+
+  it("is ended when it stays up (an old screen still attached to it), so that no agent restarts with the old code", async () => {
+    const time = clock();
+    let alive = true;
+    const killed: number[] = [];
+    await waitForHostExit({
+      answers: async () => alive,
+      lockPid: () => 42,
+      kill: (pid) => {
+        killed.push(pid);
+        alive = false;
+      },
+      timeoutMs: 20_000,
+      ...time,
+    });
+    expect(killed).toEqual([42]);
+  });
+
+  it("gives up quietly when the host cannot be found by its lock", async () => {
+    const time = clock();
+    const killed: number[] = [];
+    await waitForHostExit({ answers: async () => true, lockPid: () => undefined, kill: (pid) => void killed.push(pid), timeoutMs: 1000, ...time });
+    expect(killed).toEqual([]);
   });
 });

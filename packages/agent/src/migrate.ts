@@ -1,8 +1,9 @@
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { AgentRegistry } from "./agent-registry.js";
 import { MIGRATE_STOP_REASON } from "./activity.js";
 import { HostClient } from "./host-client.js";
-import type { HostAgent } from "./host-protocol.js";
+import { hostLockPath, type HostAgent } from "./host-protocol.js";
 import { redlineInstanceFallbackName, redlineInstanceHandle } from "@redline/shared";
 import { createInstallation, listInstallations, type InstallationsDeps, type InstanceInfo } from "./installations.js";
 import { receivedInstanceName } from "./sanitize.js";
@@ -65,18 +66,68 @@ export async function connectMigrateHost(configDir: string, timeoutMs = 20_000):
     stop: async (agentId, reason) => void (await client.stop(agentId, reason)),
     async untilGone() {
       client.close();
-      const deadline = Date.now() + timeoutMs;
-      for (;;) {
-        try {
-          (await HostClient.connect(configDir)).close();
-        } catch {
-          return;
-        }
-        if (Date.now() > deadline) return;
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
+      await waitForHostExit({
+        answers: async () => {
+          try {
+            (await HostClient.connect(configDir)).close();
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        lockPid: () => {
+          try {
+            const pid = Number(readFileSync(hostLockPath(configDir), "utf8"));
+            return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+          } catch {
+            return undefined;
+          }
+        },
+        kill: (pid) => {
+          try {
+            process.kill(pid, "SIGTERM");
+          } catch {
+            // Already gone.
+          }
+        },
+        timeoutMs,
+      });
     },
   };
+}
+
+/**
+ * Waits for the old agent host to exit once its agents are stopped. It exits by itself when no screen is attached; one that stays up
+ * (an old `redline` screen still open on it) is ended through the pid of its lock, since a new screen would otherwise attach to it and
+ * restart the agents with the old code, which no longer finds their token.
+ */
+export async function waitForHostExit({
+  answers,
+  lockPid,
+  kill,
+  timeoutMs,
+  now = Date.now,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}: {
+  answers(): Promise<boolean>;
+  lockPid(): number | undefined;
+  kill(pid: number): void;
+  timeoutMs: number;
+  now?(): number;
+  sleep?(ms: number): Promise<void>;
+}): Promise<void> {
+  const waitUntil = async (deadline: number) => {
+    for (;;) {
+      if (!(await answers())) return true;
+      if (now() > deadline) return false;
+      await sleep(200);
+    }
+  };
+  if (await waitUntil(now() + timeoutMs)) return;
+  const pid = lockPid();
+  if (pid === undefined) return;
+  kill(pid);
+  await waitUntil(now() + 5000);
 }
 
 export interface MigrateOptions {

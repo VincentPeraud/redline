@@ -10,6 +10,7 @@ import { HostClient } from "./host-client.js";
 import { hostProtocol } from "./host-protocol.js";
 import { listProjects } from "./link.js";
 import { npmInstall } from "./install-cli.js";
+import { systemGlobalCommand } from "./global-command.js";
 import type { InstallationsDeps, InstanceInfo, McpStatus, SetupResult } from "./installations.js";
 import { sanitizeForTerminal } from "./sanitize.js";
 import { ServerApi } from "./server-api.js";
@@ -124,7 +125,7 @@ export function systemDeps(configDir: string, env: NodeJS.ProcessEnv = process.e
     install,
     registerMcp: () => registerMcp(env),
     restartStoppedAgents: (serverUrl) => restartStoppedAgents(configDir, serverUrl, env),
-    installGlobalCommand: (serverUrl) => npmInstall(`${serverUrl}${CLI_TARBALL_PATH}`, undefined),
+    installGlobalCommand: (serverUrl) => systemGlobalCommand(env).install(`${serverUrl}${CLI_TARBALL_PATH}`),
     restartAgents: (installation) => restartInstallationAgents(configDir, installation, env),
     agentsOf: (installation) => agentsOfInstallation(configDir, installation, env),
     removeStoppedAgents: (installation) => removeStoppedAgents(configDir, installation, env),
