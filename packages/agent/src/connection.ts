@@ -2,6 +2,7 @@ import { buildHash as ownBuildHash } from "./build-hash.js";
 import {
   AGENT_ENDPOINT,
   AgentCloseCode,
+  HOST_PROTOCOL_VERSION,
   type Effort,
   PROTOCOL_VERSION,
   type AgentHello,
@@ -67,6 +68,7 @@ export function connectToServer(options: ConnectOptions): Promise<AgentConnectio
         model: options.model,
         effort: options.effort,
         buildHash: options.buildHash ?? ownBuildHash(),
+        hostProtocol: HOST_PROTOCOL_VERSION,
       };
       socket.send(JSON.stringify(hello));
     });

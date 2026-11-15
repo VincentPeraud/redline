@@ -17,7 +17,7 @@ function useTerminalHolder(pageId: string): TerminalHolder | null {
     load();
     return subscribeServerEvents((event) => {
       if ((event.type === "terminal-hold-changed" || event.type === "queue-updated") && event.pageId === pageId) load();
-    });
+    }, load);
   }, [pageId]);
   return holder;
 }

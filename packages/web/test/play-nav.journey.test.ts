@@ -1,14 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import { type Browser, type Page } from "playwright";
 import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
-
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 
 let server: TestServer;
 let browser: Browser;
@@ -16,7 +13,7 @@ let webDir: string;
 
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   server = await startTestServer({ webDir });
   browser = await launchBrowser();
 }, 60_000);
@@ -217,3 +214,13 @@ it("shows ‹ n / N › as 44 px targets in the phone bar, ends disabled, and th
   expect(await menu.count()).toBe(0);
   await tab.close();
 }, 60_000);
+
+it("starts the presentation from the page's top bar on the first artboard in reading order", async () => {
+  const pageId = await createPage();
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/pages/${pageId}`);
+  await tab.getByRole("button", { name: "Présenter" }).click();
+  await tab.getByTestId("play").getByText("Flow · Gamma").waitFor();
+  expect(await hashOf(tab)).toBe(`#/pages/${pageId}/play/c.html`);
+  await tab.close();
+});

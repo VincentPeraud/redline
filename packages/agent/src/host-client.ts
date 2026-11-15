@@ -80,8 +80,8 @@ export class HostClient {
   }
 
   /** Resolves once the agent's worker has exited. */
-  async stop(agentId: string): Promise<HostAgent> {
-    return (await this.request({ type: "stop", agentId })).agent;
+  async stop(agentId: string, reason?: string): Promise<HostAgent> {
+    return (await this.request({ type: "stop", agentId, reason })).agent;
   }
 
   /** Removes the agent from the host's list and deletes its log. */
@@ -97,6 +97,11 @@ export class HostClient {
   /** Restarts every stopped agent and returns those. */
   async restartAll(): Promise<HostAgent[]> {
     return (await this.request({ type: "restart-all", env: claudeEnvironment(this.env) })).agents;
+  }
+
+  /** Tells the host an installation was updated: its agents restart, each after its run. Returns those agents. */
+  async installationUpdated(installation: string): Promise<HostAgent[]> {
+    return (await this.request({ type: "installation-updated", installation })).agents;
   }
 
   /** Sets the model and effort (absent = Claude's default) the agent's next runs use; a run in progress keeps its own. */

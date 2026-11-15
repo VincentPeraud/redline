@@ -1,4 +1,5 @@
 import { isSafePath, type MoveArtboardRequest, type MoveArtboardResponse, type VersionOrigin } from "@redline/shared";
+import { artboardVersionOf, followMovedArtboard } from "./change-reviews.js";
 import type { PageLock } from "./page-lock.js";
 import type { OriginRef, Store } from "./store.js";
 import { requiredString, titleError } from "./validation.js";
@@ -43,5 +44,8 @@ export function moveArtboard(
   }
   if (pageLock.isHeldByOther(sourceId, version.exceptWorkId)) return refuse(409, `A session is working on "${source.title}": try again once it is done.`);
 
-  return { status: 200, body: store.moveArtboard(sourceId, file, target, version.origin, version.ref) };
+  const seenOnSource = artboardVersionOf(store, sourceId, file);
+  const body = store.moveArtboard(sourceId, file, target, version.origin, version.ref);
+  followMovedArtboard(store, sourceId, file, body.targetPage.id, seenOnSource);
+  return { status: 200, body };
 }

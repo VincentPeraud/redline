@@ -6,14 +6,18 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentInfo, AgentTokenResponse, Page, Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
-import { startAgentHost, HostAlreadyRunningError, type AgentHost } from "../src/agent-host.js";
+import { startAgentHost, HostAlreadyRunningError, type AgentHost, type AgentHostOptions } from "../src/agent-host.js";
 import { createNewAgentFlow, type NewAgentFlow } from "../src/new-agent.js";
 import { runAgentsScreen, type ScreenTerminal } from "../src/agents-screen.js";
-import { plainText } from "../src/agents-view.js";
+import { plainText } from "../src/terminal-draw.js";
 import { ensureHost, HostClient } from "../src/host-client.js";
+import { hostProtocol } from "../src/host-protocol.js";
 import { agentLogPath, hostLockPath, hostSocketPath, type HostEvent, type HostLogEntry, type LaunchSettings } from "../src/host-protocol.js";
+import { TOKEN_REFUSED_REASON } from "../src/activity.js";
+import { agentsOfInstallation, removeStoppedAgents, restartInstallationAgents, restartStoppedAgents } from "../src/installation-agents.js";
+import { findInstallation } from "../src/installations.js";
 import { chooseModelEffort } from "../src/launch-choice.js";
-import { saveLogin } from "../src/login.js";
+import { addInstallation, writeInstalledBuild } from "./support/installations.js";
 import { hostWorkerCommand, tsxCommand } from "./support/host-launch.js";
 
 const PAGE_FILES = {
@@ -52,7 +56,7 @@ async function setup() {
   const project = (await (await s.post("/api/projects", { title: "Acme" })).json()) as Project;
   const { token } = (await (await s.get("/api/agent-token")).json()) as AgentTokenResponse;
   const configDir = tempDir("rl-host-");
-  saveLogin({ configDir, serverUrl: s.url, token });
+  addInstallation(configDir, { name: "Local", serverUrl: s.url, token });
   const onServer = async () => (await (await s.get("/api/agents")).json()) as AgentInfo[];
   const launchSettings = (folder = tempDir("rl-folder-")): LaunchSettings => ({
     folder,
@@ -69,8 +73,8 @@ async function setup() {
     await s.post(`/api/pages/${page.id}/threads`, { artboard: "home.html", selector: "h1", xPct: 20, yPct: 30, body });
     return page;
   };
-  const startHost = async (env: NodeJS.ProcessEnv = {}, idleExitMs = 60_000, logCap?: number) => {
-    const host = await startAgentHost({ configDir, worker: hostWorkerCommand(env), idleExitMs, logCap });
+  const startHost = async (env: NodeJS.ProcessEnv = {}, idleExitMs = 60_000, logCap?: number, more: Partial<AgentHostOptions> = {}) => {
+    const host = await startAgentHost({ configDir, worker: (installation) => hostWorkerCommand({ ...env, REDLINE_TEST_INSTALLATION: installation.id }), idleExitMs, logCap, ...more });
     hosts.push(host);
     return host;
   };
@@ -236,8 +240,8 @@ describe("the agent host's control API", { timeout: 20_000 }, () => {
     await until(async () => (await onServer())[0]?.status === "online");
     const starts = readFileSync(report, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     expect(starts).toEqual([
-      { claudeConfigDir: settings.claudeConfigDir, model: "opus", effort: "high", folder: settings.folder },
-      { claudeConfigDir: settings.claudeConfigDir, model: "opus", effort: "high", folder: settings.folder },
+      { claudeConfigDir: settings.claudeConfigDir, model: "opus", effort: "high", folder: settings.folder, installation: "local" },
+      { claudeConfigDir: settings.claudeConfigDir, model: "opus", effort: "high", folder: settings.folder, installation: "local" },
     ]);
     await until(async () => (await api.list())[0].state === "idle");
   });
@@ -275,6 +279,23 @@ describe("the agent host's control API", { timeout: 20_000 }, () => {
     expect((await onServer())[0].status).toBe("offline");
   });
 
+  it("keeps the reason of an agent stopped with one (redline migrate) across a host restart", async () => {
+    const { launchSettings, startHost, client } = await setup();
+    const host = await startHost();
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+    await api.stop(agent.id, "Stopped by redline migrate.");
+    expect((await api.list())[0]).toMatchObject({ state: "stopped", reason: "Stopped by redline migrate." });
+
+    await host.stop();
+    hosts = [];
+    api.close();
+    clients = [];
+    await startHost();
+
+    expect((await (await client()).list())[0]).toMatchObject({ id: agent.id, state: "stopped", reason: "Stopped by redline migrate." });
+  });
+
   it("launches a stopped agent again instead of adding a second one", async () => {
     const { onServer, launchSettings, startHost, client } = await setup();
     await startHost();
@@ -308,7 +329,7 @@ describe("the agent host's control API", { timeout: 20_000 }, () => {
     await until(async () => (await onServer())[0]?.status === "online");
     const starts = readFileSync(report, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     expect(starts).toHaveLength(2);
-    expect(starts[1]).toEqual({ claudeConfigDir: settings.claudeConfigDir, model: "opus", effort: "high", folder: settings.folder });
+    expect(starts[1]).toEqual({ claudeConfigDir: settings.claudeConfigDir, model: "opus", effort: "high", folder: settings.folder, installation: "local" });
     await until(async () => (await api.list())[0].state === "idle");
   });
 
@@ -449,7 +470,7 @@ describe("the agent host's control API", { timeout: 20_000 }, () => {
 
   it("shows an agent the server refuses as stopped with the reason", async () => {
     const { configDir, launchSettings, startHost, client } = await setup();
-    saveLogin({ configDir, serverUrl: launchSettings().serverUrl, token: "wrong-token" });
+    addInstallation(configDir, { name: "Local", serverUrl: launchSettings().serverUrl, token: "wrong-token" });
     await startHost();
     const api = await client();
 
@@ -550,7 +571,7 @@ describe("the agent host's run log", { timeout: 20_000 }, () => {
 
   it("ends a refused agent's log with a stopped line carrying the reason", async () => {
     const { configDir, launchSettings, startHost, client } = await setup();
-    saveLogin({ configDir, serverUrl: launchSettings().serverUrl, token: "wrong-token" });
+    addInstallation(configDir, { name: "Local", serverUrl: launchSettings().serverUrl, token: "wrong-token" });
     await startHost();
     const api = await client();
     const { agent } = await api.launch(launchSettings());
@@ -671,7 +692,7 @@ describe("the agent host's process", { timeout: 20_000 }, () => {
     const screens = [0, 1].map(async () => {
       const terminal = new RecordingTerminal();
       const host = await client();
-      const done = runAgentsScreen({ host, terminal, selectedId: agent.id, home: "/nowhere", folder: "/nowhere", newAgent: noNewAgent, openUrl: () => undefined });
+      const done = runAgentsScreen({ host, terminal, selectedId: agent.id, home: "/nowhere", folder: "/nowhere", instances: [], folderLine: { kind: "unlinked" }, linkFolder: noLink, newAgent: noNewAgent, openUrl: () => undefined });
       return { terminal, done };
     });
     const [first, second] = await Promise.all(screens);
@@ -679,8 +700,8 @@ describe("the agent host's process", { timeout: 20_000 }, () => {
 
     for (const { terminal } of [first, second]) {
       await until(() => terminal.frame.includes("Published"));
-      expect(terminal.frame).toMatch(/Run started {2}Acme \/ Home/);
-      expect(terminal.frame).toContain("Projects  Acme");
+      expect(terminal.frame).toMatch(/Run started {3}Acme › Home/);
+      expect(terminal.frame).toContain("Projects   Acme");
     }
     first.terminal.keyListener("q");
     second.terminal.keyListener("ctrl-c");
@@ -697,7 +718,7 @@ describe("starting an agent from the agents screen", { timeout: 20_000 }, () => 
     const folder = tempDir("rl-folder-");
     const flow = createNewAgentFlow({ folder, configDir, claudeSettingsFile: join(configDir, "settings.json"), host, checkClaude: async () => "me@example.com" });
     const terminal = new RecordingTerminal();
-    const done = runAgentsScreen({ host, terminal, home: "/nowhere", folder, newAgent: flow, openUrl: () => undefined });
+    const done = runAgentsScreen({ host, terminal, home: "/nowhere", folder, instances: [], folderLine: { kind: "unlinked" }, linkFolder: noLink, newAgent: flow, openUrl: () => undefined });
     await until(() => terminal.frame.includes("No agent yet"));
 
     terminal.keyListener("n");
@@ -712,12 +733,14 @@ describe("starting an agent from the agents screen", { timeout: 20_000 }, () => 
     expect(created).toBeDefined();
     expect(JSON.parse(readFileSync(join(folder, ".redline", "project.json"), "utf8"))).toEqual({ serverUrl: s.url, projectIds: [created.id] });
     expect(created.servedBy).toMatchObject({ folder, kind: "project" });
-    await until(() => terminal.frame.includes("Projects  CV Vincent") && terminal.frame.includes("Account   me@example.com"));
+    await until(() => terminal.frame.includes("Projects   CV Vincent") && terminal.frame.includes("Account    me@example.com"));
     expect(terminal.frame).toContain("› ● ");
     terminal.keyListener("q");
     await done;
   });
 });
+
+const noLink = async () => ({ kind: "unlinked" as const });
 
 const noNewAgent: NewAgentFlow = {
   inspect: async () => {
@@ -1079,5 +1102,269 @@ describe("two agent hosts starting together", { timeout: 30_000 }, () => {
 
     await startHost();
     expect(await (await HostClient.connect(configDir)).list()).toEqual([]);
+  });
+});
+
+describe("the agent host, one installation per instance", { timeout: 30_000 }, () => {
+  const startedBy = (file: string) => (existsSync(file) ? readFileSync(file, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { installation: string; folder: string }) : []);
+
+  it("runs each agent with its own installation's code and token, side by side", async () => {
+    const { configDir, server: first, launchSettings, startHost, client } = await setup();
+    const second = await startTestServer();
+    try {
+      const secondToken = ((await (await second.get("/api/agent-token")).json()) as AgentTokenResponse).token;
+      addInstallation(configDir, { name: "Lumora", serverUrl: second.url, token: secondToken, version: "0.9.0" });
+      const starts = join(configDir, "starts.log");
+      await startHost({ REDLINE_TEST_REPORT: starts });
+      const api = await client();
+
+      const local = await api.launch(launchSettings());
+      const lumora = await api.launch({ ...launchSettings(), kind: "global", projectIds: undefined, serverUrl: second.url });
+
+      expect(local.agent.installation).toBe("local");
+      expect(lumora.agent.installation).toBe("lumora");
+      await until(async () => (await api.list()).every((agent) => agent.state === "idle"));
+      expect(startedBy(starts).map((start) => start.installation).sort()).toEqual(["local", "lumora"]);
+      expect((await (await first.get("/api/agents")).json()) as AgentInfo[]).toHaveLength(1);
+      expect((await (await second.get("/api/agents")).json()) as AgentInfo[]).toHaveLength(1);
+    } finally {
+      await second.stop();
+    }
+  });
+
+  describe("the host protocol", () => {
+    const launchWith = async (installationProtocol: number | null) => {
+      const { configDir, launchSettings, startHost, client } = await setup();
+      writeInstalledBuild(join(configDir, "instances", "local", "npm"), { version: "0.1.5", hostProtocol: installationProtocol });
+      await startHost({}, 60_000, undefined, { protocol: hostProtocol("0.5.0", 3) });
+      const api = await client();
+      const { agent } = await api.launch(launchSettings());
+      return { api, agent };
+    };
+
+    it.each([3, 2])("accepts an installation speaking protocol %i", async (version) => {
+      const { api } = await launchWith(version);
+      await until(async () => (await api.list())[0].state === "idle");
+    });
+
+    it("refuses an installation two versions behind, naming it, its version and the command's", async () => {
+      const { api, agent } = await launchWith(1);
+
+      await until(async () => (await api.list())[0].state === "stopped");
+
+      const message = "the Local installation (v0.1.5) is too old for this redline command (v0.5.0, which accepts host protocol 2 and later). Local's server runs v0.1.5: it must be upgraded, then updated (Instances tab).";
+      expect((await api.list())[0].reason).toBe(message);
+      expect((await api.log(agent.id)).map((entry) => entry.event)).toEqual([{ type: "refused", reason: message }]);
+    });
+
+    it("refuses an installation that tells no protocol (a build older than the installations)", async () => {
+      const { api } = await launchWith(null);
+      await until(async () => (await api.list())[0].state === "stopped");
+    });
+  });
+
+  describe("when an installation is updated", () => {
+    const globalAt = (launchSettings: () => LaunchSettings) => ({ ...launchSettings(), kind: "global" as const, projectIds: undefined });
+
+    it("restarts the idle agents of that installation with its new files, and leaves other installations alone", async () => {
+      const { configDir, launchSettings, startHost, client } = await setup();
+      const second = await startTestServer();
+      try {
+        const secondToken = ((await (await second.get("/api/agent-token")).json()) as AgentTokenResponse).token;
+        addInstallation(configDir, { name: "Lumora", serverUrl: second.url, token: secondToken, version: "0.9.0" });
+        const starts = join(configDir, "starts.log");
+        await startHost({ REDLINE_TEST_REPORT: starts });
+        const api = await client();
+        const local = (await api.launch(launchSettings())).agent;
+        const lumora = (await api.launch({ ...launchSettings(), kind: "global", projectIds: undefined, serverUrl: second.url })).agent;
+        await until(async () => (await api.list()).every((agent) => agent.state === "idle"));
+
+        const restarted = await api.installationUpdated("lumora");
+
+        expect(restarted.map((agent) => agent.id)).toEqual([lumora.id]);
+        await until(() => startedBy(starts).length === 3);
+        await until(async () => (await api.list()).every((agent) => agent.state === "idle"));
+        expect(startedBy(starts).map((start) => start.installation).sort()).toEqual(["local", "lumora", "lumora"]);
+        expect((await api.list()).find((agent) => agent.id === local.id)?.startedAt).toBe(local.startedAt);
+      } finally {
+        await second.stop();
+      }
+    });
+
+    it("lets a run finish, never cancels it, and restarts the agent once it ends", async () => {
+      const { configDir, onServer, launchSettings, startHost, client, comment } = await setup();
+      const hold = join(configDir, "hold");
+      const starts = join(configDir, "starts.log");
+      writeFileSync(hold, "");
+      await startHost({ REDLINE_TEST_STEPS: "1", REDLINE_TEST_HOLD_RUN: hold, REDLINE_TEST_REPORT: starts });
+      const api = await client();
+      const { agent } = await api.launch(launchSettings());
+      await until(async () => (await onServer())[0]?.status === "online");
+      await comment();
+      await until(async () => (await api.list())[0].state === "running");
+
+      const restarted = await api.installationUpdated("local");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      expect(restarted.map((entry) => entry.id)).toEqual([agent.id]);
+      expect((await api.list())[0].state).toBe("running");
+      expect(startedBy(starts)).toHaveLength(1);
+
+      rmSync(hold);
+      await until(() => startedBy(starts).length === 2);
+      await until(async () => (await api.list())[0].state === "idle");
+      const events = (await api.log(agent.id)).map((entry) => entry.event.type);
+      expect(events).toContain("run-published");
+      expect(events).not.toContain("run-failed");
+    });
+
+    it("does not start an agent the user stopped", async () => {
+      const { configDir, launchSettings, startHost, client } = await setup();
+      const starts = join(configDir, "starts.log");
+      await startHost({ REDLINE_TEST_REPORT: starts });
+      const api = await client();
+      const { agent } = await api.launch(launchSettings());
+      await api.stop(agent.id);
+
+      expect(await api.installationUpdated("local")).toEqual([]);
+      expect((await api.list())[0].state).toBe("stopped");
+      expect(startedBy(starts)).toHaveLength(1);
+    });
+
+    it("restarts the other agents of the installation when one of them updates itself from the browser (worker exit 75)", async () => {
+      const { configDir, launchSettings, startHost, client } = await setup();
+      const starts = join(configDir, "starts.log");
+      await startHost({ REDLINE_TEST_REPORT: starts, REDLINE_TEST_UPDATE_ONCE: join(configDir, "updated") });
+      const api = await client();
+      await api.launch(launchSettings());
+      await api.launch({ ...globalAt(launchSettings), folder: tempDir("rl-folder-") });
+
+      // two first starts, the update relaunch of the one that exited, and the restart of the other
+      await until(() => startedBy(starts).length === 4);
+      await until(async () => (await api.list()).every((agent) => agent.state === "idle"));
+      expect(startedBy(starts)).toHaveLength(4);
+    });
+  });
+
+  describe("when the global command changes", () => {
+    const changing = () => {
+      let installed = "build-1";
+      return { command: { build: "build-1", installedBuild: () => installed, version: () => "0.3.0" }, change: () => (installed = "build-2") };
+    };
+    const respawnMarker = (configDir: string) => join(configDir, "respawned");
+    const respawn = (configDir: string) => ({ command: process.execPath, args: ["-e", "require('fs').writeFileSync(process.argv[1], 'yes')", respawnMarker(configDir)] });
+
+    it("waits for the run in progress, never cancels it, then restarts the host and its agents with a line in each log", async () => {
+      const { configDir, onServer, launchSettings, startHost, client, comment } = await setup();
+      const hold = join(configDir, "hold");
+      const starts = join(configDir, "starts.log");
+      writeFileSync(hold, "");
+      const { command, change } = changing();
+      const host = await startHost({ REDLINE_TEST_STEPS: "1", REDLINE_TEST_HOLD_RUN: hold, REDLINE_TEST_REPORT: starts }, 60_000, undefined, { command, commandCheckMs: 50, respawn: respawn(configDir) });
+      const api = await client();
+      const { agent } = await api.launch(launchSettings());
+      await until(async () => (await onServer())[0]?.status === "online");
+      await comment();
+      await until(async () => (await api.list())[0].state === "running");
+
+      change();
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      expect((await api.list())[0].state).toBe("running");
+      expect(existsSync(respawnMarker(configDir))).toBe(false);
+
+      rmSync(hold);
+      await host.closed;
+      hosts = [];
+      await until(() => existsSync(respawnMarker(configDir)));
+
+      // The replacement host (here started by hand, with the new build) resumes the agent the old one stopped for the restart.
+      const next = await startAgentHost({ configDir, worker: (installation) => hostWorkerCommand({ REDLINE_TEST_INSTALLATION: installation.id, REDLINE_TEST_REPORT: starts }), idleExitMs: 60_000, command: { build: "build-2", installedBuild: () => "build-2", version: () => "0.3.0" } });
+      hosts.push(next);
+      const again = await client();
+      await until(async () => (await again.list())[0]?.state === "idle");
+      const events = (await again.log(agent.id)).map((entry) => entry.event);
+      // The run that was in progress ended on its own, before the restart.
+      expect(events.map((event) => event.type)).toEqual(expect.arrayContaining(["run-started", "run-published"]));
+      expect(events.map((event) => event.type)).not.toContain("run-failed");
+      expect(events).toContainEqual({ type: "host-updated", version: "0.3.0" });
+      expect(startedBy(starts)).toHaveLength(2);
+    });
+
+    it("restarts at once when no run is in progress, and does not resume an agent the user stopped", async () => {
+      const { configDir, launchSettings, startHost, client } = await setup();
+      const { command, change } = changing();
+      const host = await startHost({}, 60_000, undefined, { command, commandCheckMs: 50, respawn: respawn(configDir) });
+      const api = await client();
+      await api.launch(launchSettings());
+      // A global agent: two project agents on the same project refuse each other, and the one stopped could win the connection.
+      const stopped = (await api.launch({ ...launchSettings(), kind: "global", projectIds: undefined })).agent;
+      await api.stop(stopped.id);
+      await until(async () => (await api.list()).some((agent) => agent.state === "idle"));
+
+      change();
+
+      await host.closed;
+      hosts = [];
+      await until(() => existsSync(respawnMarker(configDir)));
+      const next = await startAgentHost({ configDir, worker: hostWorkerCommand(), idleExitMs: 60_000 });
+      hosts.push(next);
+      const again = await client();
+      await until(async () => (await again.list()).filter((agent) => agent.state === "idle").length === 1);
+      expect((await again.list()).find((agent) => agent.id === stopped.id)?.state).toBe("stopped");
+    });
+  });
+});
+
+describe("what update, remove and setup ask of the host", { timeout: 30_000 }, () => {
+  const env = process.env;
+
+  it("restarts the agents a refused token had stopped, and only those", async () => {
+    const { configDir, server: s, launchSettings, startHost, client } = await setup();
+    await startHost();
+    const api = await client();
+    const refused = (await api.launch(launchSettings())).agent;
+    const byUser = (await api.launch({ ...launchSettings(), kind: "global", projectIds: undefined })).agent;
+    await until(async () => (await api.list()).every((agent) => agent.state === "idle"));
+    await api.stop(refused.id, `${TOKEN_REFUSED_REASON} (test)`);
+    await api.stop(byUser.id);
+
+    expect(await restartStoppedAgents(configDir, s.url, env)).toEqual([refused.name]);
+    await until(async () => (await api.list()).find((agent) => agent.id === refused.id)?.state === "idle");
+    expect((await api.list()).find((agent) => agent.id === byUser.id)?.state).toBe("stopped");
+  });
+
+  it("lists the agents of an installation, tells the host it was updated, and removes the stopped ones", async () => {
+    const { configDir, launchSettings, startHost, client } = await setup();
+    await startHost();
+    const api = await client();
+    const running = (await api.launch(launchSettings())).agent;
+    const stopped = (await api.launch({ ...launchSettings(), kind: "global", projectIds: undefined })).agent;
+    await api.stop(stopped.id);
+    const local = findInstallation(configDir, "local")!;
+
+    expect((await agentsOfInstallation(configDir, local, env)).sort((a, b) => a.name.localeCompare(b.name))).toEqual([
+      { name: stopped.name, running: false, folder: stopped.folder },
+      { name: running.name, running: true, folder: running.folder },
+    ].sort((a, b) => a.name.localeCompare(b.name)));
+    expect(await restartInstallationAgents(configDir, local, env)).toEqual([running.name]);
+    expect(await removeStoppedAgents(configDir, local, env)).toEqual([stopped.name]);
+    expect((await api.list()).map((agent) => agent.id)).toEqual([running.id]);
+  });
+
+  it("works from the saved agents when no host runs: nothing runs, the installation's agents can be removed", async () => {
+    const { configDir, launchSettings, startHost, client } = await setup();
+    const host = await startHost();
+    const api = await client();
+    const { agent } = await api.launch(launchSettings());
+    await until(async () => (await api.list())[0].state === "idle");
+    await host.stop();
+    hosts = [];
+    const local = findInstallation(configDir, "local")!;
+
+    expect(await agentsOfInstallation(configDir, local, env)).toEqual([{ name: agent.name, running: false, folder: agent.folder }]);
+    expect(await restartInstallationAgents(configDir, local, env)).toEqual([]);
+    expect(await removeStoppedAgents(configDir, local, env)).toEqual([agent.name]);
+    expect(await agentsOfInstallation(configDir, local, env)).toEqual([]);
   });
 });

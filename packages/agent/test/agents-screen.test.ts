@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, closeSummary, initialState, logLoaded, newAgentFailed, newAgentQuestions, onKey, plainText, render, tick, type ScreenState } from "../src/agents-view.js";
+import { applyEvent, closeSummary, initialState, logLoaded, newAgentFailed, newAgentQuestions, onKey, render, tick, type ScreenState } from "../src/agents-view.js";
+import { plainText } from "../src/terminal-draw.js";
 import { runAgentsScreen, type ScreenHost, type ScreenTerminal } from "../src/agents-screen.js";
 import type { Effort } from "@redline/shared";
 import type { HostAgent, HostEvent, HostLogEntry, HostLogEvent } from "../src/host-protocol.js";
@@ -41,7 +42,7 @@ const lumoraLog: HostLogEntry[] = [
 ];
 
 function open(agents: HostAgent[], selectedId?: string, logs: Record<string, HostLogEntry[]> = { a1: lumoraLog }, freshStartAt?: string): ScreenState {
-  let state = initialState({ agents, selectedId, now: NOW, home: "/Users/vincent", folder: FOLDER, freshStartAt });
+  let state = initialState({ agents, selectedId, now: NOW, home: "/Users/vincent", folder: FOLDER, freshStartAt, instances: [{ id: "brightco", name: "Brightco", serverUrl: "https://redline.brightco.fr", tooOld: false }] });
   for (const [id, entries] of Object.entries(logs)) state = logLoaded(state, id, entries);
   return state;
 }
@@ -51,33 +52,33 @@ const press = (state: ScreenState, ...keys: string[]) => keys.reduce((s, k) => o
 describe("the agents screen's view", () => {
   it("shows the header, the selected agent's detail, the run log and the agent list", () => {
     const frame = text(open([lumora, radio, agent({ id: "a3", name: "global", kind: "global", projectNames: undefined, effort: undefined }), portfolio]));
-    expect(frame).toContain("redline agents  https://redline.brightco.fr");
+    expect(frame).toContain("redline  Brightco · redline.brightco.fr");
     expect(frame).toContain("4 agents · 1 run in progress");
-    expect(frame).toMatch(/lumora {2}~\/claude-projects\/lumora +● running · Lumora Pro \/ Tarifs/);
-    expect(frame).toContain("Projects  Lumora, Lumora Pro");
-    expect(frame).toContain("Model     Opus");
-    expect(frame).toContain("Effort    medium");
-    expect(frame).toContain("Account   contact@brightco.fr");
-    expect(frame).toContain("Machine   MacBook-Pro · up 2 h 14 min");
-    expect(frame).toContain("13:58:02  Connected to https://redline.brightco.fr as project agent.");
-    expect(frame).toContain("14:05:40  ▸ Run started  Lumora / Accueil  comment by Vincent");
+    expect(frame).toMatch(/lumora {2}~\/claude-projects\/lumora +● running · Lumora Pro › Tarifs/);
+    expect(frame).toContain("Projects   Lumora, Lumora Pro");
+    expect(frame).toContain("Model      Opus");
+    expect(frame).toContain("Effort     medium");
+    expect(frame).toContain("Account    contact@brightco.fr");
+    expect(frame).toContain("Machine    MacBook-Pro · up 2 h 14 min");
+    expect(frame).toContain("13:58:02  ● Connected     Brightco · redline.brightco.fr");
+    expect(frame).toContain("14:05:40  ▸ Run started   Lumora › Accueil  comment by Vincent");
     expect(frame).toContain("« Le titre du hero est trop gros sur mobile »");
-    expect(frame).toContain("14:06:57  ✓ Published  Lumora / Accueil  2 artboards changed · 1 min 17 s");
-    expect(frame).toContain("14:09:12  ✗ Run failed  Onboarding  Claude hit its usage limit");
+    expect(frame).toContain("14:06:57  ✓ Published     Lumora › Accueil  2 artboards changed · 1 min 17 s");
+    expect(frame).toContain("14:09:12  ✗ Run failed    Onboarding  Claude hit its usage limit");
     expect(frame).toContain("14:11:30  Connection lost, retrying...");
     expect(frame).toContain("14:11:32  Connected again.");
-    expect(frame).toContain("14:12:03  ▸ Run started  Lumora Pro / Tarifs  conversation with Vincent");
+    expect(frame).toContain("14:12:03  ▸ Run started   Lumora Pro › Tarifs  conversation with Vincent");
     expect(frame).toContain("Edit Tarifs.dc.html · Read DESIGN.md · 1 h 59 min");
     expect(frame).not.toContain("Read DESIGN.md · 7 s");
-    expect(frame).toContain("› ● lumora"+" ".repeat(11)+"running");
+    expect(frame).toContain("› ● lumora"+" ".repeat(13)+"running");
     expect(frame).toContain("Opus · medium");
-    expect(frame).toContain("radio-haidf"+" ".repeat(9)+"idle");
+    expect(frame).toContain("radio-haidf"+" ".repeat(11)+"idle");
     expect(frame).toContain("Sonnet · high");
     expect(frame).toContain("Opus · Claude's default");
-    expect(frame).toContain("○ portfolio"+" ".repeat(8)+"stopped");
+    expect(frame).toContain("○ portfolio"+" ".repeat(10)+"stopped");
     expect(frame).toContain("Haiku · low");
     expect(frame).toMatch(/↑↓ +agent/);
-    expect(frame).toMatch(/ q +close · agents keep running/);
+    expect(frame).toMatch(/ q +close/);
   });
 
   it("changes the detail and the highlighted row with ↑ and ↓, and stops at the ends", () => {
@@ -85,7 +86,7 @@ describe("the agents screen's view", () => {
     const down = press(state, "down");
     expect(text(down)).toContain("radio-haidf  ~/claude-projects/radio-haidf");
     expect(text(down)).toContain("› ● radio-haidf");
-    expect(text(down)).toContain("Projects  Radio HAIDF");
+    expect(text(down)).toContain("Projects   Radio HAIDF");
     expect(text(down)).not.toContain("› ● lumora");
     expect(text(press(down, "up", "up"))).toContain("› ● lumora");
     expect(text(press(state, "down", "down", "down", "down"))).toContain("› ○ portfolio");
@@ -94,7 +95,7 @@ describe("the agents screen's view", () => {
   it("shows a stopped agent without uptime, and the time it stopped", () => {
     const frame = text(open([portfolio], "a4", { a4: [] }));
     expect(frame).toContain("○ stopped since 13:58");
-    expect(frame).toMatch(/Machine {3}MacBook-Pro(?! · up)/);
+    expect(frame).toMatch(/Machine {4}MacBook-Pro(?! · up)/);
     expect(frame).toContain("all stopped");
   });
 
@@ -108,7 +109,7 @@ describe("the agents screen's view", () => {
     let state = open([lumora, radio]);
     state = applyEvent(state, { event: "log-line", agentId: "a1", entry: entry("14:13:00", { type: "run-published", workId: "w3", page: "Tarifs", changed: [], durationMs: 52_000 }) });
     const frame = text(state);
-    expect(frame).toContain("14:13:00  ✓ Finished  Lumora Pro / Tarifs  nothing changed · 52 s");
+    expect(frame).toContain("14:13:00  ✓ Finished      Lumora Pro › Tarifs  nothing changed · 52 s");
     expect(frame).not.toContain("Edit Tarifs.dc.html · Read DESIGN.md");
   });
 
@@ -121,10 +122,10 @@ describe("the agents screen's view", () => {
     state = applyEvent(state, { event: "log-line", agentId: "a1", entry: published("14:15:00", ["manifest.json"], { added: 0, changed: 0, removed: 0 }) });
     state = applyEvent(state, { event: "log-line", agentId: "a1", entry: published("14:16:00", ["home.html", "m.html"]) });
     const frame = text(state);
-    expect(frame).toContain("14:13:00  ✓ Published  Lumora Pro / Tarifs  1 artboard added · 52 s");
-    expect(frame).toContain("14:14:00  ✓ Published  Lumora Pro / Tarifs  1 artboard added, 1 changed, 1 removed · 52 s");
-    expect(frame).toContain("14:15:00  ✓ Published  Lumora Pro / Tarifs  1 file changed · 52 s");
-    expect(frame).toContain("14:16:00  ✓ Published  Lumora Pro / Tarifs  2 files changed · 52 s");
+    expect(frame).toContain("14:13:00  ✓ Published     Lumora Pro › Tarifs  1 artboard added · 52 s");
+    expect(frame).toContain("14:14:00  ✓ Published     Lumora Pro › Tarifs  1 artboard added, 1 changed, 1 removed · 52 s");
+    expect(frame).toContain("14:15:00  ✓ Published     Lumora Pro › Tarifs  1 file changed · 52 s");
+    expect(frame).toContain("14:16:00  ✓ Published     Lumora Pro › Tarifs  2 files changed · 52 s");
   });
 
   it("follows agent changes, additions and removals", () => {
@@ -163,7 +164,7 @@ describe("the agents screen's view", () => {
     expect(onKey(state, "down").commands).toEqual([]);
     expect(plainText(closeSummary(state))).toEqual([
       "Screen closed. 2 agents keep running in the background:",
-      "  ● lumora       running · Lumora Pro / Tarifs",
+      "  ● lumora       running · Lumora Pro › Tarifs",
       "  ● radio-haidf  idle",
       "  ○ portfolio    stopped",
       "Run redline agents to see them again.",
@@ -189,7 +190,7 @@ describe("stopping, removing and restarting from the view", () => {
     expect(asked.commands).toEqual([]);
     const frame = text(asked.state);
     expect(frame).toContain("Stop lumora?");
-    expect(frame).toContain("A run is in progress on Lumora Pro / Tarifs (28 s).");
+    expect(frame).toContain("A run is in progress on Lumora Pro › Tarifs (28 s).");
     expect(frame).toContain("Stopping cancels it; the conversation stays open in Redline.");
     expect(frame).toContain("The agent stays in the list as stopped: r restarts it, x again removes it.");
     expect(frame).toMatch(/ y {2}stop {4}Esc {2}keep running/);
@@ -232,9 +233,8 @@ describe("stopping, removing and restarting from the view", () => {
     const state = open([lumora, radio, portfolio], "a4");
     expect(onKey(state, "x").commands).toEqual([{ type: "remove", agentId: "a4" }]);
     const frame = text(state);
-    expect(frame).toMatch(/↑↓ +agent +r +restart +R +restart all +n +new agent here +m +model\/effort +x +remove +q +close\s/);
-    expect(frame).not.toContain("close · agents keep running");
-    expect(text(open([lumora, radio, portfolio], "a1"))).toMatch(/↑↓ +agent +n +new agent here +m +model\/effort +o +open in Redline +x +stop +q +close · agents keep running/);
+    expect(frame).toMatch(/↑↓ +agent +←→ +log\/list +r +restart +R +restart all +x +remove +\? +commands +Tab +next tab +q +close\s/);
+        expect(text(open([lumora, radio, portfolio], "a1"))).toMatch(/↑↓ +agent +←→ +log\/list +n +new +m +model +x +stop +\? +commands +Tab +next tab +q +close\s/);
     expect(text(open([lumora, radio, portfolio], "a1"))).not.toMatch(/restart all/);
   });
 
@@ -247,6 +247,17 @@ describe("stopping, removing and restarting from the view", () => {
     expect(onKey(running, "R").commands).toEqual([{ type: "restart-all" }]);
     const none = open([lumora, radio], "a1");
     expect(onKey(none, "R").commands).toEqual([]);
+  });
+
+  it("tells in the log that the host restarted for a new redline command", () => {
+    const log = [...lumoraLog, entry("09:58:40", { type: "host-updated", version: "0.3.0" })];
+    expect(text(open([lumora, radio], "a1", { a1: log }))).toContain("09:58:40  ↻ Host restarted  redline command changed to v0.3.0");
+  });
+
+  it("shows a refused installation's message in the log", () => {
+    const reason = "the Brightco installation (v0.1.0) is too old for this redline command (v0.3.0, which accepts v0.2.0 and later).";
+    const frame = text(open([lumora], "a1", { a1: [entry("10:44:02", { type: "refused", reason })] }));
+    expect(frame).toContain("10:44:02  ✗ Refused       the Brightco installation (v0.1.0) is too");
   });
 
   it("shows the banner when every agent is stopped after a fresh start, and the log's stop line", () => {
@@ -295,7 +306,7 @@ describe("the elapsed time of the run in progress", () => {
     const host = new FakeHost([lumora], { a1: lumoraLog });
     const terminal = new FakeTerminal();
     let clock = Date.parse("2026-10-28T14:12:31");
-    const done = runAgentsScreen({ host, terminal, now: () => clock, home: "/Users/vincent", folder: FOLDER, newAgent: new FakeFlow(), openUrl: () => undefined, tickMs: 20 });
+    const done = runAgentsScreen({ host, terminal, now: () => clock, home: "/Users/vincent", folder: FOLDER, instances: [], folderLine: { kind: "unlinked" }, linkFolder: async () => ({ kind: "unlinked" }), newAgent: new FakeFlow(), openUrl: () => undefined, tickMs: 20 });
     await settle();
     expect(terminal.frame).toContain("· 28 s");
     const drawn = terminal.frames.length;
@@ -353,7 +364,7 @@ describe("changing the model and effort from the view", () => {
 
   it("says a run in progress finishes with the old settings, and only then", () => {
     const running = text(tick(onKey(board(), "m").state, NOW));
-    expect(running).toContain("! A run is in progress (Lumora Pro / Tarifs): it finishes with Opus · medium.");
+    expect(running).toContain("! A run is in progress (Lumora Pro › Tarifs): it finishes with Opus · medium.");
     expect(running).toContain("The new choice applies from the next run, without restarting the agent.");
     const idle = text(onKey(open([radio, lumora], "a2"), "m").state);
     expect(idle).not.toContain("A run is in progress");
@@ -377,8 +388,8 @@ describe("changing the model and effort from the view", () => {
   it("shows the new values in the list and detail once the host reports them", () => {
     const applied = applyEvent(board(), { event: "agent-changed", agent: { ...lumora, model: "sonnet", effort: "high" } });
     const frame = text(applied);
-    expect(frame).toContain("Model     Sonnet");
-    expect(frame).toContain("Effort    high");
+    expect(frame).toContain("Model      Sonnet");
+    expect(frame).toContain("Effort     high");
     expect(frame).toMatch(/lumora +running +\n.*Sonnet · high/);
   });
 });
@@ -427,7 +438,7 @@ class FakeTerminal implements ScreenTerminal {
 const FOLDER = "/Users/vincent/claude-projects/cv";
 
 class FakeFlow implements NewAgentFlow {
-  questions: NewAgentQuestions = { servers: ["https://redline.brightco.fr"], serverUrl: "https://redline.brightco.fr", projects: [{ id: "p1", title: "Lumora" }, { id: "p2", title: "Radio HAIDF" }], model: "opus", effort: "medium" };
+  questions: NewAgentQuestions = { instances: [], serverUrl: "https://redline.brightco.fr", projects: [{ id: "p1", title: "Lumora" }, { id: "p2", title: "Radio HAIDF" }], model: "opus", effort: "medium" };
   projectsByServer: Record<string, ProjectOption[]> = {};
   started: NewAgentAnswers[] = [];
   failWith?: string;
@@ -448,7 +459,7 @@ describe("the agents screen over a host client", () => {
     const terminal = new FakeTerminal();
     const flow = new FakeFlow();
     const opened: string[] = [];
-    const done = runAgentsScreen({ host, terminal, selectedId, now: () => NOW, home: "/Users/vincent", folder: FOLDER, newAgent: flow, openUrl: (url) => opened.push(url), tickMs: 1_000_000 });
+    const done = runAgentsScreen({ host, terminal, selectedId, now: () => NOW, home: "/Users/vincent", folder: FOLDER, instances: [], folderLine: { kind: "unlinked" }, linkFolder: async () => ({ kind: "unlinked" }), newAgent: flow, openUrl: (url) => opened.push(url), tickMs: 1_000_000 });
     await settle();
     return { terminal, done, flow, opened };
   };
@@ -520,7 +531,7 @@ describe("the agents screen over a host client", () => {
     const host = new FakeHost([lumora, radio], { a1: lumoraLog });
     const { terminal, done } = await start(host);
     terminal.keyListener("m");
-    expect(terminal.frame).toContain("A run is in progress (Lumora Pro / Tarifs): it finishes with Opus · medium.");
+    expect(terminal.frame).toContain("A run is in progress (Lumora Pro › Tarifs): it finishes with Opus · medium.");
     terminal.keyListener("right");
     terminal.keyListener("down");
     terminal.keyListener("right");
@@ -528,8 +539,8 @@ describe("the agents screen over a host client", () => {
     await settle();
     expect(host.calls).toEqual(["set a1 sonnet high"]);
     expect(terminal.frame).not.toContain("Model and effort");
-    expect(terminal.frame).toContain("Model     Sonnet");
-    expect(terminal.frame).toContain("Effort    high");
+    expect(terminal.frame).toContain("Model      Sonnet");
+    expect(terminal.frame).toContain("Effort     high");
     expect(terminal.frame).toContain("Sonnet · high");
     terminal.keyListener("q");
     await done;
@@ -551,7 +562,7 @@ describe("the agents screen over a host client", () => {
       throw new Error("The agent host closed the connection.");
     };
     const terminal = new FakeTerminal();
-    await expect(runAgentsScreen({ host, terminal, now: () => NOW, home: "/", folder: FOLDER, newAgent: new FakeFlow(), openUrl: () => undefined, tickMs: 1_000_000 })).rejects.toThrow("closed the connection");
+    await expect(runAgentsScreen({ host, terminal, now: () => NOW, home: "/", folder: FOLDER, instances: [], folderLine: { kind: "unlinked" }, linkFolder: async () => ({ kind: "unlinked" }), newAgent: new FakeFlow(), openUrl: () => undefined, tickMs: 1_000_000 })).rejects.toThrow("closed the connection");
     expect(terminal.closed).toBe(true);
   });
 
@@ -566,7 +577,7 @@ describe("the agents screen over a host client", () => {
       terminal.keyListener("n");
       await settle();
       expect(terminal.frame).toContain("New agent  in the current folder");
-      expect(terminal.frame).toContain("~/claude-projects/cv  isn't linked to a project yet.");
+      expect(terminal.frame).toContain("~/claude-projects/cv  isn't linked to an instance yet.");
       expect(terminal.frame).toContain("› ● Lumora");
       expect(terminal.frame).toContain("○ Radio HAIDF");
       expect(terminal.frame).toContain("Create a new project:");
@@ -623,7 +634,7 @@ describe("the agents screen over a host client", () => {
 
     describe("a folder that is already linked", () => {
       const linkedQuestions: NewAgentQuestions = {
-        servers: [],
+        instances: [],
         serverUrl: "https://redline.brightco.fr",
         linkedTitles: ["Lumora", "Lumora Pro"],
         linkedIds: ["p1", "p3"],
@@ -704,13 +715,13 @@ describe("the agents screen over a host client", () => {
 
     it("asks the server first when several are set up, then its projects", async () => {
       const { terminal, done, flow } = await start(new FakeHost([lumora], { a1: lumoraLog }));
-      flow.questions = { servers: ["https://a.example", "https://b.example"], model: "opus" };
+      flow.questions = { instances: [{ id: "a", name: "A", serverUrl: "https://a.example", tooOld: false }, { id: "b", name: "B", serverUrl: "https://b.example", tooOld: false }], model: "opus" };
       flow.projectsByServer["https://b.example"] = [{ id: "pb", title: "Bravo" }];
       flow.agent = cv;
       terminal.keyListener("n");
       await settle();
-      expect(terminal.frame).toContain("Server");
-      expect(terminal.frame).toContain("https://a.example");
+      expect(terminal.frame).toContain("Instance");
+      expect(terminal.frame).toContain("a.example");
       terminal.keyListener("down");
       terminal.keyListener("enter");
       await settle();
@@ -751,7 +762,7 @@ describe("the agents screen over a host client", () => {
     it("offers n on an empty screen and in the bar", async () => {
       const { terminal, done } = await start(new FakeHost([], {}));
       expect(terminal.frame).toContain("No agent yet. Press n to start one in this folder.");
-      expect(terminal.frame).toMatch(/ n +new agent here/);
+      expect(terminal.frame).toMatch(/ n +new/);
       terminal.keyListener("q");
       await done;
     });
@@ -776,11 +787,11 @@ describe("the agents screen over a host client", () => {
       await done;
     });
 
-    it("shows the keys in the bar, in the board's order, and none for a stopped agent", async () => {
+    it("shows the keys in the bar of the board, and the stopped agent's own", async () => {
       const { terminal, done } = await start(new FakeHost([lumora, portfolio], { a1: lumoraLog }));
-      expect(terminal.frame).toMatch(/↑↓ +agent +n +new agent here +m +model\/effort +o +open in Redline +x +stop +q +close · agents keep running/);
+      expect(terminal.frame).toMatch(/↑↓ +agent +←→ +log\/list +n +new +m +model +x +stop +\? +commands/);
       terminal.keyListener("down");
-      expect(terminal.frame).toMatch(/↑↓ +agent +r +restart +R +restart all +n +new agent here +m +model\/effort +x +remove +q +close\s/);
+      expect(terminal.frame).toMatch(/↑↓ +agent +←→ +log\/list +r +restart +R +restart all +x +remove +\? +commands/);
       terminal.keyListener("q");
       await done;
     });
@@ -808,7 +819,7 @@ describe("text from the server on the terminal", () => {
   it("is cleaned in the project titles and the errors of the new agent dialog too", () => {
     let state = open([]);
     state = onKey(state, "n").state;
-    state = newAgentQuestions(state, { servers: [], serverUrl: "https://redline.brightco.fr", projects: [{ id: "p1", title: evil }], model: "opus" });
+    state = newAgentQuestions(state, { instances: [], serverUrl: "https://redline.brightco.fr", projects: [{ id: "p1", title: evil }], model: "opus" });
     state = newAgentFailed(state, evil);
     const lines = render(state, { columns: 184, rows: 43 }).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
     for (const line of lines) expect(line).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);

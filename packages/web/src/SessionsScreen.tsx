@@ -152,10 +152,11 @@ export function SessionsScreen() {
   useEffect(() => {
     void refresh();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsubscribe = subscribeServerEvents(() => {
+    const reload = () => {
       clearTimeout(timer);
       timer = setTimeout(() => void refresh(), 200);
-    });
+    };
+    const unsubscribe = subscribeServerEvents(reload, reload);
     return () => {
       clearTimeout(timer);
       unsubscribe();

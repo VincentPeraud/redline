@@ -24,10 +24,17 @@ export interface AgentOptions extends Omit<ConnectOptions, "onMessage"> {
 }
 
 /** Connects to the server and runs the work items it pushes, with the given engine. */
-export async function startAgent({ engine, install = installCli, installedBuildHash = buildHash, onUpdated, onActivity, signal, currentChoice = () => connect, ...connect }: AgentOptions): Promise<AgentConnection> {
+/** A connection that can also be told to stop once its agent has no run (see `stopWhenIdle`). */
+export type StartedAgent = AgentConnection & {
+  /** False while a run is in progress. Otherwise the agent takes no more work from now on, and true: the caller then closes it. */
+  stopWhenIdle(): boolean;
+};
+
+export async function startAgent({ engine, install = installCli, installedBuildHash = buildHash, onUpdated, onActivity, signal, currentChoice = () => connect, ...connect }: AgentOptions): Promise<StartedAgent> {
   const api = new ServerApi(connect.serverUrl, connect.token, connect.buildHash);
   const running = new Set<Promise<void>>();
   const attempts = new Map<string, number>();
+  let draining = false;
 
   /**
    * Lets the running sessions finish, installs the update, and tells the server when it failed (the agent then keeps its build).
@@ -54,6 +61,8 @@ export async function startAgent({ engine, install = installCli, installedBuildH
     ...connect,
     onMessage(message) {
       if (message.type === "work") {
+        // Told to stop while idle: a work item still on its way is not started (the server sends it again once this agent is gone).
+        if (draining) return;
         const choice = currentChoice();
         const item = { ...message.item, model: message.item.model ?? choice.model, effort: message.item.effort ?? choice.effort };
         const attempt = (attempts.get(item.id) ?? 0) + 1;
@@ -68,5 +77,12 @@ export async function startAgent({ engine, install = installCli, installedBuildH
       } else if (message.type === "update") void update();
     },
   });
-  return connection;
+  return {
+    ...connection,
+    stopWhenIdle() {
+      if (running.size > 0) return false;
+      draining = true;
+      return true;
+    },
+  };
 }

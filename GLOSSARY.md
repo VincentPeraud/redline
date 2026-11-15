@@ -25,6 +25,18 @@ _Avoid_: Artboard URL, deep link
 The order in which a page's artboards are numbered: artboards whose vertical extents overlap form a row, rows go top to bottom and artboards of a row left to right, whatever the manifest order. Each artboard also falls under a group (the nearest group title above its row that covers it horizontally, or none).
 _Avoid_: Manifest order, artboard order
 
+**Redline instance**:
+One Redline server, known by its address and its instance name. The CLI's user-facing texts say "instance"; in code and docs use "Redline instance" or "server", never a bare "instance" next to component code.
+_Avoid_: Instance (alone), environment
+
+**Installation**:
+The CLI files of one Redline instance on one computer: its own npm prefix, its token and its build, in a folder of its own under the CLI config dir, named by the installation id.
+_Avoid_: Install, copy
+
+**Global command**:
+The `redline` command on the PATH: a thin launcher that knows every installation.
+_Avoid_: Global CLI
+
 **Design system**:
 A special project whose tokens, components and pages define a style that other projects use.
 _Avoid_: DS (in code and docs), theme, style guide
@@ -109,6 +121,30 @@ One AI CLI session serving a conversation, a single thread, or the threads sent 
 **Working copy**:
 The local copy of a page's files that an agent downloads for a session to edit, then publishes back as a new version.
 _Avoid_: Draft, checkout, sandbox
+
+**Review** (of changes):
+A set of steps a terminal session declares with `request_review` once it has finished a series of changes, for one project; members with Écriture go through it in review mode, then finish it. It goes `open`, then `finished`.
+_Avoid_: Revue (as a type name), diffusion review (design system), À relire (a thread status)
+
+**Step**:
+One artboard of a review, or a group of artboards sharing one change (the first is the example), with what changed, what to look at and a closed question. Steps run in page order, then reading order of the page; groups spanning several pages come last.
+_Avoid_: Slide, screen
+
+**Answer**:
+One member's OK on a step, signed with their name and kept in the review (never a thread); a member cancels it until the review is finished.
+_Avoid_: Vote, validation
+
+**Requester**:
+The person and folder of the terminal session that declared a review.
+_Avoid_: Author
+
+**Fetch**:
+The conversation reading the result of a finished review with `review_feedback`; nothing is pushed to it.
+_Avoid_: Send, push
+
+**Filed**:
+A finished review closed without being fetched.
+_Avoid_: Archived, cancelled
 
 **Engine**:
 The AI CLI an agent drives to run sessions; v1 supports Claude Code only.

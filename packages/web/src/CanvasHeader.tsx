@@ -12,8 +12,8 @@ import { avatarClassName } from "./Avatar.js";
 import { useMe, useWho } from "./useMe.js";
 import type { Who } from "./historyLabels.js";
 import type { TocItem } from "./tocItems.js";
-import { routeHref } from "./router.js";
-import { Logo, cx } from "./ui/index.js";
+import { navigateTo, playRoute, routeHref } from "./router.js";
+import { Button, Logo, cx } from "./ui/index.js";
 import { VisitorHeader } from "./VisitorHeader.js";
 import { SharePageButton } from "./PageSharing.js";
 import { useVisitor } from "./visitor.js";
@@ -90,6 +90,11 @@ function PageMenu({ owner, pageId, pageTitle, artboardOrigin, deleted, onPutBack
   const [renaming, setRenaming] = useState(false);
   const [pages, setPages] = useState<MenuPage[]>([]);
   const root = useRef<HTMLDivElement>(null);
+
+  // A long list opens on the current page, once: thread counts arriving later do not scroll it back.
+  useEffect(() => {
+    if (open) root.current?.querySelector('[role="menu"] [aria-current="page"]')?.scrollIntoView({ block: "nearest" });
+  }, [open, pages.length]);
 
   useEffect(() => {
     if (!open || !owner) return;
@@ -186,12 +191,14 @@ function PageMenu({ owner, pageId, pageTitle, artboardOrigin, deleted, onPutBack
       {open && owner && (
         <div role="menu" aria-label={`${OWNER_LABELS[owner.kind].pages} ${owner.title}`} className={styles.menu}>
           <div className={styles.menuTitle}>{OWNER_LABELS[owner.kind].pages}</div>
+          <div className={styles.menuPages}>
           {pages.map(({ page, openThreads }) => (
             <a
               key={page.id}
               role="menuitem"
               href={routeHref({ name: "page", pageId: page.id, ...(previewOf === undefined ? {} : { previewOf }) })}
               className={cx(styles.menuItem, page.id === pageId && styles.menuItemCurrent)}
+              aria-current={page.id === pageId ? "page" : undefined}
               onClick={() => setOpen(false)}
             >
               <span className={styles.menuPageTitle}>{page.title}</span>
@@ -200,6 +207,7 @@ function PageMenu({ owner, pageId, pageTitle, artboardOrigin, deleted, onPutBack
               {openThreads > 0 ? <span className={styles.menuWarn}>{plural(openThreads, "fil", "fils")}</span> : null}
             </a>
           ))}
+          </div>
           <div className={styles.menuDivider} />
           {deleted.length > 0 && (
             <button
@@ -274,6 +282,13 @@ export function CanvasHeader({ project, designSystemId, designSystemTitle, versi
       ? { id: designSystemId, title: designSystemTitle, kind: "designSystem" }
       : null;
   if (visitor) return <VisitorHeader visitor={visitor} pageId={pageId} pageTitle={pageTitle} firstArtboard={toc.items[0]?.file} picking={picking} onPickingChange={onPickingChange} />;
+  // Same button as a share link's top bar: plays the page from its first artboard in reading order.
+  const firstArtboard = toc.items[0]?.file;
+  const present = (
+    <Button disabled={firstArtboard === undefined} onClick={() => firstArtboard !== undefined && navigateTo(playRoute(pageId, firstArtboard))}>
+      Présenter
+    </Button>
+  );
   return (
     <header className={styles.header}>
       <a href={routeHref({ name: "home" })} className={styles.logo} aria-label="Accueil">
@@ -318,12 +333,15 @@ export function CanvasHeader({ project, designSystemId, designSystemTitle, versi
       <div className={styles.spacer} />
       {previewOf !== undefined ? (
         <div className={styles.previewNote}>Commentaires et conversations désactivés pendant l'aperçu</div>
-      ) : archived && !commentOnly ? null : (
+      ) : archived && !commentOnly ? (
+        present
+      ) : (
         <>
           {!archived && <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />}
           {!archived && <TerminalPill pageId={pageId} />}
           {!archived && <AgentPill project={project} running={runningCount} />}
           {!archived && !designSystemId && <SharePageButton pageId={pageId} pageTitle={pageTitle} project={project} />}
+          {present}
           <div role="group" aria-label="Mode du canvas" className={styles.modes}>
             <button type="button" aria-pressed={!picking} className={cx(styles.mode, !picking && styles.modeInteract)} onClick={() => onPickingChange(false)}>
               Interagir (P)

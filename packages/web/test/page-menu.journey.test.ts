@@ -1,15 +1,12 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import { type Browser, type BrowserContext } from "playwright";
 import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { MANIFEST_PATH } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
-
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 
 let server: TestServer;
 let browser: Browser;
@@ -18,7 +15,7 @@ let context: BrowserContext;
 
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   server = await startTestServer({ webDir });
   browser = await launchBrowser();
   context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -87,4 +84,36 @@ it("lists a design system's pages from one of its pages and goes back to the des
   const menu = tab.getByRole("menu", { name: "Pages du design system Lumora" });
   await expect.poll(() => menu.getByRole("menuitem").allInnerTexts()).toEqual(expect.arrayContaining([expect.stringMatching(/^Actions/)]));
   await expect.poll(() => menu.getByRole("menuitem", { name: /Vue du design system/ }).getAttribute("href")).toBe(`#/design-systems/${ds.id}`);
+}, 60_000);
+
+it("scrolls a long list of pages inside the menu, which stays within the window and opens on the current page", async () => {
+  const project = (await (await server.post("/api/projects", { title: "Synapse" })).json()) as { id: string };
+  const ids: string[] = [];
+  for (let i = 1; i <= 30; i++) ids.push(((await (await server.post(`/api/projects/${project.id}/pages`, { title: `Page ${i} · un titre assez long pour être coupé`, files })).json()) as { id: string }).id);
+  await server.post(`/api/pages/${ids[20]}/threads`, { body: "À revoir", target: { kind: "artboard", artboard: "home.html" } });
+
+  const tab = await context.newPage();
+  await tab.goto(`${server.url}/#/pages/${ids[29]}`);
+  await tab.getByRole("button", { name: /^Page 30/ }).first().click();
+  const menu = tab.getByRole("menu", { name: "Pages du projet Synapse" });
+  await expect.poll(() => menu.getByRole("menuitem").count()).toBeGreaterThanOrEqual(30);
+  await expect.poll(() => menu.getByRole("menuitem", { name: /^Page 21/ }).innerText()).toContain("1 fil");
+
+  const box = (await menu.boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(900);
+  // The current page, last of the list, is scrolled into view; the overview link below the list stays reachable.
+  const within = async (name: string | RegExp) => {
+    const item = (await menu.getByRole("menuitem", { name }).boundingBox())!;
+    return item.y >= box.y && item.y + item.height <= box.y + box.height;
+  };
+  const scrolls = await menu.evaluate((element) => [...element.querySelectorAll("div")].some((div) => div.scrollHeight > div.clientHeight && getComputedStyle(div).overflowY === "auto"));
+  expect(scrolls).toBe(true);
+  await expect.poll(() => within(/^Page 30/)).toBe(true);
+  expect(await within("Vue du projet")).toBe(true);
+  expect(await within(/^Page 1 /)).toBe(false);
+  // "1 fil" stays on one line.
+  const count = menu.getByRole("menuitem", { name: /^Page 21/ }).getByText("1 fil");
+  await count.scrollIntoViewIfNeeded();
+  expect((await count.boundingBox())!.height).toBeLessThan(24);
+  if (process.env.REDLINE_SHOT_DIR) await tab.screenshot({ path: `${process.env.REDLINE_SHOT_DIR}/menu.png` });
 }, 60_000);

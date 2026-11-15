@@ -1,8 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import { type Browser, type Page as Tab } from "playwright";
 import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -10,8 +9,6 @@ import { CORE_TOKENS, type AgentTokenResponse, type DesignSystem } from "@redlin
 import { FakeEngine, startSeam2, type Seam2 } from "@redline/agent/seam2";
 import { startAgent } from "../../agent/src/agent.js";
 import type { AgentConnection } from "../../agent/src/connection.js";
-
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 
 const tokensCss = (primary: string) => `:root {\n${CORE_TOKENS.map((t) => `  ${t}: ${t === "--color-primary" ? primary : "#000000"};`).join("\n")}\n}\n`;
 const component = (css: string) => `<!doctype html><html><head><style data-component>${css}</style></head><body><div class="card">Hi</div></body></html>`;
@@ -32,7 +29,7 @@ const engine = new FakeEngine([
 
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   seam = await startSeam2(new FakeEngine([]), { webDir });
   globalFolder = mkdtempSync(join(tmpdir(), "redline-global-folder-"));
   const { token } = (await (await seam.server.get("/api/agent-token")).json()) as AgentTokenResponse;

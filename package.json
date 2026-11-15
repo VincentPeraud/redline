@@ -1,7 +1,8 @@
 {
   "name": "redline",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "workspaces": [
     "packages/shared",
@@ -12,6 +13,8 @@
   "scripts": {
     "build": "npm run build --workspaces",
     "test": "vitest run",
+    "test:fast": "vitest run --exclude \"**/*.journey.test.ts\"",
+    "test:journeys": "vitest run .journey.test.ts",
     "demo": "tsx --tsconfig scripts/tsconfig.json scripts/demo.ts",
     "test:docker": "REDLINE_DOCKER_TEST=1 vitest run packages/server/test/docker.test.ts packages/server/test/production-compose.test.ts packages/server/test/backup-restore.test.ts",
     "eval:agent": "tsx --tsconfig scripts/tsconfig.json scripts/eval-agent.ts",

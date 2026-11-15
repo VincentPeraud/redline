@@ -1,15 +1,12 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import { type Browser } from "playwright";
 import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { starterPageFiles, type Page, type Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
-
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 
 let server: TestServer;
 let browser: Browser;
@@ -17,7 +14,7 @@ let webDir: string;
 
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   server = await startTestServer({ webDir });
   browser = await launchBrowser();
 }, 60_000);
@@ -155,4 +152,23 @@ it("folds a long covered projects list behind « + N autres », and opens and cl
   await tab.getByRole("heading", { name: "Agents", level: 1 }).click();
   await panel.waitFor({ state: "detached" });
   await tab.close();
+}, 60_000);
+
+it("shows the instance name and version next to the Agents title, and only the version when the server has no name", async () => {
+  const version = (JSON.parse(readFileSync(new URL("../../server/package.json", import.meta.url), "utf8")) as { version: string }).version;
+  const named = await startTestServer({ webDir, redlineInstanceName: "Lumora" });
+  try {
+    const tab = await browser.newPage();
+    await tab.goto(`${named.url}/#/agents`);
+    await tab.getByTestId("instance-badge").waitFor();
+    expect(await tab.getByTestId("instance-badge").textContent()).toBe(`Lumora · v${version}`);
+    await tab.close();
+  } finally {
+    await named.stop();
+  }
+
+  const unnamed = await browser.newPage();
+  await unnamed.goto(`${server.url}/#/agents`);
+  await unnamed.getByTestId("instance-badge").waitFor();
+  expect(await unnamed.getByTestId("instance-badge").textContent()).toBe(`v${version}`);
 }, 60_000);

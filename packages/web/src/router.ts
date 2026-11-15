@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { artboardHash, pageHash, playHash } from "@redline/shared";
+import { artboardHash, pageHash, playHash, reviewHash } from "@redline/shared";
 
 export type Route =
   | { name: "home" }
@@ -16,6 +16,7 @@ export type Route =
   | { name: "project"; projectId: string }
   | { name: "designMd"; projectId: string }
   | { name: "projectDesignSystem"; projectId: string }
+  | { name: "review"; reviewId: string; step?: number | "recap" }
   | { name: "page"; pageId: string; artboard?: string; play?: string; renderingParam?: string; previewOf?: string; viaProjectId?: string };
 
 export type PageRoute = Extract<Route, { name: "page" }>;
@@ -42,6 +43,7 @@ export function parseRoute(hash: string): Route {
   const [, section, id, sub, subId, leaf] = path.split("/").map(decodeURIComponent);
   const via = new URLSearchParams(query).get(VIA_PARAM);
   const viaProject = via === null ? {} : { viaProjectId: via };
+  if (section === "reviews" && id) return { name: "review", reviewId: id, ...(sub === "recap" ? { step: "recap" as const } : sub === "steps" && Number(subId) >= 1 ? { step: Number(subId) } : {}) };
   if (section === "agents") return { name: "agents" };
   if (section === "sessions") return { name: "sessions" };
   if (section === "accounts") return { name: "accounts" };
@@ -101,6 +103,8 @@ export function routeHref(route: Route): string {
       return `#/projects/${encodeURIComponent(route.projectId)}/design-md`;
     case "projectDesignSystem":
       return `#/projects/${encodeURIComponent(route.projectId)}/design-system`;
+    case "review":
+      return route.step === "recap" ? `#/reviews/${encodeURIComponent(route.reviewId)}/recap` : reviewHash(route.reviewId, route.step);
     case "page": {
       if (route.play !== undefined) return `${playHash(route.pageId, route.play)}${route.renderingParam === undefined ? "" : `?rendu=${encodeURIComponent(route.renderingParam)}`}`;
       if (route.previewOf !== undefined) return `${pageHash(route.pageId)}?${PREVIEW_PARAM}=${encodeURIComponent(route.previewOf)}`;

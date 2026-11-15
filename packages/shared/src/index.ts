@@ -340,6 +340,26 @@ export interface TerminalWaitingPage {
   count: number;
 }
 
+/** One comment waiting for a terminal session, as the agents screen shows it. */
+export interface TerminalWaitingComment {
+  author: string;
+  /** When it was written (ISO time). */
+  at: string;
+  /** "accueil.html, the hero title" style label of what it is about. */
+  target: string;
+  text: string;
+}
+
+/** `GET /agent-api/terminal-comments`: the pages with comments waiting for a terminal session, read-only (nothing is taken). */
+export interface TerminalCommentsPage {
+  pageId: string;
+  title: string;
+  projectTitle: string;
+  /** The present session holding the page; absent when none is present. */
+  holder?: { folder: string; machine: string; since: string };
+  comments: TerminalWaitingComment[];
+}
+
 /** `POST /agent-api/terminal-sessions/:id/release`: one page of the session, or all of them without `pageId`. Answers with what was handed over. */
 export interface TerminalReleaseRequest {
   pageId?: string;
@@ -365,8 +385,24 @@ export interface CreatePageRequest {
   files: Record<string, string>;
 }
 
+/**
+ * Version of the protocol between the agent host (the global `redline` command) and the workers of the installations: bump it when
+ * the messages change. A host accepts workers of its version and of the previous one.
+ */
+export const HOST_PROTOCOL_VERSION = 1;
+
+/** `GET /agent-api/instance`: the server's configuration, plus the host protocol of the CLI build it serves. */
+export type RedlineInstanceResponse = ServerConfig & { hostProtocol: number };
+
+/** `GET /api/config`. */
 export interface ServerConfig {
   artboardOrigin: string;
+  /** The Redline instance's name (for example "Lumora"); absent when the administrator set none. */
+  redlineInstanceName?: string;
+  /** The Redline version of the server. */
+  version: string;
+  /** Hash of the build the image carries; absent in development. */
+  buildHash?: string;
 }
 
 /** Path segment before a capability in an artboard url: `<origin>/c/<capability>/pages/...`. */
@@ -1286,6 +1322,42 @@ export function cliUpdateCommand(origin: string): string {
   return `npm i -g ${origin}${CLI_TARBALL_PATH}`;
 }
 
+/** The command that sets up this server's instance on a computer: installs the global command when needed, then the instance. */
+export function cliSetupCommand(origin: string, token: string): string {
+  return `npx -y ${origin}${CLI_TARBALL_PATH} setup ${origin} --token ${token}`;
+}
+
+/** The command that moves a computer installed before instances to them. */
+export function cliMigrateCommand(origin: string): string {
+  return `npx -y ${origin}${CLI_TARBALL_PATH} migrate`;
+}
+
+/** The command that brings an instance's installation up to this server's version. */
+export function redlineUpdateCommand(origin: string): string {
+  return `redline update ${origin}`;
+}
+
+/** The name a computer gives this server's instance when the administrator set none: the first label of its address, skipping a leading `redline`. */
+export function redlineInstanceFallbackName(origin: string): string {
+  const labels = new URL(origin).hostname.split(".");
+  return (labels[0] === "redline" && labels.length > 1 ? labels[1] : labels[0]) ?? "";
+}
+
+/** The word `redline link` and `--instance` take for an instance: its name, lowercased, without accents or punctuation. */
+export function redlineInstanceHandle(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** What a refused agent runs: `migrate` when it was installed before instances (its hello has no host protocol), else `redline update`. */
+export function refusedAgentCommand(origin: string, beforeInstallations: boolean): string {
+  return beforeInstallations ? cliMigrateCommand(origin) : redlineUpdateCommand(origin);
+}
+
 /** WebSocket close codes sent by the server on the agent endpoint. */
 export const AgentCloseCode = {
   /** Wrong token, or token regenerated while connected. */
@@ -1316,6 +1388,8 @@ export interface AgentHello extends ModelChoice {
   projectId?: string;
   /** Hash of the CLI build the agent runs ("dev" from sources). */
   buildHash?: string;
+  /** Host protocol of the build the agent runs; absent from a build installed before instances. */
+  hostProtocol?: number;
 }
 
 /** The agent could not install the update; it keeps running its previous build. */
@@ -1347,6 +1421,8 @@ export interface AgentInfo extends ModelChoice {
   /** Present when this connected agent runs another CLI build than the server's. */
   outdated?: true;
   /** The agent was asked to update and has not come back (or failed) yet: the server sends it no new work. */
+  /** Host protocol of the build the agent runs; absent from a build installed before instances. */
+  hostProtocol?: number;
   updating?: true;
   /** Why the last update failed; the agent kept running its previous build. */
   updateError?: string;
@@ -1363,6 +1439,8 @@ export interface RefusedAgent {
   project?: string;
   /** ISO time of the refusal. */
   refusedAt: string;
+  /** Installed before instances (its hello has no host protocol): it needs `migrate`, not `redline update`. */
+  beforeInstallations?: true;
 }
 
 export interface AgentTokenResponse {
@@ -1443,9 +1521,12 @@ function typeDefault(tweak: ManifestTweak): TweakValue {
 }
 
 /** Value of every declared tweak: stored value, else declared default, else the type's default. Undeclared or invalid stored values are ignored. */
-export function resolveTweakValues(manifest: Manifest, stored: TweakValues): TweakValues {
+export const resolveTweakValues = (manifest: Manifest, stored: TweakValues): TweakValues => resolveDeclaredTweakValues(manifest.tweaks, stored);
+
+/** `resolveTweakValues` for a list of declarations. */
+export function resolveDeclaredTweakValues(tweaks: readonly ManifestTweak[], stored: Readonly<Record<string, unknown>>): TweakValues {
   const values: TweakValues = {};
-  for (const tweak of manifest.tweaks) {
+  for (const tweak of tweaks) {
     const candidates: unknown[] = [stored[tweak.id], tweak.default];
     values[tweak.id] =
       (candidates.find((v) => v !== undefined && tweakValueError(tweak, v) === null) as TweakValue | undefined) ?? typeDefault(tweak);
@@ -1480,3 +1561,4 @@ export * from "./changeRecord.js";
 export * from "./diffusionReview.js";
 export * from "./componentComparison.js";
 export * from "./links.js";
+export * from "./changeReview.js";

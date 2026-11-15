@@ -1,15 +1,12 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import { type Browser } from "playwright";
 import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { PROTOCOL_VERSION, cliUpdateCommand, pageHash, starterPageFiles, type Page, type Project } from "@redline/shared";
+import { HOST_PROTOCOL_VERSION, PROTOCOL_VERSION, cliMigrateCommand, redlineUpdateCommand, pageHash, starterPageFiles, type Page, type Project } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
-
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 
 let server: TestServer;
 let browser: Browser;
@@ -21,7 +18,7 @@ beforeAll(async () => {
   cliDir = mkdtempSync(join(tmpdir(), "redline-cli-"));
   writeFileSync(join(cliDir, "redline-cli.tgz"), "tarball");
   writeFileSync(join(cliDir, "build-hash.txt"), "server-build");
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   server = await startTestServer({ webDir, cliDir });
   browser = await launchBrowser();
 }, 60_000);
@@ -55,7 +52,7 @@ it("warns on every screen when agents are not up to date, and shows them on the 
   await tab.getByRole("navigation", { name: "Fil d'Ariane" }).waitFor();
   await tab.getByRole("status").getByText("L'agent global n'est pas à jour.").waitFor();
 
-  const refused = await server.connectAgent({ machine: "iMac", folder: "/projets/reels", protocolVersion: PROTOCOL_VERSION + 1 });
+  const refused = await server.connectAgent({ machine: "iMac", folder: "/projets/reels", protocolVersion: PROTOCOL_VERSION + 1, hostProtocol: HOST_PROTOCOL_VERSION });
   await refused.hello;
   await tab.getByRole("status").getByText("2 agents ne sont pas à jour : global et reels.").waitFor();
 
@@ -91,8 +88,20 @@ it("warns on every screen when agents are not up to date, and shows them on the 
   await refusedCard.getByText("Pas à jour · refusé").waitFor();
   await refusedCard.getByText("Ne peut plus se connecter").waitFor();
   await refusedCard.getByRole("button", { name: "Copier la commande" }).click();
-  expect(await tab.evaluate(() => navigator.clipboard.readText())).toBe(cliUpdateCommand(server.url));
+  expect(await tab.evaluate(() => navigator.clipboard.readText())).toBe(redlineUpdateCommand(server.url));
+  await refusedCard.getByText(redlineUpdateCommand(server.url), { exact: true }).waitFor();
+  expect(await refusedCard.getByText("Installé avant les instances", { exact: false }).count()).toBe(0);
 
+  // An agent installed before instances sends no host protocol: its row copies `migrate` and says why.
+  const old = await server.connectAgent({ machine: "macbook-ariane", folder: "/projets/lumora-app", protocolVersion: PROTOCOL_VERSION + 1 });
+  await old.hello;
+  const oldCard = tab.getByTestId("refused-agent-card").filter({ hasText: "/projets/lumora-app" });
+  await oldCard.getByText("Installé avant les instances", { exact: false }).waitFor();
+  await oldCard.getByText(cliMigrateCommand(server.url), { exact: true }).waitFor();
+  await oldCard.getByRole("button", { name: "Copier la commande" }).click();
+  expect(await tab.evaluate(() => navigator.clipboard.readText())).toBe(cliMigrateCommand(server.url));
+
+  old.close();
   refused.close();
   global.close();
   current.close();

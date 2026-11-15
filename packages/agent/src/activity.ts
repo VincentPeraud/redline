@@ -1,6 +1,12 @@
 import type { AgentKind } from "@redline/shared";
 import { sanitizeForTerminal } from "./sanitize.js";
 
+/** Start of the reason an agent stops with when its token is refused: `redline setup` restarts the agents stopped that way. */
+export const TOKEN_REFUSED_REASON = "The token was regenerated.";
+
+/** The reason of an agent that `redline migrate` stopped: the agents screen says so instead of "the Mac restarted". */
+export const MIGRATE_STOP_REASON = "Stopped by redline migrate.";
+
 /** What an agent reports about itself, as structured events: the foreground prints them, the agent host logs them. */
 export type AgentActivity =
   | { type: "connected"; serverUrl: string; kind: AgentKind; folder: string }

@@ -15,7 +15,7 @@ describe("CLI package", () => {
     writeFileSync(join(work, "agent", "package.json"), JSON.stringify({ name: "redline-cli", version: "0.0.0", type: "module", bin: { redline: "dist/cli.js" }, dependencies: { "@redline/shared": "*", zod: "^4.0.0" }, scripts: { build: "tsc" } }));
     writeFileSync(join(work, "agent", "dist", "cli.js"), "console.log('cli');\n");
     writeFileSync(join(work, "shared", "package.json"), JSON.stringify({ name: "@redline/shared", version: "0.0.0", private: true, type: "module", main: "dist/index.js" }));
-    writeFileSync(join(work, "shared", "dist", "index.js"), "export const x = 1;\n");
+    writeFileSync(join(work, "shared", "dist", "index.js"), "export const x = 1;\nexport const HOST_PROTOCOL_VERSION = 4;\n");
   });
   afterEach(() => rmSync(work, { recursive: true, force: true }));
 
@@ -28,9 +28,9 @@ describe("CLI package", () => {
   it("gives the same hash to two builds of the same code, and another one when a file changes", () => {
     const first = pack("one").hash;
     expect(pack("two").hash).toBe(first);
-    writeFileSync(join(work, "shared", "dist", "index.js"), "export const x = 2;\n");
+    writeFileSync(join(work, "shared", "dist", "index.js"), "export const x = 2;\nexport const HOST_PROTOCOL_VERSION = 4;\n");
     expect(pack("three").hash).not.toBe(first);
-    writeFileSync(join(work, "shared", "dist", "index.js"), "export const x = 1;\n");
+    writeFileSync(join(work, "shared", "dist", "index.js"), "export const x = 1;\nexport const HOST_PROTOCOL_VERSION = 4;\n");
     writeFileSync(join(work, "agent", "dist", "cli.js"), "console.log('changed');\n");
     expect(pack("four").hash).not.toBe(first);
   });
@@ -43,5 +43,10 @@ describe("CLI package", () => {
     const files = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" });
     expect(files).toContain("package/node_modules/@redline/shared/dist/index.js");
     expect(files).toContain("package/dist/cli.js");
+  });
+
+  it("tells the host protocol version the build speaks", () => {
+    const { outDir } = pack("one");
+    expect(execFileSync("tar", ["-xzOf", join(outDir, "redline-cli.tgz"), "package/host-protocol.txt"], { encoding: "utf8" })).toBe("4");
   });
 });

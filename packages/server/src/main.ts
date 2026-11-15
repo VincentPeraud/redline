@@ -17,6 +17,7 @@ const server = await startServer({
   port: Number(process.env.REDLINE_PORT ?? 3000),
   artboardPort: Number(process.env.REDLINE_ARTBOARD_PORT ?? 3001),
   artboardOrigin: process.env.REDLINE_ARTBOARD_ORIGIN,
+  redlineInstanceName: process.env.REDLINE_INSTANCE_NAME?.trim() || undefined,
   authMode: resolveAuthMode(process.env, proxySecrets),
   proxySecrets,
   publicUrl: process.env.REDLINE_PUBLIC_URL,

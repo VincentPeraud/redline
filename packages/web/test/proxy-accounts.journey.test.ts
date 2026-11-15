@@ -1,14 +1,12 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import type { Browser, Page } from "playwright";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { startServer, type RunningServer } from "../../server/src/start.js";
 import { launchBrowser } from "./journeyBrowser.js";
 
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 const HUMAN = "h".repeat(32);
 const LOGOUT = "https://auth.example.com/logout";
 const sso = (user: string, name: string, email: string) => ({ "x-redline-proxy-secret": HUMAN, "remote-user": user, "remote-name": name, "remote-email": email });
@@ -21,7 +19,7 @@ let server: RunningServer;
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   dataDir = mkdtempSync(join(tmpdir(), "redline-proxy-accounts-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   server = await startServer({
     dataDir,
     port: 0,

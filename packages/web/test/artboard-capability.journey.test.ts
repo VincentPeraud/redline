@@ -1,15 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import { type Browser, type Frame } from "playwright";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import type { Page, Project } from "@redline/shared";
 import { startServer, type RunningServer } from "@redline/server";
 import { launchBrowser } from "./journeyBrowser.js";
 
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 const HUMAN = "h".repeat(32);
 const MACHINE = "m".repeat(32);
 /** Expires after 2 s and is renewed after 1 s, so a few seconds of waiting cross both. */
@@ -24,7 +22,7 @@ let dataDir: string;
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   dataDir = mkdtempSync(join(tmpdir(), "redline-data-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", webDir, authMode: "proxy", firstAdminEmail: "ariane@example.com", proxySecrets: { human: HUMAN, machine: MACHINE }, artboardCapabilityLifetimeMs: LIFETIME_MS });
   browser = await launchBrowser();
 }, 60_000);

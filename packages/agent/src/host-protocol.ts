@@ -1,4 +1,4 @@
-import { EFFORTS, MODEL_PATTERN, type AgentKind, type Effort } from "@redline/shared";
+import { EFFORTS, HOST_PROTOCOL_VERSION, MODEL_PATTERN, type AgentKind, type Effort } from "@redline/shared";
 import type { AgentActivity } from "./activity.js";
 
 /**
@@ -16,6 +16,8 @@ export interface HostAgent {
   folder: string;
   kind: AgentKind;
   serverUrl: string;
+  /** Id of the installation the agent runs with (its worker runs that installation's code); older registries have none: the address tells. */
+  installation?: string;
   projectIds?: string[];
   /** Titles of the projects, as the launching terminal knew them (shown by the agents screen). */
   projectNames?: string[];
@@ -61,13 +63,19 @@ export type HostRequest =
   | ({ type: "launch" } & LaunchSettings & ClientEnvironment)
   /** Keeps the host alive while the connection is open, and returns the agent. */
   | { type: "attach"; agentId: string }
-  | { type: "stop"; agentId: string }
+  /** `reason` is shown as the agent's stop reason (`redline migrate` gives its own). */
+  | { type: "stop"; agentId: string; reason?: string }
   /** Removes the agent from the registry and deletes its log, stopping its worker first if it runs. */
   | { type: "remove"; agentId: string }
   /** Starts a stopped agent with its stored settings; an agent that is not stopped is returned as it is (`started` false). */
   | ({ type: "restart"; agentId: string } & ClientEnvironment)
   /** Restarts every stopped agent, and returns those. */
   | ({ type: "restart-all" } & ClientEnvironment)
+  /**
+   * The installation was updated on disk: each of its agents with a worker restarts with the new files, at once when it runs no work,
+   * else when its run ends (never cancelled). Returns those agents; stopped ones start with the new files when started.
+   */
+  | { type: "installation-updated"; installation: string }
   /**
    * Sets the model and effort (absent = Claude's default) of the agent's next runs: the registry and the folder's last launch choice
    * are updated, and a running worker is told without restarting. A run in progress keeps its own. Returns the agent.
@@ -97,6 +105,7 @@ export interface HostReplies {
   remove: Record<never, never>;
   restart: { agent: HostAgent; started: boolean };
   "restart-all": { agents: HostAgent[] };
+  "installation-updated": { agents: HostAgent[] };
   "set-model-effort": { agent: HostAgent };
   log: { entries: HostLogEntry[] };
   subscribe: Record<never, never>;
@@ -105,7 +114,12 @@ export interface HostReplies {
 export type HostReply = { [Type in keyof HostReplies]: { id: number; ok: true } & HostReplies[Type] }[keyof HostReplies] | { id: number; ok: false; error: string };
 
 /** What an agent's run log records: the worker's activity, plus the failure of a worker that did not stop on request. */
-export type HostLogEvent = AgentActivity | { type: "stopped"; reason: "failed"; error: string } | { type: "stopped"; reason: "host-restarted" };
+export type HostLogEvent =
+  | AgentActivity
+  | { type: "stopped"; reason: "failed"; error: string }
+  | { type: "stopped"; reason: "host-restarted" }
+  /** The host restarted because the global `redline` command changed, and started this agent again (`version` is the new command's). */
+  | { type: "host-updated"; version: string };
 
 /** One line of an agent's run log: the event as structured data (the agents screen formats and colours it), and when it happened. */
 export interface HostLogEntry {
@@ -129,6 +143,8 @@ export type HostToWorker =
   | { type: "start"; config: WorkerConfig }
   /** Closes the connection, cancels the run in progress, and exits. */
   | { type: "stop" }
+  /** Stops like `stop`, but only if no run is in progress: the worker answers `busy` otherwise and goes on. No run is ever cancelled by it. */
+  | { type: "stop-when-idle" }
   /** The model and effort the next work items use when they carry none of their own. */
   | { type: "set-model-effort"; model?: string; effort?: Effort };
 
@@ -137,7 +153,9 @@ export type WorkerToHost =
   /** Each activity event of the agent loop, in order. */
   | { type: "activity"; event: AgentActivity }
   /** The agent cannot run (refused by the server, wrong token...): the host shows it stopped with this reason. */
-  | { type: "failed"; reason: string };
+  | { type: "failed"; reason: string }
+  /** The answer to `stop-when-idle` while a run is in progress. When idle, the worker stops and exits without answering. */
+  | { type: "busy" };
 
 export interface WorkerConfig {
   serverUrl: string;
@@ -164,3 +182,33 @@ export function modelChoiceError({ model, effort }: { model?: unknown; effort?: 
 }
 
 export const isAgentId = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+/** First `redline` release of each host protocol version, to tell people which version of an installation is old enough to be refused. */
+const PROTOCOL_RELEASES: Record<number, string> = { 1: "0.2.0" };
+
+/** What a host accepts: the workers of its own protocol version and of the previous one (never below 1: older builds have none). */
+export interface HostProtocol {
+  version: number;
+  /** Version of the global command running the host. */
+  commandVersion: string;
+  /** Oldest protocol version accepted. */
+  oldest: number;
+  /** First release speaking `oldest`, when known. */
+  oldestRelease?: string;
+}
+
+export function hostProtocol(commandVersion: string, version = HOST_PROTOCOL_VERSION): HostProtocol {
+  const oldest = Math.max(1, version - 1);
+  return { version, commandVersion, oldest, oldestRelease: PROTOCOL_RELEASES[oldest] };
+}
+
+/** An installation that does not tell its protocol (a build older than the installations) is not accepted. */
+export const acceptsProtocol = ({ oldest }: HostProtocol, installationProtocol: number | undefined): boolean => installationProtocol !== undefined && installationProtocol >= oldest;
+
+/** What an agent's log and the setup report say about an installation the host refuses. */
+export function refusalMessage(protocol: HostProtocol, installation: { name: string; version?: string }): string {
+  const own = installation.version ? ` (v${installation.version})` : "";
+  const accepted = protocol.oldestRelease ? `v${protocol.oldestRelease}` : `host protocol ${protocol.oldest}`;
+  const server = installation.version ? `${installation.name}'s server runs v${installation.version}: it` : `${installation.name}'s server`;
+  return `the ${installation.name} installation${own} is too old for this redline command (v${protocol.commandVersion}, which accepts ${accepted} and later). ${server} must be upgraded, then updated (Instances tab).`;
+}

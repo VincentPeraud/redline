@@ -1,14 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import { chromium, type Browser, type BrowserContext, type Page as Tab } from "playwright";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { MANIFEST_PATH } from "@redline/shared";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
-
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 
 let server: TestServer;
 let browser: Browser;
@@ -17,7 +14,7 @@ let context: BrowserContext;
 
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   server = await startTestServer({ webDir });
   browser = await chromium.launch();
   context = await browser.newContext({ viewport: { width: 1440, height: 900 } });

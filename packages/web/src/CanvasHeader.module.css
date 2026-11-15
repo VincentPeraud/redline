@@ -145,7 +145,18 @@
   white-space: nowrap;
 }
 
+/* A long list scrolls inside the menu: the title and the actions below stay in view, and the menu never runs off the window. */
+.menuPages {
+  display: flex;
+  flex-direction: column;
+  max-height: min(420px, calc(100vh - 240px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .menuWarn {
+  flex-shrink: 0;
+  white-space: nowrap;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-regular);
   color: var(--color-warning-text);

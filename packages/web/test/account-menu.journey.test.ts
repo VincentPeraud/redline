@@ -1,8 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import { type Browser, type BrowserContext, type Page } from "playwright";
 import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -10,7 +9,6 @@ import { MANIFEST_PATH } from "@redline/shared";
 import { startServer, type RunningServer } from "../../server/src/start.js";
 import { startTestServer, type TestServer } from "@redline/server/test-harness";
 
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 const HUMAN = "h".repeat(32);
 const LOGOUT = "https://auth.example.com/logout";
 const ssoHeaders = { "x-redline-proxy-secret": HUMAN, "remote-user": "amartin", "remote-name": "Ariane Martin", "remote-email": "ariane@example.com" };
@@ -34,7 +32,7 @@ async function createPage(base: string, headers: Record<string, string>): Promis
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   dataDir = mkdtempSync(join(tmpdir(), "redline-sso-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   sso = await startServer({
     dataDir,
     port: 0,

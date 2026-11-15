@@ -5,7 +5,12 @@ import {
   artboardHash,
   pageHash,
   playHash,
+  reviewHash,
   type AgentCheckout,
+  type ChangeReviewFeedback,
+  type ChangeReviewFeedbackRequest,
+  type RequestChangeReviewRequest,
+  type RequestChangeReviewResponse,
   type AgentGapsRequest,
   type AgentDesignSystem,
   type AgentReplyRequest,
@@ -19,6 +24,7 @@ import {
   type PageVersionSummary,
   type Project,
   type ProjectAsset,
+  type TerminalCommentsPage,
   type TerminalHeartbeatRequest,
   type TerminalReleaseRequest,
   type TerminalPickedPage,
@@ -30,6 +36,7 @@ import {
   type SendRequestRequest,
   type SendRequestResponse,
   cliUpdateCommand,
+  type RedlineInstanceResponse,
 } from "@redline/shared";
 import { buildHash as ownBuildHash } from "./build-hash.js";
 
@@ -38,7 +45,7 @@ export class ServerApi {
   private serverSaidOutdated = false;
 
   constructor(
-    private readonly serverUrl: string,
+    readonly serverUrl: string,
     private readonly token: string,
     private readonly buildHash: string = ownBuildHash(),
   ) {}
@@ -50,6 +57,11 @@ export class ServerApi {
 
   updateCommand(): string {
     return cliUpdateCommand(this.serverUrl);
+  }
+
+  /** What the server tells about itself: its Redline version, instance name and host protocol. */
+  instance(): Promise<RedlineInstanceResponse> {
+    return this.request("GET", "/instance");
   }
 
   checkout(pageId: string): Promise<AgentCheckout> {
@@ -94,10 +106,26 @@ export class ServerApi {
     return this.request("GET", `/terminal-sessions/${encodeURIComponent(sessionId)}/waiting`);
   }
 
+  /** Every page with comments waiting for a terminal session, read-only: nothing is taken. */
+  terminalComments(): Promise<TerminalCommentsPage[]> {
+    return this.request("GET", "/terminal-comments");
+  }
+
   /** Hands one page this terminal session holds (or all of them) over to the agents; answers with what was handed over. */
   terminalRelease(sessionId: string, pageId?: string): Promise<TerminalWaitingPage[]> {
     const body: TerminalReleaseRequest = pageId ? { pageId } : {};
     return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/release`, body);
+  }
+
+  /** Declares a review of changes for this terminal session; answers the new review's id. */
+  requestReview(sessionId: string, request: RequestChangeReviewRequest): Promise<RequestChangeReviewResponse> {
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/reviews`, request);
+  }
+
+  /** The result of a finished review (its progress while it is open). */
+  reviewFeedback(sessionId: string, request: ChangeReviewFeedbackRequest): Promise<ChangeReviewFeedback> {
+    const body: ChangeReviewFeedbackRequest = request;
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/review-feedback`, body);
   }
 
   /** A 60-second single-use link that signs a headless test browser in as this token's account. */
@@ -213,6 +241,10 @@ export class ServerApi {
 
   playUrl(pageId: string, file: string): string {
     return `${this.serverUrl}/${playHash(pageId, file)}`;
+  }
+
+  reviewUrl(reviewId: string): string {
+    return `${this.serverUrl}/${reviewHash(reviewId)}`;
   }
 
   /** JSON in and out; a Buffer body is sent as raw bytes. */

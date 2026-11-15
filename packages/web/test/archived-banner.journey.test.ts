@@ -3,8 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import type { Browser, Page } from "playwright";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { MANIFEST_PATH, type Project } from "@redline/shared";
@@ -12,7 +11,6 @@ import { hashPassword } from "../../server/src/accounts.js";
 import { startServer, type RunningServer } from "../../server/src/start.js";
 import { launchBrowser } from "./journeyBrowser.js";
 
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 const PASSWORD = "correct horse";
 const JSON_HEADERS = { "content-type": "application/json" };
 
@@ -36,7 +34,7 @@ async function tabFor(email: string): Promise<Page> {
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
   dataDir = mkdtempSync(join(tmpdir(), "redline-archived-banner-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   server = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1", webDir, authMode: "local", log: (line) => (setupLink = line.slice(line.indexOf("http"))) });
   const token = setupLink.split("/#/setup/")[1].trim();
   await fetch(`${server.url}/api/setup`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ token, name: "Vincent Peraud", email: "vincent@example.com", password: PASSWORD }) });

@@ -1,15 +1,12 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { copyBuiltWeb } from "./builtWeb.js";
 import { type Browser } from "playwright";
 import { launchBrowser } from "./journeyBrowser.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import type { AgentInfo } from "@redline/shared";
 import { FakeEngine, startSeam2, type Seam2 } from "@redline/agent/seam2";
-
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
 
 let browser: Browser;
 let webDir: string;
@@ -17,7 +14,7 @@ let seam: Seam2;
 
 beforeAll(async () => {
   webDir = mkdtempSync(join(tmpdir(), "redline-web-"));
-  await build({ root: webRoot, logLevel: "silent", build: { outDir: webDir, emptyOutDir: true } });
+  copyBuiltWeb(webDir);
   seam = await startSeam2(new FakeEngine([{ type: "result", summary: "Nothing to change" }]), { webDir });
   browser = await launchBrowser();
 }, 60_000);

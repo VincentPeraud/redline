@@ -4,7 +4,7 @@ import type { WebSocket } from "ws";
 import {
   AGENT_ENDPOINT,
   AgentCloseCode,
-  cliUpdateCommand,
+  refusedAgentCommand,
   EFFORTS,
   PROTOCOL_VERSION,
   type AgentHello,
@@ -19,6 +19,9 @@ function send(socket: WebSocket, message: ServerToAgentMessage): void {
   socket.send(JSON.stringify(message));
 }
 
+/** A build installed before instances sends no host protocol. */
+const beforeInstallations = (hello: AgentHello): boolean => hello.hostProtocol === undefined || hello.hostProtocol < 1;
+
 function parseHello(raw: string): AgentHello | undefined {
   try {
     const m = JSON.parse(raw) as Partial<AgentHello>;
@@ -31,6 +34,7 @@ function parseHello(raw: string): AgentHello | undefined {
       (m.kind === "project" || m.kind === "global") &&
       (m.projectId === undefined || typeof m.projectId === "string") &&
       (m.projectIds === undefined || (Array.isArray(m.projectIds) && m.projectIds.every((id) => typeof id === "string"))) &&
+      (m.hostProtocol === undefined || typeof m.hostProtocol === "number") &&
       (m.buildHash === undefined || typeof m.buildHash === "string") &&
       (m.model === undefined || typeof m.model === "string") &&
       (m.effort === undefined || (EFFORTS as readonly unknown[]).includes(m.effort));
@@ -113,12 +117,12 @@ export async function registerAgentRoutes(app: FastifyInstance, store: Store): P
         return socket.close(AgentCloseCode.Unauthorized, "unauthorized");
       }
       if (hello.protocolVersion !== PROTOCOL_VERSION) {
-        store.recordRefusedAgent(hello);
+        store.recordRefusedAgent({ ...hello, beforeInstallations: beforeInstallations(hello) });
         store.emit({ type: "agents-updated" });
         send(socket, {
           type: "error",
           code: "incompatible_protocol",
-          message: `Agent protocol ${hello.protocolVersion} is not supported (server uses ${PROTOCOL_VERSION}). Update the agent with: ${cliUpdateCommand(origin)}`,
+          message: `Agent protocol ${hello.protocolVersion} is not supported (server uses ${PROTOCOL_VERSION}). Update the agent with: ${refusedAgentCommand(origin, beforeInstallations(hello))}`,
         });
         return socket.close(AgentCloseCode.IncompatibleProtocol, "incompatible protocol");
       }
