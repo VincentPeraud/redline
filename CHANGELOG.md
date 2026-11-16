@@ -6,6 +6,10 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+### Changed
+
+- Review mode: Habillage, Repères and Tweaks are icon buttons (tooltip and accessible name) so the top bar fits at 1440 px. Feedback is called "retours" in the banner, recap counters, confirmations, error and finished screens and `review_feedback`; the step chip stays "Remarque" and the field is "Remarque générale".
+
 ### Added
 
 - Review mode: an "Habillage" button in the top bar shows or hides the device frame or browser window around the artboard, as in Present (the same saved choice). Pressed toggles of the red bar (Habillage, Tweaks) are white.
