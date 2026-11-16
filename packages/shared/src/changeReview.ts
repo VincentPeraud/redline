@@ -293,7 +293,13 @@ export const nextPinNumber = (inUse: readonly number[], lastIssued: number): num
 export const stepIsCanvasOnly = ({ artboard }: { artboard: string }): boolean => artboard === "";
 
 /** The artboards a step covers, the example first (none on a canvas-only step). */
-export const stepArtboards = ({ pageId, artboard, others = [] }: { pageId: string; artboard: string; others?: readonly ArtboardRef[] }): ArtboardRef[] => [...(artboard === "" ? [] : [{ pageId, artboard }]), ...others];
+export const stepArtboards = (step: { pageId: string; artboard: string; others?: readonly ArtboardRef[] }): ArtboardRef[] => [...(stepIsCanvasOnly(step) ? [] : [{ pageId: step.pageId, artboard: step.artboard }]), ...(step.others ?? [])];
+
+/** A pin target that sits on the page canvas (an element or a zone drawn on it), as opposed to one on an artboard. */
+export const isCanvasTarget = (target: { kind?: unknown; space?: unknown }): target is ReviewCanvasTarget | (ReviewZoneTarget & { space: "canvas" }) => target.kind === "canvas-element" || (target.kind === "zone" && target.space === "canvas");
+
+/** The member of a step's artboards a pin or a remark was written on: `on`, else the example (the first member). */
+export const memberOn = <T extends ArtboardRef>(members: readonly T[], on: ArtboardRef | undefined): T | undefined => members.find((member) => member.pageId === on?.pageId && member.artboard === on?.artboard) ?? members[0];
 
 /** The pages a step covers (a canvas-only step has its own page and no artboard). */
 export const stepPageIds = (step: { pageId: string; artboard: string; others?: readonly ArtboardRef[] }): string[] => [...new Set([step.pageId, ...(step.others ?? []).map((ref) => ref.pageId)])];
@@ -478,7 +484,7 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
     validated: numbered.filter((step) => stepStatus(step.answers, step.pins) === "ok").map((step) => ({ stepId: step.id, label: step.label, number: step.number, by: step.answers.filter((answer) => !answer.outdated).map(nameOfAnswer) })),
     pins: steps.flatMap((step) =>
       (step.pins ?? []).map((pin): ChangeReviewPinResult => {
-        const on = step.members && (step.members.find((member) => member.pageId === pin.on?.pageId && member.artboard === pin.on?.artboard) ?? step.members[0]);
+        const on = step.members && memberOn(step.members, pin.on);
         return {
           stepId: step.id,
           label: step.label,
@@ -503,7 +509,7 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
       step.answers
         .filter((answer) => answer.kind === "remark")
         .map((answer) => {
-          const where = step.members && (step.members.find((member) => member.pageId === answer.on?.pageId && member.artboard === answer.on?.artboard) ?? step.members[0]);
+          const where = step.members && memberOn(step.members, answer.on);
           return {
             stepId: step.id,
             label: step.label,
@@ -608,8 +614,8 @@ export interface PageChangeReview {
   seen: number;
   /** Validations given on all steps. */
   okCount: number;
-  /** Remarks left on all steps. */
-  remarkCount: number;
+  /** Steps with feedback: a step counts once, whatever its number of pins and remarks. */
+  feedbackStepCount: number;
   /** People who answered, in order of first answer. */
   contributors: Person[];
   requester: { person?: Person; folder: string; label?: string };

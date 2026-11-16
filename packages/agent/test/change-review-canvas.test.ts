@@ -156,9 +156,9 @@ describe("pins and zones on a canvas step", () => {
     expect(threads.find((thread) => thread.body === "Make it a button")).toMatchObject({ target: { kind: "canvas-element", elementId: "note-archives", elementKind: "sticky" } });
     expect(threads.find((thread) => thread.body === "General")).toMatchObject({ target: { kind: "canvas-element", elementId: "note-archives" } });
     expect(threads.find((thread) => thread.body === "Add an arrow")).toMatchObject({ target: { kind: "zone", space: "canvas", x: 880, y: 300, w: 268.5, h: 70 } });
-    expect(answer).toMatch(/1\. pin on canvas element `note-archives` \(sticky\)[^\n]*thread [0-9a-f-]+/);
+    expect(answer).toMatch(/1\. épingle sur l'élément du canevas `note-archives` \(sticky\)[^\n]*fil [0-9a-f-]+/);
     expect(answer).toMatch(/2\. zone x 880 px · y 300 px · 268\.5 px × 70 px du canevas/);
-    expect(answer).toMatch(/general remark/);
+    expect(answer).toMatch(/remarque générale/);
   });
 
   it("opens a thread marked removed for a pin on an element deleted before the fetch", async () => {

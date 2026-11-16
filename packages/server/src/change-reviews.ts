@@ -8,6 +8,8 @@ import {
   artboardKey,
   republishedSince,
   stepArtboards,
+  isCanvasTarget,
+  memberOn,
   stepIsCanvasOnly,
   stepLabel,
   stepPageIds,
@@ -70,6 +72,12 @@ const MAX_CANVAS_ELEMENTS = 10;
 /** Artboards in one review (its steps and the others of its groups together): a declaration is checked artboard by artboard. */
 const MAX_ARTBOARDS = 500;
 const MAX_STEP_TEXT_LENGTH = 4_000;
+/** Pins one member leaves on one step, and the sizes of what a pin carries from the artboard (they end up in the feedback given to Claude). */
+const MAX_PINS_PER_MEMBER_AND_STEP = 50;
+const MAX_SELECTOR_LENGTH = 500;
+const MAX_STATE_VALUE_LENGTH = 200;
+const MAX_SEEN_IN_VALUE_LENGTH = 60;
+const MAX_SEEN_IN_LENGTH = 200;
 const SEVERAL_LINES = /[\r\n]/;
 
 /** What the review code works with: the store, the rights, and what the terminal sessions hold. */
@@ -233,11 +241,11 @@ function seenInOf(pin: StoredPin, step: StoredStep, manifest: Manifest, saved: T
   const tweaks = manifest.tweaks.filter((tweak) => tweak.artboard === undefined || tweak.artboard === ref.artboard);
   const opening = resolveDeclaredTweakValues(tweaks, { ...saved, ...(pin.on ? {} : step.tweaks) });
   for (const [id, value] of Object.entries(pin.tweaks ?? {})) {
-    if (opening[id] === value) continue;
-    const label = tweaks.find((tweak) => tweak.id === id)?.label ?? id;
-    parts.push(typeof value === "boolean" ? (value ? label : `sans ${label}`) : String(value));
+    const declared = tweaks.find((tweak) => tweak.id === id);
+    if (!declared || opening[id] === value) continue;
+    parts.push(typeof value === "boolean" ? (value ? declared.label : `sans ${declared.label}`) : String(value).slice(0, MAX_SEEN_IN_VALUE_LENGTH));
   }
-  return parts.length > 0 ? parts.join(" · ") : undefined;
+  return parts.length > 0 ? parts.join(" · ").slice(0, MAX_SEEN_IN_LENGTH) : undefined;
 }
 
 const viewerPersonId = (viewer: Viewer): string | undefined => (viewer.kind === "account" || viewer.kind === "agent" ? viewer.person?.id : undefined);
@@ -385,7 +393,7 @@ function bannersOf(store: Store, pageId: string, viewer: Viewer): PageChangeRevi
       pageTitles: [...new Set(kept.flatMap((step) => [step.pageTitle, ...(step.others ?? []).map((member) => member.pageTitle)]))],
       seen,
       okCount: answers.filter((answer) => answer.kind === "ok").length,
-      remarkCount: answers.filter((answer) => answer.kind === "remark").length + kept.reduce((count, step) => count + step.pins.length, 0),
+      feedbackStepCount: kept.filter((step) => step.pins.length > 0 || step.answers.some((answer) => answer.kind === "remark")).length,
       contributors,
       requester: view.requester,
       viewerIsRequester: view.viewerIsRequester,
@@ -639,14 +647,14 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
     for (const pin of step.pins) {
       // A pin on a canvas element, or a zone on the canvas, is a thread of the step's page; an element deleted since keeps what the pin recorded of it (the thread opens as removed).
       const target = pin.target;
-      if (target.kind === "canvas-element" || (target.kind === "zone" && target.space === "canvas")) {
-        const thread = target.kind === "zone" ? store.createThread(step.pageId, { target, body: pin.text }, pin.person) : store.createThread(step.pageId, { target, body: pin.text }, pin.person);
+      if (isCanvasTarget(target)) {
+        const thread = store.createThread(step.pageId, { target, body: pin.text } as CreateThreadRequest, pin.person);
         take(step.pageId, thread.id);
         threadIds[pin.id] = thread.id;
         continue;
       }
       // A pin sits on the artboard it was placed on; when that one is gone the thread opens on the first artboard of the step that is left.
-      const written = members.find((member) => member.pageId === pin.on?.pageId && member.artboard === pin.on?.artboard) ?? members[0]!;
+      const written = memberOn(members, pin.on)!;
       const where = [written, ...members].find((member) => store.hasArtboard(member.pageId, member.artboard) && !store.getPage(member.pageId)?.archivedAt);
       if (!where) continue;
       const request: CreateThreadRequest =
@@ -664,7 +672,7 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
       // A group remark goes on the artboard it was written on and cites the others of the group.
       const members = step.others ? membersOf(step) : undefined;
       // When the artboard it was written on is gone (or its page archived), the thread opens on the first artboard of the group that is left.
-      const written = members?.find((member) => member.pageId === answer.on?.pageId && member.artboard === answer.on?.artboard) ?? members?.[0];
+      const written = members && memberOn(members, answer.on);
       const where = members
         ? [written!, ...members].find((member) => store.hasArtboard(member.pageId, member.artboard) && !store.getPage(member.pageId)?.archivedAt)
         : stepIsCanvasOnly(step) || (store.hasArtboard(step.pageId, step.artboard) && !store.getPage(step.pageId)?.archivedAt)
@@ -795,7 +803,7 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     // On a group the remark is attached to the artboard shown when it was started: one of the step's artboards (the example is the default).
     const step = stepOf(review.id, req.params.stepId)!;
     const { pageId, artboard } = req.body;
-    if ((pageId !== undefined || artboard !== undefined) && !stepArtboards(step).some((ref) => ref.pageId === pageId && ref.artboard === artboard)) return reply.code(400).send({ error: "pageId and artboard must name an artboard of the step" });
+    if ((pageId !== undefined || artboard !== undefined) && !stepArtboards(step).some((ref) => ref.pageId === pageId && ref.artboard === artboard)) return reply.code(400).send({ error: "on must name an artboard of the step (pageId and artboard)" });
     const on = pageId !== undefined && !(pageId === step.pageId && artboard === step.artboard) ? { pageId: pageId as string, artboard: artboard as string } : undefined;
     // Always the viewer's own remark: nobody can write on another member's.
     store.changeReviews.saveRemark(req.params.stepId, viewerPersonId(req.viewer), text, seenNow(step), on);
@@ -824,17 +832,18 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
   const ownPin = (reviewId: string, pinId: string, viewer: Viewer) => store.changeReviews.pins(reviewId).find((pin) => pin.id === pinId && (pin.personId ?? "") === (viewerPersonId(viewer) ?? ""));
   const stepSeenBy = (reviewId: string, pinId: string) => seenNow(stepOf(reviewId, store.changeReviews.pins(reviewId).find((pin) => pin.id === pinId)!.stepId));
 
-  type PinBody = { text?: unknown; target?: { kind?: unknown; space?: unknown; elementId?: unknown; x?: unknown; y?: unknown; w?: unknown; h?: unknown; wPct?: unknown; hPct?: unknown; selector?: unknown; elementName?: unknown; xPct?: unknown; yPct?: unknown; instanceState?: unknown }; pageId?: unknown; artboard?: unknown; rendering?: unknown; tweaks?: unknown };
+  type PinBody = { text?: unknown; target?: { kind?: unknown; space?: unknown; elementId?: unknown; x?: unknown; y?: unknown; w?: unknown; h?: unknown; wPct?: unknown; hPct?: unknown; selector?: unknown; elementName?: unknown; xPct?: unknown; yPct?: unknown; instanceState?: unknown }; on?: { pageId?: unknown; artboard?: unknown }; rendering?: unknown; tweaks?: unknown };
 
   app.post<{ Params: { reviewId: string; stepId: string }; Body: PinBody }>("/api/change-reviews/:reviewId/steps/:stepId/pins", async (req, reply) => {
     const review = openReviewFor(reply, req.params.reviewId, { stepId: req.params.stepId });
     if (!review) return reply;
-    const { text, target, pageId, artboard, rendering, tweaks } = req.body ?? {};
+    const { text, target, on, rendering, tweaks } = req.body ?? {};
     if (!requiredString(text) || text.length > MAX_STEP_TEXT_LENGTH) return reply.code(400).send({ error: `text must be a non-empty string of at most ${MAX_STEP_TEXT_LENGTH} characters` });
     const step = stepOf(review.id, req.params.stepId)!;
-    const on = pageId !== undefined || artboard !== undefined ? { pageId, artboard } : undefined;
-    if (on && !stepArtboards(step).some((ref) => ref.pageId === on.pageId && ref.artboard === on.artboard)) return reply.code(400).send({ error: "pageId and artboard must name an artboard of the step" });
-    const canvasTarget = target?.kind === "canvas-element" || (target?.kind === "zone" && target.space === "canvas");
+    if (on !== undefined && !stepArtboards(step).some((ref) => ref.pageId === on.pageId && ref.artboard === on.artboard)) return reply.code(400).send({ error: "on must name an artboard of the step (pageId and artboard)" });
+    const own = viewerPersonId(req.viewer) ?? "";
+    if (store.changeReviews.pins(review.id).filter((pin) => pin.stepId === step.id && (pin.personId ?? "") === own).length >= MAX_PINS_PER_MEMBER_AND_STEP) return reply.code(409).send({ error: `a member can leave at most ${MAX_PINS_PER_MEMBER_AND_STEP} pins on a step` });
+    const canvasTarget = target !== undefined && isCanvasTarget(target);
     // A canvas step has no artboard to pin on, and an artboard step no canvas: the target must belong to the step.
     if (canvasTarget && !step.canvasElements) return reply.code(400).send({ error: "this step points at no canvas element: pin on its artboard" });
     if (!canvasTarget && stepIsCanvasOnly(step)) return reply.code(400).send({ error: "this step has no artboard: pin on a canvas element or draw a zone on the canvas" });
@@ -872,8 +881,11 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
       return viewOf(store, review, req.viewer);
     }
     // The same shape as a comment pinned on an element: validated as one.
-    const shape = createThreadRequestError({ body: text, artboard: on?.artboard ?? step.artboard, selector: target?.selector, xPct: target?.xPct, yPct: target?.yPct, elementName: target?.elementName, rendering, cell: tweaks, instanceState: target?.instanceState });
+    if (typeof target?.selector === "string" && target.selector.length > MAX_SELECTOR_LENGTH) return reply.code(400).send({ error: `selector must be at most ${MAX_SELECTOR_LENGTH} characters` });
+    const shape = createThreadRequestError({ body: text, artboard: (on?.artboard as string | undefined) ?? step.artboard, selector: target?.selector, xPct: target?.xPct, yPct: target?.yPct, elementName: target?.elementName, rendering, cell: tweaks, instanceState: target?.instanceState });
     if (shape) return reply.code(400).send({ error: shape });
+    const stateTooLong = Array.isArray(target?.instanceState) && (target.instanceState as InstanceState[]).some((entry) => entry.selector.length > MAX_SELECTOR_LENGTH || Object.entries(entry.attributes).some(([name, value]) => name.length > MAX_STATE_VALUE_LENGTH || value.length > MAX_STATE_VALUE_LENGTH));
+    if (stateTooLong) return reply.code(400).send({ error: `instanceState entries must keep selectors under ${MAX_SELECTOR_LENGTH} and attributes under ${MAX_STATE_VALUE_LENGTH} characters` });
     const placed = target!;
     const pin: PinToStore = {
       text,

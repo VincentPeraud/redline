@@ -34,7 +34,7 @@ describe("canvas steps", () => {
   it("is ordered by the reading order of its first element", () => {
     const reading = { p1: ["a.html", "canvas:early", "b.html", "canvas:late"] };
     const steps = [canvasStep(["late"]), { pageId: "p1", artboard: "b.html" }, canvasStep(["early", "late"]), { pageId: "p1", artboard: "a.html" }, canvasStep(["gone"])];
-    const names = orderSteps(steps, ["p1"], reading).map((step) => ("canvasElements" in step && step.artboard === "" ? `canvas:${step.canvasElements[0]}` : step.artboard));
+    const names = orderSteps(steps, ["p1"], reading).map((step) => ("canvasElements" in step && stepIsCanvasOnly(step) ? `canvas:${step.canvasElements[0]}` : step.artboard));
     expect(names).toEqual(["a.html", "canvas:early", "b.html", "canvas:late", "canvas:gone"]);
   });
 });

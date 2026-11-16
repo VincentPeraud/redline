@@ -36,6 +36,44 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   /** The steps whose canvas view is on screen (a mixed step opens on its artboard unless every artboard is gone). */
   const [onCanvas, setOnCanvas] = useState<Record<string, boolean | undefined>>({});
   const removedTimer = useRef<ReturnType<typeof setTimeout>>();
+  /** What the member asked to destroy and can still take back for a few seconds: nothing is sent before the delay elapses. */
+  const [pending, setPending] = useState<PendingChange[]>([]);
+  const pendingRuns = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => Promise<unknown> }>());
+  const mounted = useRef(true);
+  const viewRef = useRef<View>("recap");
+  const changeRef = useRef<(method: "PUT" | "DELETE" | "POST", path: string, body?: unknown) => Promise<ChangeReview | undefined>>();
+
+  const schedule = (key: string, entry: PendingChange, run: () => Promise<unknown>) => {
+    clearTimeout(pendingRuns.current.get(key)?.timer);
+    const timer = setTimeout(() => {
+      pendingRuns.current.delete(key);
+      void run().finally(() => mounted.current && setPending((current) => current.filter((candidate) => candidate.key !== key)));
+    }, UNDO_REMOVAL_MS);
+    pendingRuns.current.set(key, { timer, run });
+    setPending((current) => [...current.filter((candidate) => candidate.key !== key), entry]);
+  };
+  const undo = (key: string) => {
+    clearTimeout(pendingRuns.current.get(key)?.timer);
+    pendingRuns.current.delete(key);
+    setPending((current) => current.filter((candidate) => candidate.key !== key));
+  };
+  /** Makes the pending changes final now (before the review is finished or the screen closes). */
+  const flushPending = async () => {
+    const runs = [...pendingRuns.current.values()];
+    pendingRuns.current.clear();
+    for (const { timer } of runs) clearTimeout(timer);
+    setPending([]);
+    await Promise.all(runs.map(({ run }) => run()));
+  };
+  const flushRef = useRef(flushPending);
+  flushRef.current = flushPending;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      void flushRef.current();
+    };
+  }, []);
 
   // A remark Redline has not received: closing the tab asks first, and so does leaving the step.
   useEffect(() => {
@@ -73,7 +111,10 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     [reviewId, reload],
   );
 
-  const review = load.status === "ready" ? load.review : undefined;
+  const loaded = load.status === "ready" ? load.review : undefined;
+  // A pin waiting to be deleted is already gone from the screen.
+  const hiddenPins = pending.flatMap((entry) => (entry.pinId ? [entry.pinId] : []));
+  const review = loaded && hiddenPins.length > 0 ? { ...loaded, steps: loaded.steps.map((entry) => ({ ...entry, pins: entry.pins.filter((pin) => !hiddenPins.includes(pin.id)) })) } : loaded;
 
   // The others see who is in the review (for the confirmation before finishing): a heartbeat with the step shown, until the review is locked or the screen closes.
   const reviewIsOpen = review?.state === "open";
@@ -111,6 +152,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     setLoad({ status: "ready", review: next });
     return next;
   }
+  changeRef.current = change;
 
   if (load.status !== "ready") return <StateScreen status={load.status} review={lastReview.current} onRetry={() => void reload()} />;
   lastReview.current = review;
@@ -122,20 +164,24 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   const guard = (action: () => void) => (unsaved ? setLeaving(() => action) : action());
   const navigate = (target: View) => navigateTo(stepRoute(reviewId, target), "replace");
   const go = (target: View) => guard(() => navigate(target));
+  viewRef.current = view;
 
   const answerOk = async (index: number) => {
     const next = await change("PUT", `/steps/${review!.steps[index]!.id}/ok`);
     if (next) navigate(nextUnanswered(next, index));
   };
-  /** "Effacer mes retours et valider": the member's pins and remark go and an OK is recorded, in one call. */
-  const clearFeedbackAndValidate = async (index: number) => {
-    const next = await change("POST", `/steps/${review!.steps[index]!.id}/clear-and-validate`);
-    if (next) navigate(nextUnanswered(next, index));
+  /** "Effacer mes retours et valider": the member's pins and remark go and an OK is recorded, in one call, after a few seconds in which "Annuler" takes it back. */
+  const clearFeedbackAndValidate = (index: number) => {
+    const stepId = review!.steps[index]!.id;
+    schedule(`clear:${stepId}`, { key: `clear:${stepId}`, label: "Tes retours vont être effacés et l'étape validée" }, async () => {
+      const next = await changeRef.current!("POST", `/steps/${stepId}/clear-and-validate`);
+      if (next && mounted.current && viewRef.current === index) navigate(nextUnanswered(next, index));
+    });
   };
   const cancelOk = (index: number) => void change("DELETE", `/steps/${review!.steps[index]!.id}/ok`);
   const finish = () => {
     setConfirming(undefined);
-    void change("POST", "/finish").then((next) => next && navigate("recap"));
+    void flushPending().then(() => change("POST", "/finish")).then((next) => next && navigate("recap"));
   };
   // Asks before finishing when steps were not seen or another member is still in the review; the presence is read fresh.
   const requestFinish = () =>
@@ -161,7 +207,11 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
       removedTimer.current = setTimeout(() => setRemoved(undefined), UNDO_REMOVAL_MS);
     });
   };
-  const removePin = (pinId: string) => void change("DELETE", `/pins/${pinId}`);
+  const removePin = (pinId: string) => {
+    const pin = loaded!.steps.flatMap((entry) => entry.pins).find((entry) => entry.id === pinId);
+    const label = `${pin?.target.kind === "zone" ? "Zone" : "Épingle"} ${pin?.number ?? ""} effacée`.replace("  ", " ");
+    schedule(`pin:${pinId}`, { key: `pin:${pinId}`, label, pinId }, () => change("DELETE", `/pins/${pinId}`));
+  };
   const restoreRemark = async () => {
     if (!removed) return;
     clearTimeout(removedTimer.current);
@@ -190,11 +240,23 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
           failed={failed}
           onGo={go}
           onOk={() => guard(() => void answerOk(view))}
-          onClearAndValidate={() => guard(() => void clearFeedbackAndValidate(view))}
+          onClearAndValidate={() => guard(() => clearFeedbackAndValidate(view))}
           onCancel={() => cancelOk(view)}
           onReopen={reopen}
           remark={{ reviewPath: reviewPath(reviewId), onReview: (next) => setLoad({ status: "ready", review: next }), onReload: () => void reload(), onUnsaved: setUnsaved, onPinUnsaved: setPinUnsaved }}
         />
+      )}
+      {pending.length > 0 && (
+        <div className={styles.pendingBar} role="status" data-testid="review-pending">
+          {pending.map((entry) => (
+            <div key={entry.key} className={styles.undoLine}>
+              {entry.label}
+              <button type="button" className={styles.linkButton} onClick={() => undo(entry.key)}>
+                Annuler
+              </button>
+            </div>
+          ))}
+        </div>
       )}
       {confirming && (
         <ConfirmDialog
@@ -231,6 +293,13 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
       )}
     </div>
   );
+}
+
+interface PendingChange {
+  key: string;
+  label: string;
+  /** Set when the change deletes this pin: it leaves the screen at once. */
+  pinId?: string;
 }
 
 /** "Victor est encore dans la revue (étape 6)." / "Victor et Ariane sont encore dans la revue." */

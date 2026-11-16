@@ -478,26 +478,25 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       const quoted = (text: string) => text.split("\n").map((textLine) => `       > ${textLine}`);
       const alsoValidated = (entry: { alsoValidatedBy: string[] }) => (entry.alsoValidatedBy.length > 0 ? ` · ${entry.alsoValidatedBy.map(quotedTitle).join(", ")} had validated this step` : "");
       const modifiedNote = (entry: { artboardModified?: boolean }) => (entry.artboardModified ? " · artboard modifié depuis la remarque" : "");
+      // These lines quote the reviewers' wording and are written in French, as in the validated terminal mock-up (the rest of the answer stays English).
+      const threadOf = (entry: { threadId?: string }) => `fil ${entry.threadId ?? "aucun"}`;
       const remark = (entry: ChangeReviewRemarkResult) => [
-        `     general remark on ${quotedTitle(entry.onLabel ?? entry.artboard)} by ${quotedTitle(entry.author)}${entry.removed ? `${removedNote[entry.removed]} (text only, no thread)` : ""}${entry.elementGone ? " · élément supprimé (text only, no thread)" : ""}${modifiedNote(entry)} · thread ${entry.threadId ?? "none"}${alsoValidated(entry)}`,
+        `     remarque générale sur ${quotedTitle(entry.onLabel ?? entry.artboard)}, ${quotedTitle(entry.author)}${entry.removed ? `${removedNote[entry.removed]} (texte seul, pas de fil)` : ""}${entry.elementGone ? " · élément supprimé (texte seul, pas de fil)" : ""}${modifiedNote(entry)}, ${threadOf(entry)}${alsoValidated(entry)}`,
         ...quoted(entry.text),
-        ...(entry.alsoOn ? [`       The same change also concerns: ${entry.alsoOn.map(quotedTitle).join(", ")}.`] : []),
+        ...(entry.alsoOn ? [`       Le même changement concerne aussi : ${entry.alsoOn.map(quotedTitle).join(", ")}.`] : []),
       ];
       const pin = (entry: ChangeReviewPinResult) => {
-        const on = entry.onLabel ? ` of ${quotedTitle(entry.onLabel)}` : "";
-        const tail = `by ${quotedTitle(entry.author)}${entry.removed ? `${removedNote[entry.removed]} (text only, no thread)` : ""}${modifiedNote(entry)} · thread ${entry.threadId ?? "none"}${alsoValidated(entry)}`;
+        const on = entry.onLabel ? ` de ${quotedTitle(entry.onLabel)}` : "";
+        const tail = `${quotedTitle(entry.author)}${entry.removed ? `${removedNote[entry.removed]} (texte seul, pas de fil)` : ""}${modifiedNote(entry)}, ${threadOf(entry)}${alsoValidated(entry)}`;
+        const seen = (text: string | undefined) => (text ? ` (vu en ${quotedTitle(text).slice(1, -1)})` : "");
         if (entry.target.kind === "zone") {
-          const seen = entry.seenIn ?? (entry.rendering ? RESPONSIVE_FORMATS[entry.rendering.format].label : undefined);
-          return [`     ${entry.pinNumber}. ${describeZone(entry.target)}${on}${seen ? ` (vu en ${seen})` : ""} ${tail}`, ...quoted(entry.text)];
+          return [`     ${entry.pinNumber}. ${describeZone(entry.target)}${on}${seen(entry.seenIn ?? (entry.rendering ? RESPONSIVE_FORMATS[entry.rendering.format].label : undefined))}, ${tail}`, ...quoted(entry.text)];
         }
         if (entry.target.kind === "canvas-element") {
-          return [`     ${entry.pinNumber}. pin on canvas element \`${entry.target.elementId.replace(/[`\r\n]/g, " ")}\` (${entry.target.elementKind})${entry.elementLost ? " · élément supprimé (the thread is marked removed)" : ""} ${tail}`, ...quoted(entry.text)];
+          return [`     ${entry.pinNumber}. épingle sur l'élément du canevas \`${entry.target.elementId.replace(/[`\r\n]/g, " ")}\` (${entry.target.elementKind})${entry.elementLost ? " · élément supprimé (le fil est marqué supprimé)" : ""}, ${tail}`, ...quoted(entry.text)];
         }
         const element = `\`${entry.target.selector.replace(/[`\r\n]/g, " ")}\`${entry.target.elementName ? ` (${quotedTitle(entry.target.elementName)})` : ""}`;
-        return [
-          `     ${entry.pinNumber}. pin on ${element}${on}${entry.seenIn ? ` (vu en ${quotedTitle(entry.seenIn).slice(1, -1)})` : ""}${entry.elementLost ? " · élément introuvable (the thread sits at the pin's last position)" : ""} ${tail}`,
-          ...quoted(entry.text),
-        ];
+        return [`     ${entry.pinNumber}. épingle sur ${element}${on}${seen(entry.seenIn)}${entry.elementLost ? " · élément introuvable (le fil reste à la dernière position de l'épingle)" : ""}, ${tail}`, ...quoted(entry.text)];
       };
       const grouped = feedbackByStep(feedback);
       const count = feedback.pins.length + feedback.remarks.length;

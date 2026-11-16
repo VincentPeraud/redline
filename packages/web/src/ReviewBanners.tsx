@@ -56,7 +56,7 @@ function Icon({ done }: { done: boolean }) {
 
 function Band({ review, onHide }: { review: PageChangeReview; onHide: () => void }) {
   const requester = conversationOf(review.requester, review.viewerIsRequester);
-  const ok = review.remarkCount > 0 ? `${counted(review.okCount, "OK", "OK")}, ${counted(review.remarkCount, "étape avec retours", "étapes avec retours")}` : counted(review.okCount, "OK", "OK");
+  const ok = review.feedbackStepCount > 0 ? `${counted(review.okCount, "OK", "OK")}, ${counted(review.feedbackStepCount, "étape avec retours", "étapes avec retours")}` : counted(review.okCount, "OK", "OK");
   const common = { role: "status", "data-testid": "review-banner", "data-state": review.state } as const;
 
   if (review.state === "requested") {

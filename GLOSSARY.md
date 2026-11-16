@@ -130,6 +130,10 @@ _Avoid_: Revue (as a type name), diffusion review (design system), À relire (a 
 One artboard of a review, or a group of artboards sharing one change (the first is the example), with what changed, what to look at and a closed question. Steps run in page order, then reading order of the page; groups spanning several pages come last.
 _Avoid_: Slide, screen
 
+**Pin** (review):
+A reviewer's mark on one element of a step's artboard or canvas, with a text and a number per step; a **Zone** is a rectangle drawn on an artboard or on the canvas instead of an element. On fetch each becomes a comment thread. It is not a thread (a comment "pinned" on an element) until the review is fetched.
+_Avoid_: Annotation, marker
+
 **Answer**:
 One member's OK on a step, signed with their name and kept in the review (never a thread); a member cancels it until the review is finished.
 _Avoid_: Vote, validation

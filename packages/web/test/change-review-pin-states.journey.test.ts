@@ -90,7 +90,7 @@ it("hides pins in the Avant view, turns the reminder into a hint, disables Épin
 
 it("keeps a pin of a grouped step on the artboard where it was placed and lists where to find it", async () => {
   const { reviewId, stepId, pageId } = await declare(true);
-  await addPin(reviewId, stepId, { text: "Heading too close", target: { selector: "h1", elementName: "titre « Other screen »", xPct: 10, yPct: 10 }, pageId, artboard: "other.html" });
+  await addPin(reviewId, stepId, { text: "Heading too close", target: { selector: "h1", elementName: "titre « Other screen »", xPct: 10, yPct: 10 }, on: { pageId, artboard: "other.html" } });
   const tab = await open(reviewId);
 
   const list = tab.getByTestId("review-pins-list");
@@ -124,10 +124,16 @@ it("clears the member's pins and remark and records an OK in one call from Effac
   const calls: string[] = [];
   tab.on("request", (request) => request.method() !== "GET" && request.url().includes("/api/change-reviews/") && calls.push(`${request.method()} ${new URL(request.url()).pathname.split("/").slice(-1)[0]}`));
   await tab.getByRole("button", { name: "Effacer mes retours et valider" }).click();
+  await tab.getByTestId("review-pending").getByRole("button", { name: "Annuler" }).click();
+  await tab.waitForTimeout(6_000);
+  expect((await reviewOf(reviewId)).steps[0]!.pins).toHaveLength(1);
+  expect(calls.filter((call) => !["PUT lost", "POST presence"].includes(call))).toEqual([]);
 
-  await expect.poll(async () => (await reviewOf(reviewId)).steps[0]!.answers.map((answer) => answer.kind)).toEqual(["ok"]);
+  await tab.getByRole("button", { name: "Effacer mes retours et valider" }).click();
+
+  await expect.poll(async () => (await reviewOf(reviewId)).steps[0]!.answers.map((answer) => answer.kind), { timeout: 15_000 }).toEqual(["ok"]);
   expect((await reviewOf(reviewId)).steps[0]!.pins).toEqual([]);
-  expect(calls).toEqual(["POST clear-and-validate"]);
+  expect(calls.filter((call) => !["PUT lost", "POST presence"].includes(call))).toEqual(["POST clear-and-validate"]);
   await tab.close();
 });
 
@@ -175,3 +181,17 @@ it("saves and closes an open pin panel when another artboard of the group is ope
   await expect.poll(async () => (await reviewOf(reviewId)).steps[0]!.pins.map((pin) => pin.text)).toEqual(["Typed then switched"]);
   await tab.close();
 });
+
+it("saves a pin placed from the screen on another artboard of the group on that artboard", async () => {
+  const { reviewId, pageId } = await declare(true);
+  const tab = await open(reviewId);
+  await tab.getByRole("button", { name: /Other/ }).first().click();
+  await expect.poll(() => tab.frameLocator('iframe[title^="Revue /"]').locator("h1").first().textContent()).toBe("Other screen");
+
+  await tab.frameLocator('iframe[title^="Revue /"]').locator("h1").click({ modifiers: ["Alt"] });
+  await tab.getByRole("textbox", { name: "Ton épingle" }).fill("On the other screen");
+
+  await expect.poll(async () => (await reviewOf(reviewId)).steps[0]!.pins).toMatchObject([{ text: "On the other screen", on: { pageId, artboard: "other.html" } }]);
+  await tab.close();
+});
+
