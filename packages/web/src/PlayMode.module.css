@@ -200,6 +200,47 @@
   justify-content: center;
 }
 
+/* A tall artboard keeps its real width and the stage scrolls. */
+.stage[data-scroll] {
+  display: block;
+  overflow: auto;
+}
+
+.content {
+  display: contents;
+}
+
+.stage[data-scroll] .content {
+  display: block;
+  box-sizing: content-box;
+  width: fit-content;
+  margin: 0 auto;
+}
+
+.sizeTag {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  padding-top: 16px;
+  margin-bottom: -12px;
+  pointer-events: none;
+}
+
+.sizeTag span {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  background: var(--play-panel-bg);
+  border: 1px solid var(--play-border-strong);
+  font-size: var(--font-size-xs);
+  color: var(--play-text);
+  white-space: nowrap;
+}
+
 .stage[data-frame="paper"] {
   background: var(--play-border-strong);
 }

@@ -10,6 +10,7 @@ import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokens
  *                     { type: "redline:replay-state", id }  (sets the remembered instance state of the pin with that id, then reports the pins again)
  *                     { type: "redline:set-marks", marks: [{ number, selector }] }  (numbered selection marks, drawn whenever there are some)
  *                     { type: "redline:set-compare-markers", visible: boolean, markers: [{ number, selector }] }  (before / after view, and the elements a review step targets: numbered dashed markers on the touched zones)
+ *                     { type: "redline:locate", selector }  (answers redline:located when an element matches)
  *                     { type: "redline:set-gap", selector: string | null }  (outlines the element a design system gap points at, and answers redline:gap-rect when it exists)
  *                     { type: "redline:set-links", selectors: string[] | null }  (play mode: clicks on a match are reported, not performed)
  *                     { type: "redline:set-tweaks", values: { [tweakId]: string | number | boolean } }  (full set; applied as --tweak-<id> CSS variables, data-tweak-<id> attributes on <html>, window.redlineTweaks and a "redline:tweaks" window event)
@@ -20,6 +21,7 @@ import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokens
  *                     { type: "redline:key", key: "ArrowLeft" | "ArrowRight" }  (arrow pressed with no modifier outside a text field: the iframe holds the keyboard focus, so play mode cannot hear it)
  *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched, elementGone?, elementLost?, hidden?, missingState? }] }  (a matched pin sits on its element's top-right corner; when the element at the selector no longer has the thread's elementName, the element of that name is used instead; elementLost: none has it, the pin keeps its stored position; elementGone: the element inside the instance no longer exists, the pin sits on the instance; hidden: the pin's remembered state does not hold now; missingState: indexes of the state entries that cannot be replayed any more)
  *                     { type: "redline:link", selector }
+ *                     { type: "redline:located", selector, top }  (top of the element asked by redline:locate, in page pixels)
  *                     { type: "redline:gap-rect", x, y, width, height }  (box of the element outlined by redline:set-gap, in page pixels)
  *                     { type: "redline:doc-height", height }  (height of the whole page in pixels; sent on load and whenever it changes)
  *                     { type: "redline:top-colour", colour }  (background drawn at the top of the viewport, as Safari on iOS 26 tints its status bar with it; sent on load and whenever it changes, scrolling included)
@@ -798,6 +800,9 @@ export const BRIDGE_SOURCE = `(function () {
       gapSelector = typeof event.data.selector === "string" ? event.data.selector : null;
       var gapBox = drawGap();
       if (gapBox) send({ type: "redline:gap-rect", x: gapBox.left + (window.scrollX || 0), y: gapBox.top + (window.scrollY || 0), width: gapBox.width, height: gapBox.height });
+    } else if (event.data.type === "redline:locate") {
+      var located = typeof event.data.selector === "string" ? resolve(event.data.selector).el : null;
+      if (located) send({ type: "redline:located", selector: event.data.selector, top: located.getBoundingClientRect().top + (window.scrollY || 0) });
     } else if (event.data.type === "redline:set-pins") {
       pins = event.data.pins || [];
       reportPins();
