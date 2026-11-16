@@ -157,6 +157,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
       removedTimer.current = setTimeout(() => setRemoved(undefined), UNDO_REMOVAL_MS);
     });
   };
+  const removePin = (pinId: string) => void change("DELETE", `/pins/${pinId}`);
   const restoreRemark = async () => {
     if (!removed) return;
     clearTimeout(removedTimer.current);
@@ -169,7 +170,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     <div data-testid="review" className={styles.review}>
       <ReviewTopBar review={review!} view={view} shown={view === "recap" || review!.steps[view]!.removed ? undefined : shownOf(review!.steps[view]!)} controls={view === "recap" || review!.steps[view]!.removed ? undefined : controlsOf(shownOf(review!.steps[view]!))} onGo={go} onLeave={guard} onFinish={requestFinish} />
       {view === "recap" ? (
-        <ReviewRecap review={review!} failed={failed} removed={removed} onGo={go} onFinish={requestFinish} onReopen={reopen} onFile={() => setFiling(true)} onRemove={removeRemark} onRestore={() => void restoreRemark()} />
+        <ReviewRecap review={review!} failed={failed} removed={removed} onGo={go} onFinish={requestFinish} onReopen={reopen} onFile={() => setFiling(true)} onRemove={removeRemark} onRemovePin={removePin} onRestore={() => void restoreRemark()} />
       ) : review!.steps[view]!.removed ? (
         <RemovedStep review={review!} index={view} onGo={go} />
       ) : (

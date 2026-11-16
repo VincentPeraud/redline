@@ -647,6 +647,69 @@
   font-size: var(--font-size-xs);
 }
 
+.recapStep {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px var(--space-4);
+  border-top: 1px solid var(--play-border-strong);
+}
+
+.recapStepTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.recapItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding-left: 18px;
+  line-height: 1.5;
+}
+
+.recapItemBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.recapItemOn {
+  font-size: var(--font-size-xs);
+  color: var(--play-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.recapGeneral {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--play-border-strong);
+  color: var(--play-text);
+  font-size: 12px;
+}
+
+.recapItem .itemActions .panelButton {
+  height: 28px;
+  padding: 0 10px;
+}
+
+.recapOkList {
+  padding: 14px var(--space-4);
+  border-top: 1px solid var(--play-border-strong);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--play-text-muted);
+}
+
 .stepList {
   font-size: var(--font-size-sm);
   line-height: 1.5;
