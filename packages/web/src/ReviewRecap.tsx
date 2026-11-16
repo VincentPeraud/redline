@@ -37,7 +37,7 @@ export function ReviewRecap({
 }) {
   const open = review.state === "open";
   const kept = activeSteps(review.steps);
-  const okSteps = kept.filter((step) => stepStatus(step.answers) === "ok");
+  const okSteps = kept.filter((step) => stepStatus(step.answers, step.pins) === "ok");
   const remarks = review.steps.flatMap((step) => step.answers.filter((answer) => answer.kind === "remark").map((answer) => ({ step, answer })));
   const notSeen = kept.filter((step) => !stepIsSeen(step));
   const titleOf = stepLabel;

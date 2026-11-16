@@ -22,7 +22,9 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   /** The last review shown, so a failed reload still names it in the header. */
   const lastReview = useRef<ChangeReview>();
   const [failed, setFailed] = useState(false);
-  const [unsaved, setUnsaved] = useState(false);
+  const [remarkUnsaved, setUnsaved] = useState(false);
+  const [pinUnsaved, setPinUnsaved] = useState(false);
+  const unsaved = remarkUnsaved || pinUnsaved;
   const [leaving, setLeaving] = useState<(() => void) | undefined>();
   const controlsOf = useReviewControls();
   const [confirming, setConfirming] = useState<{ notSeen: number; present: ChangeReviewPresence[] } | undefined>();
@@ -109,7 +111,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
 
   if (load.status !== "ready") return <StateScreen status={load.status} review={lastReview.current} onRetry={() => void reload()} />;
   lastReview.current = review;
-  const hasRemarks = review!.steps.some((entry) => entry.answers.some((answer) => answer.kind === "remark"));
+  const hasRemarks = review!.steps.some((entry) => entry.pins.length > 0 || entry.answers.some((answer) => answer.kind === "remark"));
   if (activeSteps(review!.steps).length === 0 && !hasRemarks && (review!.state === "open" || review!.state === "filed")) return <StateScreen status="empty" review={review} onRetry={() => void reload()} />;
   const view: View = step === undefined ? (review!.state !== "open" ? "recap" : nextUnanswered(review!, -1)) : step === "recap" || step > review!.steps.length ? "recap" : step - 1;
   const shownOf = (step: ChangeReviewStep) => shownStep(step, opened[step.id]);
@@ -121,11 +123,10 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     const next = await change("PUT", `/steps/${review!.steps[index]!.id}/ok`);
     if (next) navigate(nextUnanswered(next, index));
   };
-  const clearRemarkAndValidate = async (index: number) => {
-    const step = review!.steps[index]!;
-    const remarkId = step.answers.find((answer) => answer.mine && answer.kind === "remark")?.id;
-    if (remarkId && !(await change("DELETE", `/remarks/${remarkId}`))) return;
-    await answerOk(index);
+  /** "Effacer mes retours et valider": the member's pins and remark go and an OK is recorded, in one call. */
+  const clearFeedbackAndValidate = async (index: number) => {
+    const next = await change("POST", `/steps/${review!.steps[index]!.id}/clear-and-validate`);
+    if (next) navigate(nextUnanswered(next, index));
   };
   const cancelOk = (index: number) => void change("DELETE", `/steps/${review!.steps[index]!.id}/ok`);
   const finish = () => {
@@ -182,10 +183,10 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
           failed={failed}
           onGo={go}
           onOk={() => guard(() => void answerOk(view))}
-          onClearAndValidate={() => guard(() => void clearRemarkAndValidate(view))}
+          onClearAndValidate={() => guard(() => void clearFeedbackAndValidate(view))}
           onCancel={() => cancelOk(view)}
           onReopen={reopen}
-          remark={{ reviewPath: reviewPath(reviewId), onReview: (next) => setLoad({ status: "ready", review: next }), onReload: () => void reload(), onUnsaved: setUnsaved }}
+          remark={{ reviewPath: reviewPath(reviewId), onReview: (next) => setLoad({ status: "ready", review: next }), onReload: () => void reload(), onUnsaved: setUnsaved, onPinUnsaved: setPinUnsaved }}
         />
       )}
       {confirming && (
@@ -216,6 +217,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
             const action = leaving;
             setLeaving(undefined);
             setUnsaved(false);
+            setPinUnsaved(false);
             action();
           }}
         />
