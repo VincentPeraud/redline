@@ -3,10 +3,11 @@ import { HOVER_FINISH, type ChangeReviewStep, type ReviewPin, type ReviewZoneTar
 import { ArtboardIframe } from "./artboardCapability.js";
 import { CanvasElements } from "./CanvasElements.js";
 import { responsiveFrameBox, type Box } from "./canvasGeometry.js";
-import { PinPopover, type PinsController } from "./ReviewPins.js";
+import { PinPopoverAt, type PinsController } from "./ReviewPins.js";
+import { PIN_SHIFT, PinMarker, PinTooltip, overlayStyle, pinLabel } from "./ReviewPinParts.js";
 import { personName } from "./ReviewRemark.js";
 import { MAX_CANVAS_SCALE, canvasCrop, canvasElementAt, canvasZoneFromDrag } from "./reviewCanvasRules.js";
-import { pinOffsets, pinTargetLabel, popoverPlacement } from "./reviewPinRules.js";
+import { pinOffsets, pinTargetLabel } from "./reviewPinRules.js";
 import { cx } from "./ui/index.js";
 import { useAltKey } from "./useAltKey.js";
 import styles from "./ReviewScreen.module.css";
@@ -18,10 +19,6 @@ const MAX_CROP_WIDTH = 920;
 /** Room the stage keeps around the crop for its tag (top) and the shortcuts reminder (bottom), and on the sides. */
 const STAGE_INSET = { x: 48, y: 72 };
 const PHONE_STAGE_INSET = { x: 16, y: 64 };
-const POPOVER = { width: 300, height: 210 };
-const TOOLTIP = { width: 260, height: 90 };
-const POPOVER_GAP = 14;
-const PIN_SHIFT = 30;
 
 type Point = { x: number; y: number };
 
@@ -130,15 +127,6 @@ export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown, f
     return { at: { x: rect.x + rect.width, y: rect.y + rect.height }, pin: zone.pin, zone: true };
   })();
   const pct = (at: Point) => ({ xPct: (at.x / size.width) * 100, yPct: (at.y / size.height) * 100 });
-  const popoverStyle = (at: Point) => {
-    const { xPct, yPct } = pct(at);
-    const place = popoverPlacement({ xPct, yPct }, size, POPOVER);
-    return {
-      width: POPOVER.width,
-      ...(place.horizontal === "right" ? { left: at.x + POPOVER_GAP } : { right: size.width - at.x + POPOVER_GAP }),
-      ...(place.vertical === "below" ? { top: at.y + POPOVER_GAP } : { bottom: size.height - at.y + POPOVER_GAP }),
-    };
-  };
   const hoverEntry = (() => {
     if (hovered === undefined) return undefined;
     const spot = spots.find((entry) => entry.id === hovered && entry.pin && !entry.pin.mine);
@@ -146,11 +134,6 @@ export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown, f
     const zone = zones.find((entry) => entry.id === hovered && entry.pin && !entry.pin.mine);
     return zone && { pin: zone.pin!, at: zoneSpot(zone.target) };
   })();
-  const tooltipStyle = (at: Point) => {
-    const { xPct, yPct } = pct(at);
-    const place = popoverPlacement({ xPct, yPct }, size, TOOLTIP);
-    return { width: TOOLTIP.width, ...(place.horizontal === "right" ? { left: at.x + 8 } : { right: size.width - at.x + 8 }), ...(place.vertical === "below" ? { top: at.y + 24 } : { bottom: size.height - at.y + 8 }) };
-  };
 
   const canvasPoint = (event: ReactPointerEvent): Point => {
     const rect = area.current!.getBoundingClientRect();
@@ -233,74 +216,41 @@ export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown, f
           const pin = zone.pin;
           const mine = pin?.mine ?? true;
           const number = pin?.number ?? pins.draftNumber;
-          const label = pin ? (pin.mine ? `Zone ${pin.number}` : `Zone ${pin.number} de ${personName(pin.person)}`) : "Nouvelle zone";
           return (
             <div key={zone.id} className={cx(styles.zone, !mine && styles.zoneTheirs)} style={zoneStyle(zoneSpot(zone.target))} data-zone={number} data-zone-mine={mine}>
-              <button
-                type="button"
-                data-pin={number}
-                data-pin-mine={mine}
-                aria-label={label}
-                className={cx(styles.pin, styles.zonePin, !mine && styles.pinTheirs)}
-                onMouseEnter={() => setHovered(zone.id)}
-                onMouseLeave={() => setHovered(undefined)}
-                onFocus={() => setHovered(zone.id)}
-                onBlur={() => setHovered(undefined)}
-                onClick={() => (pin?.mine && !pins.finished ? pins.openEdit(pin.id) : undefined)}
-              >
-                {number}
-              </button>
+              <PinMarker number={number} id={zone.id} pin={pin} label={pinLabel(pin, "Zone")} className={styles.zonePin} finished={pins.finished} setHovered={setHovered} onEdit={pins.openEdit} tapReads={false} markId={false} />
             </div>
           );
         })}
         {spots.map((spot) => {
           const pin = spot.pin;
-          const number = pin?.number ?? pins.draftNumber;
-          const mine = pin?.mine ?? true;
-          const label = pin ? (pin.mine ? `Épingle ${pin.number}` : `Épingle ${pin.number} de ${personName(pin.person)}`) : "Nouvelle épingle";
           return (
-            <button
+            <PinMarker
               key={spot.id}
-              type="button"
-              data-pin={number}
-              data-pin-id={spot.id}
-              data-pin-mine={mine}
-              aria-label={label}
-              className={cx(styles.pin, styles.canvasPin, !mine && styles.pinTheirs)}
+              number={pin?.number ?? pins.draftNumber}
+              id={spot.id}
+              pin={pin}
+              label={pinLabel(pin, "Épingle")}
+              className={styles.canvasPin}
               style={{ left: spot.x - (offsets[spot.id] ?? 0) * PIN_SHIFT, top: spot.y }}
-              onMouseEnter={() => setHovered(spot.id)}
-              onMouseLeave={() => setHovered(undefined)}
-              onFocus={() => setHovered(spot.id)}
-              onBlur={() => setHovered(undefined)}
-              onClick={() => {
-                if (pin?.mine && !pins.finished) pins.openEdit(pin.id);
-                else if (pin && !pin.mine) setHovered((current) => (current === spot.id ? undefined : spot.id));
-              }}
-            >
-              {number}
-            </button>
+              finished={pins.finished}
+              hovered={hovered}
+              setHovered={setHovered}
+              onEdit={pins.openEdit}
+            />
           );
         })}
-        {hoverEntry?.pin && (
-          <div role="tooltip" className={styles.pinTip} style={tooltipStyle(hoverEntry.at)}>
-            <b>
-              {personName(hoverEntry.pin.person)} · {hoverEntry.pin.target.kind === "zone" ? "zone" : "épingle"} {hoverEntry.pin.number}
-            </b>
-            {hoverEntry.pin.text}
-            <span>Lecture seule : seul {personName(hoverEntry.pin.person)} peut la changer.</span>
-          </div>
-        )}
+        {hoverEntry?.pin && <PinTooltip pin={hoverEntry.pin} style={overlayStyle("tooltip", pct(hoverEntry.at), size)} />}
         {editingSpot && pins.editor && !phone && (
-          <div className={styles.pinPop} style={popoverStyle(editingSpot.at)}>
-            <PinPopover
-              key={pins.editor.key}
-              number={editingSpot.pin?.number ?? pins.draftNumber}
-              zone={editingSpot.zone}
-              label={editingSpot.pin ? pinTargetLabel(editingSpot.pin) : draft?.target.kind === "canvas-element" ? pinTargetLabel({ target: draft.target }) : "Zone"}
-              saved={editingSpot.pin}
-              pins={pins}
-            />
-          </div>
+          <PinPopoverAt
+            style={overlayStyle("popover", pct(editingSpot.at), size)}
+            editorKey={pins.editor.key}
+            number={editingSpot.pin?.number ?? pins.draftNumber}
+            zone={editingSpot.zone}
+            label={editingSpot.pin ? pinTargetLabel(editingSpot.pin) : draft?.target.kind === "canvas-element" ? pinTargetLabel({ target: draft.target }) : "Zone"}
+            saved={editingSpot.pin}
+            pins={pins}
+          />
         )}
       </div>
     </div>

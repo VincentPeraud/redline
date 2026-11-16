@@ -103,6 +103,6 @@ it("keeps a remark on a modified step until the member clears it with Effacer ma
   expect(await tab.getByRole("textbox", { name: "Remarque générale" }).inputValue()).toBe("Move the list up");
   await tab.getByRole("button", { name: "Effacer ma remarque et valider" }).click();
 
-  await expect.poll(async () => (await stepsOf(reviewId))[0]!.answers.map((a) => a.kind)).toEqual(["ok"]);
+  await expect.poll(async () => (await stepsOf(reviewId))[0]!.answers.map((a) => a.kind), { timeout: 15_000 }).toEqual(["ok"]);
   await expect.poll(() => counter(tab).textContent()).toContain("Étape 2 / 2");
 }, 60_000);

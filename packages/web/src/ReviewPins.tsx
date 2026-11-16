@@ -1,22 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { canvasElementLabel, describeZone, renderingKey, stepIsCanvasOnly,type ManifestElementKind, type ArtboardRef, type ChangeReview, type ChangeReviewStep, type ReviewElementTarget, type ReviewPin, type ReviewPinTarget, type ReviewZoneTarget } from "@redline/shared";
 import type { Pick } from "./ArtboardFrame.js";
 import { cx } from "./ui/index.js";
 import { useAltKey } from "./useAltKey.js";
 import { personName } from "./ReviewRemark.js";
-import { type DraftPin, type PinView, isArtboardElementTarget, phonePinText, pinHiddenWhy, pinIsShown, pinOffsets, pinTargetLabel, popoverPlacement, zoneFromDrag } from "./reviewPinRules.js";
+import { type DraftPin, type PinView, isArtboardElementTarget, phonePinText, pinHiddenWhy, pinIsShown, pinOffsets, pinTargetLabel, zoneFromDrag } from "./reviewPinRules.js";
+import { PIN_SHIFT, PinMarker, PinTooltip, overlayStyle, pinLabel } from "./ReviewPinParts.js";
 import { type StepControls } from "./useReviewControls.js";
 import { titleOfArtboard } from "./reviewView.js";
 import styles from "./ReviewScreen.module.css";
 
 const SAVE_DELAY_MS = 600;
 const UNDO_DELAY_MS = 5_000;
-const POPOVER = { width: 300, height: 210 };
-const TOOLTIP = { width: 260, height: 90 };
-/** Space between a pin and what opens next to it. */
-const POPOVER_GAP = 14;
-/** How far a second pin on the same element is shifted from the first (a pin is 26 px wide). */
-const PIN_SHIFT = 30;
 /** A pin whose element is not found must stay missing this long before it is reported lost: the artboard may still be drawing. */
 const LOST_SETTLE_MS = 800;
 
@@ -322,22 +317,6 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins, phone
     entry.matched
       ? { right: `calc(${100 - entry.xPct}% + ${offset * PIN_SHIFT}px)`, top: `${entry.yPct}%` }
       : { left: `calc(${entry.xPct}% - ${offset * PIN_SHIFT}px)`, top: `${entry.yPct}%`, transform: "translate(-50%, -50%)" };
-  const popoverStyle = (entry: { xPct: number; yPct: number }) => {
-    const place = popoverPlacement(entry, size, POPOVER);
-    return {
-      width: POPOVER.width,
-      ...(place.horizontal === "right" ? { left: `calc(${entry.xPct}% + ${POPOVER_GAP}px)` } : { right: `calc(${100 - entry.xPct}% + ${POPOVER_GAP}px)` }),
-      ...(place.vertical === "below" ? { top: `calc(${entry.yPct}% + ${POPOVER_GAP}px)` } : { bottom: `calc(${100 - entry.yPct}% + ${POPOVER_GAP}px)` }),
-    };
-  };
-  const tooltipStyle = (entry: { xPct: number; yPct: number }) => {
-    const place = popoverPlacement(entry, size, TOOLTIP);
-    return {
-      width: TOOLTIP.width,
-      ...(place.horizontal === "right" ? { left: `calc(${entry.xPct}% + 8px)` } : { right: `calc(${100 - entry.xPct}% + 8px)` }),
-      ...(place.vertical === "below" ? { top: `calc(${entry.yPct}% + 24px)` } : { bottom: `calc(${100 - entry.yPct}% + 8px)` }),
-    };
-  };
 
   return (
     <div ref={layer} className={styles.pinLayer} data-testid="review-pin-layer">
@@ -347,23 +326,9 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins, phone
         const pin = zone.pin;
         const mine = pin?.mine ?? true;
         const number = pin?.number ?? pins.draftNumber;
-        const label = pin ? (pin.mine ? `Zone ${pin.number}` : `Zone ${pin.number} de ${personName(pin.person)}`) : "Nouvelle zone";
         return (
           <div key={zone.id} className={cx(styles.zone, !mine && styles.zoneTheirs)} style={zoneStyle(zone.target)} data-zone={number} data-zone-mine={mine}>
-            <button
-              type="button"
-              data-pin={number}
-              data-pin-mine={mine}
-              aria-label={label}
-              className={cx(styles.pin, styles.zonePin, !mine && styles.pinTheirs)}
-              onMouseEnter={() => setHovered(zone.id)}
-              onMouseLeave={() => setHovered(undefined)}
-              onFocus={() => setHovered(zone.id)}
-              onBlur={() => setHovered(undefined)}
-              onClick={() => (pin?.mine && !pins.finished ? pins.openEdit(pin.id) : undefined)}
-            >
-              {number}
-            </button>
+            <PinMarker number={number} id={zone.id} pin={pin} label={pinLabel(pin, "Zone")} className={styles.zonePin} finished={pins.finished} setHovered={setHovered} onEdit={pins.openEdit} tapReads={false} markId={false} />
             {!pin && <span className={styles.zoneSize}>Zone</span>}
           </div>
         );
@@ -371,53 +336,44 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins, phone
       {resolved.map((entry) => {
         const pin = entry.pin;
         const number = pin?.number ?? pins.draftNumber;
-        const mine = pin?.mine ?? true;
-        const label = pin ? (pin.mine ? `Épingle ${pin.number}` : `Épingle ${pin.number} de ${personName(pin.person)}`) : "Nouvelle épingle";
+        const label = pinLabel(pin, "Épingle");
         return (
-          <button
+          <PinMarker
             key={entry.id}
-            type="button"
-            data-pin={number}
-            data-pin-id={entry.id}
-            data-pin-mine={mine}
-            aria-label={entry.lost ? `${label}, élément introuvable` : label}
-            className={cx(styles.pin, !mine && styles.pinTheirs, entry.lost && styles.pinLost)}
+            number={number}
+            id={entry.id}
+            pin={pin}
+            label={entry.lost ? `${label}, élément introuvable` : label}
+            className={entry.lost ? styles.pinLost : undefined}
             style={anchorStyle(entry, offsets[entry.id] ?? 0)}
-            onMouseEnter={() => setHovered(entry.id)}
-            onMouseLeave={() => setHovered(undefined)}
-            onFocus={() => setHovered(entry.id)}
-            onBlur={() => setHovered(undefined)}
-            onClick={() => {
-              if (pin?.mine && !pins.finished) pins.openEdit(pin.id);
-              // A touch has no hover: a tap reads another member's pin.
-              else if (pin && !pin.mine) setHovered((current) => (current === entry.id ? undefined : entry.id));
-            }}
-          >
-            {number}
-          </button>
+            finished={pins.finished}
+            hovered={hovered}
+            setHovered={setHovered}
+            onEdit={pins.openEdit}
+          />
         );
       })}
-      {hover?.pin && (
-        <div role="tooltip" className={styles.pinTip} style={tooltipStyle(hover)}>
-          <b>
-            {personName(hover.pin.person)} · {hover.pin.target.kind === "zone" ? "zone" : "épingle"} {hover.pin.number}
-          </b>
-          {hover.pin.text}
-          <span>Lecture seule : seul {personName(hover.pin.person)} peut la changer.</span>
-        </div>
-      )}
+      {hover?.pin && <PinTooltip pin={hover.pin} style={overlayStyle("tooltip", hover, size)} />}
       {editing && pins.editor && !phone && (
-        <div className={styles.pinPop} style={popoverStyle(editing)}>
-          <PinPopover
-            key={pins.editor.key}
-            number={editing.pin?.number ?? pins.draftNumber}
-            zone={editingZone !== undefined}
-            label={editing.pin ? pinTargetLabel(editing.pin) : draftElement ? (draftElement.elementName ?? draftElement.selector) : "Zone"}
-            saved={editing.pin}
-            pins={pins}
-          />
-        </div>
+        <PinPopoverAt
+          style={overlayStyle("popover", editing, size)}
+          editorKey={pins.editor.key}
+          number={editing.pin?.number ?? pins.draftNumber}
+          zone={editingZone !== undefined}
+          label={editing.pin ? pinTargetLabel(editing.pin) : draftElement ? (draftElement.elementName ?? draftElement.selector) : "Zone"}
+          saved={editing.pin}
+          pins={pins}
+        />
       )}
+    </div>
+  );
+}
+
+/** `PinPopover` placed beside its pin. */
+export function PinPopoverAt({ style, editorKey, ...popover }: { style: CSSProperties; editorKey: number } & Parameters<typeof PinPopover>[0]) {
+  return (
+    <div className={styles.pinPop} style={style}>
+      <PinPopover key={editorKey} {...popover} />
     </div>
   );
 }
