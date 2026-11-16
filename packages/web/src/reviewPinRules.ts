@@ -41,6 +41,12 @@ export function pinHiddenWhy(pin: ReviewPin, example: ArtboardRef, shown: Artboa
 /** The element's name as the bridge gives it (role and visible text, such as `titre « Budget »`), or the selector of an element that has no name. */
 export const pinTargetLabel = (pin: Pick<ReviewPin, "target">): string => pin.target.elementName ?? pin.target.selector;
 
+/** What the phone sheet shows of a pin. A zone is drawn on a computer, so a phone only names it. */
+export function phonePinText(pin: Pick<ReviewPin, "target" | "text">): string {
+  const target: object = pin.target;
+  return "kind" in target && target.kind === "zone" ? `Zone (tracée sur ordinateur) : ${pin.text}` : pin.text;
+}
+
 /** How many pins sit before each one on the same spot (two pins of one element): the stage shifts each by that many steps. */
 export function pinOffsets(positions: readonly { id: string; xPct: number; yPct: number }[]): Record<string, number> {
   const offsets: Record<string, number> = {};

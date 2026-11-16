@@ -5,7 +5,7 @@ import { usePhone } from "./usePhone.js";
 import { cx } from "./ui/index.js";
 import { counted } from "./plural.js";
 import { PersonDot, RemarkEditor, personName } from "./ReviewRemark.js";
-import { PinButton, PinsSection, TheirPins, useReviewPins } from "./ReviewPins.js";
+import { PhonePickBanner, PhonePinButton, PhonePinEditor, PhonePinsList, PhoneTheirPins, PinButton, PinsSection, TheirPins, useReviewPins } from "./ReviewPins.js";
 import { feedbackReplacesOk } from "./reviewPinRules.js";
 import { STEP_STATE, type View, formatWhen, lockTitle, lockWhen, neighbour, reviewPath, shownStep, stepNumber, titleOfArtboard } from "./reviewView.js";
 import { ReviewStage } from "./ReviewStage.js";
@@ -111,7 +111,8 @@ export function StepView({
     </span>
   );
   const failedLine = failed && <span className={cx(styles.hint, styles.error)}>Pas enregistré : Redline ne répond pas.</span>;
-  const othersSection = others.length + pins.theirs.length > 0 && (
+  // On a phone the other members' pins are read on the artboard (a line each in the sheet), not listed in the details.
+  const othersSection = others.length + (phone ? 0 : pins.theirs.length) > 0 && (
     <section className={styles.section}>
       <h3>Les autres</h3>
       {others.map((answer) => (
@@ -122,7 +123,7 @@ export function StepView({
           </span>
         </div>
       ))}
-      <TheirPins pins={pins} />
+      {!phone && <TheirPins pins={pins} />}
     </section>
   );
   const lockBox = finished && (
@@ -152,82 +153,88 @@ export function StepView({
   const next = neighbour(review, index, 1);
 
   if (phone) {
+    const pinEditing = pins.editor !== undefined;
+    const picking = pins.picking && !finished;
+    const listing = !pinEditing && !picking;
     return (
-      <div className={cx(styles.body, styles.bodyPhone, remarkOpen && !finished && styles.bodyRemarking)}>
+      <div className={cx(styles.body, styles.bodyPhone, remarkOpen && !finished && styles.bodyRemarking, pinEditing && styles.bodyPinning, picking && styles.bodyPicking)}>
+        {picking && <PhonePickBanner pins={pins} />}
         <ReviewStage review={review} step={shown} example={step} modified={modified && (!group || shown.modifiedAt !== undefined)} controls={controls} openedMember={openedMember} onOpenMember={onOpenMember} pins={pins} phone={phone} />
         <section aria-label="Question de l'étape" className={styles.sheet}>
           <span className={styles.grip} aria-hidden="true" />
-          <Progress review={review} index={index} />
-          <div className={styles.sheetKicker}>
-            <span className={styles.sheetName}>{stepLabel(step)}</span>
-            <span className={styles.chips}>
-              {group && <span className={styles.chip}>Groupé</span>}
-              <span className={chipClass}>{chipText}</span>
-            </span>
-          </div>
-          <p className={styles.sheetQuestion}>{step.question}</p>
-          <button type="button" className={styles.more} aria-expanded={detailsOpen} onClick={() => setDetailsOpen(!detailsOpen)}>
-            Ce qui a changé et quoi regarder
-          </button>
-          {detailsOpen && (
-            <div className={styles.sheetDetails}>
-              <section className={styles.section}>
-                <h3>Ce qui a changé</h3>
-                <p>{step.changed}</p>
-              </section>
-              <section className={styles.section}>
-                <h3>Quoi regarder</h3>
-                <p>{lookAt}</p>
-                {stateShownHint}
-              </section>
-              {othersSection}
-            </div>
+          {pinEditing && !remarkOpen && <PhonePinEditor pins={pins} />}
+          {picking && <p className={styles.sheetHint}>Les zones se tracent sur ordinateur.</p>}
+          {listing && (
+            <>
+              <Progress review={review} index={index} />
+              <div className={styles.sheetKicker}>
+                <span className={styles.sheetName}>{stepLabel(step)}</span>
+                <span className={styles.chips}>
+                  {group && <span className={styles.chip}>Groupé</span>}
+                  <span className={chipClass}>{chipText}</span>
+                </span>
+              </div>
+              <p className={styles.sheetQuestion}>{step.question}</p>
+              <button type="button" className={styles.more} aria-expanded={detailsOpen} onClick={() => setDetailsOpen(!detailsOpen)}>
+                Ce qui a changé et quoi regarder
+              </button>
+              {detailsOpen && (
+                <div className={styles.sheetDetails}>
+                  <section className={styles.section}>
+                    <h3>Ce qui a changé</h3>
+                    <p>{step.changed}</p>
+                  </section>
+                  <section className={styles.section}>
+                    <h3>Quoi regarder</h3>
+                    <p>{lookAt}</p>
+                    {stateShownHint}
+                  </section>
+                  {othersSection}
+                </div>
+              )}
+              {groupWarning}
+              {failedLine}
+              {lockBox}
+            </>
           )}
-          {groupWarning}
-          {failedLine}
-          {lockBox}
           {remarkEditor}
-          {!finished && !remarkOpen && (
-            <div className={styles.row}>
-              {own?.outdated || feedbackOutdated ? (
-                <>
-                  <button type="button" className={styles.panelButton} onClick={() => setRemarkOpen(true)}>
-                    Remarque
-                  </button>
+          {listing && !finished && !remarkOpen && (
+            <>
+              <PhonePinsList pins={pins} />
+              <PhoneTheirPins pins={pins} example={step} shown={shown} />
+              <div className={styles.row}>
+                <PhonePinButton pins={pins} />
+                <button type="button" className={styles.panelButton} onClick={() => setRemarkOpen(true)}>
+                  {ownRemark && !(own?.outdated || feedbackOutdated) ? "Ma remarque" : "Remarque"}
+                </button>
+              </div>
+              <div className={styles.row}>
+                {own?.outdated || feedbackOutdated ? (
                   <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={hasFeedback ? onClearAndValidate : onOk}>
                     {pins.mine.length > 0 ? "Effacer mes retours et valider" : ownRemark ? "Effacer ma remarque et valider" : group ? `Revoir et valider les ${size}` : "Revoir et valider"}
                   </button>
-                </>
-              ) : hasFeedback ? (
-                <>
-                  <button type="button" className={styles.panelButton} onClick={() => setRemarkOpen(true)}>
-                    Ma remarque
-                  </button>
+                ) : hasFeedback ? (
                   <button type="button" className={cx(styles.panelButton, styles.light)} onClick={() => onGo(next ?? "recap")}>
                     Étape suivante
                   </button>
-                </>
-              ) : own ? (
-                <>
-                  <button type="button" className={styles.panelButton} onClick={onCancel}>
-                    Validé · annuler
-                  </button>
-                  <button type="button" className={cx(styles.panelButton, styles.light)} onClick={() => onGo(next ?? "recap")}>
-                    Étape suivante
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button type="button" className={styles.panelButton} onClick={() => setRemarkOpen(true)}>
-                    Remarque
-                  </button>
+                ) : own ? (
+                  <>
+                    <button type="button" className={styles.panelButton} onClick={onCancel}>
+                      Validé · annuler
+                    </button>
+                    <button type="button" className={cx(styles.panelButton, styles.light)} onClick={() => onGo(next ?? "recap")}>
+                      Étape suivante
+                    </button>
+                  </>
+                ) : (
                   <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onOk}>
                     {group ? `OK pour les ${size}` : "OK"}
                   </button>
-                </>
-              )}
-            </div>
+                )}
+              </div>
+            </>
           )}
+          {listing && finished && <PhonePinsList pins={pins} />}
         </section>
       </div>
     );
