@@ -123,6 +123,8 @@ const memberVersionsColumn = (seen: SeenNow): string | null => (seen.memberVersi
 
 /** The elements a step frames as stored: JSON, or nothing when it frames none. */
 const targetsColumn = (step: ChangeReviewStepInput): string | null => (step.targets && step.targets.length > 0 ? JSON.stringify(step.targets) : null);
+/** The canvas elements a step points at as stored: JSON, or nothing when it points at none. */
+const canvasElementsColumn = (step: ChangeReviewStepInput): string | null => (step.canvasElements && step.canvasElements.length > 0 ? JSON.stringify(step.canvasElements) : null);
 /** The tweak values of a step as stored: JSON, or nothing when it sets none. */
 const tweaksColumn = (step: ChangeReviewStepInput): string | null => (step.tweaks && Object.keys(step.tweaks).length > 0 ? JSON.stringify(step.tweaks) : null);
 
@@ -193,7 +195,7 @@ export class ChangeReviewStore {
     if (!stepColumns.includes("tweaks")) db.exec("ALTER TABLE change_review_steps ADD COLUMN tweaks TEXT");
     if (!stepColumns.includes("mobile")) db.exec("ALTER TABLE change_review_steps ADD COLUMN mobile INTEGER NOT NULL DEFAULT 0");
     if (!stepColumns.includes("baseline_version")) db.exec("ALTER TABLE change_review_steps ADD COLUMN baseline_version TEXT");
-    for (const column of ["others", "title", "targets"]) if (!stepColumns.includes(column)) db.exec(`ALTER TABLE change_review_steps ADD COLUMN ${column} TEXT`);
+    for (const column of ["others", "title", "targets", "canvas_elements"]) if (!stepColumns.includes(column)) db.exec(`ALTER TABLE change_review_steps ADD COLUMN ${column} TEXT`);
     /** The highest pin number ever issued on the step: numbers are never reused. */
     if (!stepColumns.includes("pin_seq")) db.exec("ALTER TABLE change_review_steps ADD COLUMN pin_seq INTEGER NOT NULL DEFAULT 0");
     for (const column of ["member_versions", "on_page_id", "on_artboard"]) if (!answerColumns.includes(column)) db.exec(`ALTER TABLE change_review_answers ADD COLUMN ${column} TEXT`);
@@ -231,9 +233,9 @@ export class ChangeReviewStore {
       this.db
         .prepare("INSERT INTO change_reviews (id, project_id, state, requester_person_id, folder, label, created_at) VALUES (?, ?, 'open', ?, ?, ?, ?)")
         .run(id, projectId, requester.personId ?? null, requester.folder, requester.label ?? null, createdAt);
-      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile, baseline_version, others, title, targets) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile, baseline_version, others, title, targets, canvas_elements) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       steps.forEach((step, position) =>
-        insert.run(randomUUID(), id, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0, step.baseline ?? null, othersColumn(step), step.title ?? null, targetsColumn(step)),
+        insert.run(randomUUID(), id, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0, step.baseline ?? null, othersColumn(step), step.title ?? null, targetsColumn(step), canvasElementsColumn(step)),
       );
     })();
     return this.get(id)!;
@@ -255,13 +257,13 @@ export class ChangeReviewStore {
     this.db.transaction(() => {
       const before = new Map((this.db.prepare("SELECT id, changed, look_at, question FROM change_review_steps WHERE review_id = ?").all(reviewId) as { id: string; changed: string; look_at: string; question: string }[]).map((row) => [row.id, row]));
       const update = this.db.prepare("UPDATE change_review_steps SET position = ?, changed = ?, look_at = ?, question = ?, mobile = ?, baseline_version = COALESCE(?, baseline_version), others = ?, title = ?, targets = ? WHERE id = ? AND review_id = ?");
-      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile, baseline_version, others, title, targets) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile, baseline_version, others, title, targets, canvas_elements) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       const outdateAnswers = this.db.prepare("UPDATE change_review_answers SET stale = 1 WHERE step_id = ?");
       const outdatePins = this.db.prepare("UPDATE change_review_pins SET stale = 1 WHERE step_id = ?");
       const outdate = { run: (stepId: string) => (outdateAnswers.run(stepId), outdatePins.run(stepId)) };
       steps.forEach((step, position) => {
         if (!step.id) {
-          insert.run(randomUUID(), reviewId, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0, step.baseline ?? null, othersColumn(step), step.title ?? null, targetsColumn(step));
+          insert.run(randomUUID(), reviewId, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0, step.baseline ?? null, othersColumn(step), step.title ?? null, targetsColumn(step), canvasElementsColumn(step));
           return;
         }
         update.run(position, step.changed, step.lookAt, step.question, step.mobile ? 1 : 0, step.baseline ?? null, othersColumn(step), step.title ?? null, targetsColumn(step), step.id, reviewId);
@@ -312,7 +314,7 @@ export class ChangeReviewStore {
 
   steps(reviewId: string): StoredStep[] {
     const rows = this.db.prepare("SELECT * FROM change_review_steps WHERE review_id = ? ORDER BY position").all(reviewId) as {
-      id: string; page_id: string; artboard: string; changed: string; look_at: string; question: string; tweaks: string | null; mobile: number; baseline_version: string | null; archived_at_finish: number; others: string | null; title: string | null; targets: string | null;
+      id: string; page_id: string; artboard: string; changed: string; look_at: string; question: string; tweaks: string | null; mobile: number; baseline_version: string | null; archived_at_finish: number; others: string | null; title: string | null; targets: string | null; canvas_elements: string | null;
     }[];
     return rows.map((row) => ({
       id: row.id,
@@ -329,6 +331,7 @@ export class ChangeReviewStore {
       ...(row.others ? { others: JSON.parse(row.others) as StoredMember[] } : {}),
       ...(row.title ? { title: row.title } : {}),
       ...(row.targets ? { targets: JSON.parse(row.targets) as string[] } : {}),
+      ...(row.canvas_elements ? { canvasElements: JSON.parse(row.canvas_elements) as string[] } : {}),
     }));
   }
 

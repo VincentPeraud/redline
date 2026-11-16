@@ -551,9 +551,12 @@ export interface CreateArtboardThreadRequest extends CreateThreadCommon {
   target: { kind: "artboard"; artboard: string };
 }
 
-/** A comment on an element of the page canvas. The element must carry that id in the page's current manifest; the server fills its kind. */
+/**
+ * A comment on an element of the page canvas. The element must carry that id in the page's current manifest; the server fills its kind.
+ * `elementKind` and `elementSummary` are read only by a review fetch, for a pin on an element deleted since: the thread is then opened as removed.
+ */
 export interface CreateCanvasElementThreadRequest extends CreateThreadCommon {
-  target: { kind: "canvas-element"; elementId: string };
+  target: { kind: "canvas-element"; elementId: string; elementKind?: ManifestElementKind; elementSummary?: string };
 }
 
 /** A comment on a rectangle a reviewer drew. Only a review fetch opens these: the public thread route refuses them. */

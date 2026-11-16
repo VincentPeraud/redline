@@ -1431,7 +1431,7 @@ export class Store {
           ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, cell: null, instanceState: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null, zone: null }
           : request.target.kind === "zone"
             ? this.zonePlacement(request.target)
-            : this.canvasElementPlacement(pageId, request.target.elementId)
+            : this.canvasElementPlacement(pageId, request.target)
         : {
             kind: "element",
             artboard: request.artboard,
@@ -1484,8 +1484,9 @@ export class Store {
     };
   }
 
-  private canvasElementPlacement(pageId: string, elementId: string) {
-    const element = this.canvasElement(pageId, elementId)!;
+  /** An element deleted since a review pin was placed on it (only a fetch gets here) keeps the kind and summary the pin recorded. */
+  private canvasElementPlacement(pageId: string, { elementId, elementKind, elementSummary }: Extract<CreateThreadRequest, { target: { kind: "canvas-element" } }>["target"]) {
+    const element = this.canvasElement(pageId, elementId);
     return {
       kind: "canvas-element",
       artboard: "",
@@ -1497,8 +1498,8 @@ export class Store {
       xPct: 0,
       yPct: 0,
       elementId,
-      elementKind: element.kind,
-      elementSummary: canvasElementSummary(element),
+      elementKind: element?.kind ?? elementKind!,
+      elementSummary: element ? canvasElementSummary(element) : (elementSummary ?? null),
       zone: null,
     };
   }
