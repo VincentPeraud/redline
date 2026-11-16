@@ -179,7 +179,7 @@ describe("remarks", () => {
     expect(threads).toHaveLength(1);
     expect(threads[0]).toMatchObject({ body: "Show the empty state\nabove the fold", target: { kind: "artboard", artboard: "empty.html" } });
     expect(answer).toMatch(/Validated \(1\)[\s\S]*1\. "Home · List"/);
-    expect(answer).toMatch(/Remarks \(1\)[\s\S]*2\. "Home · Empty" \("empty\.html"\) · remark by [\s\S]*thread /);
+    expect(answer).toMatch(/Retours \(1\)[\s\S]*2\. "Home · Empty" \("empty\.html"\) · remark by [\s\S]*thread /);
     expect(answer).toContain(`thread ${threads[0]!.id}`);
     expect(answer).toContain("> Show the empty state");
     expect(answer).toContain("> above the fold");
@@ -196,7 +196,7 @@ describe("remarks", () => {
     const answer = await terminal.call("review_feedback", { reviewId });
 
     expect(answer).toMatch(/Validated \(0\)/);
-    expect(answer).toMatch(/Remarks \(1\)/);
+    expect(answer).toMatch(/Retours \(1\)/);
     expect(answer).toMatch(/Not seen \(2\)/);
   });
 
@@ -237,7 +237,7 @@ describe("review_feedback without an id, and who can fetch", () => {
 
     const answer = await terminal.call("review_feedback", {});
 
-    expect(answer).toMatch(/Remarks \(1\)/);
+    expect(answer).toMatch(/Retours \(1\)/);
     expect(await reviewOf(reviewId)).toMatchObject({ state: "fetched" });
     expect(await threadsOf(pages.home)).toHaveLength(1);
   });

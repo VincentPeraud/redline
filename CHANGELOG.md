@@ -6,6 +6,10 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+### Changed
+
+- Review mode: Habillage, Repères and Tweaks are icon buttons (tooltip and accessible name) so the top bar fits at 1440 px. Feedback is called "retours" in the banner, recap counters, confirmations, error and finished screens and `review_feedback`; the step chip stays "Remarque" and the field is "Remarque générale".
+
 ### Added
 
 - Review and Present: a frameless artboard taller than the stage is shown at its real width (capped to the stage width) and the stage scrolls, instead of being shrunk to the stage height. A tag says "Taille réelle" or "Pleine largeur". In review, the stage scrolls to Claude's first target when the step opens and keeps its scroll position; on a grouped step the thumbnail strip no longer shrinks the artboard.

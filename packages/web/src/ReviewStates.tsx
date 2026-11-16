@@ -12,7 +12,7 @@ const STATE_TEXTS = {
     title: "Revue réservée aux membres de l'équipe en Écriture",
     detail: "Ton accès à cette page (membre en Lecture ou Commentaire, ou lien de partage) ne permet pas de participer à la revue. Tu peux toujours commenter les artboards depuis le canvas si ton accès le permet.",
   },
-  error: { title: "La revue n'a pas pu se charger", detail: "Le serveur Redline ne répond pas. Tes OK et tes remarques déjà faits sont enregistrés." },
+  error: { title: "La revue n'a pas pu se charger", detail: "Le serveur Redline ne répond pas. Tes OK et tes retours déjà faits sont enregistrés." },
 } as const;
 
 /** "Les 9 artboards de cette revue ont été supprimés depuis la demande." */
