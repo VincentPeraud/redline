@@ -98,7 +98,7 @@ describe("an artboard republished after answers", () => {
 
     const answer = await terminal.call("review_feedback", { reviewId });
 
-    expect(answer).toMatch(/Feedback \(1 on 1 step\)[\s\S]*artboard modifié depuis la remarque/);
+    expect(answer).toMatch(/Retours \(1 sur 1 étape\)[\s\S]*artboard modifié depuis la remarque/);
     expect(answer).not.toMatch(/modifié après le OK/);
   });
 });

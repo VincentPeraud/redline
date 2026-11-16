@@ -100,7 +100,7 @@ it("keeps a remark on a modified step until the member clears it with Effacer ma
   await tab.goto(`${seam.server.url}/#/reviews/${reviewId}/steps/1`);
 
   await expect.poll(() => tab.getByText("Ta remarque d'avant la modification, gardée").count()).toBe(1);
-  expect(await tab.getByRole("textbox", { name: "Ou une remarque" }).inputValue()).toBe("Move the list up");
+  expect(await tab.getByRole("textbox", { name: "Remarque générale" }).inputValue()).toBe("Move the list up");
   await tab.getByRole("button", { name: "Effacer ma remarque et valider" }).click();
 
   await expect.poll(async () => (await stepsOf(reviewId))[0]!.answers.map((a) => a.kind)).toEqual(["ok"]);

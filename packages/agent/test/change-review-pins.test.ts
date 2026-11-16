@@ -125,7 +125,7 @@ describe("pins at fetch", () => {
     const threads = await threadsOf(pageId);
     expect(threads).toHaveLength(3);
     expect(threads.find((thread) => thread.body === "Make it bold\nand bigger")).toMatchObject({ target: { kind: "element", artboard: "list.html", selector: "body > h1", elementName: "titre « List »", xPct: 40, yPct: 12 } });
-    expect(answer).toMatch(/Feedback \(3 on 1 step\)/);
+    expect(answer).toMatch(/Retours \(3 sur 1 étape\)/);
     expect(answer).toMatch(/"Home · List"\n\s+1\. pin on `body > h1` \("titre « List »"\)[^\n]*thread [0-9a-f-]+/);
     expect(answer).toContain("> Make it bold");
     expect(answer).toContain("> and bigger");

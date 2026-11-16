@@ -39,6 +39,7 @@ export function ReviewRecap({
   const kept = activeSteps(review.steps);
   const okSteps = kept.filter((step) => stepStatus(step.answers, step.pins) === "ok");
   const remarks = review.steps.flatMap((step) => step.answers.filter((answer) => answer.kind === "remark").map((answer) => ({ step, answer })));
+  const remarkSteps = kept.filter((step) => stepStatus(step.answers) === "remark");
   const notSeen = kept.filter((step) => !stepIsSeen(step));
   const titleOf = stepLabel;
   const indexOf = (step: ChangeReviewStep) => review.steps.indexOf(step);
@@ -50,7 +51,7 @@ export function ReviewRecap({
         <div className={styles.recapSide}>
           <div className={cx(styles.recapHead, !open && styles.recapHeadLocked)}>
             <h1>{open ? "Avant de terminer" : "Revue terminée"}</h1>
-            {open && <p className={styles.recapNote}>Tant que la revue n'est pas terminée, chacun peut encore changer ses remarques.</p>}
+            {open && <p className={styles.recapNote}>Tant que la revue n'est pas terminée, chacun peut encore changer ses retours.</p>}
             {review.state === "finished" && (
               <div className={styles.done}>
                 <strong>
@@ -68,7 +69,7 @@ export function ReviewRecap({
                   {lockTitle(review)} ({place}) · {review.fetchedAt ? formatWhen(review.fetchedAt) : ""}
                 </strong>
                 <span>
-                  {remarks.length === 0 ? "" : remarks.length === 1 ? "La remarque est devenue un fil sur son artboard. " : `Les ${remarks.length} remarques sont devenues des fils sur leurs artboards. `}Cette revue reste lisible ici.
+                  {remarks.length === 0 ? "" : remarks.length === 1 ? "Le retour est devenu un fil sur son artboard. " : `Les ${remarks.length} retours sont devenues des fils sur leurs artboards. `}Cette revue reste lisible ici.
                 </span>
               </div>
             )}
@@ -87,8 +88,8 @@ export function ReviewRecap({
               <span>OK</span>
             </div>
             <div className={styles.sumCard}>
-              <b>{remarks.length}</b>
-              <span>{remarks.length > 1 ? "Remarques" : "Remarque"}</span>
+              <b>{remarkSteps.length}</b>
+              <span>Étapes avec retours</span>
             </div>
             <div className={styles.sumCard}>
               <b>{notSeen.length}</b>
@@ -137,7 +138,7 @@ export function ReviewRecap({
           )}
         </div>
         <div className={styles.recapList}>
-          {remarks.length > 0 && <div className={styles.group}>Remarques</div>}
+          {remarks.length > 0 && <div className={styles.group}>Retours ({remarks.length})</div>}
           {remarks.map(({ step, answer }) => (
             <div key={answer.id} className={styles.item}>
               <span className={cx(styles.dot, styles.dotRemark)} />

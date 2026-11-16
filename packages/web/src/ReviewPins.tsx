@@ -468,10 +468,10 @@ function PinPopover({ number, label, saved, pins }: { number: number; label: str
 }
 
 /** The reminder under the artboard: the shortcuts, or why pinning is off. */
-export function PinHint({ pins, phone }: { pins: PinsController; phone: boolean }) {
+export function PinHint({ pins, phone, sticky }: { pins: PinsController; phone: boolean; sticky: boolean }) {
   if (pins.finished || phone) return null;
   return (
-    <div className={styles.pinHint} data-testid="review-pin-hint">
+    <div className={cx(styles.pinHint, sticky && styles.pinHintSticky)} data-testid="review-pin-hint">
       {pins.view.showBefore ? (
         <span>Vue Avant : repasse sur Après pour épingler</span>
       ) : pins.picking ? (
