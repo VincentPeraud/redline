@@ -278,7 +278,7 @@ export function StepView({
                 ) : hasFeedback ? (
                   <>
                     {pinButton}
-                    <span className={cx(styles.hint, styles.rowHint)}>{feedbackReplacesOk(pins.mine.length, ownRemark)}</span>
+                    <span className={cx(styles.hint, styles.rowHint)}>{pins.view.showBefore ? "Repasse sur Après pour épingler." : feedbackReplacesOk(pins.mine.length, ownRemark)}</span>
                   </>
                 ) : own?.outdated ? (
                   <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onOk}>
