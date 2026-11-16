@@ -246,8 +246,7 @@
   align-items: center;
   justify-content: center;
   min-width: 0;
-  /* The bottom padding keeps a fitted artboard clear of the shortcut reminder (16px from the bottom, 32px high). */
-  padding: var(--space-8) var(--space-8) calc(var(--space-8) + 24px);
+  padding: var(--space-8);
   --tweaks-width: 320px;
 }
 
@@ -868,7 +867,7 @@
   position: absolute;
   top: 16px;
   left: 50%;
-  z-index: 1;
+  z-index: 3;
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
@@ -1215,10 +1214,16 @@
   padding: 0;
 }
 
+/* A fitted artboard leaves room under it for the shortcut reminder (16px from the bottom, 32px high, 16px of air):
+   the area is measured without its padding, so the fit shrinks the artboard instead of letting the reminder cover it. */
+.shotAreaHinted {
+  padding-bottom: 64px;
+}
+
 .shotAreaScroll {
   display: block;
   overflow: auto;
-  padding: var(--space-8);
+  padding: 0 var(--space-8) var(--space-8);
 }
 
 .stageScroll.stageGroup .others {
@@ -1233,18 +1238,20 @@
   box-shadow: var(--review-shadow-popover);
 }
 
+/* A band in the stage colour: the scrolled artboard passes under it, never under the tag's text. */
 .sizeTag {
   position: sticky;
   top: 0;
   z-index: 2;
   display: flex;
   justify-content: center;
-  margin-bottom: var(--space-3);
+  padding: var(--space-8) 0 var(--space-3);
+  background: var(--play-bg);
   pointer-events: none;
 }
 
 .sizeTagLow {
-  margin-top: var(--space-10);
+  padding-top: calc(var(--space-8) + var(--space-10));
 }
 
 .sizeTag span {
@@ -2196,6 +2203,10 @@
 
 .stageMixed .shotArea {
   padding: var(--space-8);
+}
+
+.stageMixed .shotAreaHinted {
+  padding-bottom: 64px;
 }
 
 .viewsStrip {

@@ -126,7 +126,7 @@ export function ReviewStage({
           Nouvelle version{step.modifiedBy ? ` de ${step.modifiedBy}` : ""} depuis ta revue{step.modifiedAt ? ` · ${relativeTime(step.modifiedAt)}` : ""}
         </span>
       )}
-      <div ref={stage} className={cx(styles.shotArea, scrolling && styles.shotAreaScroll)} tabIndex={scrolling ? 0 : undefined} aria-label={scrolling ? "Artboard, fais défiler pour tout voir" : undefined}>
+      <div ref={stage} className={cx(styles.shotArea, scrolling && styles.shotAreaScroll, !scrolling && !phone && styles.shotAreaHinted)} tabIndex={scrolling ? 0 : undefined} aria-label={scrolling ? "Artboard, fais défiler pour tout voir" : undefined}>
         {scrolling && presentation && (
           <div className={cx(styles.sizeTag, (modified || (controls.showBefore && step.baselineAt)) && styles.sizeTagLow)} data-testid="review-scroll-tag">
             <span>{scrollTagLabel(scrolling, presentation.viewport)}</span>
