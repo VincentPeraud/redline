@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReviewPin } from "@redline/shared";
-import { feedbackReplacesOk, popoverPlacement, pinHiddenWhy, pinIsShown, pinOffsets } from "../src/reviewPinRules.js";
+import { feedbackReplacesOk, phonePinText, popoverPlacement, pinHiddenWhy, pinIsShown, pinOffsets } from "../src/reviewPinRules.js";
 
 const pin = (extra: Partial<ReviewPin> = {}): ReviewPin => ({ id: "p1", number: 1, text: "Fix", target: { selector: "h1", xPct: 10, yPct: 10 }, at: "2026-11-16T10:00:00Z", mine: true, ...extra });
 const example = { pageId: "p", artboard: "a.html" };
@@ -63,5 +63,16 @@ describe("what the step says about feedback and the OK", () => {
     expect(feedbackReplacesOk(2, false)).toBe("Tes épingles remplacent ton OK pour cette étape.");
     expect(feedbackReplacesOk(0, true)).toBe("Ta remarque remplace ton OK pour cette étape.");
     expect(feedbackReplacesOk(2, true)).toBe("Tes épingles et ta remarque remplacent ton OK pour cette étape.");
+  });
+});
+
+describe("pins in the phone sheet", () => {
+  it("shows the text of an element pin as it is", () => {
+    expect(phonePinText(pin({ text: "Le montant en gras" }))).toBe("Le montant en gras");
+  });
+
+  it("names a zone drawn on a computer, since a phone cannot draw or show it", () => {
+    const zone = pin({ text: "Les participants sous les décisions", target: { kind: "zone", xPct: 10, yPct: 10 } as unknown as ReviewPin["target"] });
+    expect(phonePinText(zone)).toBe("Zone (tracée sur ordinateur) : Les participants sous les décisions");
   });
 });

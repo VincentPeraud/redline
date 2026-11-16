@@ -4,7 +4,7 @@ import type { Pick } from "./ArtboardFrame.js";
 import { cx } from "./ui/index.js";
 import { useAltKey } from "./useAltKey.js";
 import { personName } from "./ReviewRemark.js";
-import { type DraftPin, type PinView, pinHiddenWhy, pinIsShown, pinOffsets, pinTargetLabel, popoverPlacement } from "./reviewPinRules.js";
+import { type DraftPin, type PinView, phonePinText, pinHiddenWhy, pinIsShown, pinOffsets, pinTargetLabel, popoverPlacement } from "./reviewPinRules.js";
 import { type StepControls } from "./useReviewControls.js";
 import { titleOfArtboard } from "./reviewView.js";
 import styles from "./ReviewScreen.module.css";
@@ -216,7 +216,7 @@ interface Reported {
 }
 
 /** The pin markers over the artboard, the panel of the pin being edited and the hover card of other members' pins. Lives inside the artboard viewport, which clips them to it. */
-export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { frame: RefObject<HTMLIFrameElement>; bridgeEpoch: number; size: { width: number; height: number }; example: ChangeReviewStep; shown: ChangeReviewStep; pins: PinsController }) {
+export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins, phone }: { phone: boolean; frame: RefObject<HTMLIFrameElement>; bridgeEpoch: number; size: { width: number; height: number }; example: ChangeReviewStep; shown: ChangeReviewStep; pins: PinsController }) {
   const alt = useAltKey();
   const [positions, setPositions] = useState<Reported[]>([]);
   const onPlaceRef = useRef(pins.place);
@@ -278,6 +278,14 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { f
   const offsets = pinOffsets(resolved);
   const [hovered, setHovered] = useState<string | undefined>();
   const editing = pins.editor && resolved.find((entry) => entry.id === (pins.editor!.pinId ?? "draft"));
+  // On a phone the text field lives in the sheet, which leaves a thin strip of artboard: bring the pin into it.
+  const layer = useRef<HTMLDivElement>(null);
+  const editingId = phone && pins.editor ? (pins.editor.pinId ?? "draft") : undefined;
+  const editingMatched = editingId !== undefined && resolved.some((entry) => entry.id === editingId);
+  useEffect(() => {
+    if (editingId === undefined || !editingMatched) return;
+    layer.current?.querySelector(`[data-pin-id="${editingId}"]`)?.scrollIntoView({ block: "center", inline: "nearest" });
+  }, [editingId, editingMatched]);
   const hover = hovered === undefined ? undefined : resolved.find((entry) => entry.id === hovered && entry.pin && !entry.pin.mine);
   const anchorStyle = (entry: { xPct: number; yPct: number; matched: boolean }, offset: number) =>
     entry.matched
@@ -301,7 +309,7 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { f
   };
 
   return (
-    <div className={styles.pinLayer} data-testid="review-pin-layer">
+    <div ref={layer} className={styles.pinLayer} data-testid="review-pin-layer">
       {resolved.map((entry) => {
         const pin = entry.pin;
         const number = pin?.number ?? pins.draftNumber;
@@ -312,6 +320,7 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { f
             key={entry.id}
             type="button"
             data-pin={number}
+            data-pin-id={entry.id}
             data-pin-mine={mine}
             aria-label={entry.lost ? `${label}, élément introuvable` : label}
             className={cx(styles.pin, !mine && styles.pinTheirs, entry.lost && styles.pinLost)}
@@ -320,7 +329,11 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { f
             onMouseLeave={() => setHovered(undefined)}
             onFocus={() => setHovered(entry.id)}
             onBlur={() => setHovered(undefined)}
-            onClick={() => (pin?.mine && !pins.finished ? pins.openEdit(pin.id) : undefined)}
+            onClick={() => {
+              if (pin?.mine && !pins.finished) pins.openEdit(pin.id);
+              // A touch has no hover: a tap reads another member's pin.
+              else if (pin && !pin.mine) setHovered((current) => (current === entry.id ? undefined : entry.id));
+            }}
           >
             {number}
           </button>
@@ -335,7 +348,7 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { f
           <span>Lecture seule : seul {personName(hover.pin.person)} peut la changer.</span>
         </div>
       )}
-      {editing && pins.editor && (
+      {editing && pins.editor && !phone && (
         <div className={styles.pinPop} style={popoverStyle(editing)}>
           <PinPopover
             key={pins.editor.key}
@@ -351,7 +364,7 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { f
 }
 
 /** The panel next to a pin: its text saved on its own while typing, "Effacer" (with "Annuler" in the list) and "Fermer". An empty pin disappears on close. */
-function PinPopover({ number, label, saved, pins }: { number: number; label: string; saved: ReviewPin | undefined; pins: PinsController }) {
+function PinPopover({ number, label, saved, pins, phone = false }: { number: number; label: string; saved: ReviewPin | undefined; pins: PinsController; phone?: boolean }) {
   const savedText = saved?.text;
   const [text, setText] = useState(savedText ?? "");
   const [copied, setCopied] = useState(false);
@@ -417,6 +430,38 @@ function PinPopover({ number, label, saved, pins }: { number: number; label: str
         : saved && text.trim() !== ""
           ? "Enregistré"
           : "Vide : rien n'est gardé si tu fermes";
+
+  if (phone) {
+    return (
+      <div role="group" aria-label={`Épingle ${number}`} className={styles.phonePin}>
+        <span className={styles.phonePinHead}>
+          <span className={cx(styles.pin, styles.pinStatic, styles.pinSmall)}>{number}</span>
+          <span className={styles.popTarget}>Sur {label}</span>
+        </span>
+        <textarea ref={field} aria-label="Ton épingle" className={styles.textarea} readOnly={finished} value={text} placeholder="Ce qui ne va pas sur cet élément" onChange={(event) => setText(event.target.value)} />
+        {pins.failed ? (
+          <span className={styles.errorLine} role="alert">
+            Pas enregistré : Redline ne répond pas.
+            <button type="button" className={styles.linkButton} onClick={() => void saveNow()}>
+              Réessayer
+            </button>
+          </span>
+        ) : (
+          <span className={styles.phonePinStatus}>{status}</span>
+        )}
+        <div className={styles.row}>
+          {!finished && (
+            <button type="button" className={styles.panelButton} disabled={text === "" && !saved} onClick={() => (saved ? pins.requestDelete(saved.id) : setText(""))}>
+              Effacer
+            </button>
+          )}
+          <button type="button" className={styles.panelButton} onClick={() => void close()}>
+            Fermer
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div role="dialog" aria-label={`Épingle ${number}`} className={styles.pop}>
@@ -573,6 +618,83 @@ export function PinsSection({ step, shown, pins, onShow }: { step: ChangeReviewS
         })}
       </div>
     </section>
+  );
+}
+
+/** The text field of the pin being placed or edited, in the phone sheet (the artboard keeps a strip above it). */
+export function PhonePinEditor({ pins }: { pins: PinsController }) {
+  const editor = pins.editor;
+  if (!editor) return null;
+  const saved = editor.pinId ? pins.mine.find((pin) => pin.id === editor.pinId) : undefined;
+  const label = saved ? pinTargetLabel(saved) : (editor.draft?.target.elementName ?? editor.draft?.target.selector ?? "");
+  return <PinPopover key={editor.key} number={saved?.number ?? pins.draftNumber} label={label} saved={saved} pins={pins} phone />;
+}
+
+/** The bar of the pick mode on a phone, above the artboard. */
+export function PhonePickBanner({ pins }: { pins: PinsController }) {
+  return (
+    <div className={styles.pickBanner} data-testid="review-pick-banner">
+      <span>Touche un élément à épingler</span>
+      <button type="button" className={styles.panelButton} onClick={() => pins.setPicking(false)}>
+        Annuler
+      </button>
+    </div>
+  );
+}
+
+/** "Épingler" in the row of the phone sheet. */
+export function PhonePinButton({ pins }: { pins: PinsController }) {
+  const off = pins.view.showBefore;
+  return (
+    <button type="button" className={styles.panelButton} disabled={off} title={off ? "Repasse sur Après pour épingler" : undefined} onClick={() => pins.setPicking(true)}>
+      Épingler
+    </button>
+  );
+}
+
+/** The member's own pins and zones in the phone sheet: number, text and "Modifier" (the text field is in the sheet, so any pin can be edited). */
+export function PhonePinsList({ pins }: { pins: PinsController }) {
+  if (pins.mine.length === 0) return null;
+  return (
+    <div className={styles.phonePins} data-testid="review-pins-list">
+      {pins.mine.map((pin) =>
+        pins.deleting[pin.id] ? (
+          <div key={pin.id} className={styles.phonePinItem}>
+            <span className={styles.phonePinText}>Épingle {pin.number} effacée</span>
+            <button type="button" className={styles.panelButton} onClick={() => pins.undoDelete(pin.id)}>
+              Annuler
+            </button>
+          </div>
+        ) : (
+          <div key={pin.id} className={styles.phonePinItem} data-pin-item={pin.number}>
+            <span className={cx(styles.pin, styles.pinStatic, pin.lost && styles.pinLost)}>{pin.number}</span>
+            <span className={styles.phonePinText}>{phonePinText(pin)}</span>
+            {!pins.finished && (
+              <button type="button" className={styles.panelButton} onClick={() => pins.openEdit(pin.id)}>
+                Modifier
+              </button>
+            )}
+          </div>
+        ),
+      )}
+    </div>
+  );
+}
+
+/** Other members' pins on a phone: a line each, read by touching the numbered pin on the artboard (or in full when it is not on the stage). */
+export function PhoneTheirPins({ pins, example, shown }: { pins: PinsController; example: ChangeReviewStep; shown: ChangeReviewStep }) {
+  if (pins.theirs.length === 0) return null;
+  const exampleRef: ArtboardRef = { pageId: example.pageId, artboard: example.artboard };
+  const shownRef: ArtboardRef = { pageId: shown.pageId, artboard: shown.artboard };
+  return (
+    <div className={styles.phoneOthers}>
+      {pins.theirs.map((pin) => (
+        <p key={pin.id}>
+          <strong>{personName(pin.person)}</strong>
+          {pinIsShown(pin, exampleRef, shownRef, pins.view) ? ` a épinglé ${pinTargetLabel(pin)} (${pin.number}) : touche l'épingle pour lire.` : ` · ${pinTargetLabel(pin)} (${pin.number}) : ${pin.text}`}
+        </p>
+      ))}
+    </div>
   );
 }
 

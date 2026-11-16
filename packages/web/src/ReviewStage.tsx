@@ -129,7 +129,7 @@ export function ReviewStage({
                   className={styles.frame}
                   style={{ width: fitted.viewport.width, height: fitted.viewport.height, transform: `scale(${fitted.scale})` }}
                 />
-                <PinLayer frame={frame} bridgeEpoch={bridgeEpoch} size={{ width: fitted.viewport.width * fitted.scale, height: fitted.viewport.height * fitted.scale }} example={example} shown={step} pins={pins} />
+                <PinLayer frame={frame} bridgeEpoch={bridgeEpoch} size={{ width: fitted.viewport.width * fitted.scale, height: fitted.viewport.height * fitted.scale }} example={example} shown={step} pins={pins} phone={phone} />
               </div>
             </PlayFrame>
           </div>
