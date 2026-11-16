@@ -144,8 +144,8 @@ export class ServerApi {
     return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/bye`, {});
   }
 
-  replyInThread(threadId: string, text: string, workId?: string, terminalSessionId?: string): Promise<ThreadReply> {
-    const body: AgentReplyRequest = { body: text, ...(workId ? { workId } : {}), ...(terminalSessionId ? { terminalSessionId } : {}) };
+  replyInThread(threadId: string, text: string, workId?: string, terminalSessionId?: string, resolve?: boolean): Promise<ThreadReply> {
+    const body: AgentReplyRequest = { body: text, ...(workId ? { workId } : {}), ...(terminalSessionId ? { terminalSessionId } : {}), ...(resolve ? { resolve } : {}) };
     return this.request("POST", `/threads/${threadId}/replies`, body);
   }
 

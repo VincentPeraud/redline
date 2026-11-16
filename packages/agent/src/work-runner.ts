@@ -86,7 +86,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send, r
     let checkout = await api.checkout(item.pageId);
     const dir = writeWorkingCopy(folder, item.pageId, checkout);
     // Replies are held back until the run succeeded: a retried run must not leave the first attempt's answers in the threads.
-    const replies = new Map<string, string[]>();
+    const replies = new Map<string, { text: string; resolve?: boolean }[]>();
     let removalsConfirmed = false;
     const changes: ChangeRecordInput[] = [];
     const mcp = await startSessionMcp({
@@ -99,7 +99,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send, r
       onChangeRecorded: (change) => void changes.push(change),
       // The page changed under the run: what it publishes is measured against the page as it is now.
       afterArtboardMoved: async () => void (checkout = await api.checkout(item.pageId)),
-      postReply: async (threadId, text) => void replies.set(threadId, [...(replies.get(threadId) ?? []), text]),
+      postReply: async (threadId, text, resolve) => void replies.set(threadId, [...(replies.get(threadId) ?? []), { text, resolve }]),
     });
     let result: EngineEvent | undefined;
     try {
@@ -132,7 +132,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send, r
     // Assets belong to the project: new or changed ones go up first, so the version that uses them shows them.
     await uploadChangedAssets(api, item.pageId, dir, checkout.project.assets);
     const postReplies = async () => {
-      for (const [threadId, texts] of replies) for (const text of texts) await api.replyInThread(threadId, text, item.id);
+      for (const [threadId, answers] of replies) for (const { text, resolve } of answers) await api.replyInThread(threadId, text, item.id, undefined, resolve);
     };
     // The session may edit DESIGN.md (the rules of the project); a changed one is published with the run.
     const designMd = readDesignMd(dir);

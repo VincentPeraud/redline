@@ -91,6 +91,21 @@ it("records an agent's reply in the thread", async () => {
   expect((await agentCall(`/threads/nope/replies`, { method: "POST", body: { body: "x" } })).status).toBe(404);
 });
 
+it("closes the thread when the agent answers with resolve, and leaves it open otherwise", async () => {
+  const post = async (body: string) =>
+    (await (await server.post(`/api/pages/${page.id}/threads`, { artboard: "home.html", selector: "h1", xPct: 1, yPct: 2, body })).json()) as Thread;
+  const handled = await post("Bigger title");
+  const asked = await post("Which colour?");
+
+  expect((await agentCall(`/threads/${handled.id}/replies`, { method: "POST", body: { body: "Done", resolve: true } })).status).toBe(201);
+  expect((await agentCall(`/threads/${asked.id}/replies`, { method: "POST", body: { body: "Blue or teal?" } })).status).toBe(201);
+  const threads = (await (await server.get(`/api/pages/${page.id}/threads`)).json()) as Thread[];
+  expect(threads.find((t) => t.id === handled.id)?.status).toBe("resolved");
+  expect(threads.find((t) => t.id === asked.id)?.status).toBe("open");
+
+  expect((await agentCall(`/threads/${asked.id}/replies`, { method: "POST", body: { body: "x", resolve: "yes" } })).status).toBe(400);
+});
+
 it("lets an agent upload a project asset through a page, which every artboard of the project then reaches", async () => {
   const bytes = Buffer.from([0, 255, 128, 7]);
   const upload = (name: string, body: Buffer, auth = token) =>

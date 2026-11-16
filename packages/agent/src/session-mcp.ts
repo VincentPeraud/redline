@@ -34,7 +34,7 @@ export interface RedlineToolsContext {
   /** The work item being run, so what the session creates (pages, answers, versions) is tied to it. */
   workId?: string;
   /** Where `reply_in_thread` sends the text; default: the thread right away. A run holds replies back until it succeeds. */
-  postReply?: (threadId: string, text: string) => Promise<unknown>;
+  postReply?: (threadId: string, text: string, resolve?: boolean) => Promise<unknown>;
   /** Terminal mode registers its own `create_page`, which also works with no page checked out. */
   ownCreatePage?: boolean;
   /** Called after an artboard of the page was moved away and dropped from the working copy: the caller re-bases what it publishes later on the page as it is now. */
@@ -112,7 +112,7 @@ function dropArtboardFromWorkingCopy(dir: string, file: string): void {
 /** Redline's tools for a session. Add new tools here: the agent's session server and `redline mcp` both use it. */
 export function createRedlineMcpServer(context: RedlineToolsContext): McpServer {
   const { api, allowedThreadIds } = context;
-  const postReply = context.postReply ?? ((threadId: string, text: string) => api.replyInThread(threadId, text, context.workId));
+  const postReply = context.postReply ?? ((threadId: string, text: string, resolve?: boolean) => api.replyInThread(threadId, text, context.workId, undefined, resolve));
   const server = new McpServer({ name: "redline", version: "0.0.0" }, context.instructions ? { instructions: context.instructions } : undefined);
   const { decorateResult = (result: ToolResult): ToolResult | Promise<ToolResult> => result, refuseCall } = context;
   if (context.decorateResult || refuseCall) {
@@ -123,15 +123,20 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
   server.registerTool(
     REPLY_IN_THREAD_TOOL,
     {
-      description: "Answer the user in a Redline comment thread. Call it once per thread you were asked about.",
-      inputSchema: { threadId: z.string().describe("Id of the thread, as given in the message"), text: z.string() },
+      description:
+        "Answer the user in a Redline comment thread. Call it once per thread you were asked about. Pass resolve: true when the comment is fully handled (change made, or question answered) and your answer asks the user nothing: the thread is closed, and they can reopen it. Leave it out when you ask them something back or did not do what they asked.",
+      inputSchema: {
+        threadId: z.string().describe("Id of the thread, as given in the message"),
+        text: z.string(),
+        resolve: z.boolean().optional().describe("Close the thread with this answer (nothing left for the user to answer)"),
+      },
     },
-    async ({ threadId, text }) => {
+    async ({ threadId, text, resolve }) => {
       if (allowedThreadIds && !allowedThreadIds.includes(threadId)) {
         return { isError: true, content: [{ type: "text", text: `Thread ${threadId} is not part of this run.` }] };
       }
-      await postReply(threadId, text);
-      return { content: [{ type: "text", text: "Reply posted." }] };
+      await postReply(threadId, text, resolve);
+      return { content: [{ type: "text", text: resolve ? "Reply posted, thread resolved." : "Reply posted." }] };
     },
   );
   server.registerTool(

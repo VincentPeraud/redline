@@ -423,6 +423,8 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       api.post<{ Params: { threadId: string }; Body: AgentReplyRequest }>("/threads/:threadId/replies", async (req, reply) => {
         const body = req.body?.body;
         if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
+        const resolve = req.body.resolve;
+        if (resolve !== undefined && typeof resolve !== "boolean") return reply.code(400).send({ error: "resolve must be a boolean" });
         const thread = store.getThread(req.params.threadId);
         if (!thread) return reply.code(404).send({ error: "thread not found" });
         // The pages the run created appear under its first answer.
@@ -434,6 +436,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const createdPageIds = workOrigin(store, pageLock, workId, thread.pageId) ? store.takeCreatedPages(workId!) : [];
         const posted = store.addReply(thread.id, body, "claude", createdPageIds);
         if (terminalSessionId !== undefined) terminalSessions.answered(thread.id);
+        if (resolve) store.resolveThread(thread.id);
         return reply.code(201).send(posted);
       });
     },

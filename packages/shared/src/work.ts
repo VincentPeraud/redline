@@ -131,6 +131,8 @@ export interface AgentReplyRequest extends CreateReplyRequest {
   workId?: string;
   /** The terminal session answering: accepted only for a thread it picked with `pending_comments`. */
   terminalSessionId?: string;
+  /** True closes the thread with this answer: the change is made and nothing is left for the user to answer. They can still reopen it. */
+  resolve?: boolean;
 }
 
 /** Server-sent events on `GET /api/events`, so the web UI refreshes without polling. */
