@@ -225,7 +225,7 @@ export function RemarkEditor({
   return (
     <div className={styles.section}>
       <label className={styles.label} htmlFor="remark">
-        {placement ? (placedOn ? `Remarque sur ${placement.titleOf(placedOn)}` : "Ou une remarque pour tout le groupe") : "Ou une remarque"}
+        {placement ? (placedOn ? `Remarque sur ${placement.titleOf(placedOn)}` : "Remarque générale pour tout le groupe") : "Remarque générale"}
       </label>
       {deleting ? (
         <span className={styles.author}>

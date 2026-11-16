@@ -169,11 +169,12 @@ export function ReviewTopBar({ review, view, shown, controls, onGo, onLeave, onF
           <button
             type="button"
             aria-pressed={controls.framed}
-            title={(controls.rendering ? controls.rendering.format === "desktop" : step.artboardEntry.frame === "browser") ? "Afficher ou masquer la fenêtre de navigateur" : "Afficher ou masquer le cadre de l'appareil"}
-            className={cx(styles.button, controls.framed && styles.buttonOn)}
+            aria-label="Habillage"
+            title={`Habillage : ${(controls.rendering ? controls.rendering.format === "desktop" : step.artboardEntry.frame === "browser") ? "afficher ou masquer la fenêtre de navigateur" : "afficher ou masquer le cadre de l'appareil"}`}
+            className={cx(styles.button, styles.iconButton, controls.framed && styles.buttonOn)}
             onClick={controls.toggleFramed}
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               {(controls.rendering ? controls.rendering.format === "desktop" : step.artboardEntry.frame === "browser") ? (
                 <>
                   <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -186,26 +187,36 @@ export function ReviewTopBar({ review, view, shown, controls, onGo, onLeave, onF
                 </>
               )}
             </svg>
-            Habillage
           </button>
         )}
         {!phone && controls && step?.targets && (
           <button
             type="button"
             aria-pressed={controls.markersShown}
-            title="Afficher ou masquer les cadres des éléments à regarder"
-            className={cx(styles.button, controls.markersShown && styles.buttonOn)}
+            aria-label="Repères"
+            title="Repères : afficher ou masquer les cadres des éléments à regarder"
+            className={cx(styles.button, styles.iconButton, controls.markersShown && styles.buttonOn)}
             onClick={controls.toggleMarkers}
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="4" y="6" width="16" height="12" rx="2" strokeDasharray="3 2.5" />
             </svg>
-            Repères
           </button>
         )}
         {!phone && controls && controls.tweaks.length > 0 && (
-          <button type="button" aria-pressed={controls.tweaksOpen} className={cx(styles.button, controls.tweaksOpen && styles.buttonOn)} onClick={controls.toggleTweaks}>
-            Tweaks
+          <button
+            type="button"
+            aria-pressed={controls.tweaksOpen}
+            aria-label="Tweaks"
+            title="Tweaks : régler les états de l'artboard"
+            className={cx(styles.button, styles.iconButton, controls.tweaksOpen && styles.buttonOn)}
+            onClick={controls.toggleTweaks}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+              <circle cx="16" cy="7" r="2" />
+              <circle cx="10" cy="17" r="2" />
+            </svg>
           </button>
         )}
         {!phone && review.state === "open" && view !== "recap" && (

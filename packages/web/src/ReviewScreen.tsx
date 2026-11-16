@@ -198,8 +198,8 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
         >
           <p>
             {confirming.notSeen > 0
-              ? "Elles seront signalées à part à la conversation comme « non vues », jamais comme validées. Plus personne ne pourra ajouter de remarque, sauf si un membre rouvre la revue."
-              : "Plus personne ne pourra ajouter de remarque, sauf si un membre rouvre la revue."}
+              ? "Elles seront signalées à part à la conversation comme « non vues », jamais comme validées. Plus personne ne pourra ajouter de retour, sauf si un membre rouvre la revue."
+              : "Plus personne ne pourra ajouter de retour, sauf si un membre rouvre la revue."}
           </p>
           {confirming.present.length > 0 && <p>{presenceLine(confirming.present)}</p>}
         </ConfirmDialog>
@@ -242,10 +242,10 @@ function presenceLine(present: ChangeReviewPresence[]): ReactNode {
 function filingWarning(review: ChangeReview): string {
   const remarks = review.steps.flatMap((entry) => entry.answers.filter((answer) => answer.kind === "remark"));
   const final = "C'est définitif : la revue ne pourra plus être rouverte.";
-  if (remarks.length === 0) return `Cette revue n'a aucune remarque, mais elle ne sera jamais transmise à une conversation. ${final}`;
-  if (remarks.length === 1) return `${remarks[0]!.mine ? "Ta remarque" : `La remarque de ${personName(remarks[0]!.person)}`} ne sera jamais transmise à une conversation. ${final}`;
+  if (remarks.length === 0) return `Cette revue n'a aucun retour, mais elle ne sera jamais transmise à une conversation. ${final}`;
+  if (remarks.length === 1) return `${remarks[0]!.mine ? "Ton retour" : `Le retour de ${personName(remarks[0]!.person)}`} ne sera jamais transmis à une conversation. ${final}`;
   const others = remarks.filter((answer) => !answer.mine);
   const names = [...new Set(others.map((answer) => personName(answer.person)))];
-  const whose = others.length === 0 ? "" : ` (dont ${others.length === 1 ? "celle" : "celles"} de ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`})`;
-  return `Les ${remarks.length} remarques${whose} ne seront jamais transmises à une conversation. ${final}`;
+  const whose = others.length === 0 ? "" : ` (dont ${others.length === 1 ? "celui" : "ceux"} de ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`})`;
+  return `Les ${remarks.length} retours${whose} ne seront jamais transmis à une conversation. ${final}`;
 }

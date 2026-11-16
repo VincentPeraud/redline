@@ -117,7 +117,7 @@ it("shows the loading screen, then the error screen with Réessayer, and loads t
   release();
 
   await tab.getByRole("heading", { name: "La revue n'a pas pu se charger" }).waitFor();
-  await tab.getByText("Le serveur Redline ne répond pas. Tes OK et tes remarques déjà faits sont enregistrés.").waitFor();
+  await tab.getByText("Le serveur Redline ne répond pas. Tes OK et tes retours déjà faits sont enregistrés.").waitFor();
   failing = false;
   await tab.getByRole("button", { name: "Réessayer" }).click();
   await tab.getByRole("button", { name: /^Étape 1 \/ 1/ }).waitFor();
@@ -128,7 +128,7 @@ it("keeps the review and the text being typed when a background reload fails", a
   const { reviewId } = await declareReview(["list.html", "meeting.html"]);
   const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await tab.goto(`${seam.server.url}/#/reviews/${reviewId}/steps/1`);
-  const remark = tab.getByRole("textbox", { name: /remarque/ });
+  const remark = tab.getByRole("textbox", { name: /remarque/i });
   await remark.fill("Typed while the server hiccups");
   await expect.poll(async () => (await reviewOf(reviewId)).steps[0]!.answers.length).toBe(1);
 

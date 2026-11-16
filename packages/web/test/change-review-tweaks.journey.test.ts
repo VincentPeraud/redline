@@ -134,6 +134,29 @@ it("shows and hides the device frame with Habillage, as in Present", async () =>
   await tab.close();
 });
 
+it("shows Habillage, Repères and Tweaks as icon buttons with a tooltip, and the top bar never overlaps at 1440 px with every control", async () => {
+  const { reviewId } = await declare((id) => [step(id, "meeting.html", { targets: ["h1"], tweaks: { state: "ready" } })]);
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${seam.server.url}/#/reviews/${reviewId}/steps/1`);
+
+  for (const [name, tooltip] of [["Habillage", "Habillage : afficher ou masquer"], ["Repères", "Repères : afficher ou masquer"], ["Tweaks", "Tweaks : régler"]] as const) {
+    const button = top(tab).getByRole("button", { name });
+    await button.waitFor();
+    expect(await button.getAttribute("title")).toContain(tooltip);
+    expect(await button.textContent()).toBe("");
+    expect((await button.boundingBox())!.width).toBe(36);
+  }
+  await top(tab).getByRole("button", { name: "Terminer la revue" }).waitFor();
+  const boxes = await top(tab).locator("button, [data-testid='review-title']").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()).filter((box) => box.width > 0));
+  for (const [index, box] of boxes.entries()) {
+    for (const other of boxes.slice(index + 1)) {
+      const overlaps = box.left < other.right - 0.5 && other.left < box.right - 0.5 && box.top < other.bottom - 0.5 && other.top < box.bottom - 0.5;
+      expect(overlaps).toBe(false);
+    }
+  }
+  await tab.close();
+});
+
 it("frames the elements Claude points at, numbered in the declared order, and nothing on a step without targets", async () => {
   const { reviewId } = await declare((id) => [step(id, "meeting.html", { targets: ["#missing", "h1"] }), step(id, "plain.html")]);
   const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });

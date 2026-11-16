@@ -90,6 +90,15 @@
   transition: background 120ms;
 }
 
+.iconButton {
+  width: 36px;
+  padding: 0;
+}
+
+.iconButton svg {
+  flex-shrink: 0;
+}
+
 .button:hover:not(:disabled) {
   background: var(--review-bar-hover);
 }
