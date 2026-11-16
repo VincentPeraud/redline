@@ -1,4 +1,4 @@
-import { canvasElementLabel, renderingKey, type ArtboardRef, type ArtboardRendering, type ReviewElementTarget, type ReviewPin, type ReviewPinTarget, type ReviewZoneTarget, type ThreadRendering, type TweakValues } from "@redline/shared";
+import { canvasElementLabel, renderingKey, stepIsCanvasOnly, type ArtboardRef, type ArtboardRendering, type ReviewElementTarget, type ReviewPin, type ReviewPinTarget, type ReviewZoneTarget, type ThreadRendering, type TweakValues } from "@redline/shared";
 
 /** A pin being placed: it has no number and no id until its first text is saved. */
 export interface DraftPin {
@@ -20,20 +20,29 @@ export interface PinView {
 
 const sameArtboard = (a: ArtboardRef, b: ArtboardRef) => a.pageId === b.pageId && a.artboard === b.artboard;
 
-/** A pin shows only on the artboard, in the rendering and with the tweak values it was placed in, and never on the "Avant" version. */
+/** A pin on the page canvas (an element or a zone drawn on it), as opposed to one on an artboard. */
+export const isCanvasPin = (pin: Pick<ReviewPin, "target">): boolean => pin.target.kind === "canvas-element" || (pin.target.kind === "zone" && pin.target.space === "canvas");
+
+/** `shown` with no artboard is the canvas view (the whole of a canvas step, or the "Canevas" thumbnail of a mixed step). */
+const onCanvasView = (shown: ArtboardRef) => stepIsCanvasOnly(shown);
+
+/** A pin shows only on the view it was placed in (canvas or artboard), on the artboard, in the rendering and with the tweak values it was placed in, and never on the "Avant" version. */
 export function pinIsShown(pin: ReviewPin, example: ArtboardRef, shown: ArtboardRef, view: PinView): boolean {
   if (view.showBefore) return false;
+  if (isCanvasPin(pin) !== onCanvasView(shown)) return false;
+  if (onCanvasView(shown)) return true;
   if (!sameArtboard(pin.on ?? example, shown)) return false;
   if (pin.rendering && (!view.rendering || renderingKey(pin.rendering) !== renderingKey(view.rendering))) return false;
   return Object.entries(pin.tweaks ?? {}).every(([id, value]) => view.values[id] === value);
 }
 
-/** Why a pin is not on the stage: Avant, another artboard of its group, or another rendering or state. */
-export type PinHidden = { kind: "avant" } | { kind: "artboard"; on: ArtboardRef } | { kind: "state"; seenIn: string };
+/** Why a pin is not on the stage: Avant, the other view of a mixed step, another artboard of its group, or another rendering or state. */
+export type PinHidden = { kind: "avant" } | { kind: "view"; of: "canvas" | "artboard" } | { kind: "artboard"; on: ArtboardRef } | { kind: "state"; seenIn: string };
 
 export function pinHiddenWhy(pin: ReviewPin, example: ArtboardRef, shown: ArtboardRef, view: PinView): PinHidden | undefined {
   if (pinIsShown(pin, example, shown, view)) return undefined;
   if (view.showBefore) return { kind: "avant" };
+  if (isCanvasPin(pin) !== onCanvasView(shown)) return { kind: "view", of: isCanvasPin(pin) ? "canvas" : "artboard" };
   if (!sameArtboard(pin.on ?? example, shown)) return { kind: "artboard", on: pin.on ?? example };
   return { kind: "state", seenIn: pin.seenIn ?? "un autre état" };
 }

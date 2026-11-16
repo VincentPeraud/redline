@@ -7,6 +7,7 @@ import { relativeTime } from "./relativeTime.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { PinHint, PinLayer, type PinsController } from "./ReviewPins.js";
 import { ReviewCanvas } from "./ReviewCanvas.js";
+import { firstCanvasFrame, hasCanvasView } from "./reviewMixed.js";
 import { type StepControls } from "./useReviewControls.js";
 import { cx } from "./ui/index.js";
 import { formatWhen } from "./reviewView.js";
@@ -26,6 +27,8 @@ export function ReviewStage({
   controls,
   openedMember,
   onOpenMember,
+  canvasShown,
+  onShowCanvas,
   pins,
   phone,
 }: {
@@ -39,6 +42,9 @@ export function ReviewStage({
   controls: StepControls;
   openedMember: number | undefined;
   onOpenMember: (member: number | undefined) => void;
+  /** The canvas view of a mixed step is on screen (`step` is then the canvas seen as a step). */
+  canvasShown: boolean;
+  onShowCanvas: (shown: boolean) => void;
 }) {
   const origin = useArtboardOrigin(review.projectId);
   const stage = useRef<HTMLDivElement>(null);
@@ -101,8 +107,10 @@ export function ReviewStage({
     return () => window.removeEventListener("message", onLocated);
   }, [bridgeEpoch, scrolling, firstTarget, stepKey, scale]);
   const canvasOnly = stepIsCanvasOnly(step);
+  const hasCanvas = hasCanvasView(example);
+  const viewsStrip = hasCanvas && !stepIsGroup(example) && example.artboardEntry !== undefined;
   return (
-    <main className={cx(styles.stage, stepIsGroup(example) && styles.stageGroup, scrolling && styles.stageScroll)}>
+    <main className={cx(styles.stage, stepIsGroup(example) && styles.stageGroup, viewsStrip && styles.stageMixed, scrolling && styles.stageScroll)}>
       {canvasOnly && (
         <span data-testid="review-canvas-tag" className={styles.tag}>
           Canevas de la page · {step.pageTitle}
@@ -125,7 +133,7 @@ export function ReviewStage({
           </div>
         )}
         {canvasOnly ? (
-          step.canvas && origin ? <ReviewCanvas step={step} origin={origin} stage={size} pins={pins} phone={phone} markersShown={controls.markersShown} /> : null
+          step.canvas && origin ? <ReviewCanvas step={step} origin={origin} stage={size} pins={pins} phone={phone} markersShown={controls.markersShown} firstFrame={firstCanvasFrame(example)} /> : null
         ) : entry && presentation && fitted && origin ? (
           <div className={scrolling ? styles.tallWrap : styles.flatWrap}>
             <PlayFrame frame={presentation.frame} url={entry.url}>
@@ -147,7 +155,8 @@ export function ReviewStage({
         )}
         <PinHint pins={pins} phone={phone} sticky={scrolling !== null} />
       </div>
-      {stepIsGroup(example) && <GroupThumbnails example={example} origin={origin} openedMember={openedMember} onOpenMember={onOpenMember} />}
+      {viewsStrip && origin && <ViewsStrip example={example} origin={origin} canvasShown={canvasShown} onShowCanvas={onShowCanvas} />}
+      {stepIsGroup(example) && <GroupThumbnails example={example} origin={origin} openedMember={openedMember} onOpenMember={onOpenMember} canvas={hasCanvas ? { shown: canvasShown, onShow: onShowCanvas } : undefined} />}
       {controls.tweaksOpen && controls.tweaks.length > 0 && (
         <aside aria-label="Tweaks" className={styles.tweaks}>
           <div className={styles.tweaksHead}>
@@ -161,16 +170,36 @@ export function ReviewStage({
   );
 }
 
+/** The views of a mixed step: its artboard and the canvas, as the "Canevas" thumbnail next to it. */
+function ViewsStrip({ example, origin, canvasShown, onShowCanvas }: { example: ChangeReviewStep; origin: string; canvasShown: boolean; onShowCanvas: (shown: boolean) => void }) {
+  return (
+    <div role="group" aria-label="Vues de l'étape" data-testid="review-views" className={styles.viewsStrip}>
+      <button type="button" aria-pressed={!canvasShown} className={cx(styles.viewThumb, !canvasShown && styles.viewThumbOn)} onClick={() => onShowCanvas(false)}>
+        <span className={styles.viewPreview}>
+          <Thumbnail member={example} origin={origin} />
+        </span>
+        <span>
+          {example.pageTitle} · {example.artboardTitle}
+        </span>
+      </button>
+      <button type="button" aria-pressed={canvasShown} className={cx(styles.viewThumb, canvasShown && styles.viewThumbOn)} onClick={() => onShowCanvas(true)}>
+        <span className={cx(styles.viewPreview, styles.canvasPreview)} />
+        <span>Canevas</span>
+      </button>
+    </div>
+  );
+}
+
 /** The thumbnails shown before "+ N autres" (two rows of four, the last cell being the "+ N autres" tile). */
 const THUMBNAILS_SHOWN = 7;
 
 /** The other artboards of a group as clickable thumbnails: a click shows one large, "Revenir à l'exemple" goes back. */
-function GroupThumbnails({ example, origin, openedMember, onOpenMember }: { example: ChangeReviewStep; origin: string; openedMember: number | undefined; onOpenMember: (member: number | undefined) => void }) {
+function GroupThumbnails({ example, origin, openedMember, onOpenMember, canvas }: { example: ChangeReviewStep; origin: string; openedMember: number | undefined; onOpenMember: (member: number | undefined) => void; canvas?: { shown: boolean; onShow: (shown: boolean) => void } }) {
   const [all, setAll] = useState(false);
   const members = example.others!;
   const hidden = !all && members.length > THUMBNAILS_SHOWN + 1 ? members.length - THUMBNAILS_SHOWN : 0;
   const shown = members.map((member, index) => ({ member, index })).slice(0, hidden > 0 ? THUMBNAILS_SHOWN : members.length);
-  const openedTitle = openedMember === undefined ? undefined : `${members[openedMember]!.pageTitle} · ${members[openedMember]!.artboardTitle}`;
+  const openedTitle = canvas?.shown ? `Canevas de la page ${example.pageTitle}` : openedMember === undefined ? undefined : `${members[openedMember]!.pageTitle} · ${members[openedMember]!.artboardTitle}`;
   return (
     <section data-testid="review-others" className={styles.others}>
       <div className={styles.othersHead}>
@@ -208,13 +237,19 @@ function GroupThumbnails({ example, origin, openedMember, onOpenMember }: { exam
             <span>+ {hidden} autres</span>
           </button>
         )}
+        {canvas && (
+          <button type="button" aria-pressed={canvas.shown} className={cx(styles.thumb, canvas.shown && styles.thumbOpened)} onClick={() => canvas.onShow(true)}>
+            <span className={cx(styles.thumbPreview, styles.canvasPreview)} />
+            <span>Canevas</span>
+          </button>
+        )}
       </div>
     </section>
   );
 }
 
 /** A live, scaled and inert view of the artboard in a 16:9 box. */
-function Thumbnail({ member, origin }: { member: ChangeReviewMember; origin: string }) {
+function Thumbnail({ member, origin }: { member: Pick<ChangeReviewMember, "pageId" | "artboard" | "artboardEntry">; origin: string }) {
   const box = useRef<HTMLSpanElement>(null);
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {

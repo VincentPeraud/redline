@@ -44,7 +44,7 @@ const sameBoxes = (a: ReadonlyMap<string, Box>, b: ReadonlyMap<string, Box>) => 
  * The page canvas cropped on the elements a step points at (see the "canevas" mock-up): the other artboards dimmed, the targeted elements framed and numbered,
  * pins and zones over it. Alt + click pins a targeted element, Alt + drag draws a zone; the crop is inert otherwise.
  */
-export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown }: { step: ChangeReviewStep; origin: string; stage: { width: number; height: number }; pins: PinsController; phone: boolean; markersShown: boolean }) {
+export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown, firstFrame = 1 }: { firstFrame?: number; step: ChangeReviewStep; origin: string; stage: { width: number; height: number }; pins: PinsController; phone: boolean; markersShown: boolean }) {
   const canvas = step.canvas!;
   const targetIds = step.canvasElements ?? [];
   const alt = useAltKey();
@@ -211,9 +211,9 @@ export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown }:
             if (!box) return [];
             const at = boxOnScreen(box);
             return [
-              <div key={id} className={cx(styles.canvasTarget, hovered === id && capturing && styles.canvasTargetHover)} style={{ left: at.x, top: at.y, width: at.width, height: at.height }} data-canvas-target={targetIds.indexOf(id) + 1}>
+              <div key={id} className={cx(styles.canvasTarget, hovered === id && capturing && styles.canvasTargetHover)} style={{ left: at.x, top: at.y, width: at.width, height: at.height }} data-canvas-target={targetIds.indexOf(id) + firstFrame}>
                 <span className={styles.canvasTargetNumber} aria-hidden="true">
-                  {targetIds.indexOf(id) + 1}
+                  {targetIds.indexOf(id) + firstFrame}
                 </span>
               </div>,
             ];

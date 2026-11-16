@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { canvasElementLabel, describeZone, renderingKey, type ManifestElementKind, type ArtboardRef, type ChangeReview, type ChangeReviewStep, type ReviewElementTarget, type ReviewPin, type ReviewPinTarget, type ReviewZoneTarget } from "@redline/shared";
+import { canvasElementLabel, describeZone, renderingKey, stepIsCanvasOnly,type ManifestElementKind, type ArtboardRef, type ChangeReview, type ChangeReviewStep, type ReviewElementTarget, type ReviewPin, type ReviewPinTarget, type ReviewZoneTarget } from "@redline/shared";
 import type { Pick } from "./ArtboardFrame.js";
 import { cx } from "./ui/index.js";
 import { useAltKey } from "./useAltKey.js";
@@ -117,7 +117,8 @@ export function useReviewPins({ review, step, shown, controls, api }: { review: 
   const startDraft = useCallback(
     (target: ReviewPinTarget) => {
       if (finished || controls.showBefore) return;
-      const onExample = shown.pageId === step.pageId && shown.artboard === step.artboard;
+      // The canvas view of a mixed step has no artboard: its pins sit on the page, not on an artboard of the group.
+      const onExample = stepIsCanvasOnly(shown) || (shown.pageId === step.pageId && shown.artboard === step.artboard);
       const rendering = controls.rendering && shown.artboardEntry?.responsive ? { format: controls.rendering.format, width: controls.rendering.width } : undefined;
       const draft: DraftPin = {
         key: ++keys.current,
@@ -639,8 +640,9 @@ export function PinsSection({ step, shown, pins, onShow }: { step: ChangeReviewS
                 <span className={styles.piOn}>
                   {pinTargetLabel(pin)}
                   {hidden?.kind === "artboard" && <> sur {titleOfArtboard(step, hidden.on)}</>}
+                  {hidden?.kind === "view" && <> sur {hidden.of === "canvas" ? "le canevas" : "l'artboard"}</>}
                   {hidden?.kind === "state" && <> · vu en {hidden.seenIn}</>}
-                  {(hidden?.kind === "artboard" || hidden?.kind === "state") && (
+                  {(hidden?.kind === "artboard" || hidden?.kind === "view" || hidden?.kind === "state") && (
                     <>
                       {" · "}
                       <button type="button" className={styles.linkButton} onClick={() => onShow(pin)}>

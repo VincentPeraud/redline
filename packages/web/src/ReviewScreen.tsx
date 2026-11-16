@@ -10,6 +10,7 @@ import { type Load, type RemovedRemark, type View, nextUnanswered, reviewPath, s
 import { RemovedStep, StateScreen } from "./ReviewStates.js";
 import { ReviewTopBar } from "./ReviewTopBar.js";
 import { StepView } from "./ReviewStep.js";
+import { opensOnCanvas } from "./reviewMixed.js";
 import { ReviewRecap } from "./ReviewRecap.js";
 import styles from "./ReviewScreen.module.css";
 
@@ -32,6 +33,8 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   const [removed, setRemoved] = useState<RemovedRemark | undefined>();
   /** The artboard of each group step on the stage: the index in its others, none for the example. Local to this screen. */
   const [opened, setOpened] = useState<Record<string, number | undefined>>({});
+  /** The steps whose canvas view is on screen (a mixed step opens on its artboard unless every artboard is gone). */
+  const [onCanvas, setOnCanvas] = useState<Record<string, boolean | undefined>>({});
   const removedTimer = useRef<ReturnType<typeof setTimeout>>();
 
   // A remark Redline has not received: closing the tab asks first, and so does leaving the step.
@@ -114,7 +117,8 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   const hasRemarks = review!.steps.some((entry) => entry.pins.length > 0 || entry.answers.some((answer) => answer.kind === "remark"));
   if (activeSteps(review!.steps).length === 0 && !hasRemarks && (review!.state === "open" || review!.state === "filed")) return <StateScreen status="empty" review={review} onRetry={() => void reload()} />;
   const view: View = step === undefined ? (review!.state !== "open" ? "recap" : nextUnanswered(review!, -1)) : step === "recap" || step > review!.steps.length ? "recap" : step - 1;
-  const shownOf = (step: ChangeReviewStep) => shownStep(step, opened[step.id]);
+  const canvasShownOf = (step: ChangeReviewStep) => onCanvas[step.id] ?? opensOnCanvas(step);
+  const shownOf = (step: ChangeReviewStep) => shownStep(step, opened[step.id], canvasShownOf(step));
   const guard = (action: () => void) => (unsaved ? setLeaving(() => action) : action());
   const navigate = (target: View) => navigateTo(stepRoute(reviewId, target), "replace");
   const go = (target: View) => guard(() => navigate(target));
@@ -181,6 +185,8 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
           controls={controlsOf(shownOf(review!.steps[view]!))}
           openedMember={opened[review!.steps[view]!.id]}
           onOpenMember={(member) => setOpened((current) => ({ ...current, [review!.steps[view]!.id]: member }))}
+          canvasShown={canvasShownOf(review!.steps[view]!)}
+          onCanvasShown={(shown) => setOnCanvas((current) => ({ ...current, [review!.steps[view]!.id]: shown }))}
           failed={failed}
           onGo={go}
           onOk={() => guard(() => void answerOk(view))}
