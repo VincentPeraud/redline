@@ -142,7 +142,7 @@
   border: 1px solid var(--play-border-strong);
   border-radius: var(--radius-lg);
   background: var(--play-panel-bg);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--review-shadow-popover);
 }
 
 .guidesButton {
