@@ -1,4 +1,4 @@
-import type { ManifestArtboard, ManifestTweak, ThreadRendering, TweakValues, ZoneRect } from "./index.js";
+import type { ManifestArtboard, ManifestElement, ManifestElementKind, ManifestTweak, ThreadRendering, TweakValues, ZoneRect } from "./index.js";
 import type { InstanceState } from "./instanceState.js";
 import type { Person } from "./people.js";
 
@@ -48,7 +48,10 @@ export interface ArtboardRef {
 /** One step as declared by Claude's `request_review`: one artboard, or a group (`pageId` / `artboard` is then the example, `others` the rest). */
 export interface ChangeReviewStepInput {
   pageId: string;
+  /** The artboard (the example of a group). Empty on a canvas-only step, which targets `canvasElements` of the page alone. */
   artboard: string;
+  /** Ids of canvas elements of the page (a sticky, a title, an arrow) the step points at, in the order Claude gave them: alone (a canvas step) or next to the artboard (a mixed step). */
+  canvasElements?: string[];
   /** The other artboards sharing the change: the step is then a group, whose first artboard is the example. */
   others?: ArtboardRef[];
   /** The name of a group ("Badge cmux"); the example's title when absent. */
@@ -66,11 +69,14 @@ export interface ChangeReviewStepInput {
   baselineVersion?: string;
 }
 
+/** A step as Claude declares it: the artboard may be left out when `canvasElements` says what the step points at. */
+export type ChangeReviewStepDeclaration = Omit<ChangeReviewStepInput, "artboard"> & { artboard?: string };
+
 export interface RequestChangeReviewRequest {
   /** The terminal session's folder: shown (last segment) in the review title. */
   folder: string;
   label?: string;
-  steps: ChangeReviewStepInput[];
+  steps: ChangeReviewStepDeclaration[];
 }
 
 export interface RequestChangeReviewResponse {
@@ -99,7 +105,7 @@ export interface ChangeReviewAnswer {
   on?: ArtboardRef;
 }
 
-/** A pin on an element of an artboard, found again by its selector and name (canvas elements join the union later). */
+/** A pin on an element of an artboard, found again by its selector and name. */
 export interface ReviewElementTarget {
   /** Absent on pins saved before zones existed. */
   kind?: "element";
@@ -116,8 +122,20 @@ export interface ReviewElementTarget {
 /** A zone a reviewer drew: a rectangle of the artboard (percent) or, on a canvas step, of the page canvas (pixels). */
 export type ReviewZoneTarget = { kind: "zone" } & ZoneRect;
 
+/** What a canvas element is called in the panel and the recap: "Note du canevas" for a sticky, "Titre du canevas", "Flèche du canevas"... */
+export const canvasElementLabel = (kind: ManifestElementKind): string =>
+  ({ sticky: "Note", title: "Titre", text: "Texte", arrow: "Flèche", link: "Lien", image: "Image", shape: "Forme" })[kind] + " du canevas";
+
+/** A pin on an element of the page canvas, found again by its id; `elementSummary` is what it showed when the pin was placed. */
+export interface ReviewCanvasTarget {
+  kind: "canvas-element";
+  elementId: string;
+  elementKind: ManifestElementKind;
+  elementSummary?: string;
+}
+
 /** What a pin sits on. */
-export type ReviewPinTarget = ReviewElementTarget | ReviewZoneTarget;
+export type ReviewPinTarget = ReviewElementTarget | ReviewCanvasTarget | ReviewZoneTarget;
 
 const oneDecimal = (value: number): string => String(Math.round(value * 10) / 10);
 
@@ -173,8 +191,18 @@ export interface ChangeReviewMember extends ArtboardRef {
 /** Why a step no longer counts: its artboard was deleted, or its page is archived (steps come back if the page is unarchived before the review is finished). */
 export type StepRemoval = "deleted" | "archived";
 
+/** The page canvas as a step that points at canvas elements shows it: every element and artboard box at its current place. */
+export interface ChangeReviewCanvas {
+  elements: ManifestElement[];
+  artboards: ManifestArtboard[];
+  /** The ids of the step's canvas elements that are gone from the page. */
+  missing: string[];
+}
+
 export interface ChangeReviewStep extends ChangeReviewStepInput {
   id: string;
+  /** Present when the step has canvas elements. */
+  canvas?: ChangeReviewCanvas;
   /** The other artboards of a group, with what the step knows of each. */
   others?: ChangeReviewMember[];
   /** Set when the step is out of the review: it shows "Cet artboard n'existe plus" and is not counted. */
@@ -261,8 +289,17 @@ export function progressOf<T extends Answered>(steps: readonly T[], currentIndex
 /** The number of a pin placed now: one above the highest in use and above every number ever issued on the step (so a deleted pin's number is not reused). */
 export const nextPinNumber = (inUse: readonly number[], lastIssued: number): number => Math.max(lastIssued, ...inUse) + 1;
 
-/** The artboards a step covers, the example first. */
-export const stepArtboards = ({ pageId, artboard, others = [] }: { pageId: string; artboard: string; others?: readonly ArtboardRef[] }): ArtboardRef[] => [{ pageId, artboard }, ...others];
+/** A step that points at canvas elements only: it has no artboard. */
+export const stepIsCanvasOnly = ({ artboard }: { artboard: string }): boolean => artboard === "";
+
+/** The artboards a step covers, the example first (none on a canvas-only step). */
+export const stepArtboards = ({ pageId, artboard, others = [] }: { pageId: string; artboard: string; others?: readonly ArtboardRef[] }): ArtboardRef[] => [...(artboard === "" ? [] : [{ pageId, artboard }]), ...others];
+
+/** The pages a step covers (a canvas-only step has its own page and no artboard). */
+export const stepPageIds = (step: { pageId: string; artboard: string; others?: readonly ArtboardRef[] }): string[] => [...new Set([step.pageId, ...(step.others ?? []).map((ref) => ref.pageId)])];
+
+/** The key a canvas element has in the reading order of its page (see `orderSteps`). */
+export const canvasElementKey = (elementId: string): string => `canvas:${elementId}`;
 
 /** A group of artboards: its example and at least one other. */
 export const stepIsGroup = ({ others }: { others?: readonly unknown[] }): boolean => (others?.length ?? 0) > 0;
@@ -280,13 +317,15 @@ export const stepLabel = (step: { title?: string; pageTitle: string; artboardTit
  * Steps in page order, then in the reading order of their page. An artboard missing from the reading order goes last of its page.
  * A group on one page sits at its first artboard in that order; a group spanning several pages goes after all the others, placed the same way by its first artboard.
  */
-export function orderSteps<T extends { pageId: string; artboard: string; others?: readonly ArtboardRef[] }>(steps: readonly T[], pageOrder: readonly string[], readingOrderOf: Readonly<Record<string, readonly string[]>>): T[] {
+export function orderSteps<T extends { pageId: string; artboard: string; others?: readonly ArtboardRef[]; canvasElements?: readonly string[] }>(steps: readonly T[], pageOrder: readonly string[], readingOrderOf: Readonly<Record<string, readonly string[]>>): T[] {
   const rank = (list: readonly string[] | undefined, item: string) => {
     const index = list?.indexOf(item) ?? -1;
     return index === -1 ? Number.MAX_SAFE_INTEGER : index;
   };
   const position = (step: T) =>
-    stepArtboards(step)
+    stepIsCanvasOnly(step)
+      ? ([rank(pageOrder, step.pageId), rank(readingOrderOf[step.pageId], canvasElementKey(step.canvasElements?.[0] ?? ""))] as const)
+      : stepArtboards(step)
       .map((ref) => [rank(pageOrder, ref.pageId), rank(readingOrderOf[ref.pageId], ref.artboard)] as const)
       .reduce((first, next) => (next[0] < first[0] || (next[0] === first[0] && next[1] < first[1]) ? next : first));
   return [...steps].sort((a, b) => Number(stepIsMultiPage(a)) - Number(stepIsMultiPage(b)) || position(a)[0] - position(b)[0] || position(a)[1] - position(b)[1]);
@@ -299,10 +338,11 @@ export const artboardKey = ({ pageId, artboard }: ArtboardRef): string => JSON.s
  * What identifies a step: its artboards and its tweak values (two states of one artboard are two steps; an artboard of a group redeclared alone is another step).
  * A group is identified by its set of artboards, whichever is the example.
  */
-export const stepKey = ({ pageId, artboard, others, tweaks = {} }: { pageId: string; artboard: string; others?: readonly ArtboardRef[]; tweaks?: StepTweaks }): string => {
+export const stepKey = ({ pageId, artboard, others, tweaks = {}, canvasElements = [] }: { pageId: string; artboard: string; others?: readonly ArtboardRef[]; tweaks?: StepTweaks; canvasElements?: readonly string[] }): string => {
   const sortedTweaks = Object.entries(tweaks).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  if (!stepIsGroup({ others })) return JSON.stringify([pageId, artboard, sortedTweaks]);
-  return JSON.stringify([stepArtboards({ pageId, artboard, others }).map(artboardKey).sort(), sortedTweaks]);
+  const elements = canvasElements.length > 0 ? [[...canvasElements].sort()] : [];
+  if (!stepIsGroup({ others })) return JSON.stringify([pageId, artboard, sortedTweaks, ...elements]);
+  return JSON.stringify([stepArtboards({ pageId, artboard, others }).map(artboardKey).sort(), sortedTweaks, ...elements]);
 };
 
 /** The artboard versions an answer saw: the example's, and each other artboard's by `artboardKey`. */
@@ -328,7 +368,7 @@ export function republishedSince(seen: SeenVersions, current: CurrentVersions): 
   };
 }
 
-type Mergeable = { pageId: string; artboard: string; others?: readonly (ArtboardRef & { baseline?: string })[]; tweaks?: StepTweaks; baseline?: string };
+type Mergeable = { pageId: string; artboard: string; others?: readonly (ArtboardRef & { baseline?: string })[]; tweaks?: StepTweaks; baseline?: string; canvasElements?: readonly string[] };
 
 /** A declared group seen from the example the review already has: the artboards are the same, so the step must not move to another page or artboard. */
 function withExample<T extends Mergeable>(declared: T, example: ArtboardRef): T {
@@ -362,6 +402,8 @@ export interface ChangeReviewResultInput {
     answers: readonly ChangeReviewAnswer[];
     pins?: readonly ReviewPin[];
     removed?: StepRemoval;
+    /** A canvas step whose elements are all gone: its general remark has no element to sit on and comes as text. */
+    elementGone?: boolean;
   }[];
   /** The thread opened for each remark and each pin, by remark id and pin id. */
   threadIds?: Readonly<Record<string, string>>;
@@ -384,6 +426,8 @@ export interface ChangeReviewRemarkResult {
   artboardModified?: boolean;
   /** The step's artboard was deleted ("artboard supprimé") or its page is archived ("page archivée"): the remark comes as text, without a thread. */
   removed?: StepRemoval;
+  /** The canvas step's elements are all gone ("élément supprimé"): the remark comes as text, without a thread. */
+  elementGone?: boolean;
   threadId?: string;
 }
 
@@ -471,6 +515,7 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
             alsoValidatedBy: step.answers.filter((other) => other.kind === "ok" && !other.outdated).map(nameOfAnswer),
             ...(answer.outdated ? { artboardModified: true } : {}),
             ...(step.removed ? { removed: step.removed } : {}),
+            ...(step.elementGone ? { elementGone: true } : {}),
             ...(threadIds[answer.id] ? { threadId: threadIds[answer.id] } : {}),
           };
         }),

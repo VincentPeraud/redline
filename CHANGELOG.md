@@ -12,6 +12,7 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ### Added
 
+- Review mode: steps on canvas elements. `request_review` takes `canvasElements` (ids of a page's sticky, title, arrow...), refuses unknown ids with the page's element ids, and a step without an artboard shows the page canvas cropped on them (neighbouring artboards dimmed, elements framed and numbered). Alt + click pins an element, Alt + drag draws a zone in canvas pixels; at fetch they become canvas-element and zone threads.
 - Review and Present: a frameless artboard taller than the stage is shown at its real width (capped to the stage width) and the stage scrolls, instead of being shrunk to the stage height. A tag says "Taille réelle" or "Pleine largeur". In review, the stage scrolls to Claude's first target when the step opens and keeps its scroll position; on a grouped step the thumbnail strip no longer shrinks the artboard.
 - Review mode: an "Habillage" button in the top bar shows or hides the device frame or browser window around the artboard, as in Present (the same saved choice). Pressed toggles of the red bar (Habillage, Tweaks) are white.
 - Review mode: a step can point at precise elements. `request_review` takes optional `targets` (1 to 10 CSS selectors per step); the stage frames each one with a dashed outline numbered in the declared order, on every artboard of a group, before and after. A selector that matches nothing, or a hidden element, is skipped. A "Repères" toggle in the red bar hides or shows the frames, and the choice is kept.

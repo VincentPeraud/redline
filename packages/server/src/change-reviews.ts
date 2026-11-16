@@ -8,8 +8,14 @@ import {
   artboardKey,
   republishedSince,
   stepArtboards,
+  stepIsCanvasOnly,
   stepLabel,
+  stepPageIds,
+  canvasElementKey,
   type ArtboardRef,
+  type ChangeReviewCanvas,
+  type ChangeReviewStepDeclaration,
+  type ManifestElement,
   nextReviewState,
   orderSteps,
   parseManifest,
@@ -25,6 +31,7 @@ import {
   automaticBaseline,
   type BaselineVersion,
   progressOf,
+  canvasElementSummary,
   activeSteps,
   folderName,
   type ChangeReview,
@@ -53,11 +60,13 @@ import { contentChanges } from "./artboard-history.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store, VersionRecord } from "./store.js";
 import type { TerminalSessions } from "./terminal-sessions.js";
-import { MAX_TERMINAL_TEXT_LENGTH, artboardZoneError, createThreadRequestError, requiredString } from "./validation.js";
+import { MAX_TERMINAL_TEXT_LENGTH, artboardZoneError, canvasZoneError, createThreadRequestError, requiredString } from "./validation.js";
 
 const MAX_STEPS = 200;
 /** Elements a step frames at most: past that, nothing stands out any more. */
 const MAX_TARGETS = 10;
+/** Canvas elements a step points at at most, for the same reason. */
+const MAX_CANVAS_ELEMENTS = 10;
 /** Artboards in one review (its steps and the others of its groups together): a declaration is checked artboard by artboard. */
 const MAX_ARTBOARDS = 500;
 const MAX_STEP_TEXT_LENGTH = 4_000;
@@ -90,14 +99,39 @@ function savedTweaksOf(store: Store, pageId: string): TweakValues {
   return hash === undefined ? {} : parseTweaks(store.blobText(hash));
 }
 
-/** Files of a page in reading order, from the declared sizes (as the agent's page addresses do). */
+/** Where an element starts on the canvas: its own corner, the one of what it is anchored to, or the start of an arrow. Undefined when it cannot be told. */
+function elementOrigin(manifest: Manifest, element: ManifestElement, depth = 0): { x: number; y: number } | undefined {
+  const place = (id: string) => {
+    const artboard = manifest.artboards.find((candidate) => candidate.file === id);
+    if (artboard) return { x: artboard.x, y: artboard.y };
+    const other = depth > 3 ? undefined : manifest.elements.find((candidate) => candidate.id === id);
+    return other && elementOrigin(manifest, other, depth + 1);
+  };
+  if (element.kind === "arrow") return typeof element.from === "string" ? place(element.from) : element.from;
+  return "anchor" in element && element.anchor ? place(element.anchor.target) : { x: element.x, y: element.y };
+}
+
+/**
+ * Files of a page in reading order, from the declared sizes (as the agent's page addresses do), with its canvas elements (by `canvasElementKey`) read
+ * where they start, like one-pixel boxes: an element beside an artboard row reads in that row.
+ */
 function readingOrderOf(manifest: Manifest): string[] {
   const boxes = manifest.artboards.map((artboard) => ({
     file: artboard.file,
     title: artboard.title,
     ...(artboard.responsive ? responsiveFrameLayout(artboard, renderingSlots(artboard.responsive)).frame : artboard),
   }));
-  return readingOrder(boxes, groupTitlesOf(manifest)).map((artboard) => artboard.file);
+  const points = manifest.elements.flatMap((element) => {
+    const origin = element.id === undefined ? undefined : elementOrigin(manifest, element);
+    return origin ? [{ file: canvasElementKey(element.id!), ...origin, width: 1, height: 1 }] : [];
+  });
+  return readingOrder([...boxes, ...points], groupTitlesOf(manifest)).map((artboard) => artboard.file);
+}
+
+/** The page canvas a step with canvas elements shows: the page's elements and artboard boxes as they are now, and which of the step's elements are gone. */
+function canvasOf(manifest: Manifest, elementIds: readonly string[]): ChangeReviewCanvas {
+  const present = new Set(manifest.elements.flatMap((element) => (element.id === undefined ? [] : [element.id])));
+  return { elements: manifest.elements, artboards: manifest.artboards, missing: elementIds.filter((id) => !present.has(id)) };
 }
 
 /** The version in which the artboard's content last changed (tweak versions do not count); none when the artboard has no content. */
@@ -155,7 +189,8 @@ const storedArtboards = (step: StoredStep): StoredArtboard[] => [{ pageId: step.
  */
 function removalOf(store: Store, review: StoredReview, ref: StoredArtboard): StepRemoval | undefined {
   const page = store.getPage(ref.pageId);
-  if (!page || !store.hasArtboard(ref.pageId, ref.artboard)) return "deleted";
+  // A canvas-only step has no artboard: only its page can take it out of the review.
+  if (!page || (!stepIsCanvasOnly(ref) && !store.hasArtboard(ref.pageId, ref.artboard))) return "deleted";
   if (page.archivedAt || (review.state !== "open" && ref.archivedAtFinish)) return "archived";
   return undefined;
 }
@@ -233,6 +268,7 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
     const now = { example: current?.id, others: Object.fromEntries(currentOthers.map(({ member, current: version }) => [artboardKey(member), version?.id])) };
     const republished = { example: false, others: new Set<string>() };
     const { each: removals, step: removed } = removalsOf(store, review, step);
+    const canvas = step.canvasElements && store.getPage(step.pageId) ? canvasOf(manifestOfPage(step.pageId), step.canvasElements) : undefined;
     const stepAnswers = answers
       .filter((answer) => answer.stepId === step.id)
       .map((answer) => {
@@ -261,7 +297,7 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
           ...(pin.rendering ? { rendering: pin.rendering } : {}),
           ...(pin.tweaks ? { tweaks: pin.tweaks } : {}),
           ...(seenIn ? { seenIn } : {}),
-          ...(pin.lost ? { lost: true } : {}),
+          ...(pin.lost || (pin.target.kind === "canvas-element" && canvas?.missing.includes(pin.target.elementId)) ? { lost: true } : {}),
           ...(person ? { person } : {}),
           at: pin.at,
           mine: (pin.personId ?? "") === own,
@@ -277,7 +313,9 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
       question: step.question,
       id: step.id,
       ...(step.title ? { title: step.title } : {}),
-      ...describe(step, step.baseline, removals[0]),
+      ...(stepIsCanvasOnly(step) ? { pageTitle: store.getPage(step.pageId)?.title ?? "", artboardTitle: "Canevas" } : describe(step, step.baseline, removals[0])),
+      ...(step.canvasElements ? { canvasElements: step.canvasElements } : {}),
+      ...(canvas ? { canvas } : {}),
       ...(removed ? { removed } : {}),
       ...(step.others
         ? { others: currentOthers.map(({ member, current: version }, index) => ({ pageId: member.pageId, artboard: member.artboard, ...describe(member, member.baseline, removals[index + 1]), ...(republished.others.has(artboardKey(member)) ? { modified: true, ...modifiedFields(version) } : {}) })) }
@@ -321,7 +359,7 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
 export function announceReviewChange(store: Store, reviewId: string): void {
   const projectId = store.changeReviews.projectIdOf(reviewId);
   if (!projectId) return;
-  const pageIds = [...new Set(store.changeReviews.steps(reviewId).flatMap((step) => stepArtboards(step).map((ref) => ref.pageId)))];
+  const pageIds = [...new Set(store.changeReviews.steps(reviewId).flatMap(stepPageIds))];
   store.emit({ type: "review-updated", reviewId, projectId, pageIds });
 }
 
@@ -364,23 +402,37 @@ export function declareChangeReview({ store, access }: Pick<ReviewContext, "stor
   // The folder and the label are printed back to conversations: one line each, so they cannot read as instructions.
   if (SEVERAL_LINES.test(folder) || (label !== undefined && SEVERAL_LINES.test(label))) return { status: 400, error: "folder and label must be a single line" };
   if (!Array.isArray(steps) || steps.length === 0 || steps.length > MAX_STEPS) return { status: 400, error: `steps must be a list of 1 to ${MAX_STEPS} steps` };
-  const valid = steps.every((step: Partial<ChangeReviewStepInput> | null) =>
-    [step?.pageId, step?.artboard, step?.changed, step?.lookAt, step?.question].every((value) => requiredString(value) && value.length <= MAX_STEP_TEXT_LENGTH),
+  // A step with no artboard points at canvas elements alone.
+  const valid = steps.every((step: Partial<ChangeReviewStepDeclaration> | null) =>
+    [step?.pageId, step?.changed, step?.lookAt, step?.question, ...(step?.artboard === undefined && step?.canvasElements !== undefined ? [] : [step?.artboard])].every((value) => requiredString(value) && value.length <= MAX_STEP_TEXT_LENGTH),
   );
-  if (!valid) return { status: 400, error: "each step needs pageId, artboard, changed, lookAt and question" };
+  if (!valid) return { status: 400, error: "each step needs pageId, changed, lookAt, question and an artboard (or canvasElements when it points at the canvas only)" };
+  const canvasShape = steps.every(
+    (step: Partial<ChangeReviewStepDeclaration>) =>
+      step.canvasElements === undefined ||
+      (Array.isArray(step.canvasElements) &&
+        step.canvasElements.length > 0 &&
+        step.canvasElements.length <= MAX_CANVAS_ELEMENTS &&
+        new Set(step.canvasElements).size === step.canvasElements.length &&
+        step.canvasElements.every((id) => requiredString(id) && id.trim() !== "" && id.length <= MAX_STEP_TEXT_LENGTH && !SEVERAL_LINES.test(id))),
+  );
+  if (!canvasShape) return { status: 400, error: `a step's canvasElements must be a list of 1 to ${MAX_CANVAS_ELEMENTS} different element ids of the page's canvas` };
   const groups = steps.every((step: Partial<ChangeReviewStepInput>) => (step.title === undefined || (requiredString(step.title) && step.title.length <= MAX_STEP_TEXT_LENGTH)) && (step.others === undefined || (Array.isArray(step.others) && step.others.length > 0 && step.others.length <= MAX_STEPS && step.others.every((other) => requiredString(other?.pageId) && requiredString(other?.artboard)))));
   if (!groups) return { status: 400, error: "a step's others must be a non-empty list of { pageId, artboard } (the other artboards sharing the change) and its title a non-empty string" };
   const shape = steps.every((step: Partial<ChangeReviewStepInput>) => (step.mobile === undefined || typeof step.mobile === "boolean") && (step.baselineVersion === undefined || requiredString(step.baselineVersion)) && (step.tweaks === undefined || (typeof step.tweaks === "object" && step.tweaks !== null && !Array.isArray(step.tweaks))));
   if (!shape) return { status: 400, error: "a step's mobile must be a boolean, its baselineVersion a version id and its tweaks an object of tweak id to value" };
   const targets = steps.every((step: Partial<ChangeReviewStepInput>) => step.targets === undefined || (Array.isArray(step.targets) && step.targets.length > 0 && step.targets.length <= MAX_TARGETS && step.targets.every((target) => requiredString(target) && target.trim() !== "" && target.length <= MAX_STEP_TEXT_LENGTH && !SEVERAL_LINES.test(target))));
   if (!targets) return { status: 400, error: `a step's targets must be a list of 1 to ${MAX_TARGETS} CSS selectors (the elements to frame), each on one line` };
-  const declared = (steps as ChangeReviewStepInput[]).map((step) => (step.others ? { ...step, others: step.others.map(({ pageId, artboard }) => ({ pageId, artboard })) } : step));
+  const declared = steps.map((step): ChangeReviewStepInput => {
+    const whole = { ...step, artboard: step.artboard ?? "" };
+    return step.others ? { ...whole, others: step.others.map(({ pageId, artboard }) => ({ pageId, artboard })) } : whole;
+  });
   const artboardCount = declared.flatMap(stepArtboards).length;
   if (artboardCount > MAX_ARTBOARDS) return { status: 400, error: `A review covers at most ${MAX_ARTBOARDS} artboards (this declaration lists ${artboardCount}): split it into several reviews.` };
   const repeated = declared.filter((step) => new Set(stepArtboards(step).map(artboardKey)).size < stepArtboards(step).length).map((step) => `${step.pageId}: ${step.artboard}`);
   if (repeated.length > 0) return { status: 400, error: `A group lists each artboard once, the example included, fix the declaration: ${repeated.join(", ")}.` };
 
-  const unknownPages = [...new Set(declared.flatMap(stepArtboards).map((ref) => ref.pageId).filter((pageId) => !store.getPage(pageId) || store.getPage(pageId)!.archivedAt))];
+  const unknownPages = [...new Set(declared.flatMap(stepPageIds).filter((pageId) => !store.getPage(pageId) || store.getPage(pageId)!.archivedAt))];
   if (unknownPages.length > 0) return { status: 400, error: `Unknown or archived pages: ${unknownPages.join(", ")}` };
   // The review's project is the first step's: the artboards of any other project are refused.
   const projectId = store.getPage(declared[0]!.pageId)!.projectId;
@@ -389,7 +441,10 @@ export function declareChangeReview({ store, access }: Pick<ReviewContext, "stor
   const recordsOf = recordsReader(store);
   const artboards = declared.flatMap(stepArtboards);
   // The pages of another project are named by id only: their titles are not for this account to read.
-  const otherProject = artboards.filter((ref) => store.getPage(ref.pageId)!.projectId !== projectId).map((ref) => `${ref.pageId}: ${ref.artboard}`);
+  const otherProject = [
+    ...artboards.filter((ref) => store.getPage(ref.pageId)!.projectId !== projectId).map((ref) => `${ref.pageId}: ${ref.artboard}`),
+    ...declared.filter((step) => stepIsCanvasOnly(step) && store.getPage(step.pageId)!.projectId !== projectId).map((step) => `${step.pageId}: canvas elements`),
+  ];
   const unknownArtboards = artboards.filter((ref) => store.getPage(ref.pageId)!.projectId === projectId && !store.hasArtboard(ref.pageId, ref.artboard)).map(describe);
   if (otherProject.length > 0 || unknownArtboards.length > 0) {
     return {
@@ -403,7 +458,16 @@ export function declareChangeReview({ store, access }: Pick<ReviewContext, "stor
     };
   }
 
-  const unknownVersions = declared.filter((step) => step.baselineVersion !== undefined && !recordsOf(step.pageId).some((record) => record.id === step.baselineVersion)).map((step) => `${describe(step)}: version ${step.baselineVersion}`);
+  const unknownElements = declared.flatMap((step) => {
+    const known = manifestOf(store, step.pageId).elements.flatMap((element) => (element.id === undefined ? [] : [element.id]));
+    const unknown = (step.canvasElements ?? []).filter((id) => !known.includes(id));
+    if (unknown.length === 0) return [];
+    const name = step.title ?? `${store.getPage(step.pageId)!.title} · ${stepIsCanvasOnly(step) ? "canvas" : step.artboard}`;
+    return [`Step "${name}": ${unknown.map((id) => `"${id}"`).join(", ")} ${unknown.length > 1 ? "do" : "does"} not exist on page ${store.getPage(step.pageId)!.title}. Elements of the page: ${known.join(", ") || "none"}.`];
+  });
+  if (unknownElements.length > 0) return { status: 400, error: `Unknown canvas elements, fix the declaration (canvasElements are the ids of elements of the page's manifest.json). ${unknownElements.join(" ")} No review was created.` };
+
+  const unknownVersions = declared.filter((step) => !stepIsCanvasOnly(step) && step.baselineVersion !== undefined && !recordsOf(step.pageId).some((record) => record.id === step.baselineVersion)).map((step) => `${describe(step)}: version ${step.baselineVersion}`);
   if (unknownVersions.length > 0) return { status: 400, error: `Unknown baseline versions (use a version id of the page, as given by publish_page), fix the declaration: ${unknownVersions.join("; ")}.` };
 
   const tweakErrors = declared.flatMap((step) => {
@@ -432,7 +496,8 @@ export function declareChangeReview({ store, access }: Pick<ReviewContext, "stor
   const knownBaselines = known.flatMap((other): StoredMember[] => [other, ...(other.others ?? [])]).filter((other) => other.baseline !== undefined);
   const sameArtboard = (ref: ArtboardRef) => knownBaselines.find((other) => other.pageId === ref.pageId && other.artboard === ref.artboard);
   const withBaselines = declared.map((step) => {
-    const baseline = baselineOf(store, recordsOf, step, baselineRequester, sameArtboard(step));
+    // The canvas has no "Avant": a step with no artboard has no baseline.
+    const baseline = stepIsCanvasOnly(step) ? undefined : baselineOf(store, recordsOf, step, baselineRequester, sameArtboard(step));
     const others = step.others?.map((member): StoredMember => {
       const memberBaseline = baselineOf(store, recordsOf, member, baselineRequester, sameArtboard(member));
       return memberBaseline === undefined ? member : { ...member, baseline: memberBaseline };
@@ -518,6 +583,7 @@ function fetchReview(ctx: ReviewContext, viewer: Viewer, sessionId: string, revi
       answers: step.answers,
       pins: step.pins,
       ...(step.removed ? { removed: step.removed } : {}),
+      ...(stepIsCanvasOnly(step) && step.canvasElements!.every((id) => step.canvas?.missing.includes(id)) ? { elementGone: true } : {}),
     })),
     threadIds: openRemarkThreads(store, pageLock, view, sessionId),
   });
@@ -566,14 +632,22 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
   for (const step of activeSteps(view.steps)) {
     const members = membersOf(step);
     for (const pin of step.pins) {
+      // A pin on a canvas element, or a zone on the canvas, is a thread of the step's page; an element deleted since keeps what the pin recorded of it (the thread opens as removed).
+      const target = pin.target;
+      if (target.kind === "canvas-element" || (target.kind === "zone" && target.space === "canvas")) {
+        const thread = target.kind === "zone" ? store.createThread(step.pageId, { target, body: pin.text }, pin.person) : store.createThread(step.pageId, { target, body: pin.text }, pin.person);
+        take(step.pageId, thread.id);
+        threadIds[pin.id] = thread.id;
+        continue;
+      }
       // A pin sits on the artboard it was placed on; when that one is gone the thread opens on the first artboard of the step that is left.
       const written = members.find((member) => member.pageId === pin.on?.pageId && member.artboard === pin.on?.artboard) ?? members[0]!;
       const where = [written, ...members].find((member) => store.hasArtboard(member.pageId, member.artboard) && !store.getPage(member.pageId)?.archivedAt);
       if (!where) continue;
       const request: CreateThreadRequest =
-        pin.target.kind === "zone"
-          ? { target: pin.target.space === "artboard" ? { ...pin.target, artboard: where.artboard, ...(pin.rendering ? { rendering: pin.rendering } : {}), ...(pin.tweaks ? { cell: pin.tweaks } : {}) } : pin.target, body: pin.text }
-          : { artboard: where.artboard, selector: pin.target.selector, xPct: pin.target.xPct, yPct: pin.target.yPct, body: pin.text, ...(pin.target.elementName ? { elementName: pin.target.elementName } : {}), ...(pin.rendering ? { rendering: pin.rendering } : {}), ...(pin.tweaks ? { cell: pin.tweaks } : {}), ...(pin.target.instanceState ? { instanceState: pin.target.instanceState } : {}) };
+        target.kind === "zone"
+          ? { target: { ...target, artboard: where.artboard, ...(pin.rendering ? { rendering: pin.rendering } : {}), ...(pin.tweaks ? { cell: pin.tweaks } : {}) }, body: pin.text }
+          : { artboard: where.artboard, selector: target.selector, xPct: target.xPct, yPct: target.yPct, body: pin.text, ...(target.elementName ? { elementName: target.elementName } : {}), ...(pin.rendering ? { rendering: pin.rendering } : {}), ...(pin.tweaks ? { cell: pin.tweaks } : {}), ...(target.instanceState ? { instanceState: target.instanceState } : {}) };
       const thread = store.createThread(where.pageId, request, pin.person);
       take(where.pageId, thread.id);
       threadIds[pin.id] = thread.id;
@@ -582,6 +656,17 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
   // A remark on a removed step (deleted artboard, archived page) has nowhere to be a thread: it comes as text.
   for (const step of activeSteps(view.steps)) {
     for (const answer of step.answers.filter((a) => a.kind === "remark")) {
+      // A remark on a canvas step is a thread on its first targeted element; with none left it comes as text.
+      if (stepIsCanvasOnly(step)) {
+        const first = step.canvasElements!.find((id) => !step.canvas?.missing.includes(id));
+        const element = first === undefined ? undefined : store.canvasElement(step.pageId, first);
+        if (!element) continue;
+        const thread = store.createThread(step.pageId, { target: { kind: "canvas-element", elementId: first! }, body: answer.text ?? "" }, answer.person);
+        take(step.pageId, thread.id);
+        store.changeReviews.setThread(answer.id, thread.id);
+        threadIds[answer.id] = thread.id;
+        continue;
+      }
       // A group remark goes on the artboard it was written on and cites the others of the group.
       const members = step.others ? membersOf(step) : undefined;
       // When the artboard it was written on is gone (or its page archived), the thread opens on the first artboard of the group that is left.
@@ -730,7 +815,7 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
   const ownPin = (reviewId: string, pinId: string, viewer: Viewer) => store.changeReviews.pins(reviewId).find((pin) => pin.id === pinId && (pin.personId ?? "") === (viewerPersonId(viewer) ?? ""));
   const stepSeenBy = (reviewId: string, pinId: string) => seenNow(stepOf(reviewId, store.changeReviews.pins(reviewId).find((pin) => pin.id === pinId)!.stepId));
 
-  type PinBody = { text?: unknown; target?: { kind?: unknown; space?: unknown; wPct?: unknown; hPct?: unknown; selector?: unknown; elementName?: unknown; xPct?: unknown; yPct?: unknown; instanceState?: unknown }; pageId?: unknown; artboard?: unknown; rendering?: unknown; tweaks?: unknown };
+  type PinBody = { text?: unknown; target?: { kind?: unknown; space?: unknown; elementId?: unknown; x?: unknown; y?: unknown; w?: unknown; h?: unknown; wPct?: unknown; hPct?: unknown; selector?: unknown; elementName?: unknown; xPct?: unknown; yPct?: unknown; instanceState?: unknown }; pageId?: unknown; artboard?: unknown; rendering?: unknown; tweaks?: unknown };
 
   app.post<{ Params: { reviewId: string; stepId: string }; Body: PinBody }>("/api/change-reviews/:reviewId/steps/:stepId/pins", async (req, reply) => {
     const review = openReviewFor(reply, req.params.reviewId, { stepId: req.params.stepId });
@@ -740,6 +825,28 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     const step = stepOf(review.id, req.params.stepId)!;
     const on = pageId !== undefined || artboard !== undefined ? { pageId, artboard } : undefined;
     if (on && !stepArtboards(step).some((ref) => ref.pageId === on.pageId && ref.artboard === on.artboard)) return reply.code(400).send({ error: "pageId and artboard must name an artboard of the step" });
+    const canvasTarget = target?.kind === "canvas-element" || (target?.kind === "zone" && target.space === "canvas");
+    // A canvas step has no artboard to pin on, and an artboard step no canvas: the target must belong to the step.
+    if (canvasTarget && !step.canvasElements) return reply.code(400).send({ error: "this step points at no canvas element: pin on its artboard" });
+    if (!canvasTarget && stepIsCanvasOnly(step)) return reply.code(400).send({ error: "this step has no artboard: pin on a canvas element or draw a zone on the canvas" });
+    if (target?.kind === "canvas-element") {
+      if (typeof target.elementId !== "string" || !step.canvasElements!.includes(target.elementId)) return reply.code(400).send({ error: "elementId must be one of the step's canvas elements" });
+      const element = store.canvasElement(step.pageId, target.elementId);
+      if (!element) return reply.code(400).send({ error: "this canvas element no longer exists" });
+      const elementSummary = canvasElementSummary(element);
+      const pin: PinToStore = { text, target: { kind: "canvas-element", elementId: target.elementId, elementKind: element.kind, ...(elementSummary ? { elementSummary } : {}) } };
+      store.changeReviews.addPin(step.id, viewerPersonId(req.viewer), pin, seenNow(step));
+      announceReviewChange(store, review.id);
+      return viewOf(store, review, req.viewer);
+    }
+    if (target?.kind === "zone" && target.space === "canvas") {
+      const zoneError = canvasZoneError(target);
+      if (zoneError) return reply.code(400).send({ error: zoneError });
+      const { x, y, w, h } = target as { x: number; y: number; w: number; h: number };
+      store.changeReviews.addPin(step.id, viewerPersonId(req.viewer), { text, target: { kind: "zone", space: "canvas", x, y, w, h } }, seenNow(step));
+      announceReviewChange(store, review.id);
+      return viewOf(store, review, req.viewer);
+    }
     if (target?.kind === "zone") {
       const zoneError = artboardZoneError(target, rendering, tweaks);
       if (zoneError) return reply.code(400).send({ error: zoneError });

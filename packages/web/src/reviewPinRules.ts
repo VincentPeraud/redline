@@ -1,4 +1,4 @@
-import { renderingKey, type ArtboardRef, type ArtboardRendering, type ReviewPin, type ReviewPinTarget, type ReviewZoneTarget, type ThreadRendering, type TweakValues } from "@redline/shared";
+import { canvasElementLabel, renderingKey, type ArtboardRef, type ArtboardRendering, type ReviewElementTarget, type ReviewPin, type ReviewPinTarget, type ReviewZoneTarget, type ThreadRendering, type TweakValues } from "@redline/shared";
 
 /** A pin being placed: it has no number and no id until its first text is saved. */
 export interface DraftPin {
@@ -38,8 +38,12 @@ export function pinHiddenWhy(pin: ReviewPin, example: ArtboardRef, shown: Artboa
   return { kind: "state", seenIn: pin.seenIn ?? "un autre état" };
 }
 
+/** A pin on an element of an artboard (not a zone, not a canvas element). */
+export const isArtboardElementTarget = (target: ReviewPinTarget): target is ReviewElementTarget => target.kind !== "zone" && target.kind !== "canvas-element";
+
 /** The element's name as the bridge gives it (role and visible text, such as `titre « Budget »`), or the selector of an element that has no name; "Zone" for a zone. */
-export const pinTargetLabel = (pin: Pick<ReviewPin, "target">): string => (pin.target.kind === "zone" ? "Zone" : (pin.target.elementName ?? pin.target.selector));
+export const pinTargetLabel = (pin: Pick<ReviewPin, "target">): string =>
+  pin.target.kind === "zone" ? "Zone" : pin.target.kind === "canvas-element" ? canvasElementLabel(pin.target.elementKind) : (pin.target.elementName ?? pin.target.selector);
 
 /** A drag shorter than this (in artboard pixels) in either direction is an Alt + click, not a zone. */
 export const MIN_ZONE_SIZE = 6;

@@ -94,6 +94,18 @@ export function artboardZoneError(zone: { space?: unknown; xPct?: unknown; yPct?
   return (rendering === undefined ? null : threadRenderingError(rendering)) ?? (tweaks === undefined ? null : threadCellError(tweaks));
 }
 
+/**
+ * Error message when a review zone on a canvas step is malformed: a rectangle of positive size in canvas pixels.
+ * The crop it was drawn in depends on element sizes only the browser measures, so keeping the zone inside it is the web's job.
+ */
+export function canvasZoneError(zone: { space?: unknown; x?: unknown; y?: unknown; w?: unknown; h?: unknown }): string | null {
+  if (zone.space !== "canvas") return "zone space must be canvas";
+  const { x, y, w, h } = zone;
+  if (![x, y, w, h].every((value) => typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 1_000_000)) return "zone must be a rectangle in canvas pixels";
+  if ((w as number) <= 0 || (h as number) <= 0) return "zone must have a width and a height";
+  return null;
+}
+
 /** Error message when the body of `POST /api/pages/:pageId/threads` is malformed (shape only; the page's artboards and elements are checked by the route), else null. */
 export function createThreadRequestError(request: unknown): string | null {
   const pin = (request ?? {}) as Partial<CreateElementThreadRequest> & { target?: unknown };

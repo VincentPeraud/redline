@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { activeSteps, progressOf, renderingKey, stepIsGroup, stepIsModified, stepLabel, stepStatus, type ChangeReview, type ChangeReviewStep, type ReviewPin, type TweakValues } from "@redline/shared";
+import { activeSteps, progressOf, renderingKey, stepIsCanvasOnly, stepIsGroup, stepIsModified, stepLabel, stepStatus, type ChangeReview, type ChangeReviewStep, type ReviewPin, type TweakValues } from "@redline/shared";
 import { type StepControls } from "./useReviewControls.js";
 import { usePhone } from "./usePhone.js";
 import { cx } from "./ui/index.js";
@@ -100,6 +100,7 @@ export function StepView({
       own={own}
       finished={finished}
       onKeptUnsaved={setKeptUnsaved}
+      placeholder={stepIsCanvasOnly(step) ? "Ce qui ne va pas sur cette partie de la page" : undefined}
       placement={group ? { shown: { pageId: shown.pageId, artboard: shown.artboard }, example: { pageId: step.pageId, artboard: step.artboard }, titleOf: (ref) => titleOfArtboard(step, ref) } : undefined}
       phone={phone ? { open: remarkOpen, onClose: () => setRemarkOpen(false) } : undefined}
       {...remarkProps}
@@ -249,7 +250,7 @@ export function StepView({
           <div>
             <div className={cx(styles.kicker, group && styles.kickerGroup)}>
               <span>
-                {group ? `${counted(pageCount, "page", "pages")} · ${size} artboards` : `Page ${step.pageTitle} · étape ${stepNumber(review, index)} / ${activeSteps(review.steps).length}`}
+                {group ? `${counted(pageCount, "page", "pages")} · ${size} artboards` : stepIsCanvasOnly(step) ? `Page ${step.pageTitle} · canevas` : `Page ${step.pageTitle} · étape ${stepNumber(review, index)} / ${activeSteps(review.steps).length}`}
               </span>
               <span className={styles.chips}>
                 {group && <span className={styles.chip}>Groupé</span>}
@@ -325,7 +326,7 @@ export function StepView({
               )}
             </div>
           )}
-          <RemarkEditor stepId={step.id} own={own} finished={finished} onKeptUnsaved={setKeptUnsaved} placement={group ? { shown: { pageId: shown.pageId, artboard: shown.artboard }, example: { pageId: step.pageId, artboard: step.artboard }, titleOf: (ref) => titleOfArtboard(step, ref) } : undefined} {...remarkProps} />
+          <RemarkEditor placeholder={stepIsCanvasOnly(step) ? "Ce qui ne va pas sur cette partie de la page" : undefined} stepId={step.id} own={own} finished={finished} onKeptUnsaved={setKeptUnsaved} placement={group ? { shown: { pageId: shown.pageId, artboard: shown.artboard }, example: { pageId: step.pageId, artboard: step.artboard }, titleOf: (ref) => titleOfArtboard(step, ref) } : undefined} {...remarkProps} />
         </div>
         <div className={styles.panelFoot}>
           <button type="button" className={styles.panelButton} disabled={neighbour(review, index, -1) === undefined} onClick={() => onGo(neighbour(review, index, -1)!)}>

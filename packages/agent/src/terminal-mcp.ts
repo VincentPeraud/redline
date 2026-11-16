@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
-import { RESPONSIVE_FORMATS, describeZone, feedbackByStep, type ChangeRecordInput, type ChangeReviewPinResult, type ChangeReviewRemarkResult, type ChangeReviewStepInput } from "@redline/shared";
+import { RESPONSIVE_FORMATS, describeZone, feedbackByStep, type ChangeRecordInput, type ChangeReviewPinResult, type ChangeReviewRemarkResult, type ChangeReviewStepDeclaration } from "@redline/shared";
 import { z } from "zod";
 import { uploadChangedAssets } from "./assets.js";
 import { readLinkedProjectIds } from "./link.js";
@@ -398,13 +398,17 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     REQUEST_REVIEW_TOOL,
     {
       description:
-        "Use it whenever you finish a series of changes the person should check (several artboards), instead of listing the artboards in the chat. Declares a review of the changes you just published, so that the person checks them in Redline: one step per artboard, with what changed, what to look at and a closed question. All the pages must belong to one project. A new declaration while your own review of the project is still open is merged into it (a step is its artboard and its tweak values; redeclaring one replaces its question; the same artboard with other tweak values is another step). A change shared by many artboards is one step with an example and the other artboards in others. Answers the review link: open it for the person. Nothing is pushed to you when they finish: call review_feedback when they tell you they are done.",
+        "Use it whenever you finish a series of changes the person should check (several artboards), instead of listing the artboards in the chat. Declares a review of the changes you just published, so that the person checks them in Redline: one step per artboard, with what changed, what to look at and a closed question. All the pages must belong to one project. A new declaration while your own review of the project is still open is merged into it (a step is its artboard, its tweak values and its canvas elements; redeclaring one replaces its question; the same artboard with other tweak values or other canvas elements is another step). A change shared by many artboards is one step with an example and the other artboards in others. Answers the review link: open it for the person. Nothing is pushed to you when they finish: call review_feedback when they tell you they are done.",
       inputSchema: {
         steps: z
           .array(
             z.object({
               pageId: z.string().describe("Id of the page (see list_pages)"),
-              artboard: z.string().describe("File of the artboard, as in the manifest, for example home.html. On a group: the example, shown large"),
+              artboard: z.string().optional().describe("File of the artboard, as in the manifest, for example home.html. On a group: the example, shown large. Leave it out on a step that only points at canvas elements (canvasElements)"),
+              canvasElements: z
+                .array(z.string())
+                .optional()
+                .describe("Optional: ids of elements of the page's canvas (a sticky, a title, an arrow: the `id` in manifest.json) the step points at. Use it when the change lives on the canvas and not in an artboard (a note, a title, an arrow you added or moved). With no artboard the person sees the page canvas cropped on those elements, each framed and numbered in this order; with an artboard too, the canvas is one more view of the step. Every id must exist on the page, else the whole declaration is refused with the page's element ids. lookAt must only cite what the step shows (the numbered elements, or the artboard's targets)."),
               others: z
                 .array(z.object({ pageId: z.string().describe("Id of the page of this artboard"), artboard: z.string().describe("File of this artboard") }))
                 .optional()
@@ -432,7 +436,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
         label: z.string().optional().describe("Optional name of the review, shown instead of the folder name"),
       },
     },
-    tool(async ({ steps, label }: { steps: ChangeReviewStepInput[]; label?: string }) => {
+    tool(async ({ steps, label }: { steps: ChangeReviewStepDeclaration[]; label?: string }) => {
       const { id, merged, stepCount, warning } = await api.requestReview(sessionId, { folder, ...(label ? { label } : {}), steps });
       return [
         `${merged ? "Review updated (merged into your open review)" : "Review declared"}: ${api.reviewUrl(id)}`,
@@ -475,7 +479,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       const alsoValidated = (entry: { alsoValidatedBy: string[] }) => (entry.alsoValidatedBy.length > 0 ? ` · ${entry.alsoValidatedBy.map(quotedTitle).join(", ")} had validated this step` : "");
       const modifiedNote = (entry: { artboardModified?: boolean }) => (entry.artboardModified ? " · artboard modifié depuis la remarque" : "");
       const remark = (entry: ChangeReviewRemarkResult) => [
-        `     general remark on ${quotedTitle(entry.onLabel ?? entry.artboard)} by ${quotedTitle(entry.author)}${entry.removed ? `${removedNote[entry.removed]} (text only, no thread)` : ""}${modifiedNote(entry)} · thread ${entry.threadId ?? "none"}${alsoValidated(entry)}`,
+        `     general remark on ${quotedTitle(entry.onLabel ?? entry.artboard)} by ${quotedTitle(entry.author)}${entry.removed ? `${removedNote[entry.removed]} (text only, no thread)` : ""}${entry.elementGone ? " · élément supprimé (text only, no thread)" : ""}${modifiedNote(entry)} · thread ${entry.threadId ?? "none"}${alsoValidated(entry)}`,
         ...quoted(entry.text),
         ...(entry.alsoOn ? [`       The same change also concerns: ${entry.alsoOn.map(quotedTitle).join(", ")}.`] : []),
       ];
@@ -485,6 +489,9 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
         if (entry.target.kind === "zone") {
           const seen = entry.seenIn ?? (entry.rendering ? RESPONSIVE_FORMATS[entry.rendering.format].label : undefined);
           return [`     ${entry.pinNumber}. ${describeZone(entry.target)}${on}${seen ? ` (vu en ${seen})` : ""} ${tail}`, ...quoted(entry.text)];
+        }
+        if (entry.target.kind === "canvas-element") {
+          return [`     ${entry.pinNumber}. pin on canvas element \`${entry.target.elementId.replace(/[`\r\n]/g, " ")}\` (${entry.target.elementKind})${entry.elementLost ? " · élément supprimé (the thread is marked removed)" : ""} ${tail}`, ...quoted(entry.text)];
         }
         const element = `\`${entry.target.selector.replace(/[`\r\n]/g, " ")}\`${entry.target.elementName ? ` (${quotedTitle(entry.target.elementName)})` : ""}`;
         return [
