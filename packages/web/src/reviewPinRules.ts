@@ -59,6 +59,12 @@ export function zoneFromDrag(start: { x: number; y: number }, end: { x: number; 
   return { kind: "zone", space: "artboard", xPct: pct(left, box.width), yPct: pct(top, box.height), wPct: pct(right - left, box.width), hPct: pct(bottom - top, box.height) };
 }
 
+/** What the phone sheet shows of a pin. A zone is drawn on a computer, so a phone only names it. */
+export function phonePinText(pin: Pick<ReviewPin, "target" | "text">): string {
+  const target: object = pin.target;
+  return "kind" in target && target.kind === "zone" ? `Zone (tracée sur ordinateur) : ${pin.text}` : pin.text;
+}
+
 /** How many pins sit before each one on the same spot (two pins of one element): the stage shifts each by that many steps. */
 export function pinOffsets(positions: readonly { id: string; xPct: number; yPct: number }[]): Record<string, number> {
   const offsets: Record<string, number> = {};
