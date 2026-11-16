@@ -2022,3 +2022,138 @@
   height: 28px;
   padding: 0 10px;
 }
+
+/* Step on the page canvas (see the "canevas" mock-up): the canvas cropped on the targeted elements, the other artboards dimmed. */
+.canvasCrop {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  background-color: var(--color-bg);
+  background-image: radial-gradient(#d6d4cd 1px, transparent 1px);
+  background-size: 20px 20px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 50%);
+  user-select: none;
+}
+
+.canvasCropHidden {
+  visibility: hidden;
+}
+
+.canvasWorld {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.canvasArtboard {
+  position: absolute;
+  opacity: 0.45;
+}
+
+.canvasArtboardTitle {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  max-width: 100%;
+  padding-bottom: 6px;
+  overflow: hidden;
+  color: #5f5f68;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvasArtboardFrame {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--color-surface);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 20%);
+}
+
+.canvasLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.canvasCapturing {
+  z-index: 3;
+  cursor: crosshair;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+/* Claude's target on the canvas: the red dashed frame and round numbered badge of the artboard markers. */
+.canvasTarget {
+  position: absolute;
+}
+
+.canvasTarget::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border: 2px dashed var(--canvas-target-color);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.canvasTargetHover::after {
+  border-style: solid;
+}
+
+.canvasTargetNumber {
+  position: absolute;
+  top: -16px;
+  right: -8px;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--canvas-target-color);
+  color: #fff;
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+}
+
+.canvasPin {
+  transform: translate(-50%, -50%);
+}
+
+.canvasGone {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.canvasGone > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 380px;
+  padding: var(--space-8) 40px;
+  border-radius: var(--radius-xl);
+  background: rgb(24 24 27 / 92%);
+  color: var(--play-text);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  text-align: center;
+}
+
+.canvasGone strong {
+  font-size: var(--font-size-lg);
+}
+
+.canvasGone span {
+  color: var(--play-text-muted);
+}

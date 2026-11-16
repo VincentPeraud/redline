@@ -1,4 +1,4 @@
-import { stepIsSeen, stepStatus, type ChangeReview, type ChangeReviewAnswer, type ChangeReviewStep, type ReviewPin } from "@redline/shared";
+import { canvasElementLabel, stepIsSeen, stepStatus, type ChangeReview, type ChangeReviewAnswer, type ChangeReviewStep, type ReviewPin } from "@redline/shared";
 
 /** One line of the recap: a pin or a zone (with its number), or the general remark of the step. */
 export type RecapItem = { kind: "pin"; pin: ReviewPin } | { kind: "remark"; answer: ChangeReviewAnswer };
@@ -26,6 +26,7 @@ export interface Recap {
 /** What a pin sits on, as the recap names it: "« Budget validé »" for an element, "Zone" for a zone. The one place canvas targets add their label. */
 export function recapTargetLabel(pin: ReviewPin): string {
   if (pin.target.kind === "zone") return "Zone";
+  if (pin.target.kind === "canvas-element") return canvasElementLabel(pin.target.elementKind);
   const text = pin.target.elementName && /^.+? « (.*) »$/.exec(pin.target.elementName)?.[1];
   return text ? `« ${text} »` : (pin.target.elementName ?? pin.target.selector);
 }

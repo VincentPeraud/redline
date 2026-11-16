@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { stepIsGroup, versionPreviewPath, type ChangeReview, type ChangeReviewMember, type ChangeReviewStep } from "@redline/shared";
+import { stepIsCanvasOnly, stepIsGroup, versionPreviewPath, type ChangeReview, type ChangeReviewMember, type ChangeReviewStep } from "@redline/shared";
 import { ArtboardIframe, useArtboardOrigin } from "./artboardCapability.js";
 import { PlayFrame } from "./PlayFrame.js";
 import { fitToStage, presentationOf, scrollTagLabel } from "./playFrames.js";
 import { relativeTime } from "./relativeTime.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { PinHint, PinLayer, type PinsController } from "./ReviewPins.js";
+import { ReviewCanvas } from "./ReviewCanvas.js";
 import { type StepControls } from "./useReviewControls.js";
 import { cx } from "./ui/index.js";
 import { formatWhen } from "./reviewView.js";
@@ -99,8 +100,14 @@ export function ReviewStage({
     frame.current?.contentWindow?.postMessage({ type: "redline:locate", selector: firstTarget }, "*");
     return () => window.removeEventListener("message", onLocated);
   }, [bridgeEpoch, scrolling, firstTarget, stepKey, scale]);
+  const canvasOnly = stepIsCanvasOnly(step);
   return (
     <main className={cx(styles.stage, stepIsGroup(example) && styles.stageGroup, scrolling && styles.stageScroll)}>
+      {canvasOnly && (
+        <span data-testid="review-canvas-tag" className={styles.tag}>
+          Canevas de la page · {step.pageTitle}
+        </span>
+      )}
       {controls.showBefore && step.baselineAt && (
         <span data-testid="review-before-tag" className={styles.tag}>
           Avant · version du {formatWhen(step.baselineAt)}, avant la série
@@ -117,7 +124,9 @@ export function ReviewStage({
             <span>{scrollTagLabel(scrolling, presentation.viewport)}</span>
           </div>
         )}
-        {entry && presentation && fitted && origin ? (
+        {canvasOnly ? (
+          step.canvas && origin ? <ReviewCanvas step={step} origin={origin} stage={size} pins={pins} phone={phone} markersShown={controls.markersShown} /> : null
+        ) : entry && presentation && fitted && origin ? (
           <div className={scrolling ? styles.tallWrap : styles.flatWrap}>
             <PlayFrame frame={presentation.frame} url={entry.url}>
               <div ref={viewport} className={styles.viewport} style={{ width: fitted.viewport.width * fitted.scale, height: fitted.viewport.height * fitted.scale }}>

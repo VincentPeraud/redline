@@ -101,10 +101,14 @@ function savedTweaksOf(store: Store, pageId: string): TweakValues {
 
 /** Where an element starts on the canvas: its own corner, the one of what it is anchored to, or the start of an arrow. Undefined when it cannot be told. */
 function elementOrigin(manifest: Manifest, element: ManifestElement, depth = 0): { x: number; y: number } | undefined {
-  const named = (id: string) => (depth > 3 ? undefined : (manifest.artboards.find((artboard) => artboard.file === id) ?? manifest.elements.find((other) => other.id === id)));
-  const place = (found: { file: string } | ManifestElement | undefined) => (found === undefined ? undefined : "file" in found ? { x: found.x, y: found.y } : elementOrigin(manifest, found, depth + 1));
-  if (element.kind === "arrow") return typeof element.from === "string" ? place(named(element.from)) : element.from;
-  return element.anchor ? place(named(element.anchor.target)) : { x: element.x, y: element.y };
+  const place = (id: string) => {
+    const artboard = manifest.artboards.find((candidate) => candidate.file === id);
+    if (artboard) return { x: artboard.x, y: artboard.y };
+    const other = depth > 3 ? undefined : manifest.elements.find((candidate) => candidate.id === id);
+    return other && elementOrigin(manifest, other, depth + 1);
+  };
+  if (element.kind === "arrow") return typeof element.from === "string" ? place(element.from) : element.from;
+  return "anchor" in element && element.anchor ? place(element.anchor.target) : { x: element.x, y: element.y };
 }
 
 /**
@@ -579,6 +583,7 @@ function fetchReview(ctx: ReviewContext, viewer: Viewer, sessionId: string, revi
       answers: step.answers,
       pins: step.pins,
       ...(step.removed ? { removed: step.removed } : {}),
+      ...(stepIsCanvasOnly(step) && step.canvasElements!.every((id) => step.canvas?.missing.includes(id)) ? { elementGone: true } : {}),
     })),
     threadIds: openRemarkThreads(store, pageLock, view, sessionId),
   });
@@ -627,14 +632,22 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
   for (const step of activeSteps(view.steps)) {
     const members = membersOf(step);
     for (const pin of step.pins) {
+      // A pin on a canvas element, or a zone on the canvas, is a thread of the step's page; an element deleted since keeps what the pin recorded of it (the thread opens as removed).
+      const target = pin.target;
+      if (target.kind === "canvas-element" || (target.kind === "zone" && target.space === "canvas")) {
+        const thread = target.kind === "zone" ? store.createThread(step.pageId, { target, body: pin.text }, pin.person) : store.createThread(step.pageId, { target, body: pin.text }, pin.person);
+        take(step.pageId, thread.id);
+        threadIds[pin.id] = thread.id;
+        continue;
+      }
       // A pin sits on the artboard it was placed on; when that one is gone the thread opens on the first artboard of the step that is left.
       const written = members.find((member) => member.pageId === pin.on?.pageId && member.artboard === pin.on?.artboard) ?? members[0]!;
       const where = [written, ...members].find((member) => store.hasArtboard(member.pageId, member.artboard) && !store.getPage(member.pageId)?.archivedAt);
       if (!where) continue;
       const request: CreateThreadRequest =
-        pin.target.kind === "zone"
-          ? { target: pin.target.space === "artboard" ? { ...pin.target, artboard: where.artboard, ...(pin.rendering ? { rendering: pin.rendering } : {}), ...(pin.tweaks ? { cell: pin.tweaks } : {}) } : pin.target, body: pin.text }
-          : { artboard: where.artboard, selector: pin.target.selector, xPct: pin.target.xPct, yPct: pin.target.yPct, body: pin.text, ...(pin.target.elementName ? { elementName: pin.target.elementName } : {}), ...(pin.rendering ? { rendering: pin.rendering } : {}), ...(pin.tweaks ? { cell: pin.tweaks } : {}), ...(pin.target.instanceState ? { instanceState: pin.target.instanceState } : {}) };
+        target.kind === "zone"
+          ? { target: { ...target, artboard: where.artboard, ...(pin.rendering ? { rendering: pin.rendering } : {}), ...(pin.tweaks ? { cell: pin.tweaks } : {}) }, body: pin.text }
+          : { artboard: where.artboard, selector: target.selector, xPct: target.xPct, yPct: target.yPct, body: pin.text, ...(target.elementName ? { elementName: target.elementName } : {}), ...(pin.rendering ? { rendering: pin.rendering } : {}), ...(pin.tweaks ? { cell: pin.tweaks } : {}), ...(target.instanceState ? { instanceState: target.instanceState } : {}) };
       const thread = store.createThread(where.pageId, request, pin.person);
       take(where.pageId, thread.id);
       threadIds[pin.id] = thread.id;
@@ -643,6 +656,17 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
   // A remark on a removed step (deleted artboard, archived page) has nowhere to be a thread: it comes as text.
   for (const step of activeSteps(view.steps)) {
     for (const answer of step.answers.filter((a) => a.kind === "remark")) {
+      // A remark on a canvas step is a thread on its first targeted element; with none left it comes as text.
+      if (stepIsCanvasOnly(step)) {
+        const first = step.canvasElements!.find((id) => !step.canvas?.missing.includes(id));
+        const element = first === undefined ? undefined : store.canvasElement(step.pageId, first);
+        if (!element) continue;
+        const thread = store.createThread(step.pageId, { target: { kind: "canvas-element", elementId: first! }, body: answer.text ?? "" }, answer.person);
+        take(step.pageId, thread.id);
+        store.changeReviews.setThread(answer.id, thread.id);
+        threadIds[answer.id] = thread.id;
+        continue;
+      }
       // A group remark goes on the artboard it was written on and cites the others of the group.
       const members = step.others ? membersOf(step) : undefined;
       // When the artboard it was written on is gone (or its page archived), the thread opens on the first artboard of the group that is left.

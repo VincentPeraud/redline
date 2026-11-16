@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { RESPONSIVE_FORMATS, activeSteps, progressOf, renderingKey, renderingLabel, reviewPlace, stepIsMultiPage, stepLabel, type ArtboardRendering, type ChangeReview, type ChangeReviewStep } from "@redline/shared";
+import { RESPONSIVE_FORMATS, activeSteps, stepIsCanvasOnly, progressOf, renderingKey, renderingLabel, reviewPlace, stepIsMultiPage, stepLabel, type ArtboardRendering, type ChangeReview, type ChangeReviewStep } from "@redline/shared";
 import { navigateTo, type Route } from "./router.js";
 import { type StepControls } from "./useReviewControls.js";
 import { usePhone } from "./usePhone.js";
@@ -128,18 +128,18 @@ export function ReviewTopBar({ review, view, shown, controls, onGo, onLeave, onF
         )}
       </div>
       <div className={styles.trail}>
-        {phone && controls && step && !step.removed && (step.baselineVersionId || step.isNew) && (
-          <button type="button" aria-label="Avant ou après" aria-pressed={controls.showBefore} disabled={step.isNew} className={cx(styles.button, controls.showBefore && styles.buttonOn)} onClick={() => controls.chooseBefore(!controls.showBefore)}>
+        {phone && controls && step && !step.removed && (step.baselineVersionId || step.isNew || stepIsCanvasOnly(step)) && (
+          <button type="button" aria-label="Avant ou après" aria-pressed={controls.showBefore} disabled={step.isNew || stepIsCanvasOnly(step)} className={cx(styles.button, controls.showBefore && styles.buttonOn)} onClick={() => controls.chooseBefore(!controls.showBefore)}>
             Avant
           </button>
         )}
-        {!phone && controls && step && !step.removed && (step.baselineVersionId || step.isNew) && (
+        {!phone && controls && step && !step.removed && (step.baselineVersionId || step.isNew || stepIsCanvasOnly(step)) && (
           <div role="group" aria-label="Version" className={styles.seg}>
             <button
               type="button"
               aria-pressed={controls.showBefore}
-              disabled={step.isNew}
-              title={step.isNew ? "Nouveau, pas d'avant" : undefined}
+              disabled={step.isNew || stepIsCanvasOnly(step)}
+              title={stepIsCanvasOnly(step) ? "Le canevas n'a pas de version « avant » à comparer" : step.isNew ? "Nouveau, pas d'avant" : undefined}
               className={cx(styles.segButton, controls.showBefore && styles.segButtonOn)}
               onClick={() => controls.chooseBefore(true)}
             >
@@ -189,7 +189,7 @@ export function ReviewTopBar({ review, view, shown, controls, onGo, onLeave, onF
             </svg>
           </button>
         )}
-        {!phone && controls && step?.targets && (
+        {!phone && controls && (step?.targets || step?.canvasElements) && (
           <button
             type="button"
             aria-pressed={controls.markersShown}

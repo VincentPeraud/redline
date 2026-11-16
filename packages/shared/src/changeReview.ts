@@ -122,6 +122,10 @@ export interface ReviewElementTarget {
 /** A zone a reviewer drew: a rectangle of the artboard (percent) or, on a canvas step, of the page canvas (pixels). */
 export type ReviewZoneTarget = { kind: "zone" } & ZoneRect;
 
+/** What a canvas element is called in the panel and the recap: "Note du canevas" for a sticky, "Titre du canevas", "Flèche du canevas"... */
+export const canvasElementLabel = (kind: ManifestElementKind): string =>
+  ({ sticky: "Note", title: "Titre", text: "Texte", arrow: "Flèche", link: "Lien", image: "Image", shape: "Forme" })[kind] + " du canevas";
+
 /** A pin on an element of the page canvas, found again by its id; `elementSummary` is what it showed when the pin was placed. */
 export interface ReviewCanvasTarget {
   kind: "canvas-element";
@@ -398,6 +402,8 @@ export interface ChangeReviewResultInput {
     answers: readonly ChangeReviewAnswer[];
     pins?: readonly ReviewPin[];
     removed?: StepRemoval;
+    /** A canvas step whose elements are all gone: its general remark has no element to sit on and comes as text. */
+    elementGone?: boolean;
   }[];
   /** The thread opened for each remark and each pin, by remark id and pin id. */
   threadIds?: Readonly<Record<string, string>>;
@@ -420,6 +426,8 @@ export interface ChangeReviewRemarkResult {
   artboardModified?: boolean;
   /** The step's artboard was deleted ("artboard supprimé") or its page is archived ("page archivée"): the remark comes as text, without a thread. */
   removed?: StepRemoval;
+  /** The canvas step's elements are all gone ("élément supprimé"): the remark comes as text, without a thread. */
+  elementGone?: boolean;
   threadId?: string;
 }
 
@@ -507,6 +515,7 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
             alsoValidatedBy: step.answers.filter((other) => other.kind === "ok" && !other.outdated).map(nameOfAnswer),
             ...(answer.outdated ? { artboardModified: true } : {}),
             ...(step.removed ? { removed: step.removed } : {}),
+            ...(step.elementGone ? { elementGone: true } : {}),
             ...(threadIds[answer.id] ? { threadId: threadIds[answer.id] } : {}),
           };
         }),

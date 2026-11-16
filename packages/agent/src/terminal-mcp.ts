@@ -479,7 +479,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       const alsoValidated = (entry: { alsoValidatedBy: string[] }) => (entry.alsoValidatedBy.length > 0 ? ` · ${entry.alsoValidatedBy.map(quotedTitle).join(", ")} had validated this step` : "");
       const modifiedNote = (entry: { artboardModified?: boolean }) => (entry.artboardModified ? " · artboard modifié depuis la remarque" : "");
       const remark = (entry: ChangeReviewRemarkResult) => [
-        `     general remark on ${quotedTitle(entry.onLabel ?? entry.artboard)} by ${quotedTitle(entry.author)}${entry.removed ? `${removedNote[entry.removed]} (text only, no thread)` : ""}${modifiedNote(entry)} · thread ${entry.threadId ?? "none"}${alsoValidated(entry)}`,
+        `     general remark on ${quotedTitle(entry.onLabel ?? entry.artboard)} by ${quotedTitle(entry.author)}${entry.removed ? `${removedNote[entry.removed]} (text only, no thread)` : ""}${entry.elementGone ? " · élément supprimé (text only, no thread)" : ""}${modifiedNote(entry)} · thread ${entry.threadId ?? "none"}${alsoValidated(entry)}`,
         ...quoted(entry.text),
         ...(entry.alsoOn ? [`       The same change also concerns: ${entry.alsoOn.map(quotedTitle).join(", ")}.`] : []),
       ];
@@ -489,6 +489,9 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
         if (entry.target.kind === "zone") {
           const seen = entry.seenIn ?? (entry.rendering ? RESPONSIVE_FORMATS[entry.rendering.format].label : undefined);
           return [`     ${entry.pinNumber}. ${describeZone(entry.target)}${on}${seen ? ` (vu en ${seen})` : ""} ${tail}`, ...quoted(entry.text)];
+        }
+        if (entry.target.kind === "canvas-element") {
+          return [`     ${entry.pinNumber}. pin on canvas element \`${entry.target.elementId.replace(/[`\r\n]/g, " ")}\` (${entry.target.elementKind})${entry.elementLost ? " · élément supprimé (the thread is marked removed)" : ""} ${tail}`, ...quoted(entry.text)];
         }
         const element = `\`${entry.target.selector.replace(/[`\r\n]/g, " ")}\`${entry.target.elementName ? ` (${quotedTitle(entry.target.elementName)})` : ""}`;
         return [
