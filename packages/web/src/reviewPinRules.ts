@@ -1,4 +1,4 @@
-import { renderingKey, type ArtboardRef, type ArtboardRendering, type ReviewPin, type ReviewPinTarget, type ThreadRendering, type TweakValues } from "@redline/shared";
+import { renderingKey, type ArtboardRef, type ArtboardRendering, type ReviewPin, type ReviewPinTarget, type ReviewZoneTarget, type ThreadRendering, type TweakValues } from "@redline/shared";
 
 /** A pin being placed: it has no number and no id until its first text is saved. */
 export interface DraftPin {
@@ -38,8 +38,26 @@ export function pinHiddenWhy(pin: ReviewPin, example: ArtboardRef, shown: Artboa
   return { kind: "state", seenIn: pin.seenIn ?? "un autre état" };
 }
 
-/** The element's name as the bridge gives it (role and visible text, such as `titre « Budget »`), or the selector of an element that has no name. */
-export const pinTargetLabel = (pin: Pick<ReviewPin, "target">): string => pin.target.elementName ?? pin.target.selector;
+/** The element's name as the bridge gives it (role and visible text, such as `titre « Budget »`), or the selector of an element that has no name; "Zone" for a zone. */
+export const pinTargetLabel = (pin: Pick<ReviewPin, "target">): string => (pin.target.kind === "zone" ? "Zone" : (pin.target.elementName ?? pin.target.selector));
+
+/** A drag shorter than this (in artboard pixels) in either direction is an Alt + click, not a zone. */
+export const MIN_ZONE_SIZE = 6;
+
+/**
+ * The zone drawn by an Alt + drag from `start` to `end` (artboard pixels, any corner first), in percent of `box` and clamped to it.
+ * Undefined when the drag is too short to be a zone: it counts as a click.
+ */
+export function zoneFromDrag(start: { x: number; y: number }, end: { x: number; y: number }, box: { width: number; height: number }): ReviewZoneTarget | undefined {
+  const clamp = (value: number, max: number) => Math.min(max, Math.max(0, value));
+  const left = clamp(Math.min(start.x, end.x), box.width);
+  const right = clamp(Math.max(start.x, end.x), box.width);
+  const top = clamp(Math.min(start.y, end.y), box.height);
+  const bottom = clamp(Math.max(start.y, end.y), box.height);
+  if (Math.abs(end.x - start.x) < MIN_ZONE_SIZE || Math.abs(end.y - start.y) < MIN_ZONE_SIZE || right - left <= 0 || bottom - top <= 0) return undefined;
+  const pct = (value: number, total: number) => Math.round((value / total) * 10_000) / 100;
+  return { kind: "zone", space: "artboard", xPct: pct(left, box.width), yPct: pct(top, box.height), wPct: pct(right - left, box.width), hPct: pct(bottom - top, box.height) };
+}
 
 /** How many pins sit before each one on the same spot (two pins of one element): the stage shifts each by that many steps. */
 export function pinOffsets(positions: readonly { id: string; xPct: number; yPct: number }[]): Record<string, number> {
@@ -57,11 +75,10 @@ export function popoverPlacement(at: { xPct: number; yPct: number }, box: { widt
   return { horizontal: x + panel.width > box.width ? "left" : "right", vertical: y + panel.height > box.height ? "above" : "below" };
 }
 
-/** "Tes épingles et ta remarque remplacent ton OK pour cette étape." */
-export function feedbackReplacesOk(pinCount: number, hasRemark: boolean): string {
-  const pins = pinCount === 1 ? "ton épingle" : pinCount > 1 ? "tes épingles" : undefined;
-  const remark = hasRemark ? "ta remarque" : undefined;
-  const subject = [pins, remark].filter(Boolean).join(" et ");
-  const plural = pinCount > 1 || (pins !== undefined && remark !== undefined);
+/** "Tes épingles, ta zone et ta remarque remplacent ton OK pour cette étape." */
+export function feedbackReplacesOk(pinCount: number, hasRemark: boolean, zoneCount = 0): string {
+  const subjects = [pinCount === 1 ? "ton épingle" : pinCount > 1 ? "tes épingles" : undefined, zoneCount === 1 ? "ta zone" : zoneCount > 1 ? "tes zones" : undefined, hasRemark ? "ta remarque" : undefined].filter((subject) => subject !== undefined);
+  const subject = subjects.length > 1 ? `${subjects.slice(0, -1).join(", ")} et ${subjects.at(-1)}` : (subjects[0] ?? "");
+  const plural = pinCount > 1 || zoneCount > 1 || subjects.length > 1;
   return `${subject.charAt(0).toUpperCase()}${subject.slice(1)} ${plural ? "remplacent" : "remplace"} ton OK pour cette étape.`;
 }

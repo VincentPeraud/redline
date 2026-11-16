@@ -162,3 +162,31 @@ describe("pins at fetch", () => {
     expect(answer).toMatch(/\(vu en Mobile/);
   });
 });
+
+const ZONE = { kind: "zone", space: "artboard", xPct: 64, yPct: 18.25, wPct: 28, hPct: 26 };
+const addZone = (reviewId: string, stepId: string, text: string, extra: Record<string, unknown> = {}) => send("POST", `/api/change-reviews/${reviewId}/steps/${stepId}/pins`, { text, target: ZONE, ...extra });
+
+describe("zones", () => {
+  it("saves a zone with the pins' numbering, and refuses a rectangle outside the artboard", async () => {
+    const { reviewId, stepId } = await declared();
+    await addPin(reviewId, stepId, "Pin");
+
+    expect((await addZone(reviewId, stepId, "Zone")).status).toBe(200);
+    expect((await addZone(reviewId, stepId, "Out", { target: { ...ZONE, xPct: 80, wPct: 40 } })).status).toBe(400);
+    expect((await addZone(reviewId, stepId, "Flat", { target: { ...ZONE, hPct: 0 } })).status).toBe(400);
+
+    expect((await reviewOf(reviewId)).steps[0]!.pins).toMatchObject([{ number: 1, text: "Pin" }, { number: 2, text: "Zone", target: ZONE, mine: true }]);
+  });
+
+  it("gives a zone as a zone thread with its rectangle and describes it to Claude", async () => {
+    const { terminal, reviewId, pageId, stepId } = await declared();
+    await addZone(reviewId, stepId, "Participants under decisions", { rendering: { format: "desktop", width: 1440 } });
+    await send("POST", `/api/change-reviews/${reviewId}/finish`);
+
+    const answer = await terminal.call("review_feedback", { reviewId });
+
+    expect(await threadsOf(pageId)).toMatchObject([{ body: "Participants under decisions", artboard: "list.html", fromReviewAt: expect.any(String), target: { kind: "zone", space: "artboard", artboard: "list.html", xPct: 64, yPct: 18.25, wPct: 28, hPct: 26, rendering: { format: "desktop", width: 1440 } } }]);
+    expect(answer).toMatch(/1\. zone x 64 % · y 18\.3 % · 28 % × 26 % de l'artboard \(vu en Desktop\) by "[^"]*" · thread [0-9a-f-]+/);
+    expect(answer).toContain("> Participants under decisions");
+  });
+});

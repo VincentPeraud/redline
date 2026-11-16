@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReviewPin } from "@redline/shared";
-import { feedbackReplacesOk, popoverPlacement, pinHiddenWhy, pinIsShown, pinOffsets } from "../src/reviewPinRules.js";
+import { zoneFromDrag, feedbackReplacesOk, popoverPlacement, pinHiddenWhy, pinIsShown, pinOffsets } from "../src/reviewPinRules.js";
 
 const pin = (extra: Partial<ReviewPin> = {}): ReviewPin => ({ id: "p1", number: 1, text: "Fix", target: { selector: "h1", xPct: 10, yPct: 10 }, at: "2026-11-16T10:00:00Z", mine: true, ...extra });
 const example = { pageId: "p", artboard: "a.html" };
@@ -63,5 +63,26 @@ describe("what the step says about feedback and the OK", () => {
     expect(feedbackReplacesOk(2, false)).toBe("Tes épingles remplacent ton OK pour cette étape.");
     expect(feedbackReplacesOk(0, true)).toBe("Ta remarque remplace ton OK pour cette étape.");
     expect(feedbackReplacesOk(2, true)).toBe("Tes épingles et ta remarque remplacent ton OK pour cette étape.");
+    expect(feedbackReplacesOk(1, false, 1)).toBe("Ton épingle et ta zone remplacent ton OK pour cette étape.");
+    expect(feedbackReplacesOk(0, false, 1)).toBe("Ta zone remplace ton OK pour cette étape.");
+    expect(feedbackReplacesOk(2, true, 1)).toBe("Tes épingles, ta zone et ta remarque remplacent ton OK pour cette étape.");
+  });
+});
+
+describe("drawing a zone with Alt + drag", () => {
+  const box = { width: 1000, height: 800 };
+
+  it("gives the rectangle in percent of the artboard, whichever corner the drag starts from", () => {
+    expect(zoneFromDrag({ x: 640, y: 160 }, { x: 920, y: 400 }, box)).toEqual({ kind: "zone", space: "artboard", xPct: 64, yPct: 20, wPct: 28, hPct: 30 });
+    expect(zoneFromDrag({ x: 920, y: 400 }, { x: 640, y: 160 }, box)).toEqual({ kind: "zone", space: "artboard", xPct: 64, yPct: 20, wPct: 28, hPct: 30 });
+  });
+
+  it("keeps the zone inside the artboard", () => {
+    expect(zoneFromDrag({ x: -50, y: 700 }, { x: 400, y: 900 }, box)).toEqual({ kind: "zone", space: "artboard", xPct: 0, yPct: 87.5, wPct: 40, hPct: 12.5 });
+  });
+
+  it("counts a very short drag as a click", () => {
+    expect(zoneFromDrag({ x: 100, y: 100 }, { x: 104, y: 103 }, box)).toBeUndefined();
+    expect(zoneFromDrag({ x: 100, y: 100 }, { x: 300, y: 103 }, box)).toBeUndefined();
   });
 });

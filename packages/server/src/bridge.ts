@@ -5,7 +5,7 @@ import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokens
  * Script injected into every served artboard HTML. Artboards run in a sandboxed iframe with an
  * opaque origin, so the web UI cannot touch their DOM: it talks to this bridge by postMessage.
  *
- * Parent -> artboard: { type: "redline:set-mode", picking: boolean, selecting: boolean, alt: boolean }  (selecting: the conversation's selection mode, which hovers and picks like comment mode; alt: the Alt key is held in the parent page, where keyboard focus usually is)
+ * Parent -> artboard: { type: "redline:set-mode", picking: boolean, selecting: boolean, alt: boolean, zones?: boolean }  (zones: Alt + drag draws a zone, reported as redline:zone-drag then redline:zone; selecting: the conversation's selection mode, which hovers and picks like comment mode; alt: the Alt key is held in the parent page, where keyboard focus usually is)
  *                     { type: "redline:set-pins", pins: [{ id, selector, elementName?, xPct, yPct, instanceState? }] }  (a selector "<instance> >>> <path>" anchors inside a component instance, see INSTANCE_ANCHOR_SEPARATOR; instanceState: the state the thread was written in)
  *                     { type: "redline:replay-state", id }  (sets the remembered instance state of the pin with that id, then reports the pins again)
  *                     { type: "redline:set-marks", marks: [{ number, selector }] }  (numbered selection marks, drawn whenever there are some)
@@ -17,6 +17,9 @@ import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokens
  *                     (comment mode, and Alt held in interactive mode, draw the hover outline and label in an overlay of the artboard document)
  * Artboard -> parent: { type: "redline:ready" }
  *                     { type: "redline:picked", selector, elementName, xPct, yPct, instanceState? }  (elementName: role + short visible text, e.g. bouton « Continuer »; instanceState: [{ selector, attributes }] of the instances that left their state at load, e.g. { open: "" })
+ *                     { type: "redline:zone-drag", from: { x, y }, to: { x, y }, doc: { w, h } }  (an Alt + drag in progress, in page pixels; a drag short in either direction is left to the click)
+ *                     { type: "redline:zone", from, to, doc }  (the Alt + drag ended; the click that follows is swallowed)
+ *                     { type: "redline:zone-cancel" }
  *                     { type: "redline:escape" }  (Escape pressed in selection mode: the iframe holds the keyboard focus, so the parent cannot hear it)
  *                     { type: "redline:key", key: "ArrowLeft" | "ArrowRight" }  (arrow pressed with no modifier outside a text field: the iframe holds the keyboard focus, so play mode cannot hear it)
  *                     { type: "redline:pin-positions", positions: [{ id, xPct, yPct, matched, elementGone?, elementLost?, hidden?, missingState? }] }  (a matched pin sits on its element's top-right corner; when the element at the selector no longer has the thread's elementName, the element of that name is used instead; elementLost: none has it, the pin keeps its stored position; elementGone: the element inside the instance no longer exists, the pin sits on the instance; hidden: the pin's remembered state does not hold now; missingState: indexes of the state entries that cannot be replayed any more)
@@ -95,6 +98,10 @@ export const BRIDGE_SOURCE = `(function () {
   var forwardWheel = false;
   var pins = [];
   var linkSelectors = null;
+  var zones = false;
+  var zoneDrag = null;
+  var swallowClick = false;
+  var MIN_ZONE = 6;
 
   function docSize() {
     var root = document.documentElement;
@@ -748,7 +755,44 @@ export const BRIDGE_SOURCE = `(function () {
     reportTopColour();
   }, true);
 
+  function pagePoint(event) {
+    return { x: event.clientX + (window.scrollX || 0), y: event.clientY + (window.scrollY || 0) };
+  }
+
+  document.addEventListener("pointerdown", function (event) {
+    if (!zones || !event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    zoneDrag = { from: pagePoint(event), moved: false };
+    if (event.target && event.target.setPointerCapture) event.target.setPointerCapture(event.pointerId);
+  }, true);
+  document.addEventListener("pointermove", function (event) {
+    if (!zoneDrag) return;
+    var to = pagePoint(event);
+    zoneDrag.moved = Math.abs(to.x - zoneDrag.from.x) >= MIN_ZONE && Math.abs(to.y - zoneDrag.from.y) >= MIN_ZONE;
+    if (zoneDrag.moved) send({ type: "redline:zone-drag", from: zoneDrag.from, to: to, doc: docSize() });
+  }, true);
+  document.addEventListener("pointerup", function (event) {
+    if (!zoneDrag) return;
+    var drag = zoneDrag;
+    zoneDrag = null;
+    if (!drag.moved) return;
+    swallowClick = true;
+    setTimeout(function () { swallowClick = false; }, 0);
+    send({ type: "redline:zone", from: drag.from, to: pagePoint(event), doc: docSize() });
+  }, true);
+  document.addEventListener("pointercancel", function () {
+    if (!zoneDrag) return;
+    if (zoneDrag.moved) send({ type: "redline:zone-cancel" });
+    zoneDrag = null;
+  }, true);
+
   document.addEventListener("click", function (event) {
+    if (swallowClick) {
+      swallowClick = false;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (linkSelectors) {
       var link = matchLink(event.target);
       if (link !== null) {
@@ -780,6 +824,7 @@ export const BRIDGE_SOURCE = `(function () {
       picking = !!event.data.picking;
       selecting = !!event.data.selecting;
       altHeld = !!event.data.alt;
+      zones = !!event.data.zones;
       forwardWheel = !!event.data.forwardWheel;
       document.documentElement.style.cursor = picking || selecting ? "crosshair" : "";
       drawHover();

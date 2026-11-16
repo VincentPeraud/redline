@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { renderingKey, type ArtboardRef, type ChangeReview, type ChangeReviewStep, type ReviewPin } from "@redline/shared";
+import { describeZone, renderingKey, type ArtboardRef, type ChangeReview, type ChangeReviewStep, type ReviewPin, type ReviewPinTarget, type ReviewZoneTarget } from "@redline/shared";
 import type { Pick } from "./ArtboardFrame.js";
 import { cx } from "./ui/index.js";
 import { useAltKey } from "./useAltKey.js";
 import { personName } from "./ReviewRemark.js";
-import { type DraftPin, type PinView, pinHiddenWhy, pinIsShown, pinOffsets, pinTargetLabel, popoverPlacement } from "./reviewPinRules.js";
+import { type DraftPin, type PinView, pinHiddenWhy, pinIsShown, pinOffsets, pinTargetLabel, popoverPlacement, zoneFromDrag } from "./reviewPinRules.js";
 import { type StepControls } from "./useReviewControls.js";
 import { titleOfArtboard } from "./reviewView.js";
 import styles from "./ReviewScreen.module.css";
@@ -50,6 +50,7 @@ export interface PinsController {
   retryNonce: number;
   retry: () => void;
   place: (pick: Pick) => void;
+  placeZone: (zone: ReviewZoneTarget) => void;
   openEdit: (pinId: string) => void;
   close: () => void;
   save: (text: string) => Promise<boolean>;
@@ -112,14 +113,14 @@ export function useReviewPins({ review, step, shown, controls, api }: { review: 
     [],
   );
 
-  const place = useCallback(
-    (pick: Pick) => {
+  const startDraft = useCallback(
+    (target: ReviewPinTarget) => {
       if (finished || controls.showBefore) return;
       const onExample = shown.pageId === step.pageId && shown.artboard === step.artboard;
       const rendering = controls.rendering && shown.artboardEntry?.responsive ? { format: controls.rendering.format, width: controls.rendering.width } : undefined;
       const draft: DraftPin = {
         key: ++keys.current,
-        target: { selector: pick.selector, xPct: pick.xPct, yPct: pick.yPct, ...(pick.elementName ? { elementName: pick.elementName } : {}), ...(pick.instanceState ? { instanceState: pick.instanceState } : {}) },
+        target,
         ...(onExample ? {} : { on: { pageId: shown.pageId, artboard: shown.artboard } }),
         ...(rendering ? { rendering } : {}),
         ...(controls.tweaks.length > 0 ? { tweaks: controls.values } : {}),
@@ -128,6 +129,11 @@ export function useReviewPins({ review, step, shown, controls, api }: { review: 
       setPicking(false);
     },
     [finished, controls.showBefore, controls.rendering, controls.tweaks.length, controls.values, shown, step.pageId, step.artboard],
+  );
+
+  const place = useCallback(
+    (pick: Pick) => startDraft({ selector: pick.selector, xPct: pick.xPct, yPct: pick.yPct, ...(pick.elementName ? { elementName: pick.elementName } : {}), ...(pick.instanceState ? { instanceState: pick.instanceState } : {}) }),
+    [startDraft],
   );
 
   const save = useCallback(
@@ -195,6 +201,7 @@ export function useReviewPins({ review, step, shown, controls, api }: { review: 
     retryNonce,
     retry: () => setRetryNonce((nonce) => nonce + 1),
     place,
+    placeZone: startDraft,
     openEdit: (pinId) => setEditor({ key: ++keys.current, pinId }),
     close: () => setEditor(undefined),
     save,
@@ -205,6 +212,11 @@ export function useReviewPins({ review, step, shown, controls, api }: { review: 
     onUnsaved: api.onUnsaved,
   };
 }
+
+type Point = { x: number; y: number };
+
+/** An artboard zone laid over the stage: its rectangle in percent of the artboard. */
+const zoneStyle = (zone: Extract<ReviewZoneTarget, { space: "artboard" }>) => ({ left: `${zone.xPct}%`, top: `${zone.yPct}%`, width: `${zone.wPct}%`, height: `${zone.hPct}%` });
 
 interface Reported {
   id: string;
@@ -219,20 +231,34 @@ interface Reported {
 export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { frame: RefObject<HTMLIFrameElement>; bridgeEpoch: number; size: { width: number; height: number }; example: ChangeReviewStep; shown: ChangeReviewStep; pins: PinsController }) {
   const alt = useAltKey();
   const [positions, setPositions] = useState<Reported[]>([]);
+  /** The rectangle being drawn with Alt + drag, in percent of the artboard. */
+  const [drawing, setDrawing] = useState<ReviewZoneTarget | undefined>();
   const onPlaceRef = useRef(pins.place);
   onPlaceRef.current = pins.place;
+  const onZoneRef = useRef(pins.placeZone);
+  onZoneRef.current = pins.placeZone;
   const exampleRef: ArtboardRef = { pageId: example.pageId, artboard: example.artboard };
   const shownRef: ArtboardRef = { pageId: shown.pageId, artboard: shown.artboard };
   const onStage = [...pins.mine, ...pins.theirs].filter((pin) => !pins.deleting[pin.id] && pinIsShown(pin, exampleRef, shownRef, pins.view));
   const draft = pins.editor?.draft;
+  const zones = [...onStage.flatMap((pin) => (pin.target.kind === "zone" ? [{ id: pin.id, pin, target: pin.target }] : [])), ...(draft?.target.kind === "zone" ? [{ id: "draft", pin: undefined, target: draft.target }] : [])];
+  const elementPins = onStage.filter((pin) => pin.target.kind !== "zone");
+  const draftElement = draft && draft.target.kind !== "zone" ? draft.target : undefined;
   const placeable = !pins.finished && !pins.view.showBefore;
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow) return;
-      const data = event.data as { type?: string; positions?: Reported[] } & Partial<Pick>;
+      const data = event.data as { type?: string; positions?: Reported[]; from?: Point; to?: Point; doc?: { w: number; h: number } } & Partial<Pick>;
       if (data.type === "redline:pin-positions") setPositions(data.positions ?? []);
       else if (data.type === "redline:picked") onPlaceRef.current(data as Pick);
+      else if (data.type === "redline:zone-drag" || data.type === "redline:zone") {
+        const zone = zoneFromDrag(data.from!, data.to!, { width: data.doc!.w, height: data.doc!.h });
+        if (data.type === "redline:zone") {
+          setDrawing(undefined);
+          if (zone) onZoneRef.current(zone);
+        } else setDrawing(zone);
+      } else if (data.type === "redline:zone-cancel") setDrawing(undefined);
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -240,23 +266,23 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { f
 
   useEffect(() => {
     if (bridgeEpoch === 0) return;
-    frame.current?.contentWindow?.postMessage({ type: "redline:set-mode", picking: pins.picking && placeable, selecting: false, alt: alt && placeable, forwardWheel: false }, "*");
+    frame.current?.contentWindow?.postMessage({ type: "redline:set-mode", picking: pins.picking && placeable, selecting: false, alt: alt && placeable, zones: placeable, forwardWheel: false }, "*");
   }, [frame, bridgeEpoch, pins.picking, placeable, alt]);
 
-  const pinsKey = JSON.stringify([onStage.map((pin) => [pin.id, pin.target]), draft?.target]);
+  const pinsKey = JSON.stringify([elementPins.map((pin) => [pin.id, pin.target]), draftElement]);
   useEffect(() => {
     if (bridgeEpoch === 0) return;
-    const sent = [...onStage.map((pin) => ({ id: pin.id, ...pin.target })), ...(draft ? [{ id: "draft", ...draft.target }] : [])];
+    const sent = [...elementPins.flatMap((pin) => (pin.target.kind === "zone" ? [] : [{ id: pin.id, ...pin.target }])), ...(draftElement ? [{ id: "draft", ...draftElement }] : [])];
     frame.current?.contentWindow?.postMessage({ type: "redline:set-pins", pins: sent }, "*");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinsKey, bridgeEpoch]);
 
   // Whether a pin's element is still found in the current artboard is told to the server (once settled), so that Claude hears of a lost element at fetch.
-  const lostKey = JSON.stringify(onStage.map((pin) => [pin.id, pin.lost === true, positions.find((entry) => entry.id === pin.id)?.matched, positions.find((entry) => entry.id === pin.id)?.elementLost]));
+  const lostKey = JSON.stringify(elementPins.map((pin) => [pin.id, pin.lost === true, positions.find((entry) => entry.id === pin.id)?.matched, positions.find((entry) => entry.id === pin.id)?.elementLost]));
   useEffect(() => {
     if (pins.finished || positions.length === 0) return;
     const timer = setTimeout(() => {
-      for (const pin of onStage) {
+      for (const pin of elementPins) {
         const reported = positions.find((entry) => entry.id === pin.id);
         if (!reported || reported.hidden) continue;
         const lost = !reported.matched || reported.elementLost === true;
@@ -267,18 +293,21 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { f
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lostKey]);
 
-  const placed = [...onStage, ...(draft ? [{ id: "draft" }] : [])];
+  const placed = [...elementPins, ...(draftElement ? [{ id: "draft" }] : [])];
   const resolved = placed.flatMap((entry) => {
-    const pin = onStage.find((candidate) => candidate.id === entry.id);
-    const stored = pin?.target ?? draft!.target;
+    const pin = elementPins.find((candidate) => candidate.id === entry.id);
+    const stored = pin?.target ?? draftElement!;
+    if (stored.kind === "zone") return [];
     const reported = positions.find((position) => position.id === entry.id);
     if (reported?.hidden) return [];
     return [{ id: entry.id, pin, xPct: reported?.matched ? reported.xPct : stored.xPct, yPct: reported?.matched ? reported.yPct : stored.yPct, matched: reported?.matched === true, lost: reported !== undefined && (!reported.matched || reported.elementLost === true) }];
   });
   const offsets = pinOffsets(resolved);
   const [hovered, setHovered] = useState<string | undefined>();
-  const editing = pins.editor && resolved.find((entry) => entry.id === (pins.editor!.pinId ?? "draft"));
-  const hover = hovered === undefined ? undefined : resolved.find((entry) => entry.id === hovered && entry.pin && !entry.pin.mine);
+  const editingZone = pins.editor && zones.find((zone) => zone.id === (pins.editor!.pinId ?? "draft"));
+  const editing = pins.editor && (editingZone && editingZone.target.space === "artboard" ? { id: editingZone.id, pin: editingZone.pin, xPct: editingZone.target.xPct + editingZone.target.wPct, yPct: editingZone.target.yPct + editingZone.target.hPct } : resolved.find((entry) => entry.id === (pins.editor!.pinId ?? "draft")));
+  const hoverZone = hovered === undefined ? undefined : zones.find((zone) => zone.id === hovered && zone.pin && !zone.pin.mine);
+  const hover = hovered === undefined ? undefined : (resolved.find((entry) => entry.id === hovered && entry.pin && !entry.pin.mine) ?? (hoverZone && hoverZone.target.space === "artboard" ? { pin: hoverZone.pin, xPct: hoverZone.target.xPct, yPct: hoverZone.target.yPct } : undefined));
   const anchorStyle = (entry: { xPct: number; yPct: number; matched: boolean }, offset: number) =>
     entry.matched
       ? { right: `calc(${100 - entry.xPct}% + ${offset * PIN_SHIFT}px)`, top: `${entry.yPct}%` }
@@ -302,6 +331,33 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { f
 
   return (
     <div className={styles.pinLayer} data-testid="review-pin-layer">
+      {drawing && drawing.space === "artboard" && <div className={styles.zone} style={zoneStyle(drawing)} data-testid="review-zone-drawing" />}
+      {zones.map((zone) => {
+        if (zone.target.space !== "artboard") return null;
+        const pin = zone.pin;
+        const mine = pin?.mine ?? true;
+        const number = pin?.number ?? pins.draftNumber;
+        const label = pin ? (pin.mine ? `Zone ${pin.number}` : `Zone ${pin.number} de ${personName(pin.person)}`) : "Nouvelle zone";
+        return (
+          <div key={zone.id} className={cx(styles.zone, !mine && styles.zoneTheirs)} style={zoneStyle(zone.target)} data-zone={number} data-zone-mine={mine}>
+            <button
+              type="button"
+              data-pin={number}
+              data-pin-mine={mine}
+              aria-label={label}
+              className={cx(styles.pin, styles.zonePin, !mine && styles.pinTheirs)}
+              onMouseEnter={() => setHovered(zone.id)}
+              onMouseLeave={() => setHovered(undefined)}
+              onFocus={() => setHovered(zone.id)}
+              onBlur={() => setHovered(undefined)}
+              onClick={() => (pin?.mine && !pins.finished ? pins.openEdit(pin.id) : undefined)}
+            >
+              {number}
+            </button>
+            {!pin && <span className={styles.zoneSize}>Zone</span>}
+          </div>
+        );
+      })}
       {resolved.map((entry) => {
         const pin = entry.pin;
         const number = pin?.number ?? pins.draftNumber;
@@ -329,7 +385,7 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { f
       {hover?.pin && (
         <div role="tooltip" className={styles.pinTip} style={tooltipStyle(hover)}>
           <b>
-            {personName(hover.pin.person)} · épingle {hover.pin.number}
+            {personName(hover.pin.person)} · {hover.pin.target.kind === "zone" ? "zone" : "épingle"} {hover.pin.number}
           </b>
           {hover.pin.text}
           <span>Lecture seule : seul {personName(hover.pin.person)} peut la changer.</span>
@@ -340,7 +396,8 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { f
           <PinPopover
             key={pins.editor.key}
             number={editing.pin?.number ?? pins.draftNumber}
-            label={editing.pin ? pinTargetLabel(editing.pin) : draft!.target.elementName ?? draft!.target.selector}
+            zone={editingZone !== undefined}
+            label={editing.pin ? pinTargetLabel(editing.pin) : draftElement ? (draftElement.elementName ?? draftElement.selector) : "Zone"}
             saved={editing.pin}
             pins={pins}
           />
@@ -351,7 +408,7 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { f
 }
 
 /** The panel next to a pin: its text saved on its own while typing, "Effacer" (with "Annuler" in the list) and "Fermer". An empty pin disappears on close. */
-function PinPopover({ number, label, saved, pins }: { number: number; label: string; saved: ReviewPin | undefined; pins: PinsController }) {
+function PinPopover({ number, zone, label, saved, pins }: { number: number; zone: boolean; label: string; saved: ReviewPin | undefined; pins: PinsController }) {
   const savedText = saved?.text;
   const [text, setText] = useState(savedText ?? "");
   const [copied, setCopied] = useState(false);
@@ -419,18 +476,18 @@ function PinPopover({ number, label, saved, pins }: { number: number; label: str
           : "Vide : rien n'est gardé si tu fermes";
 
   return (
-    <div role="dialog" aria-label={`Épingle ${number}`} className={styles.pop}>
+    <div role="dialog" aria-label={`${zone ? "Zone" : "Épingle"} ${number}`} className={styles.pop}>
       <div className={styles.popHead}>
         <span className={cx(styles.pin, styles.pinStatic)}>{number}</span>
-        <span className={styles.popTarget}>Sur {label}</span>
+        <span className={styles.popTarget}>{zone ? label : `Sur ${label}`}</span>
       </div>
       <textarea
         ref={field}
-        aria-label="Ton épingle"
+        aria-label={zone ? "Ta zone" : "Ton épingle"}
         className={styles.textarea}
         readOnly={finished}
         value={text}
-        placeholder="Ce qui ne va pas sur cet élément"
+        placeholder={zone ? "Ce qui ne va pas dans cette zone" : "Ce qui ne va pas sur cet élément"}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => event.key === "Escape" && void close()}
       />
@@ -517,7 +574,7 @@ export function PinsSection({ step, shown, pins, onShow }: { step: ChangeReviewS
             return (
               <div key={pin.id} className={styles.pi}>
                 <span className={styles.pinBody}>
-                  <span className={styles.piOn}>Épingle {pin.number} effacée</span>
+                  <span className={styles.piOn}>{pin.target.kind === "zone" ? "Zone" : "Épingle"} {pin.number} effacée</span>
                   <span>
                     <button type="button" className={styles.linkButton} onClick={() => pins.undoDelete(pin.id)}>
                       Annuler

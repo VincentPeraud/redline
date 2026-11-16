@@ -1,4 +1,4 @@
-import type { ManifestArtboard, ManifestTweak, ThreadRendering, TweakValues } from "./index.js";
+import type { ManifestArtboard, ManifestTweak, ThreadRendering, TweakValues, ZoneRect } from "./index.js";
 import type { InstanceState } from "./instanceState.js";
 import type { Person } from "./people.js";
 
@@ -99,8 +99,10 @@ export interface ChangeReviewAnswer {
   on?: ArtboardRef;
 }
 
-/** What a pin sits on: an element of an artboard, found again by its selector and name (zones and canvas elements join this type later). */
-export interface ReviewPinTarget {
+/** A pin on an element of an artboard, found again by its selector and name (canvas elements join the union later). */
+export interface ReviewElementTarget {
+  /** Absent on pins saved before zones existed. */
+  kind?: "element";
   selector: string;
   /** The element's role and short visible text, to find it again when the selector no longer matches. */
   elementName?: string;
@@ -111,8 +113,23 @@ export interface ReviewPinTarget {
   instanceState?: InstanceState[];
 }
 
+/** A zone a reviewer drew: a rectangle of the artboard (percent) or, on a canvas step, of the page canvas (pixels). */
+export type ReviewZoneTarget = { kind: "zone" } & ZoneRect;
+
+/** What a pin sits on. */
+export type ReviewPinTarget = ReviewElementTarget | ReviewZoneTarget;
+
+const oneDecimal = (value: number): string => String(Math.round(value * 10) / 10);
+
+/** "zone x 64 % · y 18 % · 28 % × 26 % de l'artboard" (one decimal at most), or in pixels "du canevas". */
+export function describeZone(zone: ZoneRect): string {
+  return zone.space === "artboard"
+    ? `zone x ${oneDecimal(zone.xPct)} % · y ${oneDecimal(zone.yPct)} % · ${oneDecimal(zone.wPct)} % × ${oneDecimal(zone.hPct)} % de l'artboard`
+    : `zone x ${oneDecimal(zone.x)} px · y ${oneDecimal(zone.y)} px · ${oneDecimal(zone.w)} px × ${oneDecimal(zone.h)} px du canevas`;
+}
+
 /**
- * A reviewer's pin on one element of a step's artboard. Unlike an answer there are several per person and step; numbers are per step, in creation order across members.
+ * A reviewer's pin on one element of a step's artboard, or a zone drawn on it. Unlike an answer there are several per person and step; numbers are per step, in creation order across members.
  * `mine` tells the viewer whether they placed it.
  */
 export interface ReviewPin {
@@ -387,6 +404,8 @@ export interface ChangeReviewPinResult {
   alsoValidatedBy: string[];
   /** "Mobile · Brouillon": it was placed in another rendering or state than the default. */
   seenIn?: string;
+  /** The rendering it was placed in, so a zone can say "vu en Desktop" even on the default one. */
+  rendering?: ThreadRendering;
   /** The element was not found in the current artboard: the thread sits at its last position. */
   elementLost?: boolean;
   artboardModified?: boolean;
@@ -428,6 +447,7 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
           text: pin.text,
           alsoValidatedBy: step.answers.filter((other) => other.kind === "ok" && !other.outdated).map(nameOfAnswer),
           ...(pin.seenIn ? { seenIn: pin.seenIn } : {}),
+          ...(pin.rendering ? { rendering: pin.rendering } : {}),
           ...(pin.lost ? { elementLost: true } : {}),
           ...(pin.outdated ? { artboardModified: true } : {}),
           ...(step.removed ? { removed: step.removed } : {}),

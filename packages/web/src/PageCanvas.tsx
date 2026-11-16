@@ -621,7 +621,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const draftInfo: Draft | null = useMemo(() => draft && { label: draftLabel(draft) }, [draft]);
   // A resolved thread no longer marks the canvas, unless it is unfolded in the comments panel.
   const pinnedThreads = threads.filter((t) => t.status !== "resolved" || unfoldedResolved.has(t.id));
-  const pinnedOn = (file: string) => pinnedThreads.filter((t) => t.target.kind === "element" && t.artboard === file);
+  const pinnedOn = (file: string) => pinnedThreads.filter((t) => (t.target.kind === "element" || (t.target.kind === "zone" && t.target.space === "artboard")) && t.artboard === file);
   const wholeArtboardThreads = (file: string) => threads.filter((t) => t.target.kind === "artboard" && t.artboard === file && t.status !== "resolved");
   const hiddenOf = (artboard: Manifest["artboards"][number]) => (artboard.responsive ? hiddenRenderingKeys(artboard.responsive, viewSettings, artboard.file) : new Set<string>());
   const layoutOf = (artboard: Manifest["artboards"][number]) =>
