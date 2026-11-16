@@ -246,7 +246,8 @@
   align-items: center;
   justify-content: center;
   min-width: 0;
-  padding: var(--space-8);
+  /* The bottom padding keeps a fitted artboard clear of the shortcut reminder (16px from the bottom, 32px high). */
+  padding: var(--space-8) var(--space-8) calc(var(--space-8) + 24px);
   --tweaks-width: 320px;
 }
 
@@ -1920,6 +1921,15 @@
   flex: 0 0 auto;
 }
 
+/* The save error gets its own line: squeezed beside the buttons it wrapped word by word. */
+.popFoot {
+  flex-wrap: wrap;
+}
+
+.popFoot .errorLine {
+  flex: 1 1 100%;
+}
+
 /* The shortcut reminder under the artboard. */
 .pinHint {
   position: absolute;
@@ -1943,6 +1953,7 @@
 /* On a tall artboard the stage scrolls: the reminder stays at the bottom of what is visible. */
 .pinHintSticky {
   position: sticky;
+  display: flex;
   bottom: 0;
   left: auto;
   transform: none;

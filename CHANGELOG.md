@@ -8,6 +8,7 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ### Changed
 
+- Review mode, visual pass on the pins lot: the numbered frame of a target is kept inside the artboard, pins straddle their element's top-right corner like the mock-up, the shortcut reminder is centred on a tall artboard and clears a fitted one, the pin popover keeps its save error readable, and the pin undo row matches the remark one.
 - Review mode: Habillage, Repères and Tweaks are icon buttons (tooltip and accessible name) so the top bar fits at 1440 px. Feedback is called "retours" in the banner, recap counters, confirmations, error and finished screens and `review_feedback`; the step chip stays "Remarque" and the field is "Remarque générale".
 
 ### Added

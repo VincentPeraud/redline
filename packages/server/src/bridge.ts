@@ -684,13 +684,18 @@ export const BRIDGE_SOURCE = `(function () {
       // A hidden element (display: none, or a closed state) has no box to frame.
       if (typeof found.el.checkVisibility === "function" && !found.el.checkVisibility()) return;
       var rect = found.el.getBoundingClientRect();
+      // The frame sits 5px outside its element: kept inside the document so an element flush with an edge is not cut.
+      var docWidth = Math.max(document.documentElement.scrollWidth, document.documentElement.clientWidth);
+      var frameLeft = Math.max(1, rect.left + sx - 5);
+      var frameTop = Math.max(1, rect.top + sy - 5);
+      var frameRight = Math.min(docWidth - 1, rect.right + sx + 5);
       var outline = document.createElement("div");
       outline.setAttribute("data-part", "outline");
-      outline.style.cssText = "position: absolute; box-sizing: border-box; left: " + (rect.left + sx - 5) + "px; top: " + (rect.top + sy - 5) + "px; width: " + (rect.width + 10) + "px; height: " + (rect.height + 10) + "px; border: 2px dashed " + COMPARE_COLOR + "; border-radius: " + markerRadius(found.el, rect);
+      outline.style.cssText = "position: absolute; box-sizing: border-box; left: " + frameLeft + "px; top: " + frameTop + "px; width: " + (frameRight - frameLeft) + "px; height: " + (rect.bottom + sy + 5 - frameTop) + "px; border: 2px dashed " + COMPARE_COLOR + "; border-radius: " + markerRadius(found.el, rect);
       var badge = document.createElement("div");
       badge.setAttribute("data-part", "badge");
       badge.textContent = String(marker.number);
-      badge.style.cssText = "position: absolute; left: " + (rect.right + sx - 6) + "px; top: " + (rect.top + sy - 14) + "px; width: 20px; height: 20px; border-radius: 50%; background: " + COMPARE_COLOR + "; color: #FFFFFF; font: 600 11px/20px Inter, system-ui, sans-serif; text-align: center";
+      badge.style.cssText = "position: absolute; left: " + Math.min(rect.right + sx - 6, docWidth - 21) + "px; top: " + Math.max(1, rect.top + sy - 14) + "px; width: 20px; height: 20px; border-radius: 50%; background: " + COMPARE_COLOR + "; color: #FFFFFF; font: 600 11px/20px Inter, system-ui, sans-serif; text-align: center";
       root.appendChild(outline);
       root.appendChild(badge);
     });

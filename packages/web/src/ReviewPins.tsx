@@ -5,7 +5,7 @@ import { cx } from "./ui/index.js";
 import { useAltKey } from "./useAltKey.js";
 import { personName } from "./ReviewRemark.js";
 import { type DraftPin, type PinView, isArtboardElementTarget, phonePinText, pinHiddenWhy, pinIsShown, pinOffsets, pinTargetLabel, zoneFromDrag } from "./reviewPinRules.js";
-import { PIN_SHIFT, PinMarker, PinTooltip, overlayStyle, pinLabel } from "./ReviewPinParts.js";
+import { PIN_HALF, PIN_SHIFT, PinMarker, PinTooltip, overlayStyle, pinLabel } from "./ReviewPinParts.js";
 import { type StepControls } from "./useReviewControls.js";
 import { titleOfArtboard } from "./reviewView.js";
 import styles from "./ReviewScreen.module.css";
@@ -313,9 +313,10 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins, phone
   }, [editingId, editingMatched]);
   const hoverZone = hovered === undefined ? undefined : zones.find((zone) => zone.id === hovered && zone.pin && !zone.pin.mine);
   const hover = hovered === undefined ? undefined : (resolved.find((entry) => entry.id === hovered && entry.pin && !entry.pin.mine) ?? (hoverZone && hoverZone.target.space === "artboard" ? { pin: hoverZone.pin, xPct: hoverZone.target.xPct, yPct: hoverZone.target.yPct } : undefined));
+  // The pin straddles its element's top-right corner (as in the mock-up), pulled back inside the artboard when the corner touches an edge.
   const anchorStyle = (entry: { xPct: number; yPct: number; matched: boolean }, offset: number) =>
     entry.matched
-      ? { right: `calc(${100 - entry.xPct}% + ${offset * PIN_SHIFT}px)`, top: `${entry.yPct}%` }
+      ? { right: `max(calc(${100 - entry.xPct}% + ${offset * PIN_SHIFT}px - ${PIN_HALF}px), 0px)`, top: `max(calc(${entry.yPct}% - ${PIN_HALF}px), 0px)` }
       : { left: `calc(${entry.xPct}% - ${offset * PIN_SHIFT}px)`, top: `${entry.yPct}%`, transform: "translate(-50%, -50%)" };
 
   return (
@@ -577,9 +578,9 @@ export function PinsSection({ step, shown, pins, onShow }: { step: ChangeReviewS
             return (
               <div key={pin.id} className={styles.pi}>
                 <span className={styles.pinBody}>
-                  <span className={styles.piOn}>{pin.target.kind === "zone" ? "Zone" : "Épingle"} {pin.number} effacée</span>
-                  <span>
-                    <button type="button" className={styles.linkButton} onClick={() => pins.undoDelete(pin.id)}>
+                  <span className={styles.author}>
+                    {pin.target.kind === "zone" ? "Zone" : "Épingle"} {pin.number} effacée
+                    <button type="button" className={cx(styles.linkButton, styles.hint)} onClick={() => pins.undoDelete(pin.id)}>
                       Annuler
                     </button>
                   </span>

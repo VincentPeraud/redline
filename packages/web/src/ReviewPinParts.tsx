@@ -7,6 +7,7 @@ import styles from "./ReviewScreen.module.css";
 
 /** How far a second pin on the same element is shifted from the first (a pin is 26 px wide). */
 export const PIN_SHIFT = 30;
+export const PIN_HALF = 13;
 const POPOVER = { width: 300, height: 210 };
 const TOOLTIP = { width: 260, height: 90 };
 /** Space between a pin and what opens next to it. */
