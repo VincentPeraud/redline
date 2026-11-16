@@ -226,6 +226,7 @@
 .body {
   display: grid;
   grid-template-columns: 1fr 380px;
+  grid-template-rows: minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
@@ -1098,16 +1099,76 @@
   min-height: 0;
 }
 
+/* The thumbnail strip sits under the stage and takes a bounded height: it never shrinks the artboard. */
 .stageGroup {
   flex-direction: column;
   justify-content: flex-start;
   gap: var(--space-5);
-  overflow: auto;
+  overflow: hidden;
 }
 
 .stageGroup .shotArea {
-  flex: 1 0 22rem;
+  flex: 1 1 0;
   align-self: stretch;
+}
+
+.stageGroup .others {
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.flatWrap {
+  display: contents;
+}
+
+/* A tall artboard keeps its real width (capped to the stage) and the stage scrolls. */
+.stageScroll {
+  padding: 0;
+}
+
+.shotAreaScroll {
+  display: block;
+  overflow: auto;
+  padding: var(--space-8);
+}
+
+.stageScroll.stageGroup .others {
+  width: calc(100% - var(--space-8) * 2);
+  margin-bottom: var(--space-8);
+}
+
+.tallWrap {
+  width: fit-content;
+  margin: 0 auto;
+  border-radius: var(--radius-xl);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.sizeTag {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-3);
+  pointer-events: none;
+}
+
+.sizeTagLow {
+  margin-top: var(--space-10);
+}
+
+.sizeTag span {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  background: var(--play-panel-bg);
+  border: 1px solid var(--play-border-strong);
+  font-size: var(--font-size-xs);
+  color: var(--play-text);
+  white-space: nowrap;
 }
 
 .chips {
@@ -1367,6 +1428,19 @@
 
   .stage {
     padding: var(--space-4);
+  }
+
+  .stageScroll {
+    padding: 0;
+  }
+
+  .shotAreaScroll {
+    padding: var(--space-4);
+  }
+
+  .stageScroll.stageGroup .others {
+    width: calc(100% - var(--space-4) * 2);
+    margin-bottom: var(--space-4);
   }
 
   .tweaks {
