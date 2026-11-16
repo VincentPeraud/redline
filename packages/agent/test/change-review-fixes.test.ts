@@ -179,7 +179,7 @@ describe("fetching a review twice", () => {
     const again = await other.call("review_feedback", { reviewId: id });
 
     const [thread] = await threadsOf(page.id);
-    expect(again).toContain(`thread ${thread!.id}`);
+    expect(again).toContain(`fil ${thread!.id}`);
     expect(await other.call("reply_in_thread", { threadId: thread!.id, text: "Done" })).toContain("Reply posted");
   });
 

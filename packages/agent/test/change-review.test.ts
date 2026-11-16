@@ -179,8 +179,8 @@ describe("remarks", () => {
     expect(threads).toHaveLength(1);
     expect(threads[0]).toMatchObject({ body: "Show the empty state\nabove the fold", target: { kind: "artboard", artboard: "empty.html" } });
     expect(answer).toMatch(/Validated \(1\)[\s\S]*1\. "Home · List"/);
-    expect(answer).toMatch(/Retours \(1 sur 1 étape\)[\s\S]*2\. "Home · Empty"\n\s+general remark on "empty\.html" by [\s\S]*thread /);
-    expect(answer).toContain(`thread ${threads[0]!.id}`);
+    expect(answer).toMatch(/Retours \(1 sur 1 étape\)[\s\S]*2\. "Home · Empty"\n\s+remarque générale sur "empty\.html", [\s\S]*fil /);
+    expect(answer).toContain(`fil ${threads[0]!.id}`);
     expect(answer).toContain("> Show the empty state");
     expect(answer).toContain("> above the fold");
     expect(await terminal.call("reply_in_thread", { threadId: threads[0]!.id, text: "Moved above the fold" })).toContain("Reply posted");
@@ -296,7 +296,7 @@ describe("review_feedback without an id, and who can fetch", () => {
     const answer = await other.call("review_feedback", {});
 
     const [thread] = await threadsOf(pages.home);
-    expect(answer).toContain(`thread ${thread!.id}`);
+    expect(answer).toContain(`fil ${thread!.id}`);
     expect(await other.call("reply_in_thread", { threadId: thread!.id, text: "Done" })).toContain("Reply posted");
   });
 

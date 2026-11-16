@@ -178,9 +178,9 @@ describe("fetching a grouped step", () => {
     expect(threads[0]).toMatchObject({ target: { kind: "artboard", artboard: "home.html" } });
     expect(threads[0]!.body).toMatch(/^Too big\n\nRemarque sur le groupe « Badge cmux \(3 artboards\) »[\s\S]*Home · List, Home · Empty/);
     expect(await threadsOf(home.id)).toEqual([]);
-    expect(answer).toMatch(/"Badge cmux \(3 artboards\)"\n\s+general remark on "Settings · List" by/);
-    expect(answer).toContain("The same change also concerns: \"Home · List\", \"Home · Empty\".");
-    expect(answer).toContain(`thread ${threads[0]!.id}`);
+    expect(answer).toMatch(/"Badge cmux \(3 artboards\)"\n\s+remarque générale sur "Settings · List", /);
+    expect(answer).toContain("Le même changement concerne aussi : \"Home · List\", \"Home · Empty\".");
+    expect(answer).toContain(`fil ${threads[0]!.id}`);
   });
 
   it("puts a remark written on the example on the example", async () => {
@@ -191,5 +191,25 @@ describe("fetching a grouped step", () => {
     await terminal.call("review_feedback", { reviewId });
 
     expect(await threadsOf(home.id)).toMatchObject([{ target: { kind: "artboard", artboard: "home.html" } }]);
+  });
+
+  it("puts a pin placed on another artboard of the group on that artboard, with the body the web sends", async () => {
+    const { terminal, home, settings, reviewId, groupId } = await start();
+    const body = { text: "Too tight", target: { selector: "body > h1", xPct: 10, yPct: 20 }, on: { pageId: settings.id, artboard: "home.html" } };
+    expect((await send("POST", `/api/change-reviews/${reviewId}/steps/${groupId}/pins`, body)).status).toBe(200);
+    expect((await reviewOf(reviewId)).steps.find((step) => step.id === groupId)!.pins).toMatchObject([{ on: { pageId: settings.id, artboard: "home.html" } }]);
+    await send("POST", `/api/change-reviews/${reviewId}/finish`);
+
+    await terminal.call("review_feedback", { reviewId });
+
+    expect(await threadsOf(settings.id)).toMatchObject([{ body: expect.stringContaining("Too tight"), artboard: "home.html" }]);
+    expect(await threadsOf(home.id)).toEqual([]);
+  });
+
+  it("refuses a pin on an artboard outside the group", async () => {
+    const { settings, reviewId, groupId } = await start();
+    const body = { text: "Nope", target: { selector: "body > h1", xPct: 10, yPct: 20 }, on: { pageId: settings.id, artboard: "empty.html" } };
+
+    expect((await send("POST", `/api/change-reviews/${reviewId}/steps/${groupId}/pins`, body)).status).toBe(400);
   });
 });
