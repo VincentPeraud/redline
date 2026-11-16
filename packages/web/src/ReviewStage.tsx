@@ -5,6 +5,7 @@ import { PlayFrame } from "./PlayFrame.js";
 import { fitToStage, presentationOf, scrollTagLabel } from "./playFrames.js";
 import { relativeTime } from "./relativeTime.js";
 import { TweaksPanel } from "./TweaksPanel.js";
+import { PinHint, PinLayer, type PinsController } from "./ReviewPins.js";
 import { type StepControls } from "./useReviewControls.js";
 import { cx } from "./ui/index.js";
 import { formatWhen } from "./reviewView.js";
@@ -24,7 +25,11 @@ export function ReviewStage({
   controls,
   openedMember,
   onOpenMember,
+  pins,
+  phone,
 }: {
+  pins: PinsController;
+  phone: boolean;
   review: ChangeReview;
   /** What the stage shows: the step, or the artboard of its group that was opened. */
   step: ChangeReviewStep;
@@ -124,12 +129,14 @@ export function ReviewStage({
                   className={styles.frame}
                   style={{ width: fitted.viewport.width, height: fitted.viewport.height, transform: `scale(${fitted.scale})` }}
                 />
+                <PinLayer frame={frame} bridgeEpoch={bridgeEpoch} size={{ width: fitted.viewport.width * fitted.scale, height: fitted.viewport.height * fitted.scale }} example={example} shown={step} pins={pins} />
               </div>
             </PlayFrame>
           </div>
         ) : entry ? null : (
           <p className={styles.hint}>Cet artboard n'existe plus · {step.artboard}</p>
         )}
+        <PinHint pins={pins} phone={phone} sticky={scrolling !== null} />
       </div>
       {stepIsGroup(example) && <GroupThumbnails example={example} origin={origin} openedMember={openedMember} onOpenMember={onOpenMember} />}
       {controls.tweaksOpen && controls.tweaks.length > 0 && (

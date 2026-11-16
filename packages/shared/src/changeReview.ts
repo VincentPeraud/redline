@@ -1,4 +1,5 @@
-import type { ManifestArtboard, ManifestTweak, TweakValues } from "./index.js";
+import type { ManifestArtboard, ManifestTweak, ThreadRendering, TweakValues } from "./index.js";
+import type { InstanceState } from "./instanceState.js";
 import type { Person } from "./people.js";
 
 /** Where a review is: `open` (people answer), `finished` (locked, waiting for a conversation to fetch it), then `fetched` (its feedback was fetched) or `filed` (put aside without ever being sent). */
@@ -98,6 +99,44 @@ export interface ChangeReviewAnswer {
   on?: ArtboardRef;
 }
 
+/** What a pin sits on: an element of an artboard, found again by its selector and name (zones and canvas elements join this type later). */
+export interface ReviewPinTarget {
+  selector: string;
+  /** The element's role and short visible text, to find it again when the selector no longer matches. */
+  elementName?: string;
+  /** Where it was dropped, in percent of the artboard: the position kept when the element is lost. */
+  xPct: number;
+  yPct: number;
+  /** Component instances that were in a state of their own (an open modal) when it was dropped. */
+  instanceState?: InstanceState[];
+}
+
+/**
+ * A reviewer's pin on one element of a step's artboard. Unlike an answer there are several per person and step; numbers are per step, in creation order across members.
+ * `mine` tells the viewer whether they placed it.
+ */
+export interface ReviewPin {
+  id: string;
+  /** Per step, in creation order across members; a number is never reused. */
+  number: number;
+  text: string;
+  target: ReviewPinTarget;
+  /** The artboard of a group it sits on; absent on the example. */
+  on?: ArtboardRef;
+  /** The rendering and tweak values it was placed in: it shows only there. */
+  rendering?: ThreadRendering;
+  tweaks?: TweakValues;
+  /** "Mobile · Brouillon": the rendering and state when they are not the step's default ones, for lists and for Claude. */
+  seenIn?: string;
+  /** No element of the current artboard matches it any more: it stays at its last position. */
+  lost?: boolean;
+  person?: Person;
+  at: string;
+  mine: boolean;
+  /** The artboard was republished after this pin was placed. */
+  outdated?: boolean;
+}
+
 /** An artboard of a group other than its example, as the step shows it (the fields mirror the step's own, which describe the example). */
 export interface ChangeReviewMember extends ArtboardRef {
   pageTitle: string;
@@ -132,6 +171,8 @@ export interface ChangeReviewStep extends ChangeReviewStepInput {
   /** The values saved on the page (the tweaks file): what the step shows under Claude's values. */
   savedTweaks?: TweakValues;
   answers: ChangeReviewAnswer[];
+  /** Everyone's pins on the step, in number order. */
+  pins: ReviewPin[];
   /** Who published the version that outdated the answers (present when at least one answer is outdated); absent when unknown. */
   modifiedBy?: string;
   /** When that version was published. */
@@ -174,7 +215,7 @@ export interface ChangeReviewProgress {
   segments: ProgressSegment[];
 }
 
-type Answered = { answers: readonly ChangeReviewAnswer[]; removed?: StepRemoval };
+type Answered = { answers: readonly ChangeReviewAnswer[]; pins?: readonly ReviewPin[]; removed?: StepRemoval };
 
 /** The steps still in the review: removed ones are not counted, not shown in the menu and not asked about. */
 export const activeSteps = <T extends { removed?: StepRemoval }>(steps: readonly T[]): T[] => steps.filter((step) => step.removed === undefined);
@@ -183,22 +224,25 @@ export const activeSteps = <T extends { removed?: StepRemoval }>(steps: readonly
  * "Remarque" as soon as anyone left a remark (kept even when its artboard changed), "OK" when someone validated the current version and nobody left a remark, else "Non vu".
  * An OK on an older version of the artboard does not count.
  */
-export const stepStatus = (answers: readonly ChangeReviewAnswer[]): ChangeReviewStatus =>
-  answers.some((answer) => answer.kind === "remark") ? "remark" : answers.some((answer) => !answer.outdated) ? "ok" : "unseen";
+export const stepStatus = (answers: readonly ChangeReviewAnswer[], pins: readonly ReviewPin[] = []): ChangeReviewStatus =>
+  pins.length > 0 || answers.some((answer) => answer.kind === "remark") ? "remark" : answers.some((answer) => !answer.outdated) ? "ok" : "unseen";
 
 /** "Modifié depuis ta revue": the artboard was republished after answers and nobody answered its current version. */
-export const stepIsModified = ({ answers }: Answered): boolean => answers.length > 0 && answers.every((answer) => answer.outdated);
+export const stepIsModified = ({ answers, pins = [] }: Answered): boolean => answers.length + pins.length > 0 && [...answers, ...pins].every((feedback) => feedback.outdated);
 
 /** "Vu": the step has a remark or an OK on the current version (opening a step without answering does not count). */
-export const stepIsSeen = ({ answers }: Answered): boolean => stepStatus(answers) !== "unseen";
+export const stepIsSeen = ({ answers, pins }: Answered): boolean => stepStatus(answers, pins) !== "unseen";
 
 /** Seen / total, and one segment per step still in the review (`currentIndex` counts all steps); a modified step is red, the current step shows as current until it is answered. */
 export function progressOf<T extends Answered>(steps: readonly T[], currentIndex: number): ChangeReviewProgress {
   const segmentOf = (step: Answered, index: number): ProgressSegment =>
-    stepIsModified(step) ? "modified" : stepIsSeen(step) ? (stepStatus(step.answers) === "remark" ? "remark" : "ok") : index === currentIndex ? "current" : "unseen";
+    stepIsModified(step) ? "modified" : stepIsSeen(step) ? (stepStatus(step.answers, step.pins) === "remark" ? "remark" : "ok") : index === currentIndex ? "current" : "unseen";
   const kept = steps.map((step, index) => ({ step, index })).filter(({ step }) => step.removed === undefined);
   return { seen: kept.filter(({ step }) => stepIsSeen(step)).length, total: kept.length, segments: kept.map(({ step, index }) => segmentOf(step, index)) };
 }
+
+/** The number of a pin placed now: one above the highest in use and above every number ever issued on the step (so a deleted pin's number is not reused). */
+export const nextPinNumber = (inUse: readonly number[], lastIssued: number): number => Math.max(lastIssued, ...inUse) + 1;
 
 /** The artboards a step covers, the example first. */
 export const stepArtboards = ({ pageId, artboard, others = [] }: { pageId: string; artboard: string; others?: readonly ArtboardRef[] }): ArtboardRef[] => [{ pageId, artboard }, ...others];
@@ -299,9 +343,10 @@ export interface ChangeReviewResultInput {
     /** A group's artboards, the example first, with their "Page · artboard" names. */
     members?: { pageId: string; artboard: string; label: string }[];
     answers: readonly ChangeReviewAnswer[];
+    pins?: readonly ReviewPin[];
     removed?: StepRemoval;
   }[];
-  /** The thread opened for each remark, by remark id. */
+  /** The thread opened for each remark and each pin, by remark id and pin id. */
   threadIds?: Readonly<Record<string, string>>;
 }
 
@@ -325,15 +370,40 @@ export interface ChangeReviewRemarkResult {
   threadId?: string;
 }
 
+/** A pin as Claude gets it: the element it points at, who wrote it, and the thread it became. */
+export interface ChangeReviewPinResult {
+  stepId: string;
+  label: string;
+  /** Absent on a pin of a removed step, which has no place in the count. */
+  number?: number;
+  /** The pin's own number on the step. */
+  pinNumber: number;
+  artboard: string;
+  /** On a group: the artboard it sits on ("Page · artboard"). */
+  onLabel?: string;
+  target: ReviewPinTarget;
+  author: string;
+  text: string;
+  alsoValidatedBy: string[];
+  /** "Mobile · Brouillon": it was placed in another rendering or state than the default. */
+  seenIn?: string;
+  /** The element was not found in the current artboard: the thread sits at its last position. */
+  elementLost?: boolean;
+  artboardModified?: boolean;
+  removed?: StepRemoval;
+  threadId?: string;
+}
+
 export interface ChangeReviewResult {
   requester: string;
   finishedBy: string;
   validated: { stepId: string; label: string; number: number; by: string[] }[];
   remarks: ChangeReviewRemarkResult[];
+  pins: ChangeReviewPinResult[];
   notSeen: { stepId: string; label: string; number: number; /** Validated, then republished and not validated again ("modifié après le OK"). */ modifiedAfterOk?: boolean }[];
 }
 
-const nameOfAnswer = (answer: ChangeReviewAnswer): string => answer.person?.name || answer.person?.email || "someone";
+const nameOfAnswer = (answer: { person?: Person }): string => answer.person?.name || answer.person?.email || "someone";
 
 /** What Claude gets from a finished review: the validated steps with who validated them, the remarks, and the steps not seen. */
 export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: ChangeReviewResultInput): ChangeReviewResult {
@@ -342,7 +412,29 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
   return {
     requester,
     finishedBy,
-    validated: numbered.filter((step) => stepStatus(step.answers) === "ok").map((step) => ({ stepId: step.id, label: step.label, number: step.number, by: step.answers.filter((answer) => !answer.outdated).map(nameOfAnswer) })),
+    validated: numbered.filter((step) => stepStatus(step.answers, step.pins) === "ok").map((step) => ({ stepId: step.id, label: step.label, number: step.number, by: step.answers.filter((answer) => !answer.outdated).map(nameOfAnswer) })),
+    pins: steps.flatMap((step) =>
+      (step.pins ?? []).map((pin): ChangeReviewPinResult => {
+        const on = step.members && (step.members.find((member) => member.pageId === pin.on?.pageId && member.artboard === pin.on?.artboard) ?? step.members[0]);
+        return {
+          stepId: step.id,
+          label: step.label,
+          ...(numberOf.has(step.id) ? { number: numberOf.get(step.id)! } : {}),
+          pinNumber: pin.number,
+          artboard: on?.artboard ?? step.artboard,
+          ...(on ? { onLabel: on.label } : {}),
+          target: pin.target,
+          author: nameOfAnswer(pin),
+          text: pin.text,
+          alsoValidatedBy: step.answers.filter((other) => other.kind === "ok" && !other.outdated).map(nameOfAnswer),
+          ...(pin.seenIn ? { seenIn: pin.seenIn } : {}),
+          ...(pin.lost ? { elementLost: true } : {}),
+          ...(pin.outdated ? { artboardModified: true } : {}),
+          ...(step.removed ? { removed: step.removed } : {}),
+          ...(threadIds[pin.id] ? { threadId: threadIds[pin.id] } : {}),
+        };
+      }),
+    ),
     remarks: steps.flatMap((step) =>
       step.answers
         .filter((answer) => answer.kind === "remark")
@@ -367,6 +459,28 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
       .filter((step) => !stepIsSeen(step))
       .map((step) => ({ stepId: step.id, label: step.label, number: step.number, ...(step.answers.length > 0 ? { modifiedAfterOk: true } : {}) })),
   };
+}
+
+/** The feedback of one step: its pins in number order, then its general remarks. */
+export interface StepFeedback {
+  stepId: string;
+  label: string;
+  number?: number;
+  pins: ChangeReviewPinResult[];
+  remarks: ChangeReviewRemarkResult[];
+}
+
+/** The result's feedback grouped under its step, in step order (steps without feedback are left out). */
+export function feedbackByStep({ pins, remarks }: Pick<ChangeReviewResult, "pins" | "remarks">): StepFeedback[] {
+  const groups = new Map<string, StepFeedback>();
+  const groupOf = (entry: { stepId: string; label: string; number?: number }) => {
+    if (!groups.has(entry.stepId)) groups.set(entry.stepId, { stepId: entry.stepId, label: entry.label, ...(entry.number !== undefined ? { number: entry.number } : {}), pins: [], remarks: [] });
+    return groups.get(entry.stepId)!;
+  };
+  for (const pin of pins) groupOf(pin).pins.push(pin);
+  for (const remark of remarks) groupOf(remark).remarks.push(remark);
+  for (const group of groups.values()) group.pins.sort((a, b) => a.pinNumber - b.pinNumber);
+  return [...groups.values()].sort((a, b) => (a.number ?? Number.MAX_SAFE_INTEGER) - (b.number ?? Number.MAX_SAFE_INTEGER));
 }
 
 /** What `review_feedback` answers: the result of a finished review, or its progress while it is still open. */

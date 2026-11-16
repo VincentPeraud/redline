@@ -178,7 +178,7 @@ describe("fetching a grouped step", () => {
     expect(threads[0]).toMatchObject({ target: { kind: "artboard", artboard: "home.html" } });
     expect(threads[0]!.body).toMatch(/^Too big\n\nRemarque sur le groupe « Badge cmux \(3 artboards\) »[\s\S]*Home · List, Home · Empty/);
     expect(await threadsOf(home.id)).toEqual([]);
-    expect(answer).toMatch(/"Badge cmux \(3 artboards\)" \("Settings · List"\) · remark by/);
+    expect(answer).toMatch(/"Badge cmux \(3 artboards\)"\n\s+general remark on "Settings · List" by/);
     expect(answer).toContain("The same change also concerns: \"Home · List\", \"Home · Empty\".");
     expect(answer).toContain(`thread ${threads[0]!.id}`);
   });

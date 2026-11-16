@@ -63,6 +63,28 @@ describe("review of changes: rights", () => {
     expect(answers.map((a) => [a.text, a.mine])).toEqual([["Ariane's remark", true], ["Thomas' remark", false]]);
   });
 
+  it("numbers pins across members, shows another member's pin read-only, and lets only its author change or delete it", async () => {
+    const { id, thomas } = await declared("write");
+    const { ariane } = instance;
+    const stepId = (await ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).steps[0]!.id;
+    const target = { selector: "h1", xPct: 10, yPct: 10 };
+    await ariane.send("POST", `/api/change-reviews/${id}/steps/${stepId}/pins`, { text: "Ariane's pin", target });
+    await thomas.send("POST", `/api/change-reviews/${id}/steps/${stepId}/pins`, { text: "Thomas' pin", target });
+
+    const seenByThomas = (await thomas.json<ChangeReview>(`/api/change-reviews/${id}`)).steps[0]!.pins;
+    expect(seenByThomas.map((pin) => [pin.number, pin.text, pin.mine])).toEqual([[1, "Ariane's pin", false], [2, "Thomas' pin", true]]);
+    expect(seenByThomas[0]).toMatchObject({ person: { id: instance.people.ariane.id } });
+    expect((await thomas.send("PUT", `/api/change-reviews/${id}/pins/${seenByThomas[0]!.id}`, { text: "Hijacked" })).status).toBe(403);
+    expect((await thomas.send("DELETE", `/api/change-reviews/${id}/pins/${seenByThomas[0]!.id}`)).status).toBe(403);
+    expect((await ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).steps[0]!.pins.map((pin) => pin.text)).toEqual(["Ariane's pin", "Thomas' pin"]);
+  });
+
+  it("refuses a pin from a member without Écriture", async () => {
+    const { id, thomas } = await declared("comment");
+    const stepId = (await instance.ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).steps[0]!.id;
+    expect((await thomas.send("POST", `/api/change-reviews/${id}/steps/${stepId}/pins`, { text: "Hi", target: { selector: "h1", xPct: 1, yPct: 1 } })).status).toBe(403);
+  });
+
   it("refuses a remark from a member without Écriture", async () => {
     const { id, thomas } = await declared("comment");
     const stepId = (await instance.ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).steps[0]!.id;

@@ -39,15 +39,20 @@ import {
   type RequestChangeReviewRequest,
   type RequestChangeReviewResponse,
   reviewPlace,
+  RESPONSIVE_FORMATS,
+  renderingKey,
+  resolveDeclaredTweakValues,
+  type InstanceState,
+  type ReviewPin,
   type StepRemoval,
 } from "@redline/shared";
 import type { Access, Viewer } from "./access.js";
-import type { SeenNow, StoredMember, StoredReview, StoredStep } from "./change-review-store.js";
+import type { PinToStore, SeenNow, StoredMember, StoredPin, StoredReview, StoredStep } from "./change-review-store.js";
 import { contentChanges } from "./artboard-history.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store, VersionRecord } from "./store.js";
 import type { TerminalSessions } from "./terminal-sessions.js";
-import { MAX_TERMINAL_TEXT_LENGTH, requiredString } from "./validation.js";
+import { MAX_TERMINAL_TEXT_LENGTH, createThreadRequestError, requiredString } from "./validation.js";
 
 const MAX_STEPS = 200;
 /** Elements a step frames at most: past that, nothing stands out any more. */
@@ -171,11 +176,35 @@ function lastTitleOf(store: Store, pageId: string, file: string): string | undef
   return undefined;
 }
 
+/**
+ * "Mobile · Brouillon": the rendering and the tweak values a pin was placed in when they are not what the step opens with (so a pin on the default view says nothing).
+ * A true switch is named by its label, a false one by "sans <label>".
+ */
+function seenInOf(pin: StoredPin, step: StoredStep, manifest: Manifest, saved: TweakValues): string | undefined {
+  const ref = pin.on ?? step;
+  const entry = manifest.artboards.find((artboard) => artboard.file === ref.artboard);
+  const parts: string[] = [];
+  if (pin.rendering) {
+    const renderings = entry?.responsive ?? [];
+    const opening = (step.mobile && !pin.on ? renderings.find((rendering) => rendering.format === "mobile") : undefined) ?? renderings[0];
+    if (!opening || renderingKey(opening) !== renderingKey(pin.rendering)) parts.push(RESPONSIVE_FORMATS[pin.rendering.format].label);
+  }
+  const tweaks = manifest.tweaks.filter((tweak) => tweak.artboard === undefined || tweak.artboard === ref.artboard);
+  const opening = resolveDeclaredTweakValues(tweaks, { ...saved, ...(pin.on ? {} : step.tweaks) });
+  for (const [id, value] of Object.entries(pin.tweaks ?? {})) {
+    if (opening[id] === value) continue;
+    const label = tweaks.find((tweak) => tweak.id === id)?.label ?? id;
+    parts.push(typeof value === "boolean" ? (value ? label : `sans ${label}`) : String(value));
+  }
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 const viewerPersonId = (viewer: Viewer): string | undefined => (viewer.kind === "account" || viewer.kind === "agent" ? viewer.person?.id : undefined);
 
 /** The review as `viewer` sees it, steps in review order. */
 function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeReview {
   const answers = store.changeReviews.answers(review.id);
+  const storedPins = store.changeReviews.pins(review.id);
   const own = viewerPersonId(viewer) ?? "";
   const recordsOf = recordsReader(store);
   const manifests = new Map<string, Manifest>();
@@ -213,6 +242,31 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
         for (const key of changed.others) republished.others.add(key);
         return { id: answer.id, kind: answer.kind, ...(answer.text !== undefined ? { text: answer.text } : {}), ...(person ? { person } : {}), at: answer.at, mine: (answer.personId ?? "") === own, ...(outdated ? { outdated } : {}), ...(answer.on ? { on: answer.on } : {}) };
       });
+    const stepPins = storedPins
+      .filter((pin) => pin.stepId === step.id)
+      .map((pin): ReviewPin => {
+        const person = store.getPerson(pin.personId);
+        const changed = republishedSince(pin, now);
+        const outdated = changed.example || changed.others.length > 0 || pin.stale === true;
+        republished.example ||= changed.example;
+        for (const key of changed.others) republished.others.add(key);
+        const seenIn = seenInOf(pin, step, manifestOfPage((pin.on ?? step).pageId), savedTweaksOf(store, (pin.on ?? step).pageId));
+        return {
+          id: pin.id,
+          number: pin.number,
+          text: pin.text,
+          target: pin.target,
+          ...(pin.on ? { on: pin.on } : {}),
+          ...(pin.rendering ? { rendering: pin.rendering } : {}),
+          ...(pin.tweaks ? { tweaks: pin.tweaks } : {}),
+          ...(seenIn ? { seenIn } : {}),
+          ...(pin.lost ? { lost: true } : {}),
+          ...(person ? { person } : {}),
+          at: pin.at,
+          mine: (pin.personId ?? "") === own,
+          ...(outdated ? { outdated } : {}),
+        };
+      });
     const modifiedFields = (version: VersionRecord | undefined) => (version ? { ...(authorOf(version) ? { modifiedBy: authorOf(version) } : {}), modifiedAt: version.createdAt } : {});
     return {
       pageId: step.pageId,
@@ -231,6 +285,7 @@ function viewOf(store: Store, review: StoredReview, viewer: Viewer): ChangeRevie
       ...(step.mobile ? { mobile: true } : {}),
       ...(step.targets ? { targets: step.targets } : {}),
       answers: stepAnswers,
+      pins: stepPins,
       ...(republished.example ? modifiedFields(current) : {}),
     };
   });
@@ -286,7 +341,7 @@ function bannersOf(store: Store, pageId: string, viewer: Viewer): PageChangeRevi
       pageTitles: [...new Set(kept.flatMap((step) => [step.pageTitle, ...(step.others ?? []).map((member) => member.pageTitle)]))],
       seen,
       okCount: answers.filter((answer) => answer.kind === "ok").length,
-      remarkCount: answers.filter((answer) => answer.kind === "remark").length,
+      remarkCount: answers.filter((answer) => answer.kind === "remark").length + kept.reduce((count, step) => count + step.pins.length, 0),
       contributors,
       requester: view.requester,
       viewerIsRequester: view.viewerIsRequester,
@@ -432,7 +487,7 @@ export function changeReviewFeedback(ctx: ReviewContext, viewer: Viewer, session
       folder: folderNameOf(review),
       seen,
       total,
-      remarks: view.steps.flatMap((step) => step.answers).filter((answer) => answer.kind === "remark").length,
+      remarks: view.steps.flatMap((step) => step.answers).filter((answer) => answer.kind === "remark").length + view.steps.reduce((count, step) => count + step.pins.length, 0),
     };
   });
   return { status: "none-finished", reviews };
@@ -443,7 +498,7 @@ function fetchReview(ctx: ReviewContext, viewer: Viewer, sessionId: string, revi
   const view = viewOf(store, review, viewer);
   if (view.state === "filed") {
     const filedAt = review.filedAt ?? review.createdAt;
-    const nothingLeft = activeSteps(view.steps).length === 0 && !view.steps.some((step) => step.answers.some((answer) => answer.kind === "remark"));
+    const nothingLeft = activeSteps(view.steps).length === 0 && !view.steps.some((step) => step.pins.length > 0 || step.answers.some((answer) => answer.kind === "remark"));
     return nothingLeft ? { status: "nothing-left", filedAt } : { status: "filed", filedBy: nameOf(view.filedBy), filedAt };
   }
   if (view.state === "open") {
@@ -460,6 +515,7 @@ function fetchReview(ctx: ReviewContext, viewer: Viewer, sessionId: string, revi
       artboard: step.artboard,
       ...(step.others ? { members: membersOf(step) } : {}),
       answers: step.answers,
+      pins: step.pins,
       ...(step.removed ? { removed: step.removed } : {}),
     })),
     threadIds: openRemarkThreads(store, pageLock, view, sessionId),
@@ -477,7 +533,7 @@ function handOverThreads({ store, pageLock, terminalSessions }: ReviewContext, r
   const holder = review.fetchedSessionId;
   if (holder === sessionId) return {};
   if (holder && terminalSessions.isPresent(holder)) return { heldBy: folderName(terminalSessions.folderOf(holder) ?? "another folder") };
-  for (const { threadId } of review.fetchedResult!.remarks) {
+  for (const { threadId } of [...review.fetchedResult!.remarks, ...(review.fetchedResult!.pins ?? [])]) {
     const thread = threadId ? store.getThread(threadId) : undefined;
     if (!thread || thread.status === "resolved" || thread.replies.some((reply) => reply.author === "claude")) continue;
     const runId = randomUUID();
@@ -494,9 +550,34 @@ const membersOf = (step: ChangeReview["steps"][number]) => [
   ...(step.others ?? []).map((member) => ({ pageId: member.pageId, artboard: member.artboard, label: `${member.pageTitle} · ${member.artboardTitle}` })),
 ];
 
-/** One thread per remark on its artboard, signed by the remark's author and taken by `sessionId` (so `reply_in_thread` works on it). Thread ids by remark id. */
+/**
+ * One thread per remark on its artboard and one element thread per pin, signed by their author and taken by `sessionId` (so `reply_in_thread` works on them).
+ * Thread ids by remark id and pin id. A pin whose element is lost keeps its last position.
+ */
 function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview, sessionId: string): Record<string, string> {
   const threadIds: Record<string, string> = {};
+  const take = (pageId: string, threadId: string) => {
+    const runId = randomUUID();
+    pageLock.showTerminalRun(pageId, runId, threadId);
+    store.pickThreadForTerminalSession(threadId, sessionId, runId);
+  };
+  for (const step of activeSteps(view.steps)) {
+    const members = membersOf(step);
+    for (const pin of step.pins) {
+      // A pin sits on the artboard it was placed on; when that one is gone the thread opens on the first artboard of the step that is left.
+      const written = members.find((member) => member.pageId === pin.on?.pageId && member.artboard === pin.on?.artboard) ?? members[0]!;
+      const where = [written, ...members].find((member) => store.hasArtboard(member.pageId, member.artboard) && !store.getPage(member.pageId)?.archivedAt);
+      if (!where) continue;
+      const { selector, elementName, xPct, yPct, instanceState } = pin.target;
+      const thread = store.createThread(
+        where.pageId,
+        { artboard: where.artboard, selector, xPct, yPct, body: pin.text, ...(elementName ? { elementName } : {}), ...(pin.rendering ? { rendering: pin.rendering } : {}), ...(pin.tweaks ? { cell: pin.tweaks } : {}), ...(instanceState ? { instanceState } : {}) },
+        pin.person,
+      );
+      take(where.pageId, thread.id);
+      threadIds[pin.id] = thread.id;
+    }
+  }
   // A remark on a removed step (deleted artboard, archived page) has nowhere to be a thread: it comes as text.
   for (const step of activeSteps(view.steps)) {
     for (const answer of step.answers.filter((a) => a.kind === "remark")) {
@@ -508,9 +589,7 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
       const pageId = where?.pageId ?? step.pageId;
       const cited = members && where ? `\n\nRemarque sur le groupe « ${stepLabel(step)} » : le même changement concerne aussi ${members.filter((member) => member !== where).map((member) => member.label).join(", ")}.` : "";
       const thread = store.createThread(pageId, { target: { kind: "artboard", artboard: where?.artboard ?? step.artboard }, body: `${answer.text ?? ""}${cited}` }, answer.person);
-      const runId = randomUUID();
-      pageLock.showTerminalRun(pageId, runId, thread.id);
-      store.pickThreadForTerminalSession(thread.id, sessionId, runId);
+      take(pageId, thread.id);
       store.changeReviews.setThread(answer.id, thread.id);
       threadIds[answer.id] = thread.id;
     }
@@ -525,7 +604,7 @@ function fileIfNothingLeft(store: Store, reviewId: string): boolean {
   const steps = store.changeReviews.steps(reviewId);
   const removals = steps.flatMap((step) => removalsOf(store, review, step).each);
   const nothingToReview = removals.every((removal) => removal === "deleted" || (review.state === "finished" && removal === "archived"));
-  if (!nothingToReview || store.changeReviews.answers(reviewId).some((answer) => answer.kind === "remark")) return false;
+  if (!nothingToReview || store.changeReviews.pins(reviewId).length > 0 || store.changeReviews.answers(reviewId).some((answer) => answer.kind === "remark")) return false;
   store.changeReviews.file(reviewId, undefined);
   return true;
 }
@@ -599,6 +678,7 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     const review = openReviewFor(reply, req.params.reviewId, { stepId: req.params.stepId });
     if (!review) return reply;
     if (store.changeReviews.answerOf(req.params.stepId, viewerPersonId(req.viewer))?.kind === "remark") return reply.code(409).send({ error: "you left a remark on this step: delete it before answering OK" });
+    if (store.changeReviews.pins(review.id).some((pin) => pin.stepId === req.params.stepId && (pin.personId ?? "") === (viewerPersonId(req.viewer) ?? ""))) return reply.code(409).send({ error: "you left pins on this step: delete them before answering OK" });
     store.changeReviews.addOk(req.params.stepId, viewerPersonId(req.viewer), seenNow(stepOf(review.id, req.params.stepId)));
     announceReviewChange(store, review.id);
     return viewOf(store, review, req.viewer);
@@ -634,6 +714,83 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     const answer = store.changeReviews.answers(review.id).find((candidate) => candidate.id === req.params.answerId)!;
     if ((answer.personId ?? "") !== (viewerPersonId(req.viewer) ?? "")) return reply.code(403).send({ error: "only the author can delete a remark" });
     store.changeReviews.removeAnswer(answer.id);
+    announceReviewChange(store, review.id);
+    return viewOf(store, review, req.viewer);
+  });
+
+  /** The open review a pin route changes (the pin is one of its own); else the 404 or 409 is already sent. */
+  const openReviewForPin = (reply: FastifyReply, reviewId: string, pinId: string): StoredReview | undefined => {
+    const review = open(reviewId);
+    if (!review || store.changeReviews.reviewIdOfPin(pinId) !== review.id) void reply.code(404).send({ error: "pin not found" });
+    else if (review.state !== "open") void reply.code(409).send({ error: "this review is finished" });
+    else return review;
+    return undefined;
+  };
+  const ownPin = (reviewId: string, pinId: string, viewer: Viewer) => store.changeReviews.pins(reviewId).find((pin) => pin.id === pinId && (pin.personId ?? "") === (viewerPersonId(viewer) ?? ""));
+  const stepSeenBy = (reviewId: string, pinId: string) => seenNow(stepOf(reviewId, store.changeReviews.pins(reviewId).find((pin) => pin.id === pinId)!.stepId));
+
+  type PinBody = { text?: unknown; target?: { selector?: unknown; elementName?: unknown; xPct?: unknown; yPct?: unknown; instanceState?: unknown }; pageId?: unknown; artboard?: unknown; rendering?: unknown; tweaks?: unknown };
+
+  app.post<{ Params: { reviewId: string; stepId: string }; Body: PinBody }>("/api/change-reviews/:reviewId/steps/:stepId/pins", async (req, reply) => {
+    const review = openReviewFor(reply, req.params.reviewId, { stepId: req.params.stepId });
+    if (!review) return reply;
+    const { text, target, pageId, artboard, rendering, tweaks } = req.body ?? {};
+    if (!requiredString(text) || text.length > MAX_STEP_TEXT_LENGTH) return reply.code(400).send({ error: `text must be a non-empty string of at most ${MAX_STEP_TEXT_LENGTH} characters` });
+    const step = stepOf(review.id, req.params.stepId)!;
+    const on = pageId !== undefined || artboard !== undefined ? { pageId, artboard } : undefined;
+    if (on && !stepArtboards(step).some((ref) => ref.pageId === on.pageId && ref.artboard === on.artboard)) return reply.code(400).send({ error: "pageId and artboard must name an artboard of the step" });
+    // The same shape as a comment pinned on an element: validated as one.
+    const shape = createThreadRequestError({ body: text, artboard: on?.artboard ?? step.artboard, selector: target?.selector, xPct: target?.xPct, yPct: target?.yPct, elementName: target?.elementName, rendering, cell: tweaks, instanceState: target?.instanceState });
+    if (shape) return reply.code(400).send({ error: shape });
+    const placed = target!;
+    const pin: PinToStore = {
+      text,
+      target: { selector: placed.selector as string, xPct: placed.xPct as number, yPct: placed.yPct as number, ...(placed.elementName ? { elementName: placed.elementName as string } : {}), ...(placed.instanceState ? { instanceState: placed.instanceState as InstanceState[] } : {}) },
+      ...(on && !(on.pageId === step.pageId && on.artboard === step.artboard) ? { on: on as { pageId: string; artboard: string } } : {}),
+      ...(rendering ? { rendering: rendering as PinToStore["rendering"] } : {}),
+      ...(tweaks ? { tweaks: tweaks as PinToStore["tweaks"] } : {}),
+    };
+    store.changeReviews.addPin(step.id, viewerPersonId(req.viewer), pin, seenNow(step));
+    announceReviewChange(store, review.id);
+    return viewOf(store, review, req.viewer);
+  });
+
+  app.put<{ Params: { reviewId: string; pinId: string }; Body: { text?: unknown } }>("/api/change-reviews/:reviewId/pins/:pinId", async (req, reply) => {
+    const review = openReviewForPin(reply, req.params.reviewId, req.params.pinId);
+    if (!review) return reply;
+    if (!ownPin(review.id, req.params.pinId, req.viewer)) return reply.code(403).send({ error: "only the author can change a pin" });
+    const text = req.body?.text;
+    if (!requiredString(text) || text.length > MAX_STEP_TEXT_LENGTH) return reply.code(400).send({ error: `text must be a non-empty string of at most ${MAX_STEP_TEXT_LENGTH} characters` });
+    store.changeReviews.editPin(req.params.pinId, text, stepSeenBy(review.id, req.params.pinId));
+    announceReviewChange(store, review.id);
+    return viewOf(store, review, req.viewer);
+  });
+
+  app.delete<{ Params: { reviewId: string; pinId: string } }>("/api/change-reviews/:reviewId/pins/:pinId", async (req, reply) => {
+    const review = openReviewForPin(reply, req.params.reviewId, req.params.pinId);
+    if (!review) return reply;
+    if (!ownPin(review.id, req.params.pinId, req.viewer)) return reply.code(403).send({ error: "only the author can delete a pin" });
+    store.changeReviews.removePin(req.params.pinId);
+    announceReviewChange(store, review.id);
+    return viewOf(store, review, req.viewer);
+  });
+
+  // Any member's screen reports whether it finds the pin's element in the current artboard: it is a fact about the artboard, not an edit.
+  app.put<{ Params: { reviewId: string; pinId: string }; Body: { lost?: unknown } }>("/api/change-reviews/:reviewId/pins/:pinId/lost", async (req, reply) => {
+    const review = openReviewForPin(reply, req.params.reviewId, req.params.pinId);
+    if (!review) return reply;
+    if (typeof req.body?.lost !== "boolean") return reply.code(400).send({ error: "lost must be a boolean" });
+    store.changeReviews.setPinLost(req.params.pinId, req.body.lost);
+    announceReviewChange(store, review.id);
+    return reply.code(204).send();
+  });
+
+  app.post<{ Params: { reviewId: string; stepId: string } }>("/api/change-reviews/:reviewId/steps/:stepId/clear-and-validate", async (req, reply) => {
+    const review = openReviewFor(reply, req.params.reviewId, { stepId: req.params.stepId });
+    if (!review) return reply;
+    const personId = viewerPersonId(req.viewer);
+    store.changeReviews.clearFeedback(req.params.stepId, personId);
+    store.changeReviews.addOk(req.params.stepId, personId, seenNow(stepOf(review.id, req.params.stepId)));
     announceReviewChange(store, review.id);
     return viewOf(store, review, req.viewer);
   });

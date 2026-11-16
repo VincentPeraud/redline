@@ -110,9 +110,9 @@ describe("review_feedback with removed artboards", () => {
 
     const answer = await terminal.call("review_feedback", { reviewId });
 
-    expect(answer).toMatch(/Retours \(2\)/);
-    expect(answer).toMatch(/1\. "Home · home\.html" .*remark by .*thread (?!none)\S+/);
-    expect(answer).toMatch(/-\. "Home · other\.html" .*artboard supprimé \(text only, no thread\).*thread none/);
+    expect(answer).toMatch(/Retours \(2 sur 2 étapes\)/);
+    expect(answer).toMatch(/1\. "Home · home\.html"\n.*general remark .*thread (?!none)\S+/);
+    expect(answer).toMatch(/-\. "Home · other\.html"\n.*artboard supprimé \(text only, no thread\).*thread none/);
     expect(answer).toContain("> Other is off");
     expect((await threadsOf(page.id)).map((t) => t.artboard)).toEqual(["home.html"]);
   });
@@ -142,7 +142,7 @@ describe("review_feedback with removed artboards", () => {
     const answer = await terminal.call("review_feedback", {});
 
     expect(answer).toMatch(/Validated \(0\)/);
-    expect(answer).toMatch(/Retours \(1\)[\s\S]*artboard supprimé[\s\S]*> Home is off/);
+    expect(answer).toMatch(/Retours \(1 sur 1 étape\)[\s\S]*artboard supprimé[\s\S]*> Home is off/);
     expect(answer).toMatch(/Not seen \(0\)/);
   });
 });

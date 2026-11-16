@@ -55,7 +55,7 @@ export const STEP_STATE = {
   modified: { label: "Modifié", dot: styles.dotChanged },
 } as const;
 
-export const stepStateOf = (step: ChangeReviewStep): keyof typeof STEP_STATE => (stepIsModified(step) ? "modified" : stepStatus(step.answers));
+export const stepStateOf = (step: ChangeReviewStep): keyof typeof STEP_STATE => (stepIsModified(step) ? "modified" : stepStatus(step.answers, step.pins));
 
 /** The step as the top bar and the stage show it: the example, or the artboard of the group whose thumbnail was opened (its own fields; the example's tweak values and group do not apply to it). */
 export function shownStep(step: ChangeReviewStep, member: number | undefined): ChangeReviewStep {

@@ -1537,3 +1537,265 @@
     height: 44px;
   }
 }
+
+/* Reviewer pins (see the "epingles" mock-up): the comment pin look, a lighter orange for other members', grey when the element is lost. */
+.pinLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.pin {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50% 50% 50% 4px;
+  background: var(--color-warning-strong);
+  box-shadow: 0 0 0 3px var(--color-surface);
+  color: var(--color-text-inverse);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.pinTheirs {
+  background: #fed7aa;
+  color: #7c2d12;
+}
+
+.pinLost {
+  background: #71717a;
+  color: var(--color-text-inverse);
+}
+
+/* The same badge inside a list or a panel: not placed on the artboard. */
+.pinStatic {
+  position: static;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  font-size: var(--font-size-2xs);
+  box-shadow: none;
+  cursor: default;
+  pointer-events: none;
+}
+
+.pinTip {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--play-panel-bg);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 50%);
+  color: var(--play-text);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.pinTip b {
+  font-weight: 600;
+}
+
+.pinTip span {
+  color: var(--play-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.pinPop {
+  position: absolute;
+  z-index: 4;
+  pointer-events: auto;
+}
+
+.pop {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-2xl);
+  background: var(--play-panel-bg);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 50%);
+  color: var(--play-text);
+  font-size: var(--font-size-sm);
+  animation: pop-in 120ms ease-out;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.popHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--play-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.popHead .pinStatic {
+  width: 20px;
+  height: 20px;
+  font-size: var(--font-size-2xs);
+}
+
+.popTarget {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pop .textarea {
+  min-height: 72px;
+  resize: none;
+}
+
+.popFoot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--play-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.popFoot .smallButton {
+  flex: 0 0 auto;
+}
+
+/* The shortcut reminder under the artboard. */
+.pinHint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 14px;
+  transform: translateX(-50%);
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--play-panel-bg);
+  color: var(--play-text-muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+/* On a tall artboard the stage scrolls: the reminder stays at the bottom of what is visible. */
+.pinHintSticky {
+  position: sticky;
+  bottom: 0;
+  left: auto;
+  transform: none;
+  width: fit-content;
+  margin: var(--space-4) auto 0;
+}
+
+.pinHint span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pinHint kbd {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-xs);
+  color: var(--play-text);
+  font: inherit;
+  font-size: var(--font-size-2xs);
+  font-weight: 500;
+}
+
+.noGrow {
+  flex: none;
+}
+
+.rowHint {
+  align-self: center;
+}
+
+/* Side panel list: "Tes épingles et zones (n)". */
+.pins {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.pi {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: var(--space-3);
+  border-top: 1px solid var(--play-border-strong);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+
+.pi:first-child {
+  border-top: none;
+}
+
+.piCurrent {
+  background: var(--play-bg);
+}
+
+.pinBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.piOn {
+  color: var(--play-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.piWarn {
+  color: var(--color-warning-strong);
+  font-size: var(--font-size-xs);
+}
+
+.piText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.piActs {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.piActs .panelButton {
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+}
