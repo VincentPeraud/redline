@@ -143,11 +143,21 @@ it("frames the elements Claude points at, numbered in the declared order, and no
   // An element that is not on the artboard is skipped: the others keep their number.
   await expect.poll(() => badges("meeting.html")).toEqual(["2"]);
 
+  // "Repères" hides the frames and shows them again; the choice stays for the next steps.
+  const markers = top(tab).getByRole("button", { name: "Repères" });
+  expect(await markers.getAttribute("aria-pressed")).toBe("true");
+  await markers.click();
+  await expect.poll(() => badges("meeting.html")).toEqual([]);
+  expect(await markers.getAttribute("aria-pressed")).toBe("false");
+  await markers.click();
+  await expect.poll(() => badges("meeting.html")).toEqual(["2"]);
+
   await tab.getByRole("button", { name: "Suivante →" }).click();
   await expect.poll(() => counter(tab).textContent()).toContain("Étape 2 / 2");
   await expect.poll(() => artboardFrame(tab, "plain.html")?.evaluate(() => document.readyState).catch(() => null)).toBe("complete");
   await new Promise((resolve) => setTimeout(resolve, 300));
   expect(await badges("plain.html")).toEqual([]);
+  expect(await top(tab).getByRole("button", { name: "Repères" }).count()).toBe(0);
   await tab.close();
 });
 

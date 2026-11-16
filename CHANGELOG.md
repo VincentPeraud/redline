@@ -9,7 +9,7 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 ### Added
 
 - Review mode: an "Habillage" button in the top bar shows or hides the device frame or browser window around the artboard, as in Present (the same saved choice). Pressed toggles of the red bar (Habillage, Tweaks) are white.
-- Review mode: a step can point at precise elements. `request_review` takes optional `targets` (1 to 10 CSS selectors per step); the stage frames each one with a dashed outline numbered in the declared order, on every artboard of a group, before and after. A selector that matches nothing, or a hidden element, is skipped.
+- Review mode: a step can point at precise elements. `request_review` takes optional `targets` (1 to 10 CSS selectors per step); the stage frames each one with a dashed outline numbered in the declared order, on every artboard of a group, before and after. A selector that matches nothing, or a hidden element, is skipped. A "Repères" toggle in the red bar hides or shows the frames, and the choice is kept.
 
 ### Fixed
 

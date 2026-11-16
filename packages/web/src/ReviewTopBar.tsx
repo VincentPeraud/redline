@@ -189,6 +189,20 @@ export function ReviewTopBar({ review, view, shown, controls, onGo, onLeave, onF
             Habillage
           </button>
         )}
+        {!phone && controls && step?.targets && (
+          <button
+            type="button"
+            aria-pressed={controls.markersShown}
+            title="Afficher ou masquer les cadres des éléments à regarder"
+            className={cx(styles.button, controls.markersShown && styles.buttonOn)}
+            onClick={controls.toggleMarkers}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="4" y="6" width="16" height="12" rx="2" strokeDasharray="3 2.5" />
+            </svg>
+            Repères
+          </button>
+        )}
         {!phone && controls && controls.tweaks.length > 0 && (
           <button type="button" aria-pressed={controls.tweaksOpen} className={cx(styles.button, controls.tweaksOpen && styles.buttonOn)} onClick={controls.toggleTweaks}>
             Tweaks
