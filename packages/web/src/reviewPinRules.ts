@@ -1,4 +1,4 @@
-import { canvasElementLabel, renderingKey, stepIsCanvasOnly, type ArtboardRef, type ArtboardRendering, type ReviewElementTarget, type ReviewPin, type ReviewPinTarget, type ReviewZoneTarget, type ThreadRendering, type TweakValues } from "@redline/shared";
+import { canvasElementLabel, isCanvasTarget, renderingKey, stepIsCanvasOnly, type ArtboardRef, type ArtboardRendering, type ReviewElementTarget, type ReviewPin, type ReviewPinTarget, type ReviewZoneTarget, type ThreadRendering, type TweakValues } from "@redline/shared";
 
 /** A pin being placed: it has no number and no id until its first text is saved. */
 export interface DraftPin {
@@ -21,7 +21,7 @@ export interface PinView {
 const sameArtboard = (a: ArtboardRef, b: ArtboardRef) => a.pageId === b.pageId && a.artboard === b.artboard;
 
 /** A pin on the page canvas (an element or a zone drawn on it), as opposed to one on an artboard. */
-export const isCanvasPin = (pin: Pick<ReviewPin, "target">): boolean => pin.target.kind === "canvas-element" || (pin.target.kind === "zone" && pin.target.space === "canvas");
+export const isCanvasPin = (pin: Pick<ReviewPin, "target">): boolean => isCanvasTarget(pin.target);
 
 /** `shown` with no artboard is the canvas view (the whole of a canvas step, or the "Canevas" thumbnail of a mixed step). */
 const onCanvasView = (shown: ArtboardRef) => stepIsCanvasOnly(shown);
@@ -50,9 +50,16 @@ export function pinHiddenWhy(pin: ReviewPin, example: ArtboardRef, shown: Artboa
 /** A pin on an element of an artboard (not a zone, not a canvas element). */
 export const isArtboardElementTarget = (target: ReviewPinTarget): target is ReviewElementTarget => target.kind !== "zone" && target.kind !== "canvas-element";
 
-/** The element's name as the bridge gives it (role and visible text, such as `titre « Budget »`), or the selector of an element that has no name; "Zone" for a zone. */
-export const pinTargetLabel = (pin: Pick<ReviewPin, "target">): string =>
-  pin.target.kind === "zone" ? "Zone" : pin.target.kind === "canvas-element" ? canvasElementLabel(pin.target.elementKind) : (pin.target.elementName ?? pin.target.selector);
+/**
+ * The element's name as the bridge gives it (role and visible text, such as `titre « Budget »`), or the selector of an element that has no name; "Zone" for a zone.
+ * `textOnly` keeps just the visible text ("« Budget »"), as the recap names it.
+ */
+export const pinTargetLabel = (pin: Pick<ReviewPin, "target">, textOnly = false): string => {
+  if (pin.target.kind === "zone") return "Zone";
+  if (pin.target.kind === "canvas-element") return canvasElementLabel(pin.target.elementKind);
+  const text = textOnly && pin.target.elementName && /^.+? « (.*) »$/.exec(pin.target.elementName)?.[1];
+  return text ? `« ${text} »` : (pin.target.elementName ?? pin.target.selector);
+};
 
 /** A drag shorter than this (in artboard pixels) in either direction is an Alt + click, not a zone. */
 export const MIN_ZONE_SIZE = 6;

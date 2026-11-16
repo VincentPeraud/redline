@@ -8,6 +8,8 @@ import {
   artboardKey,
   republishedSince,
   stepArtboards,
+  isCanvasTarget,
+  memberOn,
   stepIsCanvasOnly,
   stepLabel,
   stepPageIds,
@@ -645,14 +647,14 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
     for (const pin of step.pins) {
       // A pin on a canvas element, or a zone on the canvas, is a thread of the step's page; an element deleted since keeps what the pin recorded of it (the thread opens as removed).
       const target = pin.target;
-      if (target.kind === "canvas-element" || (target.kind === "zone" && target.space === "canvas")) {
-        const thread = target.kind === "zone" ? store.createThread(step.pageId, { target, body: pin.text }, pin.person) : store.createThread(step.pageId, { target, body: pin.text }, pin.person);
+      if (isCanvasTarget(target)) {
+        const thread = store.createThread(step.pageId, { target, body: pin.text } as CreateThreadRequest, pin.person);
         take(step.pageId, thread.id);
         threadIds[pin.id] = thread.id;
         continue;
       }
       // A pin sits on the artboard it was placed on; when that one is gone the thread opens on the first artboard of the step that is left.
-      const written = members.find((member) => member.pageId === pin.on?.pageId && member.artboard === pin.on?.artboard) ?? members[0]!;
+      const written = memberOn(members, pin.on)!;
       const where = [written, ...members].find((member) => store.hasArtboard(member.pageId, member.artboard) && !store.getPage(member.pageId)?.archivedAt);
       if (!where) continue;
       const request: CreateThreadRequest =
@@ -670,7 +672,7 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
       // A group remark goes on the artboard it was written on and cites the others of the group.
       const members = step.others ? membersOf(step) : undefined;
       // When the artboard it was written on is gone (or its page archived), the thread opens on the first artboard of the group that is left.
-      const written = members?.find((member) => member.pageId === answer.on?.pageId && member.artboard === answer.on?.artboard) ?? members?.[0];
+      const written = members && memberOn(members, answer.on);
       const where = members
         ? [written!, ...members].find((member) => store.hasArtboard(member.pageId, member.artboard) && !store.getPage(member.pageId)?.archivedAt)
         : stepIsCanvasOnly(step) || (store.hasArtboard(step.pageId, step.artboard) && !store.getPage(step.pageId)?.archivedAt)
@@ -841,7 +843,7 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     if (on !== undefined && !stepArtboards(step).some((ref) => ref.pageId === on.pageId && ref.artboard === on.artboard)) return reply.code(400).send({ error: "on must name an artboard of the step (pageId and artboard)" });
     const own = viewerPersonId(req.viewer) ?? "";
     if (store.changeReviews.pins(review.id).filter((pin) => pin.stepId === step.id && (pin.personId ?? "") === own).length >= MAX_PINS_PER_MEMBER_AND_STEP) return reply.code(409).send({ error: `a member can leave at most ${MAX_PINS_PER_MEMBER_AND_STEP} pins on a step` });
-    const canvasTarget = target?.kind === "canvas-element" || (target?.kind === "zone" && target.space === "canvas");
+    const canvasTarget = target !== undefined && isCanvasTarget(target);
     // A canvas step has no artboard to pin on, and an artboard step no canvas: the target must belong to the step.
     if (canvasTarget && !step.canvasElements) return reply.code(400).send({ error: "this step points at no canvas element: pin on its artboard" });
     if (!canvasTarget && stepIsCanvasOnly(step)) return reply.code(400).send({ error: "this step has no artboard: pin on a canvas element or draw a zone on the canvas" });

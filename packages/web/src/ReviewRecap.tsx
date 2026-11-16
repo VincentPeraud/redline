@@ -1,7 +1,8 @@
 import { activeSteps, reviewPlace, stepIsGroup, stepLabel, stepStatus, type ArtboardRef, type ChangeReview, type ChangeReviewAnswer, type ChangeReviewStep } from "@redline/shared";
 import { cx } from "./ui/index.js";
 import { personName } from "./ReviewRemark.js";
-import { recapOf, recapTargetLabel } from "./recapRules.js";
+import { recapOf } from "./recapRules.js";
+import { pinTargetLabel } from "./reviewPinRules.js";
 import { type RemovedRemark, type View, formatWhen, lockTitle, neighbour, titleOfArtboard } from "./reviewView.js";
 import styles from "./ReviewScreen.module.css";
 
@@ -156,7 +157,7 @@ export function ReviewRecap({
               {items.map((item) => {
                 const entry = item.kind === "pin" ? item.pin : item.answer;
                 const onArtboard = stepIsGroup(step) ? ` · sur ${titleOfArtboard(step, entry.on ?? step)}` : "";
-                const where = item.kind === "pin" ? `${recapTargetLabel(item.pin)}${onArtboard}${item.pin.seenIn ? ` · ${item.pin.seenIn}` : ""}` : `Remarque générale${onArtboard}`;
+                const where = item.kind === "pin" ? `${pinTargetLabel(item.pin, true)}${onArtboard}${item.pin.seenIn ? ` · ${item.pin.seenIn}` : ""}` : `Remarque générale${onArtboard}`;
                 return (
                   <div key={entry.id} className={styles.recapItem}>
                     {item.kind === "pin" ? (
