@@ -77,7 +77,7 @@ it("shows the recap in two columns on the top bar's edges, with counts, remarks,
   const box = async (selector: string) => (await tab.locator(selector).first().boundingBox())!;
   const lead = await box('[data-testid="review-top"] > div');
   const left = await tab.getByRole("heading", { name: "Avant de terminer" }).boundingBox();
-  const list = await tab.getByText(/^Retours \(\d+\)$/).first().boundingBox();
+  const list = await tab.getByText(/^Retours \(\d+ sur \d+ étapes?\)$/).first().boundingBox();
   expect(Math.round(left!.x)).toBe(Math.round(lead.x));
   expect(Math.round(list!.x + list!.width)).toBeLessThanOrEqual(1440 - 20);
   expect(list!.x).toBeGreaterThan(left!.x + 400);
@@ -225,4 +225,33 @@ it("deletes a remark from the recap, with an undo while the review is open", asy
   await tab.getByRole("button", { name: "Annuler" }).click();
 
   await expect.poll(async () => (await reviewOf(reviewId)).steps[0]!.answers.map((answer) => answer.text)).toEqual(["Remove me"]);
+}, 60_000);
+
+it("groups pins, zones and the general remark by step in the recap, deletes a pin from it, then shows the finished recap read-only", async () => {
+  const reviewId = await declareReview();
+  const [first, second] = (await reviewOf(reviewId)).steps;
+  const addPin = (stepId: string, body: unknown) => fetch(api(reviewId, `/steps/${stepId}/pins`), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  await addPin(first!.id, { text: "Make it bold", target: { selector: "h1", elementName: "titre « List screen »", xPct: 10, yPct: 10 } });
+  await addPin(first!.id, { text: "Participants under decisions", target: { kind: "zone", space: "artboard", xPct: 10, yPct: 10, wPct: 30, hPct: 20 } });
+  await saveRemark(reviewId, second!.id, "Help text too long");
+  const tab = await open(reviewId, "/recap");
+
+  await expect.poll(() => tab.getByText("Retours (3 sur 2 étapes)").count()).toBe(1);
+  const text = await tab.getByTestId("review").innerText();
+  expect(text).toContain("« List screen »");
+  expect(text).toContain("Zone");
+  expect(text).toContain("Remarque générale");
+  expect(text).toMatch(/2\s*\n?Étapes avec retours/);
+  expect(await tab.getByRole("button", { name: "Effacer" }).count()).toBe(3);
+
+  await tab.getByRole("button", { name: "Effacer" }).first().click();
+  await expect.poll(async () => (await reviewOf(reviewId)).steps[0]!.pins.map((pin) => pin.text)).toEqual(["Participants under decisions"]);
+  await expect.poll(() => tab.getByText("Retours (2 sur 2 étapes)").count()).toBe(1);
+
+  await tab.getByRole("button", { name: "Terminer la revue" }).click();
+  await tab.getByRole("button", { name: "Terminer quand même" }).click();
+  await expect.poll(() => heading(tab, "Revue terminée").count()).toBe(1);
+  expect(await tab.getByRole("button", { name: "Effacer" }).count()).toBe(0);
+  expect(await tab.getByRole("button", { name: "Modifier" }).count()).toBe(0);
+  expect(await tab.getByText("Participants under decisions").count()).toBe(1);
 }, 60_000);
