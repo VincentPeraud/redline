@@ -114,7 +114,7 @@ it("says the review cannot be found when the link is wrong", async () => {
 }, 60_000);
 
 const stepsOf = async (reviewId: string) => ((await (await fetch(`${seam.server.url}/api/change-reviews/${reviewId}`)).json()) as ChangeReview).steps;
-const remarkField = (tab: Page) => tab.getByRole("textbox", { name: "Ou une remarque" });
+const remarkField = (tab: Page) => tab.getByRole("textbox", { name: "Remarque générale" });
 
 it("saves a remark on its own, replaces the OK, edits it, deletes it with an undo and keeps the text read-only when the review ends", async () => {
   const reviewId = await declareReview();

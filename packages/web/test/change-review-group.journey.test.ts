@@ -88,7 +88,7 @@ it("shows a group as an example with thumbnails, remarks on the artboard shown f
   expect(await tab.locator(`iframe[title="Revue / list.html"]`).getAttribute("src")).toContain(`/pages/${settings}/list.html`);
 
   // A remark started on that artboard stays attached to it, whichever artboard is shown afterwards.
-  await tab.getByRole("textbox", { name: "Ou une remarque pour tout le groupe" }).fill("Badge too big");
+  await tab.getByRole("textbox", { name: "Remarque générale pour tout le groupe" }).fill("Badge too big");
   await expect.poll(() => tab.getByLabel("Remarque sur Settings · List").count()).toBe(1);
   await tab.getByRole("button", { name: "Revenir à l'exemple" }).click();
   expect(await tab.getByLabel("Remarque sur Settings · List").inputValue()).toBe("Badge too big");

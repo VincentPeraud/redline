@@ -30,6 +30,7 @@ export function RemarkEditor({
   own,
   finished,
   placement,
+  placeholder,
   phone,
   onReview,
   onReload,
@@ -42,6 +43,8 @@ export function RemarkEditor({
   finished: boolean;
   /** Present on a group: a remark is attached to the artboard shown when it was started. */
   placement?: RemarkPlacement;
+  /** What the empty field says; the default asks what is wrong and what to do instead. */
+  placeholder?: string;
   /** On a phone the editor lives in the sheet: shown while `open`, kept mounted when closed so a pending save is not lost. */
   phone?: { open: boolean; onClose: () => void };
   onReview: (review: ChangeReview) => void;
@@ -188,7 +191,7 @@ export function RemarkEditor({
             id="remark"
             className={styles.textarea}
             value={text}
-            placeholder={placement ? "Elle s'attache à l'artboard affiché et cite les autres" : "Ce qui ne va pas, ce que tu veux à la place"}
+            placeholder={placement ? "Elle s'attache à l'artboard affiché et cite les autres" : (placeholder ?? "Ce qui ne va pas, ce que tu veux à la place")}
             onChange={(event) => {
               setText(event.target.value);
               if (placement && own?.kind !== "remark") setStartedOn(event.target.value.trim() === "" ? undefined : startedOn ?? placement.shown);
@@ -225,7 +228,7 @@ export function RemarkEditor({
   return (
     <div className={styles.section}>
       <label className={styles.label} htmlFor="remark">
-        {placement ? (placedOn ? `Remarque sur ${placement.titleOf(placedOn)}` : "Ou une remarque pour tout le groupe") : "Ou une remarque"}
+        {placement ? (placedOn ? `Remarque sur ${placement.titleOf(placedOn)}` : "Remarque générale pour tout le groupe") : "Remarque générale"}
       </label>
       {deleting ? (
         <span className={styles.author}>
@@ -240,7 +243,7 @@ export function RemarkEditor({
             id="remark"
             className={styles.textarea}
             value={text}
-            placeholder={placement ? "Elle s'attache à l'artboard affiché et cite les autres" : "Ce qui ne va pas, ce que tu veux à la place"}
+            placeholder={placement ? "Elle s'attache à l'artboard affiché et cite les autres" : (placeholder ?? "Ce qui ne va pas, ce que tu veux à la place")}
             onChange={(event) => {
               setText(event.target.value);
               if (placement && own?.kind !== "remark") setStartedOn(event.target.value.trim() === "" ? undefined : startedOn ?? placement.shown);

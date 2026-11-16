@@ -9,6 +9,8 @@ function targetKey(target: ThreadTarget): string {
       return `artboard|${target.artboard}`;
     case "canvas-element":
       return `canvas-element|${target.elementId}`;
+    case "zone":
+      return `zone|${JSON.stringify(target)}`;
   }
 }
 
@@ -35,6 +37,8 @@ export function chipParts(target: ThreadTarget): { kind: string; name?: string }
       return { kind: "Artboard", name: artboardLabel(target.artboard) };
     case "canvas-element":
       return { kind: CANVAS_ELEMENT_KIND_LABELS[target.elementKind], name: target.elementId };
+    case "zone":
+      return { kind: "Zone" };
   }
 }
 

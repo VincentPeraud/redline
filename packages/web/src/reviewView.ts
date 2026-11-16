@@ -1,5 +1,6 @@
 import { activeSteps, stepIsModified, stepIsSeen, stepStatus, type ArtboardRef, type ChangeReview, type ChangeReviewStep } from "@redline/shared";
 import { type Route } from "./router.js";
+import { canvasViewOf, hasCanvasView } from "./reviewMixed.js";
 import { counted } from "./plural.js";
 import { personName } from "./ReviewRemark.js";
 import styles from "./ReviewScreen.module.css";
@@ -55,10 +56,11 @@ export const STEP_STATE = {
   modified: { label: "Modifié", dot: styles.dotChanged },
 } as const;
 
-export const stepStateOf = (step: ChangeReviewStep): keyof typeof STEP_STATE => (stepIsModified(step) ? "modified" : stepStatus(step.answers));
+export const stepStateOf = (step: ChangeReviewStep): keyof typeof STEP_STATE => (stepIsModified(step) ? "modified" : stepStatus(step.answers, step.pins));
 
-/** The step as the top bar and the stage show it: the example, or the artboard of the group whose thumbnail was opened (its own fields; the example's tweak values and group do not apply to it). */
-export function shownStep(step: ChangeReviewStep, member: number | undefined): ChangeReviewStep {
+/** The step as the top bar and the stage show it: the example, the artboard of the group whose thumbnail was opened (its own fields; the example's tweak values and group do not apply to it), or the canvas of a mixed step. */
+export function shownStep(step: ChangeReviewStep, member: number | undefined, canvas = false): ChangeReviewStep {
+  if (canvas && hasCanvasView(step)) return canvasViewOf(step);
   const other = member === undefined ? undefined : step.others?.[member];
   if (!other) return step;
   return {

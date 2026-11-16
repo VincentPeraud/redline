@@ -117,6 +117,7 @@ function ThreadMessages({ thread }: { thread: Thread }) {
             {thread.linkAuthor.linkName ? `lien « ${thread.linkAuthor.linkName} »` : "lien en Commentaire"} · {relativeTime(thread.createdAt)}
           </span>
         )}
+        {thread.fromReviewAt && <span className={styles.reviewNote}>depuis la revue du {new Date(thread.fromReviewAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>}
         {thread.body}
       </div>
       {thread.replies.map((reply) => (

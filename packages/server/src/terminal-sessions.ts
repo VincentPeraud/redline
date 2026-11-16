@@ -1,6 +1,7 @@
 import { threadTargetLabel, type Person, type TerminalCommentsPage, type TerminalHolder, type TerminalPickedPage, type TerminalWaitingComment, type Thread, type WorkItem } from "@redline/shared";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
+import { zoneSubject } from "./thread-subject.js";
 import { dispatchToAgent, type TerminalPresence } from "./work.js";
 
 /** A terminal session with no heartbeat for this long is gone. */
@@ -254,7 +255,7 @@ const personLabel = (who: { person?: Person; linkAuthor?: { name: string }; auto
 
 /** What waits in a thread: its first comment, or the user's replies since Claude last answered. */
 function waitingCommentsOf(thread: Thread): TerminalWaitingComment[] {
-  const target = thread.target.kind === "element" ? `${thread.target.artboard}, ${thread.target.elementName ?? thread.target.selector}` : thread.target.kind === "artboard" ? `${thread.target.artboard}, whole artboard` : threadTargetLabel(thread.target);
+  const target = thread.target.kind === "element" ? `${thread.target.artboard}, ${thread.target.elementName ?? thread.target.selector}` : thread.target.kind === "artboard" ? `${thread.target.artboard}, whole artboard` : thread.target.kind === "zone" ? zoneSubject(thread.target).replace(/^the /, "") : threadTargetLabel(thread.target);
   const lastAnswer = thread.replies.map((r) => r.author).lastIndexOf("claude");
   if (lastAnswer < 0) return [{ author: personLabel(thread), at: thread.createdAt, target, text: thread.body }];
   return thread.replies.slice(lastAnswer + 1).filter((r) => r.author === "user").map((r) => ({ author: personLabel(r), at: r.createdAt, target, text: r.body }));

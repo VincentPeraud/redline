@@ -50,6 +50,17 @@
   --review-overlay: rgba(0, 0, 0, 0.6);
   --review-shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.5);
   --review-shadow-sheet: 0 -12px 32px rgba(0, 0, 0, 0.4);
+  /* Review mode: pins and zones (theirs in amber), the zone being drawn, the picking banner, the canvas preview and its gone-element veil */
+  --review-pin-theirs-bg: #fed7aa;
+  --review-zone-bg: rgb(194 65 12 / 8%);
+  --review-zone-theirs-border: #fdba74;
+  --review-zone-theirs-bg: rgb(254 215 170 / 14%);
+  --review-pick-border: rgb(255 255 255 / 40%);
+  --review-canvas-dot: #d6d4cd;
+  --review-preview-bg: #d4d4d8;
+  --review-preview-mark: #fde68a;
+  --review-canvas-veil: rgb(24 24 27 / 92%);
+  --review-shadow-frame: 0 1px 3px rgb(0 0 0 / 20%);
 
   /* Colours: warm warnings and danger actions */
   --color-warning-bg: #fdebdd;

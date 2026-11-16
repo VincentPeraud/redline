@@ -366,6 +366,8 @@ export class Store {
     addColumn("threads", "element_id", "TEXT");
     addColumn("threads", "element_kind", "TEXT");
     addColumn("threads", "element_summary", "TEXT");
+    addColumn("threads", "zone", "TEXT");
+    addColumn("threads", "from_review_at", "TEXT");
     addColumn("thread_replies", "created_page_ids", "TEXT");
     addColumn("conversation_messages", "created_page_ids", "TEXT");
     addColumn("conversation_messages", "targets", "TEXT");
@@ -1426,8 +1428,10 @@ export class Store {
     const placement =
       "target" in request
         ? request.target.kind === "artboard"
-          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, cell: null, instanceState: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null }
-          : this.canvasElementPlacement(pageId, request.target.elementId)
+          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, cell: null, instanceState: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null, zone: null }
+          : request.target.kind === "zone"
+            ? this.zonePlacement(request.target)
+            : this.canvasElementPlacement(pageId, request.target)
         : {
             kind: "element",
             artboard: request.artboard,
@@ -1441,19 +1445,48 @@ export class Store {
             elementId: null,
             elementKind: null,
             elementSummary: null,
+            zone: null,
           };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, artboard, selector, element_name, rendering, cell, instance_state, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request, link_id, link_author)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, zone, artboard, selector, element_name, rendering, cell, instance_state, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request, link_id, link_author)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, toReview ? "review" : request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null, linkAuthor?.linkId ?? null, linkAuthor?.name ?? null);
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.zone, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, toReview ? "review" : request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null, linkAuthor?.linkId ?? null, linkAuthor?.name ?? null);
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
 
-  private canvasElementPlacement(pageId: string, elementId: string) {
-    const element = this.canvasElement(pageId, elementId)!;
+  /** A zone keeps its rectangle as JSON; an artboard zone also fills the flat columns (artboard, rendering, tweaks, top-left corner) like an element thread. */
+  /** The thread was opened from a finished review (its feedback fetched by a session): it says so, with the date the review was finished. */
+  markThreadFromReview(threadId: string, at: string): void {
+    this.db.prepare("UPDATE threads SET from_review_at = ? WHERE id = ?").run(at, threadId);
+    this.emit({ type: "thread-updated", pageId: (this.db.prepare("SELECT page_id FROM threads WHERE id = ?").get(threadId) as { page_id: string }).page_id, threadId });
+  }
+
+  private zonePlacement(target: Extract<ThreadTarget, { kind: "zone" }>) {
+    const { kind: _kind, ...rect } = target;
+    const onArtboard = target.space === "artboard";
+    return {
+      kind: "zone",
+      artboard: onArtboard ? target.artboard : "",
+      selector: "",
+      elementName: null,
+      rendering: onArtboard && target.rendering ? JSON.stringify({ format: target.rendering.format, width: target.rendering.width }) : null,
+      cell: onArtboard && target.cell ? JSON.stringify(target.cell) : null,
+      instanceState: null,
+      xPct: onArtboard ? target.xPct : 0,
+      yPct: onArtboard ? target.yPct : 0,
+      elementId: null,
+      elementKind: null,
+      elementSummary: null,
+      zone: JSON.stringify(rect),
+    };
+  }
+
+  /** An element deleted since a review pin was placed on it (only a fetch gets here) keeps the kind and summary the pin recorded. */
+  private canvasElementPlacement(pageId: string, { elementId, elementKind, elementSummary }: Extract<CreateThreadRequest, { target: { kind: "canvas-element" } }>["target"]) {
+    const element = this.canvasElement(pageId, elementId);
     return {
       kind: "canvas-element",
       artboard: "",
@@ -1465,8 +1498,9 @@ export class Store {
       xPct: 0,
       yPct: 0,
       elementId,
-      elementKind: element.kind,
-      elementSummary: canvasElementSummary(element),
+      elementKind: element?.kind ?? elementKind!,
+      elementSummary: element ? canvasElementSummary(element) : (elementSummary ?? null),
+      zone: null,
     };
   }
 
@@ -1724,7 +1758,7 @@ export class Store {
   private listThreadsWithStatus(pageId: string, status: ThreadStatus, withReplies = false): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.instance_state, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id, t.created_at
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.instance_state, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.zone, t.from_review_at, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id, t.created_at
          FROM threads t WHERE t.page_id = ? AND t.status = ? ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId, status) as ThreadRow[];
@@ -2371,7 +2405,7 @@ function toDesignSystem({ archivedAt, ...designSystem }: DesignSystemRow): Desig
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, instance_state, target_kind, element_id, element_kind, element_summary, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request, link_id, link_author, created_at FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, instance_state, target_kind, element_id, element_kind, element_summary, zone, from_review_at, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request, link_id, link_author, created_at FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -2387,6 +2421,8 @@ interface ThreadRow {
   element_id: string | null;
   element_kind: ManifestElementKind | null;
   element_summary: string | null;
+  zone: string | null;
+  from_review_at: string | null;
   x_pct: number;
   y_pct: number;
   title: string;
@@ -2403,6 +2439,7 @@ interface ThreadRow {
 }
 
 function targetOf(row: ThreadRow): ThreadTarget {
+  if (row.target_kind === "zone") return { kind: "zone", ...(JSON.parse(row.zone!) as Omit<Extract<ThreadTarget, { kind: "zone" }>, "kind">) } as Extract<ThreadTarget, { kind: "zone" }>;
   if (row.target_kind === "artboard") return { kind: "artboard", artboard: row.artboard };
   if (row.target_kind === "canvas-element") return {
       kind: "canvas-element",
@@ -2456,6 +2493,7 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     ...(row.new_session ? { newSession: row.new_session } : {}),
     ...(row.link_id && row.link_author ? { linkAuthor: { linkId: row.link_id, name: row.link_author } } : {}),
     ...(row.automatic ? { automatic: true as const } : {}),
+    ...(row.from_review_at ? { fromReviewAt: row.from_review_at } : {}),
     ...(row.request ? { request: JSON.parse(row.request) as ThreadRequest } : {}),
   };
 }

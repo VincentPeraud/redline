@@ -1,4 +1,5 @@
-import type { ManifestArtboard, ManifestTweak, TweakValues } from "./index.js";
+import type { ManifestArtboard, ManifestElement, ManifestElementKind, ManifestTweak, ThreadRendering, TweakValues, ZoneRect } from "./index.js";
+import type { InstanceState } from "./instanceState.js";
 import type { Person } from "./people.js";
 
 /** Where a review is: `open` (people answer), `finished` (locked, waiting for a conversation to fetch it), then `fetched` (its feedback was fetched) or `filed` (put aside without ever being sent). */
@@ -47,7 +48,10 @@ export interface ArtboardRef {
 /** One step as declared by Claude's `request_review`: one artboard, or a group (`pageId` / `artboard` is then the example, `others` the rest). */
 export interface ChangeReviewStepInput {
   pageId: string;
+  /** The artboard (the example of a group). Empty on a canvas-only step, which targets `canvasElements` of the page alone. */
   artboard: string;
+  /** Ids of canvas elements of the page (a sticky, a title, an arrow) the step points at, in the order Claude gave them: alone (a canvas step) or next to the artboard (a mixed step). */
+  canvasElements?: string[];
   /** The other artboards sharing the change: the step is then a group, whose first artboard is the example. */
   others?: ArtboardRef[];
   /** The name of a group ("Badge cmux"); the example's title when absent. */
@@ -65,11 +69,14 @@ export interface ChangeReviewStepInput {
   baselineVersion?: string;
 }
 
+/** A step as Claude declares it: the artboard may be left out when `canvasElements` says what the step points at. */
+export type ChangeReviewStepDeclaration = Omit<ChangeReviewStepInput, "artboard"> & { artboard?: string };
+
 export interface RequestChangeReviewRequest {
   /** The terminal session's folder: shown (last segment) in the review title. */
   folder: string;
   label?: string;
-  steps: ChangeReviewStepInput[];
+  steps: ChangeReviewStepDeclaration[];
 }
 
 export interface RequestChangeReviewResponse {
@@ -98,6 +105,73 @@ export interface ChangeReviewAnswer {
   on?: ArtboardRef;
 }
 
+/** A pin on an element of an artboard, found again by its selector and name. */
+export interface ReviewElementTarget {
+  /** Absent on pins saved before zones existed. */
+  kind?: "element";
+  selector: string;
+  /** The element's role and short visible text, to find it again when the selector no longer matches. */
+  elementName?: string;
+  /** Where it was dropped, in percent of the artboard: the position kept when the element is lost. */
+  xPct: number;
+  yPct: number;
+  /** Component instances that were in a state of their own (an open modal) when it was dropped. */
+  instanceState?: InstanceState[];
+}
+
+/** A zone a reviewer drew: a rectangle of the artboard (percent) or, on a canvas step, of the page canvas (pixels). */
+export type ReviewZoneTarget = { kind: "zone" } & ZoneRect;
+
+/** What a canvas element is called in the panel and the recap: "Note du canevas" for a sticky, "Titre du canevas", "Flèche du canevas"... */
+export const canvasElementLabel = (kind: ManifestElementKind): string =>
+  ({ sticky: "Note", title: "Titre", text: "Texte", arrow: "Flèche", link: "Lien", image: "Image", shape: "Forme" })[kind] + " du canevas";
+
+/** A pin on an element of the page canvas, found again by its id; `elementSummary` is what it showed when the pin was placed. */
+export interface ReviewCanvasTarget {
+  kind: "canvas-element";
+  elementId: string;
+  elementKind: ManifestElementKind;
+  elementSummary?: string;
+}
+
+/** What a pin sits on. */
+export type ReviewPinTarget = ReviewElementTarget | ReviewCanvasTarget | ReviewZoneTarget;
+
+const oneDecimal = (value: number): string => String(Math.round(value * 10) / 10);
+
+/** "zone x 64 % · y 18 % · 28 % × 26 % de l'artboard" (one decimal at most), or in pixels "du canevas". */
+export function describeZone(zone: ZoneRect): string {
+  return zone.space === "artboard"
+    ? `zone x ${oneDecimal(zone.xPct)} % · y ${oneDecimal(zone.yPct)} % · ${oneDecimal(zone.wPct)} % × ${oneDecimal(zone.hPct)} % de l'artboard`
+    : `zone x ${oneDecimal(zone.x)} px · y ${oneDecimal(zone.y)} px · ${oneDecimal(zone.w)} px × ${oneDecimal(zone.h)} px du canevas`;
+}
+
+/**
+ * A reviewer's pin on one element of a step's artboard, or a zone drawn on it. Unlike an answer there are several per person and step; numbers are per step, in creation order across members.
+ * `mine` tells the viewer whether they placed it.
+ */
+export interface ReviewPin {
+  id: string;
+  /** Per step, in creation order across members; a number is never reused. */
+  number: number;
+  text: string;
+  target: ReviewPinTarget;
+  /** The artboard of a group it sits on; absent on the example. */
+  on?: ArtboardRef;
+  /** The rendering and tweak values it was placed in: it shows only there. */
+  rendering?: ThreadRendering;
+  tweaks?: TweakValues;
+  /** "Mobile · Brouillon": the rendering and state when they are not the step's default ones, for lists and for Claude. */
+  seenIn?: string;
+  /** No element of the current artboard matches it any more: it stays at its last position. */
+  lost?: boolean;
+  person?: Person;
+  at: string;
+  mine: boolean;
+  /** The artboard was republished after this pin was placed. */
+  outdated?: boolean;
+}
+
 /** An artboard of a group other than its example, as the step shows it (the fields mirror the step's own, which describe the example). */
 export interface ChangeReviewMember extends ArtboardRef {
   pageTitle: string;
@@ -117,8 +191,18 @@ export interface ChangeReviewMember extends ArtboardRef {
 /** Why a step no longer counts: its artboard was deleted, or its page is archived (steps come back if the page is unarchived before the review is finished). */
 export type StepRemoval = "deleted" | "archived";
 
+/** The page canvas as a step that points at canvas elements shows it: every element and artboard box at its current place. */
+export interface ChangeReviewCanvas {
+  elements: ManifestElement[];
+  artboards: ManifestArtboard[];
+  /** The ids of the step's canvas elements that are gone from the page. */
+  missing: string[];
+}
+
 export interface ChangeReviewStep extends ChangeReviewStepInput {
   id: string;
+  /** Present when the step has canvas elements. */
+  canvas?: ChangeReviewCanvas;
   /** The other artboards of a group, with what the step knows of each. */
   others?: ChangeReviewMember[];
   /** Set when the step is out of the review: it shows "Cet artboard n'existe plus" and is not counted. */
@@ -132,6 +216,8 @@ export interface ChangeReviewStep extends ChangeReviewStepInput {
   /** The values saved on the page (the tweaks file): what the step shows under Claude's values. */
   savedTweaks?: TweakValues;
   answers: ChangeReviewAnswer[];
+  /** Everyone's pins on the step, in number order. */
+  pins: ReviewPin[];
   /** Who published the version that outdated the answers (present when at least one answer is outdated); absent when unknown. */
   modifiedBy?: string;
   /** When that version was published. */
@@ -174,7 +260,7 @@ export interface ChangeReviewProgress {
   segments: ProgressSegment[];
 }
 
-type Answered = { answers: readonly ChangeReviewAnswer[]; removed?: StepRemoval };
+type Answered = { answers: readonly ChangeReviewAnswer[]; pins?: readonly ReviewPin[]; removed?: StepRemoval };
 
 /** The steps still in the review: removed ones are not counted, not shown in the menu and not asked about. */
 export const activeSteps = <T extends { removed?: StepRemoval }>(steps: readonly T[]): T[] => steps.filter((step) => step.removed === undefined);
@@ -183,25 +269,43 @@ export const activeSteps = <T extends { removed?: StepRemoval }>(steps: readonly
  * "Remarque" as soon as anyone left a remark (kept even when its artboard changed), "OK" when someone validated the current version and nobody left a remark, else "Non vu".
  * An OK on an older version of the artboard does not count.
  */
-export const stepStatus = (answers: readonly ChangeReviewAnswer[]): ChangeReviewStatus =>
-  answers.some((answer) => answer.kind === "remark") ? "remark" : answers.some((answer) => !answer.outdated) ? "ok" : "unseen";
+export const stepStatus = (answers: readonly ChangeReviewAnswer[], pins: readonly ReviewPin[] = []): ChangeReviewStatus =>
+  pins.length > 0 || answers.some((answer) => answer.kind === "remark") ? "remark" : answers.some((answer) => !answer.outdated) ? "ok" : "unseen";
 
 /** "Modifié depuis ta revue": the artboard was republished after answers and nobody answered its current version. */
-export const stepIsModified = ({ answers }: Answered): boolean => answers.length > 0 && answers.every((answer) => answer.outdated);
+export const stepIsModified = ({ answers, pins = [] }: Answered): boolean => answers.length + pins.length > 0 && [...answers, ...pins].every((feedback) => feedback.outdated);
 
 /** "Vu": the step has a remark or an OK on the current version (opening a step without answering does not count). */
-export const stepIsSeen = ({ answers }: Answered): boolean => stepStatus(answers) !== "unseen";
+export const stepIsSeen = ({ answers, pins }: Answered): boolean => stepStatus(answers, pins) !== "unseen";
 
 /** Seen / total, and one segment per step still in the review (`currentIndex` counts all steps); a modified step is red, the current step shows as current until it is answered. */
 export function progressOf<T extends Answered>(steps: readonly T[], currentIndex: number): ChangeReviewProgress {
   const segmentOf = (step: Answered, index: number): ProgressSegment =>
-    stepIsModified(step) ? "modified" : stepIsSeen(step) ? (stepStatus(step.answers) === "remark" ? "remark" : "ok") : index === currentIndex ? "current" : "unseen";
+    stepIsModified(step) ? "modified" : stepIsSeen(step) ? (stepStatus(step.answers, step.pins) === "remark" ? "remark" : "ok") : index === currentIndex ? "current" : "unseen";
   const kept = steps.map((step, index) => ({ step, index })).filter(({ step }) => step.removed === undefined);
   return { seen: kept.filter(({ step }) => stepIsSeen(step)).length, total: kept.length, segments: kept.map(({ step, index }) => segmentOf(step, index)) };
 }
 
-/** The artboards a step covers, the example first. */
-export const stepArtboards = ({ pageId, artboard, others = [] }: { pageId: string; artboard: string; others?: readonly ArtboardRef[] }): ArtboardRef[] => [{ pageId, artboard }, ...others];
+/** The number of a pin placed now: one above the highest in use and above every number ever issued on the step (so a deleted pin's number is not reused). */
+export const nextPinNumber = (inUse: readonly number[], lastIssued: number): number => Math.max(lastIssued, ...inUse) + 1;
+
+/** A step that points at canvas elements only: it has no artboard. */
+export const stepIsCanvasOnly = ({ artboard }: { artboard: string }): boolean => artboard === "";
+
+/** The artboards a step covers, the example first (none on a canvas-only step). */
+export const stepArtboards = (step: { pageId: string; artboard: string; others?: readonly ArtboardRef[] }): ArtboardRef[] => [...(stepIsCanvasOnly(step) ? [] : [{ pageId: step.pageId, artboard: step.artboard }]), ...(step.others ?? [])];
+
+/** A pin target that sits on the page canvas (an element or a zone drawn on it), as opposed to one on an artboard. */
+export const isCanvasTarget = (target: { kind?: unknown; space?: unknown }): target is ReviewCanvasTarget | (ReviewZoneTarget & { space: "canvas" }) => target.kind === "canvas-element" || (target.kind === "zone" && target.space === "canvas");
+
+/** The member of a step's artboards a pin or a remark was written on: `on`, else the example (the first member). */
+export const memberOn = <T extends ArtboardRef>(members: readonly T[], on: ArtboardRef | undefined): T | undefined => members.find((member) => member.pageId === on?.pageId && member.artboard === on?.artboard) ?? members[0];
+
+/** The pages a step covers (a canvas-only step has its own page and no artboard). */
+export const stepPageIds = (step: { pageId: string; artboard: string; others?: readonly ArtboardRef[] }): string[] => [...new Set([step.pageId, ...(step.others ?? []).map((ref) => ref.pageId)])];
+
+/** The key a canvas element has in the reading order of its page (see `orderSteps`). */
+export const canvasElementKey = (elementId: string): string => `canvas:${elementId}`;
 
 /** A group of artboards: its example and at least one other. */
 export const stepIsGroup = ({ others }: { others?: readonly unknown[] }): boolean => (others?.length ?? 0) > 0;
@@ -219,13 +323,15 @@ export const stepLabel = (step: { title?: string; pageTitle: string; artboardTit
  * Steps in page order, then in the reading order of their page. An artboard missing from the reading order goes last of its page.
  * A group on one page sits at its first artboard in that order; a group spanning several pages goes after all the others, placed the same way by its first artboard.
  */
-export function orderSteps<T extends { pageId: string; artboard: string; others?: readonly ArtboardRef[] }>(steps: readonly T[], pageOrder: readonly string[], readingOrderOf: Readonly<Record<string, readonly string[]>>): T[] {
+export function orderSteps<T extends { pageId: string; artboard: string; others?: readonly ArtboardRef[]; canvasElements?: readonly string[] }>(steps: readonly T[], pageOrder: readonly string[], readingOrderOf: Readonly<Record<string, readonly string[]>>): T[] {
   const rank = (list: readonly string[] | undefined, item: string) => {
     const index = list?.indexOf(item) ?? -1;
     return index === -1 ? Number.MAX_SAFE_INTEGER : index;
   };
   const position = (step: T) =>
-    stepArtboards(step)
+    stepIsCanvasOnly(step)
+      ? ([rank(pageOrder, step.pageId), rank(readingOrderOf[step.pageId], canvasElementKey(step.canvasElements?.[0] ?? ""))] as const)
+      : stepArtboards(step)
       .map((ref) => [rank(pageOrder, ref.pageId), rank(readingOrderOf[ref.pageId], ref.artboard)] as const)
       .reduce((first, next) => (next[0] < first[0] || (next[0] === first[0] && next[1] < first[1]) ? next : first));
   return [...steps].sort((a, b) => Number(stepIsMultiPage(a)) - Number(stepIsMultiPage(b)) || position(a)[0] - position(b)[0] || position(a)[1] - position(b)[1]);
@@ -238,10 +344,11 @@ export const artboardKey = ({ pageId, artboard }: ArtboardRef): string => JSON.s
  * What identifies a step: its artboards and its tweak values (two states of one artboard are two steps; an artboard of a group redeclared alone is another step).
  * A group is identified by its set of artboards, whichever is the example.
  */
-export const stepKey = ({ pageId, artboard, others, tweaks = {} }: { pageId: string; artboard: string; others?: readonly ArtboardRef[]; tweaks?: StepTweaks }): string => {
+export const stepKey = ({ pageId, artboard, others, tweaks = {}, canvasElements = [] }: { pageId: string; artboard: string; others?: readonly ArtboardRef[]; tweaks?: StepTweaks; canvasElements?: readonly string[] }): string => {
   const sortedTweaks = Object.entries(tweaks).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  if (!stepIsGroup({ others })) return JSON.stringify([pageId, artboard, sortedTweaks]);
-  return JSON.stringify([stepArtboards({ pageId, artboard, others }).map(artboardKey).sort(), sortedTweaks]);
+  const elements = canvasElements.length > 0 ? [[...canvasElements].sort()] : [];
+  if (!stepIsGroup({ others })) return JSON.stringify([pageId, artboard, sortedTweaks, ...elements]);
+  return JSON.stringify([stepArtboards({ pageId, artboard, others }).map(artboardKey).sort(), sortedTweaks, ...elements]);
 };
 
 /** The artboard versions an answer saw: the example's, and each other artboard's by `artboardKey`. */
@@ -267,7 +374,7 @@ export function republishedSince(seen: SeenVersions, current: CurrentVersions): 
   };
 }
 
-type Mergeable = { pageId: string; artboard: string; others?: readonly (ArtboardRef & { baseline?: string })[]; tweaks?: StepTweaks; baseline?: string };
+type Mergeable = { pageId: string; artboard: string; others?: readonly (ArtboardRef & { baseline?: string })[]; tweaks?: StepTweaks; baseline?: string; canvasElements?: readonly string[] };
 
 /** A declared group seen from the example the review already has: the artboards are the same, so the step must not move to another page or artboard. */
 function withExample<T extends Mergeable>(declared: T, example: ArtboardRef): T {
@@ -299,9 +406,12 @@ export interface ChangeReviewResultInput {
     /** A group's artboards, the example first, with their "Page · artboard" names. */
     members?: { pageId: string; artboard: string; label: string }[];
     answers: readonly ChangeReviewAnswer[];
+    pins?: readonly ReviewPin[];
     removed?: StepRemoval;
+    /** A canvas step whose elements are all gone: its general remark has no element to sit on and comes as text. */
+    elementGone?: boolean;
   }[];
-  /** The thread opened for each remark, by remark id. */
+  /** The thread opened for each remark and each pin, by remark id and pin id. */
   threadIds?: Readonly<Record<string, string>>;
 }
 
@@ -322,6 +432,34 @@ export interface ChangeReviewRemarkResult {
   artboardModified?: boolean;
   /** The step's artboard was deleted ("artboard supprimé") or its page is archived ("page archivée"): the remark comes as text, without a thread. */
   removed?: StepRemoval;
+  /** The canvas step's elements are all gone ("élément supprimé"): the remark comes as text, without a thread. */
+  elementGone?: boolean;
+  threadId?: string;
+}
+
+/** A pin as Claude gets it: the element it points at, who wrote it, and the thread it became. */
+export interface ChangeReviewPinResult {
+  stepId: string;
+  label: string;
+  /** Absent on a pin of a removed step, which has no place in the count. */
+  number?: number;
+  /** The pin's own number on the step. */
+  pinNumber: number;
+  artboard: string;
+  /** On a group: the artboard it sits on ("Page · artboard"). */
+  onLabel?: string;
+  target: ReviewPinTarget;
+  author: string;
+  text: string;
+  alsoValidatedBy: string[];
+  /** "Mobile · Brouillon": it was placed in another rendering or state than the default. */
+  seenIn?: string;
+  /** The rendering it was placed in, so a zone can say "vu en Desktop" even on the default one. */
+  rendering?: ThreadRendering;
+  /** The element was not found in the current artboard: the thread sits at its last position. */
+  elementLost?: boolean;
+  artboardModified?: boolean;
+  removed?: StepRemoval;
   threadId?: string;
 }
 
@@ -330,10 +468,11 @@ export interface ChangeReviewResult {
   finishedBy: string;
   validated: { stepId: string; label: string; number: number; by: string[] }[];
   remarks: ChangeReviewRemarkResult[];
+  pins: ChangeReviewPinResult[];
   notSeen: { stepId: string; label: string; number: number; /** Validated, then republished and not validated again ("modifié après le OK"). */ modifiedAfterOk?: boolean }[];
 }
 
-const nameOfAnswer = (answer: ChangeReviewAnswer): string => answer.person?.name || answer.person?.email || "someone";
+const nameOfAnswer = (answer: { person?: Person }): string => answer.person?.name || answer.person?.email || "someone";
 
 /** What Claude gets from a finished review: the validated steps with who validated them, the remarks, and the steps not seen. */
 export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: ChangeReviewResultInput): ChangeReviewResult {
@@ -342,12 +481,35 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
   return {
     requester,
     finishedBy,
-    validated: numbered.filter((step) => stepStatus(step.answers) === "ok").map((step) => ({ stepId: step.id, label: step.label, number: step.number, by: step.answers.filter((answer) => !answer.outdated).map(nameOfAnswer) })),
+    validated: numbered.filter((step) => stepStatus(step.answers, step.pins) === "ok").map((step) => ({ stepId: step.id, label: step.label, number: step.number, by: step.answers.filter((answer) => !answer.outdated).map(nameOfAnswer) })),
+    pins: steps.flatMap((step) =>
+      (step.pins ?? []).map((pin): ChangeReviewPinResult => {
+        const on = step.members && memberOn(step.members, pin.on);
+        return {
+          stepId: step.id,
+          label: step.label,
+          ...(numberOf.has(step.id) ? { number: numberOf.get(step.id)! } : {}),
+          pinNumber: pin.number,
+          artboard: on?.artboard ?? step.artboard,
+          ...(on ? { onLabel: on.label } : {}),
+          target: pin.target,
+          author: nameOfAnswer(pin),
+          text: pin.text,
+          alsoValidatedBy: step.answers.filter((other) => other.kind === "ok" && !other.outdated).map(nameOfAnswer),
+          ...(pin.seenIn ? { seenIn: pin.seenIn } : {}),
+          ...(pin.rendering ? { rendering: pin.rendering } : {}),
+          ...(pin.lost ? { elementLost: true } : {}),
+          ...(pin.outdated ? { artboardModified: true } : {}),
+          ...(step.removed ? { removed: step.removed } : {}),
+          ...(threadIds[pin.id] ? { threadId: threadIds[pin.id] } : {}),
+        };
+      }),
+    ),
     remarks: steps.flatMap((step) =>
       step.answers
         .filter((answer) => answer.kind === "remark")
         .map((answer) => {
-          const where = step.members && (step.members.find((member) => member.pageId === answer.on?.pageId && member.artboard === answer.on?.artboard) ?? step.members[0]);
+          const where = step.members && memberOn(step.members, answer.on);
           return {
             stepId: step.id,
             label: step.label,
@@ -359,6 +521,7 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
             alsoValidatedBy: step.answers.filter((other) => other.kind === "ok" && !other.outdated).map(nameOfAnswer),
             ...(answer.outdated ? { artboardModified: true } : {}),
             ...(step.removed ? { removed: step.removed } : {}),
+            ...(step.elementGone ? { elementGone: true } : {}),
             ...(threadIds[answer.id] ? { threadId: threadIds[answer.id] } : {}),
           };
         }),
@@ -367,6 +530,28 @@ export function reviewResult({ requester, finishedBy, steps, threadIds = {} }: C
       .filter((step) => !stepIsSeen(step))
       .map((step) => ({ stepId: step.id, label: step.label, number: step.number, ...(step.answers.length > 0 ? { modifiedAfterOk: true } : {}) })),
   };
+}
+
+/** The feedback of one step: its pins in number order, then its general remarks. */
+export interface StepFeedback {
+  stepId: string;
+  label: string;
+  number?: number;
+  pins: ChangeReviewPinResult[];
+  remarks: ChangeReviewRemarkResult[];
+}
+
+/** The result's feedback grouped under its step, in step order (steps without feedback are left out). */
+export function feedbackByStep({ pins, remarks }: Pick<ChangeReviewResult, "pins" | "remarks">): StepFeedback[] {
+  const groups = new Map<string, StepFeedback>();
+  const groupOf = (entry: { stepId: string; label: string; number?: number }) => {
+    if (!groups.has(entry.stepId)) groups.set(entry.stepId, { stepId: entry.stepId, label: entry.label, ...(entry.number !== undefined ? { number: entry.number } : {}), pins: [], remarks: [] });
+    return groups.get(entry.stepId)!;
+  };
+  for (const pin of pins) groupOf(pin).pins.push(pin);
+  for (const remark of remarks) groupOf(remark).remarks.push(remark);
+  for (const group of groups.values()) group.pins.sort((a, b) => a.pinNumber - b.pinNumber);
+  return [...groups.values()].sort((a, b) => (a.number ?? Number.MAX_SAFE_INTEGER) - (b.number ?? Number.MAX_SAFE_INTEGER));
 }
 
 /** What `review_feedback` answers: the result of a finished review, or its progress while it is still open. */
@@ -429,8 +614,8 @@ export interface PageChangeReview {
   seen: number;
   /** Validations given on all steps. */
   okCount: number;
-  /** Remarks left on all steps. */
-  remarkCount: number;
+  /** Steps with feedback: a step counts once, whatever its number of pins and remarks. */
+  feedbackStepCount: number;
   /** People who answered, in order of first answer. */
   contributors: Person[];
   requester: { person?: Person; folder: string; label?: string };
