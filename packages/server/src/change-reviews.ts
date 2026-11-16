@@ -198,6 +198,11 @@ function removalOf(store: Store, review: StoredReview, ref: StoredArtboard): Ste
 /** What `removalOf` says of each artboard of a step (the example first), and why the step as a whole is out of the review: only when none of its artboards is left (the example's reason is given). */
 function removalsOf(store: Store, review: StoredReview, step: StoredStep): { each: (StepRemoval | undefined)[]; step: StepRemoval | undefined } {
   const each = storedArtboards(step).map((ref) => removalOf(store, review, ref));
+  // A mixed step keeps its canvas view as one more part: it is gone with its page or when none of its elements is left.
+  if (step.canvasElements && !stepIsCanvasOnly(step)) {
+    const onPage = removalOf(store, review, { pageId: step.pageId, artboard: "", ...(step.archivedAtFinish ? { archivedAtFinish: true } : {}) });
+    each.push(onPage ?? (step.canvasElements.some((id) => store.canvasElement(step.pageId, id)) ? undefined : "deleted"));
+  }
   return { each, step: each.every((reason) => reason !== undefined) ? each[0] : undefined };
 }
 
@@ -656,8 +661,17 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
   // A remark on a removed step (deleted artboard, archived page) has nowhere to be a thread: it comes as text.
   for (const step of activeSteps(view.steps)) {
     for (const answer of step.answers.filter((a) => a.kind === "remark")) {
-      // A remark on a canvas step is a thread on its first targeted element; with none left it comes as text.
-      if (stepIsCanvasOnly(step)) {
+      // A group remark goes on the artboard it was written on and cites the others of the group.
+      const members = step.others ? membersOf(step) : undefined;
+      // When the artboard it was written on is gone (or its page archived), the thread opens on the first artboard of the group that is left.
+      const written = members?.find((member) => member.pageId === answer.on?.pageId && member.artboard === answer.on?.artboard) ?? members?.[0];
+      const where = members
+        ? [written!, ...members].find((member) => store.hasArtboard(member.pageId, member.artboard) && !store.getPage(member.pageId)?.archivedAt)
+        : stepIsCanvasOnly(step) || (store.hasArtboard(step.pageId, step.artboard) && !store.getPage(step.pageId)?.archivedAt)
+          ? { pageId: step.pageId, artboard: step.artboard }
+          : undefined;
+      // A remark on a canvas step, or on a mixed step whose artboards are all gone, is a thread on its first targeted element; with none left it comes as text.
+      if (stepIsCanvasOnly(step) || (step.canvasElements && !where)) {
         const first = step.canvasElements!.find((id) => !step.canvas?.missing.includes(id));
         const element = first === undefined ? undefined : store.canvasElement(step.pageId, first);
         if (!element) continue;
@@ -667,11 +681,6 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
         threadIds[answer.id] = thread.id;
         continue;
       }
-      // A group remark goes on the artboard it was written on and cites the others of the group.
-      const members = step.others ? membersOf(step) : undefined;
-      // When the artboard it was written on is gone (or its page archived), the thread opens on the first artboard of the group that is left.
-      const written = members?.find((member) => member.pageId === answer.on?.pageId && member.artboard === answer.on?.artboard) ?? members?.[0];
-      const where = members && [written!, ...members].find((member) => store.hasArtboard(member.pageId, member.artboard) && !store.getPage(member.pageId)?.archivedAt);
       const pageId = where?.pageId ?? step.pageId;
       const cited = members && where ? `\n\nRemarque sur le groupe « ${stepLabel(step)} » : le même changement concerne aussi ${members.filter((member) => member !== where).map((member) => member.label).join(", ")}.` : "";
       const thread = store.createThread(pageId, { target: { kind: "artboard", artboard: where?.artboard ?? step.artboard }, body: `${answer.text ?? ""}${cited}` }, answer.person);

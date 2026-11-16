@@ -6,7 +6,8 @@ import { cx } from "./ui/index.js";
 import { counted } from "./plural.js";
 import { PersonDot, RemarkEditor, personName } from "./ReviewRemark.js";
 import { PhonePickBanner, PhonePinButton, PhonePinEditor, PhonePinsList, PhoneTheirPins, PinButton, PinsSection, TheirPins, useReviewPins } from "./ReviewPins.js";
-import { feedbackReplacesOk } from "./reviewPinRules.js";
+import { feedbackReplacesOk, isCanvasPin } from "./reviewPinRules.js";
+import { hasCanvasView } from "./reviewMixed.js";
 import { STEP_STATE, type View, formatWhen, lockTitle, lockWhen, neighbour, reviewPath, shownStep, stepNumber, titleOfArtboard } from "./reviewView.js";
 import { ReviewStage } from "./ReviewStage.js";
 import styles from "./ReviewScreen.module.css";
@@ -38,6 +39,8 @@ export function StepView({
   controls,
   openedMember,
   onOpenMember,
+  canvasShown,
+  onCanvasShown,
   failed,
   onGo,
   onOk,
@@ -51,6 +54,9 @@ export function StepView({
   controls: StepControls;
   openedMember: number | undefined;
   onOpenMember: (member: number | undefined) => void;
+  /** The canvas view of a mixed step is on screen. */
+  canvasShown: boolean;
+  onCanvasShown: (shown: boolean) => void;
   failed: boolean;
   onGo: (view: View) => void;
   onOk: () => void;
@@ -70,7 +76,13 @@ export function StepView({
   const [detailsOpen, setDetailsOpen] = useState(false);
   // The member's own answer saw an older version of the artboard.
   const group = stepIsGroup(step);
-  const shown = shownStep(step, openedMember);
+  const shown = shownStep(step, openedMember, canvasShown);
+  const canvasView = stepIsCanvasOnly(shown) && !stepIsCanvasOnly(step);
+  /** Opening an artboard of the group brings the artboard view back. */
+  const openMember = (member: number | undefined) => {
+    onCanvasShown(false);
+    onOpenMember(member);
+  };
   const { onPinUnsaved, ...remarkProps } = remark;
   const pins = useReviewPins({ review, step, shown, controls, api: { reviewPath: remark.reviewPath, onReview: remark.onReview, onReload: remark.onReload, onUnsaved: onPinUnsaved } });
   const ownRemark = own?.kind === "remark";
@@ -79,6 +91,8 @@ export function StepView({
   const modified = stepIsModified(step) || own?.outdated === true || feedbackOutdated;
   /** "l'afficher": brings the artboard, rendering and state a pin was placed in back on the stage. */
   const showPin = (pin: ReviewPin) => {
+    if (isCanvasPin(pin)) return onCanvasShown(true);
+    onCanvasShown(false);
     controls.chooseBefore(false);
     const home = pin.on ? step.others?.findIndex((member) => member.pageId === pin.on!.pageId && member.artboard === pin.on!.artboard) : undefined;
     onOpenMember(home === undefined || home < 0 ? undefined : home);
@@ -160,7 +174,7 @@ export function StepView({
     return (
       <div className={cx(styles.body, styles.bodyPhone, remarkOpen && !finished && styles.bodyRemarking, pinEditing && styles.bodyPinning, picking && styles.bodyPicking)}>
         {picking && <PhonePickBanner pins={pins} />}
-        <ReviewStage review={review} step={shown} example={step} modified={modified && (!group || shown.modifiedAt !== undefined)} controls={controls} openedMember={openedMember} onOpenMember={onOpenMember} pins={pins} phone={phone} />
+        <ReviewStage review={review} step={shown} example={step} modified={modified && !canvasView && (!group || shown.modifiedAt !== undefined)} controls={controls} openedMember={openedMember} onOpenMember={openMember} canvasShown={canvasShown} onShowCanvas={onCanvasShown} pins={pins} phone={phone} />
         <section aria-label="Question de l'étape" className={styles.sheet}>
           <span className={styles.grip} aria-hidden="true" />
           {pinEditing && !remarkOpen && <PhonePinEditor pins={pins} />}
@@ -243,14 +257,14 @@ export function StepView({
 
   return (
     <div className={styles.body}>
-      <ReviewStage review={review} step={shown} example={step} modified={modified && (!group || shown.modifiedAt !== undefined)} controls={controls} openedMember={openedMember} onOpenMember={onOpenMember} pins={pins} phone={phone} />
+      <ReviewStage review={review} step={shown} example={step} modified={modified && !canvasView && (!group || shown.modifiedAt !== undefined)} controls={controls} openedMember={openedMember} onOpenMember={openMember} canvasShown={canvasShown} onShowCanvas={onCanvasShown} pins={pins} phone={phone} />
       <aside aria-label="Question de l'étape" className={styles.panel}>
         <div className={styles.panelScroll}>
           <Progress review={review} index={index} />
           <div>
             <div className={cx(styles.kicker, group && styles.kickerGroup)}>
               <span>
-                {group ? `${counted(pageCount, "page", "pages")} · ${size} artboards` : stepIsCanvasOnly(step) ? `Page ${step.pageTitle} · canevas` : `Page ${step.pageTitle} · étape ${stepNumber(review, index)} / ${activeSteps(review.steps).length}`}
+                {group ? `${counted(pageCount, "page", "pages")} · ${size} artboards` : stepIsCanvasOnly(step) ? `Page ${step.pageTitle} · canevas` : hasCanvasView(step) ? `Page ${step.pageTitle} · artboard et canevas` : `Page ${step.pageTitle} · étape ${stepNumber(review, index)} / ${activeSteps(review.steps).length}`}
               </span>
               <span className={styles.chips}>
                 {group && <span className={styles.chip}>Groupé</span>}
