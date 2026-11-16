@@ -391,7 +391,7 @@ function bannersOf(store: Store, pageId: string, viewer: Viewer): PageChangeRevi
       pageTitles: [...new Set(kept.flatMap((step) => [step.pageTitle, ...(step.others ?? []).map((member) => member.pageTitle)]))],
       seen,
       okCount: answers.filter((answer) => answer.kind === "ok").length,
-      remarkCount: answers.filter((answer) => answer.kind === "remark").length + kept.reduce((count, step) => count + step.pins.length, 0),
+      feedbackStepCount: kept.filter((step) => step.pins.length > 0 || step.answers.some((answer) => answer.kind === "remark")).length,
       contributors,
       requester: view.requester,
       viewerIsRequester: view.viewerIsRequester,

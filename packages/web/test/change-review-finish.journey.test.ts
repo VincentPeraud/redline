@@ -180,7 +180,7 @@ it("shows a review fetched by a conversation as read-only, with who fetched it",
   const tab = await open(reviewId, "/recap");
 
   await expect.poll(() => tab.getByText(/Récupérée par/).count()).toBe(1);
-  expect(await tab.getByText("Le retour est devenu un fil sur son artboard. Cette revue reste lisible ici.").count()).toBe(1);
+  expect(await tab.getByText("Le retour est devenu un fil de commentaires. Cette revue reste lisible ici.").count()).toBe(1);
   expect(await tab.getByRole("button", { name: "Rouvrir la revue" }).count()).toBe(0);
   expect(await tab.getByRole("button", { name: "Classer sans envoyer" }).count()).toBe(0);
 }, 60_000);
@@ -245,7 +245,13 @@ it("groups pins, zones and the general remark by step in the recap, deletes a pi
   expect(await tab.getByRole("button", { name: "Effacer" }).count()).toBe(3);
 
   await tab.getByRole("button", { name: "Effacer" }).first().click();
-  await expect.poll(async () => (await reviewOf(reviewId)).steps[0]!.pins.map((pin) => pin.text)).toEqual(["Participants under decisions"]);
+  await expect.poll(() => tab.getByText("Retours (2 sur 2 étapes)").count()).toBe(1);
+  expect((await reviewOf(reviewId)).steps[0]!.pins).toHaveLength(2);
+  await tab.getByTestId("review-pending").getByRole("button", { name: "Annuler" }).click();
+  await expect.poll(() => tab.getByText("Retours (3 sur 2 étapes)").count()).toBe(1);
+
+  await tab.getByRole("button", { name: "Effacer" }).first().click();
+  await expect.poll(async () => (await reviewOf(reviewId)).steps[0]!.pins.map((pin) => pin.text), { timeout: 15_000 }).toEqual(["Participants under decisions"]);
   await expect.poll(() => tab.getByText("Retours (2 sur 2 étapes)").count()).toBe(1);
 
   await tab.getByRole("button", { name: "Terminer la revue" }).click();

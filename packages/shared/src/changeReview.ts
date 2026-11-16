@@ -608,8 +608,8 @@ export interface PageChangeReview {
   seen: number;
   /** Validations given on all steps. */
   okCount: number;
-  /** Remarks left on all steps. */
-  remarkCount: number;
+  /** Steps with feedback: a step counts once, whatever its number of pins and remarks. */
+  feedbackStepCount: number;
   /** People who answered, in order of first answer. */
   contributors: Person[];
   requester: { person?: Person; folder: string; label?: string };

@@ -72,7 +72,7 @@ export function ReviewRecap({
                   {lockTitle(review)} ({place}) · {review.fetchedAt ? formatWhen(review.fetchedAt) : ""}
                 </strong>
                 <span>
-                  {recap.feedback === 0 ? "" : recap.feedback === 1 ? "Le retour est devenu un fil sur son artboard. " : `Les ${recap.feedback} retours sont devenues des fils sur leurs artboards. `}Cette revue reste lisible ici.
+                  {recap.feedback === 0 ? "" : recap.feedback === 1 ? "Le retour est devenu un fil de commentaires. " : `Les ${recap.feedback} retours sont devenus des fils de commentaires. `}Cette revue reste lisible ici.
                 </span>
               </div>
             )}

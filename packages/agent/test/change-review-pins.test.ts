@@ -225,3 +225,15 @@ describe("pin limits and untrusted context", () => {
   });
 });
 
+
+describe("the page banner", () => {
+  it("counts a step with three pins and a remark once", async () => {
+    const { reviewId, pageId, stepId } = await declared();
+    for (const text of ["One", "Two", "Three"]) await addPin(reviewId, stepId, text);
+    await send("PUT", `/api/change-reviews/${reviewId}/steps/${stepId}/remark`, { text: "General" });
+
+    const banners = (await (await seam!.server.get(`/api/pages/${pageId}/change-reviews`)).json()) as { feedbackStepCount: number }[];
+
+    expect(banners[0]!.feedbackStepCount).toBe(1);
+  });
+});
