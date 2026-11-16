@@ -38,8 +38,8 @@ export function pinHiddenWhy(pin: ReviewPin, example: ArtboardRef, shown: Artboa
   return { kind: "state", seenIn: pin.seenIn ?? "un autre état" };
 }
 
-/** "« Budget validé à [MONTANT] »", or the selector of an element that has no name. */
-export const pinTargetLabel = (pin: Pick<ReviewPin, "target">): string => (pin.target.elementName ? `« ${pin.target.elementName} »` : pin.target.selector);
+/** The element's name as the bridge gives it (role and visible text, such as `titre « Budget »`), or the selector of an element that has no name. */
+export const pinTargetLabel = (pin: Pick<ReviewPin, "target">): string => pin.target.elementName ?? pin.target.selector;
 
 /** How many pins sit before each one on the same spot (two pins of one element): the stage shifts each by that many steps. */
 export function pinOffsets(positions: readonly { id: string; xPct: number; yPct: number }[]): Record<string, number> {

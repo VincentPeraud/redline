@@ -340,7 +340,7 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins }: { f
           <PinPopover
             key={pins.editor.key}
             number={editing.pin?.number ?? pins.draftNumber}
-            label={editing.pin ? pinTargetLabel(editing.pin) : draft!.target.elementName ? `« ${draft!.target.elementName} »` : draft!.target.selector}
+            label={editing.pin ? pinTargetLabel(editing.pin) : draft!.target.elementName ?? draft!.target.selector}
             saved={editing.pin}
             pins={pins}
           />
