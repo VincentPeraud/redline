@@ -1695,6 +1695,39 @@
   pointer-events: auto;
 }
 
+/* A zone drawn with Alt + drag: dashed orange rectangle, its pin on the top-left corner (see the "epingles" mock-up). */
+.zone {
+  position: absolute;
+  z-index: 1;
+  border: 2px dashed var(--color-warning-strong);
+  border-radius: 4px;
+  background: rgb(194 65 12 / 8%);
+  pointer-events: none;
+}
+
+.zoneTheirs {
+  border-color: #fdba74;
+  background: rgb(254 215 170 / 14%);
+}
+
+.zone .zonePin {
+  top: -16px;
+  left: -14px;
+}
+
+.zoneSize {
+  position: absolute;
+  right: 4px;
+  bottom: -24px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #18181b;
+  color: #f4f4f5;
+  font-size: var(--font-size-2xs);
+  font-weight: 500;
+  line-height: 16px;
+}
+
 .pinTheirs {
   background: #fed7aa;
   color: #7c2d12;

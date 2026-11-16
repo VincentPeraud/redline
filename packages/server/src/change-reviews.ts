@@ -32,6 +32,7 @@ import {
   type ChangeReviewFeedbackRequest,
   type ChangeReviewPresenceRequest,
   type ChangeReviewStepInput,
+  type CreateThreadRequest,
   type PageChangeReview,
   type Manifest,
   type Person,
@@ -52,7 +53,7 @@ import { contentChanges } from "./artboard-history.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store, VersionRecord } from "./store.js";
 import type { TerminalSessions } from "./terminal-sessions.js";
-import { MAX_TERMINAL_TEXT_LENGTH, createThreadRequestError, requiredString } from "./validation.js";
+import { MAX_TERMINAL_TEXT_LENGTH, artboardZoneError, createThreadRequestError, requiredString } from "./validation.js";
 
 const MAX_STEPS = 200;
 /** Elements a step frames at most: past that, nothing stands out any more. */
@@ -560,6 +561,7 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
     const runId = randomUUID();
     pageLock.showTerminalRun(pageId, runId, threadId);
     store.pickThreadForTerminalSession(threadId, sessionId, runId);
+    store.markThreadFromReview(threadId, view.finishedAt ?? new Date().toISOString());
   };
   for (const step of activeSteps(view.steps)) {
     const members = membersOf(step);
@@ -568,12 +570,11 @@ function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview,
       const written = members.find((member) => member.pageId === pin.on?.pageId && member.artboard === pin.on?.artboard) ?? members[0]!;
       const where = [written, ...members].find((member) => store.hasArtboard(member.pageId, member.artboard) && !store.getPage(member.pageId)?.archivedAt);
       if (!where) continue;
-      const { selector, elementName, xPct, yPct, instanceState } = pin.target;
-      const thread = store.createThread(
-        where.pageId,
-        { artboard: where.artboard, selector, xPct, yPct, body: pin.text, ...(elementName ? { elementName } : {}), ...(pin.rendering ? { rendering: pin.rendering } : {}), ...(pin.tweaks ? { cell: pin.tweaks } : {}), ...(instanceState ? { instanceState } : {}) },
-        pin.person,
-      );
+      const request: CreateThreadRequest =
+        pin.target.kind === "zone"
+          ? { target: pin.target.space === "artboard" ? { ...pin.target, artboard: where.artboard, ...(pin.rendering ? { rendering: pin.rendering } : {}), ...(pin.tweaks ? { cell: pin.tweaks } : {}) } : pin.target, body: pin.text }
+          : { artboard: where.artboard, selector: pin.target.selector, xPct: pin.target.xPct, yPct: pin.target.yPct, body: pin.text, ...(pin.target.elementName ? { elementName: pin.target.elementName } : {}), ...(pin.rendering ? { rendering: pin.rendering } : {}), ...(pin.tweaks ? { cell: pin.tweaks } : {}), ...(pin.target.instanceState ? { instanceState: pin.target.instanceState } : {}) };
+      const thread = store.createThread(where.pageId, request, pin.person);
       take(where.pageId, thread.id);
       threadIds[pin.id] = thread.id;
     }
@@ -729,7 +730,7 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
   const ownPin = (reviewId: string, pinId: string, viewer: Viewer) => store.changeReviews.pins(reviewId).find((pin) => pin.id === pinId && (pin.personId ?? "") === (viewerPersonId(viewer) ?? ""));
   const stepSeenBy = (reviewId: string, pinId: string) => seenNow(stepOf(reviewId, store.changeReviews.pins(reviewId).find((pin) => pin.id === pinId)!.stepId));
 
-  type PinBody = { text?: unknown; target?: { selector?: unknown; elementName?: unknown; xPct?: unknown; yPct?: unknown; instanceState?: unknown }; pageId?: unknown; artboard?: unknown; rendering?: unknown; tweaks?: unknown };
+  type PinBody = { text?: unknown; target?: { kind?: unknown; space?: unknown; wPct?: unknown; hPct?: unknown; selector?: unknown; elementName?: unknown; xPct?: unknown; yPct?: unknown; instanceState?: unknown }; pageId?: unknown; artboard?: unknown; rendering?: unknown; tweaks?: unknown };
 
   app.post<{ Params: { reviewId: string; stepId: string }; Body: PinBody }>("/api/change-reviews/:reviewId/steps/:stepId/pins", async (req, reply) => {
     const review = openReviewFor(reply, req.params.reviewId, { stepId: req.params.stepId });
@@ -739,6 +740,21 @@ export function registerChangeReviewRoutes(app: FastifyInstance, store: Store): 
     const step = stepOf(review.id, req.params.stepId)!;
     const on = pageId !== undefined || artboard !== undefined ? { pageId, artboard } : undefined;
     if (on && !stepArtboards(step).some((ref) => ref.pageId === on.pageId && ref.artboard === on.artboard)) return reply.code(400).send({ error: "pageId and artboard must name an artboard of the step" });
+    if (target?.kind === "zone") {
+      const zoneError = artboardZoneError(target, rendering, tweaks);
+      if (zoneError) return reply.code(400).send({ error: zoneError });
+      const { xPct, yPct, wPct, hPct } = target as { xPct: number; yPct: number; wPct: number; hPct: number };
+      const zone: PinToStore = {
+        text,
+        target: { kind: "zone", space: "artboard", xPct, yPct, wPct, hPct },
+        ...(on && !(on.pageId === step.pageId && on.artboard === step.artboard) ? { on: on as { pageId: string; artboard: string } } : {}),
+        ...(rendering ? { rendering: rendering as PinToStore["rendering"] } : {}),
+        ...(tweaks ? { tweaks: tweaks as PinToStore["tweaks"] } : {}),
+      };
+      store.changeReviews.addPin(step.id, viewerPersonId(req.viewer), zone, seenNow(step));
+      announceReviewChange(store, review.id);
+      return viewOf(store, review, req.viewer);
+    }
     // The same shape as a comment pinned on an element: validated as one.
     const shape = createThreadRequestError({ body: text, artboard: on?.artboard ?? step.artboard, selector: target?.selector, xPct: target?.xPct, yPct: target?.yPct, elementName: target?.elementName, rendering, cell: tweaks, instanceState: target?.instanceState });
     if (shape) return reply.code(400).send({ error: shape });

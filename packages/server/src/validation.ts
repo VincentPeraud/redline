@@ -83,6 +83,17 @@ export function threadTargetError(target: unknown, use: "request" | "chip"): str
   return "invalid target";
 }
 
+/** Error message when a review zone on an artboard is malformed: a rectangle of positive size inside the artboard (percentages), with the rendering and tweak values it was drawn in. */
+export function artboardZoneError(zone: { space?: unknown; xPct?: unknown; yPct?: unknown; wPct?: unknown; hPct?: unknown }, rendering: unknown, tweaks: unknown): string | null {
+  const { xPct, yPct, wPct, hPct } = zone;
+  if (zone.space !== "artboard") return "zone space must be artboard";
+  if (![xPct, yPct, wPct, hPct].every((value) => typeof value === "number" && Number.isFinite(value))) return "zone must be a rectangle in percent";
+  const [x, y, w, h] = [xPct, yPct, wPct, hPct] as number[];
+  if (w! <= 0 || h! <= 0) return "zone must have a width and a height";
+  if (x! < 0 || y! < 0 || x! + w! > 100.001 || y! + h! > 100.001) return "zone must stay inside the artboard";
+  return (rendering === undefined ? null : threadRenderingError(rendering)) ?? (tweaks === undefined ? null : threadCellError(tweaks));
+}
+
 /** Error message when the body of `POST /api/pages/:pageId/threads` is malformed (shape only; the page's artboards and elements are checked by the route), else null. */
 export function createThreadRequestError(request: unknown): string | null {
   const pin = (request ?? {}) as Partial<CreateElementThreadRequest> & { target?: unknown };

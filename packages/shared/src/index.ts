@@ -420,7 +420,13 @@ export interface ArtboardCapability {
 /** "review" is "À relire": posted at Commentaire level, not sent to Claude until a member in Écriture sends it. */
 export type ThreadStatus = "held" | "review" | "open" | "resolved";
 
-/** What a thread is about: an element of an artboard, a whole artboard, or an element of the page canvas. */
+/**
+ * A rectangle a reviewer drew: in percent of an artboard, or in pixels of the page canvas (a canvas step).
+ * An artboard zone follows the artboard's own size; a canvas zone sits at fixed canvas coordinates.
+ */
+export type ZoneRect = { space: "artboard"; xPct: number; yPct: number; wPct: number; hPct: number } | { space: "canvas"; x: number; y: number; w: number; h: number };
+
+/** What a thread is about: an element of an artboard, a whole artboard, an element of the page canvas, or a zone. */
 export type ThreadTarget =
   | {
       kind: "element";
@@ -434,7 +440,11 @@ export type ThreadTarget =
       instanceState?: InstanceState[];
     }
   | { kind: "artboard"; artboard: string }
-  | { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind; /** What the element shows now (`canvasElementSummary`); what it showed when the user commented it once the element is removed. */ elementSummary?: string };
+  | { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind; /** What the element shows now (`canvasElementSummary`); what it showed when the user commented it once the element is removed. */ elementSummary?: string }
+  | ({ kind: "zone" } & (
+      | { space: "artboard"; artboard: string; xPct: number; yPct: number; wPct: number; hPct: number; rendering?: ThreadRendering; cell?: TweakValues }
+      | { space: "canvas"; x: number; y: number; w: number; h: number }
+    ));
 
 export const CANVAS_ELEMENT_KIND_LABELS: Record<ManifestElementKind, string> = {
   title: "Titre",
@@ -455,6 +465,8 @@ export function threadTargetLabel(target: ThreadTarget): string {
       return `${target.artboard} · Artboard entier`;
     case "canvas-element":
       return `${CANVAS_ELEMENT_KIND_LABELS[target.elementKind]} · ${target.elementId}`;
+    case "zone":
+      return target.space === "artboard" ? `${target.artboard} · Zone` : "Canevas · Zone";
   }
 }
 
@@ -491,6 +503,8 @@ export interface Thread {
   linkAuthor?: LinkAuthor;
   /** Opened by Redline itself (signed "Redline"), for example when a diffusion removes something a page uses; no person wrote it. */
   automatic?: true;
+  /** Opened from a finished review: when that review was finished (ISO time). */
+  fromReviewAt?: string;
   /** Set on a request to the design system (a thread on a component's artboard, opened by a project's session). */
   request?: ThreadRequest;
   status: ThreadStatus;
@@ -542,7 +556,12 @@ export interface CreateCanvasElementThreadRequest extends CreateThreadCommon {
   target: { kind: "canvas-element"; elementId: string };
 }
 
-export type CreateThreadRequest = CreateElementThreadRequest | CreateArtboardThreadRequest | CreateCanvasElementThreadRequest;
+/** A comment on a rectangle a reviewer drew. Only a review fetch opens these: the public thread route refuses them. */
+export interface CreateZoneThreadRequest extends CreateThreadCommon {
+  target: Extract<ThreadTarget, { kind: "zone" }>;
+}
+
+export type CreateThreadRequest = CreateElementThreadRequest | CreateArtboardThreadRequest | CreateCanvasElementThreadRequest | CreateZoneThreadRequest;
 
 export const MAX_ELEMENT_NAME_LENGTH = 200;
 

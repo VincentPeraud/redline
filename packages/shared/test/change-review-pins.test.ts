@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { feedbackByStep, nextPinNumber, progressOf, reviewResult, stepIsModified, stepIsSeen, stepStatus, type ChangeReviewAnswer, type ChangeReviewResultInput, type ReviewPin } from "@redline/shared";
+import { describeZone, feedbackByStep, nextPinNumber, progressOf, reviewResult, stepIsModified, stepIsSeen, stepStatus, type ChangeReviewAnswer, type ChangeReviewResultInput, type ReviewPin } from "@redline/shared";
 
 const person = (name: string) => ({ id: name, name, email: "", initials: name.slice(0, 2) });
 const ok = (name: string): ChangeReviewAnswer => ({ id: `a-${name}`, kind: "ok", at: "2026-11-13T10:00:00Z", mine: false, person: person(name) });
@@ -75,5 +75,12 @@ describe("pins in the review result", () => {
       ["s1", [1, 2], 1],
       ["s3", [1], 0],
     ]);
+  });
+});
+
+describe("describing a zone", () => {
+  it("gives an artboard zone in percent with at most one decimal, and a canvas zone in pixels", () => {
+    expect(describeZone({ kind: "zone", space: "artboard", xPct: 64, yPct: 18.25, wPct: 28.04, hPct: 26 })).toBe("zone x 64 % · y 18.3 % · 28 % × 26 % de l'artboard");
+    expect(describeZone({ kind: "zone", space: "canvas", x: 120, y: 40, w: 300, h: 200 })).toBe("zone x 120 px · y 40 px · 300 px × 200 px du canevas");
   });
 });
