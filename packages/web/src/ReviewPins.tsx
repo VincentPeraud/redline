@@ -602,8 +602,8 @@ export function PinsSection({ step, shown, pins, onShow }: { step: ChangeReviewS
                       </button>
                     </>
                   )}
-                  {hidden?.kind === "avant" && <> · masquée en vue Avant</>}
                 </span>
+                {hidden?.kind === "avant" && <span className={styles.piOn}>Masquée en vue Avant</span>}
                 {pin.lost && <span className={styles.piWarn}>Élément introuvable dans la nouvelle version : l'épingle reste à son ancienne place.</span>}
                 <span className={styles.piText}>{pin.text}</span>
                 {editing && pins.failed && (
