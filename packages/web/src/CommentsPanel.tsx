@@ -14,6 +14,7 @@ import { queueLabel } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
+import { HandlerStatus, TakenBlock, useHandler } from "./ThreadTake.js";
 import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
 import { useStickToBottom } from "./useStickToBottom.js";
 import { RefuseDialog, refuseRequestTarget } from "./RefuseDialog.js";
@@ -70,6 +71,7 @@ function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNo
         {thread.removed && <RemovedTag />}
         {thread.request && <RequestTag />}
         {thread.status === "review" && <StatusBadge tone="warning" size="sm">À relire</StatusBadge>}
+        {thread.status === "open" && <HandlerStatus thread={thread} />}
         {thread.status === "open" && thread.replies.at(-1)?.author === "redline" && <span data-testid="reopened" className={styles.reopened}>rouvert</span>}
         {children}
       </div>
@@ -84,14 +86,13 @@ function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNo
   );
 }
 
-/** "session terminal" for a thread a terminal session handles, else "session 7c2e…a91". */
+/** "session 7c2e…a91" for a thread an agent session handles. */
 function sessionLabel(session: SessionRow | undefined): string | undefined {
-  if (session?.terminal) return "session terminal";
   return session?.sessionId ? `session ${shortSessionId(session.sessionId)}` : undefined;
 }
 
 /** "session 7c2e…a91" over "il y a 2 min", in a card's footer. */
-function SessionMeta({ session }: { session: SessionRow | undefined }) {
+function SessionMeta({ session, createdAt }: { session: SessionRow | undefined; createdAt?: string }) {
   return (
     <span className={styles.sessionMeta}>
       {sessionLabel(session) && (
@@ -100,7 +101,7 @@ function SessionMeta({ session }: { session: SessionRow | undefined }) {
           <br />
         </>
       )}
-      {session && relativeTime(session.activityAt)}
+      {session ? relativeTime(session.activityAt) : createdAt && relativeTime(createdAt)}
     </span>
   );
 }
@@ -128,7 +129,7 @@ function ThreadMessages({ thread }: { thread: Thread }) {
             ) : reply.author === "redline" ? (
               <MessageAuthor redline />
             ) : (
-              <MessageAuthor claude={thread.request ? DESIGN_SYSTEM_CLAUDE : true} />
+              <MessageAuthor claude={thread.request ? DESIGN_SYSTEM_CLAUDE : true} conversation={reply.conversation} />
             )}
             {reply.body}
           </div>
@@ -182,7 +183,6 @@ function ResolvedThreadCard({ thread, session, readOnly, open, onOpen, onReopen 
 function ThreadCard({
   thread,
   queued,
-  waitingForTerminal,
   run,
   session,
   choice,
@@ -192,7 +192,6 @@ function ThreadCard({
 }: {
   thread: Thread;
   queued: string | undefined;
-  waitingForTerminal: boolean;
   run: ThreadRun | undefined;
   session: SessionRow | undefined;
   choice: ModelEffortChoice;
@@ -206,6 +205,8 @@ function ThreadCard({
   const [refusing, setRefusing] = useState(false);
   const active = !queued && run !== undefined && run.status !== "answered" && run.status !== "failed";
   const failed = !queued && run?.status === "failed";
+  const handler = useHandler(thread);
+  const stacked = handler !== undefined;
 
   const messages = <ThreadMessages thread={thread} />;
 
@@ -229,7 +230,7 @@ function ThreadCard({
   }
 
   return (
-    <article data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running, thread.status === "review" && styles.review, thread.removed && styles.removed)}>
+    <article data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running, thread.status === "review" && styles.review, handler?.kind === "taken" && !handler.mine && !handler.relaunch && styles.takenOther, thread.removed && styles.removed)}>
       <ThreadHeader thread={thread}>
         {queued && (
           <span data-testid="queued" className={styles.queued}>
@@ -238,20 +239,16 @@ function ThreadCard({
         )}
       </ThreadHeader>
       {messages}
+      <TakenBlock thread={thread} />
       {run && !queued && <RunProgress run={run} />}
       {active ? (
         sessionLabel(session) && <span className={styles.sessionMeta}>{sessionLabel(session)}</span>
       ) : (
-        <div className={cx(styles.footer, waitingForTerminal && styles.footerStacked)}>
-          {thread.status !== "review" && <SessionMeta session={session} />}
-          {!waitingForTerminal && thread.status !== "review" && <span className={styles.spacer} />}
+        <div className={cx(styles.footer, stacked && styles.footerStacked)}>
+          {thread.status !== "review" && <SessionMeta session={session} createdAt={thread.createdAt} />}
+          {!stacked && thread.status !== "review" && <span className={styles.spacer} />}
           {!readOnly && (
             <div className={styles.footerActions}>
-              {waitingForTerminal && (
-                <Button size="sm" onClick={() => void fetch(`/api/threads/${thread.id}/hand-over`, { method: "POST" })}>
-                  Confier à l'agent
-                </Button>
-              )}
               {thread.status === "review" && onSend && (
                 <Button size="sm" variant="primary" onClick={onSend}>
                   Envoyer à Claude
@@ -321,7 +318,6 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
               key={thread.id}
               thread={thread}
               queued={queueLabel(queue, thread.id)}
-              waitingForTerminal={queue.some((e) => e.reason === "terminal" && e.threadIds.includes(thread.id))}
               run={runs.filter((r) => r.threadIds.includes(thread.id)).slice(-1)[0]}
               session={sessions.get(thread.id)}
               choice={choice}

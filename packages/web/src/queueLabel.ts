@@ -1,17 +1,15 @@
 import type { QueueEntry, QueueReason } from "@redline/shared";
 
-const REASON_LABEL: Record<Exclude<QueueReason, "terminal">, string> = {
+const REASON_LABEL: Record<QueueReason, string> = {
   "page-busy": "page occupée par une autre session",
   "agent-offline": "agent hors ligne",
   "project-archived": "projet archivé",
   "page-archived": "page archivée",
 };
 
-const WAITING_FOR_TERMINAL = "En attente de la session terminal";
-
 function labelOf(entry: QueueEntry | undefined): string | undefined {
   if (!entry) return undefined;
-  return entry.reason === "terminal" ? WAITING_FOR_TERMINAL : `En file · ${REASON_LABEL[entry.reason]}`;
+  return `En file · ${REASON_LABEL[entry.reason]}`;
 }
 
 /** "En file · <reason>" for a thread waiting in the page's queue, undefined when it is not waiting. */

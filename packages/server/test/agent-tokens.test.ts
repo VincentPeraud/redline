@@ -99,30 +99,6 @@ describe("one agent token per person", () => {
     expect((await agentCall(arianeToken, "/projects")).status).toBe(401);
   });
 
-  it("releases the pages held by the terminal session of a deactivated account and sends their waiting work to the agents", async () => {
-    const { admin, ariane, people } = instance;
-    const project = await instance.createProject(admin);
-    const pageId = await instance.createPage(admin, project.id);
-    const session = "7d1f1d1e-3c0a-4d6e-9a43-5b8d3c1a2f10";
-    const arianeCall = async (path: string, body: unknown) =>
-      fetch(instance.server.url + AGENT_API_PREFIX + path, { method: "POST", headers: { authorization: `Bearer ${await tokenOf(ariane)}`, "content-type": "application/json" }, body: JSON.stringify(body) });
-    const page = await admin.json<Page>(`/api/pages/${pageId}`);
-    await arianeCall(`/terminal-sessions/${session}/heartbeat`, { folder: "/work", machine: "mac" });
-    const files = { ...FILES, "home.html": "<h1>Terminal</h1>" };
-    expect((await arianeCall(`/pages/${pageId}/versions`, { files, message: "Terminal", origin: "terminal", baseVersionId: page.version.id, terminalSessionId: session })).status).toBe(201);
-    const agent = await instance.connectAgent(await tokenOf(admin), { projectId: project.id });
-    await agent.hello;
-    await admin.send("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body: "Bigger" });
-    await tick();
-    expect(agent.messages.filter((m) => m.type === "work")).toHaveLength(0);
-
-    await admin.send("POST", `/api/accounts/${people.ariane.id}/deactivate`);
-    await tick();
-
-    expect(agent.messages.filter((m) => m.type === "work")).toHaveLength(1);
-    agent.close();
-  });
-
   it("lists every agent with who launched it, and masks the project of a Privé project the viewer cannot see", async () => {
     const { admin, ariane } = instance;
     const project = await instance.createProject(admin, { title: "Secret", visibility: "private" });

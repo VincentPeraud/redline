@@ -6,7 +6,6 @@ import { GapsButton } from "./GapsReport.js";
 import { ErrorsButton, type ArtboardErrorsEntry } from "./ArtboardErrors.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
 import { TocMenu } from "./TocMenu.js";
-import { TerminalPill } from "./TerminalPill.js";
 import { AccountMenu, displayName } from "./AccountMenu.js";
 import { avatarClassName } from "./Avatar.js";
 import { useMe, useWho } from "./useMe.js";
@@ -338,7 +337,6 @@ export function CanvasHeader({ project, designSystemId, designSystemTitle, versi
       ) : (
         <>
           {!archived && <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />}
-          {!archived && <TerminalPill pageId={pageId} />}
           {!archived && <AgentPill project={project} running={runningCount} />}
           {!archived && !designSystemId && <SharePageButton pageId={pageId} pageTitle={pageTitle} project={project} />}
           {present}

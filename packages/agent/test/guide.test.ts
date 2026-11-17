@@ -129,10 +129,13 @@ it("gives spacing, arrow, content and asking rules, so pages come out clean with
   expect(REDLINE_GUIDE).toContain("state your assumptions in one line");
 });
 
-it("tells terminal Claude to call release_page only when asked to let go of a page", () => {
-  expect(REDLINE_GUIDE).toContain("## Letting go of a page (terminal mode)");
-  expect(REDLINE_GUIDE).toContain("release_page {pageId}");
-  expect(REDLINE_GUIDE).toContain("Never release a page on your own");
+it("tells terminal Claude to take comments on request only, for the account, and mentions no hold nor release_page", () => {
+  expect(REDLINE_GUIDE).toContain("## Comments in terminal mode (on demand)");
+  expect(REDLINE_GUIDE).toContain("pending_comments {pageId}");
+  expect(REDLINE_GUIDE).toContain("A take belongs to the account, not to this process");
+  expect(REDLINE_GUIDE).toContain("Never start on comments on your own");
+  expect(REDLINE_GUIDE).not.toContain("release_page");
+  expect(REDLINE_GUIDE).not.toMatch(/holds? (the|a) page/);
 });
 
 it("tells Claude how to try variants of a design system component's look in a project", () => {

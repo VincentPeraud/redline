@@ -16,10 +16,9 @@ import {
   type CreateSiblingRequest,
   type CreateVersionRequest,
   type TerminalHeartbeatRequest,
-  type TerminalReleaseRequest,
-  type TerminalPickedPage,
   type TerminalCommentsPage,
-  type TerminalWaitingPage,
+  type TakeCommentsRequest,
+  type TakeCommentsResponse,
   type MoveArtboardRequest,
   type RenamePageRequest,
   type MergeRequestRequest,
@@ -52,6 +51,7 @@ import { switchDesignSystem } from "./switch-design-system.js";
 import { changeReviewFeedback, declareChangeReview } from "./change-reviews.js";
 import type { PageLock } from "./page-lock.js";
 import type { TerminalSessions } from "./terminal-sessions.js";
+import { commentsToTake, takeComments, takerOf } from "./comment-takes.js";
 import type { OriginRef, Store } from "./store.js";
 
 /** The thread or conversation a running work item answers, as version/DESIGN.md origin; none when the item is unknown or belongs to another page. */
@@ -106,25 +106,23 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         return reply.code(204).send();
       });
 
-      api.get<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/waiting", async (req): Promise<TerminalWaitingPage[]> => terminalSessions.waitingFor(req.params.sessionId));
+      const notConnected = "this terminal session is not connected to Redline (it never sent its heartbeat, or lost it): restart or reconnect the terminal";
 
-      // The agents screen's Comments tab: every waiting page, read-only (unlike `pick`, it takes nothing).
-      api.get("/terminal-comments", async (req): Promise<TerminalCommentsPage[]> => terminalSessions.waitingComments((projectId) => access.may(req.viewer, "read", { projectId })));
+      // The agents screen's Comments tab: every page with threads to take, read-only (unlike `take`, it takes nothing).
+      api.get("/terminal-comments", async (req): Promise<TerminalCommentsPage[]> => commentsToTake(store, (projectId) => access.may(req.viewer, "read", { projectId })));
 
-      // `release_page`: the session hands one page it holds (or all of them) over to the agents.
-      api.post<{ Params: { sessionId: string }; Body: Partial<TerminalReleaseRequest> }>("/terminal-sessions/:sessionId/release", async (req, reply): Promise<TerminalWaitingPage[] | void> => {
-        const pageId = req.body?.pageId;
-        if (pageId !== undefined && !requiredString(pageId)) return reply.code(400).send({ error: "pageId must be a page id" });
-        const released = terminalSessions.releaseHeldBy(req.params.sessionId, pageId);
-        if (pageId !== undefined && released.length === 0) return reply.code(409).send({ error: "this terminal session does not hold that page" });
-        return released;
+      // `pending_comments { pageId }`: the account takes the page's threads to take, and is given them with the ones it already took.
+      api.post<{ Params: { sessionId: string }; Body: Partial<TakeCommentsRequest> }>("/terminal-sessions/:sessionId/take", async (req, reply): Promise<TakeCommentsResponse | void> => {
+        const label = terminalSessions.labelOf(req.params.sessionId);
+        if (!label) return reply.code(403).send({ error: notConnected });
+        const { pageId } = req.body ?? {};
+        if (!requiredString(pageId)) return reply.code(400).send({ error: "pageId is required" });
+        if (!store.getPage(pageId)) return reply.code(404).send({ error: "page not found" });
+        if (access.levelOf(req.viewer, { pageId }) !== "write") return reply.code(403).send({ error: "your account does not have Écriture on this project: ask a member who has it to handle the comments, or to give you Écriture" });
+        return takeComments(store, label, pageId);
       });
 
-      // `pending_comments`: the waiting comments are handed to the session, which then answers them with `reply_in_thread`.
-      api.post<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/pick", async (req): Promise<TerminalPickedPage[]> => terminalSessions.pick(req.params.sessionId));
-
       // `request_review` and `review_feedback`: a terminal session declares a review of its changes, then reads its result.
-      const notConnected = "this terminal session is not connected to Redline (it never sent its heartbeat, or lost it): restart or reconnect the terminal";
       api.post<{ Params: { sessionId: string }; Body: Partial<RequestChangeReviewRequest> }>("/terminal-sessions/:sessionId/reviews", async (req, reply) => {
         if (!terminalSessions.isPresent(req.params.sessionId)) return reply.code(403).send({ error: notConnected });
         const result = declareChangeReview({ store, access }, req.viewer, { id: req.params.sessionId, folder: terminalSessions.folderOf(req.params.sessionId) }, req.body);
@@ -305,10 +303,8 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const ref: OriginRef | undefined = from ? { originId: from.originId, originLabel: from.originLabel, person: from.person } : terminalFolder ? { originLabel: folderName(terminalFolder), terminalSessionId: req.body.terminalSessionId } : undefined;
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
-          if (changes?.length) askToUndoRefused(store, pageLock, terminalSessions, store.recordChanges(projectId, version.id, changes));
+          if (changes?.length) askToUndoRefused(store, pageLock, store.recordChanges(projectId, version.id, changes));
           settleUndoneChanges(store, req.params.pageId);
-          // The terminal session that publishes a page holds it, replacing the previous holder.
-          if (origin === "terminal" && req.body.terminalSessionId !== undefined) store.holdPage(req.params.pageId, req.body.terminalSessionId);
           if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());
           if (styleChanged) store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(projectStyle.content, "utf8"), author());
           const { gaps } = agentGaps(store, req.params.pageId, result.files);
@@ -396,7 +392,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (workOutsideProject(req.body?.workId, store.getPage(req.params.pageId)?.projectId)) {
           return reply.code(403).send({ error: "This session cannot send a request for that page: it belongs to another project, or the run is over." });
         }
-        const outcome = sendRequest(store, pageLock, terminalSessions, req.params.pageId, req.body);
+        const outcome = sendRequest(store, pageLock, req.params.pageId, req.body);
         return reply.code(outcome.status).send(outcome.body);
       });
 
@@ -427,15 +423,22 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (resolve !== undefined && typeof resolve !== "boolean") return reply.code(400).send({ error: "resolve must be a boolean" });
         const thread = store.getThread(req.params.threadId);
         if (!thread) return reply.code(404).send({ error: "thread not found" });
-        // The pages the run created appear under its first answer.
+        // A conversation answers the threads its account took (any of its conversations, after a compaction or a resume too).
         const { terminalSessionId } = req.body;
-        if (terminalSessionId !== undefined && !terminalSessions.isPickedBy(thread.id, terminalSessionId)) {
-          return reply.code(409).send({ error: `Thread ${thread.id} was not given to this session: only the threads pending_comments returned can be answered here.` });
+        let conversation: { personId?: string; folder: string } | undefined;
+        if (terminalSessionId !== undefined) {
+          const label = terminalSessions.labelOf(terminalSessionId);
+          if (!label) return reply.code(403).send({ error: notConnected });
+          if (access.levelOf(req.viewer, { pageId: thread.pageId }) !== "write") return reply.code(403).send({ error: "your account does not have Écriture on this project" });
+          if (takerOf(thread) !== label.accountId) {
+            return reply.code(409).send({ error: `Thread ${thread.id} was not taken by your account: only the threads pending_comments gave to your account can be answered here.` });
+          }
+          conversation = { ...(label.accountId ? { personId: label.accountId } : {}), folder: label.folder };
         }
+        // The pages the run created appear under its first answer.
         const workId = req.body.workId;
         const createdPageIds = workOrigin(store, pageLock, workId, thread.pageId) ? store.takeCreatedPages(workId!) : [];
-        const posted = store.addReply(thread.id, body, "claude", createdPageIds);
-        if (terminalSessionId !== undefined) terminalSessions.answered(thread.id);
+        const posted = store.addReply(thread.id, body, "claude", createdPageIds, undefined, undefined, conversation);
         if (resolve) store.resolveThread(thread.id);
         return reply.code(201).send(posted);
       });

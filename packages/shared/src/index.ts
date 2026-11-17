@@ -203,7 +203,7 @@ export interface CreateVersionRequest {
   designMd?: { content: string; base: string };
   /** `/agent-api` only: the project style `tokens.css` of the working copy, sent when the session changed it; same `base` rule as `designMd`. */
   projectStyle?: { content: string; base: string };
-  /** `/agent-api` terminal publishes only: the terminal session publishing, which then holds the page. */
+  /** `/agent-api` terminal publishes only: the terminal session publishing (its folder labels the version). */
   terminalSessionId?: string;
   /**
    * Design system pages only: removing a token or a component that pages of a using project still reference is refused with the list
@@ -313,19 +313,32 @@ export interface Page {
   designSystem?: boolean;
   /** When the page was archived (ISO time): it is then read-only, out of the page lists and of sessions, and only it can be deleted. */
   archivedAt?: string;
+  /** Who handles the page's new comments: "conversation" (default, they wait to be taken) or "agent". */
+  commentMode: CommentMode;
+}
+
+/** The comment mode of a page: new threads wait to be taken by a Claude Code conversation, or go to the agent. */
+export type CommentMode = "conversation" | "agent";
+
+export const COMMENT_MODES: readonly CommentMode[] = ["conversation", "agent"];
+
+/** Body of `POST /api/pages/:pageId/comment-mode`. */
+export interface SetCommentModeRequest {
+  mode: CommentMode;
+}
+
+/** An account's hold on a thread, made by `pending_comments`: it belongs to the account, whichever of its conversations answers. */
+export interface ThreadTake {
+  /** The account that took the thread; absent without SSO (the shared token is one account). */
+  person?: Person;
+  /** Folder of the conversation that took it, home shortened (`~/crm`). */
+  folder: string;
+  machine: string;
+  /** When it was taken (ISO time). */
+  takenAt: string;
 }
 
 export type PageCreator = "claude" | "user";
-
-/** The terminal session holding a page while it is present (`GET /api/pages/:pageId/terminal-holder`). */
-export interface TerminalHolder {
-  folder: string;
-  machine: string;
-  /** When it took the page (ISO time): its last terminal publish. */
-  since: string;
-  /** The comments of this page waiting for it. */
-  waiting: number;
-}
 
 /** `POST /agent-api/terminal-sessions/:id/heartbeat`: a terminal session says it is present. */
 export interface TerminalHeartbeatRequest {
@@ -333,14 +346,7 @@ export interface TerminalHeartbeatRequest {
   machine: string;
 }
 
-/** `GET /agent-api/terminal-sessions/:id/waiting`: the comments waiting for this terminal session, per page it holds. */
-export interface TerminalWaitingPage {
-  pageId: string;
-  title: string;
-  count: number;
-}
-
-/** One comment waiting for a terminal session, as the agents screen shows it. */
+/** One comment waiting for a conversation to take it, as the agents screen shows it. */
 export interface TerminalWaitingComment {
   author: string;
   /** When it was written (ISO time). */
@@ -350,26 +356,31 @@ export interface TerminalWaitingComment {
   text: string;
 }
 
-/** `GET /agent-api/terminal-comments`: the pages with comments waiting for a terminal session, read-only (nothing is taken). */
+/** `GET /agent-api/terminal-comments`: the pages with comments to take, read-only (nothing is taken). */
 export interface TerminalCommentsPage {
   pageId: string;
   title: string;
   projectTitle: string;
-  /** The present session holding the page; absent when none is present. */
-  holder?: { folder: string; machine: string; since: string };
   comments: TerminalWaitingComment[];
 }
 
-/** `POST /agent-api/terminal-sessions/:id/release`: one page of the session, or all of them without `pageId`. Answers with what was handed over. */
-export interface TerminalReleaseRequest {
-  pageId?: string;
+/** `POST /agent-api/terminal-sessions/:id/take`: the threads of a page this conversation takes for its account. */
+export interface TakeCommentsRequest {
+  pageId: string;
 }
 
-/** `POST /agent-api/terminal-sessions/:id/pick`: the waiting comments handed to this terminal session, per page; each message is the text an agent session would receive. */
-export interface TerminalPickedPage {
+/** A thread given to a conversation; `message` is the text an agent session would receive. */
+export interface TakenComment {
+  threadId: string;
+  /** "new": taken just now; "taken": already taken by the account; "relaunch": taken by the account, a message waits since its last answer. */
+  state: "new" | "taken" | "relaunch";
+  message: string;
+}
+
+export interface TakeCommentsResponse {
   pageId: string;
   title: string;
-  messages: string[];
+  comments: TakenComment[];
 }
 
 /** A page a run created through `create_page`, shown as a link card under the answer. */
@@ -508,6 +519,12 @@ export interface Thread {
   /** Set on a request to the design system (a thread on a component's artboard, opened by a project's session). */
   request?: ThreadRequest;
   status: ThreadStatus;
+  /** An account's take: a conversation of that account handles the thread (see `ThreadTake`). Absent when nobody or an agent handles it. */
+  take?: ThreadTake;
+  /** Derived, never stored: an open thread nobody handles ("À prendre"), waiting for a conversation to take it. */
+  toTake?: true;
+  /** Derived, never stored: a message of a user waits for the account that took the thread since its last answer ("Relance pour <person>"). */
+  relaunch?: true;
   /** Derived, never stored: a canvas-element thread whose element is absent from the page's current manifest. */
   removed?: true;
   /** Claude's answers, oldest first. */

@@ -175,16 +175,20 @@ The full-screen terminal view (`redline agents`, or opened by `redline agent`) o
 _Avoid_: Dashboard, TUI
 
 **Terminal session**:
-One running `redline mcp` process, which is one Claude Code session in terminal mode. Identified by a random id generated when the process starts and never stored on disk; it reports its folder and machine in a heartbeat, and is present while the heartbeat is recent.
+One running `redline mcp` process, which is one Claude Code conversation in terminal mode. Identified by a random id generated when the process starts and never stored on disk; it reports its account, folder and machine in a heartbeat, and is present while the heartbeat is recent. It holds no page and owns no thread: the **take** belongs to its account.
 _Avoid_: Terminal agent (it is not an **agent**: it runs no work Redline sends it)
 
-**Held page**:
-A page held by the **terminal session** that last published it, while that session is present. "Hold" is the verb: only a terminal publish takes a page, and the hold ends when its session leaves. The canvas header shows a pill while the page is held.
-_Avoid_: Locked page, owner (the page lock is a different thing)
+**Comment mode**:
+Who handles a page's new comment threads: **Conversation** (the default of every page: a new thread waits to be taken) or **Agent** (a new thread goes to the agent). Per page, switched by members with Écriture and admins. It never applies to free-form conversations, which always go to the agent.
+_Avoid_: Routing mode, hold mode
 
-**Terminal session of a thread**:
-The **terminal session** that took a thread with `pending_comments` and answers it. Later replies in the thread wait for that session while it is present, whatever session holds the page; once it is gone, or the page was released, an agent takes them. An agent session is the other way a thread gets handled; a thread has one or the other.
-_Avoid_: Owner of a thread, terminal agent
+**À prendre** (thread to take):
+An open thread that no session and no account handles, waiting for a Claude Code conversation to take it. In Conversation mode every new thread starts so.
+_Avoid_: Unassigned, pending
+
+**Take**:
+An account's hold on a thread, made by `pending_comments`; labelled with the folder and machine of the conversation that made it and when. It belongs to the **account**, not to the **terminal session**: any conversation of that account answers the thread, after a compaction or a resume too, and a later message in the thread waits for that account. It ends on release, hand-over to the agent, takeover or resolution. Verbs: take, take over, release.
+_Avoid_: Claim, lock, owner
 
 ### People
 

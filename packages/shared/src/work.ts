@@ -1,6 +1,6 @@
 // Engine events and work items: the contract between server, agent and engine adapters (ticket 07).
 
-import type { CreatedPage, ThreadRendering, ThreadTarget } from "./index.js";
+import type { CommentMode, CreatedPage, ThreadRendering, ThreadTarget } from "./index.js";
 import type { Person } from "./people.js";
 import type { LinkAuthor } from "./links.js";
 import type { ProjectContext } from "./projectFiles.js";
@@ -114,6 +114,8 @@ export interface ThreadReply {
   person?: Person;
   /** Set instead of `person` on a message written through a share link. */
   linkAuthor?: LinkAuthor;
+  /** On an answer written by a Claude Code conversation (not an agent): whose account it is and its folder, home shortened. Signs the answer "Claude · conversation de <person> · <folder>". */
+  conversation?: { person?: Person; folder: string };
   body: string;
   createdAt: string;
   /** Pages the run that gave this answer created with `create_page` (on the first answer of that run only). */
@@ -129,7 +131,7 @@ export interface CreateReplyRequest extends ModelChoice {
 /** Body of `POST /agent-api/threads/:id/replies`: `workId` is the run posting the answer (to attach the pages it created). */
 export interface AgentReplyRequest extends CreateReplyRequest {
   workId?: string;
-  /** The terminal session answering: accepted only for a thread it picked with `pending_comments`. */
+  /** The conversation (terminal session) answering: accepted only for a thread its account took with `pending_comments`; its folder signs the answer. */
   terminalSessionId?: string;
   /** True closes the thread with this answer: the change is made and nothing is left for the user to answer. They can still reopen it. */
   resolve?: boolean;
@@ -157,8 +159,8 @@ export type ServerEvent =
   | { type: "work-retrying"; pageId: string; workId: string; threadIds: string[]; retryAt: string; limit: boolean; message: string }
   /** Live state of a run, sent after every change (full snapshot, replace by `workId`). */
   | { type: "run-updated"; pageId: string; run: ThreadRun }
-  /** A terminal session took, released or lost the page, or connected or left while holding it (`GET /api/pages/:id/terminal-holder`). */
-  | { type: "terminal-hold-changed"; pageId: string }
+  /** A page's comment mode changed (`by` is who switched it). */
+  | { type: "comment-mode-changed"; pageId: string; mode: CommentMode; by?: Person }
   /** A review of changes was declared, answered, finished or fetched: the banners of the `pageIds` it covers and an open review screen reload. Members with Écriture only. */
   | { type: "review-updated"; reviewId: string; projectId: string; pageIds: string[] }
   /** An agent connected or disconnected. */
@@ -196,9 +198,8 @@ export const pageRunsPath = (pageId: string) => `/api/pages/${pageId}/runs`;
 /** Why a work item is not running yet. */
 /**
  * "project-archived" / "page-archived": the project or the page was archived while the item waited; it is sent once unarchived.
- * "terminal": the page is held by a present terminal session, which the item waits for.
  */
-export type QueueReason = "page-busy" | "agent-offline" | "project-archived" | "page-archived" | "terminal";
+export type QueueReason = "page-busy" | "agent-offline" | "project-archived" | "page-archived";
 
 /** A work item waiting for its turn on a page. */
 export interface QueueEntry {

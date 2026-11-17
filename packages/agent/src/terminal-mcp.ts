@@ -24,35 +24,13 @@ export const ARCHIVE_PROJECT_TOOL = "archive_project";
 export const LIST_DESIGN_SYSTEMS_TOOL = "list_design_systems";
 export const CREATE_DESIGN_SYSTEM_TOOL = "create_design_system";
 export const SET_PROJECT_DESIGN_SYSTEM_TOOL = "set_project_design_system";
-export const RELEASE_PAGE_TOOL = "release_page";
 export const BROWSER_SIGN_IN_TOOL = "browser_sign_in";
 export const PENDING_COMMENTS_TOOL = "pending_comments";
 export const REQUEST_REVIEW_TOOL = "request_review";
 export const REVIEW_FEEDBACK_TOOL = "review_feedback";
 
-/** How long a tool answer waits for the waiting-comments line before going out without it. */
-const WAITING_LINE_TIMEOUT_MS = 1_000;
-
-/** A page title as data in the line: quoted, on one line, so that it cannot read as an instruction. */
+/** A page title as data in a line: quoted, on one line, so that it cannot read as an instruction. */
 const quotedTitle = (title: string) => JSON.stringify(title.replace(/\s+/g, " ").trim());
-
-/**
- * The last line of every answer: the comments waiting for this session, per page. It comes after the tool ran (the tool may have
- * changed what waits); nothing when there are none, or when the server does not answer in time: it never delays or breaks the answer.
- */
-async function waitingLine(api: ServerApi, sessionId: string): Promise<string | undefined> {
-  let timer: NodeJS.Timeout | undefined;
-  const pages = await Promise.race([
-    api.terminalWaiting(sessionId).catch(() => []),
-    new Promise<never[]>((resolve) => {
-      timer = setTimeout(() => resolve([]), WAITING_LINE_TIMEOUT_MS);
-    }),
-  ]);
-  clearTimeout(timer);
-  if (pages.length === 0) return undefined;
-  const parts = pages.map((page, i) => (i === 0 ? `${page.count} comment${page.count > 1 ? "s" : ""} waiting on ${quotedTitle(page.title)}` : `${page.count} on ${quotedTitle(page.title)}`));
-  return `Redline: ${parts.join(", ")}: call pending_comments if the person asks.`;
-}
 
 const text = (message: string, isError = false) => ({ ...(isError ? { isError } : {}), content: [{ type: "text" as const, text: message }] });
 
@@ -107,8 +85,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     const behind = !noticeSent && api.outdated;
     if (behind) noticeSent = true;
     const notice = behind ? await behindNotice() : undefined;
-    const waiting = await waitingLine(api, sessionId);
-    const extra = [notice, waiting].filter((line): line is string => line !== undefined);
+    const extra = [notice].filter((line): line is string => line !== undefined);
     return extra.length > 0 ? { ...result, content: [...result.content, ...extra.map((line) => ({ type: "text" as const, text: line }))] } : result;
   };
   const server = createRedlineMcpServer({
@@ -128,7 +105,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       ];
       return { isError: true, content: [{ type: "text", text: lines.join("\n") }] };
     },
-    // The server answers only for the threads this session picked with pending_comments.
+    // The server answers only for the threads this account took with pending_comments.
     postReply: (threadId, replyText, resolve) => api.replyInThread(threadId, replyText, undefined, sessionId, resolve),
     get pageId() {
       return checkedOut().pageId;
@@ -158,23 +135,20 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     PENDING_COMMENTS_TOOL,
     {
       description:
-        "Take the Redline comments waiting for this session (on the pages it published), grouped by page, with each page's and artboard's addresses. Call it only when the user asks you to handle their comments. Taking them marks the threads as being handled by you: answer each one with reply_in_thread.",
+        "Take the Redline comments of a page for the user's account and handle them: every thread to take of the page is taken, and you are given it with the page's and artboard's addresses, followed by the threads of that page the account already took (also from another conversation, after a compaction or a resume). Call it only when the user asks you to handle the comments of a page. Answer each thread with reply_in_thread.",
+      inputSchema: { pageId: z.string().describe("Id of the page whose comments to take (see list_pages)") },
     },
-    tool(async () => {
-      const pages = await api.terminalPick(sessionId);
-      if (pages.length === 0) return "No comment is waiting for this session.";
-      const sections = await Promise.all(
-        pages.map(async ({ pageId, title, messages }) => {
-          // The comments are already taken: they are given even when the page's addresses cannot be fetched.
-          const addresses = await api.checkout(pageId).then(
-            ({ files }) => pageAddresses(api, pageId, files),
-            (error: Error) => `Page ${pageId}: its addresses could not be fetched (${error.message}); call checkout_page to get them.`,
-          );
-          return [`## ${title}`, addresses, "", messages.join("\n\n---\n\n")].join("\n");
-        }),
+    tool(async ({ pageId }: { pageId: string }) => {
+      const { title, comments } = await api.takeComments(sessionId, pageId);
+      if (comments.length === 0) return `No comment to take on ${quotedTitle(title)}.`;
+      // The comments are already taken: they are given even when the page's addresses cannot be fetched.
+      const addresses = await api.checkout(pageId).then(
+        ({ files }) => pageAddresses(api, pageId, files),
+        (error: Error) => `Page ${pageId}: its addresses could not be fetched (${error.message}); call checkout_page to get them.`,
       );
-      const steps = "For each page: checkout_page, make the changes the comments ask for, then publish_page once. Then answer each thread once with reply_in_thread (threadId as given), with resolve: true when the comment is handled and your answer asks nothing back.";
-      return `${steps}\n\n${sections.join("\n\n=====\n\n")}`;
+      const marked = { new: "", taken: "[already taken by your account]\n", relaunch: "[already taken by your account, relaunched: a message waits since your last answer]\n" };
+      const steps = "Make the changes the comments ask for (checkout_page, then publish_page once), then answer each thread once with reply_in_thread (threadId as given), with resolve: true when the comment is handled and your answer asks nothing back.";
+      return [steps, "", `## ${title}`, addresses, "", comments.map((comment) => `${marked[comment.state]}${comment.message}`).join("\n\n---\n\n")].join("\n");
     }),
   );
   server.registerTool(
@@ -381,20 +355,6 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     }),
   );
   server.registerTool(
-    RELEASE_PAGE_TOOL,
-    {
-      description:
-        "Stop holding a page: its waiting comments go to the Redline agent, and new comments go to the agent until a terminal session publishes the page again. Without pageId, releases every page this session holds. Use it when the user asks you to let go of a page.",
-      inputSchema: { pageId: z.string().optional().describe("Id of the page to release; leave out to release all the pages this session holds") },
-    },
-    tool(async ({ pageId }: { pageId?: string }) => {
-      const released = await api.terminalRelease(sessionId, pageId);
-      if (released.length === 0) return "This session holds no page: nothing to release.";
-      const lines = released.map((page) => `- ${page.title}: ${page.count === 0 ? "no waiting comment" : `${page.count} comment${page.count > 1 ? "s" : ""} handed over to the agent`}`);
-      return `Released ${released.length > 1 ? "these pages" : "this page"}; the agent now takes its comments until a terminal session publishes ${released.length > 1 ? "them" : "it"} again:\n${lines.join("\n")}`;
-    }),
-  );
-  server.registerTool(
     REQUEST_REVIEW_TOOL,
     {
       description:
@@ -503,7 +463,6 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       return [
         ...(feedback.alreadyFetchedAt ? [`Already fetched on ${feedback.alreadyFetchedAt}: the same result as before, no new thread was created (the remark threads are the ones given earlier).`] : []),
         `Requested by ${quotedTitle(feedback.requester)}. Finished by ${quotedTitle(feedback.finishedBy)}.`,
-        ...(feedback.heldBy ? [`The remark threads are held by another session (${quotedTitle(feedback.heldBy)}), still connected: they are not given to this session. Ask the person which session should answer them.`] : []),
         `Validated (${feedback.validated.length}):`,
         ...feedback.validated.map((entry) => line(entry, ` · validated by ${entry.by.map(quotedTitle).join(", ")}`)),
         `Retours (${count} sur ${grouped.length} étape${grouped.length === 1 ? "" : "s"}), groupés par étape :`,

@@ -109,15 +109,14 @@ describe("security fixes: links and capabilities", () => {
     const [arianeToken, thomasToken] = [(await instance.ariane.json<AgentTokenResponse>("/api/agent-token")).token, (await instance.thomas.json<AgentTokenResponse>("/api/agent-token")).token];
     const call = (token: string, action: string) =>
       fetch(`${instance.server.url}${AGENT_API_PREFIX}/terminal-sessions/${SESSION_ID}/${action}`, {
-        method: action === "waiting" ? "GET" : "POST",
+        method: "POST",
         headers: { authorization: `Bearer ${token}`, ...JSON_HEADERS },
-        body: action === "heartbeat" ? JSON.stringify({ folder: "/f", machine: "m" }) : action === "waiting" ? undefined : "{}",
+        body: action === "heartbeat" ? JSON.stringify({ folder: "/f", machine: "m" }) : "{}",
       });
     expect((await call(arianeToken, "heartbeat")).status).toBe(204);
     expect((await call(thomasToken, "heartbeat")).status).toBe(403);
-    expect((await call(thomasToken, "waiting")).status).toBe(403);
-    expect((await call(thomasToken, "pick")).status).toBe(403);
-    expect((await call(arianeToken, "waiting")).status).toBe(200);
+    expect((await call(thomasToken, "take")).status).toBe(403);
+    expect((await call(arianeToken, "take")).status).toBe(400);
   });
 
   it("S8: setup-style tokens are read from a header, never from the query string", async () => {
@@ -261,7 +260,7 @@ describe("security fixes: start-up checks and migration", () => {
     const db = new Database(join(dataDir, "redline.db"));
     db.prepare("INSERT INTO settings (key, value) VALUES ('agent_token', 'abt_old') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
     db.close();
-    const response = await fetch(`${server.url}${AGENT_API_PREFIX}/terminal-sessions/${SESSION_ID}/waiting`, { headers: { authorization: "Bearer abt_old" } });
+    const response = await fetch(`${server.url}${AGENT_API_PREFIX}/terminal-comments`, { headers: { authorization: "Bearer abt_old" } });
     expect(response.status).toBe(200);
     expect(logs.some((line) => /shared agent token/i.test(line) && /regenerate/i.test(line))).toBe(true);
   });

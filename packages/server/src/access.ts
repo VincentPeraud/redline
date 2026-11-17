@@ -54,7 +54,6 @@ export const LINK_ROUTES: Record<string, AccessLevel> = {
   "POST /api/pages/:pageId/send-review": "write",
   "POST /api/pages/:pageId/send-held": "write",
   "PATCH /api/pages/:pageId": "write",
-  "POST /api/threads/:threadId/hand-over": "write",
 };
 /** Calls a project link may make but a page link may not: a page link reaches its own page, never the pages around it. */
 const LINK_PROJECT_ONLY_ROUTES = new Set(["POST /api/projects/:projectId/pages"]);

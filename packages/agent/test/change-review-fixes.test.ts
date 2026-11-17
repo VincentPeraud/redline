@@ -171,7 +171,7 @@ describe("fetching a review twice", () => {
     expect(again.replace(/^Already fetched.*\n/, "")).toBe(first);
   });
 
-  it("hands the threads over to another session when the first one is gone", async () => {
+  it("takes the remark threads for the account: another conversation of it answers them, after the first one is gone", async () => {
     const { terminal, page, id } = await fetched();
     await terminal.quit();
     const other = await openTerminal(seam!, stops, "iMac");
@@ -180,18 +180,8 @@ describe("fetching a review twice", () => {
 
     const [thread] = await threadsOf(page.id);
     expect(again).toContain(`fil ${thread!.id}`);
+    expect(thread).toMatchObject({ take: { machine: "MacBook-Pro" } });
     expect(await other.call("reply_in_thread", { threadId: thread!.id, text: "Done" })).toContain("Reply posted");
-  });
-
-  it("tells another session which session holds the threads while the first one is still there", async () => {
-    const { page, id } = await fetched();
-    const other = await openTerminal(seam!, stops, "iMac");
-
-    const again = await other.call("review_feedback", { reviewId: id });
-
-    const [thread] = await threadsOf(page.id);
-    expect(again).toMatch(/held by another session \("MacBook-Pro"\)/);
-    expect(await other.call("reply_in_thread", { threadId: thread!.id, text: "Done" })).not.toContain("Reply posted");
   });
 });
 

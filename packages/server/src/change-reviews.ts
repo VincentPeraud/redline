@@ -61,7 +61,7 @@ import type { PinToStore, SeenNow, StoredMember, StoredPin, StoredReview, Stored
 import { contentChanges } from "./artboard-history.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store, VersionRecord } from "./store.js";
-import type { TerminalSessions } from "./terminal-sessions.js";
+import type { SessionLabel, TerminalSessions } from "./terminal-sessions.js";
 import { MAX_TERMINAL_TEXT_LENGTH, artboardZoneError, canvasZoneError, createThreadRequestError, requiredString } from "./validation.js";
 
 const MAX_STEPS = 200;
@@ -535,7 +535,7 @@ const folderNameOf = (review: StoredReview): string => reviewPlace({ folder: rev
  * What `review_feedback` gives: the result of a review (its progress while it is open).
  * With an id any member with Écriture on the project may take it. Without one, the finished, not yet fetched reviews of `projectIds`
  * (the folder's linked projects): one is taken, several are listed and nothing is taken, none gives the open ones with their progress.
- * Taking a review turns each remark into a thread on its artboard, owned by the terminal session, and keeps the result: asking again returns that same result and creates nothing.
+ * Taking a review turns each remark into a thread on its artboard, taken by the fetching account, and keeps the result: asking again returns that same result and creates nothing.
  */
 export function changeReviewFeedback(ctx: ReviewContext, viewer: Viewer, sessionId: string, request: ChangeReviewFeedbackRequest): { error: string; status: number } | ChangeReviewFeedback {
   const { store, access } = ctx;
@@ -584,7 +584,7 @@ function fetchReview(ctx: ReviewContext, viewer: Viewer, sessionId: string, revi
     const { seen, total } = progressOf(view.steps, -1);
     return { status: "open", seen, total };
   }
-  if (review.state === "fetched") return { status: "finished", alreadyFetchedAt: review.fetchedAt, ...review.fetchedResult!, ...handOverThreads(ctx, review, sessionId) };
+  if (review.state === "fetched") return { status: "finished", alreadyFetchedAt: review.fetchedAt, ...review.fetchedResult! };
   const result = reviewResult({
     requester: nameOf(view.requester.person),
     finishedBy: nameOf(view.finishedBy),
@@ -598,30 +598,11 @@ function fetchReview(ctx: ReviewContext, viewer: Viewer, sessionId: string, revi
       ...(step.removed ? { removed: step.removed } : {}),
       ...(stepIsCanvasOnly(step) && step.canvasElements!.every((id) => step.canvas?.missing.includes(id)) ? { elementGone: true } : {}),
     })),
-    threadIds: openRemarkThreads(store, pageLock, view, sessionId),
+    threadIds: openRemarkThreads(store, view, ctx.terminalSessions.labelOf(sessionId)),
   });
   store.changeReviews.markFetched(review.id, viewerPersonId(viewer), sessionId, result);
   announceReviewChange(store, review.id);
   return { status: "finished", ...result };
-}
-
-/**
- * A fetched review asked for again by another session than the one that took its threads: when that one is still connected it keeps them (the answer says which one);
- * when it is gone, the threads still waiting for an answer go to the asking session, so `reply_in_thread` works from there.
- */
-function handOverThreads({ store, pageLock, terminalSessions }: ReviewContext, review: StoredReview, sessionId: string): { heldBy?: string } {
-  const holder = review.fetchedSessionId;
-  if (holder === sessionId) return {};
-  if (holder && terminalSessions.isPresent(holder)) return { heldBy: folderName(terminalSessions.folderOf(holder) ?? "another folder") };
-  for (const { threadId } of [...review.fetchedResult!.remarks, ...(review.fetchedResult!.pins ?? [])]) {
-    const thread = threadId ? store.getThread(threadId) : undefined;
-    if (!thread || thread.status === "resolved" || thread.replies.some((reply) => reply.author === "claude")) continue;
-    const runId = randomUUID();
-    pageLock.showTerminalRun(thread.pageId, runId, thread.id);
-    store.pickThreadForTerminalSession(thread.id, sessionId, runId);
-  }
-  store.changeReviews.setFetchedSession(review.id, sessionId);
-  return {};
 }
 
 /** The artboards of a group with their "Page · artboard" names, the example first. */
@@ -634,12 +615,10 @@ const membersOf = (step: ChangeReview["steps"][number]) => [
  * One thread per remark on its artboard and one element thread per pin, signed by their author and taken by `sessionId` (so `reply_in_thread` works on them).
  * Thread ids by remark id and pin id. A pin whose element is lost keeps its last position.
  */
-function openRemarkThreads(store: Store, pageLock: PageLock, view: ChangeReview, sessionId: string): Record<string, string> {
+function openRemarkThreads(store: Store, view: ChangeReview, label: SessionLabel | undefined): Record<string, string> {
   const threadIds: Record<string, string> = {};
-  const take = (pageId: string, threadId: string) => {
-    const runId = randomUUID();
-    pageLock.showTerminalRun(pageId, runId, threadId);
-    store.pickThreadForTerminalSession(threadId, sessionId, runId);
+  const take = (_pageId: string, threadId: string) => {
+    if (label) store.takeThread(threadId, label.accountId, label.folder, label.machine);
     store.markThreadFromReview(threadId, view.finishedAt ?? new Date().toISOString());
   };
   for (const step of activeSteps(view.steps)) {

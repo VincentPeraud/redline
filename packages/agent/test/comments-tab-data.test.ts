@@ -26,22 +26,21 @@ async function until(condition: () => Promise<boolean>, what: string): Promise<v
 }
 
 describe("terminalComments (the Comments tab data)", () => {
-  it("lists the waiting threads of a held page without taking them", async () => {
+  it("lists the threads to take of a page without taking them", async () => {
     seam = await startSeam2(new FakeEngine(() => []));
-    const page = await seam.createPage(PAGE_FILES, "Accueil");
+    const page = await seam.createPage(PAGE_FILES, "Accueil", "conversation");
     const terminal = await openTerminal(seam, stops, "MacBook-Pro", { folder: "/work/site" });
-    await terminal.publish(page.id, "First");
     await seam.pinThread(page.id, "home.html", "Make it blue");
     const { token } = (await (await seam.server.get("/api/agent-token")).json()) as AgentTokenResponse;
     const api = new ServerApi(seam.server.url, token);
-    await until(async () => (await api.terminalComments()).length === 1, "the thread to wait");
+    await until(async () => (await api.terminalComments()).length === 1, "the thread to be to take");
 
     const [first] = await api.terminalComments();
-    expect(first).toMatchObject({ pageId: page.id, title: "Accueil", holder: { folder: "/work/site", machine: "MacBook-Pro" } });
+    expect(first).toMatchObject({ pageId: page.id, title: "Accueil" });
     expect(first.comments).toMatchObject([{ text: "Make it blue", target: "home.html, h1" }]);
 
     expect(await api.terminalComments()).toEqual([first]);
-    expect(await terminal.call("pending_comments", {})).toContain("Make it blue");
+    expect(await terminal.call("pending_comments", { pageId: page.id })).toContain("Make it blue");
     expect(await api.terminalComments()).toEqual([]);
   });
 });

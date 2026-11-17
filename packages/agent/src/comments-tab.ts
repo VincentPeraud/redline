@@ -2,7 +2,7 @@ import type { TerminalCommentsPage } from "@redline/shared";
 import { COLOURS, span, spaces, clip, ruleRow, clock, MARGIN, listWindow, addressText, type Span, type Row, type BarItem, type Key } from "./terminal-draw.js";
 import type { ScreenState, Update } from "./agents-view.js";
 
-/** One page of one instance with comments waiting for a terminal session. */
+/** One page of one instance with comments to take. */
 export interface CommentsEntry {
   instanceId: string;
   instance: string;
@@ -74,7 +74,7 @@ function listPane(state: ScreenState, cells: number, height: number): Row[] {
   if (entries.length === 0) return [...(failures.length > 0 ? [{ spans: [] }] : []), ...failed];
   const { first, shown } = listWindow(entries.length, selected, height - failures.length);
   const hidden = (text: string): Row => ({ spans: [span(`${spaces(MARGIN)}${text}`, COLOURS.dim)] });
-  const rows: Row[] = [first > 0 ? hidden(`↑ ${first} more`) : { spans: [span(`${spaces(MARGIN)}waiting for a terminal session`, COLOURS.dim)] }];
+  const rows: Row[] = [first > 0 ? hidden(`↑ ${first} more`) : { spans: [span(`${spaces(MARGIN)}to take`, COLOURS.dim)] }];
   const marker = state.focus === "list" ? COLOURS.red : COLOURS.dim;
   entries.slice(first, first + shown).forEach((entry, offset) => {
     const isSelected = first + offset === selected;
@@ -98,17 +98,14 @@ function fill(spans: Span[], cells: number, bg?: string): Span[] {
 function detailPane(state: ScreenState, cells: number, height: number): Row[] {
   const { status, scroll } = state.comments;
   const entry = selectedEntry(state.comments);
-  if (!entry) return [{ spans: [] }, note(status === "loading" ? "Loading the comments…" : "No comment is waiting for a terminal session.")];
+  if (!entry) return [{ spans: [] }, note(status === "loading" ? "Loading the comments…" : "No comment to take.")];
   const { page } = entry;
-  const holder = page.holder
-    ? [span("the Claude Code session in ", COLOURS.text), span(page.holder.folder, COLOURS.text), span(` (published ${clock(page.holder.since, false)})`, COLOURS.text)]
-    : [span("no terminal session is present", COLOURS.muted)];
   const focused = state.focus === "detail";
   const count = page.comments.length;
   const head: Row[] = [
     { spans: [] },
     { spans: [span(spaces(MARGIN)), span(page.title, COLOURS.text, true), span(`  ${page.projectTitle}`, COLOURS.muted), span(" on ", COLOURS.dim), span(entry.instance, COLOURS.muted)] },
-    { spans: [span(spaces(MARGIN)), span("Held by    ", COLOURS.dim), ...holder] },
+    { spans: [span(spaces(MARGIN)), span("Status     ", COLOURS.dim), span(`${count} to take, no conversation has taken ${count === 1 ? "it" : "them"} yet`, COLOURS.text)] },
     ruleRow(),
     { spans: [span(focused ? "▎" : " ", COLOURS.red), span(" "), span(`${count} ${count === 1 ? "COMMENT" : "COMMENTS"}`, COLOURS.text, true), span(focused ? "  focused: ↑↓ scroll, → back to the list" : "  ← to scroll them", COLOURS.dim)] },
   ];
@@ -119,7 +116,7 @@ function detailPane(state: ScreenState, cells: number, height: number): Row[] {
   ]);
   const hint: Row[] = [
     ruleRow(),
-    { spans: [span(spaces(MARGIN)), span("In that session, ask Claude: ", COLOURS.dim), span("traite mes commentaires", COLOURS.text, true)] },
+    { spans: [span(spaces(MARGIN)), span("In a Claude Code conversation, ask: ", COLOURS.dim), span(`traite les commentaires de ${page.title}`, COLOURS.text, true)] },
     { spans: [span(spaces(MARGIN)), span("o", COLOURS.text, true), span(" opens the page in Redline.", COLOURS.dim)] },
   ];
   const room = Math.max(0, height - head.length - hint.length);

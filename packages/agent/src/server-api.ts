@@ -24,11 +24,10 @@ import {
   type PageVersionSummary,
   type Project,
   type ProjectAsset,
+  type TakeCommentsRequest,
+  type TakeCommentsResponse,
   type TerminalCommentsPage,
   type TerminalHeartbeatRequest,
-  type TerminalReleaseRequest,
-  type TerminalPickedPage,
-  type TerminalWaitingPage,
   type ThreadReply,
   type VersionOrigin,
   type RenamePageRequest,
@@ -101,20 +100,9 @@ export class ServerApi {
     return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/heartbeat`, body);
   }
 
-  /** The comments waiting for this terminal session, per page it holds. */
-  terminalWaiting(sessionId: string): Promise<TerminalWaitingPage[]> {
-    return this.request("GET", `/terminal-sessions/${encodeURIComponent(sessionId)}/waiting`);
-  }
-
-  /** Every page with comments waiting for a terminal session, read-only: nothing is taken. */
+  /** Every page with comments to take, read-only: nothing is taken. */
   terminalComments(): Promise<TerminalCommentsPage[]> {
     return this.request("GET", "/terminal-comments");
-  }
-
-  /** Hands one page this terminal session holds (or all of them) over to the agents; answers with what was handed over. */
-  terminalRelease(sessionId: string, pageId?: string): Promise<TerminalWaitingPage[]> {
-    const body: TerminalReleaseRequest = pageId ? { pageId } : {};
-    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/release`, body);
   }
 
   /** Declares a review of changes for this terminal session; answers the new review's id. */
@@ -134,9 +122,10 @@ export class ServerApi {
     return url;
   }
 
-  /** Takes the comments waiting for this terminal session: they leave the waiting list and become its to answer. */
-  terminalPick(sessionId: string): Promise<TerminalPickedPage[]> {
-    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/pick`, {});
+  /** The account of this terminal session takes the threads to take of a page, and is given them with the ones it already took. */
+  takeComments(sessionId: string, pageId: string): Promise<TakeCommentsResponse> {
+    const body: TakeCommentsRequest = { pageId };
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/take`, body);
   }
 
   /** Tells the server this terminal session is closing. */

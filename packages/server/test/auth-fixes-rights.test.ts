@@ -54,16 +54,14 @@ describe("rights fixes of the review", () => {
   });
 
   describe("what an Écriture link reaches", () => {
-    it("lets a visitor send À relire and held comments, rename the page and hand over a thread; refuses the other levels", async () => {
+    it("lets a visitor send À relire and held comments, rename the page; refuses the other levels", async () => {
       const { pageId } = await setup();
       const write = await makeLink(instance.ariane, `/api/pages/${pageId}/links`);
       const comment = await makeLink(instance.ariane, `/api/pages/${pageId}/links`, { level: "comment", name: "Bea" });
-      const thread = (await (await instance.ariane.send("POST", `/api/pages/${pageId}/threads`, { target, body: "Hi" })).json()) as Thread;
       expect((await through(write, `/api/pages/${pageId}/send-review`, {})).status).toBe(200);
       expect((await through(write, `/api/pages/${pageId}/send-held`, {})).status).toBe(200);
       expect((await through(write, `/api/pages/${pageId}`, { title: "Renamed" }, undefined, "PATCH")).status).toBe(200);
-      expect((await through(write, `/api/threads/${thread.id}/hand-over`, {})).status).toBe(409);
-      for (const [path, body, method] of [[`/api/pages/${pageId}/send-review`, {}, "POST"], [`/api/pages/${pageId}/send-held`, {}, "POST"], [`/api/pages/${pageId}`, { title: "No" }, "PATCH"], [`/api/threads/${thread.id}/hand-over`, {}, "POST"]] as const) {
+      for (const [path, body, method] of [[`/api/pages/${pageId}/send-review`, {}, "POST"], [`/api/pages/${pageId}/send-held`, {}, "POST"], [`/api/pages/${pageId}`, { title: "No" }, "PATCH"]] as const) {
         expect((await through(comment, path, body, undefined, method)).status).toBe(403);
       }
     });
