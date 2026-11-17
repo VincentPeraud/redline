@@ -40,8 +40,22 @@ describe("terminalComments (the Comments tab data)", () => {
     expect(first.comments).toMatchObject([{ text: "Make it blue", target: "home.html, h1" }]);
 
     expect(await api.terminalComments()).toEqual([first]);
+  });
+
+  it("keeps a taken thread in the list, marked with who took it and from which folder", async () => {
+    seam = await startSeam2(new FakeEngine(() => []));
+    const page = await seam.createPage(PAGE_FILES, "Accueil", "conversation");
+    const terminal = await openTerminal(seam, stops, "MacBook-Pro", { folder: "/work/site" });
+    await seam.pinThread(page.id, "home.html", "Make it blue");
+    const { token } = (await (await seam.server.get("/api/agent-token")).json()) as AgentTokenResponse;
+    const api = new ServerApi(seam.server.url, token);
+    await until(async () => (await api.terminalComments()).length === 1, "the thread to be to take");
+    expect((await api.terminalComments())[0].comments[0].taken).toBeUndefined();
+
     expect(await terminal.call("pending_comments", { pageId: page.id })).toContain("Make it blue");
-    expect(await api.terminalComments()).toEqual([]);
+
+    const [taken] = await api.terminalComments();
+    expect(taken.comments).toMatchObject([{ text: "Make it blue", taken: { by: "", folder: "/work/site" } }]);
   });
 });
 

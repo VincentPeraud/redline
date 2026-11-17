@@ -182,8 +182,27 @@
 }
 
 .chip {
-  padding: 2px 8px;
-  font-weight: var(--font-weight-regular);
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  font-weight: var(--font-weight-medium);
+}
+
+/* A title on several lines keeps the badges centred on its first line. */
+.badges {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 1lh;
+  font-size: var(--font-size-lg);
+}
+
+.summaryToTake {
+  color: var(--color-warning-strong);
+  font-weight: var(--font-weight-semibold);
 }
 
 .pageMeta {

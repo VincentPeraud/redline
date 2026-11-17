@@ -74,7 +74,7 @@ function listPane(state: ScreenState, cells: number, height: number): Row[] {
   if (entries.length === 0) return [...(failures.length > 0 ? [{ spans: [] }] : []), ...failed];
   const { first, shown } = listWindow(entries.length, selected, height - failures.length);
   const hidden = (text: string): Row => ({ spans: [span(`${spaces(MARGIN)}${text}`, COLOURS.dim)] });
-  const rows: Row[] = [first > 0 ? hidden(`↑ ${first} more`) : { spans: [span(`${spaces(MARGIN)}to take`, COLOURS.dim)] }];
+  const rows: Row[] = [first > 0 ? hidden(`↑ ${first} more`) : { spans: [span(`${spaces(MARGIN)}threads to take or taken`, COLOURS.dim)] }];
   const marker = state.focus === "list" ? COLOURS.red : COLOURS.dim;
   entries.slice(first, first + shown).forEach((entry, offset) => {
     const isSelected = first + offset === selected;
@@ -105,24 +105,35 @@ function detailPane(state: ScreenState, cells: number, height: number): Row[] {
   const head: Row[] = [
     { spans: [] },
     { spans: [span(spaces(MARGIN)), span(page.title, COLOURS.text, true), span(`  ${page.projectTitle}`, COLOURS.muted), span(" on ", COLOURS.dim), span(entry.instance, COLOURS.muted)] },
-    { spans: [span(spaces(MARGIN)), span("Status     ", COLOURS.dim), span(`${count} to take, no conversation has taken ${count === 1 ? "it" : "them"} yet`, COLOURS.text)] },
+    { spans: [span(spaces(MARGIN)), span("Status     ", COLOURS.dim), span(statusLine(page.comments), COLOURS.text)] },
     ruleRow(),
     { spans: [span(focused ? "▎" : " ", COLOURS.red), span(" "), span(`${count} ${count === 1 ? "COMMENT" : "COMMENTS"}`, COLOURS.text, true), span(focused ? "  focused: ↑↓ scroll, → back to the list" : "  ← to scroll them", COLOURS.dim)] },
   ];
   const lines = page.comments.flatMap((comment, index): Row[] => [
     ...(index > 0 ? [{ spans: [] }] : []),
-    { spans: [span(spaces(MARGIN)), span(comment.author, COLOURS.text, true), span(`  ${clock(comment.at, false)} · ${comment.target}`, COLOURS.dim)] },
+    { spans: [span(spaces(MARGIN)), span(comment.author, COLOURS.text, true), span(`  ${clock(comment.at, false)} · ${comment.target} · ${comment.taken ? `taken by ${takerName(comment.taken.by)}` : "to take"}`, COLOURS.dim)] },
     ...wrap(`« ${comment.text} »`, cells - MARGIN).map((line): Row => ({ spans: [span(spaces(MARGIN)), span(line, COLOURS.muted)] })),
   ]);
   const hint: Row[] = [
     ruleRow(),
-    { spans: [span(spaces(MARGIN)), span("In a Claude Code conversation, ask: ", COLOURS.dim), span(`traite les commentaires de ${page.title}`, COLOURS.text, true)] },
+    { spans: [span(spaces(MARGIN)), span("Ask a Claude Code conversation: ", COLOURS.dim), span(`traite les commentaires ${/^[aeiouyàâéèêëîïôöùûü]/i.test(page.title) ? "d'" : "de "}${page.title}`, COLOURS.text, true)] },
     { spans: [span(spaces(MARGIN)), span("o", COLOURS.text, true), span(" opens the page in Redline.", COLOURS.dim)] },
   ];
   const room = Math.max(0, height - head.length - hint.length);
   if (lines.length <= room) return [...head, ...lines, ...hint];
   const start = Math.min(scroll, lines.length - room);
   return [...head, ...lines.slice(start, start + room), ...hint];
+}
+
+const takerName = (by: string): string => by || "a conversation";
+
+/** "1 to take, 1 taken by Victor (~/crm)": the threads still to take, then those taken, grouped by taker and folder. */
+function statusLine(comments: TerminalCommentsPage["comments"]): string {
+  const toTake = comments.filter((comment) => !comment.taken).length;
+  const groups = new Map<string, number>();
+  for (const { taken } of comments) if (taken) groups.set(`taken by ${takerName(taken.by)} (${taken.folder})`, (groups.get(`taken by ${takerName(taken.by)} (${taken.folder})`) ?? 0) + 1);
+  const parts = [...(toTake > 0 ? [`${toTake} to take`] : []), ...[...groups].map(([label, count]) => `${count} ${label}`)];
+  return toTake === comments.length ? `${toTake} to take, no conversation has taken ${toTake === 1 ? "it" : "them"} yet` : parts.join(", ");
 }
 
 /** Breaks a text into lines of at most `limit` cells, at spaces, keeping its own line breaks. */

@@ -7,8 +7,12 @@ const PAGE_FILES = {
   "manifest.json": JSON.stringify({ artboards: [{ file: "home.html" }] }),
 };
 
+import { openTerminal } from "./support/terminal.js";
+
 let seam: Seam2 | undefined;
+const stops: (() => Promise<void>)[] = [];
 afterEach(async () => {
+  for (const stop of stops.splice(0)) await stop();
   await seam?.stop();
   seam = undefined;
 });
@@ -89,6 +93,19 @@ describe("sessions list", () => {
       waitingReason: "agent-offline",
       projectTitle: "Lonely",
     });
+  });
+
+  it("explains the wait of a thread in Conversation mode: to take, then taken by a conversation", async () => {
+    seam = await startSeam2(new FakeEngine([{ type: "result", summary: "ok" }]));
+    const page = await seam.createPage(PAGE_FILES, "Accueil", "conversation");
+    await seam.pinThread(page.id, "home.html", "who takes me");
+    expect(byName(await sessions(seam), "who takes me")).toMatchObject({ status: "waiting-agent", waitingReason: "to-take" });
+
+    const terminal = await openTerminal(seam, stops, "MacBook-Pro", { folder: "/work/site" });
+    await terminal.call("pending_comments", { pageId: page.id });
+    const taken = byName(await sessions(seam), "who takes me");
+    expect(taken).toMatchObject({ status: "waiting-agent", waitingReason: "taken" });
+    expect(taken.takenBy).toBeUndefined();
   });
 
   it("shows a held comment as waiting to be sent, then as a normal session once sent", async () => {
