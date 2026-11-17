@@ -6,6 +6,12 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+### Fixed
+
+- Comments on demand (final review): threads handed over to the agent stay with it when a page goes back to Conversation, and threads waiting in a batch for an offline agent can be taken one by one; a resolution ends a take; `pending_comments {pageId}` lists the takes of your account from other folders apart; a late answer after a hand-over reaches the agent; refused answers say why; "Question de Claude" also shows to the taker; a failed run no longer blocks a takeover; lowering an admin, turning a project Private or removing a member frees the takes of those who lose access.
+- Drafts are really personal: they no longer show on the Sessions screen or in live events, and cannot be resolved or answered by someone else. Link visitors no longer get members' e-mails, account ids or the folder of a take. Answers from a conversation cannot borrow another account's session, take and release skip archived pages, and the overview names nothing of a project the account cannot see.
+- The page menu heading reads "Pages de <projet>", cards no longer show a session id, and the deactivation dialog says "Son projet privé" for a Private project.
+
 ### Changed
 
 - Web chat and agent rule (comments on demand): "traite les commentaires" written in a page's Conversation tab hands the page's threads to take to the agent, as "Confier à l'agent" signed with the writer's name, through the new `hand_over_comments` tool of conversation sessions; threads taken by a conversation are left alone and listed in the answer. While no agent runs for the project the Conversation tab says to ask "traite les commentaires de <page>" to a Claude Code conversation. The guide tells agent sessions too to ask in the thread, and leave it open, when a comment asks for a new screen or a new rule.

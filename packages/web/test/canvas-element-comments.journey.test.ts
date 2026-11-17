@@ -95,7 +95,7 @@ it("outlines canvas elements in comment mode, pins threads on them, follows thei
   await tab.getByText("Commentaire sur").waitFor();
   expect(await tab.getByText("Commentaire sur").textContent()).toContain("Post-it · note-parcours");
   await tab.locator("#new-comment").fill("Add the confirmation step");
-  await tab.getByRole("button", { name: "Plus tard" }).click();
+  await tab.getByRole("button", { name: "Brouillon" }).click();
   const pin = tab.locator("[data-canvas-pin='1']");
   await pin.waitFor();
   const pinBox = (await pin.boundingBox())!;

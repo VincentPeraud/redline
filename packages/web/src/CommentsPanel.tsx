@@ -13,7 +13,6 @@ import { DESIGN_SYSTEM_CLAUDE, RequestOrigins, RequestStatePill, RequestTag, req
 import { queueLabel, waitingForOfflineAgent } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
-import { shortSessionId } from "./sessionLabel.js";
 import { AgentStatus, AgentWaitBlock, HandlerStatus, ReviewNoteBlock, TakenBlock, useHandler } from "./ThreadTake.js";
 import { useThreadHandOver } from "./HandOver.js";
 import { CommentModeHint } from "./CommentMode.js";
@@ -107,11 +106,6 @@ function ThreadHeader({ thread, waitingForAgent, withAgent, children }: { thread
       <InstanceThreadInfo thread={thread} />
     </>
   );
-}
-
-/** "session 7c2e…a91" for a thread an agent session handles. */
-function sessionLabel(session: SessionRow | undefined): string | undefined {
-  return session?.sessionId ? `session ${shortSessionId(session.sessionId)}` : undefined;
 }
 
 /** "il y a 2 min", in a card's footer. */
@@ -289,9 +283,7 @@ function ThreadCard({
       {waitingForAgent && <AgentWaitBlock />}
       {thread.status === "review" && <ReviewNoteBlock />}
       {run && !queued && <RunProgress run={run} />}
-      {active ? (
-        sessionLabel(session) && <span className={styles.sessionMeta}>{sessionLabel(session)}</span>
-      ) : (
+      {!active && (
         <div className={cx(styles.footer, stacked && styles.footerStacked)}>
           <SessionMeta session={session} createdAt={thread.createdAt} />
           {!stacked && <span className={styles.spacer} />}

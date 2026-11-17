@@ -111,9 +111,9 @@ _Avoid_: Tag, attachment, mention
 A free-form exchange attached to a page, with no pin; it ends when archived.
 _Avoid_: Chat, discussion
 
-**Held comment**:
-A finished comment the user keeps back ("Plus tard") so it is sent later together with other held comments of the same page, in one message.
-_Avoid_: Draft, batch item
+**Draft**:
+A finished comment its author keeps back ("Brouillon") so it is sent later with their other drafts of the same page, in one message. It is personal: nobody else sees it, lists it or answers it, and it is not yet a thread anyone can take.
+_Avoid_: Held comment, Plus tard, batch item
 
 **Session**:
 One AI CLI session serving a conversation, a single thread, or the threads sent together in one message; it is resumed for each new reply in any of them.
@@ -175,7 +175,7 @@ The full-screen terminal view (`redline agents`, or opened by `redline agent`) o
 _Avoid_: Dashboard, TUI
 
 **Terminal session**:
-One running `redline mcp` process, which is one Claude Code conversation in terminal mode. Identified by a random id generated when the process starts and never stored on disk; it reports its account, folder and machine in a heartbeat, and is present while the heartbeat is recent. It holds no page and owns no thread: the **take** belongs to its account.
+One running `redline mcp` process, which is one Claude Code conversation in terminal mode. Identified by a random id generated when the process starts and never stored on disk; it reports its account, folder and machine in a heartbeat, and is present while the heartbeat is recent. It owns no page and no thread: the **take** belongs to its account.
 _Avoid_: Terminal agent (it is not an **agent**: it runs no work Redline sends it)
 
 **Comment mode**:
@@ -187,7 +187,7 @@ An open thread that no session and no account handles, waiting for a Claude Code
 _Avoid_: Unassigned, pending
 
 **Take**:
-An account's hold on a thread, made by `pending_comments`; labelled with the folder and machine of the conversation that made it and when. It belongs to the **account**, not to the **terminal session**: any conversation of that account answers the thread, after a compaction or a resume too, and a later message in the thread waits for that account. It ends on release, hand-over to the agent, takeover or resolution. Verbs: take, take over, release.
+An account's claim on a thread, made by `pending_comments`; labelled with the folder and machine of the conversation that made it and when. It belongs to the **account**, not to the **terminal session**: any conversation of that account answers the thread, after a compaction or a resume too, and a later message in the thread waits for that account. It ends on release, hand-over to the agent, takeover or resolution. Verbs: take, take over, release.
 _Avoid_: Claim, lock, owner
 
 ### People

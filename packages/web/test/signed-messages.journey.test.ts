@@ -97,12 +97,16 @@ it("signs thread messages: Toi for the viewer, the name for the other person, Ut
   expect(await seenByAriane.locator("article").filter({ hasText: "Make the button bigger" }).getByTestId("message-author").allTextContents()).toEqual(["Toi", "Vincent Peraud"]);
 }, 60_000);
 
-it("signs held comments", async () => {
+it("signs a draft for its author only, and hides it from the others", async () => {
   await call(sso.url, ariane)("POST", `/api/pages/${pageId}/threads`, threadBody("Shorten the title", true));
-  const tab = await open(vincent, sso.url, pageId);
-  const held = tab.getByTestId("held-thread").filter({ hasText: "Shorten the title" });
+  const mine = await open(ariane, sso.url, pageId);
+  const held = mine.getByTestId("held-thread").filter({ hasText: "Shorten the title" });
   await held.waitFor();
-  expect(await held.getByTestId("message-author").allTextContents()).toEqual(["Ariane Martin"]);
+  expect(await held.getByTestId("message-author").allTextContents()).toEqual(["Toi"]);
+
+  const other = await open(vincent, sso.url, pageId);
+  await other.waitForLoadState("networkidle");
+  expect(await other.getByTestId("held-thread").count()).toBe(0);
 }, 60_000);
 
 it("signs conversation bubbles and names who started each conversation in the list", async () => {

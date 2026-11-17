@@ -568,7 +568,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleGuides, toggleOverview, playing, readOnly]);
 
-  /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
+  /** "Envoyer" sends the comment now; "Brouillon" (`held`) keeps it on the server, for its author only, until "Tout envoyer". */
   async function send(held: boolean, visitorName?: string) {
     if (!draft || text.trim() === "") return;
     const request: CreateThreadRequest = visitor

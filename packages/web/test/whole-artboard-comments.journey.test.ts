@@ -64,7 +64,7 @@ it("comments a whole artboard from its name strip, shows the chip, opens the tab
   await tab.keyboard.press("c");
   await tab.getByRole("button", { name: "Commenter tout home.html" }).click();
   await tab.locator("#new-comment").fill("Also too long");
-  await tab.getByRole("button", { name: "Plus tard" }).click();
+  await tab.getByRole("button", { name: "Brouillon" }).click();
   await expect.poll(() => tab.getByText("2 fils sur l'artboard").count()).toBe(1);
 
   // Resolving every thread of the artboard removes the chip.
