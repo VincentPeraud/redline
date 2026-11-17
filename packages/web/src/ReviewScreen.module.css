@@ -2281,3 +2281,84 @@
     padding: var(--space-3) var(--space-4);
   }
 }
+
+/* A plain drag moves the shown piece of the canvas (pins keep their own pointer). */
+.canvasPannable {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.canvasPanning {
+  cursor: grabbing;
+}
+
+/* Zoom of the canvas crop (see the "canevas" mock-up): bottom right of the stage, on the shortcuts line. */
+.canvasZoom {
+  position: absolute;
+  right: 24px;
+  bottom: 16px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 4px;
+  border: 1px solid var(--play-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--play-panel-bg);
+  color: var(--play-text);
+}
+
+/* On a narrow stage the centred shortcuts reminder would reach the bar: it then sits just above the reminder, right-aligned. */
+.canvasZoomRaised {
+  bottom: 56px;
+}
+
+.canvasZoom button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.canvasZoom button:hover:not(:disabled) {
+  background: var(--review-seg-hover);
+}
+
+.canvasZoom button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.canvasZoom .canvasZoomSign {
+  width: 24px;
+  font-size: 16px;
+}
+
+.canvasZoomReset {
+  padding: 0 8px;
+}
+
+.canvasZoomValue {
+  min-width: 44px;
+  text-align: center;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--play-text-muted);
+}
+
+.canvasZoomSeparator {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--play-border-strong);
+}

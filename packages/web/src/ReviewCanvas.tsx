@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { HOVER_FINISH, type ChangeReviewStep, type ReviewPin, type ReviewZoneTarget } from "@redline/shared";
 import { ArtboardIframe } from "./artboardCapability.js";
 import { CanvasElements } from "./CanvasElements.js";
@@ -6,7 +6,7 @@ import { responsiveFrameBox, type Box } from "./canvasGeometry.js";
 import { PinPopoverAt, type PinsController } from "./ReviewPins.js";
 import { PIN_SHIFT, PinMarker, PinTooltip, overlayStyle, pinLabel } from "./ReviewPinParts.js";
 import { personName } from "./ReviewRemark.js";
-import { MAX_CANVAS_SCALE, canvasCrop, canvasElementAt, canvasZoneFromDrag } from "./reviewCanvasRules.js";
+import { MAX_CANVAS_SCALE, canvasCrop, canvasElementAt, canvasViewBox, canvasZoneFromDrag, panCanvasView, zoomCanvasView, zoomLimits, type CanvasZoomView } from "./reviewCanvasRules.js";
 import { pinOffsets, pinTargetLabel } from "./reviewPinRules.js";
 import { cx } from "./ui/index.js";
 import { useAltKey } from "./useAltKey.js";
@@ -19,6 +19,12 @@ const MAX_CROP_WIDTH = 920;
 /** Room the stage keeps around the crop for its tag (top) and the shortcuts reminder (bottom), and on the sides. */
 const STAGE_INSET = { x: 48, y: 72 };
 const PHONE_STAGE_INSET = { x: 16, y: 64 };
+/** One click on + or − (as on the page canvas). */
+const ZOOM_STEP = 1.25;
+/** Below this stage width the centred shortcuts reminder would reach the zoom bar on its line. */
+const ZOOM_BAR_ROOM = 860;
+/** Pixels per line of a wheel that scrolls by lines (Firefox with a mouse). */
+const LINE_HEIGHT = 16;
 
 type Point = { x: number; y: number };
 
@@ -39,7 +45,7 @@ const sameBoxes = (a: ReadonlyMap<string, Box>, b: ReadonlyMap<string, Box>) => 
 
 /**
  * The page canvas cropped on the elements a step points at (see the "canevas" mock-up): the other artboards dimmed, the targeted elements framed and numbered,
- * pins and zones over it. Alt + click pins a targeted element, Alt + drag draws a zone; the crop is inert otherwise.
+ * pins and zones over it. Alt + click pins a targeted element, Alt + drag draws a zone; otherwise a drag or the wheel moves the shown piece and Cmd + wheel zooms.
  */
 export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown, firstFrame = 1 }: { firstFrame?: number; step: ChangeReviewStep; origin: string; stage: { width: number; height: number }; pins: PinsController; phone: boolean; markersShown: boolean }) {
   const canvas = step.canvas!;
@@ -53,6 +59,10 @@ export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown, f
   const [drawing, setDrawing] = useState<ReviewZoneTarget | undefined>();
   const [hovered, setHovered] = useState<string | undefined>();
   const gesture = useRef<{ start: Point; altKey: boolean } | undefined>();
+  /** A plain drag on the canvas: the pointer doing it and its last position, in screen pixels. */
+  const panning = useRef<{ id: number; at: Point } | undefined>();
+  const [panActive, setPanActive] = useState(false);
+  const [view, setView] = useState<CanvasZoomView | undefined>();
 
   const artboardBoxes = useMemo(
     () => new Map<string, Box>(canvas.artboards.map((artboard) => [artboard.file, artboard.responsive ? responsiveFrameBox({ x: artboard.x, y: artboard.y, responsive: artboard.responsive }) : { x: artboard.x, y: artboard.y, width: artboard.width, height: artboard.height }])),
@@ -75,10 +85,40 @@ export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown, f
   const inset = phone ? PHONE_STAGE_INSET : STAGE_INSET;
   const avail = { width: Math.max(0, stage.width - inset.x * 2), height: Math.max(0, stage.height - inset.y * 2) };
   const scale = Math.max(0.05, Math.min(MAX_CANVAS_SCALE, MAX_CROP_WIDTH / crop.width, avail.width / crop.width || 1, avail.height / crop.height || 1));
-  applied.current = measured ? scale : 1;
   const size = { width: crop.width * scale, height: crop.height * scale };
-  const toScreen = (point: Point): Point => ({ x: (point.x - crop.x) * scale, y: (point.y - crop.y) * scale });
-  const boxOnScreen = (box: Box) => ({ ...toScreen(box), width: box.width * scale, height: box.height * scale });
+  // The person's zoom: the frame keeps its size, the piece of canvas in it changes.
+  const shown = canvasViewBox(crop, view);
+  const shownScale = scale * (view?.zoom ?? 1);
+  const limits = zoomLimits(crop, pageBox, scale);
+  applied.current = measured ? shownScale : 1;
+  const toScreen = (point: Point): Point => ({ x: (point.x - shown.x) * shownScale, y: (point.y - shown.y) * shownScale });
+  const boxOnScreen = (box: Box) => ({ ...toScreen(box), width: box.width * shownScale, height: box.height * shownScale });
+  const zoomBy = (factor: number, cursor: Point = { x: size.width / 2, y: size.height / 2 }) => setView((current) => zoomCanvasView(current, factor, cursor, scale, limits));
+  const zoomLatest = useRef(zoomBy);
+  zoomLatest.current = zoomBy;
+  const panLatest = useRef((dx: number, dy: number) => setView((current) => panCanvasView(current, dx, dy, scale)));
+  panLatest.current = (dx: number, dy: number) => setView((current) => panCanvasView(current, dx, dy, scale));
+
+  // Each step opens on its own framing.
+  const stepKey = JSON.stringify([step.pageId, targetIds]);
+  useLayoutEffect(() => setView(undefined), [stepKey]);
+
+  // Wheel: Cmd or Ctrl + wheel (and the trackpad pinch) zooms under the cursor, the wheel alone pans. Needs a non-passive listener.
+  useEffect(() => {
+    const element = area.current;
+    if (!element) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = element.getBoundingClientRect();
+      const unit = event.deltaMode === 1 ? LINE_HEIGHT : 1;
+      const dx = event.deltaX * unit;
+      const dy = event.deltaY * unit;
+      if (event.ctrlKey || event.metaKey) zoomLatest.current(Math.exp(-dy * 0.01), { x: event.clientX - rect.left, y: event.clientY - rect.top });
+      else panLatest.current(-dx, -dy);
+    };
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => element.removeEventListener("wheel", onWheel);
+  }, []);
 
   // The crop follows the elements where they are drawn now: measured once drawn, again when fonts load or an element changes size.
   const elementsKey = JSON.stringify([targetIds, canvas.elements]);
@@ -137,27 +177,47 @@ export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown, f
 
   const canvasPoint = (event: ReactPointerEvent): Point => {
     const rect = area.current!.getBoundingClientRect();
-    return { x: (event.clientX - rect.left) / scale + crop.x, y: (event.clientY - rect.top) / scale + crop.y };
+    return { x: (event.clientX - rect.left) / shownScale + shown.x, y: (event.clientY - rect.top) / shownScale + shown.y };
   };
   const onPointerDown = (event: ReactPointerEvent) => {
-    if (!capturing || event.button !== 0) return;
+    if (event.button !== 0) return;
+    if (!capturing) {
+      // A plain drag on the canvas itself (not on a pin) moves the shown piece.
+      if (event.target !== event.currentTarget || panning.current) return;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      panning.current = { id: event.pointerId, at: { x: event.clientX, y: event.clientY } };
+      setPanActive(true);
+      return;
+    }
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     gesture.current = { start: canvasPoint(event), altKey: event.altKey };
   };
   const onPointerMove = (event: ReactPointerEvent) => {
+    const pan = panning.current;
+    if (pan) {
+      if (event.pointerId !== pan.id) return;
+      panning.current = { id: pan.id, at: { x: event.clientX, y: event.clientY } };
+      panLatest.current(event.clientX - pan.at.x, event.clientY - pan.at.y);
+      return;
+    }
     const current = gesture.current;
     const point = canvasPoint(event);
-    if (current?.altKey && !phone) setDrawing(canvasZoneFromDrag(current.start, point, crop, scale));
-    else if (!current) setHovered(canvasElementAt(point, new Map([...boxes].filter(([id]) => present.includes(id)))) );
+    if (current?.altKey && !phone) setDrawing(canvasZoneFromDrag(current.start, point, shown, shownScale));
+    else if (!current && capturing) setHovered(canvasElementAt(point, new Map([...boxes].filter(([id]) => present.includes(id)))) );
+  };
+  const stopPanning = () => {
+    panning.current = undefined;
+    setPanActive(false);
   };
   const onPointerUp = (event: ReactPointerEvent) => {
+    if (panning.current) return event.pointerId === panning.current.id ? stopPanning() : undefined;
     const current = gesture.current;
     gesture.current = undefined;
     setDrawing(undefined);
     if (!current) return;
     const end = canvasPoint(event);
-    const zone = current.altKey && !phone ? canvasZoneFromDrag(current.start, end, crop, scale) : undefined;
+    const zone = current.altKey && !phone ? canvasZoneFromDrag(current.start, end, shown, shownScale) : undefined;
     if (zone) return pins.placeZone(zone);
     // A click: the targeted element under it; on empty canvas (or on a dimmed artboard) nothing happens.
     const elementId = canvasElementAt(current.start, new Map([...boxes].filter(([id]) => present.includes(id))));
@@ -166,15 +226,16 @@ export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown, f
   };
 
   return (
+    <>
     <div ref={area} className={cx(styles.canvasCrop, !measured && styles.canvasCropHidden)} style={{ width: size.width, height: size.height, ["--canvas-target-color" as string]: HOVER_FINISH.color }} data-testid="review-canvas">
-      <div ref={world} className={styles.canvasWorld} style={{ transform: measured ? `scale(${scale}) translate(${-crop.x}px, ${-crop.y}px)` : "none" }}>
+      <div ref={world} className={styles.canvasWorld} style={{ transform: measured ? `scale(${shownScale}) translate(${-shown.x}px, ${-shown.y}px)` : "none" }}>
         {canvas.artboards.map((artboard) => {
           const box = artboardBoxes.get(artboard.file)!;
-          const visible = box.x < crop.x + crop.width && box.x + box.width > crop.x && box.y < crop.y + crop.height && box.y + box.height > crop.y;
+          const visible = box.x < shown.x + shown.width && box.x + box.width > shown.x && box.y < shown.y + shown.height && box.y + box.height > shown.y;
           if (!visible) return null;
           return (
             <div key={artboard.file} className={styles.canvasArtboard} style={{ left: box.x, top: box.y, width: box.width, height: box.height }} data-canvas-artboard={artboard.file}>
-              <span className={styles.canvasArtboardTitle} style={{ fontSize: 12 / scale }}>
+              <span className={styles.canvasArtboardTitle} style={{ fontSize: 12 / shownScale }}>
                 {artboard.title ?? artboard.file}
               </span>
               <div className={styles.canvasArtboardFrame}>
@@ -185,7 +246,7 @@ export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown, f
             </div>
           );
         })}
-        <CanvasElements elements={canvas.elements} artboardBoxes={artboardBoxes} assetBase={`${origin}/pages/${step.pageId}`} artboardOrigin={origin} picking={false} zoom={scale} threads={[]} marks={[]} liftTitles={false} />
+        <CanvasElements elements={canvas.elements} artboardBoxes={artboardBoxes} assetBase={`${origin}/pages/${step.pageId}`} artboardOrigin={origin} picking={false} zoom={shownScale} threads={[]} marks={[]} liftTitles={false} />
       </div>
       <div className={styles.canvasLayer}>
         {markersShown &&
@@ -210,7 +271,7 @@ export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown, f
           </div>
         </div>
       )}
-      <div className={cx(styles.canvasLayer, capturing && styles.canvasCapturing)} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={() => ((gesture.current = undefined), setDrawing(undefined))} onPointerLeave={() => setHovered(undefined)}>
+      <div className={cx(styles.canvasLayer, capturing ? styles.canvasCapturing : styles.canvasPannable, panActive && styles.canvasPanning)} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={() => ((gesture.current = undefined), setDrawing(undefined), stopPanning())} onPointerLeave={() => setHovered(undefined)}>
         {drawing?.space === "canvas" && <div className={styles.zone} style={zoneStyle(zoneSpot(drawing))} data-testid="review-zone-drawing" />}
         {zones.map((zone) => {
           const pin = zone.pin;
@@ -254,6 +315,22 @@ export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown, f
         )}
       </div>
     </div>
+    {measured && !allGone && (
+    <div className={cx(styles.canvasZoom, !phone && !pins.finished && stage.width < ZOOM_BAR_ROOM && styles.canvasZoomRaised)} role="group" aria-label="Zoom du canevas" data-testid="review-canvas-zoom">
+      <button type="button" className={styles.canvasZoomSign} aria-label="Dézoomer" title="Dézoomer" disabled={(view?.zoom ?? 1) <= limits.min} onClick={() => zoomBy(1 / ZOOM_STEP)}>
+        −
+      </button>
+      <span className={styles.canvasZoomValue}>{Math.round((view?.zoom ?? 1) * 100)} %</span>
+      <button type="button" className={styles.canvasZoomSign} aria-label="Zoomer" title="Zoomer" disabled={(view?.zoom ?? 1) >= limits.max} onClick={() => zoomBy(ZOOM_STEP)}>
+        +
+      </button>
+      <span aria-hidden="true" className={styles.canvasZoomSeparator} />
+      <button type="button" className={styles.canvasZoomReset} title="Revenir au cadrage de l'étape" onClick={() => setView(undefined)}>
+        Recadrer
+      </button>
+    </div>
+    )}
+    </>
   );
 }
 

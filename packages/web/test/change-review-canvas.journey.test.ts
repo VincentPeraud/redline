@@ -113,6 +113,47 @@ it("pins the note with Alt + click, draws a zone with Alt + drag, and does nothi
   await tab.close();
 });
 
+it("zooms the crop with the buttons and Cmd + wheel, pans it with a drag, and Recadrer goes back to the step's framing", async () => {
+  const { reviewId } = await declare();
+  const tab = await open(reviewId);
+  const zoom = tab.getByTestId("review-canvas-zoom");
+  const target = tab.locator('[data-canvas-target="1"]');
+  await expect.poll(() => target.count()).toBe(1);
+  const frame = (await tab.getByTestId("review-canvas").boundingBox())!;
+  const start = (await target.boundingBox())!;
+  expect(await zoom.textContent()).toContain("100\u202f%");
+
+  await zoom.getByRole("button", { name: "Zoomer", exact: true }).click();
+  expect(await zoom.textContent()).toContain("125\u202f%");
+  await expect.poll(async () => (await target.boundingBox())!.width).toBeCloseTo(start.width * 1.25, 0);
+  // The frame keeps its size.
+  expect((await tab.getByTestId("review-canvas").boundingBox())!.width).toBeCloseTo(frame.width, 0);
+
+  // A plain drag on empty canvas moves the shown piece.
+  const before = (await target.boundingBox())!;
+  await tab.mouse.move(frame.x + 20, frame.y + frame.height - 20);
+  await tab.mouse.down();
+  await tab.mouse.move(frame.x + 80, frame.y + frame.height - 40, { steps: 4 });
+  await tab.mouse.up();
+  const moved = (await target.boundingBox())!;
+  expect(moved.x - before.x).toBeCloseTo(60, 0);
+  expect(moved.y - before.y).toBeCloseTo(-20, 0);
+
+  // Cmd + wheel zooms out under the cursor.
+  await tab.keyboard.down("Meta");
+  await tab.mouse.wheel(0, 40);
+  await tab.keyboard.up("Meta");
+  await expect.poll(async () => (await target.boundingBox())!.width).toBeLessThan(moved.width);
+
+  await zoom.getByRole("button", { name: "Recadrer" }).click();
+  expect(await zoom.textContent()).toContain("100\u202f%");
+  const back = (await target.boundingBox())!;
+  expect(back.x).toBeCloseTo(start.x, 0);
+  expect(back.width).toBeCloseTo(start.width, 0);
+
+  await tab.close();
+});
+
 it("says the note no longer exists when it was deleted, and the question can still be answered", async () => {
   const { reviewId, pageId } = await declare();
   await seam.server.post(`/api/pages/${pageId}/versions`, { files: FILES([]), message: "Delete the note", origin: "user" });

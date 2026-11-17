@@ -43,3 +43,40 @@ export function canvasElementAt(point: { x: number; y: number }, boxes: Readonly
   const hit = [...boxes].filter(([, box]) => point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height);
   return hit.sort(([, a], [, b]) => a.width * a.height - b.width * b.height)[0]?.[0];
 }
+
+/** The person's zoom on the crop: `zoom` relative to the crop (1 = the step's framing), `x`, `y` the shift of the shown top-left from the crop's, in canvas pixels. */
+export interface CanvasZoomView {
+  zoom: number;
+  x: number;
+  y: number;
+}
+
+/** The piece of the canvas shown: the crop at the start (no view), otherwise the crop zoomed and shifted by the person. */
+export function canvasViewBox(crop: Box, view: CanvasZoomView | undefined): Box {
+  if (!view) return crop;
+  return { x: crop.x + view.x, y: crop.y + view.y, width: crop.width / view.zoom, height: crop.height / view.zoom };
+}
+
+/** Zooms by `factor` keeping the canvas point under `cursor` (screen pixels from the crop's top-left, the crop drawn at `scale`) in place, within `limits`. */
+export function zoomCanvasView(view: CanvasZoomView | undefined, factor: number, cursor: { x: number; y: number }, scale: number, limits: { min: number; max: number }): CanvasZoomView {
+  const current = view ?? { zoom: 1, x: 0, y: 0 };
+  const zoom = Math.min(limits.max, Math.max(limits.min, current.zoom * factor));
+  const shiftX = cursor.x / (scale * current.zoom) - cursor.x / (scale * zoom);
+  const shiftY = cursor.y / (scale * current.zoom) - cursor.y / (scale * zoom);
+  return { zoom, x: current.x + shiftX, y: current.y + shiftY };
+}
+
+/** Moves the shown piece by a drag or a wheel of (`dx`, `dy`) screen pixels, the crop drawn at `scale`. */
+export function panCanvasView(view: CanvasZoomView | undefined, dx: number, dy: number, scale: number): CanvasZoomView {
+  const current = view ?? { zoom: 1, x: 0, y: 0 };
+  return { zoom: current.zoom, x: current.x - dx / (scale * current.zoom), y: current.y - dy / (scale * current.zoom) };
+}
+
+/** The canvas is never shown past this scale (as on the page canvas). */
+const MAX_SHOWN_SCALE = 4;
+
+/** How far the person zooms: out until the whole page fits the crop (never below the step's framing when it already shows it all), in up to 400 % of the canvas. */
+export function zoomLimits(crop: Box, page: Box | undefined, scale: number): { min: number; max: number } {
+  const min = page ? Math.min(1, crop.width / page.width, crop.height / page.height) : 1;
+  return { min, max: Math.max(1, MAX_SHOWN_SCALE / scale) };
+}
