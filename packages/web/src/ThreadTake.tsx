@@ -13,9 +13,9 @@ export function useHandler(thread: Thread): { kind: "to-take" } | { kind: "taken
   // Without SSO there is one account: every take is yours.
   const mine = take.person === undefined ? me === null : take.person.id === me?.id;
   const relaunch = thread.relaunch === true;
-  // The conversation that took the thread answered last and the thread stays open: it waits for the person to answer.
+  // The conversation of someone else answered last and the thread stays open: it waits for the person to answer (the taker keeps "Pris par toi").
   const lastReply = thread.replies.at(-1);
-  const question = !relaunch && lastReply?.author === "claude" && lastReply.conversation !== undefined;
+  const question = !mine && !relaunch && lastReply?.author === "claude" && lastReply.conversation !== undefined;
   return { kind: "taken", mine, name: take.person?.name || take.person?.email || "quelqu'un", relaunch, question, take };
 }
 
@@ -106,7 +106,7 @@ export function TakenBlock({ thread }: { thread: Thread }) {
   if (handler?.kind !== "taken") return null;
   const { mine, name, relaunch, question, take } = handler;
   const since = relativeTime(take.takenAt);
-  const text = question && !mine
+  const text = question
     ? `Ta réponse ira à une conversation de ${name}, qui a pris ce fil`
     : relaunch
     ? mine
