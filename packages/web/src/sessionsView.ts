@@ -33,6 +33,13 @@ export function modelLine(row: SessionRow): string {
   return [row.model, row.effort, row.context && `${row.context.percent} %`].filter(Boolean).join(" · ");
 }
 
+/** The long explanation of the side panel for a waiting session. */
+export function waitingNote(row: SessionRow): string | undefined {
+  if (!row.waitingReason) return undefined;
+  if (row.waitingReason === "taken") return `${row.takenBy ? `Pris par ${row.takenBy}` : "Pris par une conversation"} : le fil attend sa réponse, depuis n'importe laquelle de ses conversations.`;
+  return WAITING_NOTE[row.waitingReason];
+}
+
 export function agentName(row: SessionRow): string {
   if (!row.agent) return "—";
   return row.agent.kind === "global" ? "global" : row.agent.folder.split("/").filter(Boolean).pop() ?? row.agent.machine;
@@ -49,7 +56,16 @@ export function activityLabel(iso: string, now: number = Date.now()): string {
   return days === 1 ? "hier" : `il y a ${days} jours`;
 }
 
-export const WAITING_NOTE: Record<NonNullable<SessionRow["waitingReason"]>, string> = {
+/** The wait of a Conversation-mode or offline-agent thread in one short line, shown under the status badge. */
+export function waitingLine(row: SessionRow): string | undefined {
+  if (row.waitingReason === "to-take") return "à prendre par une conversation";
+  if (row.waitingReason === "taken") return row.takenBy ? `pris par ${row.takenBy}` : "pris par une conversation";
+  if (row.waitingReason === "agent-offline" || row.waitingReason === "design-system-agent-offline") return "en attente de l'agent (hors ligne)";
+  return undefined;
+}
+
+export const WAITING_NOTE: Record<Exclude<NonNullable<SessionRow["waitingReason"]>, "taken">, string> = {
+  "to-take": "Aucune conversation n'a pris ce fil : demande à une conversation Claude Code de traiter les commentaires de cette page.",
   "page-busy": "En file : traité dès que la session en cours sur cette page est terminée, pour ne pas modifier la même page en même temps.",
   "agent-offline": "Aucun agent ne tourne pour ce projet : le fil part dès qu'un agent est lancé dans son dossier.",
   "project-archived": "Le projet est archivé : le fil partira s'il est désarchivé.",

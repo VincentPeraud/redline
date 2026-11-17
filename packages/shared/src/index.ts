@@ -315,6 +315,10 @@ export interface Page {
   archivedAt?: string;
   /** Who handles the page's new comments: "conversation" (default, they wait to be taken) or "agent". */
   commentMode: CommentMode;
+  /** Only on a project's page list: the page's open threads. */
+  openThreadCount?: number;
+  /** Only on a project's page list: the open threads a conversation can take now (not taken, not waiting for an agent). */
+  toTakeCount?: number;
 }
 
 /** The comment mode of a page: new threads wait to be taken by a Claude Code conversation, or go to the agent. */
@@ -356,9 +360,11 @@ export interface TerminalWaitingComment {
   /** "accueil.html, the hero title" style label of what it is about. */
   target: string;
   text: string;
+  /** Present when an account's conversation took the thread: the person's name ("" without sign-in) and the `~`-shortened folder. Absent: still to take. */
+  taken?: { by: string; folder: string };
 }
 
-/** `GET /agent-api/terminal-comments`: the pages with comments to take, read-only (nothing is taken). */
+/** `GET /agent-api/terminal-comments`: the pages with threads to take or taken, read-only (nothing is taken). */
 export interface TerminalCommentsPage {
   pageId: string;
   title: string;

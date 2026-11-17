@@ -226,16 +226,17 @@ const personLabel = (who: { person?: { name: string; email: string }; linkAuthor
   who.automatic ? "Redline" : who.person ? who.person.name || who.person.email : (who.linkAuthor?.name ?? "Someone");
 
 function waitingCommentOf(thread: Thread): TerminalWaitingComment {
-  return { author: personLabel(thread), at: thread.createdAt, target: targetLabel(thread), text: thread.body };
+  const taken = thread.take && { by: thread.take.person ? thread.take.person.name || thread.take.person.email : "", folder: thread.take.folder };
+  return { author: personLabel(thread), at: thread.createdAt, target: targetLabel(thread), text: thread.body, ...(taken ? { taken } : {}) };
 }
 
-/** Every page `canRead` accepts (by project) with threads to take, and the threads. Takes nothing. */
+/** Every page `canRead` accepts (by project) with open threads to take or taken, and the threads. Takes nothing. */
 export function commentsToTake(store: Store, canRead: (projectId: string) => boolean): TerminalCommentsPage[] {
   const pages: TerminalCommentsPage[] = [];
   for (const pageId of store.pageIdsWithOpenThreads()) {
     const page = store.getPage(pageId);
     if (!page || page.archivedAt || !canRead(page.projectId)) continue;
-    const comments = store.listThreads(pageId).filter((thread) => thread.toTake).map(waitingCommentOf);
+    const comments = store.listThreads(pageId).filter((thread) => thread.status === "open" && (thread.toTake || thread.take)).map(waitingCommentOf);
     if (comments.length > 0) pages.push({ pageId, title: page.title, projectTitle: store.getProject(page.projectId)?.title ?? "", comments });
   }
   return pages;

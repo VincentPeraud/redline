@@ -143,3 +143,22 @@ it("shows a thread an agent owns as it was: no handler on the card", async () =>
   expect(await tab.locator(`[data-thread="${thread.id}"]`).getByTestId("thread-handler").count()).toBe(0);
   await tab.close();
 }, 60_000);
+
+it("explains each wait on the Sessions screen: to take, taken by a person, agent offline", async () => {
+  const toTake = await sharedPage();
+  await toTake.post(ARIANE, "Reste a prendre sur Sessions.");
+  const taken = await sharedPage();
+  await taken.post(ARIANE, "Pris par Thomas sur Sessions.");
+  await (await conversation(THOMAS, "/Users/thomas/crm")).take(taken.pageId);
+  const offline = await sharedPage();
+  await apiAs(ARIANE, "POST", `/api/pages/${offline.pageId}/comment-mode`, { mode: "agent" });
+  await offline.post(ARIANE, "Hors ligne sur Sessions.");
+
+  const tab = await tabFor(ARIANE);
+  await tab.goto(`${server.url}/#/sessions`);
+  const reasonOf = (name: string) => tab.getByTestId("session-row").filter({ hasText: name }).getByTestId("session-waiting-reason");
+  await expect.poll(() => reasonOf("Pris par Thomas sur Sessions.").innerText()).toBe("pris par Thomas Lefevre");
+  expect(await reasonOf("Reste a prendre sur Sessions.").innerText()).toBe("à prendre par une conversation");
+  expect(await reasonOf("Hors ligne sur Sessions.").innerText()).toBe("en attente de l'agent (hors ligne)");
+  await tab.close();
+}, 90_000);
