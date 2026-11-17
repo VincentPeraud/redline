@@ -84,12 +84,14 @@ describe("project links and Écriture links", () => {
     const seen = (await (await visit(link, `/api/pages/${pageId}/threads`)).json()) as Thread[];
     expect(seen.map((t) => t.body)).toEqual(["Team thread"]);
 
-    const before = agent.messages.filter((m) => m.type === "work").length;
     const posted = await visit(link, `/api/pages/${pageId}/threads`, "POST", { target: { kind: "artboard", artboard: "home.html" }, body: "Bigger title" });
     expect(posted.status).toBe(201);
-    expect(((await posted.json()) as Thread).status).toBe("open");
+    const thread = (await posted.json()) as Thread;
+    expect(thread.status).toBe("open");
+    // The page is in Agent mode: the thread goes to the agent, not to a conversation.
+    expect(thread.toTake).toBeUndefined();
     await tick();
-    expect(agent.messages.filter((m) => m.type === "work").length).toBeGreaterThan(before);
+    expect(agent.messages.filter((m) => m.type === "work").length).toBeGreaterThan(0);
     agent.close();
   });
 
