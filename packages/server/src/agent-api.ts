@@ -183,11 +183,11 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
 
       api.post<{ Params: { sessionId: string }; Body: Partial<ChangeReviewFeedbackRequest> }>("/terminal-sessions/:sessionId/review-feedback", async (req, reply) => {
         if (!terminalSessions.isPresent(req.params.sessionId)) return reply.code(403).send({ error: notConnected });
-        const { reviewId, projectIds } = req.body ?? {};
+        const { reviewId, projectIds, takeOver } = req.body ?? {};
         if (reviewId !== undefined && !requiredString(reviewId)) return reply.code(400).send({ error: "reviewId must be a review id" });
         if (projectIds !== undefined && (!Array.isArray(projectIds) || !projectIds.every((id) => requiredString(id)))) return reply.code(400).send({ error: "projectIds must be a list of project ids" });
         if (reviewId === undefined && projectIds === undefined) return reply.code(400).send({ error: "reviewId or projectIds is required" });
-        const result = changeReviewFeedback({ store, access, pageLock, terminalSessions }, req.viewer, req.params.sessionId, { reviewId, projectIds });
+        const result = changeReviewFeedback({ store, access, pageLock, terminalSessions }, req.viewer, req.params.sessionId, { reviewId, projectIds, takeOver: takeOver === true });
         return "error" in result ? reply.code(result.status).send({ error: result.error }) : result;
       });
 

@@ -762,6 +762,12 @@ export class Store {
     return { id, name, email, initials: initialsOf(name, id) };
   }
 
+  /** The account of this person was deactivated. */
+  isDeactivated(id: string | null | undefined): boolean {
+    if (!id) return false;
+    return (this.db.prepare("SELECT status FROM people WHERE id = ?").get(id) as { status: string } | undefined)?.status === "deactivated";
+  }
+
   getPerson(id: string | null | undefined): Person | undefined {
     if (!id) return undefined;
     const row = this.db.prepare("SELECT id, name, email FROM people WHERE id = ?").get(id) as { id: string; name: string; email: string } | undefined;
