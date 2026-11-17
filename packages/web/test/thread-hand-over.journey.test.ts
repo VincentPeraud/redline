@@ -107,7 +107,7 @@ const commentsOf = async (email: string, pageId: string, viewport?: { width: num
   const tab = await tabFor(email);
   if (viewport) await tab.setViewportSize(viewport);
   await tab.goto(`${server.url}/#/pages/${pageId}`);
-  await tab.getByRole("tab", { name: /^Commentaires/ }).click();
+  await (viewport ? tab.getByTestId("comments-opener") : tab.getByRole("tab", { name: /^Commentaires/ })).click();
   return tab;
 };
 

@@ -145,6 +145,7 @@ it("the label opens an explanation of both modes", async () => {
 it("on a phone the toggle sits at the top of the comments panel, full width, with its explanation behind an ⓘ", async () => {
   const { tab } = await openedPage();
   await tab.setViewportSize({ width: 390, height: 844 });
+  await tab.getByTestId("comments-opener").click();
 
   const panelToggle = tab.getByTestId("comment-mode-phone");
   await expect.poll(() => panelToggle.isVisible()).toBe(true);

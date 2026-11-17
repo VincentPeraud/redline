@@ -6,6 +6,10 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+### Added
+
+- Phone layout of the comments panel on a member canvas: a "Commentaires" button on the canvas opens it as a full-screen sheet (header with a close cross, mode toggle, threads) that slides in and out over the canvas.
+
 ### Fixed
 
 - Comments on demand (final review): threads handed over to the agent stay with it when a page goes back to Conversation, and threads waiting in a batch for an offline agent can be taken one by one; a resolution ends a take; `pending_comments {pageId}` lists the takes of your account from other folders apart; a late answer after a hand-over reaches the agent; refused answers say why; "Question de Claude" also shows to the taker; a failed run no longer blocks a takeover; lowering an admin, turning a project Private or removing a member frees the takes of those who lose access.

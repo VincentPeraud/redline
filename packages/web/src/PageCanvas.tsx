@@ -75,6 +75,7 @@ import { CommentsPanel, type Draft } from "./CommentsPanel.js";
 import { ConversationsPanel, type FocusedConversation } from "./ConversationsPanel.js";
 import type { AgentDefaults, ModelEffortChoice } from "./ModelEffortControls.js";
 import { PlayMode } from "./PlayMode.js";
+import { usePhone } from "./usePhone.js";
 import { addChip, marksFor, removeChip } from "./elementChips.js";
 import { messageContext } from "./messageContext.js";
 import { TweaksPanel } from "./TweaksPanel.js";
@@ -210,6 +211,9 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const [choice, setChoice] = useState<ModelEffortChoice>({});
   const [agentDefaults, setAgentDefaults] = useState<AgentDefaults>({});
   const [tab, setTab] = useState<SideTab>("conversation");
+  /** On a phone the side panel is a full-screen sheet over the canvas; it only shows while open. */
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const phone = usePhone();
   /** Artboard whose whole-artboard threads the Commentaires tab scrolls to once shown. */
   const [scrollToArtboard, setScrollToArtboard] = useState<string | null>(null);
   const [scrollToThread, setScrollToThread] = useState<string | null>(null);
@@ -536,10 +540,18 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAfterRender]);
 
-  const openPinThread = useCallback((threadId: string) => {
+  const showComments = useCallback(() => {
     setTab("comments");
-    setScrollToThread(threadId);
+    setSheetOpen(true);
   }, []);
+
+  const openPinThread = useCallback(
+    (threadId: string) => {
+      showComments();
+      setScrollToThread(threadId);
+    },
+    [showComments],
+  );
 
   useEffect(() => {
     if (!selecting) return;
@@ -965,7 +977,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                   setChips((current) => addChip(current, { kind: "canvas-element", elementId: element.id!, elementKind: element.kind, elementSummary: canvasElementSummary(element) }));
                 } else if (element?.id !== undefined) {
                   setDraft({ target: { kind: "canvas-element", elementId: element.id, elementKind: element.kind } });
-                  setTab("comments");
+                  showComments();
                 }
               }
             }}
@@ -1062,7 +1074,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                         type="button"
                         className={styles.threadsChip}
                         onClick={() => {
-                          setTab("comments");
+                          showComments();
                           setScrollToArtboard(artboard.file);
                         }}
                       >
@@ -1093,7 +1105,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                         className={styles.iconButton}
                         onClick={() => {
                           setDraft({ target: { kind: "artboard", artboard: artboard.file } });
-                          setTab("comments");
+                          showComments();
                         }}
                       >
                         <BubbleIcon size={13} />
@@ -1174,7 +1186,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                         const where = { format: rendering.format, width: rendering.width };
                         if (selecting) return pickElement(pick, artboard.file, where);
                         setDraft({ ...pick, artboard: artboard.file, rendering: where });
-                        setTab("comments");
+                        showComments();
                       }}
                       onEscape={() => setSelecting(false)}
                       onDocHeight={(key, height) =>
@@ -1197,7 +1209,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       onPick={(pick, cell) => {
                         if (selecting) return pickElement(pick, artboard.file, undefined, cell);
                         setDraft({ ...pick, artboard: artboard.file, cell });
-                        setTab("comments");
+                        showComments();
                       }}
                       onEscape={() => setSelecting(false)}
                     />
@@ -1218,7 +1230,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                     onPick={(pick) => {
                       if (selecting) return pickElement(pick, artboard.file);
                       setDraft({ ...pick, artboard: artboard.file });
-                      setTab("comments");
+                      showComments();
                     }}
                     onEscape={() => setSelecting(false)}
                     onDocHeight={(height) => !previewed && measuredPageHeight(artboard, height)}
@@ -1385,7 +1397,18 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
           </>
         )}
         {!previewing && !visitor && (
-        <aside aria-label="Commentaires" className={styles.aside}>
+          <button type="button" data-testid="comments-opener" className={styles.opener} onClick={showComments}>
+            Commentaires · {openCount}
+          </button>
+        )}
+        {!previewing && !visitor && (
+        <aside aria-label="Commentaires" role={phone ? "dialog" : undefined} aria-modal={phone ? true : undefined} className={cx(styles.aside, sheetOpen && styles.asideOpen)}>
+          <div className={styles.sheetHead}>
+            <h1 className={styles.sheetTitle}>Commentaires · {openCount}</h1>
+            <button type="button" aria-label="Fermer" className={styles.sheetClose} onClick={() => setSheetOpen(false)}>
+              ×
+            </button>
+          </div>
           <div role="tablist" aria-label="Panneau latéral" className={styles.tabs}>
             <button type="button" role="tab" aria-selected={tab === "conversation"} className={cx(styles.tab, tab === "conversation" && styles.tabActive)} onClick={() => setTab("conversation")}>
               Conversation
@@ -1442,7 +1465,10 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                 unfolded={unfoldedResolved}
                 onUnfold={unfoldResolved}
                 onThreadsChanged={() => void refresh()}
-                onShowThread={showThread}
+                onShowThread={(threadId) => {
+                  showThread(threadId);
+                  setSheetOpen(false);
+                }}
               />
             </PageTweaksContext.Provider>
           )}
