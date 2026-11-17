@@ -34,7 +34,7 @@ export interface RedlineToolsContext {
   /** The work item being run, so what the session creates (pages, answers, versions) is tied to it. */
   workId?: string;
   /** Where `reply_in_thread` sends the text; default: the thread right away. A run holds replies back until it succeeds. */
-  postReply?: (threadId: string, text: string, resolve?: boolean) => Promise<unknown>;
+  postReply?: (threadId: string, text: string, resolve?: boolean) => Promise<{ note?: string } | void>;
   /** Terminal mode registers its own `create_page`, which also works with no page checked out. */
   ownCreatePage?: boolean;
   /** Called after an artboard of the page was moved away and dropped from the working copy: the caller re-bases what it publishes later on the page as it is now. */
@@ -135,8 +135,9 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
       if (allowedThreadIds && !allowedThreadIds.includes(threadId)) {
         return { isError: true, content: [{ type: "text", text: `Thread ${threadId} is not part of this run.` }] };
       }
-      await postReply(threadId, text, resolve);
-      return { content: [{ type: "text", text: resolve ? "Reply posted, thread resolved." : "Reply posted." }] };
+      const posted = await postReply(threadId, text, resolve);
+      const note = posted?.note;
+      return { content: [{ type: "text", text: [resolve ? "Reply posted, thread resolved." : "Reply posted.", ...(note ? [note] : [])].join(" ") }] };
     },
   );
   server.registerTool(

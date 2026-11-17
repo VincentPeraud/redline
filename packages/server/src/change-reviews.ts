@@ -46,6 +46,7 @@ import {
   type Manifest,
   type Person,
   type TweakValues,
+  type WaitingChangeReview,
   type RequestChangeReviewRequest,
   type RequestChangeReviewResponse,
   reviewPlace,
@@ -533,30 +534,36 @@ const folderNameOf = (review: StoredReview): string => reviewPlace({ folder: rev
 
 /**
  * What `review_feedback` gives: the result of a review (its progress while it is open).
- * With an id any member with Écriture on the project may take it. Without one, the finished, not yet fetched reviews of `projectIds`
- * (the folder's linked projects): one is taken, several are listed and nothing is taken, none gives the open ones with their progress.
+ * A review belongs to the account that requested it: that account fetches it from any conversation, after a compaction too.
+ * Another account's finished review is listed apart ("demandée par") and fetched only by id with `takeOver`, which leaves a trace on the threads;
+ * a deactivated requester's review is fetchable by any member with Écriture, as if it were theirs.
+ * Without an id, the account's finished, not yet fetched reviews of `projectIds` (the folder's linked projects): one is taken, several are listed and nothing is taken, none gives the open ones with their progress.
  * Taking a review turns each remark into a thread on its artboard, taken by the fetching account, and keeps the result: asking again returns that same result and creates nothing.
  */
 export function changeReviewFeedback(ctx: ReviewContext, viewer: Viewer, sessionId: string, request: ChangeReviewFeedbackRequest): { error: string; status: number } | ChangeReviewFeedback {
   const { store, access } = ctx;
   // A project that is gone gives nobody Écriture (its reviews went with it).
   const mayFetch = (projectId: string) => store.projectOwnership(projectId) !== undefined && access.levelOf(viewer, { projectId }) === "write";
+  const own = viewerPersonId(viewer) ?? "";
+  const requestedByOther = (review: StoredReview) => (review.requesterPersonId ?? "") !== own && !store.isDeactivated(review.requesterPersonId);
+  const waiting = (review: StoredReview): WaitingChangeReview => ({ id: review.id, requester: nameOf(store.getPerson(review.requesterPersonId)), folder: folderNameOf(review), finishedAt: review.finishedAt ?? review.createdAt });
   if (request.reviewId !== undefined) {
     const review = store.changeReviews.get(request.reviewId);
     if (!review) return { status: 404, error: "review not found" };
     if (!mayFetch(review.projectId)) return { status: 403, error: "your account does not have Écriture on this project" };
-    return fetchReview(ctx, viewer, sessionId, review);
+    if (review.state === "finished" && requestedByOther(review) && !request.takeOver) return { status: "requested-by-other", review: waiting(review) };
+    return fetchReview(ctx, viewer, sessionId, review, review.state === "finished" && requestedByOther(review) ? (review.requesterPersonId ?? "") : undefined);
   }
   const projectIds = (request.projectIds ?? []).filter(mayFetch);
   if (projectIds.length === 0) return { status: 403, error: "pass reviewId, or link this folder to a project where your account has Écriture" };
   const finished = store.changeReviews.inProjects(projectIds, ["finished"]);
-  if (finished.length === 1) return fetchReview(ctx, viewer, sessionId, finished[0]!);
-  if (finished.length > 1) {
-    return {
-      status: "several",
-      reviews: finished.map((review) => ({ id: review.id, requester: nameOf(store.getPerson(review.requesterPersonId)), folder: folderNameOf(review), finishedAt: review.finishedAt ?? review.createdAt })),
-    };
+  const mine = finished.filter((review) => !requestedByOther(review));
+  const byOthers = finished.filter(requestedByOther).map(waiting);
+  if (mine.length === 1) {
+    const result = fetchReview(ctx, viewer, sessionId, mine[0]!);
+    return result.status === "finished" && byOthers.length > 0 ? { ...result, byOthers } : result;
   }
+  if (mine.length > 1) return { status: "several", reviews: mine.map(waiting), byOthers };
   const reviews = store.changeReviews.inProjects(projectIds, ["open"]).map((review) => {
     const view = viewOf(store, review, viewer);
     const { seen, total } = progressOf(view.steps, -1);
@@ -569,10 +576,11 @@ export function changeReviewFeedback(ctx: ReviewContext, viewer: Viewer, session
       remarks: view.steps.flatMap((step) => step.answers).filter((answer) => answer.kind === "remark").length + view.steps.reduce((count, step) => count + step.pins.length, 0),
     };
   });
-  return { status: "none-finished", reviews };
+  return { status: "none-finished", reviews, byOthers };
 }
 
-function fetchReview(ctx: ReviewContext, viewer: Viewer, sessionId: string, review: StoredReview): ChangeReviewFeedback {
+/** `tookOverFrom`: the requester's account id ("" without one) when another account fetches the review with a takeover. */
+function fetchReview(ctx: ReviewContext, viewer: Viewer, sessionId: string, review: StoredReview, tookOverFrom?: string): ChangeReviewFeedback {
   const { store, pageLock } = ctx;
   const view = viewOf(store, review, viewer);
   if (view.state === "filed") {
@@ -598,7 +606,7 @@ function fetchReview(ctx: ReviewContext, viewer: Viewer, sessionId: string, revi
       ...(step.removed ? { removed: step.removed } : {}),
       ...(stepIsCanvasOnly(step) && step.canvasElements!.every((id) => step.canvas?.missing.includes(id)) ? { elementGone: true } : {}),
     })),
-    threadIds: openRemarkThreads(store, view, ctx.terminalSessions.labelOf(sessionId)),
+    threadIds: openRemarkThreads(store, view, ctx.terminalSessions.labelOf(sessionId), tookOverFrom),
   });
   store.changeReviews.markFetched(review.id, viewerPersonId(viewer), sessionId, result);
   announceReviewChange(store, review.id);
@@ -615,10 +623,10 @@ const membersOf = (step: ChangeReview["steps"][number]) => [
  * One thread per remark on its artboard and one element thread per pin, signed by their author and taken by `sessionId` (so `reply_in_thread` works on them).
  * Thread ids by remark id and pin id. A pin whose element is lost keeps its last position.
  */
-function openRemarkThreads(store: Store, view: ChangeReview, label: SessionLabel | undefined): Record<string, string> {
+function openRemarkThreads(store: Store, view: ChangeReview, label: SessionLabel | undefined, tookOverFrom?: string): Record<string, string> {
   const threadIds: Record<string, string> = {};
   const take = (_pageId: string, threadId: string) => {
-    if (label) store.takeThread(threadId, label.accountId, label.folder, label.machine);
+    if (label) store.takeThread(threadId, label.accountId, label.folder, label.machine, tookOverFrom);
     store.markThreadFromReview(threadId, view.finishedAt ?? new Date().toISOString());
   };
   for (const step of activeSteps(view.steps)) {

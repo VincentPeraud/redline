@@ -199,7 +199,7 @@ describe("a thread an agent runs", () => {
     const answer = await terminal.call("pending_comments", { threadIds: [thread.id], takeOver: true });
 
     expect(answer).toContain("taken over");
-    expect(await threadOf(page.id, thread.id)).toMatchObject({ take: { takenOver: {} } });
+    expect(await threadOf(page.id, thread.id)).toMatchObject({ take: { takenOver: {} }, traces: [{ kind: "taken-over" }] });
   });
 });
 
@@ -344,7 +344,11 @@ describe("with several accounts", () => {
     expect(answer).toContain('taken over from "Ariane Martin"');
     const taken = (await instance!.admin.json<Thread[]>(`/api/pages/${pageId}/threads`)).find((t) => t.id === threads[0].id)!;
     expect(taken.take).toMatchObject({ person: { name: "Thomas Lefevre" }, takenOver: { from: { name: "Ariane Martin" } } });
-    expect(await ariane.call("reply_in_thread", { threadId: threads[0].id, text: "Late" })).toMatch(/not taken by your account/);
+    expect(taken.traces).toMatchObject([{ kind: "taken-over", taker: { name: "Ariane Martin" }, by: { name: "Thomas Lefevre" } }]);
+    // The late answer of the first conversation is still added, says who took the thread over, and leaves the take to Thomas.
+    expect(await ariane.call("reply_in_thread", { threadId: threads[0].id, text: "Late" })).toMatch(/^Reply posted\. Il n'est plus à toi : Thomas Lefevre l'a repris .+\. Sa conversation verra ta réponse\.$/);
+    const after = (await instance!.admin.json<Thread[]>(`/api/pages/${pageId}/threads`)).find((t) => t.id === threads[0].id)!;
+    expect(after).toMatchObject({ take: { person: { name: "Thomas Lefevre" } }, replies: [{ body: "Late", late: "taken-over" }] });
   });
 
   it("refuses an account without Écriture, naming its right and the project (scenario droits), in every form", async () => {

@@ -557,12 +557,14 @@ export function feedbackByStep({ pins, remarks }: Pick<ChangeReviewResult, "pins
 /** What `review_feedback` answers: the result of a finished review, or its progress while it is still open. */
 export type ChangeReviewFeedback =
   /** `alreadyFetchedAt` is set when the review had been fetched before: the same result as at the first fetch, nothing created again. */
-  | ({ status: "finished"; alreadyFetchedAt?: string } & ChangeReviewResult)
+  | ({ status: "finished"; alreadyFetchedAt?: string; byOthers?: WaitingChangeReview[] } & ChangeReviewResult)
   | { status: "open"; seen: number; total: number }
   /** Without an id, several finished reviews wait: nothing was fetched. */
-  | { status: "several"; reviews: WaitingChangeReview[] }
+  | { status: "several"; reviews: WaitingChangeReview[]; byOthers: WaitingChangeReview[] }
   /** Without an id, no finished review waits: the open ones, with their progress (none at all gives an empty list). */
-  | { status: "none-finished"; reviews: OpenChangeReview[] }
+  | { status: "none-finished"; reviews: OpenChangeReview[]; byOthers: WaitingChangeReview[] }
+  /** The finished review was requested by another account: nothing was fetched, a takeover must be asked for. */
+  | { status: "requested-by-other"; review: WaitingChangeReview }
   /** The review was put aside without being sent: nothing to handle, and nothing was created. */
   | { status: "filed"; filedBy: string; filedAt: string }
   /** Every step was removed and no remark is left: Redline filed the review by itself ("plus rien à revoir"). */
@@ -593,6 +595,8 @@ export const reviewHash = (reviewId: string, step?: number): string => `#/review
 export interface ChangeReviewFeedbackRequest {
   reviewId?: string;
   projectIds?: string[];
+  /** Fetch a finished review that another account requested (leaves a trace on its threads). */
+  takeOver?: boolean;
 }
 
 /** Path of the reviews that cover a page, for the banner under the canvas header. */

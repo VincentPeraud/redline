@@ -144,8 +144,10 @@ export function takeThreads(env: TakeEnv, label: SessionLabel, threadIds: string
     } else if (pageLock.hasWorkFor(thread.id)) no("an agent is running this thread: wait for its run to end, nothing is taken meanwhile");
     else if (!takeOver) no(thread.take ? `taken by ${accountName(store, takerOf(thread)!)} (${thread.take.folder}): take it over only when the person asks, with takeOver: true` : "owned by an agent session: take it over only when the person asks, with takeOver: true");
     else {
+      const previous = takerOf(thread);
       store.clearThreadSession(thread.id);
-      take(env, label, thread, takerOf(thread) ?? "");
+      take(env, label, thread, previous ?? "");
+      store.addTrace(thread.id, { kind: "taken-over", ...(previous === undefined ? {} : { takerId: previous }), byId: label.accountId });
       comments.push(commentOf(env, thread, "taken-over", thread));
     }
   }

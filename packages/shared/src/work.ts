@@ -106,6 +106,9 @@ export interface ThreadContext {
 /** `POST` -> 202; asks the thread's session for a summary, the next reply starts a new session seeded with it. */
 export const newSessionPath = (threadId: string) => `/api/threads/${threadId}/new-session`;
 
+/** The thread was handed over to the agent, taken over by another account, or resolved before this answer came. */
+export type LateReplyReason = "handed-over" | "taken-over" | "resolved";
+
 export interface ThreadReply {
   id: string;
   /** "redline": a message Redline itself wrote (for example after a diffusion); no person wrote it. */
@@ -116,6 +119,8 @@ export interface ThreadReply {
   linkAuthor?: LinkAuthor;
   /** On an answer written by a Claude Code conversation (not an agent): whose account it is and its folder, home shortened. Signs the answer "Claude · conversation de <person> · <folder>". */
   conversation?: { person?: Person; folder: string };
+  /** On an answer that came after the thread changed hands: why it is late ("après le transfert"). */
+  late?: LateReplyReason;
   body: string;
   createdAt: string;
   /** Pages the run that gave this answer created with `create_page` (on the first answer of that run only). */
@@ -126,6 +131,11 @@ export interface CreateReplyRequest extends ModelChoice {
   body: string;
   /** Through a generic share link: the name the visitor signs with. */
   visitorName?: string;
+}
+
+/** Answer of `POST /agent-api/threads/:id/replies`: the reply, and for a conversation, what happened to it (said back to Claude). */
+export interface AgentReplyResponse extends ThreadReply {
+  note?: string;
 }
 
 /** Body of `POST /agent-api/threads/:id/replies`: `workId` is the run posting the answer (to attach the pages it created). */

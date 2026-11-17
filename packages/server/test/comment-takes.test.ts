@@ -30,7 +30,7 @@ describe("a take belongs to the account", () => {
     return { project, pageId, thread };
   }
 
-  it("is found again by another conversation of the same account, and is not to take for another account", async () => {
+  it("is found again by another conversation of the same account, is not to take for another account, and keeps its take when that account answers it", async () => {
     const { pageId, thread } = await setup();
     const [ariane, thomas] = [await tokenOf(instance.ariane), await tokenOf(instance.thomas)];
     await beat(ariane, SESSION_A, "/Users/ana/crm");
@@ -40,13 +40,13 @@ describe("a take belongs to the account", () => {
     expect((await take(ariane, SESSION_A, pageId)).comments).toEqual([expect.objectContaining({ threadId: thread.id, state: "new" })]);
 
     expect((await take(thomas, SESSION_B, pageId)).comments).toEqual([]);
-    expect((await reply(thomas, SESSION_B, thread.id)).status).toBe(409);
+    expect((await reply(thomas, SESSION_B, thread.id)).status).toBe(201);
     expect((await take(ariane, SESSION_C, pageId)).comments).toEqual([expect.objectContaining({ threadId: thread.id, state: "taken" })]);
     expect((await reply(ariane, SESSION_C, thread.id)).status).toBe(201);
     const [answered] = await instance.admin.json<Thread[]>(`/api/pages/${pageId}/threads`);
     expect(answered).toMatchObject({
       take: { person: { name: "Ariane Martin" }, folder: "~/crm", machine: "MacBook-Air" },
-      replies: [{ author: "claude", conversation: { person: { name: "Ariane Martin" }, folder: "~/crm" } }],
+      replies: [{ conversation: { person: { name: "Thomas Lefevre" } } }, { author: "claude", conversation: { person: { name: "Ariane Martin" }, folder: "~/crm" } }],
     });
   });
 
