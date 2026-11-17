@@ -147,7 +147,6 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send, r
     }
     const version = await api.publish(item.pageId, files, versionMessage(item, result.summary), item.kind === "conversation" ? "conversation" : "thread", checkout.versionId, {
       workId: item.id,
-      handsOverComments: item.kind === "conversation",
       ...(removalsConfirmed ? { confirmRemovals: true } : {}),
       ...(changes.length ? { changes } : {}),
       ...(designMdChanged ? { designMd: { content: designMd, base: checkout.project.designMd } } : {}),
