@@ -104,7 +104,7 @@ it("lets a visitor comment on an artboard: asks the name once, shows the link's 
   const member = await memberContext.newPage();
   await member.goto(`${server.url}/#/pages/${pageId}`);
   await member.getByRole("tab", { name: /^Commentaires/ }).click();
-  await member.getByText("Marc (lien)").first().waitFor();
+  await member.getByTestId("message-author").filter({ hasText: /^Marc\s·\slien/ }).first().waitFor();
   await member.getByTestId("review-bar").waitFor();
   await memberContext.close();
 });
