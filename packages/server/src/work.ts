@@ -6,6 +6,7 @@ import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 import { canvasElementTail } from "./canvas-element-text.js";
 import { definedChoice } from "./validation.js";
+import { goingToAgent, routeOf } from "./routing.js";
 
 /** A request to the design system says where it comes from and what to do with it, before the comment itself. */
 function requestPreface(thread: Thread): string[] {
@@ -60,22 +61,16 @@ export function takeoverMessage(thread: Thread, body: string): string {
   ].join("\n");
 }
 
-/** What the routing step asks about terminal sessions: new work waits for the present session holding its page, a reply for the present session of its thread. */
-export interface TerminalPresence {
-  holdsPage(pageId: string): boolean;
-  isPresent(terminalSessionId: string): boolean;
-}
-
 /**
- * Queues a work item for a freshly sent thread on its page's lock; the lock remembers the session once the item is sent.
- * It waits for the terminal session instead of an agent when a present one holds the page.
+ * Queues a work item for a freshly sent thread on its page's lock, when the routing rule sends it to the agent (see `routeOf`);
+ * a thread to take, or taken by an account, has no work: a conversation takes it on request.
  */
-export function dispatchThread(lock: PageLock, projectId: string, thread: Thread, choice: ModelChoice = {}, terminal?: TerminalPresence): void {
-  const forTerminal = terminal?.holdsPage(thread.pageId) ?? false;
-  lock.submit({ projectId, ...(forTerminal ? { forTerminal } : {}) }, { ...threadItem(thread, threadMessage(thread), randomUUID(), false), ...definedChoice(choice) });
+export function dispatchThread(store: Store, lock: PageLock, projectId: string, thread: Thread, choice: ModelChoice = {}): void {
+  if (routeOf(store, lock, thread) !== "agent") return;
+  lock.submit({ projectId }, { ...threadItem(thread, threadMessage(thread), randomUUID(), false), ...definedChoice(choice) });
 }
 
-/** The message of a thread an agent takes over with no session to resume (a terminal session left): the comment, then the conversation so far, if any. */
+/** The message of a thread an agent takes over with no session to resume: the comment, then the conversation so far, if any. */
 export function freshSessionMessage(thread: Thread): string {
   if (thread.replies.length === 0) return threadMessage(thread);
   const history = thread.replies.map(replyLine);
@@ -85,11 +80,6 @@ export function freshSessionMessage(thread: Thread): string {
     "This comment was already discussed in an earlier session that is not available now. Conversation so far:",
     ...history.flatMap((line) => ["", line]),
   ].join("\n");
-}
-
-/** Sends a thread to the agents in a fresh session (the terminal session that had it is gone). */
-export function dispatchToAgent(lock: PageLock, projectId: string, thread: Thread): void {
-  lock.submit({ projectId }, threadItem(thread, freshSessionMessage(thread), randomUUID(), false));
 }
 
 /** The message Claude receives for a batch: every held comment of a page with its thread id, artboard, element and position. */
@@ -112,28 +102,30 @@ export function batchMessage(threads: Thread[]): string {
  * Sends "À relire" threads to the agents. A thread Claude already answered resumes its session with the replies written since;
  * the others leave together as one message (a single one as a plain thread message), with the discussion so far if there is any.
  */
-export function dispatchReviewed(store: Store, lock: PageLock, projectId: string, threads: Thread[], choice: ModelChoice = {}, terminal?: TerminalPresence): void {
+export function dispatchReviewed(store: Store, lock: PageLock, projectId: string, allThreads: Thread[], choice: ModelChoice = {}): void {
+  const threads = goingToAgent(store, lock, allThreads);
   const answered = (thread: Thread) => thread.replies.some((r) => r.author === "claude");
   for (const thread of threads.filter(answered)) {
     const lastAnswer = thread.replies.map((r) => r.author).lastIndexOf("claude");
     const since = thread.replies.slice(lastAnswer + 1).filter((r) => r.author === "user").map((r) => r.body);
-    dispatchReply(store, lock, projectId, thread, since.join("\n\n") || thread.body, choice, terminal);
+    queueReply(store, lock, projectId, thread, since.join("\n\n") || thread.body, choice);
   }
   const fresh = threads.filter((thread) => !answered(thread));
-  if (fresh.length === 1) {
-    const forTerminal = terminal?.holdsPage(fresh[0].pageId) ?? false;
-    lock.submit({ projectId, ...(forTerminal ? { forTerminal } : {}) }, { ...threadItem(fresh[0], freshSessionMessage(fresh[0]), randomUUID(), false), ...definedChoice(choice) });
-  } else if (fresh.length > 1) dispatchBatch(lock, projectId, fresh, choice, terminal);
+  if (fresh.length > 0) submitTogether(lock, projectId, fresh, fresh.length === 1 ? freshSessionMessage(fresh[0]) : batchMessage(fresh), choice);
 }
 
 /**
- * Queues the held comments of one page as a single work item (one message, one new session shared by the threads).
- * It waits for the terminal session instead of an agent when a present one holds the page.
+ * Queues the held comments of one page as a single work item (one message, one new session shared by the threads),
+ * for those the routing rule sends to the agent.
  */
-export function dispatchBatch(lock: PageLock, projectId: string, threads: Thread[], choice: ModelChoice = {}, terminal?: TerminalPresence): void {
-  const forTerminal = terminal?.holdsPage(threads[0].pageId) ?? false;
-  const item = { ...threadItem(threads[0], batchMessage(threads), randomUUID(), false), threads: threads.map(workThread), ...definedChoice(choice) };
-  lock.submit({ projectId, ...(forTerminal ? { forTerminal } : {}) }, item);
+export function dispatchBatch(store: Store, lock: PageLock, projectId: string, allThreads: Thread[], choice: ModelChoice = {}): void {
+  const threads = goingToAgent(store, lock, allThreads);
+  if (threads.length > 0) submitTogether(lock, projectId, threads, batchMessage(threads), choice);
+}
+
+/** One new session, one message, for threads the routing rule already sent to the agent. */
+function submitTogether(lock: PageLock, projectId: string, threads: Thread[], message: string, choice: ModelChoice): void {
+  lock.submit({ projectId }, { ...threadItem(threads[0], message, randomUUID(), false), threads: threads.map(workThread), ...definedChoice(choice) });
 }
 
 /**
@@ -148,9 +140,13 @@ export function dispatchReply(
   thread: Thread,
   body: string,
   choice: ModelChoice = {},
-  terminal?: TerminalPresence,
   sender?: string,
 ): void {
+  if (routeOf(store, lock, thread) === "agent") queueReply(store, lock, projectId, thread, body, choice, sender);
+}
+
+/** `dispatchReply` for a thread the routing rule already sent to the agent. */
+function queueReply(store: Store, lock: PageLock, projectId: string, thread: Thread, body: string, choice: ModelChoice, sender?: string): void {
   const reply = replyMessage(thread, body, sender);
   const join = (item: WorkItem): WorkItem => ({
     ...item,
@@ -163,17 +159,10 @@ export function dispatchReply(
   if (lock.amendQueued((item) => item.threads.some((t) => t.threadId === thread.id), join)) return;
 
   const takeover = { ...threadItem(thread, takeoverMessage(thread, body), randomUUID(), false), ...definedChoice(choice) };
-  const terminalSession = store.getThreadTerminalSession(thread.id);
-  if (terminalSession) {
-    // A thread a terminal session started: it waits for that session while it is present, else an agent starts afresh from the thread's history.
-    if (terminal?.isPresent(terminalSession)) lock.submit({ projectId, forTerminal: true, takeoverItem: takeover }, { ...threadItem(thread, reply, randomUUID(), false), ...definedChoice(choice) });
-    else lock.submit({ projectId }, takeover);
-    return;
-  }
 
   const session = store.getThreadSession(thread.id);
   if (!session) {
-    // Answered by a terminal session that let go of its page since: an agent starts afresh from the thread's history.
+    // A thread of a page in Agent mode no agent session answered (a conversation did, or it never ran): an agent starts afresh from the thread's history.
     // A message from Redline reaches a thread nobody answers now (the user's reply on an unanswered thread would only duplicate it).
     if (sender !== undefined || thread.replies.some((r) => r.author === "claude")) lock.submit({ projectId }, takeover);
     return;
@@ -185,6 +174,14 @@ export function dispatchReply(
   const message = seed ? seededMessage(seed, reply) : reply;
   const item = { ...threadItem(thread, message, session.sessionId, !seed), ...definedChoice(choice) };
   lock.submit({ projectId, agentId: session.agentId, takeoverItem: takeover }, item);
+}
+
+/**
+ * "Confier à l'agent": queues the thread's work whatever the page's mode (the caller released the take), signed by `by`.
+ * The agent starts afresh from the thread's history; the thread is then the agent's (`routeOf` sees the queued work, then its session).
+ */
+export function handOverThread(lock: PageLock, projectId: string, thread: Thread, by: Person | undefined, choice: ModelChoice = {}): void {
+  lock.submit({ projectId, ...(by ? { handedOverBy: by } : {}) }, { ...threadItem(thread, freshSessionMessage(thread), randomUUID(), false), ...definedChoice(choice) });
 }
 
 function workThread(thread: Thread): WorkThread {
@@ -210,29 +207,4 @@ function threadItem(thread: Thread, message: string, sessionId: string, resume: 
     sessionId,
     resume,
   };
-}
-
-const userReplies = (threads: Thread[]): string[] => threads.flatMap((t) => t.replies.filter((r) => r.author === "user").map((r) => replyMessage(t, r.body)));
-
-/**
- * Sends the waiting work of one thread to the agents under the single routing rule. A thread waiting in a batch leaves it:
- * it gets its own work item and the others keep waiting. False when the thread is not waiting for a terminal session.
- * The thread belongs to the agent from then on: its item is sent to an agent, which records the session, and replies resume it.
- * The user's replies written while it waited go with the message.
- */
-export function handOverThread(store: Store, lock: PageLock, threadId: string, handedOverBy?: Person): boolean {
-  const handed = lock.releaseTerminalThread(
-    threadId,
-    (item) => {
-      const thread = store.getThread(threadId)!;
-      const others = item.threads.filter((t) => t.threadId !== threadId).map((t) => store.getThread(t.threadId)!);
-      return {
-        handed: { ...item, id: randomUUID(), sessionId: randomUUID(), threads: [workThread(thread)], message: [threadMessage(thread), ...userReplies([thread])].join("\n\n") },
-        rest: { ...item, threads: others.map(workThread), message: [batchMessage(others), ...userReplies(others)].join("\n\n") },
-      };
-    },
-    handedOverBy,
-  );
-  if (handed) store.clearThreadTerminalSession(threadId);
-  return handed;
 }

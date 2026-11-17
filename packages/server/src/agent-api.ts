@@ -8,18 +8,25 @@ import {
   PROJECT_STYLE_PATH,
   MAX_ASSET_BYTES,
   folderName,
+  type AccessLevel,
   type AgentCheckout,
   type ChangeReviewFeedbackRequest,
   type RequestChangeReviewRequest,
   type AgentGapsRequest,
   type AgentReplyRequest,
+  type AgentReplyResponse,
   type CreateSiblingRequest,
+  type HandOverCommentsRequest,
   type CreateVersionRequest,
   type TerminalHeartbeatRequest,
-  type TerminalReleaseRequest,
-  type TerminalPickedPage,
   type TerminalCommentsPage,
-  type TerminalWaitingPage,
+  type TakeCommentsRequest,
+  type TakeCommentsResponse,
+  type CommentsOverview,
+  type CommentsReminder,
+  type RememberPageRequest,
+  type ReleaseCommentsRequest,
+  type ReleaseCommentsResponse,
   type MoveArtboardRequest,
   type RenamePageRequest,
   type MergeRequestRequest,
@@ -40,7 +47,7 @@ import { askToUndoRefused } from "./refusals.js";
 import { settleUndoneChanges } from "./undone-changes.js";
 import { changesError, mergeRequests } from "./change-records.js";
 import { ARCHIVED_PAGE_ERROR, archivableExists, archivePage, archiveProject, archivedError, projectOrDesignSystem } from "./archive.js";
-import type { Access } from "./access.js";
+import { accountLevelIn, type Access, type Viewer } from "./access.js";
 import { versionComponentsError } from "./components.js";
 import { removalsError } from "./removals.js";
 import { instanceChangesError } from "./instance-guards.js";
@@ -52,6 +59,11 @@ import { switchDesignSystem } from "./switch-design-system.js";
 import { changeReviewFeedback, declareChangeReview } from "./change-reviews.js";
 import type { PageLock } from "./page-lock.js";
 import type { TerminalSessions } from "./terminal-sessions.js";
+import { replyFromConversation } from "./conversation-replies.js";
+import { archivedRefusal, commentsOverview, commentsToTake, releaseComments, remindersOf, takePage, takeThreads, type TakeEnv } from "./comment-takes.js";
+import { writeRefusal } from "./write-refusal.js";
+import { nameOf } from "./person-name.js";
+import { handOverPage } from "./hand-over.js";
 import type { OriginRef, Store } from "./store.js";
 
 /** The thread or conversation a running work item answers, as version/DESIGN.md origin; none when the item is unknown or belongs to another page. */
@@ -106,25 +118,72 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         return reply.code(204).send();
       });
 
-      api.get<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/waiting", async (req): Promise<TerminalWaitingPage[]> => terminalSessions.waitingFor(req.params.sessionId));
+      const notConnected = "this terminal session is not connected to Redline (it never sent its heartbeat, or lost it): restart or reconnect the terminal";
 
-      // The agents screen's Comments tab: every waiting page, read-only (unlike `pick`, it takes nothing).
-      api.get("/terminal-comments", async (req): Promise<TerminalCommentsPage[]> => terminalSessions.waitingComments((projectId) => access.may(req.viewer, "read", { projectId })));
+      // The agents screen's Comments tab: every page with threads to take, read-only (unlike `take`, it takes nothing).
+      api.get("/terminal-comments", async (req): Promise<TerminalCommentsPage[]> => commentsToTake(store, (projectId) => access.may(req.viewer, "read", { projectId })));
 
-      // `release_page`: the session hands one page it holds (or all of them) over to the agents.
-      api.post<{ Params: { sessionId: string }; Body: Partial<TerminalReleaseRequest> }>("/terminal-sessions/:sessionId/release", async (req, reply): Promise<TerminalWaitingPage[] | void> => {
-        const pageId = req.body?.pageId;
+      // An agent token only reaches where its person writes (`levelOf` says nothing else), so the refusal reads the person's real level.
+      const realLevelOf = (req: { viewer: Viewer }, projectId: string): AccessLevel | undefined =>
+        req.viewer.kind === "agent" && req.viewer.person ? accountLevelIn(store, { id: req.viewer.person.id, role: req.viewer.role }, projectId) : access.levelOf(req.viewer, { projectId });
+      const takeEnv = (req: { viewer: Viewer }): TakeEnv => ({ store, pageLock, levelOf: (projectId) => realLevelOf(req, projectId) });
+      const refusalOf = (req: { viewer: Viewer }, accountId: string, projectId: string) => writeRefusal(store, accountId, realLevelOf(req, projectId), projectId);
+
+      // `pending_comments`: with a page, the account takes its threads to take and is given them with the ones it already took; with thread ids, it takes those
+      // (and takes over another account's with `takeOver`); with neither, the projects' waiting threads are only listed.
+      api.post<{ Params: { sessionId: string }; Body: Partial<TakeCommentsRequest> }>("/terminal-sessions/:sessionId/take", async (req, reply): Promise<TakeCommentsResponse | CommentsOverview | void> => {
+        const label = terminalSessions.labelOf(req.params.sessionId);
+        if (!label) return reply.code(403).send({ error: notConnected });
+        const { pageId, threadIds, takeOver, projectIds } = req.body ?? {};
         if (pageId !== undefined && !requiredString(pageId)) return reply.code(400).send({ error: "pageId must be a page id" });
-        const released = terminalSessions.releaseHeldBy(req.params.sessionId, pageId);
-        if (pageId !== undefined && released.length === 0) return reply.code(409).send({ error: "this terminal session does not hold that page" });
-        return released;
+        if (threadIds !== undefined && (!Array.isArray(threadIds) || threadIds.length === 0 || !threadIds.every((id) => requiredString(id)))) return reply.code(400).send({ error: "threadIds must be a list of thread ids" });
+        if (takeOver !== undefined && typeof takeOver !== "boolean") return reply.code(400).send({ error: "takeOver must be a boolean" });
+        if (projectIds !== undefined && (!Array.isArray(projectIds) || !projectIds.every((id) => requiredString(id)))) return reply.code(400).send({ error: "projectIds must be a list of project ids" });
+        if (pageId !== undefined && threadIds !== undefined) return reply.code(400).send({ error: "give a pageId or threadIds, not both" });
+        if (pageId !== undefined) {
+          const projectId = store.projectIdOfPage(pageId);
+          if (!projectId) return reply.code(404).send({ error: "page not found" });
+          const refusal = refusalOf(req, label.accountId, projectId);
+          if (refusal) return reply.code(403).send({ error: refusal });
+          const archived = archivedRefusal(store, pageId);
+          if (archived) return reply.code(409).send({ error: archived });
+          return takePage(takeEnv(req), label, pageId);
+        }
+        if (threadIds !== undefined) return takeThreads(takeEnv(req), label, threadIds, takeOver === true);
+        return commentsOverview(takeEnv(req), label, projectIds ?? []);
       });
 
-      // `pending_comments`: the waiting comments are handed to the session, which then answers them with `reply_in_thread`.
-      api.post<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/pick", async (req): Promise<TerminalPickedPage[]> => terminalSessions.pick(req.params.sessionId));
+      // `release_comments`: the account lets go of its takes; the threads follow their page's mode again.
+      api.post<{ Params: { sessionId: string }; Body: Partial<ReleaseCommentsRequest> }>("/terminal-sessions/:sessionId/release", async (req, reply): Promise<ReleaseCommentsResponse | void> => {
+        const label = terminalSessions.labelOf(req.params.sessionId);
+        if (!label) return reply.code(403).send({ error: notConnected });
+        const { pageId, threadIds } = req.body ?? {};
+        if (pageId !== undefined && !requiredString(pageId)) return reply.code(400).send({ error: "pageId must be a page id" });
+        if (threadIds !== undefined && (!Array.isArray(threadIds) || !threadIds.every((id) => requiredString(id)))) return reply.code(400).send({ error: "threadIds must be a list of thread ids" });
+        if ((pageId === undefined) === (threadIds === undefined)) return reply.code(400).send({ error: "give a pageId or threadIds" });
+        if (pageId !== undefined && !store.getPage(pageId)) return reply.code(404).send({ error: "page not found" });
+        const archived = pageId === undefined ? undefined : archivedRefusal(store, pageId);
+        if (archived) return reply.code(409).send({ error: archived });
+        return releaseComments(takeEnv(req), label, { pageId, threadIds });
+      });
+
+      // This conversation published or checked out the page: its folder's reminder line is about the pages it knows.
+      api.post<{ Params: { sessionId: string }; Body: Partial<RememberPageRequest> }>("/terminal-sessions/:sessionId/pages", async (req, reply) => {
+        const label = terminalSessions.labelOf(req.params.sessionId);
+        if (!label) return reply.code(403).send({ error: notConnected });
+        const { pageId } = req.body ?? {};
+        if (!requiredString(pageId) || !store.getPage(pageId)) return reply.code(404).send({ error: "page not found" });
+        store.rememberTerminalPage(label.accountId, label.folder, pageId);
+        return reply.code(204).send();
+      });
+
+      api.get<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/reminder", async (req, reply): Promise<CommentsReminder | void> => {
+        const label = terminalSessions.labelOf(req.params.sessionId);
+        if (!label) return reply.code(403).send({ error: notConnected });
+        return remindersOf(takeEnv(req), label);
+      });
 
       // `request_review` and `review_feedback`: a terminal session declares a review of its changes, then reads its result.
-      const notConnected = "this terminal session is not connected to Redline (it never sent its heartbeat, or lost it): restart or reconnect the terminal";
       api.post<{ Params: { sessionId: string }; Body: Partial<RequestChangeReviewRequest> }>("/terminal-sessions/:sessionId/reviews", async (req, reply) => {
         if (!terminalSessions.isPresent(req.params.sessionId)) return reply.code(403).send({ error: notConnected });
         const result = declareChangeReview({ store, access }, req.viewer, { id: req.params.sessionId, folder: terminalSessions.folderOf(req.params.sessionId) }, req.body);
@@ -133,11 +192,11 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
 
       api.post<{ Params: { sessionId: string }; Body: Partial<ChangeReviewFeedbackRequest> }>("/terminal-sessions/:sessionId/review-feedback", async (req, reply) => {
         if (!terminalSessions.isPresent(req.params.sessionId)) return reply.code(403).send({ error: notConnected });
-        const { reviewId, projectIds } = req.body ?? {};
+        const { reviewId, projectIds, takeOver } = req.body ?? {};
         if (reviewId !== undefined && !requiredString(reviewId)) return reply.code(400).send({ error: "reviewId must be a review id" });
         if (projectIds !== undefined && (!Array.isArray(projectIds) || !projectIds.every((id) => requiredString(id)))) return reply.code(400).send({ error: "projectIds must be a list of project ids" });
         if (reviewId === undefined && projectIds === undefined) return reply.code(400).send({ error: "reviewId or projectIds is required" });
-        const result = changeReviewFeedback({ store, access, pageLock, terminalSessions }, req.viewer, req.params.sessionId, { reviewId, projectIds });
+        const result = changeReviewFeedback({ store, access, pageLock, terminalSessions }, req.viewer, req.params.sessionId, { reviewId, projectIds, takeOver: takeOver === true });
         return "error" in result ? reply.code(result.status).send({ error: result.error }) : result;
       });
 
@@ -305,10 +364,11 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const ref: OriginRef | undefined = from ? { originId: from.originId, originLabel: from.originLabel, person: from.person } : terminalFolder ? { originLabel: folderName(terminalFolder), terminalSessionId: req.body.terminalSessionId } : undefined;
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
-          if (changes?.length) askToUndoRefused(store, pageLock, terminalSessions, store.recordChanges(projectId, version.id, changes));
+          // The folder of a conversation that publishes a page knows it for its reminder line, as after a checkout.
+          const label = origin === "terminal" && req.body.terminalSessionId !== undefined ? terminalSessions.labelOf(req.body.terminalSessionId) : undefined;
+          if (label) store.rememberTerminalPage(label.accountId, label.folder, req.params.pageId);
+          if (changes?.length) askToUndoRefused(store, pageLock, store.recordChanges(projectId, version.id, changes));
           settleUndoneChanges(store, req.params.pageId);
-          // The terminal session that publishes a page holds it, replacing the previous holder.
-          if (origin === "terminal" && req.body.terminalSessionId !== undefined) store.holdPage(req.params.pageId, req.body.terminalSessionId);
           if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());
           if (styleChanged) store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(projectStyle.content, "utf8"), author());
           const { gaps } = agentGaps(store, req.params.pageId, result.files);
@@ -348,6 +408,23 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const asset = putProjectAsset(store, page.projectId, req.params["*"], req.body);
           return reply.code("error" in asset ? 400 : 201).send(asset);
         });
+      });
+
+      // "traite les commentaires" typed in a page's web chat: the running conversation message hands the page's threads to take to the agent, signed by its writer.
+      api.post<{ Params: { pageId: string }; Body: Partial<HandOverCommentsRequest> }>("/pages/:pageId/hand-over-comments", async (req, reply) => {
+        const workId = req.body?.workId;
+        const item = typeof workId === "string" ? pageLock.itemOf(workId) : undefined;
+        if (!item?.conversationId || item.pageId !== req.params.pageId) {
+          return reply.code(403).send({ error: "Only the session answering a message of this page's conversation can hand its comments over." });
+        }
+        // Commentaire never hands over: the writer may have been lowered since the message was sent.
+        const writer = pageLock.requesterOf(item.id);
+        const account = writer ? store.accounts.activeAccounts().find((a) => a.id === writer.id) : undefined;
+        if (writer && store.isDeactivated(writer.id)) return reply.code(403).send({ error: `${nameOf(writer)}'s account is deactivated: the threads are left alone.` });
+        if (writer && accountLevelIn(store, { id: writer.id, role: account?.role }, store.getPage(item.pageId)!.projectId) !== "write") {
+          return reply.code(403).send({ error: `${nameOf(writer)} no longer has Écriture on this project: the threads are left alone.` });
+        }
+        return reply.send(handOverPage(store, pageLock, item.pageId, writer));
       });
 
       api.post<{ Params: { pageId: string }; Body: Partial<CreateSiblingRequest> }>("/pages/:pageId/siblings", async (req, reply) => {
@@ -396,7 +473,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (workOutsideProject(req.body?.workId, store.getPage(req.params.pageId)?.projectId)) {
           return reply.code(403).send({ error: "This session cannot send a request for that page: it belongs to another project, or the run is over." });
         }
-        const outcome = sendRequest(store, pageLock, terminalSessions, req.params.pageId, req.body);
+        const outcome = sendRequest(store, pageLock, req.params.pageId, req.body);
         return reply.code(outcome.status).send(outcome.body);
       });
 
@@ -426,16 +503,26 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const resolve = req.body.resolve;
         if (resolve !== undefined && typeof resolve !== "boolean") return reply.code(400).send({ error: "resolve must be a boolean" });
         const thread = store.getThread(req.params.threadId);
-        if (!thread) return reply.code(404).send({ error: "thread not found" });
-        // The pages the run created appear under its first answer.
+        if (!thread) return reply.code(404).send({ error: "This thread no longer exists: it was deleted with its page." });
+        // A draft is its author's: nobody answers it, a run never sees it.
+        if (thread.status === "held") return reply.code(409).send({ error: "This thread is a draft that was not sent yet: it cannot be answered." });
+        // A conversation answers any thread of a project its account writes in: the answer is always added, never lost.
         const { terminalSessionId } = req.body;
-        if (terminalSessionId !== undefined && !terminalSessions.isPickedBy(thread.id, terminalSessionId)) {
-          return reply.code(409).send({ error: `Thread ${thread.id} was not given to this session: only the threads pending_comments returned can be answered here.` });
+        if (terminalSessionId !== undefined) {
+          const label = terminalSessions.labelOf(terminalSessionId);
+          if (!label) return reply.code(403).send({ error: notConnected });
+          if (label.accountId !== (req.viewer.kind === "agent" ? (req.viewer.person?.id ?? "") : "")) return reply.code(403).send({ error: "this terminal session belongs to another account" });
+          const refusal = refusalOf(req, label.accountId, store.projectIdOfPage(thread.pageId)!);
+          if (refusal) return reply.code(403).send({ error: refusal });
+          const answered = replyFromConversation(store, pageLock, thread, label, body, resolve);
+          if ("error" in answered) return reply.code(409).send({ error: answered.error });
+          const response: AgentReplyResponse = { ...answered.reply, ...(answered.note ? { note: answered.note } : {}) };
+          return reply.code(201).send(response);
         }
+        // The pages the run created appear under its first answer.
         const workId = req.body.workId;
         const createdPageIds = workOrigin(store, pageLock, workId, thread.pageId) ? store.takeCreatedPages(workId!) : [];
         const posted = store.addReply(thread.id, body, "claude", createdPageIds);
-        if (terminalSessionId !== undefined) terminalSessions.answered(thread.id);
         if (resolve) store.resolveThread(thread.id);
         return reply.code(201).send(posted);
       });

@@ -95,7 +95,7 @@ it("outlines canvas elements in comment mode, pins threads on them, follows thei
   await tab.getByText("Commentaire sur").waitFor();
   expect(await tab.getByText("Commentaire sur").textContent()).toContain("Post-it · note-parcours");
   await tab.locator("#new-comment").fill("Add the confirmation step");
-  await tab.getByRole("button", { name: "Plus tard" }).click();
+  await tab.getByRole("button", { name: "Brouillon" }).click();
   const pin = tab.locator("[data-canvas-pin='1']");
   await pin.waitFor();
   const pinBox = (await pin.boundingBox())!;
@@ -176,7 +176,7 @@ it("keeps the thread of a removed canvas element in the list, greyed and unpinne
   await publish(false);
   await tab.getByTestId("removed-tag").waitFor();
   await tab.getByRole("button", { name: "Résoudre" }).click();
-  await tab.getByText("Résolu", { exact: true }).waitFor();
+  await tab.getByText(/^Résolu · /).waitFor();
   expect(await tab.getByTestId("removed-tag").textContent()).toBe("retiré du canvas");
 
   await publish(true);

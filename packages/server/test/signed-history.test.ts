@@ -69,7 +69,9 @@ describe("signed history, DESIGN.md, pages and deleted artboards", () => {
 
   async function createPage(headers: Record<string, string> = ariane): Promise<Page> {
     const project = await post<Project>("/api/projects", headers, { title: "Acme" });
-    return post<Page>(`/api/projects/${project.id}/pages`, headers, { title: "Home", files: FILES });
+    const page = await post<Page>(`/api/projects/${project.id}/pages`, headers, { title: "Home", files: FILES });
+    await post(`/api/pages/${page.id}/comment-mode`, headers, { mode: "agent" });
+    return page;
   }
   const versions = (page: Page) => get<PageVersionSummary[]>(`/api/pages/${page.id}/versions`);
 

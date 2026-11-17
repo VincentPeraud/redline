@@ -41,6 +41,7 @@ import {
   type LinkAuthor,
 } from "@redline/shared";
 import type {
+  CommentMode,
   Person,
   ComponentInfo,
   ComponentDefinition,
@@ -84,6 +85,9 @@ import type {
   Thread,
   ThreadContext,
   ThreadReply,
+  ThreadTrace,
+  ThreadTraceKind,
+  LateReplyReason,
   ThreadStatus,
   VersionOrigin,
   WorkItem,
@@ -299,7 +303,6 @@ export class Store {
     };
     // Page types were removed (2026-10-22); the column was NOT NULL, so databases from before must drop it.
     if (columnsOf("pages").includes("type")) this.db.exec("ALTER TABLE pages DROP COLUMN type");
-    addColumn("work_queue", "for_terminal", "INTEGER");
     addColumn("work_queue", "handed_over_by", "TEXT");
     addColumn("design_systems", "current_diffusion", "INTEGER");
     addColumn("design_system_diffusions", "component_files_hash", "TEXT");
@@ -351,8 +354,31 @@ export class Store {
     this.accounts = new AccountStore(this.db);
     this.links = new LinkStore(this.db);
     this.changeReviews = new ChangeReviewStore(this.db);
-    addColumn("pages", "held_by", "TEXT");
-    addColumn("pages", "held_at", "TEXT");
+    addColumn("pages", "comment_mode", "TEXT NOT NULL DEFAULT 'conversation'");
+    // An account's take of a thread: who ('' without SSO), from which folder and machine, and when.
+    addColumn("threads", "taken_by", "TEXT");
+    addColumn("threads", "taken_folder", "TEXT");
+    addColumn("threads", "taken_machine", "TEXT");
+    addColumn("threads", "taken_at", "TEXT");
+    // Set when the take was a takeover: the account it was taken from ('' when that taker had none), NULL for a plain take.
+    addColumn("threads", "taken_over_from", "TEXT");
+    // The pages a conversation's account published or checked out from a folder: what the reminder line is about.
+    this.db.exec("CREATE TABLE IF NOT EXISTS terminal_pages (account_id TEXT NOT NULL, folder TEXT NOT NULL, page_id TEXT NOT NULL, PRIMARY KEY (account_id, folder, page_id))");
+    // A reply written by a Claude Code conversation: the account it works for and its folder.
+    addColumn("thread_replies", "conversation_person_id", "TEXT");
+    addColumn("thread_replies", "conversation_folder", "TEXT");
+    // `late`: the answer came after the thread changed hands or was resolved. Who resolved a thread ('' without SSO) and when.
+    addColumn("thread_replies", "late", "TEXT");
+    addColumn("threads", "resolved_by", "TEXT");
+    addColumn("threads", "resolved_at", "TEXT");
+    this.db.exec(`CREATE TABLE IF NOT EXISTS thread_traces (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL REFERENCES threads(id),
+      kind TEXT NOT NULL,
+      taker_id TEXT,
+      by_id TEXT,
+      created_at TEXT NOT NULL
+    )`);
     addColumn("versions", "origin_id", "TEXT");
     addColumn("versions", "origin_label", "TEXT");
     addColumn("versions", "terminal_session_id", "TEXT");
@@ -379,10 +405,11 @@ export class Store {
     if (!threadColumns.some((c) => c.name === "session_id")) this.db.exec("ALTER TABLE threads ADD COLUMN session_id TEXT");
     if (!threadColumns.some((c) => c.name === "agent_id")) this.db.exec("ALTER TABLE threads ADD COLUMN agent_id TEXT");
     if (!threadColumns.some((c) => c.name === "automatic")) this.db.exec("ALTER TABLE threads ADD COLUMN automatic INTEGER NOT NULL DEFAULT 0");
-    for (const column of ["context", "new_session", "session_seed", "terminal_session_id", "terminal_pick_run"]) {
+    for (const column of ["context", "new_session", "session_seed"]) {
       if (!threadColumns.some((c) => c.name === column)) this.db.exec(`ALTER TABLE threads ADD COLUMN ${column} TEXT`);
     }
     this.db.exec("UPDATE versions SET origin = 'creation' WHERE origin = 'terminal' AND message = 'Page created'");
+    this.migrateToCommentsOnDemand();
     if (!this.getDesignSystem(NEUTRAL_DESIGN_SYSTEM_ID)) {
       this.createDesignSystem("Neutral", { [DESIGN_SYSTEM_TOKENS_PATH]: NEUTRAL_TOKENS_CSS, "index.html": NEUTRAL_TOKENS_PAGE_HTML }, NEUTRAL_DESIGN_SYSTEM_ID);
     }
@@ -391,11 +418,42 @@ export class Store {
     this.giveDesignSystemsTheirFirstDiffusion();
   }
 
+  /**
+   * The hold model (a terminal session holds the pages it published and owns their threads) is gone: every page is in Conversation mode,
+   * and a thread nobody handles is to take. What waited for a terminal session, or for an agent that never started it, is dropped from the
+   * queue and so becomes to take; a thread an agent session has stays with it; a thread a terminal session took, answered or not, is to take
+   * (the account of a terminal session is not stored, so a relaunch of its answer has no account to wait for).
+   */
+  private migrateToCommentsOnDemand(): void {
+    const columnsOf = (table: string) => (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+    if (columnsOf("work_queue").includes("for_terminal")) {
+      const rows = this.db.prepare("SELECT id, state, item, for_terminal FROM work_queue").all() as { id: string; state: string; item: string; for_terminal: number | null }[];
+      const neverStarted = (item: WorkItem) => {
+        if (item.kind !== "thread" || item.resume || item.conversationId || item.threads.length === 0) return false;
+        const projectId = this.db.prepare("SELECT project_id FROM pages WHERE id = ?").get(item.pageId) as { project_id: string } | undefined;
+        if (!projectId || this.isDesignSystemProject(projectId.project_id)) return false;
+        return item.threads.every(({ threadId }) => !this.getThreadSession(threadId));
+      };
+      for (const row of rows) {
+        const drop = row.for_terminal === 1 || (row.state === "queued" && neverStarted(JSON.parse(row.item) as WorkItem));
+        if (drop) this.db.prepare("DELETE FROM work_queue WHERE id = ?").run(row.id);
+      }
+      this.db.exec("ALTER TABLE work_queue DROP COLUMN for_terminal");
+    }
+    if (columnsOf("pages").includes("held_by")) {
+      this.db.exec("ALTER TABLE pages DROP COLUMN held_by");
+      this.db.exec("ALTER TABLE pages DROP COLUMN held_at");
+    }
+    for (const column of ["terminal_session_id", "terminal_pick_run"]) {
+      if (columnsOf("threads").includes(column)) this.db.exec(`ALTER TABLE threads DROP COLUMN ${column}`);
+    }
+  }
+
   /** Replaces the persisted work queue (see `PageLock`) with `rows`, in order. */
   saveWorkQueue(rows: PersistedWork[]): void {
     const insert = this.db.prepare(
-      `INSERT INTO work_queue (id, position, state, project_id, agent_id, item, takeover_item, attempts, retry_at, retry_limit, message, for_terminal, handed_over_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO work_queue (id, position, state, project_id, agent_id, item, takeover_item, attempts, retry_at, retry_limit, message, handed_over_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.db.transaction(() => {
       this.db.prepare("DELETE FROM work_queue").run();
@@ -412,7 +470,6 @@ export class Store {
           row.retryAt ?? null,
           row.limit === undefined ? null : row.limit ? 1 : 0,
           row.message ?? null,
-          row.forTerminal ? 1 : 0,
           row.handedOverBy ? JSON.stringify(row.handedOverBy) : null,
         ),
       );
@@ -430,7 +487,6 @@ export class Store {
       retry_at: string | null;
       retry_limit: number | null;
       message: string | null;
-      for_terminal: number | null;
       handed_over_by: string | null;
     }[];
     return rows.map((r) => ({
@@ -443,7 +499,6 @@ export class Store {
       ...(r.retry_at ? { retryAt: r.retry_at } : {}),
       ...(r.retry_limit === null ? {} : { limit: r.retry_limit === 1 }),
       ...(r.message === null ? {} : { message: r.message }),
-      ...(r.for_terminal ? { forTerminal: true } : {}),
       ...(r.handed_over_by ? { handedOverBy: JSON.parse(r.handed_over_by) as Person } : {}),
     }));
   }
@@ -720,6 +775,12 @@ export class Store {
     if (!known) this.db.prepare("INSERT INTO people (id, name, email, created_at) VALUES (?, ?, ?, ?)").run(id, name, email, new Date().toISOString());
     else if (known.name !== name || known.email !== email) this.db.prepare("UPDATE people SET name = ?, email = ? WHERE id = ?").run(name, email, id);
     return { id, name, email, initials: initialsOf(name, id) };
+  }
+
+  /** The account of this person was deactivated. */
+  isDeactivated(id: string | null | undefined): boolean {
+    if (!id) return false;
+    return (this.db.prepare("SELECT status FROM people WHERE id = ?").get(id) as { status: string } | undefined)?.status === "deactivated";
   }
 
   getPerson(id: string | null | undefined): Person | undefined {
@@ -1331,8 +1392,8 @@ export class Store {
 
   getPage(id: string): Page | undefined {
     const row = this.db
-      .prepare("SELECT id, project_id, title, created_by, person_id, archived_at FROM pages WHERE id = ?")
-      .get(id) as { id: string; project_id: string; title: string; created_by: PageCreator; person_id: string | null; archived_at: string | null } | undefined;
+      .prepare("SELECT id, project_id, title, created_by, person_id, archived_at, comment_mode FROM pages WHERE id = ?")
+      .get(id) as { id: string; project_id: string; title: string; created_by: PageCreator; person_id: string | null; archived_at: string | null; comment_mode: CommentMode } | undefined;
     if (!row) return undefined;
     const version = this.db
       .prepare("SELECT id, files FROM versions WHERE page_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
@@ -1346,29 +1407,19 @@ export class Store {
       ...(createdByPerson ? { createdByPerson } : {}),
       version: { id: version.id, files: JSON.parse(version.files) },
       ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
+      commentMode: row.comment_mode,
     };
   }
 
-  /** The terminal session that took the page with its last terminal publish, whether it is still present or not. */
-  holdOf(pageId: string): { sessionId: string; since: string } | undefined {
-    const row = this.db.prepare("SELECT held_by, held_at FROM pages WHERE id = ?").get(pageId) as { held_by: string | null; held_at: string | null } | undefined;
-    return row?.held_by && row.held_at ? { sessionId: row.held_by, since: row.held_at } : undefined;
+  /** Where a page's new comments go. A design system's pages always go to the agent: no conversation is asked to take their requests. */
+  effectiveCommentMode(pageId: string): CommentMode {
+    const page = this.getPage(pageId);
+    return !page || this.isDesignSystemProject(page.projectId) ? "agent" : page.commentMode;
   }
 
-  holdPage(pageId: string, sessionId: string): void {
-    this.db.prepare("UPDATE pages SET held_by = ?, held_at = ? WHERE id = ?").run(sessionId, new Date().toISOString(), pageId);
-    this.emit({ type: "terminal-hold-changed", pageId });
-  }
-
-  /** The held pages with their holder. */
-  heldPages(): { pageId: string; sessionId: string }[] {
-    const rows = this.db.prepare("SELECT id, held_by FROM pages WHERE held_by IS NOT NULL").all() as { id: string; held_by: string }[];
-    return rows.map((row) => ({ pageId: row.id, sessionId: row.held_by }));
-  }
-
-  clearHold(pageId: string): void {
-    this.db.prepare("UPDATE pages SET held_by = NULL, held_at = NULL WHERE id = ?").run(pageId);
-    this.emit({ type: "terminal-hold-changed", pageId });
+  setCommentMode(pageId: string, mode: CommentMode, by?: Person): void {
+    this.db.prepare("UPDATE pages SET comment_mode = ? WHERE id = ?").run(mode, pageId);
+    this.emit({ type: "comment-mode-changed", pageId, mode, ...(by ? { by } : {}) });
   }
 
   /** True when the page itself is archived (its project may be archived too, see `isArchived`). */
@@ -1504,12 +1555,45 @@ export class Store {
     };
   }
 
+  /** The pages that have at least one open thread. */
+  pageIdsWithOpenThreads(): string[] {
+    return (this.db.prepare("SELECT DISTINCT page_id FROM threads WHERE status = 'open'").all() as { page_id: string }[]).map((row) => row.page_id);
+  }
+
   listThreads(pageId: string): Thread[] {
     const rows = this.db
       .prepare(`${THREAD_SELECT} WHERE page_id = ? ORDER BY number`)
       .all(pageId) as ThreadRow[];
     const elements = this.canvasElementsById(pageId);
     return rows.map((row) => this.withPerson(withCurrentElement(toThread(row, this.repliesOf(row.id)), elements), row.person_id));
+  }
+
+  /** Who handles the thread, as the card shows it: its account's take, or "to take" when nobody handles an open thread. */
+  private withHandler(base: Thread): Thread {
+    const thread = this.withTraces(base);
+    const take = this.takeOf(thread.id);
+    if (take) {
+      const person = this.getPerson(take.accountId || null);
+      const answered = thread.replies.some((reply) => reply.author === "claude");
+      const waiting = answered && thread.replies.at(-1)?.author !== "claude";
+      const from = take.takenOverFrom === undefined ? undefined : this.getPerson(take.takenOverFrom || null);
+      return { ...thread, take: { ...(person ? { person } : {}), folder: take.folder, machine: take.machine, takenAt: take.takenAt, ...(person && this.hasNamesake(person) ? { sameName: true as const } : {}), ...(take.takenOverFrom === undefined ? {} : { takenOver: from ? { from } : {} }) }, ...(waiting && thread.status === "open" ? { relaunch: true as const } : {}) };
+    }
+    if (thread.status !== "open" || this.getThreadSession(thread.id) || this.threadHasWork(thread.id) || this.effectiveCommentMode(thread.pageId) !== "conversation") return thread;
+    return { ...thread, toTake: true };
+  }
+
+  /** Another active account has this person's display name. */
+  hasNamesake(person: Person): boolean {
+    return this.db.prepare("SELECT 1 FROM people WHERE role IS NOT NULL AND status = 'active' AND name = ? AND id <> ? LIMIT 1").get(person.name, person.id) !== undefined;
+  }
+
+  /** The system lines of the thread, and who resolved it while it is resolved. */
+  private withTraces(thread: Thread): Thread {
+    const traces = this.tracesOf(thread.id);
+    const row = thread.status === "resolved" ? (this.db.prepare("SELECT resolved_by, resolved_at FROM threads WHERE id = ?").get(thread.id) as { resolved_by: string | null; resolved_at: string | null }) : undefined;
+    const resolvedBy = this.getPerson(row?.resolved_by || null);
+    return { ...thread, ...(traces.length > 0 ? { traces } : {}), ...(resolvedBy ? { resolvedBy } : {}), ...(row?.resolved_at ? { resolvedAt: row.resolved_at } : {}) };
   }
 
   /** Every thread of the project's pages, archived ones left out, newest first (a project link in Écriture reads them all). */
@@ -1531,7 +1615,7 @@ export class Store {
 
   private withPerson(thread: Thread, personId: string | null): Thread {
     const person = this.getPerson(personId);
-    const named = this.withOriginTitles(thread);
+    const named = this.withHandler(this.withOriginTitles(thread));
     return person ? { ...named, person } : named;
   }
 
@@ -1766,13 +1850,6 @@ export class Store {
     return rows.map((row) => this.withPerson(withCurrentElement(toThread(row, withReplies ? this.repliesOf(row.id) : []), elements), row.person_id));
   }
 
-  /** An open thread goes back to "À relire" (a Commentaire reply in a thread already sent to Claude). */
-  returnToReview(id: string): void {
-    const { changes } = this.db.prepare("UPDATE threads SET status = 'review' WHERE id = ? AND status = 'open'").run(id);
-    const thread = changes > 0 ? this.getThread(id) : undefined;
-    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
-  }
-
   /** An "À relire" thread leaves for Claude: it becomes a regular open thread. */
   releaseReviewThread(id: string): void {
     this.db.prepare("UPDATE threads SET status = 'open' WHERE id = ? AND status = 'review'").run(id);
@@ -1799,16 +1876,29 @@ export class Store {
     return true;
   }
 
-  /** A held comment leaves: it becomes a regular open thread. */
-  releaseHeldThread(id: string): void {
-    this.db.prepare("UPDATE threads SET status = 'open' WHERE id = ? AND status = 'held'").run(id);
+  /** A draft leaves: it becomes a regular open thread, or waits "À relire" when its author only comments. */
+  releaseHeldThread(id: string, to: "open" | "review" = "open"): void {
+    this.db.prepare("UPDATE threads SET status = ? WHERE id = ? AND status = 'held'").run(to, id);
     const thread = this.getThread(id);
     if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
   }
 
-  /** Resolves a thread; one that was waiting to be read ("À relire") remembers it and goes back there when reopened. */
-  resolveThread(id: string): Thread | undefined {
+  /**
+   * Resolves a thread; one that was waiting to be read ("À relire") remembers it and goes back there when reopened.
+   * `by` is the account that resolves it ("" without SSO; left out for a run of the agent): when another account took the thread, a "Résolu par" line records it.
+   * The take ends with the resolution (a late answer of its account is still added, as a late one: see `replyFromConversation`).
+   * A draft is never resolved: it is not public.
+   */
+  resolveThread(id: string, by?: string): Thread | undefined {
+    const before = this.getThread(id);
+    if (before?.status === "held") return undefined;
     this.db.prepare("UPDATE threads SET reopen_to = CASE status WHEN 'review' THEN 'review' WHEN 'resolved' THEN reopen_to ELSE NULL END, status = 'resolved' WHERE id = ?").run(id);
+    if (before && before.status !== "resolved") {
+      this.db.prepare("UPDATE threads SET resolved_by = ?, resolved_at = ? WHERE id = ?").run(by ?? null, now(), id);
+      const taker = this.takeOf(id);
+      if (by !== undefined && taker && taker.accountId !== by) this.addTrace(id, { kind: "resolved", takerId: taker.accountId, byId: by });
+      if (taker) this.releaseThreadTake(id);
+    }
     const thread = this.getThread(id);
     if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
     return thread;
@@ -1832,41 +1922,80 @@ export class Store {
   }
 
   setThreadSession(threadId: string, sessionId: string, agentId: string): void {
-    this.db.prepare("UPDATE threads SET session_id = ?, agent_id = ?, terminal_session_id = NULL, terminal_pick_run = NULL WHERE id = ?").run(sessionId, agentId, threadId);
+    this.db.prepare("UPDATE threads SET session_id = ?, agent_id = ? WHERE id = ?").run(sessionId, agentId, threadId);
   }
 
-  /** The terminal session of a thread: the one that started it (it picked it with `pending_comments`); none once an agent session took it over. */
-  getThreadTerminalSession(threadId: string): string | undefined {
-    const row = this.db.prepare("SELECT terminal_session_id FROM threads WHERE id = ?").get(threadId) as { terminal_session_id: string | null } | undefined;
-    return row?.terminal_session_id ?? undefined;
+  /** Adds a system line to the thread ("Pris par X, puis confié à l'agent par Y"): `takerId` is the account that took it before, `byId` who acted ("" without SSO). */
+  addTrace(threadId: string, trace: { kind: ThreadTraceKind; takerId?: string; byId?: string }): void {
+    this.db.prepare("INSERT INTO thread_traces (id, thread_id, kind, taker_id, by_id, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(randomUUID(), threadId, trace.kind, trace.takerId ?? null, trace.byId ?? null, now());
+    this.emitThreadUpdated(threadId);
   }
 
-  /** The thread is now handled by a terminal session, not by an agent session: `runId` is the run showing it as being worked on. */
-  pickThreadForTerminalSession(threadId: string, terminalSessionId: string, runId: string): void {
-    this.db.prepare("UPDATE threads SET terminal_session_id = ?, terminal_pick_run = ?, session_id = NULL, agent_id = NULL WHERE id = ?").run(terminalSessionId, runId, threadId);
-    const thread = this.getThread(threadId);
-    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
+  private tracesOf(threadId: string): ThreadTrace[] {
+    const rows = this.db.prepare("SELECT id, kind, taker_id AS takerId, by_id AS byId, created_at AS createdAt FROM thread_traces WHERE thread_id = ? ORDER BY created_at, rowid").all(threadId) as { id: string; kind: ThreadTraceKind; takerId: string | null; byId: string | null; createdAt: string }[];
+    return rows.map(({ takerId, byId, ...row }) => {
+      const taker = this.getPerson(takerId || null);
+      const by = this.getPerson(byId || null);
+      return { ...row, ...(taker ? { taker } : {}), ...(by ? { by } : {}) };
+    });
   }
 
-  /** The threads terminal sessions picked and have not answered yet, with the run that shows them as being worked on. */
-  terminalPicks(): { threadId: string; pageId: string; sessionId: string; runId: string }[] {
-    const rows = this.db.prepare("SELECT id, page_id, terminal_session_id, terminal_pick_run FROM threads WHERE terminal_pick_run IS NOT NULL AND terminal_session_id IS NOT NULL").all() as {
-      id: string;
-      page_id: string;
-      terminal_session_id: string;
-      terminal_pick_run: string;
-    }[];
-    return rows.map((row) => ({ threadId: row.id, pageId: row.page_id, sessionId: row.terminal_session_id, runId: row.terminal_pick_run }));
+  /** The open threads the account took, in one project or everywhere. */
+  openThreadsTakenBy(accountId: string, projectId?: string): string[] {
+    const rows = this.db
+      .prepare("SELECT t.id FROM threads t JOIN pages p ON p.id = t.page_id WHERE t.status = 'open' AND t.taken_by = ? AND (? IS NULL OR p.project_id = ?) ORDER BY t.rowid")
+      .all(accountId, projectId ?? null, projectId ?? null) as { id: string }[];
+    return rows.map((row) => row.id);
   }
 
-  /** The terminal session answered the thread (or gave it back): it stays the thread's terminal session, but is no longer working on it. */
-  endTerminalPick(threadId: string): void {
-    this.db.prepare("UPDATE threads SET terminal_pick_run = NULL WHERE id = ?").run(threadId);
+  /** Every open take, in one project or everywhere: the thread, the account that took it and the thread's project. */
+  openTakes(projectId?: string): { threadId: string; accountId: string; projectId: string }[] {
+    return this.db
+      .prepare("SELECT t.id AS threadId, t.taken_by AS accountId, p.project_id AS projectId FROM threads t JOIN pages p ON p.id = t.page_id WHERE t.status = 'open' AND t.taken_by IS NOT NULL AND (? IS NULL OR p.project_id = ?) ORDER BY t.rowid")
+      .all(projectId ?? null, projectId ?? null) as { threadId: string; accountId: string; projectId: string }[];
   }
 
-  /** The thread belongs to no terminal session any more: it was handed over to the agents. */
-  clearThreadTerminalSession(threadId: string): void {
-    this.db.prepare("UPDATE threads SET terminal_session_id = NULL, terminal_pick_run = NULL WHERE id = ?").run(threadId);
+  /** The thread no longer belongs to an agent session (an account takes it over). */
+  clearThreadSession(threadId: string): void {
+    this.db.prepare("UPDATE threads SET session_id = NULL, agent_id = NULL WHERE id = ?").run(threadId);
+  }
+
+  /** The account's take of a thread, whichever of its conversations made it. `accountId` is "" for the shared token (no SSO). */
+  takeOf(threadId: string): { accountId: string; folder: string; machine: string; takenAt: string; takenOverFrom?: string } | undefined {
+    const row = this.db.prepare("SELECT taken_by, taken_folder, taken_machine, taken_at, taken_over_from FROM threads WHERE id = ?").get(threadId) as
+      | { taken_by: string | null; taken_folder: string | null; taken_machine: string | null; taken_at: string | null; taken_over_from: string | null }
+      | undefined;
+    return row && row.taken_by !== null && row.taken_at
+      ? { accountId: row.taken_by, folder: row.taken_folder ?? "", machine: row.taken_machine ?? "", takenAt: row.taken_at, ...(row.taken_over_from === null ? {} : { takenOverFrom: row.taken_over_from }) }
+      : undefined;
+  }
+
+  /** The conversation `label` takes the thread: its account handles it from now on. `takenOverFrom` marks a takeover (the previous taker's account, "" when it had none). */
+  takeThread(threadId: string, label: { accountId: string; folder: string; machine: string }, takenOverFrom?: string): void {
+    this.db.prepare("UPDATE threads SET taken_by = ?, taken_folder = ?, taken_machine = ?, taken_at = ?, taken_over_from = ? WHERE id = ?").run(label.accountId, label.folder, label.machine, now(), takenOverFrom ?? null, threadId);
+    this.emitThreadUpdated(threadId);
+  }
+
+  /** The thread has no take any more: it follows the routing rule again (to take, or to the agent). */
+  releaseThreadTake(threadId: string): void {
+    this.db.prepare("UPDATE threads SET taken_by = NULL, taken_folder = NULL, taken_machine = NULL, taken_at = NULL, taken_over_from = NULL WHERE id = ?").run(threadId);
+    this.emitThreadUpdated(threadId);
+  }
+
+  /** The conversation of `accountId` working in `folder` published or checked out the page. */
+  rememberTerminalPage(accountId: string, folder: string, pageId: string): void {
+    this.db.prepare("INSERT OR IGNORE INTO terminal_pages (account_id, folder, page_id) VALUES (?, ?, ?)").run(accountId, folder, pageId);
+  }
+
+  terminalPagesOf(accountId: string, folder: string): string[] {
+    return (this.db.prepare("SELECT page_id FROM terminal_pages WHERE account_id = ? AND folder = ? ORDER BY rowid").all(accountId, folder) as { page_id: string }[]).map((row) => row.page_id);
+  }
+
+  /** Asked by `withPerson` to know whether a work item (queued, running, retrying or failed) concerns a thread: set once by the page lock. */
+  private threadHasWork: (threadId: string) => boolean = () => false;
+
+  setThreadWorkProbe(probe: (threadId: string) => boolean): void {
+    this.threadHasWork = probe;
   }
 
   setThreadContext(threadId: string, context: ThreadContext | null): void {
@@ -1891,13 +2020,13 @@ export class Store {
   }
 
   /** Records an answer of Claude or a message of the user in a thread; undefined if the thread does not exist. */
-  addReply(threadId: string, body: string, author: ThreadReply["author"] = "claude", createdPageIds: string[] = [], person?: Person, linkAuthor?: LinkAuthor): ThreadReply | undefined {
+  addReply(threadId: string, body: string, author: ThreadReply["author"] = "claude", createdPageIds: string[] = [], person?: Person, linkAuthor?: LinkAuthor, conversation?: { personId?: string; folder: string; late?: LateReplyReason }): ThreadReply | undefined {
     const thread = this.getThread(threadId);
     if (!thread) return undefined;
     const reply: ThreadReply = { id: randomUUID(), author, body, createdAt: now() };
     this.db
-      .prepare("INSERT INTO thread_replies (id, thread_id, author, body, created_at, created_page_ids, person_id, link_id, link_author) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(reply.id, threadId, reply.author, body, reply.createdAt, createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null, person?.id ?? null, linkAuthor?.linkId ?? null, linkAuthor?.name ?? null);
+      .prepare("INSERT INTO thread_replies (id, thread_id, author, body, created_at, created_page_ids, person_id, link_id, link_author, conversation_person_id, conversation_folder, late) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(reply.id, threadId, reply.author, body, reply.createdAt, createdPageIds.length > 0 ? JSON.stringify(createdPageIds) : null, person?.id ?? null, linkAuthor?.linkId ?? null, linkAuthor?.name ?? null, conversation?.personId ?? null, conversation?.folder ?? null, conversation?.late ?? null);
     this.emit({ type: "thread-updated", pageId: thread.pageId, threadId });
     return this.repliesOf(threadId).find((r) => r.id === reply.id);
   }
@@ -2044,12 +2173,13 @@ export class Store {
 
   private repliesOf(threadId: string): ThreadReply[] {
     const rows = this.db
-      .prepare("SELECT id, author, body, created_at AS createdAt, created_page_ids AS createdPageIds, person_id AS personId, link_id AS linkId, link_author AS linkName FROM thread_replies WHERE thread_id = ? ORDER BY created_at, rowid")
-      .all(threadId) as (ThreadReply & { createdPageIds: string | null; personId: string | null; linkId: string | null; linkName: string | null })[];
-    return rows.map(({ createdPageIds, personId, linkId, linkName, ...reply }) => {
+      .prepare("SELECT id, author, body, created_at AS createdAt, created_page_ids AS createdPageIds, person_id AS personId, link_id AS linkId, link_author AS linkName, conversation_person_id AS conversationPersonId, conversation_folder AS conversationFolder, late FROM thread_replies WHERE thread_id = ? ORDER BY created_at, rowid")
+      .all(threadId) as (Omit<ThreadReply, "late"> & { createdPageIds: string | null; personId: string | null; linkId: string | null; linkName: string | null; conversationPersonId: string | null; conversationFolder: string | null; late: LateReplyReason | null })[];
+    return rows.map(({ createdPageIds, personId, linkId, linkName, conversationPersonId, conversationFolder, late, ...reply }) => {
       const createdPages = this.createdPagesOf(createdPageIds);
       const person = this.getPerson(personId);
-      return { ...reply, ...(person ? { person } : {}), ...(linkId && linkName ? { linkAuthor: { linkId, name: linkName } } : {}), ...(createdPages ? { createdPages } : {}) };
+      const conversationOf = this.getPerson(conversationPersonId);
+      return { ...reply, ...(person ? { person } : {}), ...(conversationFolder !== null ? { conversation: { ...(conversationOf ? { person: conversationOf } : {}), folder: conversationFolder } } : {}), ...(linkId && linkName ? { linkAuthor: { linkId, name: linkName } } : {}), ...(late ? { late } : {}), ...(createdPages ? { createdPages } : {}) };
     });
   }
 
@@ -2344,8 +2474,6 @@ export interface PersistedWork {
   retryAt?: string;
   limit?: boolean;
   message?: string;
-  /** The item waits for the terminal session holding its page (see `PageLock.releaseTerminalWork`). */
-  forTerminal?: boolean;
   /** The person who handed the item over to the agent (see `PageLock.handOverThread`). */
   handedOverBy?: Person;
 }
@@ -2369,6 +2497,7 @@ export const BLOB_MIN_AGE_MS = 600_000;
  */
 const pageRowDeletes = (pages: string) => [
   `DELETE FROM thread_replies WHERE thread_id IN (SELECT id FROM threads WHERE page_id IN (${pages}))`,
+  `DELETE FROM thread_traces WHERE thread_id IN (SELECT id FROM threads WHERE page_id IN (${pages}))`,
   `DELETE FROM threads WHERE page_id IN (${pages})`,
   `DELETE FROM conversation_messages WHERE conversation_id IN (SELECT id FROM conversations WHERE page_id IN (${pages}))`,
   `DELETE FROM conversations WHERE page_id IN (${pages})`,

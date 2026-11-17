@@ -31,6 +31,9 @@ function replyAuthor(reply: ThreadReply, mine: (name: string) => boolean, writin
   return reply.person?.name ?? "L'équipe";
 }
 
+/** What an Écriture visitor reads under a comment that waits for a member's conversation to take it. */
+export const WAITS_FOR_TEAM_NOTE = "Ton commentaire attend qu'un membre de l'équipe le traite avec Claude.";
+
 /** What an Écriture visitor reads under a comment that waits for an agent. */
 export const CLAUDE_UNAVAILABLE_NOTE = "Claude n'est pas disponible pour l'instant : aucun agent ne tourne pour ce projet. Ton commentaire attend, il partira dès qu'un agent sera là.";
 
@@ -45,7 +48,7 @@ export function VisitorThreadsPanel({ threads, visitor, artboardTitles, otherPag
       <h2 className={styles.title}>{writing ? "Commentaires" : "Commentaires de ce lien"} · {threads.length}</h2>
       <p className={styles.hint}>
         {writing
-          ? `En Écriture, tu vois tous les fils ${visitor.view.scope === "project" ? "du projet" : "de la page"}, et tes commentaires partent à Claude comme ceux de l'équipe. Tu peux retoucher et restaurer des versions ; pas de partage, d'archivage, de suppression ni d'agent.`
+          ? `En Écriture, tu vois tous les fils ${visitor.view.scope === "project" ? "du projet" : "de la page"}, et tes commentaires sont à prendre par Claude comme ceux de l'équipe. Tu peux retoucher et restaurer des versions ; pas de partage, d'archivage, de suppression ni d'agent.`
           : "Les tiens et ceux des autres personnes de ce lien. Clique sur un élément en mode Commenter pour en poser un : l'équipe les lit avant de les confier à Claude."}
       </p>
       <VisitorThreadCards threads={threads} visitor={visitor} artboardTitles={artboardTitles} otherPages={otherPages} claudeAvailable={claudeAvailable} onShow={onShow} />
@@ -78,9 +81,9 @@ export function VisitorThreadCards({ threads, visitor, artboardTitles, otherPage
                 <span>{reply.body}</span>
               </span>
             ))}
-            {writing && claudeAvailable === false && thread.status === "open" && thread.replies.length === 0 && thread.linkAuthor && mine(thread.linkAuthor.name) && (
+            {writing && thread.status === "open" && thread.replies.length === 0 && thread.linkAuthor && mine(thread.linkAuthor.name) && (thread.toTake || claudeAvailable === false) && (
               <span role="status" className={styles.wait}>
-                {CLAUDE_UNAVAILABLE_NOTE}
+                {thread.toTake ? WAITS_FOR_TEAM_NOTE : CLAUDE_UNAVAILABLE_NOTE}
               </span>
             )}
           </button>

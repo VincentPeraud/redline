@@ -4,10 +4,14 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import fastifyStatic from "@fastify/static";
 import {
   type PageViewSettings,
+  type SetCommentModeRequest,
+  type HandOverRequest,
+  type SetCommentModeResponse,
+  COMMENT_MODES,
   type LinkAuthor,
   type ProjectLinkPage,
+  type Person,
   type Thread,
-  type TerminalHolder,
   COMPONENTS_CSS_PATH,
   withoutComponentStyles,
   DESIGN_SYSTEM_TOKENS_PATH,
@@ -84,7 +88,7 @@ import { registerChangeReviewRoutes } from "./change-reviews.js";
 import { validTimeZone } from "./version-dates.js";
 import { registerGapRoutes } from "./gaps.js";
 import type { ArtboardCapabilities } from "./artboard-capabilities.js";
-import { createAccess, registerAccess, type Access, type AuthMode, type Viewer } from "./access.js";
+import { createAccess, isMyDraft, registerAccess, type Access, type AuthMode, type Viewer } from "./access.js";
 import { DEFAULT_IDENTITY, registerIdentity, personRef, type IdentityConfig } from "./identity.js";
 import { type CliBuild } from "./cli-build.js";
 import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
@@ -96,7 +100,8 @@ import { registerSessionRoutes } from "./sessions.js";
 import { registerHomeRoutes } from "./home.js";
 import { archivedError, registerArchiveRoutes, registerArchivedGuard } from "./archive.js";
 import { moveArtboard } from "./move-artboard.js";
-import { dispatchBatch, dispatchReply, dispatchReviewed, dispatchThread, handOverThread } from "./work.js";
+import { dispatchBatch, dispatchReply, dispatchReviewed, dispatchThread } from "./work.js";
+import { freeTakesLostAccess, freeTakesOf, handOver, release } from "./hand-over.js";
 
 const PALETTE_TOKENS = ["--color-primary", "--color-text", "--color-background"];
 
@@ -157,10 +162,13 @@ export async function buildMainApp(
   const identity = options.identity ?? DEFAULT_IDENTITY;
   const authMode = options.authMode ?? (options.proxySecrets ? "proxy" : "none");
   const access = createAccess({ mode: authMode, store, secrets: options.proxySecrets, identity, firstAdminEmail: options.firstAdminEmail });
-  registerAccess(app, access);
+  registerAccess(app, access, store);
   registerIdentity(app, store, identity, authMode);
-  const onDeactivated: ((personId: string) => void)[] = [];
-  if (authMode === "local" || authMode === "proxy") registerAccountRoutes(app, store, authMode, (personId) => onDeactivated.forEach((listener) => listener(personId)), options.trustedProxy === true);
+  const accountChanges: { deactivated: ((personId: string) => void)[]; roleChanged: ((personId: string) => void)[] } = { deactivated: [], roleChanged: [] };
+  if (authMode === "local" || authMode === "proxy") {
+    const changes = { deactivated: (personId: string) => accountChanges.deactivated.forEach((listener) => listener(personId)), roleChanged: (personId: string) => accountChanges.roleChanged.forEach((listener) => listener(personId)) };
+    registerAccountRoutes(app, store, authMode, changes, options.trustedProxy === true);
+  }
   const { cliBuild } = options;
   store.setServerBuildHash(cliBuild?.hash);
   if (cliBuild) {
@@ -174,22 +182,24 @@ export async function buildMainApp(
   const agents = await registerAgentRoutes(app, store);
   const pageLock = new PageLock(store, agents, options.retryDelaysMs);
   app.addHook("onClose", async () => pageLock.dispose());
-  const terminalSessions = new TerminalSessions(store, pageLock, options.terminalPresenceTimeoutMs);
+  const terminalSessions = new TerminalSessions(options.terminalPresenceTimeoutMs);
   app.addHook("onClose", async () => terminalSessions.dispose());
-  onDeactivated.push((personId) => {
+  accountChanges.deactivated.push((personId) => {
     agents.disconnectPerson(personId);
     terminalSessions.releaseSessionsOf(personId);
+    freeTakesOf(store, pageLock, personId);
   });
+  accountChanges.roleChanged.push(() => freeTakesLostAccess(store, pageLock));
   await registerAgentApi(app, store, pageLock, terminalSessions, access, config, options.publicUrl);
   await registerProjectFileRoutes(app, store);
   registerProjectDesignSystemRoutes(app, store);
   registerEventRoutes(app, store, pageLock, access, options.eventsKeepAliveMs);
   registerLinkRoutes(app, store, access);
-  registerProjectSharingRoutes(app, store, access);
+  registerProjectSharingRoutes(app, store, access, pageLock);
   registerDesignSystemReload(app, store);
   const runs = registerRunRoutes(app, store);
   registerHomeRoutes(app, store, pageLock, access);
-  registerArchiveRoutes(app, store, pageLock, (pageIds) => returnPendingOn(store, pageLock, terminalSessions, pageIds));
+  registerArchiveRoutes(app, store, pageLock, (pageIds) => returnPendingOn(store, pageLock, pageIds));
   const knownWindows = new Map<string, number>();
   registerContextTracking(app, store, pageLock, knownWindows);
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
@@ -198,7 +208,6 @@ export async function buildMainApp(
   registerChangeReviewRoutes(app, store);
   registerGapRoutes(app, store);
   pageLock.restore();
-  terminalSessions.restore();
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/queue", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
@@ -268,6 +277,7 @@ export async function buildMainApp(
       if (!isVisibility(visibility)) return reply.code(400).send({ error: "visibility must be team or private" });
       if (!access.manages(req.viewer, req.params.projectId)) return reply.code(403).send({ error: "Only the creator of the project or an admin changes who sees it." });
       store.setProjectVisibility(req.params.projectId, visibility);
+      freeTakesLostAccess(store, pageLock, req.params.projectId);
     }
     if (title !== undefined) store.renameProject(req.params.projectId, title.trim());
     if (globalTakeoverOverride !== undefined) {
@@ -387,15 +397,15 @@ export async function buildMainApp(
 
   // "Refuser" is a user action of the web UI: on a change born of a request, or on a whole request.
   app.post<{ Params: { changeId: string }; Body: { answer?: unknown } | undefined }>("/api/changes/:changeId/refuse", async (req, reply) => {
-    const outcome = refuseChange(store, pageLock, terminalSessions, req.params.changeId, req.body?.answer);
+    const outcome = refuseChange(store, pageLock, req.params.changeId, req.body?.answer);
     return reply.code(outcome.status).send(outcome.body);
   });
   app.post<{ Params: { changeId: string } }>("/api/changes/:changeId/relaunch", async (req, reply) => {
-    const outcome = relaunchUndo(store, pageLock, terminalSessions, req.params.changeId);
+    const outcome = relaunchUndo(store, pageLock, req.params.changeId);
     return reply.code(outcome.status).send(outcome.body);
   });
   app.post<{ Params: { threadId: string }; Body: { answer?: unknown } | undefined }>("/api/threads/:threadId/refuse", async (req, reply) => {
-    const outcome = refuseRequest(store, pageLock, terminalSessions, req.params.threadId, req.body?.answer);
+    const outcome = refuseRequest(store, pageLock, req.params.threadId, req.body?.answer);
     return reply.code(outcome.status).send(outcome.body);
   });
 
@@ -408,14 +418,14 @@ export async function buildMainApp(
     const broken = brokenPagesAtDiffusion(store, designSystem.id);
     const closing = requestsClosedBy(store, designSystem.id);
     const created = store.createDiffusion(designSystem.id, "user");
-    closeDiffusedRequests(store, pageLock, terminalSessions, closing, created.number);
+    closeDiffusedRequests(store, pageLock, closing, created.number);
     settleMovedUp(store, designSystem.id);
     announceDiffusion(store, designSystem.id);
     // A removal the user confirmed breaks instances: each affected page gets a thread signed Redline, routed like any thread.
     for (const { pageId, artboard, breaks } of broken) {
       const body = `Le design system « ${designSystem.title} » a retiré ce que cette page utilise : ${breaks.join(", ")}. Mets à jour les instances concernées.`;
       const thread = store.createThread(pageId, { target: { kind: "artboard", artboard }, title: "Retrait dans le design system", body }, undefined, true);
-      dispatchThread(pageLock, store.getPage(pageId)!.projectId, thread, modelChoiceOf({}), terminalSessions);
+      dispatchThread(store, pageLock, store.getPage(pageId)!.projectId, thread, modelChoiceOf({}));
     }
     return reply.code(201).send(created);
   });
@@ -511,7 +521,10 @@ export async function buildMainApp(
         return { id: page.id, title: page.title, artboardCount: manifest === undefined ? 0 : parseManifest(manifest).artboards.length, updatedAt: store.listVersions(page.id)[0].createdAt };
       });
     }
-    return store.listPages(req.params.projectId, req.query.archived ? "archived" : "active");
+    return store.listPages(req.params.projectId, req.query.archived ? "archived" : "active").map((page) => {
+      const threads = store.listThreads(page.id);
+      return { ...page, openThreadCount: threads.filter((t) => t.status === "open").length, toTakeCount: threads.filter((t) => t.toTake).length };
+    });
   });
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId", async (req, reply) => {
@@ -521,16 +534,23 @@ export async function buildMainApp(
     return { ...(req.viewer.kind === "link" ? withoutAuthor : page), viewSettings: store.getViewSettings(page.id), designSystem: store.isDesignSystemProject(page.projectId) };
   });
 
-  app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/terminal-holder", async (req, reply): Promise<TerminalHolder | null> => {
-    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-    return terminalSessions.holderOf(req.params.pageId) ?? null;
-  });
-
-  // "Confier la page à l'agent": the hold ends and what waited for the terminal session goes to the agents, until a terminal session publishes again.
-  app.post<{ Params: { pageId: string } }>("/api/pages/:pageId/terminal-release", async (req, reply) => {
-    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-    terminalSessions.releasePage(req.params.pageId, { handedOverBy: req.person });
-    return reply.code(204).send();
+  // Who handles the page's new comments. Members with Écriture and admins switch it. To Agent, the threads to take go to the agent
+  // (taken ones stay with their taker); back to Conversation, the threads waiting for an offline agent are to take again
+  // (those an agent started stay with it). The answer counts the threads that changed hands.
+  app.post<{ Params: { pageId: string }; Body: SetCommentModeRequest }>("/api/pages/:pageId/comment-mode", async (req, reply): Promise<SetCommentModeResponse | void> => {
+    const page = store.getPage(req.params.pageId);
+    if (!page) return reply.code(404).send({ error: "page not found" });
+    const mode = req.body?.mode;
+    if (!COMMENT_MODES.includes(mode)) return reply.code(400).send({ error: "mode must be conversation or agent" });
+    if (mode === page.commentMode) return { ...page, movedThreads: 0 };
+    const toTake = mode === "agent" ? store.listThreads(page.id).filter((thread) => thread.toTake) : [];
+    store.setCommentMode(page.id, mode, req.person);
+    // One thread per call: each leaves in its own queue item, so one waiting for an offline agent can be taken or turned back alone.
+    for (const thread of toTake) dispatchReviewed(store, pageLock, page.projectId, [thread], modelChoiceOf({}));
+    const withdrawn = mode === "conversation" ? store.listThreads(page.id).filter((thread) => pageLock.withdrawWaiting(thread.id)) : [];
+    for (const thread of withdrawn) store.emit({ type: "thread-updated", pageId: page.id, threadId: thread.id });
+    const movedThreads = mode === "agent" ? toTake.length : withdrawn.length;
+    return { ...store.getPage(page.id)!, movedThreads };
   });
 
   app.post<{ Params: { pageId: string }; Body: PageViewSettings }>("/api/pages/:pageId/view-settings", async (req, reply) => {
@@ -605,10 +625,13 @@ export async function buildMainApp(
       const toReview = needsReview(req.viewer, { pageId: req.params.pageId });
       const thread = store.createThread(req.params.pageId, request, req.person, false, undefined, toReview, linkAuthorOf(req.viewer, request.visitorName));
       if (thread.status === "held" || thread.status === "review") return reply.code(201).send(withLinkName(req.viewer, thread));
-      dispatchThread(pageLock, store.getPage(req.params.pageId)!.projectId, thread, req.viewer.kind === "link" ? {} : modelChoiceOf(request), terminalSessions);
+      dispatchThread(store, pageLock, store.getPage(req.params.pageId)!.projectId, thread, req.viewer.kind === "link" ? {} : modelChoiceOf(request));
       return reply.code(201).send(withLinkName(req.viewer, thread));
     },
   );
+
+  /** A draft is its author's alone: everyone else, links included, never hears of it. */
+  const visibleTo = (viewer: Viewer) => (thread: Thread): boolean => thread.status !== "held" || isMyDraft(viewer, thread);
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/threads", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
@@ -617,13 +640,13 @@ export async function buildMainApp(
       const linkId = req.viewer.link.id;
       return store.listThreads(req.params.pageId).filter((thread) => thread.linkAuthor?.linkId === linkId);
     }
-    return store.listThreads(req.params.pageId).map((thread) => withLinkName(req.viewer, thread));
+    return store.listThreads(req.params.pageId).filter(visibleTo(req.viewer)).map((thread) => withLinkName(req.viewer, thread));
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/threads", async (req, reply) => {
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
     if (req.viewer.kind === "link" && req.viewer.link.scope !== "project") return reply.code(403).send({ error: "forbidden" });
-    return store.listProjectThreads(req.params.projectId).map((thread) => withLinkName(req.viewer, thread));
+    return store.listProjectThreads(req.params.projectId).filter(visibleTo(req.viewer)).map((thread) => withLinkName(req.viewer, thread));
   });
 
   // The user's reply in a thread: resumes the thread's session on the agent that opened it.
@@ -638,39 +661,33 @@ export async function buildMainApp(
     if (req.viewer.kind === "link" && req.viewer.link.level !== "write" && thread.linkAuthor?.linkId !== req.viewer.link.id) return reply.code(403).send({ error: "forbidden" });
     const nameError = visitorNameError(req.viewer, req.body.visitorName);
     if (nameError) return reply.code(400).send({ error: nameError });
+    if (thread.status === "held") return reply.code(409).send({ error: "a draft is not sent yet: only its author edits it" });
     const message = store.addReply(thread.id, body, "user", [], req.person, linkAuthorOf(req.viewer, req.body.visitorName))!;
-    // A thread waiting to be read stays with the readers; a Commentaire reply sends it back to them instead of to Claude.
+    // A thread waiting to be read stays with the readers; any other reply, a Commentaire member's too, follows the thread's handler.
     if (thread.status === "review") return reply.code(201).send(message);
-    if (needsReview(req.viewer, { threadId: thread.id })) {
-      store.returnToReview(thread.id);
-      return reply.code(201).send(message);
-    }
-    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, req.viewer.kind === "link" ? {} : modelChoiceOf(req.body), terminalSessions);
+    dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, req.viewer.kind === "link" ? {} : modelChoiceOf(req.body));
     return reply.code(201).send(message);
-  });
-
-  // "Confier à l'agent": a thread waiting for the terminal session goes to the agents; the page stays held.
-  app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/hand-over", async (req, reply) => {
-    if (!store.getThread(req.params.threadId)) return reply.code(404).send({ error: "thread not found" });
-    if (!handOverThread(store, pageLock, req.params.threadId, req.person)) return reply.code(409).send({ error: "this thread is not waiting for a terminal session" });
-    return reply.code(204).send();
   });
 
   app.patch<{ Params: { threadId: string }; Body: UpdateThreadRequest }>("/api/threads/:threadId", async (req, reply) => {
     const body = req.body?.body;
     if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
+    const current = store.getThread(req.params.threadId);
+    if (current?.status === "held" && !isMyDraft(req.viewer, current)) return reply.code(403).send({ error: "a draft belongs to its author" });
     const thread = store.updateHeldThread(req.params.threadId, body);
     return thread ?? reply.code(409).send({ error: "only a held comment can be edited" });
   });
 
   app.delete<{ Params: { threadId: string } }>("/api/threads/:threadId", async (req, reply) => {
+    const current = store.getThread(req.params.threadId);
+    if (current?.status === "held" && !isMyDraft(req.viewer, current)) return reply.code(403).send({ error: "a draft belongs to its author" });
     if (!store.deleteHeldThread(req.params.threadId)) return reply.code(409).send({ error: "only a held comment can be deleted" });
     return reply.code(204).send();
   });
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/held", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-    return store.listHeldThreads(req.params.pageId);
+    return store.listHeldThreads(req.params.pageId).filter(visibleTo(req.viewer));
   });
 
   // "Tout envoyer": the held comments of the page leave as one message to one session.
@@ -679,10 +696,15 @@ export async function buildMainApp(
     if (!page) return reply.code(404).send({ error: "page not found" });
     const invalidChoice = modelChoiceError(req.body ?? {});
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
-    const held = store.listHeldThreads(page.id);
+    const held = store.listHeldThreads(page.id).filter(visibleTo(req.viewer));
     if (held.length > 0) {
-      for (const thread of held) store.releaseHeldThread(thread.id);
-      dispatchBatch(pageLock, page.projectId, held, modelChoiceOf(req.body ?? {}), terminalSessions);
+      // Someone who only comments sends their drafts to be read first.
+      if (access.levelOf(req.viewer, { pageId: page.id }) === "comment") {
+        for (const thread of held) store.releaseHeldThread(thread.id, "review");
+      } else {
+        for (const thread of held) store.releaseHeldThread(thread.id);
+        dispatchBatch(store, pageLock, page.projectId, held, modelChoiceOf(req.body ?? {}));
+      }
     }
     const response: SendHeldResponse = { threads: held.length };
     return response;
@@ -700,7 +722,7 @@ export async function buildMainApp(
     const waiting = store.listReviewThreads(page.id).filter((thread) => ids === undefined || ids.includes(thread.id));
     if (waiting.length > 0) {
       for (const thread of waiting) store.releaseReviewThread(thread.id);
-      dispatchReviewed(store, pageLock, page.projectId, waiting, modelChoiceOf(req.body ?? {}), terminalSessions);
+      dispatchReviewed(store, pageLock, page.projectId, waiting, modelChoiceOf(req.body ?? {}));
     }
     const response: SendReviewResponse = { threads: waiting.length };
     return response;
@@ -709,9 +731,28 @@ export async function buildMainApp(
   // A user action of the web UI. Agents resolve a thread only with the answer that handles it (`resolve` on `POST /agent-api/threads/:id/replies`).
   app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/resolve", async (req, reply) => {
     // A request closes by a diffusion or a refusal, never by "Résoudre".
-    if (store.getThread(req.params.threadId)?.request) return reply.code(409).send({ error: "a request to the design system cannot be resolved" });
-    const thread = store.resolveThread(req.params.threadId);
+    const current = store.getThread(req.params.threadId);
+    if (current?.request) return reply.code(409).send({ error: "a request to the design system cannot be resolved" });
+    if (current?.status === "held") return reply.code(409).send({ error: "a draft is not sent yet: it cannot be resolved" });
+    const thread = store.resolveThread(req.params.threadId, req.person?.id ?? "");
     return thread ?? reply.code(404).send({ error: "thread not found" });
+  });
+
+  // "Libérer": the account that took the thread lets go of it; the thread follows the page's mode again.
+  app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/release", async (req, reply) => {
+    const thread = store.getThread(req.params.threadId);
+    if (!thread) return reply.code(404).send({ error: "thread not found" });
+    if (!release(store, pageLock, thread, req.person?.id ?? "")) return reply.code(409).send({ error: "this thread is not taken by your account" });
+    return store.getThread(thread.id);
+  });
+
+  // "Confier à l'agent": the thread goes to the agent without changing the page's mode. A thread taken by someone else needs `confirm`; refused when no agent runs.
+  app.post<{ Params: { threadId: string }; Body: HandOverRequest | undefined }>("/api/threads/:threadId/hand-over", async (req, reply) => {
+    const thread = store.getThread(req.params.threadId);
+    if (!thread) return reply.code(404).send({ error: "thread not found" });
+    const refusal = handOver(store, pageLock, thread, req.person, req.body?.confirm === true);
+    if (refusal) return reply.code(409).send(refusal);
+    return store.getThread(thread.id);
   });
 
   // A user action of the web UI too: a resolved thread goes back to the open threads, without starting a run.

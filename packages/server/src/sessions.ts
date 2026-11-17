@@ -8,18 +8,20 @@ import {
   type SessionStatus,
   type ThreadRun,
 } from "@redline/shared";
-import type { Access } from "./access.js";
+import { isMyDraft, type Access, type Viewer } from "./access.js";
 import type { PageLock } from "./page-lock.js";
+import { nameOf } from "./person-name.js";
 import type { SessionOrigin, Store } from "./store.js";
 
 interface Derived extends Pick<SessionRow, "name" | "sessionId" | "model" | "effort" | "context" | "activityAt"> {
   agentId?: string;
-  terminal?: true;
   workId?: string;
   threadId?: string;
   messages: SessionMessage[];
   /** Status when no run or queue entry says otherwise. */
   idleStatus: SessionStatus;
+  /** Why a thread of a Conversation-mode page waits for a conversation, with the taker's name when signed in. */
+  conversationWait?: { reason: "to-take" | "taken"; takenBy?: string };
 }
 
 /**
@@ -51,18 +53,21 @@ export function registerSessionRoutes(
             : thread.replies.some((r) => r.author === "claude")
               ? "answered"
               : "waiting-agent";
+      const taker = thread.take && nameOf(thread.take.person);
+      const conversationWait: Derived["conversationWait"] =
+        thread.status !== "open" ? undefined : thread.toTake ? { reason: "to-take" } : thread.take && (idleStatus === "waiting-agent" || thread.relaunch) ? { reason: "taken", ...(taker ? { takenBy: taker } : {}) } : undefined;
       return {
+        conversationWait,
         name: thread.title,
         sessionId: session?.sessionId,
         agentId: session?.agentId,
-        ...(store.getThreadTerminalSession(thread.id) ? { terminal: true as const } : {}),
         model: thread.context?.model,
         effort: thread.context?.effort,
         context: thread.context,
         threadId: thread.id,
         messages,
         activityAt: messages[messages.length - 1].createdAt,
-        idleStatus,
+        idleStatus: conversationWait?.reason === "taken" ? "waiting-agent" : idleStatus,
       };
     }
     const conversation = store.getConversation(origin.id);
@@ -100,7 +105,7 @@ export function registerSessionRoutes(
     const run = d.threadId ? [...runs.values()].reverse().find((r) => r.threadIds.includes(d.threadId!)) : d.workId ? runs.get(d.workId) : undefined;
 
     let status = d.idleStatus;
-    let waitingReason: SessionRow["waitingReason"];
+    let waitingReason: SessionRow["waitingReason"] = d.conversationWait?.reason;
     if (status !== "resolved" && status !== "archived") {
       if (queued) {
         status = queued.reason === "agent-offline" ? "waiting-agent" : "queued";
@@ -108,6 +113,7 @@ export function registerSessionRoutes(
         waitingReason = queued.reason === "agent-offline" && store.isDesignSystemProject(origin.projectId) ? "design-system-agent-offline" : queued.reason;
       } else if (run?.status === "sent" || run?.status === "running") {
         status = "running";
+        waitingReason = undefined;
       } else if (run?.status === "retrying") {
         status = "queued";
         waitingReason = "retrying";
@@ -133,28 +139,35 @@ export function registerSessionRoutes(
       ...(d.messages[0]?.person ? { startedBy: d.messages[0].person } : {}),
       ...(agent ? { agent: { id: agent.id, machine: agent.machine, folder: agent.folder, kind: agent.kind } } : {}),
       ...(d.sessionId ? { sessionId: d.sessionId } : {}),
-      ...(d.terminal ? { terminal: true as const } : {}),
       ...(d.model ? { model: d.model } : {}),
       ...(d.effort ? { effort: d.effort } : {}),
       ...(d.context ? { context: d.context } : {}),
       ...(waitingReason ? { waitingReason } : {}),
+      ...(waitingReason === "taken" && d.conversationWait?.takenBy ? { takenBy: d.conversationWait.takenBy } : {}),
     };
     return { row, messages: d.messages };
   }
 
   const agentsById = () => new Map(store.listAgents().map((a) => [a.id, a]));
 
+  /** The viewer reads the project's sessions, and a draft only when it is theirs. */
+  const visibleTo = (viewer: Viewer) => (origin: SessionOrigin): boolean => {
+    if (!access.may(viewer, "read", { projectId: origin.projectId })) return false;
+    const thread = origin.kind === "thread" ? store.getThread(origin.id) : undefined;
+    return thread?.status !== "held" || isMyDraft(viewer, thread);
+  };
+
   app.get(SESSIONS_PATH, async (req): Promise<SessionRow[]> => {
     const agents = agentsById();
     return store
       .listSessionOrigins()
-      .filter((origin) => access.may(req.viewer, "read", { projectId: origin.projectId }))
+      .filter(visibleTo(req.viewer))
       .flatMap((origin) => toRow(origin, agents)?.row ?? [])
       .sort((a, b) => b.activityAt.localeCompare(a.activityAt));
   });
 
   app.get<{ Params: { id: string } }>(`${SESSIONS_PATH}/:id`, async (req, reply) => {
-    const origin = store.listSessionOrigins().find((o) => o.id === req.params.id && access.may(req.viewer, "read", { projectId: o.projectId }));
+    const origin = store.listSessionOrigins().find((o) => o.id === req.params.id && visibleTo(req.viewer)(o));
     const found = origin && toRow(origin, agentsById());
     if (!found) return reply.code(404).send({ error: "session not found" });
     const detail: SessionDetail = { ...found.row, messages: found.messages };

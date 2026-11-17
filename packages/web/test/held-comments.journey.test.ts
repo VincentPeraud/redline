@@ -31,7 +31,7 @@ afterAll(async () => {
   rmSync(webDir, { recursive: true, force: true });
 });
 
-it("holds two comments with Plus tard, keeps them over a reload, then sends them together with Tout envoyer", async () => {
+it("holds two comments as drafts, keeps them over a reload, then sends them together with Tout envoyer", async () => {
   const page = await seam.createPage({ "home.html": "<!doctype html><h1>Plain title</h1><button>Go</button>" });
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
@@ -44,11 +44,20 @@ it("holds two comments with Plus tard, keeps them over a reload, then sends them
   await tab.locator("#new-comment").press("Meta+Enter");
   await artboard.locator("button").click();
   await tab.locator("#new-comment").fill("Exclaim the button");
-  await tab.getByRole("button", { name: "Plus tard" }).click();
+  await tab.getByRole("button", { name: "Brouillon", exact: true }).click();
 
   await expect.poll(() => tab.getByTestId("held-thread").count()).toBe(2);
-  await expect.poll(() => tab.getByTestId("held-bar").textContent()).toContain("2 en attente d'envoi");
+  await expect.poll(() => tab.getByTestId("held-bar").textContent()).toContain("2 brouillons, à toi seul");
+  expect(await tab.getByTestId("held-bar").textContent()).toContain("ils partiront ensemble à l'agent");
   expect(engine.runs).toHaveLength(0);
+
+  // Deleting asks first; Annuler keeps the draft.
+  await tab.getByTestId("held-thread").first().getByRole("button", { name: "Supprimer" }).click();
+  const dialog = tab.getByRole("alertdialog", { name: "Supprimer ce brouillon ?" });
+  await dialog.waitFor();
+  await dialog.getByRole("button", { name: "Annuler" }).click();
+  await dialog.waitFor({ state: "detached" });
+  expect(await tab.getByTestId("held-thread").count()).toBe(2);
 
   await tab.reload();
   await tab.getByRole("tab", { name: /^Commentaires/ }).click();

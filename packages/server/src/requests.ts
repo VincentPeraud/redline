@@ -3,7 +3,7 @@ import { projectComponents } from "./components.js";
 import { modelChoiceOf, requiredString } from "./validation.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store, StoredRequest } from "./store.js";
-import { dispatchThread, type TerminalPresence } from "./work.js";
+import { dispatchThread } from "./work.js";
 
 export type SendRequestOutcome = { status: 201; body: SendRequestResponse } | { status: 400 | 404 | 409; body: { error: string } };
 
@@ -16,7 +16,7 @@ const mainPageArtboard = (store: Store, pageId: string): string | undefined => {
  * A project's session asks the design system it follows for something a component lacks: a thread on the component's
  * artboard in the design system, sent to the design system's work like any thread (no accept step).
  */
-export function sendRequest(store: Store, pageLock: PageLock, terminal: TerminalPresence, pageId: string, body: Partial<SendRequestRequest> | undefined): SendRequestOutcome {
+export function sendRequest(store: Store, pageLock: PageLock, pageId: string, body: Partial<SendRequestRequest> | undefined): SendRequestOutcome {
   const page = store.getPage(pageId);
   if (!page) return { status: 404, body: { error: "page not found" } };
   const { component, missing, artboard, selector, threadId } = body ?? {};
@@ -45,6 +45,6 @@ export function sendRequest(store: Store, pageLock: PageLock, terminal: Terminal
   // A component the design system lacks has no artboard: the request sits on the first artboard of its main page.
   const anchor = info ?? { page: { id: designSystem.pageId }, file: mainPageArtboard(store, designSystem.pageId) ?? `components/${name}.html` };
   const thread = store.createThread(anchor.page.id, { target: { kind: "artboard", artboard: anchor.file }, body: origin?.body ?? missing.trim(), viaProjectId: page.projectId }, origin?.person, false, request);
-  dispatchThread(pageLock, designSystem.id, thread, modelChoiceOf({}), terminal);
+  dispatchThread(store, pageLock, designSystem.id, thread, modelChoiceOf({}));
   return { status: 201, body: { threadId: thread.id, pageId: thread.pageId, designSystemTitle: designSystem.title } };
 }

@@ -95,6 +95,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send, r
       pageId: item.pageId,
       workingCopyDir: dir,
       workId: item.id,
+      handsOverComments: item.kind === "conversation",
       onRemovalsConfirmed: () => void (removalsConfirmed = true),
       onChangeRecorded: (change) => void changes.push(change),
       // The page changed under the run: what it publishes is measured against the page as it is now.

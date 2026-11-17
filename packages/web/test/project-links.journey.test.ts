@@ -102,7 +102,7 @@ it("opens a project link on the list of its pages: later pages in, archived ones
 it("lets an Écriture personal link work on a project: Nouvelle page, team threads, a comment that waits without an agent, history signed with the link", async () => {
   const project = (await (await api("POST", "/api/projects", { title: "Agora" })).json()) as Project;
   const pageId = await newPage(project.id, "Réunion avant");
-  await api("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body: "Team remark", held: true });
+  await api("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body: "Team remark" });
   const link = await newLink(`/api/projects/${project.id}/links`, { kind: "personal", name: "Alix", level: "write" });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const tab = await context.newPage();
@@ -131,7 +131,7 @@ it("lets an Écriture personal link work on a project: Nouvelle page, team threa
   await composer.getByRole("button", { name: "Envoyer" }).click();
   await tab.getByRole("heading", { name: "Commentaires · 2" }).waitFor();
   await tab.getByText("Alix (lien)").first().waitFor();
-  await tab.getByText(/Claude n'est pas disponible pour l'instant/).waitFor();
+  await tab.getByText(/Ton commentaire attend qu'un membre de l'équipe le traite avec Claude/).waitFor();
   await tab.screenshot({ path: join(tmpdir(), "visitor-write-desktop.png") });
   const mine = ((await (await api("GET", `/api/pages/${pageId}/threads`)).json()) as Thread[]).find((t) => t.body === "Agrandis le titre.")!;
   expect(mine).toMatchObject({ status: "open", linkAuthor: { name: "Alix" } });
@@ -214,7 +214,7 @@ it("lists every thread of the project to an Écriture project link, newest first
   const project = (await (await api("POST", "/api/projects", { title: "Fils" })).json()) as Project;
   const first = await newPage(project.id, "Avant");
   const second = await newPage(project.id, "Après");
-  const thread = (pageId: string, body: string) => api("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body, held: true });
+  const thread = (pageId: string, body: string) => api("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body });
   await thread(first, "Oldest remark");
   await thread(first, "Middle remark");
   await thread(second, "Other page remark");
@@ -247,7 +247,7 @@ it("tells an Écriture visitor on a phone that Claude is not available, and keep
   await tab.getByRole("button", { name: "Commentaires · 1" }).click();
   const list = tab.getByRole("region", { name: "Commentaires" });
   await list.getByText("Alix (lien)").waitFor();
-  await list.getByText(/Claude n'est pas disponible pour l'instant/).waitFor();
+  await list.getByText(/Ton commentaire attend qu'un membre de l'équipe le traite avec Claude/).waitFor();
   await tab.screenshot({ path: join(tmpdir(), "visitor-write-phone.png") });
   await phone.close();
 }, 30_000);
@@ -256,7 +256,7 @@ it("lists the threads of every page to an Écriture project link on a phone, wit
   const project = (await (await api("POST", "/api/projects", { title: "Phone threads" })).json()) as Project;
   const first = await newPage(project.id, "Avant");
   const second = await newPage(project.id, "Après");
-  const thread = (pageId: string, body: string) => api("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body, held: true });
+  const thread = (pageId: string, body: string) => api("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body });
   await thread(first, "Remark on the first");
   await thread(second, "Remark on the second");
   const link = await newLink(`/api/projects/${project.id}/links`, { kind: "personal", name: "Alix", level: "write" });

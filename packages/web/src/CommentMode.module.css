@@ -1,0 +1,302 @@
+/* Comment mode toggle, left of the agent pill. */
+.mode {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.label {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 120ms;
+}
+
+.label:hover,
+.label[aria-expanded="true"] {
+  color: var(--color-text);
+}
+
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+}
+
+.seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+
+.seg button:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.seg button[aria-pressed="true"] {
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+  box-shadow: var(--shadow-sm);
+}
+
+.seg button:disabled {
+  cursor: not-allowed;
+}
+
+.seg svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.segOff {
+  opacity: 0.55;
+}
+
+.dotOn {
+  display: block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-online);
+}
+
+/* Popover under the toggle: over the content, never moving it. */
+.pop {
+  position: absolute;
+  top: 44px;
+  left: 0;
+  z-index: 30;
+  width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--color-text-body);
+  animation: pop-in 120ms ease-out;
+}
+
+.pop[data-closing] {
+  animation: pop-out 120ms ease-in forwards;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pop,
+  .pop[data-closing] {
+    animation-duration: 1ms;
+  }
+}
+
+.popTitle {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.option b {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.optionIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 1lh;
+  color: var(--color-text-muted);
+}
+
+.optionIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.note,
+.warn {
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-md);
+}
+
+.note {
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+}
+
+.warn {
+  background: var(--color-warning-note-bg);
+  color: var(--color-warning-ink);
+}
+
+/* Phone: the toggle heads the comments panel, full width, its explanation behind the label's ⓘ. */
+.modePanel {
+  display: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.labelPanel {
+  align-self: flex-start;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  position: relative;
+}
+
+/* The label is as tall as its text, like the mock-up; its touch area reaches into the padding above and the gap below. */
+.labelPanel::after {
+  content: "";
+  position: absolute;
+  inset: -16px -8px -8px;
+}
+
+.segPanel {
+  display: flex;
+}
+
+.segPanel button {
+  flex: 1;
+  justify-content: center;
+  height: 40px;
+  font-size: var(--font-size-md);
+}
+
+.popPanel {
+  top: 36px;
+  left: var(--space-4);
+  right: var(--space-4);
+  width: auto;
+}
+
+@media (max-width: 700px) {
+  .modePanel {
+    display: flex;
+  }
+}
+
+/* The line at the top of the comments panel. */
+.hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: var(--space-3) 14px;
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.hint b {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.hintIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 1lh;
+}
+
+.hintIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Confirmation of the switch to Agent. */
+.dialogText {
+  margin: 0;
+  font-size: var(--font-size-md);
+  line-height: 1.55;
+  color: var(--color-text-body);
+}
+
+.counts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.counts li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.count {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 1lh;
+}
+
+.count span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}

@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENT_ENDPOINT, PROTOCOL_VERSION, type AgentHello, type ServerToAgentMessage } from "@redline/shared";
+import { AGENT_ENDPOINT, PROTOCOL_VERSION, type AgentHello, type CommentMode, type ServerToAgentMessage } from "@redline/shared";
 import { startServer, type RunningServer } from "./start.js";
 
 export interface TestAgent {
@@ -23,7 +23,10 @@ export interface TestServer {
   readonly artboardOrigin: string;
   dataDir: string;
   get(path: string): Promise<Response>;
+  /** A page created through here starts in `defaultCommentMode` (the tests are mostly about what the agent does with a comment). */
   post(path: string, body: unknown): Promise<Response>;
+  /** The comment mode `post` gives the pages it creates: "agent" by default, "conversation" is the production default. */
+  defaultCommentMode: CommentMode;
   /** Opens an agent connection and sends the hello (token defaults to the server's current token). */
   connectAgent(options?: ConnectAgentOptions): Promise<TestAgent>;
   /** Number of distinct blobs on disk. */
@@ -55,7 +58,22 @@ export async function startTestServer(options: { webDir?: string; cliDir?: strin
   let server: RunningServer = await start({ port: 0, artboardPort: 0 });
   const ports = { port: Number(new URL(server.url).port), artboardPort: Number(new URL(server.artboardOrigin).port) };
   const sockets: WebSocket[] = [];
+  const send = (path: string, body: unknown) =>
+    sturdyFetch(() =>
+      fetch(server.url + path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  let defaultCommentMode: CommentMode = "agent";
   return {
+    get defaultCommentMode() {
+      return defaultCommentMode;
+    },
+    set defaultCommentMode(mode: CommentMode) {
+      defaultCommentMode = mode;
+    },
     get url() {
       return server.url;
     },
@@ -64,16 +82,16 @@ export async function startTestServer(options: { webDir?: string; cliDir?: strin
     },
     dataDir,
     get: (path) => sturdyFetch(() => fetch(server.url + path)),
-    post: (path, body) =>
-      sturdyFetch(() =>
-        fetch(server.url + path, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      ),
+    async post(path, body) {
+      const response = await send(path, body);
+      if (response.ok && /^\/api\/projects\/[^/]+\/pages$/.test(path) && defaultCommentMode !== "conversation") {
+        const { id } = (await response.clone().json()) as { id: string };
+        await send(`/api/pages/${id}/comment-mode`, { mode: defaultCommentMode });
+      }
+      return response;
+    },
     async connectAgent(options = {}) {
-      const token = options.token ?? ((await (await fetch(server.url + "/api/agent-token")).json()) as { token: string }).token;
+      const token = options.token ?? ((await (await sturdyFetch(() => fetch(server.url + "/api/agent-token"))).json()) as { token: string }).token;
       const socket = new WebSocket(server.url.replace(/^http/, "ws") + AGENT_ENDPOINT);
       sockets.push(socket);
       const messages: ServerToAgentMessage[] = [];

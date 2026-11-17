@@ -6,11 +6,18 @@ import { InstanceThreadInfo } from "./InstanceThreads.js";
 import { RemovedTag } from "./RemovedTag.js";
 import { RenderingChip } from "./RenderingChip.js";
 import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
-import { Button, Textarea, Tooltip, cx } from "./ui/index.js";
+import { Button, Dialog, DialogActions, Textarea, Tooltip, cx } from "./ui/index.js";
+import { DIALOG_EXIT_MS } from "./ui/Dialog.js";
 import styles from "./Thread.module.css";
 
-/** Bar "N en attente d'envoi · Tout envoyer": the held comments of the open page leave together, as one message. */
-export function HeldBar({ pageId, count, choice }: { pageId: string; count: number; choice: ModelEffortChoice }) {
+const SENT_AS: Record<"conversation" | "agent" | "review", string> = {
+  conversation: "ils seront à prendre par une conversation.",
+  agent: "ils partiront ensemble à l'agent.",
+  review: "ils seront à relire par un membre en Écriture.",
+};
+
+/** Bar "N brouillons, à toi seul · Tout envoyer": the viewer's own drafts leave together; the line says what they become once sent. */
+export function HeldBar({ pageId, count, choice, sentAs }: { pageId: string; count: number; choice: ModelEffortChoice; sentAs: keyof typeof SENT_AS }) {
   async function sendAll() {
     const request: SendHeldRequest = choice;
     await fetch(`/api/pages/${pageId}/send-held`, {
@@ -23,9 +30,10 @@ export function HeldBar({ pageId, count, choice }: { pageId: string; count: numb
   if (count === 0) return null;
   return (
     <div data-testid="held-bar" className={styles.heldBar}>
-      <span className={styles.heldCount}>{count} en attente d'envoi</span>
-      <span className={styles.heldHint}>part avec les suivants</span>
-      <span className={styles.spacer} />
+      <div className={styles.heldText}>
+        <span className={styles.heldCount}>{count === 1 ? "1 brouillon" : `${count} brouillons`}, à toi seul</span>
+        <span className={styles.heldHint}>Ni Claude ni les autres membres ne les voient. Une fois envoyés, {SENT_AS[sentAs]}</span>
+      </div>
       <Button variant="accent" size="sm" onClick={() => void sendAll()}>
         Tout envoyer
       </Button>
@@ -33,10 +41,34 @@ export function HeldBar({ pageId, count, choice }: { pageId: string; count: numb
   );
 }
 
-/** A held comment: dashed, labelled "En attente d'envoi", editable and deletable until it is sent. */
+/** "Supprimer ce brouillon ?": nobody else saw it, so the dialog only names it and asks once. */
+function DeleteDraftDialog({ thread, closing, onCancel, onDelete }: { thread: Thread; closing: boolean; onCancel: () => void; onDelete: () => void }) {
+  return (
+    <Dialog title="Supprimer ce brouillon ?" width={360} onClose={onCancel} closing={closing} alert>
+      <p className={styles.dialogText}>« {thread.body} » sera supprimé. Personne ne l'a vu.</p>
+      <DialogActions>
+        <Button onClick={onCancel}>Annuler</Button>
+        <Button variant="danger" onClick={onDelete}>
+          Supprimer
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/** A draft: dashed, labelled "Brouillon", editable and deletable (after a confirmation) until its author sends it. */
 export function HeldThreadCard({ thread }: { thread: Thread }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(thread.body);
+  const [deleting, setDeleting] = useState<"open" | "closing" | null>(null);
+
+  const closeDialog = (then?: () => void) => {
+    setDeleting("closing");
+    setTimeout(() => {
+      setDeleting(null);
+      then?.();
+    }, DIALOG_EXIT_MS);
+  };
 
   async function save() {
     if (text.trim() === "") return;
@@ -58,7 +90,7 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
         <span className={styles.spacer} />
         {thread.removed && <RemovedTag />}
         <span className={styles.headRight}>
-          <span className={styles.heldLabel}>En attente d'envoi</span>
+          <span className={styles.heldLabel}>Brouillon</span>
           {!editing && (
             <span className={styles.heldActions}>
               <Tooltip label="Modifier">
@@ -70,7 +102,7 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
                 </button>
               </Tooltip>
               <Tooltip label="Supprimer">
-                <button type="button" aria-label="Supprimer" className={styles.iconAction} onClick={() => void fetch(`/api/threads/${thread.id}`, { method: "DELETE" })}>
+                <button type="button" aria-label="Supprimer" className={styles.iconAction} onClick={() => setDeleting("open")}>
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M4 7h16" />
                     <path d="M10 11v6" />
@@ -110,6 +142,9 @@ export function HeldThreadCard({ thread }: { thread: Thread }) {
             {thread.body}
           </div>
         </>
+      )}
+      {deleting && (
+        <DeleteDraftDialog thread={thread} closing={deleting === "closing"} onCancel={() => closeDialog()} onDelete={() => closeDialog(() => void fetch(`/api/threads/${thread.id}`, { method: "DELETE" }))} />
       )}
     </article>
   );
