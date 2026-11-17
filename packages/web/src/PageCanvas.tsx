@@ -214,6 +214,15 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   /** On a phone the side panel is a full-screen sheet over the canvas; it only shows while open. */
   const [sheetOpen, setSheetOpen] = useState(false);
   const phone = usePhone();
+  // The phone sheet is a modal dialog: Escape closes it.
+  useEffect(() => {
+    if (!phone || !sheetOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSheetOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phone, sheetOpen]);
   /** Artboard whose whole-artboard threads the Commentaires tab scrolls to once shown. */
   const [scrollToArtboard, setScrollToArtboard] = useState<string | null>(null);
   const [scrollToThread, setScrollToThread] = useState<string | null>(null);
