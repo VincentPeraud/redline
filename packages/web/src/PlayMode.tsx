@@ -5,7 +5,7 @@ import { PlayStepper } from "./PlayStepper.js";
 import type { TocItem } from "./tocItems.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { PlayFrame } from "./PlayFrame.js";
-import { presentationOf, type Presentation } from "./playFrames.js";
+import { fitToStage, presentationOf, scrollTagLabel } from "./playFrames.js";
 import { ArtboardGuides } from "./ArtboardGuides.js";
 import { GuidesButton } from "./GuidesButton.js";
 import { isEditableTarget } from "./isEditableTarget.js";
@@ -56,23 +56,6 @@ interface Props {
   guidesVisible: boolean;
   onToggleGuides: () => void;
   onExit: () => void;
-}
-
-/** Viewport and scale that fit the presentation on the stage; a `fill` presentation stretches to the stage instead. */
-export function fitToStage(presentation: Presentation, stage: { width: number; height: number }) {
-  const { viewport, fill, stagePadding, frameHeight } = presentation;
-  if (fill === "both") return { viewport: stage, scale: 1 };
-  if (stage.width === 0) return { viewport, scale: 1 };
-  if (fill === "height") {
-    const scale = Math.min(1, Math.max(0.1, stage.width / viewport.width));
-    return { viewport: { width: viewport.width, height: stage.height / scale }, scale };
-  }
-  const scale = Math.min(
-    1,
-    Math.max(0.1, (stage.width - stagePadding * 2) / viewport.width),
-    Math.max(0.1, (stage.height - stagePadding * 2 - frameHeight) / viewport.height),
-  );
-  return { viewport, scale };
 }
 
 /** One artboard at a time at full size; clicks on elements linked in the manifest switch artboard (via the bridge). */
@@ -362,8 +345,15 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
         </header>
       )}
       <div className={styles.body}>
-        <main ref={stage} data-frame={presentation?.frame} data-fill={presentation?.fill === "none" ? undefined : presentation?.fill} className={styles.stage}>
+        <main ref={stage} data-frame={presentation?.frame} data-fill={presentation?.fill === "none" ? undefined : presentation?.fill} data-scroll={fitted?.scroll ?? undefined} className={styles.stage}>
           {artboard && presentation && fitted ? (
+            <>
+              {fitted.scroll && (
+                <div className={styles.sizeTag}>
+                  <span>{scrollTagLabel(fitted.scroll, presentation.viewport)}</span>
+                </div>
+              )}
+              <div className={styles.content} style={{ padding: presentation.stagePadding }}>
             <PlayFrame frame={presentation.frame} url={artboard.url} statusColour={topColour ?? undefined}>
               <div className={styles.viewport} style={{ width: fitted.viewport.width * fitted.scale, height: fitted.viewport.height * fitted.scale }}>
                 <ArtboardIframe
@@ -382,6 +372,8 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
                 )}
               </div>
             </PlayFrame>
+              </div>
+            </>
           ) : (
             <p className={styles.empty}>Aucun artboard</p>
           )}

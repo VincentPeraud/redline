@@ -64,6 +64,32 @@ export function presentationOf(
   };
 }
 
+/** How an artboard taller than the stage is shown: at its real width ("real") or, when the stage is narrower, at the stage width ("width"). It scrolls either way. */
+export type ScrollFit = "real" | "width" | null;
+
+/**
+ * Viewport and scale that fit the presentation on the stage; a `fill` presentation stretches to the stage instead.
+ * A frameless artboard taller than the stage is not shrunk to its height: it keeps its width (capped to the stage) and the stage scrolls.
+ */
+export function fitToStage(presentation: Presentation, stage: { width: number; height: number }): { viewport: { width: number; height: number }; scale: number; scroll: ScrollFit } {
+  const { viewport, fill, stagePadding, frameHeight, frame } = presentation;
+  if (fill === "both") return { viewport: stage, scale: 1, scroll: null };
+  if (stage.width === 0) return { viewport, scale: 1, scroll: null };
+  if (fill === "height") {
+    const scale = Math.min(1, Math.max(0.1, stage.width / viewport.width));
+    return { viewport: { width: viewport.width, height: stage.height / scale }, scale, scroll: null };
+  }
+  const widthScale = Math.min(1, Math.max(0.1, (stage.width - stagePadding * 2) / viewport.width));
+  if (frame === "none" && viewport.height * widthScale > stage.height - stagePadding * 2) return { viewport, scale: widthScale, scroll: widthScale < 1 ? "width" : "real" };
+  const scale = Math.min(widthScale, Math.max(0.1, (stage.height - stagePadding * 2 - frameHeight) / viewport.height));
+  return { viewport, scale, scroll: null };
+}
+
+/** The tag over a scrolling stage, from the artboard's own size. */
+export function scrollTagLabel(scroll: Exclude<ScrollFit, null>, size: { width: number; height: number }): string {
+  return `${scroll === "real" ? "Taille réelle" : "Pleine largeur"} · ${size.width} × ${size.height} · fais défiler`;
+}
+
 /** Ink of the phone's status bar over `colour` (an `rgb()`/`rgba()` string), as iOS picks it: white on a dark background, black otherwise. */
 export function statusBarInk(colour: string): "light" | "dark" {
   const [r = 255, g = 255, b = 255] = (/rgba?\(([^)]*)\)/.exec(colour)?.[1] ?? "").split(/[\s,/]+/).filter(Boolean).map(Number);

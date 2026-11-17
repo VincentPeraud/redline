@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { activeSteps, progressOf, stepIsGroup, stepIsModified, stepLabel, stepStatus, type ChangeReview, type ChangeReviewStep, type TweakValues } from "@redline/shared";
+import { activeSteps, progressOf, renderingKey, stepIsCanvasOnly, stepIsGroup, stepIsModified, stepLabel, stepStatus, type ChangeReview, type ChangeReviewStep, type ReviewPin, type TweakValues } from "@redline/shared";
 import { type StepControls } from "./useReviewControls.js";
 import { usePhone } from "./usePhone.js";
 import { cx } from "./ui/index.js";
 import { counted } from "./plural.js";
 import { PersonDot, RemarkEditor, personName } from "./ReviewRemark.js";
+import { PhonePickBanner, PhonePinButton, PhonePinEditor, PhonePinsList, PhoneTheirPins, PinButton, PinsSection, TheirPins, useReviewPins } from "./ReviewPins.js";
+import { feedbackReplacesOk, isCanvasPin } from "./reviewPinRules.js";
+import { hasCanvasView } from "./reviewMixed.js";
 import { STEP_STATE, type View, formatWhen, lockTitle, lockWhen, neighbour, reviewPath, shownStep, stepNumber, titleOfArtboard } from "./reviewView.js";
 import { ReviewStage } from "./ReviewStage.js";
 import styles from "./ReviewScreen.module.css";
@@ -28,7 +31,7 @@ function Progress({ review, index }: { review: ChangeReview; index: number }) {
   );
 }
 
-type RemarkProps = { reviewPath: string; onReview: (review: ChangeReview) => void; onReload: () => void; onUnsaved: (unsaved: boolean) => void };
+type RemarkProps = { reviewPath: string; onReview: (review: ChangeReview) => void; onReload: () => void; onUnsaved: (unsaved: boolean) => void; onPinUnsaved: (unsaved: boolean) => void };
 
 export function StepView({
   review,
@@ -36,6 +39,8 @@ export function StepView({
   controls,
   openedMember,
   onOpenMember,
+  canvasShown,
+  onCanvasShown,
   failed,
   onGo,
   onOk,
@@ -49,6 +54,9 @@ export function StepView({
   controls: StepControls;
   openedMember: number | undefined;
   onOpenMember: (member: number | undefined) => void;
+  /** The canvas view of a mixed step is on screen. */
+  canvasShown: boolean;
+  onCanvasShown: (shown: boolean) => void;
   failed: boolean;
   onGo: (view: View) => void;
   onOk: () => void;
@@ -60,16 +68,39 @@ export function StepView({
   const step = review.steps[index]!;
   const own = step.answers.find((answer) => answer.mine);
   const others = step.answers.filter((answer) => !answer.mine);
-  const status = stepStatus(step.answers);
+  const status = stepStatus(step.answers, step.pins);
   const finished = review.state !== "open";
   const [keptUnsaved, setKeptUnsaved] = useState(false);
   const phone = usePhone();
   const [remarkOpen, setRemarkOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   // The member's own answer saw an older version of the artboard.
-  const modified = stepIsModified(step) || own?.outdated === true;
   const group = stepIsGroup(step);
-  const shown = shownStep(step, openedMember);
+  const shown = shownStep(step, openedMember, canvasShown);
+  const canvasView = stepIsCanvasOnly(shown) && !stepIsCanvasOnly(step);
+  /** Opening an artboard of the group brings the artboard view back. */
+  const openMember = (member: number | undefined) => {
+    onCanvasShown(false);
+    onOpenMember(member);
+  };
+  const { onPinUnsaved, ...remarkProps } = remark;
+  const pins = useReviewPins({ review, step, shown, controls, api: { reviewPath: remark.reviewPath, onReview: remark.onReview, onReload: remark.onReload, onUnsaved: onPinUnsaved } });
+  const ownRemark = own?.kind === "remark";
+  const hasFeedback = ownRemark || pins.mine.length > 0;
+  const feedbackOutdated = (ownRemark && own.outdated === true) || pins.mine.some((pin) => pin.outdated);
+  const modified = stepIsModified(step) || own?.outdated === true || feedbackOutdated;
+  /** "l'afficher": brings the artboard, rendering and state a pin was placed in back on the stage. */
+  const showPin = (pin: ReviewPin) => {
+    if (isCanvasPin(pin)) return onCanvasShown(true);
+    onCanvasShown(false);
+    controls.chooseBefore(false);
+    const home = pin.on ? step.others?.findIndex((member) => member.pageId === pin.on!.pageId && member.artboard === pin.on!.artboard) : undefined;
+    onOpenMember(home === undefined || home < 0 ? undefined : home);
+    const rendering = pin.rendering && controls.renderings.find((candidate) => renderingKey(candidate) === renderingKey(pin.rendering!));
+    if (rendering) controls.chooseRendering(rendering);
+    for (const [id, value] of Object.entries(pin.tweaks ?? {})) controls.setValue(id, value);
+  };
+  const pinButton = !finished && <PinButton pins={pins} />;
   const size = group ? step.others!.length + 1 : 1;
   const pageCount = new Set([step.pageId, ...(step.others ?? []).map((member) => member.pageId)]).size;
   const changedNames = (step.others ?? []).filter((member) => member.modified).map((member) => `${member.pageTitle} · ${member.artboardTitle}`);
@@ -83,9 +114,10 @@ export function StepView({
       own={own}
       finished={finished}
       onKeptUnsaved={setKeptUnsaved}
+      placeholder={stepIsCanvasOnly(step) ? "Ce qui ne va pas sur cette partie de la page" : undefined}
       placement={group ? { shown: { pageId: shown.pageId, artboard: shown.artboard }, example: { pageId: step.pageId, artboard: step.artboard }, titleOf: (ref) => titleOfArtboard(step, ref) } : undefined}
       phone={phone ? { open: remarkOpen, onClose: () => setRemarkOpen(false) } : undefined}
-      {...remark}
+      {...remarkProps}
     />
   );
   const groupWarning = group && !finished && own?.outdated && own.kind === "ok" && changedSince.length > 0 && (
@@ -94,7 +126,8 @@ export function StepView({
     </span>
   );
   const failedLine = failed && <span className={cx(styles.hint, styles.error)}>Pas enregistré : Redline ne répond pas.</span>;
-  const othersSection = others.length > 0 && (
+  // On a phone the other members' pins are read on the artboard (a line each in the sheet), not listed in the details.
+  const othersSection = others.length + (phone ? 0 : pins.theirs.length) > 0 && (
     <section className={styles.section}>
       <h3>Les autres</h3>
       {others.map((answer) => (
@@ -105,6 +138,7 @@ export function StepView({
           </span>
         </div>
       ))}
+      {!phone && <TheirPins pins={pins} />}
     </section>
   );
   const lockBox = finished && (
@@ -134,82 +168,88 @@ export function StepView({
   const next = neighbour(review, index, 1);
 
   if (phone) {
+    const pinEditing = pins.editor !== undefined;
+    const picking = pins.picking && !finished;
+    const listing = !pinEditing && !picking;
     return (
-      <div className={cx(styles.body, styles.bodyPhone, remarkOpen && !finished && styles.bodyRemarking)}>
-        <ReviewStage review={review} step={shown} example={step} modified={modified && (!group || shown.modifiedAt !== undefined)} controls={controls} openedMember={openedMember} onOpenMember={onOpenMember} />
+      <div className={cx(styles.body, styles.bodyPhone, remarkOpen && !finished && styles.bodyRemarking, pinEditing && styles.bodyPinning, picking && styles.bodyPicking)}>
+        {picking && <PhonePickBanner pins={pins} />}
+        <ReviewStage review={review} step={shown} example={step} modified={modified && !canvasView && (!group || shown.modifiedAt !== undefined)} controls={controls} openedMember={openedMember} onOpenMember={openMember} canvasShown={canvasShown} onShowCanvas={onCanvasShown} pins={pins} phone={phone} />
         <section aria-label="Question de l'étape" className={styles.sheet}>
           <span className={styles.grip} aria-hidden="true" />
-          <Progress review={review} index={index} />
-          <div className={styles.sheetKicker}>
-            <span className={styles.sheetName}>{stepLabel(step)}</span>
-            <span className={styles.chips}>
-              {group && <span className={styles.chip}>Groupé</span>}
-              <span className={chipClass}>{chipText}</span>
-            </span>
-          </div>
-          <p className={styles.sheetQuestion}>{step.question}</p>
-          <button type="button" className={styles.more} aria-expanded={detailsOpen} onClick={() => setDetailsOpen(!detailsOpen)}>
-            Ce qui a changé et quoi regarder
-          </button>
-          {detailsOpen && (
-            <div className={styles.sheetDetails}>
-              <section className={styles.section}>
-                <h3>Ce qui a changé</h3>
-                <p>{step.changed}</p>
-              </section>
-              <section className={styles.section}>
-                <h3>Quoi regarder</h3>
-                <p>{lookAt}</p>
-                {stateShownHint}
-              </section>
-              {othersSection}
-            </div>
+          {pinEditing && !remarkOpen && <PhonePinEditor pins={pins} />}
+          {picking && <p className={styles.sheetHint}>Les zones se tracent sur ordinateur.</p>}
+          {listing && (
+            <>
+              <Progress review={review} index={index} />
+              <div className={styles.sheetKicker}>
+                <span className={styles.sheetName}>{stepLabel(step)}</span>
+                <span className={styles.chips}>
+                  {group && <span className={styles.chip}>Groupé</span>}
+                  <span className={chipClass}>{chipText}</span>
+                </span>
+              </div>
+              <p className={styles.sheetQuestion}>{step.question}</p>
+              <button type="button" className={styles.more} aria-expanded={detailsOpen} onClick={() => setDetailsOpen(!detailsOpen)}>
+                Ce qui a changé et quoi regarder
+              </button>
+              {detailsOpen && (
+                <div className={styles.sheetDetails}>
+                  <section className={styles.section}>
+                    <h3>Ce qui a changé</h3>
+                    <p>{step.changed}</p>
+                  </section>
+                  <section className={styles.section}>
+                    <h3>Quoi regarder</h3>
+                    <p>{lookAt}</p>
+                    {stateShownHint}
+                  </section>
+                  {othersSection}
+                </div>
+              )}
+              {groupWarning}
+              {failedLine}
+              {lockBox}
+            </>
           )}
-          {groupWarning}
-          {failedLine}
-          {lockBox}
           {remarkEditor}
-          {!finished && !remarkOpen && (
-            <div className={styles.row}>
-              {own?.outdated ? (
-                <>
-                  <button type="button" className={styles.panelButton} onClick={() => setRemarkOpen(true)}>
-                    Remarque
+          {listing && !finished && !remarkOpen && (
+            <>
+              <PhonePinsList pins={pins} />
+              <PhoneTheirPins pins={pins} example={step} shown={shown} />
+              <div className={styles.row}>
+                <PhonePinButton pins={pins} />
+                <button type="button" className={styles.panelButton} onClick={() => setRemarkOpen(true)}>
+                  {ownRemark && !(own?.outdated || feedbackOutdated) ? "Ma remarque" : "Remarque"}
+                </button>
+              </div>
+              <div className={styles.row}>
+                {own?.outdated || feedbackOutdated ? (
+                  <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={hasFeedback ? onClearAndValidate : onOk}>
+                    {pins.mine.length > 0 ? "Effacer mes retours et valider" : ownRemark ? "Effacer ma remarque et valider" : group ? `Revoir et valider les ${size}` : "Revoir et valider"}
                   </button>
-                  <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={own.kind === "remark" ? onClearAndValidate : onOk}>
-                    {own.kind === "remark" ? "Effacer ma remarque et valider" : group ? `Revoir et valider les ${size}` : "Revoir et valider"}
-                  </button>
-                </>
-              ) : own?.kind === "remark" ? (
-                <>
-                  <button type="button" className={styles.panelButton} onClick={() => setRemarkOpen(true)}>
-                    Ma remarque
-                  </button>
+                ) : hasFeedback ? (
                   <button type="button" className={cx(styles.panelButton, styles.light)} onClick={() => onGo(next ?? "recap")}>
                     Étape suivante
                   </button>
-                </>
-              ) : own ? (
-                <>
-                  <button type="button" className={styles.panelButton} onClick={onCancel}>
-                    Validé · annuler
-                  </button>
-                  <button type="button" className={cx(styles.panelButton, styles.light)} onClick={() => onGo(next ?? "recap")}>
-                    Étape suivante
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button type="button" className={styles.panelButton} onClick={() => setRemarkOpen(true)}>
-                    Remarque
-                  </button>
+                ) : own ? (
+                  <>
+                    <button type="button" className={styles.panelButton} onClick={onCancel}>
+                      Validé · annuler
+                    </button>
+                    <button type="button" className={cx(styles.panelButton, styles.light)} onClick={() => onGo(next ?? "recap")}>
+                      Étape suivante
+                    </button>
+                  </>
+                ) : (
                   <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onOk}>
                     {group ? `OK pour les ${size}` : "OK"}
                   </button>
-                </>
-              )}
-            </div>
+                )}
+              </div>
+            </>
           )}
+          {listing && finished && <PhonePinsList pins={pins} />}
         </section>
       </div>
     );
@@ -217,14 +257,14 @@ export function StepView({
 
   return (
     <div className={styles.body}>
-      <ReviewStage review={review} step={shown} example={step} modified={modified && (!group || shown.modifiedAt !== undefined)} controls={controls} openedMember={openedMember} onOpenMember={onOpenMember} />
+      <ReviewStage review={review} step={shown} example={step} modified={modified && !canvasView && (!group || shown.modifiedAt !== undefined)} controls={controls} openedMember={openedMember} onOpenMember={openMember} canvasShown={canvasShown} onShowCanvas={onCanvasShown} pins={pins} phone={phone} />
       <aside aria-label="Question de l'étape" className={styles.panel}>
         <div className={styles.panelScroll}>
           <Progress review={review} index={index} />
           <div>
             <div className={cx(styles.kicker, group && styles.kickerGroup)}>
               <span>
-                {group ? `${counted(pageCount, "page", "pages")} · ${size} artboards` : `Page ${step.pageTitle} · étape ${stepNumber(review, index)} / ${activeSteps(review.steps).length}`}
+                {group ? `${counted(pageCount, "page", "pages")} · ${size} artboards` : stepIsCanvasOnly(step) ? `Page ${step.pageTitle} · canevas` : hasCanvasView(step) ? `Page ${step.pageTitle} · artboard et canevas` : `Page ${step.pageTitle} · étape ${stepNumber(review, index)} / ${activeSteps(review.steps).length}`}
               </span>
               <span className={styles.chips}>
                 {group && <span className={styles.chip}>Groupé</span>}
@@ -253,16 +293,19 @@ export function StepView({
             <p>{step.question}</p>
             {!finished && (
               <div className={styles.row}>
-                {own?.outdated && own.kind === "remark" ? (
+                {hasFeedback && feedbackOutdated ? (
                   <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onClearAndValidate}>
-                    Effacer ma remarque et valider
+                    {pins.mine.length > 0 ? "Effacer mes retours et valider" : "Effacer ma remarque et valider"}
                   </button>
+                ) : hasFeedback ? (
+                  <>
+                    {pinButton}
+                    <span className={cx(styles.hint, styles.rowHint)}>{pins.view.showBefore ? "Repasse sur Après pour épingler." : feedbackReplacesOk(pins.mine.filter((pin) => pin.target.kind !== "zone").length, ownRemark, pins.mine.filter((pin) => pin.target.kind === "zone").length)}</span>
+                  </>
                 ) : own?.outdated ? (
                   <button type="button" className={cx(styles.panelButton, styles.accent)} onClick={onOk}>
                     {group ? `Revoir et valider les ${size}` : "Revoir et valider"}
                   </button>
-                ) : own?.kind === "remark" ? (
-                  <span className={styles.hint}>Ta remarque remplace ton OK pour cette étape.</span>
                 ) : own ? (
                   <button type="button" className={styles.panelButton} onClick={onCancel}>
                     ✓ Validé par toi · annuler
@@ -272,6 +315,7 @@ export function StepView({
                     {group ? `OK pour les ${size}` : "OK, étape suivante"}
                   </button>
                 )}
+                {(!hasFeedback || feedbackOutdated) && pinButton}
               </div>
             )}
             {group && !finished && own?.outdated && own.kind === "ok" && changedSince.length > 0 && (
@@ -281,19 +325,8 @@ export function StepView({
             )}
             {failed && <span className={cx(styles.hint, styles.error)}>Pas enregistré : Redline ne répond pas.</span>}
           </div>
-          {others.length > 0 && (
-            <section className={styles.section}>
-              <h3>Les autres</h3>
-              {others.map((answer) => (
-                <div key={answer.id} className={styles.other}>
-                  <PersonDot person={answer.person} />
-                  <span className={styles.otherText}>
-                    <strong>{personName(answer.person)}</strong> · {answer.kind === "ok" ? (answer.outdated ? "Validé (ancienne version)" : "✓ Validé") : answer.text}
-                  </span>
-                </div>
-              ))}
-            </section>
-          )}
+          <PinsSection step={step} shown={shown} pins={pins} onShow={showPin} />
+          {othersSection}
           {finished && (
             <div className={styles.lock}>
               <span>
@@ -307,7 +340,7 @@ export function StepView({
               )}
             </div>
           )}
-          <RemarkEditor stepId={step.id} own={own} finished={finished} onKeptUnsaved={setKeptUnsaved} placement={group ? { shown: { pageId: shown.pageId, artboard: shown.artboard }, example: { pageId: step.pageId, artboard: step.artboard }, titleOf: (ref) => titleOfArtboard(step, ref) } : undefined} {...remark} />
+          <RemarkEditor placeholder={stepIsCanvasOnly(step) ? "Ce qui ne va pas sur cette partie de la page" : undefined} stepId={step.id} own={own} finished={finished} onKeptUnsaved={setKeptUnsaved} placement={group ? { shown: { pageId: shown.pageId, artboard: shown.artboard }, example: { pageId: step.pageId, artboard: step.artboard }, titleOf: (ref) => titleOfArtboard(step, ref) } : undefined} {...remarkProps} />
         </div>
         <div className={styles.panelFoot}>
           <button type="button" className={styles.panelButton} disabled={neighbour(review, index, -1) === undefined} onClick={() => onGo(neighbour(review, index, -1)!)}>

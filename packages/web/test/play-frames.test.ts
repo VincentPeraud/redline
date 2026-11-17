@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { presentationOf, statusBarInk } from "../src/playFrames.js";
+import { fitToStage, presentationOf, statusBarInk } from "../src/playFrames.js";
 
 const board = (over: { width: number; height: number; frame?: "phone" | "tablet" | "browser" | "paper"; expand?: "fill" }) => ({
   file: "a.html",
@@ -104,5 +104,34 @@ describe("statusBarInk", () => {
     expect(statusBarInk("rgb(34, 40, 48)")).toBe("light");
     expect(statusBarInk("rgb(248, 247, 244)")).toBe("dark");
     expect(statusBarInk("rgba(255, 255, 255, 0.9)")).toBe("dark");
+  });
+});
+
+describe("fitToStage", () => {
+  const stage = { width: 1000, height: 700 };
+  const plain = (width: number, height: number) => presentationOf(board({ width, height }));
+
+  it("shows an artboard taller than the stage at its real width and scrolls", () => {
+    expect(fitToStage(plain(390, 2400), stage)).toEqual({ viewport: { width: 390, height: 2400 }, scale: 1, scroll: "real" });
+  });
+
+  it("caps a wide, tall artboard to the stage width and says it is full width", () => {
+    expect(fitToStage(plain(1200, 3000), stage)).toEqual({ viewport: { width: 1200, height: 3000 }, scale: 936 / 1200, scroll: "width" });
+  });
+
+  it("keeps the fit of a short artboard", () => {
+    expect(fitToStage(plain(1200, 800), stage)).toEqual({ viewport: { width: 1200, height: 800 }, scale: 936 / 1200, scroll: null });
+    expect(fitToStage(plain(400, 300), stage)).toEqual({ viewport: { width: 400, height: 300 }, scale: 1, scroll: null });
+  });
+
+  it("keeps the fit of framed artboards, even tall ones", () => {
+    const phone = presentationOf(board({ width: 390, height: 844, frame: "phone" }));
+    expect(fitToStage({ ...phone, stagePadding: 10 }, { width: 1000, height: 600 }).scroll).toBeNull();
+    expect(fitToStage(presentationOf(board({ width: 1200, height: 3000, frame: "browser" })), stage).scroll).toBeNull();
+  });
+
+  it("stretches a fill presentation to the stage", () => {
+    const fill = presentationOf(board({ width: 1440, height: 900, expand: "fill" }));
+    expect(fitToStage(fill, stage)).toEqual({ viewport: stage, scale: 1, scroll: null });
   });
 });

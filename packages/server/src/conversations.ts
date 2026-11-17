@@ -15,7 +15,7 @@ import {
 } from "@redline/shared";
 import { renderingLabel } from "@redline/shared";
 import { canvasElementText } from "./canvas-element-text.js";
-import { cellSeenText, elementText, renderingText } from "./thread-subject.js";
+import { cellSeenText, elementText, renderingText, zoneSubject } from "./thread-subject.js";
 import { contextOf, usageContext } from "./context.js";
 import { definedChoice, isMessageContext, modelChoiceError, modelChoiceOf, requiredString } from "./validation.js";
 import type { PageLock } from "./page-lock.js";
@@ -46,6 +46,8 @@ function chipLine(target: ThreadTarget, number: number): string {
       return `${number}: the whole artboard ${target.artboard}`;
     case "canvas-element":
       return `${number}: ${canvasElementText(target)}`;
+    case "zone":
+      return `${number}: ${zoneSubject(target)}`;
   }
 }
 

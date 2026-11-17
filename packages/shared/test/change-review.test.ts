@@ -92,6 +92,7 @@ describe("review result", () => {
       finishedBy: "Victor",
       validated: [{ stepId: "s1", label: "Home · list", number: 1, by: ["Ana", "Victor"] }],
       remarks: [],
+      pins: [],
       notSeen: [{ stepId: "s2", label: "Home · empty", number: 2 }],
     });
   });

@@ -89,7 +89,8 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
   const onDocHeightRef = useRef(onDocHeight);
   onDocHeightRef.current = onDocHeight;
 
-  const pinned = threads;
+  const zones = threads.filter((t) => t.target.kind === "zone");
+  const pinned = threads.filter((t) => t.target.kind !== "zone");
   const onPinClick = useContext(PinClickContext);
   const { seen, onRect } = useContext(SeenGapContext);
   const onRectRef = useRef(onRect);
@@ -199,6 +200,27 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
         <ArtboardIframe ref={frame} title={title} src={src} sandbox="allow-scripts" className={cx(styles.iframe, bare && styles.iframeBare)} style={{ width, height }} />
         {guides && <ArtboardGuides guides={guides} />}
       </div>
+      {zones.map((thread) => {
+        if (thread.target.kind !== "zone" || thread.target.space !== "artboard") return null;
+        const { xPct, yPct, wPct, hPct } = thread.target;
+        return (
+          <div key={thread.id} data-zone-thread={thread.id} className={cx(styles.zone, thread.status === "resolved" && styles.zoneResolved)} style={{ left: `${xPct}%`, top: `${yPct}%`, width: `${wPct}%`, height: `${hPct}%`, borderWidth: 2 / zoom }}>
+            <button
+              type="button"
+              data-pin={thread.number}
+              data-pin-thread={thread.id}
+              title={`${thread.title} · ${threadWhere(thread)}`}
+              aria-label={`Ouvrir le commentaire ${thread.number}`}
+              disabled={!onPinClick}
+              className={cx(styles.pin, styles.zonePin, thread.status === "held" && styles.pinHeld, thread.status === "review" && styles.pinReview, thread.status === "resolved" && styles.pinResolved)}
+              style={{ transform: `scale(${1 / zoom})`, transformOrigin: "top left" }}
+              onClick={() => onPinClick?.(thread.id)}
+            >
+              {thread.status === "resolved" ? "✓" : thread.number}
+            </button>
+          </div>
+        );
+      })}
       {pinned.map((thread) => {
         const reported = positions.find((p) => p.id === thread.id);
         // A pin remembering an instance state waits for the bridge: it never points at an element that is not on screen.

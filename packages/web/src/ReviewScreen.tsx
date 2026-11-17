@@ -10,6 +10,7 @@ import { type Load, type RemovedRemark, type View, nextUnanswered, reviewPath, s
 import { RemovedStep, StateScreen } from "./ReviewStates.js";
 import { ReviewTopBar } from "./ReviewTopBar.js";
 import { StepView } from "./ReviewStep.js";
+import { opensOnCanvas } from "./reviewMixed.js";
 import { ReviewRecap } from "./ReviewRecap.js";
 import styles from "./ReviewScreen.module.css";
 
@@ -22,7 +23,9 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   /** The last review shown, so a failed reload still names it in the header. */
   const lastReview = useRef<ChangeReview>();
   const [failed, setFailed] = useState(false);
-  const [unsaved, setUnsaved] = useState(false);
+  const [remarkUnsaved, setUnsaved] = useState(false);
+  const [pinUnsaved, setPinUnsaved] = useState(false);
+  const unsaved = remarkUnsaved || pinUnsaved;
   const [leaving, setLeaving] = useState<(() => void) | undefined>();
   const controlsOf = useReviewControls();
   const [confirming, setConfirming] = useState<{ notSeen: number; present: ChangeReviewPresence[] } | undefined>();
@@ -30,7 +33,47 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   const [removed, setRemoved] = useState<RemovedRemark | undefined>();
   /** The artboard of each group step on the stage: the index in its others, none for the example. Local to this screen. */
   const [opened, setOpened] = useState<Record<string, number | undefined>>({});
+  /** The steps whose canvas view is on screen (a mixed step opens on its artboard unless every artboard is gone). */
+  const [onCanvas, setOnCanvas] = useState<Record<string, boolean | undefined>>({});
   const removedTimer = useRef<ReturnType<typeof setTimeout>>();
+  /** What the member asked to destroy and can still take back for a few seconds: nothing is sent before the delay elapses. */
+  const [pending, setPending] = useState<PendingChange[]>([]);
+  const pendingRuns = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => Promise<unknown> }>());
+  const mounted = useRef(true);
+  const viewRef = useRef<View>("recap");
+  const changeRef = useRef<(method: "PUT" | "DELETE" | "POST", path: string, body?: unknown) => Promise<ChangeReview | undefined>>();
+
+  const schedule = (key: string, entry: PendingChange, run: () => Promise<unknown>) => {
+    clearTimeout(pendingRuns.current.get(key)?.timer);
+    const timer = setTimeout(() => {
+      pendingRuns.current.delete(key);
+      void run().finally(() => mounted.current && setPending((current) => current.filter((candidate) => candidate.key !== key)));
+    }, UNDO_REMOVAL_MS);
+    pendingRuns.current.set(key, { timer, run });
+    setPending((current) => [...current.filter((candidate) => candidate.key !== key), entry]);
+  };
+  const undo = (key: string) => {
+    clearTimeout(pendingRuns.current.get(key)?.timer);
+    pendingRuns.current.delete(key);
+    setPending((current) => current.filter((candidate) => candidate.key !== key));
+  };
+  /** Makes the pending changes final now (before the review is finished or the screen closes). */
+  const flushPending = async () => {
+    const runs = [...pendingRuns.current.values()];
+    pendingRuns.current.clear();
+    for (const { timer } of runs) clearTimeout(timer);
+    setPending([]);
+    await Promise.all(runs.map(({ run }) => run()));
+  };
+  const flushRef = useRef(flushPending);
+  flushRef.current = flushPending;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      void flushRef.current();
+    };
+  }, []);
 
   // A remark Redline has not received: closing the tab asks first, and so does leaving the step.
   useEffect(() => {
@@ -68,7 +111,10 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     [reviewId, reload],
   );
 
-  const review = load.status === "ready" ? load.review : undefined;
+  const loaded = load.status === "ready" ? load.review : undefined;
+  // A pin waiting to be deleted is already gone from the screen.
+  const hiddenPins = pending.flatMap((entry) => (entry.pinId ? [entry.pinId] : []));
+  const review = loaded && hiddenPins.length > 0 ? { ...loaded, steps: loaded.steps.map((entry) => ({ ...entry, pins: entry.pins.filter((pin) => !hiddenPins.includes(pin.id)) })) } : loaded;
 
   // The others see who is in the review (for the confirmation before finishing): a heartbeat with the step shown, until the review is locked or the screen closes.
   const reviewIsOpen = review?.state === "open";
@@ -106,31 +152,36 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     setLoad({ status: "ready", review: next });
     return next;
   }
+  changeRef.current = change;
 
   if (load.status !== "ready") return <StateScreen status={load.status} review={lastReview.current} onRetry={() => void reload()} />;
   lastReview.current = review;
-  const hasRemarks = review!.steps.some((entry) => entry.answers.some((answer) => answer.kind === "remark"));
+  const hasRemarks = review!.steps.some((entry) => entry.pins.length > 0 || entry.answers.some((answer) => answer.kind === "remark"));
   if (activeSteps(review!.steps).length === 0 && !hasRemarks && (review!.state === "open" || review!.state === "filed")) return <StateScreen status="empty" review={review} onRetry={() => void reload()} />;
   const view: View = step === undefined ? (review!.state !== "open" ? "recap" : nextUnanswered(review!, -1)) : step === "recap" || step > review!.steps.length ? "recap" : step - 1;
-  const shownOf = (step: ChangeReviewStep) => shownStep(step, opened[step.id]);
+  const canvasShownOf = (step: ChangeReviewStep) => onCanvas[step.id] ?? opensOnCanvas(step);
+  const shownOf = (step: ChangeReviewStep) => shownStep(step, opened[step.id], canvasShownOf(step));
   const guard = (action: () => void) => (unsaved ? setLeaving(() => action) : action());
   const navigate = (target: View) => navigateTo(stepRoute(reviewId, target), "replace");
   const go = (target: View) => guard(() => navigate(target));
+  viewRef.current = view;
 
   const answerOk = async (index: number) => {
     const next = await change("PUT", `/steps/${review!.steps[index]!.id}/ok`);
     if (next) navigate(nextUnanswered(next, index));
   };
-  const clearRemarkAndValidate = async (index: number) => {
-    const step = review!.steps[index]!;
-    const remarkId = step.answers.find((answer) => answer.mine && answer.kind === "remark")?.id;
-    if (remarkId && !(await change("DELETE", `/remarks/${remarkId}`))) return;
-    await answerOk(index);
+  /** "Effacer mes retours et valider": the member's pins and remark go and an OK is recorded, in one call, after a few seconds in which "Annuler" takes it back. */
+  const clearFeedbackAndValidate = (index: number) => {
+    const stepId = review!.steps[index]!.id;
+    schedule(`clear:${stepId}`, { key: `clear:${stepId}`, label: "Tes retours vont être effacés et l'étape validée" }, async () => {
+      const next = await changeRef.current!("POST", `/steps/${stepId}/clear-and-validate`);
+      if (next && mounted.current && viewRef.current === index) navigate(nextUnanswered(next, index));
+    });
   };
   const cancelOk = (index: number) => void change("DELETE", `/steps/${review!.steps[index]!.id}/ok`);
   const finish = () => {
     setConfirming(undefined);
-    void change("POST", "/finish").then((next) => next && navigate("recap"));
+    void flushPending().then(() => change("POST", "/finish")).then((next) => next && navigate("recap"));
   };
   // Asks before finishing when steps were not seen or another member is still in the review; the presence is read fresh.
   const requestFinish = () =>
@@ -156,6 +207,11 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
       removedTimer.current = setTimeout(() => setRemoved(undefined), UNDO_REMOVAL_MS);
     });
   };
+  const removePin = (pinId: string) => {
+    const pin = loaded!.steps.flatMap((entry) => entry.pins).find((entry) => entry.id === pinId);
+    const label = `${pin?.target.kind === "zone" ? "Zone" : "Épingle"} ${pin?.number ?? ""} effacée`.replace("  ", " ");
+    schedule(`pin:${pinId}`, { key: `pin:${pinId}`, label, pinId }, () => change("DELETE", `/pins/${pinId}`));
+  };
   const restoreRemark = async () => {
     if (!removed) return;
     clearTimeout(removedTimer.current);
@@ -168,7 +224,7 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     <div data-testid="review" className={styles.review}>
       <ReviewTopBar review={review!} view={view} shown={view === "recap" || review!.steps[view]!.removed ? undefined : shownOf(review!.steps[view]!)} controls={view === "recap" || review!.steps[view]!.removed ? undefined : controlsOf(shownOf(review!.steps[view]!))} onGo={go} onLeave={guard} onFinish={requestFinish} />
       {view === "recap" ? (
-        <ReviewRecap review={review!} failed={failed} removed={removed} onGo={go} onFinish={requestFinish} onReopen={reopen} onFile={() => setFiling(true)} onRemove={removeRemark} onRestore={() => void restoreRemark()} />
+        <ReviewRecap review={review!} failed={failed} removed={removed} onGo={go} onFinish={requestFinish} onReopen={reopen} onFile={() => setFiling(true)} onRemove={removeRemark} onRemovePin={removePin} onRestore={() => void restoreRemark()} />
       ) : review!.steps[view]!.removed ? (
         <RemovedStep review={review!} index={view} onGo={go} />
       ) : (
@@ -179,14 +235,28 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
           controls={controlsOf(shownOf(review!.steps[view]!))}
           openedMember={opened[review!.steps[view]!.id]}
           onOpenMember={(member) => setOpened((current) => ({ ...current, [review!.steps[view]!.id]: member }))}
+          canvasShown={canvasShownOf(review!.steps[view]!)}
+          onCanvasShown={(shown) => setOnCanvas((current) => ({ ...current, [review!.steps[view]!.id]: shown }))}
           failed={failed}
           onGo={go}
           onOk={() => guard(() => void answerOk(view))}
-          onClearAndValidate={() => guard(() => void clearRemarkAndValidate(view))}
+          onClearAndValidate={() => guard(() => clearFeedbackAndValidate(view))}
           onCancel={() => cancelOk(view)}
           onReopen={reopen}
-          remark={{ reviewPath: reviewPath(reviewId), onReview: (next) => setLoad({ status: "ready", review: next }), onReload: () => void reload(), onUnsaved: setUnsaved }}
+          remark={{ reviewPath: reviewPath(reviewId), onReview: (next) => setLoad({ status: "ready", review: next }), onReload: () => void reload(), onUnsaved: setUnsaved, onPinUnsaved: setPinUnsaved }}
         />
+      )}
+      {pending.length > 0 && (
+        <div className={styles.pendingBar} role="status" data-testid="review-pending">
+          {pending.map((entry) => (
+            <div key={entry.key} className={styles.undoLine}>
+              {entry.label}
+              <button type="button" className={styles.linkButton} onClick={() => undo(entry.key)}>
+                Annuler
+              </button>
+            </div>
+          ))}
+        </div>
       )}
       {confirming && (
         <ConfirmDialog
@@ -198,8 +268,8 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
         >
           <p>
             {confirming.notSeen > 0
-              ? "Elles seront signalées à part à la conversation comme « non vues », jamais comme validées. Plus personne ne pourra ajouter de remarque, sauf si un membre rouvre la revue."
-              : "Plus personne ne pourra ajouter de remarque, sauf si un membre rouvre la revue."}
+              ? "Elles seront signalées à part à la conversation comme « non vues », jamais comme validées. Plus personne ne pourra ajouter de retour, sauf si un membre rouvre la revue."
+              : "Plus personne ne pourra ajouter de retour, sauf si un membre rouvre la revue."}
           </p>
           {confirming.present.length > 0 && <p>{presenceLine(confirming.present)}</p>}
         </ConfirmDialog>
@@ -216,12 +286,20 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
             const action = leaving;
             setLeaving(undefined);
             setUnsaved(false);
+            setPinUnsaved(false);
             action();
           }}
         />
       )}
     </div>
   );
+}
+
+interface PendingChange {
+  key: string;
+  label: string;
+  /** Set when the change deletes this pin: it leaves the screen at once. */
+  pinId?: string;
 }
 
 /** "Victor est encore dans la revue (étape 6)." / "Victor et Ariane sont encore dans la revue." */
@@ -242,10 +320,10 @@ function presenceLine(present: ChangeReviewPresence[]): ReactNode {
 function filingWarning(review: ChangeReview): string {
   const remarks = review.steps.flatMap((entry) => entry.answers.filter((answer) => answer.kind === "remark"));
   const final = "C'est définitif : la revue ne pourra plus être rouverte.";
-  if (remarks.length === 0) return `Cette revue n'a aucune remarque, mais elle ne sera jamais transmise à une conversation. ${final}`;
-  if (remarks.length === 1) return `${remarks[0]!.mine ? "Ta remarque" : `La remarque de ${personName(remarks[0]!.person)}`} ne sera jamais transmise à une conversation. ${final}`;
+  if (remarks.length === 0) return `Cette revue n'a aucun retour, mais elle ne sera jamais transmise à une conversation. ${final}`;
+  if (remarks.length === 1) return `${remarks[0]!.mine ? "Ton retour" : `Le retour de ${personName(remarks[0]!.person)}`} ne sera jamais transmis à une conversation. ${final}`;
   const others = remarks.filter((answer) => !answer.mine);
   const names = [...new Set(others.map((answer) => personName(answer.person)))];
-  const whose = others.length === 0 ? "" : ` (dont ${others.length === 1 ? "celle" : "celles"} de ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`})`;
-  return `Les ${remarks.length} remarques${whose} ne seront jamais transmises à une conversation. ${final}`;
+  const whose = others.length === 0 ? "" : ` (dont ${others.length === 1 ? "celui" : "ceux"} de ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`})`;
+  return `Les ${remarks.length} retours${whose} ne seront jamais transmis à une conversation. ${final}`;
 }

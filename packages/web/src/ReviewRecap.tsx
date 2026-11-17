@@ -1,17 +1,20 @@
-import { activeSteps, reviewPlace, stepIsGroup, stepIsSeen, stepLabel, stepStatus, type ArtboardRef, type ChangeReview, type ChangeReviewAnswer, type ChangeReviewStep } from "@redline/shared";
+import { activeSteps, reviewPlace, stepIsGroup, stepLabel, stepStatus, type ArtboardRef, type ChangeReview, type ChangeReviewAnswer, type ChangeReviewStep } from "@redline/shared";
 import { cx } from "./ui/index.js";
 import { personName } from "./ReviewRemark.js";
+import { recapOf } from "./recapRules.js";
+import { pinTargetLabel } from "./reviewPinRules.js";
 import { type RemovedRemark, type View, formatWhen, lockTitle, neighbour, titleOfArtboard } from "./reviewView.js";
 import styles from "./ReviewScreen.module.css";
 
-const nameOfAnswer = (answer: ChangeReviewAnswer, own: string) => (answer.mine ? own : personName(answer.person));
+const nameOfAnswer = (answer: { mine: boolean; person?: { name: string; email: string } }, own: string) => nameOf(answer.person, answer.mine, own);
 
-/** "Victor avait validé cette étape" next to a remark of someone else on a step several people looked at. */
-function alsoValidated(step: ChangeReviewStep): string {
-  const validators = step.answers.filter((answer) => answer.kind === "ok" && !answer.outdated);
+const nameOf = (person: { name: string; email: string } | undefined, mine: boolean, own: string) => (mine ? own : personName(person));
+
+/** "Victor avait validé cette étape" next to feedback of someone else on a step several people looked at. */
+function validatedBy(validators: readonly ChangeReviewAnswer[]): string {
   if (validators.length === 0) return "";
   if (validators.length === 1) return validators[0]!.mine ? " · tu avais validé cette étape" : ` · ${personName(validators[0]!.person)} avait validé cette étape`;
-  return ` · ${validators.map((answer) => nameOfAnswer(answer, "toi")).join(" et ")} avaient validé cette étape`;
+  return ` · ${validators.map((answer) => nameOf(answer.person, answer.mine, "toi")).join(" et ")} avaient validé cette étape`;
 }
 
 export function ReviewRecap({
@@ -23,6 +26,7 @@ export function ReviewRecap({
   onReopen,
   onFile,
   onRemove,
+  onRemovePin,
   onRestore,
 }: {
   review: ChangeReview;
@@ -33,13 +37,14 @@ export function ReviewRecap({
   onReopen: () => void;
   onFile: () => void;
   onRemove: (answerId: string, stepId: string, text: string, title: string, on?: ArtboardRef) => void;
+  onRemovePin: (pinId: string) => void;
   onRestore: () => void;
 }) {
   const open = review.state === "open";
   const kept = activeSteps(review.steps);
-  const okSteps = kept.filter((step) => stepStatus(step.answers) === "ok");
-  const remarks = review.steps.flatMap((step) => step.answers.filter((answer) => answer.kind === "remark").map((answer) => ({ step, answer })));
-  const notSeen = kept.filter((step) => !stepIsSeen(step));
+  const okSteps = kept.filter((step) => stepStatus(step.answers, step.pins) === "ok");
+  const recap = recapOf(review);
+  const notSeen = recap.notSeen;
   const titleOf = stepLabel;
   const indexOf = (step: ChangeReviewStep) => review.steps.indexOf(step);
   const place = reviewPlace(review.requester);
@@ -50,7 +55,7 @@ export function ReviewRecap({
         <div className={styles.recapSide}>
           <div className={cx(styles.recapHead, !open && styles.recapHeadLocked)}>
             <h1>{open ? "Avant de terminer" : "Revue terminée"}</h1>
-            {open && <p className={styles.recapNote}>Tant que la revue n'est pas terminée, chacun peut encore changer ses remarques.</p>}
+            {open && <p className={styles.recapNote}>Tant que la revue n'est pas terminée, chacun peut encore changer ses épingles, ses zones et ses remarques.</p>}
             {review.state === "finished" && (
               <div className={styles.done}>
                 <strong>
@@ -68,7 +73,7 @@ export function ReviewRecap({
                   {lockTitle(review)} ({place}) · {review.fetchedAt ? formatWhen(review.fetchedAt) : ""}
                 </strong>
                 <span>
-                  {remarks.length === 0 ? "" : remarks.length === 1 ? "La remarque est devenue un fil sur son artboard. " : `Les ${remarks.length} remarques sont devenues des fils sur leurs artboards. `}Cette revue reste lisible ici.
+                  {recap.feedback === 0 ? "" : recap.feedback === 1 ? "Le retour est devenu un fil de commentaires. " : `Les ${recap.feedback} retours sont devenus des fils de commentaires. `}Cette revue reste lisible ici.
                 </span>
               </div>
             )}
@@ -87,8 +92,8 @@ export function ReviewRecap({
               <span>OK</span>
             </div>
             <div className={styles.sumCard}>
-              <b>{remarks.length}</b>
-              <span>{remarks.length > 1 ? "Remarques" : "Remarque"}</span>
+              <b>{recap.withFeedback}</b>
+              <span>Étapes avec retours</span>
             </div>
             <div className={styles.sumCard}>
               <b>{notSeen.length}</b>
@@ -137,45 +142,58 @@ export function ReviewRecap({
           )}
         </div>
         <div className={styles.recapList}>
-          {remarks.length > 0 && <div className={styles.group}>Remarques</div>}
-          {remarks.map(({ step, answer }) => (
-            <div key={answer.id} className={styles.item}>
-              <span className={cx(styles.dot, styles.dotRemark)} />
-              <div className={styles.itemBody}>
-                <span className={styles.itemTitle}>
-                  {titleOf(step)}
-                  {stepIsGroup(step) && ` · sur ${titleOfArtboard(step, answer.on ?? step)}`}
-                  {step.removed && ` · ${step.removed === "deleted" ? "artboard supprimé" : "page archivée"}`}
-                </span>
-                <span className={styles.itemText}>{answer.text}</span>
-                <span className={styles.itemBy}>
-                  {nameOfAnswer(answer, "Toi")}
-                  {alsoValidated(step)}
-                </span>
+          {recap.feedback > 0 && (
+            <div className={styles.group}>
+              Retours ({recap.feedback} sur {recap.withFeedback} {recap.withFeedback === 1 ? "étape" : "étapes"})
+            </div>
+          )}
+          {recap.groups.map(({ step, index, items, validators }) => (
+            <div key={step.id} className={styles.recapStep}>
+              <div className={styles.recapStepTitle}>
+                <span className={cx(styles.dot, styles.dotRemark)} />
+                {titleOf(step)}
+                {step.removed && ` · ${step.removed === "deleted" ? "artboard supprimé" : "page archivée"}`}
               </div>
-              {open && answer.mine && (
-                <div className={styles.itemActions}>
-                  {!step.removed && (
-                    <button type="button" className={styles.panelButton} onClick={() => onGo(indexOf(step))}>
-                      Modifier
-                    </button>
-                  )}
-                  <button type="button" className={styles.panelButton} onClick={() => onRemove(answer.id, step.id, answer.text ?? "", titleOf(step), answer.on)}>
-                    Effacer
-                  </button>
-                </div>
-              )}
+              {items.map((item) => {
+                const entry = item.kind === "pin" ? item.pin : item.answer;
+                const onArtboard = stepIsGroup(step) ? ` · sur ${titleOfArtboard(step, entry.on ?? step)}` : "";
+                const where = item.kind === "pin" ? `${pinTargetLabel(item.pin, true)}${onArtboard}${item.pin.seenIn ? ` · ${item.pin.seenIn}` : ""}` : `Remarque générale${onArtboard}`;
+                return (
+                  <div key={entry.id} className={styles.recapItem}>
+                    {item.kind === "pin" ? (
+                      <span className={cx(styles.pin, styles.pinStatic, !item.pin.mine && styles.pinTheirs)}>{item.pin.number}</span>
+                    ) : (
+                      <span className={styles.recapGeneral} role="img" aria-label="Remarque générale">
+                        ≡
+                      </span>
+                    )}
+                    <div className={styles.recapItemBody}>
+                      <span className={styles.recapItemOn}>{where}</span>
+                      <span className={styles.itemText}>{entry.text}</span>
+                      <span className={styles.itemBy}>
+                        {nameOfAnswer(entry, "Toi")}
+                        {validatedBy(validators)}
+                      </span>
+                    </div>
+                    {open && entry.mine && (
+                      <div className={styles.itemActions}>
+                        {!step.removed && (
+                          <button type="button" className={styles.panelButton} onClick={() => onGo(index)}>
+                            Modifier
+                          </button>
+                        )}
+                        <button type="button" className={styles.panelButton} onClick={() => (item.kind === "pin" ? onRemovePin(item.pin.id) : onRemove(item.answer.id, step.id, item.answer.text ?? "", titleOf(step), item.answer.on))}>
+                          Effacer
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ))}
           {okSteps.length > 0 && <div className={styles.group}>OK</div>}
-          {okSteps.length > 0 && (
-            <div className={styles.item}>
-              <span className={cx(styles.dot, styles.dotOk)} />
-              <div className={styles.itemBody}>
-                <span className={styles.stepList}>{okSteps.map((step) => `${titleOf(step)} (${step.answers.filter((answer) => !answer.outdated).map((answer) => nameOfAnswer(answer, "toi")).join(", ")})`).join(", ")}</span>
-              </div>
-            </div>
-          )}
+          {okSteps.length > 0 && <div className={styles.recapOkList}>{okSteps.map((step) => `${titleOf(step)} (${step.answers.filter((answer) => !answer.outdated).map((answer) => nameOfAnswer(answer, "toi")).join(", ")})`).join(", ")}</div>}
           {notSeen.length > 0 && <div className={styles.group}>Non vus ({notSeen.length})</div>}
           {notSeen.length > 0 && (
             <div className={styles.item}>

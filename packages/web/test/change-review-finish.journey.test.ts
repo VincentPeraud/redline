@@ -77,7 +77,7 @@ it("shows the recap in two columns on the top bar's edges, with counts, remarks,
   const box = async (selector: string) => (await tab.locator(selector).first().boundingBox())!;
   const lead = await box('[data-testid="review-top"] > div');
   const left = await tab.getByRole("heading", { name: "Avant de terminer" }).boundingBox();
-  const list = await tab.getByText("Remarques", { exact: true }).first().boundingBox();
+  const list = await tab.getByText(/^Retours \(\d+ sur \d+ étapes?\)$/).first().boundingBox();
   expect(Math.round(left!.x)).toBe(Math.round(lead.x));
   expect(Math.round(list!.x + list!.width)).toBeLessThanOrEqual(1440 - 20);
   expect(list!.x).toBeGreaterThan(left!.x + 400);
@@ -154,7 +154,7 @@ it("shows the finished recap with the reminder, reopens it, and files it for goo
   await expect.poll(() => heading(tab, "Revue terminée").count()).toBe(1);
   await tab.getByRole("button", { name: "Classer sans envoyer" }).click();
   const dialog = tab.getByRole("dialog", { name: "Classer sans envoyer ?" });
-  expect(await dialog.textContent()).toContain("Ta remarque ne sera jamais transmise à une conversation. C'est définitif : la revue ne pourra plus être rouverte.");
+  expect(await dialog.textContent()).toContain("Ton retour ne sera jamais transmis à une conversation. C'est définitif : la revue ne pourra plus être rouverte.");
   await dialog.getByRole("button", { name: "Annuler" }).click();
   expect((await reviewOf(reviewId)).state).toBe("finished");
 
@@ -180,7 +180,7 @@ it("shows a review fetched by a conversation as read-only, with who fetched it",
   const tab = await open(reviewId, "/recap");
 
   await expect.poll(() => tab.getByText(/Récupérée par/).count()).toBe(1);
-  expect(await tab.getByText("La remarque est devenue un fil sur son artboard. Cette revue reste lisible ici.").count()).toBe(1);
+  expect(await tab.getByText("Le retour est devenu un fil de commentaires. Cette revue reste lisible ici.").count()).toBe(1);
   expect(await tab.getByRole("button", { name: "Rouvrir la revue" }).count()).toBe(0);
   expect(await tab.getByRole("button", { name: "Classer sans envoyer" }).count()).toBe(0);
 }, 60_000);
@@ -188,10 +188,10 @@ it("shows a review fetched by a conversation as read-only, with who fetched it",
 it("turns a step read-only while a member types, keeping the unsaved text with Copier and a way to reopen", async () => {
   const reviewId = await declareReview();
   const tab = await open(reviewId, "/steps/1");
-  await expect.poll(() => tab.getByRole("textbox", { name: "Ou une remarque" }).count()).toBe(1);
+  await expect.poll(() => tab.getByRole("textbox", { name: "Remarque générale" }).count()).toBe(1);
   // The text is typed while Redline cannot save it, then somebody finishes the review.
   await tab.route("**/remark", (route) => route.abort());
-  await tab.getByRole("textbox", { name: "Ou une remarque" }).fill("Mets les décisions au-dessus");
+  await tab.getByRole("textbox", { name: "Remarque générale" }).fill("Mets les décisions au-dessus");
   await expect.poll(() => tab.getByText("Pas enregistré : Redline ne répond pas.").count()).toBe(1);
 
   await post(reviewId, "/finish");
@@ -207,7 +207,7 @@ it("turns a step read-only while a member types, keeping the unsaved text with C
 
   await tab.unroute("**/remark");
   await tab.getByRole("button", { name: "Rouvrir la revue" }).click();
-  await expect.poll(() => tab.getByRole("textbox", { name: "Ou une remarque" }).count()).toBe(1);
+  await expect.poll(() => tab.getByRole("textbox", { name: "Remarque générale" }).count()).toBe(1);
   expect((await reviewOf(reviewId)).state).toBe("open");
   // Once the review is open again the text that was kept is saved.
   await expect.poll(async () => (await reviewOf(reviewId)).steps[0]!.answers.map((answer) => answer.text)).toEqual(["Mets les décisions au-dessus"]);
@@ -225,4 +225,39 @@ it("deletes a remark from the recap, with an undo while the review is open", asy
   await tab.getByRole("button", { name: "Annuler" }).click();
 
   await expect.poll(async () => (await reviewOf(reviewId)).steps[0]!.answers.map((answer) => answer.text)).toEqual(["Remove me"]);
+}, 60_000);
+
+it("groups pins, zones and the general remark by step in the recap, deletes a pin from it, then shows the finished recap read-only", async () => {
+  const reviewId = await declareReview();
+  const [first, second] = (await reviewOf(reviewId)).steps;
+  const addPin = (stepId: string, body: unknown) => fetch(api(reviewId, `/steps/${stepId}/pins`), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  await addPin(first!.id, { text: "Make it bold", target: { selector: "h1", elementName: "titre « List screen »", xPct: 10, yPct: 10 } });
+  await addPin(first!.id, { text: "Participants under decisions", target: { kind: "zone", space: "artboard", xPct: 10, yPct: 10, wPct: 30, hPct: 20 } });
+  await saveRemark(reviewId, second!.id, "Help text too long");
+  const tab = await open(reviewId, "/recap");
+
+  await expect.poll(() => tab.getByText("Retours (3 sur 2 étapes)").count()).toBe(1);
+  const text = await tab.getByTestId("review").innerText();
+  expect(text).toContain("« List screen »");
+  expect(text).toContain("Zone");
+  expect(text).toContain("Remarque générale");
+  expect(text).toMatch(/2\s*\n?Étapes avec retours/);
+  expect(await tab.getByRole("button", { name: "Effacer" }).count()).toBe(3);
+
+  await tab.getByRole("button", { name: "Effacer" }).first().click();
+  await expect.poll(() => tab.getByText("Retours (2 sur 2 étapes)").count()).toBe(1);
+  expect((await reviewOf(reviewId)).steps[0]!.pins).toHaveLength(2);
+  await tab.getByTestId("review-pending").getByRole("button", { name: "Annuler" }).click();
+  await expect.poll(() => tab.getByText("Retours (3 sur 2 étapes)").count()).toBe(1);
+
+  await tab.getByRole("button", { name: "Effacer" }).first().click();
+  await expect.poll(async () => (await reviewOf(reviewId)).steps[0]!.pins.map((pin) => pin.text), { timeout: 15_000 }).toEqual(["Participants under decisions"]);
+  await expect.poll(() => tab.getByText("Retours (2 sur 2 étapes)").count()).toBe(1);
+
+  await tab.getByRole("button", { name: "Terminer la revue" }).click();
+  await tab.getByRole("button", { name: "Terminer quand même" }).click();
+  await expect.poll(() => heading(tab, "Revue terminée").count()).toBe(1);
+  expect(await tab.getByRole("button", { name: "Effacer" }).count()).toBe(0);
+  expect(await tab.getByRole("button", { name: "Modifier" }).count()).toBe(0);
+  expect(await tab.getByText("Participants under decisions").count()).toBe(1);
 }, 60_000);

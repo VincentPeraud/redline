@@ -1,4 +1,4 @@
-import { cellText, instanceStateLabel, renderingLabel, type InstanceState, type Thread, type ThreadRendering, type TweakValues } from "@redline/shared";
+import { cellText, describeZone, instanceStateLabel, renderingLabel, type InstanceState, type Thread, type ThreadRendering, type TweakValues } from "@redline/shared";
 import { canvasElementText } from "./canvas-element-text.js";
 
 /** A line of the conversation so far, for a session that starts afresh: "User: …", "Redline: …" or "Claude: …". */
@@ -28,9 +28,16 @@ export function instanceStateSeenText(state: InstanceState[] | undefined, explai
   return ` (vu avec ${instanceStateLabel(state)}${explain ? ": the user commented with those component instances in that state (attributes set on them), so the element may only exist or show in that state" : ""})`;
 }
 
+/** "the zone x 64 % · y 18 % · 28 % × 26 % de l'artboard list.html (vu en Mobile)": a rectangle a reviewer drew. */
+export function zoneSubject(target: Extract<Thread["target"], { kind: "zone" }>): string {
+  const { kind: _kind, ...rect } = target;
+  return target.space === "artboard" ? `the ${describeZone(rect)} ${target.artboard}${renderingText(target.rendering, true)}${cellSeenText(target.cell, true)}` : `the ${describeZone(rect)}`;
+}
+
 /** Where a thread points, as Claude is told: the artboard and element with position, the whole artboard, or a canvas element. */
 export function threadSubject(thread: Thread): string {
   if (thread.target.kind === "canvas-element") return `on ${canvasElementText(thread.target, thread.removed)}`;
+  if (thread.target.kind === "zone") return `on ${zoneSubject(thread.target)}`;
   if (thread.target.kind === "artboard") return `on the whole artboard ${thread.artboard} (no specific element)`;
   return `on artboard ${thread.artboard}${renderingText(thread.rendering, true)}${cellSeenText(thread.cell, true)}${instanceStateSeenText(thread.instanceState, true)}, ${elementText(thread)} (position ${thread.xPct}% / ${thread.yPct}% of the artboard)`;
 }

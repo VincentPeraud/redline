@@ -75,8 +75,14 @@ it("opens a step with Claude's values, keeps the reviewer's changes on this scre
   const panel = tab.getByRole("complementary", { name: "Question de l'étape" });
   expect(await panel.textContent()).toContain("État affiché : « State : ready », fixé par Claude. Les autres états restent dans Tweaks.");
 
-  // The reviewer looks at another state: it shows, and nothing is saved on the page.
+  // The Tweaks panel opens over the stage: the artboard keeps its place and size.
+  const frameBox = () => tab.locator("iframe[title='Revue / meeting.html']").boundingBox();
+  const closed = await frameBox();
   await top(tab).getByRole("button", { name: "Tweaks" }).click();
+  await tab.getByRole("complementary", { name: "Tweaks" }).waitFor();
+  expect(await frameBox()).toEqual(closed);
+
+  // The reviewer looks at another state: it shows, and nothing is saved on the page.
   await tab.getByRole("complementary", { name: "Tweaks" }).getByRole("button", { name: "idle" }).click();
   await expect.poll(() => stateOf(tab, "meeting.html")).toBe("idle");
   await new Promise((resolve) => setTimeout(resolve, 600));
@@ -111,3 +117,70 @@ it("opens a mobile step in the mobile rendering and hides the toggle and the Twe
   expect(await top(tab).getByRole("button", { name: "Tweaks" }).count()).toBe(0);
   await tab.close();
 });
+
+it("shows and hides the device frame with Habillage, as in Present", async () => {
+  const { reviewId } = await declare((id) => [step(id, "plain.html")]);
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${seam.server.url}/#/reviews/${reviewId}/steps/1`);
+
+  const habillage = top(tab).getByRole("button", { name: "Habillage" });
+  await expect.poll(() => habillage.getAttribute("aria-pressed")).toBe("true");
+  await expect.poll(() => tab.locator("[data-frame='browser']").count()).toBe(1);
+
+  await habillage.click();
+  await expect.poll(() => habillage.getAttribute("aria-pressed")).toBe("false");
+  await expect.poll(() => tab.locator("[data-frame='browser']").count()).toBe(0);
+  await habillage.click();
+  await tab.close();
+});
+
+it("shows Habillage, Repères and Tweaks as icon buttons with a tooltip, and the top bar never overlaps at 1440 px with every control", async () => {
+  const { reviewId } = await declare((id) => [step(id, "meeting.html", { targets: ["h1"], tweaks: { state: "ready" } })]);
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${seam.server.url}/#/reviews/${reviewId}/steps/1`);
+
+  for (const [name, tooltip] of [["Habillage", "Habillage : afficher ou masquer"], ["Repères", "Repères : afficher ou masquer"], ["Tweaks", "Tweaks : régler"]] as const) {
+    const button = top(tab).getByRole("button", { name });
+    await button.waitFor();
+    expect(await button.getAttribute("title")).toContain(tooltip);
+    expect(await button.textContent()).toBe("");
+    expect((await button.boundingBox())!.width).toBe(36);
+  }
+  await top(tab).getByRole("button", { name: "Terminer la revue" }).waitFor();
+  const boxes = await top(tab).locator("button, [data-testid='review-title']").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()).filter((box) => box.width > 0));
+  for (const [index, box] of boxes.entries()) {
+    for (const other of boxes.slice(index + 1)) {
+      const overlaps = box.left < other.right - 0.5 && other.left < box.right - 0.5 && box.top < other.bottom - 0.5 && other.top < box.bottom - 0.5;
+      expect(overlaps).toBe(false);
+    }
+  }
+  await tab.close();
+});
+
+it("frames the elements Claude points at, numbered in the declared order, and nothing on a step without targets", async () => {
+  const { reviewId } = await declare((id) => [step(id, "meeting.html", { targets: ["#missing", "h1"] }), step(id, "plain.html")]);
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${seam.server.url}/#/reviews/${reviewId}/steps/1`);
+
+  const badges = (file: string) => artboardFrame(tab, file)?.evaluate(() => Array.from(document.querySelectorAll("#__redline-compare [data-part='badge']"), (badge) => badge.textContent)).catch(() => null);
+  // An element that is not on the artboard is skipped: the others keep their number.
+  await expect.poll(() => badges("meeting.html")).toEqual(["2"]);
+
+  // "Repères" hides the frames and shows them again; the choice stays for the next steps.
+  const markers = top(tab).getByRole("button", { name: "Repères" });
+  expect(await markers.getAttribute("aria-pressed")).toBe("true");
+  await markers.click();
+  await expect.poll(() => badges("meeting.html")).toEqual([]);
+  expect(await markers.getAttribute("aria-pressed")).toBe("false");
+  await markers.click();
+  await expect.poll(() => badges("meeting.html")).toEqual(["2"]);
+
+  await tab.getByRole("button", { name: "Suivante →" }).click();
+  await expect.poll(() => counter(tab).textContent()).toContain("Étape 2 / 2");
+  await expect.poll(() => artboardFrame(tab, "plain.html")?.evaluate(() => document.readyState).catch(() => null)).toBe("complete");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(await badges("plain.html")).toEqual([]);
+  expect(await top(tab).getByRole("button", { name: "Repères" }).count()).toBe(0);
+  await tab.close();
+});
+

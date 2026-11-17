@@ -706,7 +706,7 @@ export async function buildMainApp(
     return response;
   });
 
-  // The only way to resolve a thread: a user action of the web UI. Agents get no such route.
+  // A user action of the web UI. Agents resolve a thread only with the answer that handles it (`resolve` on `POST /agent-api/threads/:id/replies`).
   app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/resolve", async (req, reply) => {
     // A request closes by a diffusion or a refusal, never by "Résoudre".
     if (store.getThread(req.params.threadId)?.request) return reply.code(409).send({ error: "a request to the design system cannot be resolved" });
