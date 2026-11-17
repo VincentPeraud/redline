@@ -50,6 +50,21 @@ const ICONS = {
   ),
 };
 
+/** Under the messages of a thread sent to an agent that is offline: it is not lost, and a conversation can take it. */
+export function AgentWaitBlock() {
+  return (
+    <div data-testid="agent-wait" className={cx(styles.taken, styles.takenWait)}>
+      <span aria-hidden="true" className={styles.takenIcon}>
+        <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <circle cx="7" cy="7" r="5.5" />
+          <path d="M7 4v3.5M7 9.6v.1" />
+        </svg>
+      </span>
+      <span className={styles.takenText}>L'agent du projet ne tourne pas : il traitera ce fil à son retour. Une conversation peut aussi le prendre.</span>
+    </div>
+  );
+}
+
 /** The block under the messages saying who took the thread, from where and since when (or who the relaunch waits for). */
 export function TakenBlock({ thread }: { thread: Thread }) {
   const handler = useHandler(thread);

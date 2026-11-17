@@ -286,9 +286,32 @@
   color: inherit;
 }
 
+.statusWait {
+  color: var(--color-warning-text);
+}
+
+.takenWait {
+  border-color: transparent;
+  background: var(--color-warning-note-bg);
+  color: var(--color-warning-ink);
+}
+
+.takenWait .takenIcon {
+  color: inherit;
+}
+
 /* The board draws the footer buttons at 13 px, one step above the small button's 12 px. */
 .footerActions button {
   font-size: var(--font-size-sm);
+}
+
+/* On a phone the buttons are comfortable for a finger: 44 px high, sharing the row. */
+@media (max-width: 700px) {
+  .footerActions button {
+    flex: 1 1 auto;
+    min-height: 44px;
+    font-size: var(--font-size-md);
+  }
 }
 
 .sessionMeta {

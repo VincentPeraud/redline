@@ -14,6 +14,7 @@ import { DiffusionProvider } from "./DiffusionDialog";
 import { HomeScreen } from "./HomeScreen";
 import { ProjectDesignSystemScreen } from "./ProjectDesignSystemScreen";
 import { ReviewScreen } from "./ReviewScreen.js";
+import { ToastHost } from "./ToastHost.js";
 import { ProjectOverview } from "./ProjectOverview";
 import { ArchivedProjectsScreen, ProjectsScreen } from "./ProjectsScreen";
 import { Shell } from "./Sidebar";
@@ -138,6 +139,7 @@ createRoot(document.getElementById("root")!).render(
       <AuthGate>
         <DiffusionProvider>
           <Root />
+          <ToastHost />
         </DiffusionProvider>
       </AuthGate>
     </MeProvider>

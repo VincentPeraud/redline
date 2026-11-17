@@ -1,10 +1,12 @@
 import { useArtboardOrigin } from "./artboardCapability.js";
 import { useEffect, useState } from "react";
-import type { ArchiveStatus, PageViewSettings, Project } from "@redline/shared";
+import type { ArchiveStatus, CommentMode, PageViewSettings, Project } from "@redline/shared";
 import { PageCanvas } from "./PageCanvas.js";
 import type { PageRoute } from "./router.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import { useDocumentTitle } from "./documentTitle.js";
+import { showToast } from "./toasts.js";
+import { useMe } from "./useMe.js";
 
 interface Page {
   id: string;
@@ -16,6 +18,7 @@ interface Page {
   designSystem?: boolean;
   /** The page itself is archived. */
   archivedAt?: string;
+  commentMode: CommentMode;
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -31,6 +34,7 @@ export function App({ route }: { route: PageRoute }) {
   const [designSystemArchivedAt, setDesignSystemArchivedAt] = useState<string | undefined>(undefined);
   const [reloads, setReloads] = useState(0);
   const artboardOrigin = useArtboardOrigin(page?.projectId);
+  const me = useMe();
 
   async function loadPage() {
     setPage(await getJson<Page>(`/api/pages/${pageId}`));
@@ -50,12 +54,22 @@ export function App({ route }: { route: PageRoute }) {
     () =>
       subscribeServerEvents((event) => {
         if ((event.type === "page-updated" || event.type === "page-renamed" || event.type === "page-archive-changed") && event.pageId === pageId) void loadPage();
+        if (event.type === "comment-mode-changed" && event.pageId === pageId) {
+          void loadPage();
+          // The person who switched sees their own result; the others are told, once, who changed it.
+          if (event.by && event.by.id !== me?.id) {
+            const who = event.by.name || event.by.email;
+            showToast({
+              message: event.mode === "agent" ? `${who} a passé la page en mode Agent : les nouveaux commentaires partent à l'agent.` : `${who} a passé la page en mode Conversation : les nouveaux commentaires attendent qu'une conversation les prenne.`,
+            });
+          }
+        }
         if (event.type === "agents-updated" && page && !page.designSystem) void getJson<Project>(`/api/projects/${page.projectId}`).then(setProject);
       }, () => {
         void loadPage();
         setReloads((count) => count + 1);
       }),
-    [pageId, page?.projectId],
+    [pageId, page?.projectId, me?.id],
   );
 
   // A design system's own page has no project of the API: its tab shows the page alone.
@@ -86,6 +100,8 @@ export function App({ route }: { route: PageRoute }) {
         viewSettings={page.viewSettings}
         route={route}
         archived={archived}
+        commentMode={page.commentMode}
+        onCommentModeChange={loadPage}
       />
     </>
   );

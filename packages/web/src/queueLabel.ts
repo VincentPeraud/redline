@@ -17,6 +17,11 @@ export function queueLabel(queue: QueueEntry[], threadId: string): string | unde
   return labelOf(queue.find((e) => e.threadIds.includes(threadId)));
 }
 
+/** The thread waits in the queue for an agent that is offline (a thread sent in Agent mode while no agent runs). */
+export function waitingForOfflineAgent(queue: QueueEntry[], threadId: string): boolean {
+  return queue.some((entry) => entry.reason === "agent-offline" && entry.threadIds.includes(threadId));
+}
+
 /** Same label for a work item that answers no thread (a conversation message), found by its work id. */
 export function workQueueLabel(queue: QueueEntry[], workId: string | undefined): string | undefined {
   return labelOf(queue.find((e) => e.workId === workId));

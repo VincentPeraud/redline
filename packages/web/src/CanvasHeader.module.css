@@ -16,7 +16,7 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: var(--space-5);
+  gap: var(--space-3);
   padding: 0 var(--space-5);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
@@ -191,7 +191,7 @@
   background: var(--color-success-bg);
   font-size: var(--font-size-sm);
   color: var(--color-success-text);
-  min-width: 0;
+  min-width: 120px;
   white-space: nowrap;
 }
 
@@ -263,4 +263,11 @@
 .previewNote {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
+}
+
+/* On a phone the toggle moves to the top of the comments panel. */
+@media (max-width: 700px) {
+  .commentMode {
+    display: none;
+  }
 }
