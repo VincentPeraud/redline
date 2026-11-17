@@ -1577,10 +1577,15 @@ export class Store {
       const answered = thread.replies.some((reply) => reply.author === "claude");
       const waiting = answered && thread.replies.at(-1)?.author !== "claude";
       const from = take.takenOverFrom === undefined ? undefined : this.getPerson(take.takenOverFrom || null);
-      return { ...thread, take: { ...(person ? { person } : {}), folder: take.folder, machine: take.machine, takenAt: take.takenAt, ...(take.takenOverFrom === undefined ? {} : { takenOver: from ? { from } : {} }) }, ...(waiting && thread.status === "open" ? { relaunch: true as const } : {}) };
+      return { ...thread, take: { ...(person ? { person } : {}), folder: take.folder, machine: take.machine, takenAt: take.takenAt, ...(person && this.hasNamesake(person) ? { sameName: true as const } : {}), ...(take.takenOverFrom === undefined ? {} : { takenOver: from ? { from } : {} }) }, ...(waiting && thread.status === "open" ? { relaunch: true as const } : {}) };
     }
     if (thread.status !== "open" || this.getThreadSession(thread.id) || this.threadHasWork(thread.id) || this.effectiveCommentMode(thread.pageId) !== "conversation") return thread;
     return { ...thread, toTake: true };
+  }
+
+  /** Another active account has this person's display name. */
+  hasNamesake(person: Person): boolean {
+    return this.db.prepare("SELECT 1 FROM people WHERE role IS NOT NULL AND status = 'active' AND name = ? AND id <> ? LIMIT 1").get(person.name, person.id) !== undefined;
   }
 
   /** The system lines of the thread, and who resolved it while it is resolved. */
@@ -1845,13 +1850,6 @@ export class Store {
     return rows.map((row) => this.withPerson(withCurrentElement(toThread(row, withReplies ? this.repliesOf(row.id) : []), elements), row.person_id));
   }
 
-  /** An open thread goes back to "À relire" (a Commentaire reply in a thread already sent to Claude). */
-  returnToReview(id: string): void {
-    const { changes } = this.db.prepare("UPDATE threads SET status = 'review' WHERE id = ? AND status = 'open'").run(id);
-    const thread = changes > 0 ? this.getThread(id) : undefined;
-    if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
-  }
-
   /** An "À relire" thread leaves for Claude: it becomes a regular open thread. */
   releaseReviewThread(id: string): void {
     this.db.prepare("UPDATE threads SET status = 'open' WHERE id = ? AND status = 'review'").run(id);
@@ -1937,6 +1935,14 @@ export class Store {
       const by = this.getPerson(byId || null);
       return { ...row, ...(taker ? { taker } : {}), ...(by ? { by } : {}) };
     });
+  }
+
+  /** The open threads the account holds, in one project or everywhere. */
+  openThreadsTakenBy(accountId: string, projectId?: string): string[] {
+    const rows = this.db
+      .prepare("SELECT t.id FROM threads t JOIN pages p ON p.id = t.page_id WHERE t.status = 'open' AND t.taken_by = ? AND (? IS NULL OR p.project_id = ?) ORDER BY t.rowid")
+      .all(accountId, projectId ?? null, projectId ?? null) as { id: string }[];
+    return rows.map((row) => row.id);
   }
 
   /** The thread no longer belongs to an agent session (an account takes it over). */

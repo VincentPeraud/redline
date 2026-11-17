@@ -101,7 +101,7 @@ import { registerHomeRoutes } from "./home.js";
 import { archivedError, registerArchiveRoutes, registerArchivedGuard } from "./archive.js";
 import { moveArtboard } from "./move-artboard.js";
 import { dispatchBatch, dispatchReply, dispatchReviewed, dispatchThread } from "./work.js";
-import { handOver, release } from "./hand-over.js";
+import { freeTakesOf, handOver, release } from "./hand-over.js";
 
 const PALETTE_TOKENS = ["--color-primary", "--color-text", "--color-background"];
 
@@ -184,13 +184,14 @@ export async function buildMainApp(
   onDeactivated.push((personId) => {
     agents.disconnectPerson(personId);
     terminalSessions.releaseSessionsOf(personId);
+    freeTakesOf(store, pageLock, personId);
   });
   await registerAgentApi(app, store, pageLock, terminalSessions, access, config, options.publicUrl);
   await registerProjectFileRoutes(app, store);
   registerProjectDesignSystemRoutes(app, store);
   registerEventRoutes(app, store, pageLock, access, options.eventsKeepAliveMs);
   registerLinkRoutes(app, store, access);
-  registerProjectSharingRoutes(app, store, access);
+  registerProjectSharingRoutes(app, store, access, pageLock);
   registerDesignSystemReload(app, store);
   const runs = registerRunRoutes(app, store);
   registerHomeRoutes(app, store, pageLock, access);
@@ -657,12 +658,8 @@ export async function buildMainApp(
     const nameError = visitorNameError(req.viewer, req.body.visitorName);
     if (nameError) return reply.code(400).send({ error: nameError });
     const message = store.addReply(thread.id, body, "user", [], req.person, linkAuthorOf(req.viewer, req.body.visitorName))!;
-    // A thread waiting to be read stays with the readers; a Commentaire reply sends it back to them instead of to Claude.
+    // A thread waiting to be read stays with the readers; any other reply, a Commentaire member's too, follows the thread's handler.
     if (thread.status === "review") return reply.code(201).send(message);
-    if (needsReview(req.viewer, { threadId: thread.id })) {
-      store.returnToReview(thread.id);
-      return reply.code(201).send(message);
-    }
     dispatchReply(store, pageLock, store.getPage(thread.pageId)!.projectId, thread, body, req.viewer.kind === "link" ? {} : modelChoiceOf(req.body));
     return reply.code(201).send(message);
   });

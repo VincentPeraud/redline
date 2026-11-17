@@ -32,3 +32,17 @@ export function release(store: Store, lock: PageLock, thread: Thread, accountId:
   dispatchReviewed(store, lock, store.getPage(thread.pageId)!.projectId, [store.getThread(thread.id)!]);
   return true;
 }
+
+/**
+ * The account loses access (deactivated, or lowered below Écriture on `projectId`): its open takes are freed with the trace
+ * "libéré : <person> n'a plus accès" and follow their page's mode again. A page archived meanwhile keeps the agent work waiting
+ * until it is unarchived.
+ */
+export function freeTakesOf(store: Store, lock: PageLock, accountId: string, projectId?: string): void {
+  for (const id of store.openThreadsTakenBy(accountId, projectId)) {
+    store.releaseThreadTake(id);
+    store.addTrace(id, { kind: "released", takerId: accountId });
+    const thread = store.getThread(id)!;
+    dispatchReviewed(store, lock, store.getPage(thread.pageId)!.projectId, [thread]);
+  }
+}

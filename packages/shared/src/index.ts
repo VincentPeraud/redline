@@ -357,6 +357,8 @@ export interface ThreadTake {
   machine: string;
   /** When it was taken (ISO time). */
   takenAt: string;
+  /** Another active account has the taker's display name: the card adds the e-mail to tell them apart. */
+  sameName?: true;
   /** Set when the account took the thread over from someone else ("repris par"); `person` is absent when that someone had no account (no SSO). */
   takenOver?: { from?: Person };
 }

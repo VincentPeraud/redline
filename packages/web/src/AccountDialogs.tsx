@@ -64,6 +64,7 @@ export function DeactivateDialog({ account, onClose, onDone }: { account: Accoun
         {projects && <li>{projects}</li>}
         <li>Son jeton d'agent est révoqué : son agent est déconnecté.</li>
         {account.linkCount > 0 && <li>{account.linkCount === 1 ? "Son lien de partage continue" : `Ses ${account.linkCount} liens de partage continuent`} de marcher.</li>}
+        {account.takenThreads > 0 && <li>{account.takenThreads === 1 ? "Son fil pris est libéré : il suit le mode de sa page." : `Ses ${account.takenThreads} fils pris sont libérés : ils suivent le mode de leur page.`}</li>}
       </ul>
       {account.linkCount > 0 && (
         <label className={styles.check}>

@@ -83,7 +83,7 @@ describe("page links in Commentaire", () => {
     agent.close();
   });
 
-  it("lets a visitor reply in its link's threads only, back to À relire on a reviewed link", async () => {
+  it("lets a visitor reply in its link's threads only", async () => {
     const { pageId } = await setup();
     const link = await createLink(pageId);
     const mine = (await (await comment(link, pageId, "Mine", { visitorName: "Marc" })).json()) as Thread;

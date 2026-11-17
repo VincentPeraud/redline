@@ -4,6 +4,8 @@ import type { Access, Viewer } from "./access.js";
 import { personOf } from "./accounts.js";
 import { linkViews } from "./link-routes.js";
 import { isWorking, type StoredLink } from "./link-store.js";
+import { freeTakesOf } from "./hand-over.js";
+import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
 /** The working links among `links` that `personIds` made, above `aboveLevel` when given: they keep working, and the dialogs offer to disable them. */
@@ -12,7 +14,7 @@ function workingLinksMadeBy(links: StoredLink[], personIds: string[], aboveLevel
 }
 
 /** Who sees a project and at which level: the sharing dialog's data and the member levels. */
-export function registerProjectSharingRoutes(app: FastifyInstance, store: Store, access: Access): void {
+export function registerProjectSharingRoutes(app: FastifyInstance, store: Store, access: Access, pageLock: PageLock): void {
   const views = linkViews(store, access);
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/sharing", async (req, reply): Promise<ProjectSharing | undefined> => {
@@ -59,6 +61,7 @@ export function registerProjectSharingRoutes(app: FastifyInstance, store: Store,
     if (account.role === "admin" || account.id === project.createdBy?.id) return reply.code(400).send({ error: "The creator and the admins are always at Écriture." });
     if (project.visibility === "team" && level === "write") store.removeMemberLevel(project.id, account.id);
     else store.setMemberLevel(project.id, account.id, level);
+    if (level !== "write") freeTakesOf(store, pageLock, account.id, project.id);
     return linksAbove(req.viewer, project.id, account.id, level);
   });
 
@@ -66,6 +69,7 @@ export function registerProjectSharingRoutes(app: FastifyInstance, store: Store,
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
     store.removeMemberLevel(req.params.projectId, req.params.personId);
     const project = store.getProject(req.params.projectId)!;
+    if (project.visibility !== "team") freeTakesOf(store, pageLock, req.params.personId, project.id);
     // Back to the default: Écriture on an Équipe project (nothing to warn about), no access on a Privé one.
     return linksAbove(req.viewer, project.id, req.params.personId, project.visibility === "team" ? "write" : undefined);
   });

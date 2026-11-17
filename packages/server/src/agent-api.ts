@@ -476,7 +476,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         const resolve = req.body.resolve;
         if (resolve !== undefined && typeof resolve !== "boolean") return reply.code(400).send({ error: "resolve must be a boolean" });
         const thread = store.getThread(req.params.threadId);
-        if (!thread) return reply.code(404).send({ error: "thread not found" });
+        if (!thread) return reply.code(404).send({ error: "This thread no longer exists: it was deleted with its page." });
         // A conversation answers any thread of a project its account writes in: the answer is always added, never lost.
         const { terminalSessionId } = req.body;
         if (terminalSessionId !== undefined) {

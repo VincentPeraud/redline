@@ -41,9 +41,13 @@ function takenMessage(thread: Thread): string {
   return [freshSessionMessage(thread), ...(newSinceTake.length > 0 ? ["", "New since your take:", ...newSinceTake.flatMap((reply) => ["", reply.body])] : [])].join("\n");
 }
 
+/** The account's display name; its e-mail follows when another active account has the same name. */
 const accountName = (store: Store, accountId: string): string => {
   const person = store.getPerson(accountId || null);
-  return person ? person.name || person.email : "the shared account";
+  if (!person) return "the shared account";
+  const name = person.name || person.email;
+  const homonym = store.accounts.activeAccounts().some((other) => other.id !== person.id && other.name === person.name);
+  return homonym ? `${name} (${person.email})` : name;
 };
 
 /** Why the account cannot take or release comments on the project (undefined when it can). */

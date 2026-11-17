@@ -16,7 +16,7 @@ export function useHandler(thread: Thread): { kind: "to-take" } | { kind: "taken
   // The conversation of someone else answered last and the thread stays open: it waits for the person to answer (the taker keeps "Pris par toi").
   const lastReply = thread.replies.at(-1);
   const question = !mine && !relaunch && lastReply?.author === "claude" && lastReply.conversation !== undefined;
-  return { kind: "taken", mine, name: take.person?.name || take.person?.email || "quelqu'un", relaunch, question, take };
+  return { kind: "taken", mine, name: take.person ? (take.sameName ? `${take.person.name} (${take.person.email})` : take.person.name || take.person.email) : "quelqu'un", relaunch, question, take };
 }
 
 /** "À prendre", "Pris par Victor", "Pris par toi" or "Relance pour Victor": the top right of the card. */

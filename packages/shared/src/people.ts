@@ -56,6 +56,8 @@ export interface AccountEntry extends Person {
   ownedProjects: string[];
   /** How many share links the account created that work today: "Désactiver aussi ses liens". */
   linkCount: number;
+  /** How many open threads the account holds (taken by one of its conversations): they are freed when it is deactivated. */
+  takenThreads: number;
 }
 
 /** `POST /api/accounts/<id>/deactivate`: with `disableLinks`, the links the account created stop working too. */
