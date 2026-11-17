@@ -20,10 +20,6 @@
   border: 1px dashed #d4a28a;
 }
 
-.review {
-  border-color: var(--color-warning-border);
-}
-
 .failed {
   gap: 8px;
   padding: 12px 14px;
@@ -120,13 +116,6 @@
   color: var(--color-warning-strong);
 }
 
-.badgeReview {
-  box-sizing: border-box;
-  border: 2px solid var(--color-warning-strong);
-  background: var(--color-surface);
-  color: var(--color-warning-strong);
-}
-
 .badgeFailed {
   background: var(--color-danger-text);
 }
@@ -137,12 +126,6 @@
   background: none;
   color: var(--color-success-text);
   font-size: var(--font-size-sm);
-}
-
-.headRight {
-  flex-shrink: 0;
-  color: var(--color-warning-text);
-  font-weight: var(--font-weight-medium);
 }
 
 .headFailed {
@@ -531,30 +514,35 @@
 
 /* Held bar */
 
+/* Above the list, full width: "N brouillons, à toi seul", what sending does, and "Tout envoyer". */
 .heldBar {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px 8px 14px;
-  border: 1px solid var(--color-warning-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-warning-soft-bg);
+  flex-shrink: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-warning-note-bg);
+}
+
+.heldText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .heldCount {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
-  color: var(--color-warning-text);
+  color: var(--color-warning-ink);
 }
 
 .heldHint {
   font-size: var(--font-size-xs);
+  line-height: 1.4;
   color: var(--color-warning-text);
-}
-
-.heldActions {
-  display: flex;
-  gap: var(--space-2);
 }
 
 .reviewBar {
@@ -590,32 +578,32 @@
   font-weight: var(--font-weight-medium);
 }
 
-/* Held card: the label gives way to the edit and delete icon buttons on hover or keyboard focus. */
+.dialogText {
+  margin: 0;
+  font-size: var(--font-size-md);
+  line-height: 1.55;
+  color: var(--color-text-body);
+  overflow-wrap: anywhere;
+}
 
-.held .headRight {
-  position: relative;
+/* Draft card: the "Brouillon" label, then the edit and delete icon buttons, always shown. */
+
+.headRight {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
+  gap: var(--space-2);
+}
+
+.heldLabel {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-warning-text);
 }
 
 .heldActions {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
   display: flex;
-  gap: 4px;
-  opacity: 0;
-}
-
-.held:hover .heldLabel,
-.held:focus-within .heldLabel {
-  visibility: hidden;
-}
-
-.held:hover .heldActions,
-.held:focus-within .heldActions {
-  opacity: 1;
+  gap: 2px;
 }
 
 .iconAction {

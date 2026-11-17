@@ -22,8 +22,8 @@ export type Viewer =
 /** What a request needs: a level of the project (`read` views, `comment` comments, `write` works on pages), or `manage` (creator and admins). */
 export type Action = AccessLevel | "manage";
 
-/** Writes a member at Commentaire may make: comment and reply. Resolving and reopening need Écriture. */
-const COMMENT_ROUTES = new Set(["POST /api/pages/:pageId/threads", "POST /api/threads/:threadId/messages"]);
+/** Writes a member at Commentaire may make: comment, reply, and edit, delete or send their own drafts (a member lowered to Commentaire keeps them). Resolving and reopening need Écriture. */
+const COMMENT_ROUTES = new Set(["POST /api/pages/:pageId/threads", "POST /api/threads/:threadId/messages", "PATCH /api/threads/:threadId", "DELETE /api/threads/:threadId", "POST /api/pages/:pageId/send-held"]);
 /** Writes that stay with the creator of the project and the admins. */
 const MANAGE_ROUTES = new Set(["POST /api/projects/:projectId/archive", "POST /api/projects/:projectId/unarchive", "DELETE /api/projects/:projectId", "PUT /api/projects/:projectId/members/:personId", "DELETE /api/projects/:projectId/members/:personId"]);
 

@@ -69,7 +69,7 @@ describe("project links and Écriture links", () => {
     const link = await createLink(`/api/pages/${pageId}/links`, { level: "write" });
     const first = (await instance.ariane.json<PageVersionSummary[]>(`/api/pages/${pageId}/versions`))[0];
     await instance.ariane.send("POST", `/api/pages/${pageId}/versions`, { files: { ...FILES, "home.html": "<h1>Second</h1>" }, message: "Second", origin: "user" });
-    await instance.ariane.send("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body: "Team thread", held: true });
+    await instance.ariane.send("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body: "Team thread" });
 
     const versions = (await (await visit(link, `/api/pages/${pageId}/versions`)).json()) as PageVersionSummary[];
     expect(versions).toHaveLength(2);
@@ -84,12 +84,14 @@ describe("project links and Écriture links", () => {
     const seen = (await (await visit(link, `/api/pages/${pageId}/threads`)).json()) as Thread[];
     expect(seen.map((t) => t.body)).toEqual(["Team thread"]);
 
-    const before = agent.messages.filter((m) => m.type === "work").length;
     const posted = await visit(link, `/api/pages/${pageId}/threads`, "POST", { target: { kind: "artboard", artboard: "home.html" }, body: "Bigger title" });
     expect(posted.status).toBe(201);
-    expect(((await posted.json()) as Thread).status).toBe("open");
+    const thread = (await posted.json()) as Thread;
+    expect(thread.status).toBe("open");
+    // The page is in Agent mode: the thread goes to the agent, not to a conversation.
+    expect(thread.toTake).toBeUndefined();
     await tick();
-    expect(agent.messages.filter((m) => m.type === "work").length).toBeGreaterThan(before);
+    expect(agent.messages.filter((m) => m.type === "work").length).toBeGreaterThan(0);
     agent.close();
   });
 
@@ -97,7 +99,7 @@ describe("project links and Écriture links", () => {
     const { project, pageId } = await setup();
     const other = await instance.createPage(instance.ariane, project.id, "Other");
     const gone = await instance.createPage(instance.ariane, project.id, "Gone");
-    const post = (id: string, body: string) => instance.ariane.send("POST", `/api/pages/${id}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body, held: true });
+    const post = (id: string, body: string) => instance.ariane.send("POST", `/api/pages/${id}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body });
     await post(pageId, "First");
     await post(other, "Second");
     await post(pageId, "Third");

@@ -1878,9 +1878,9 @@ export class Store {
     return true;
   }
 
-  /** A held comment leaves: it becomes a regular open thread. */
-  releaseHeldThread(id: string): void {
-    this.db.prepare("UPDATE threads SET status = 'open' WHERE id = ? AND status = 'held'").run(id);
+  /** A draft leaves: it becomes a regular open thread, or waits "À relire" when its author only comments. */
+  releaseHeldThread(id: string, to: "open" | "review" = "open"): void {
+    this.db.prepare("UPDATE threads SET status = ? WHERE id = ? AND status = 'held'").run(to, id);
     const thread = this.getThread(id);
     if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
   }
