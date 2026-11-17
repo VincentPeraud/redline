@@ -13,7 +13,7 @@ import { MessageAuthor } from "./MessageAuthor.js";
 import { routeHref } from "./router";
 import { subscribeServerEvents } from "./serverEvents";
 import { useMe, usePersonLabel } from "./useMe.js";
-import { FILTER_LABEL, WAITING_NOTE, activityLabel, agentName, modelLine, shortSessionId } from "./sessionsView";
+import { FILTER_LABEL, activityLabel, waitingLine, waitingNote, agentName, modelLine, shortSessionId } from "./sessionsView";
 import {
   FilterPill,
   PageContent,
@@ -69,6 +69,11 @@ const COLUMNS: Record<string, Omit<TableColumn<SessionRow>, "width">> = {
     render: (row) => (
       <span data-testid="session-status">
         <SessionStatusBadge status={row.status} inline />
+        {waitingLine(row) && (
+          <span className={styles.reason} data-testid="session-waiting-reason">
+            {waitingLine(row)}
+          </span>
+        )}
       </span>
     ),
   },
@@ -263,7 +268,7 @@ export function SessionsScreen() {
                 Claude travaille sur ce fil…
               </div>
             )}
-            {detail.waitingReason && <div className={styles.note}>{WAITING_NOTE[detail.waitingReason]}</div>}
+            {waitingNote(detail) && <div className={styles.note}>{waitingNote(detail)}</div>}
           </SidePanelBody>
           <SidePanelFooter>
             <Composer key={detail.id} session={detail} onSent={() => void refresh()} />

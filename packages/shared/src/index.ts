@@ -390,9 +390,11 @@ export interface TerminalWaitingComment {
   /** "accueil.html, the hero title" style label of what it is about. */
   target: string;
   text: string;
+  /** Present when an account's conversation took the thread: the person's name ("" without sign-in) and the `~`-shortened folder. Absent: still to take. */
+  taken?: { by: string; folder: string };
 }
 
-/** `GET /agent-api/terminal-comments`: the pages with comments to take, read-only (nothing is taken). */
+/** `GET /agent-api/terminal-comments`: the pages with threads to take or taken, read-only (nothing is taken). */
 export interface TerminalCommentsPage {
   pageId: string;
   title: string;
