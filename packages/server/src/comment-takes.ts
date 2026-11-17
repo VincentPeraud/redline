@@ -38,16 +38,17 @@ const personLabel = (who: { person?: { name: string; email: string }; linkAuthor
 
 function waitingCommentOf(thread: Thread): TerminalWaitingComment {
   const target = thread.target.kind === "element" ? `${thread.target.artboard}, ${thread.target.elementName ?? thread.target.selector}` : thread.target.kind === "artboard" ? `${thread.target.artboard}, whole artboard` : thread.target.kind === "zone" ? zoneSubject(thread.target).replace(/^the /, "") : threadTargetLabel(thread.target);
-  return { author: personLabel(thread), at: thread.createdAt, target, text: thread.body };
+  const taken = thread.take && { by: thread.take.person ? thread.take.person.name || thread.take.person.email : "", folder: thread.take.folder };
+  return { author: personLabel(thread), at: thread.createdAt, target, text: thread.body, ...(taken ? { taken } : {}) };
 }
 
-/** Every page `canRead` accepts (by project) with threads to take, and the threads. Takes nothing. */
+/** Every page `canRead` accepts (by project) with open threads to take or taken, and the threads. Takes nothing. */
 export function commentsToTake(store: Store, canRead: (projectId: string) => boolean): TerminalCommentsPage[] {
   const pages: TerminalCommentsPage[] = [];
   for (const pageId of store.pageIdsWithOpenThreads()) {
     const page = store.getPage(pageId);
     if (!page || page.archivedAt || !canRead(page.projectId)) continue;
-    const comments = store.listThreads(pageId).filter((thread) => thread.toTake).map(waitingCommentOf);
+    const comments = store.listThreads(pageId).filter((thread) => thread.status === "open" && (thread.toTake || thread.take)).map(waitingCommentOf);
     if (comments.length > 0) pages.push({ pageId, title: page.title, projectTitle: store.getProject(page.projectId)?.title ?? "", comments });
   }
   return pages;

@@ -19,6 +19,8 @@ interface Derived extends Pick<SessionRow, "name" | "sessionId" | "model" | "eff
   messages: SessionMessage[];
   /** Status when no run or queue entry says otherwise. */
   idleStatus: SessionStatus;
+  /** Why a thread of a Conversation-mode page waits for a conversation, with the taker's name when signed in. */
+  conversationWait?: { reason: "to-take" | "taken"; takenBy?: string };
 }
 
 /**
@@ -50,7 +52,11 @@ export function registerSessionRoutes(
             : thread.replies.some((r) => r.author === "claude")
               ? "answered"
               : "waiting-agent";
+      const taker = thread.take && (thread.take.person?.name || thread.take.person?.email);
+      const conversationWait: Derived["conversationWait"] =
+        thread.status !== "open" ? undefined : thread.toTake ? { reason: "to-take" } : thread.take && (idleStatus === "waiting-agent" || thread.relaunch) ? { reason: "taken", ...(taker ? { takenBy: taker } : {}) } : undefined;
       return {
+        conversationWait,
         name: thread.title,
         sessionId: session?.sessionId,
         agentId: session?.agentId,
@@ -60,7 +66,7 @@ export function registerSessionRoutes(
         threadId: thread.id,
         messages,
         activityAt: messages[messages.length - 1].createdAt,
-        idleStatus,
+        idleStatus: conversationWait?.reason === "taken" ? "waiting-agent" : idleStatus,
       };
     }
     const conversation = store.getConversation(origin.id);
@@ -98,7 +104,7 @@ export function registerSessionRoutes(
     const run = d.threadId ? [...runs.values()].reverse().find((r) => r.threadIds.includes(d.threadId!)) : d.workId ? runs.get(d.workId) : undefined;
 
     let status = d.idleStatus;
-    let waitingReason: SessionRow["waitingReason"];
+    let waitingReason: SessionRow["waitingReason"] = d.conversationWait?.reason;
     if (status !== "resolved" && status !== "archived") {
       if (queued) {
         status = queued.reason === "agent-offline" ? "waiting-agent" : "queued";
@@ -106,6 +112,7 @@ export function registerSessionRoutes(
         waitingReason = queued.reason === "agent-offline" && store.isDesignSystemProject(origin.projectId) ? "design-system-agent-offline" : queued.reason;
       } else if (run?.status === "sent" || run?.status === "running") {
         status = "running";
+        waitingReason = undefined;
       } else if (run?.status === "retrying") {
         status = "queued";
         waitingReason = "retrying";
@@ -135,6 +142,7 @@ export function registerSessionRoutes(
       ...(d.effort ? { effort: d.effort } : {}),
       ...(d.context ? { context: d.context } : {}),
       ...(waitingReason ? { waitingReason } : {}),
+      ...(waitingReason === "taken" && d.conversationWait?.takenBy ? { takenBy: d.conversationWait.takenBy } : {}),
     };
     return { row, messages: d.messages };
   }
