@@ -173,7 +173,7 @@ it("creates a Commentaire link with the checkbox that sends its comments straigh
   await form.getByRole("radio", { name: "Tout le monde avec le lien" }).click();
   await form.getByLabel("Nom du lien").fill("Client HAIDF");
   await form.getByRole("radio", { name: "Commentaire" }).click();
-  const direct = form.getByRole("checkbox", { name: "Les commentaires de ce lien partent directement à Claude, sans relecture" });
+  const direct = form.getByRole("checkbox", { name: "Les commentaires de ce lien deviennent directement à prendre, sans relecture" });
   expect(await direct.isChecked()).toBe(false);
   await tab.screenshot({ path: join(tmpdir(), "create-link-comment.png") });
   await direct.check();

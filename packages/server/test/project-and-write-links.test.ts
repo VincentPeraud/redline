@@ -69,7 +69,7 @@ describe("project links and Écriture links", () => {
     const link = await createLink(`/api/pages/${pageId}/links`, { level: "write" });
     const first = (await instance.ariane.json<PageVersionSummary[]>(`/api/pages/${pageId}/versions`))[0];
     await instance.ariane.send("POST", `/api/pages/${pageId}/versions`, { files: { ...FILES, "home.html": "<h1>Second</h1>" }, message: "Second", origin: "user" });
-    await instance.ariane.send("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body: "Team thread", held: true });
+    await instance.ariane.send("POST", `/api/pages/${pageId}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body: "Team thread" });
 
     const versions = (await (await visit(link, `/api/pages/${pageId}/versions`)).json()) as PageVersionSummary[];
     expect(versions).toHaveLength(2);
@@ -97,7 +97,7 @@ describe("project links and Écriture links", () => {
     const { project, pageId } = await setup();
     const other = await instance.createPage(instance.ariane, project.id, "Other");
     const gone = await instance.createPage(instance.ariane, project.id, "Gone");
-    const post = (id: string, body: string) => instance.ariane.send("POST", `/api/pages/${id}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body, held: true });
+    const post = (id: string, body: string) => instance.ariane.send("POST", `/api/pages/${id}/threads`, { target: { kind: "artboard", artboard: "home.html" }, body });
     await post(pageId, "First");
     await post(other, "Second");
     await post(pageId, "Third");

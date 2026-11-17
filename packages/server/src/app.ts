@@ -9,6 +9,7 @@ import {
   COMMENT_MODES,
   type LinkAuthor,
   type ProjectLinkPage,
+  type Person,
   type Thread,
   COMPONENTS_CSS_PATH,
   withoutComponentStyles,
@@ -621,6 +622,10 @@ export async function buildMainApp(
     },
   );
 
+  /** A draft is its author's alone: everyone else, links included, never hears of it. */
+  const isMyDraft = (viewer: Viewer, person: Person | undefined, thread: Thread): boolean => viewer.kind !== "link" && thread.person?.id === person?.id;
+  const visibleTo = (viewer: Viewer, person: Person | undefined) => (thread: Thread): boolean => thread.status !== "held" || isMyDraft(viewer, person, thread);
+
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/threads", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
     // A visitor hears only of threads made through its own link (every thread of the page in Écriture); a Lecture link makes none.
@@ -628,13 +633,13 @@ export async function buildMainApp(
       const linkId = req.viewer.link.id;
       return store.listThreads(req.params.pageId).filter((thread) => thread.linkAuthor?.linkId === linkId);
     }
-    return store.listThreads(req.params.pageId).map((thread) => withLinkName(req.viewer, thread));
+    return store.listThreads(req.params.pageId).filter(visibleTo(req.viewer, req.person)).map((thread) => withLinkName(req.viewer, thread));
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/threads", async (req, reply) => {
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
     if (req.viewer.kind === "link" && req.viewer.link.scope !== "project") return reply.code(403).send({ error: "forbidden" });
-    return store.listProjectThreads(req.params.projectId).map((thread) => withLinkName(req.viewer, thread));
+    return store.listProjectThreads(req.params.projectId).filter(visibleTo(req.viewer, req.person)).map((thread) => withLinkName(req.viewer, thread));
   });
 
   // The user's reply in a thread: resumes the thread's session on the agent that opened it.
@@ -663,18 +668,22 @@ export async function buildMainApp(
   app.patch<{ Params: { threadId: string }; Body: UpdateThreadRequest }>("/api/threads/:threadId", async (req, reply) => {
     const body = req.body?.body;
     if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
+    const current = store.getThread(req.params.threadId);
+    if (current?.status === "held" && !isMyDraft(req.viewer, req.person, current)) return reply.code(403).send({ error: "a draft belongs to its author" });
     const thread = store.updateHeldThread(req.params.threadId, body);
     return thread ?? reply.code(409).send({ error: "only a held comment can be edited" });
   });
 
   app.delete<{ Params: { threadId: string } }>("/api/threads/:threadId", async (req, reply) => {
+    const current = store.getThread(req.params.threadId);
+    if (current?.status === "held" && !isMyDraft(req.viewer, req.person, current)) return reply.code(403).send({ error: "a draft belongs to its author" });
     if (!store.deleteHeldThread(req.params.threadId)) return reply.code(409).send({ error: "only a held comment can be deleted" });
     return reply.code(204).send();
   });
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/held", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-    return store.listHeldThreads(req.params.pageId);
+    return store.listHeldThreads(req.params.pageId).filter(visibleTo(req.viewer, req.person));
   });
 
   // "Tout envoyer": the held comments of the page leave as one message to one session.
@@ -683,10 +692,15 @@ export async function buildMainApp(
     if (!page) return reply.code(404).send({ error: "page not found" });
     const invalidChoice = modelChoiceError(req.body ?? {});
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
-    const held = store.listHeldThreads(page.id);
+    const held = store.listHeldThreads(page.id).filter(visibleTo(req.viewer, req.person));
     if (held.length > 0) {
-      for (const thread of held) store.releaseHeldThread(thread.id);
-      dispatchBatch(store, pageLock, page.projectId, held, modelChoiceOf(req.body ?? {}));
+      // Someone who only comments sends their drafts to be read first.
+      if (access.levelOf(req.viewer, { pageId: page.id }) === "comment") {
+        for (const thread of held) store.releaseHeldThread(thread.id, "review");
+      } else {
+        for (const thread of held) store.releaseHeldThread(thread.id);
+        dispatchBatch(store, pageLock, page.projectId, held, modelChoiceOf(req.body ?? {}));
+      }
     }
     const response: SendHeldResponse = { threads: held.length };
     return response;

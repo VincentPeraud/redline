@@ -65,6 +65,21 @@ export function AgentWaitBlock() {
   );
 }
 
+/** Under the messages of an À relire thread: Claude does not see it yet. */
+export function ReviewNoteBlock() {
+  return (
+    <div data-testid="review-note" className={cx(styles.taken, styles.takenWait)}>
+      <span aria-hidden="true" className={styles.takenIcon}>
+        <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <circle cx="7" cy="7" r="5.5" />
+          <path d="M7 4v3.5M7 9.6v.1" />
+        </svg>
+      </span>
+      <span className={styles.takenText}>Claude ne le voit pas tant qu'un membre en Écriture ne l'envoie pas. Il sera alors à prendre, ou partira à l'agent en mode Agent.</span>
+    </div>
+  );
+}
+
 /** The block under the messages saying who took the thread, from where and since when (or who the relaunch waits for). */
 export function TakenBlock({ thread }: { thread: Thread }) {
   const handler = useHandler(thread);

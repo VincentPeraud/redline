@@ -64,7 +64,7 @@ describe("member levels", () => {
     expect((await thomas.send("POST", `/api/projects/${project.id}/pages`, { title: "Mine", files: FILES })).status).toBe(403);
     expect((await thomas.send("PATCH", `/api/pages/${pageId}`, { title: "Renamed" })).status).toBe(403);
     expect((await thomas.send("POST", `/api/pages/${pageId}/archive`)).status).toBe(403);
-    expect((await thomas.send("POST", `/api/pages/${pageId}/send-held`, {})).status).toBe(403);
+    expect((await thomas.send("POST", `/api/pages/${pageId}/send-held`, {})).status).toBe(200);
   });
 
   it("gives Écriture everything on pages, archive and delete pages included, but not the project", async () => {
