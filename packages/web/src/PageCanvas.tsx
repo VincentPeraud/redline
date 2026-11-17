@@ -1435,6 +1435,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                 commentOnly={archived === undefined && !canWork}
                 modeHint={hasCommentMode ? { mode: commentMode, canWork } : undefined}
                 pageTitle={pageTitle}
+                canHandOver={!visitor && canWork}
+                agentOnline={project?.servedBy !== undefined}
                 archivedLabel={archivedLabel}
                 unfolded={unfoldedResolved}
                 onUnfold={unfoldResolved}

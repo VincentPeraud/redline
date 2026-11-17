@@ -1,16 +1,20 @@
 import type { SendReviewRequest } from "@redline/shared";
 import type { ModelEffortChoice } from "./ModelEffortControls.js";
+import { showToast } from "./toasts.js";
 import { Button } from "./ui/index.js";
 import styles from "./Thread.module.css";
 
 /** Sends "À relire" threads of a page to Claude, as one message: the given ones, or all of them. */
 export async function sendToClaude(pageId: string, choice: ModelEffortChoice, threadIds?: string[]): Promise<void> {
   const request: SendReviewRequest = { ...choice, ...(threadIds ? { threadIds } : {}) };
-  await fetch(`/api/pages/${pageId}/send-review`, {
+  const response = await fetch(`/api/pages/${pageId}/send-review`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(request),
-  });
+  }).catch(() => undefined);
+  if (response?.ok) return;
+  const reason = response ? (((await response.json().catch(() => undefined)) as { error?: string } | undefined)?.error ?? "le serveur a refusé") : "connexion perdue";
+  showToast({ tone: "error", message: `Les commentaires n'ont pas pu être envoyés à Claude : ${reason}.`, action: { label: "Réessayer", onClick: () => void sendToClaude(pageId, choice, threadIds) } });
 }
 
 /** Counter of the page's "À relire" threads, with "Tout envoyer à Claude" for members who work on the page. */

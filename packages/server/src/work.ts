@@ -170,6 +170,14 @@ export function dispatchReply(
   lock.submit({ projectId, agentId: session.agentId, takeoverItem: takeover }, item);
 }
 
+/**
+ * "Confier à l'agent": queues the thread's work whatever the page's mode (the caller released the take), signed by `by`.
+ * The agent starts afresh from the thread's history; the thread is then the agent's (`routeOf` sees the queued work, then its session).
+ */
+export function handOverThread(lock: PageLock, projectId: string, thread: Thread, by: Person | undefined, choice: ModelChoice = {}): void {
+  lock.submit({ projectId, ...(by ? { handedOverBy: by } : {}) }, { ...threadItem(thread, freshSessionMessage(thread), randomUUID(), false), ...definedChoice(choice) });
+}
+
 function workThread(thread: Thread): WorkThread {
   return {
     threadId: thread.id,

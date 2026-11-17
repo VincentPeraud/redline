@@ -5,14 +5,18 @@ import { cx } from "./ui/index.js";
 import styles from "./Thread.module.css";
 
 /** Who handles an open thread, as its card shows it: nobody ("À prendre"), or the account that took it (yours, or someone else's). */
-export function useHandler(thread: Thread): { kind: "to-take" } | { kind: "taken"; mine: boolean; name: string; relaunch: boolean; take: NonNullable<Thread["take"]> } | undefined {
+export function useHandler(thread: Thread): { kind: "to-take" } | { kind: "taken"; mine: boolean; name: string; relaunch: boolean; question: boolean; take: NonNullable<Thread["take"]> } | undefined {
   const me = useMe();
   if (thread.toTake) return { kind: "to-take" };
   const { take } = thread;
   if (!take) return undefined;
   // Without SSO there is one account: every take is yours.
   const mine = take.person === undefined ? me === null : take.person.id === me?.id;
-  return { kind: "taken", mine, name: take.person?.name || take.person?.email || "quelqu'un", relaunch: thread.relaunch === true, take };
+  const relaunch = thread.relaunch === true;
+  // The conversation that took the thread answered last and the thread stays open: it waits for the person to answer.
+  const lastReply = thread.replies.at(-1);
+  const question = !relaunch && lastReply?.author === "claude" && lastReply.conversation !== undefined;
+  return { kind: "taken", mine, name: take.person?.name || take.person?.email || "quelqu'un", relaunch, question, take };
 }
 
 /** "À prendre", "Pris par Victor", "Pris par toi" or "Relance pour Victor": the top right of the card. */
@@ -26,10 +30,26 @@ export function HandlerStatus({ thread }: { thread: Thread }) {
       </span>
     );
   }
+  if (handler.question) {
+    return (
+      <span data-testid="thread-handler" data-handler="question" className={cx(styles.status, styles.statusWait)}>
+        Question de Claude
+      </span>
+    );
+  }
   const label = handler.relaunch ? `Relance pour ${handler.mine ? "toi" : handler.name}` : handler.mine ? "Pris par toi" : `Pris par ${handler.name}`;
   return (
     <span data-testid="thread-handler" data-handler={handler.mine ? "mine" : "other"} className={cx(styles.status, handler.mine && !handler.relaunch && styles.statusMine)}>
       {label}
+    </span>
+  );
+}
+
+/** "Agent du projet": the thread belongs to the agent, which works on it or answered it. */
+export function AgentStatus() {
+  return (
+    <span data-testid="thread-handler" data-handler="agent" className={cx(styles.status, styles.statusAgent)}>
+      Agent du projet
     </span>
   );
 }
@@ -69,16 +89,18 @@ export function AgentWaitBlock() {
 export function TakenBlock({ thread }: { thread: Thread }) {
   const handler = useHandler(thread);
   if (handler?.kind !== "taken") return null;
-  const { mine, name, relaunch, take } = handler;
+  const { mine, name, relaunch, question, take } = handler;
   const since = relativeTime(take.takenAt);
-  const text = relaunch
+  const text = question && !mine
+    ? `Ta réponse ira à une conversation de ${name}, qui a pris ce fil`
+    : relaunch
     ? mine
       ? "Attend une de tes conversations, qui avait pris ce fil"
       : `Attend une conversation de ${name}, qui avait pris ce fil`
     : mine
       ? `Ta conversation l'a pris · ${take.folder} · ${since}`
       : `Une conversation de ${name} l'a pris · ${take.folder} · ${take.machine} · ${since}`;
-  const icon = relaunch ? ICONS.clock : mine ? ICONS.check : ICONS.person;
+  const icon = relaunch ? ICONS.clock : mine || question ? ICONS.check : ICONS.person;
   return (
     <div data-testid="thread-taken" className={cx(styles.taken, mine && !relaunch && styles.takenMine)}>
       <span aria-hidden="true" className={styles.takenIcon}>

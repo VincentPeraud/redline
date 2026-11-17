@@ -5,6 +5,7 @@ import fastifyStatic from "@fastify/static";
 import {
   type PageViewSettings,
   type SetCommentModeRequest,
+  type HandOverRequest,
   type SetCommentModeResponse,
   COMMENT_MODES,
   type LinkAuthor,
@@ -99,6 +100,7 @@ import { registerHomeRoutes } from "./home.js";
 import { archivedError, registerArchiveRoutes, registerArchivedGuard } from "./archive.js";
 import { moveArtboard } from "./move-artboard.js";
 import { dispatchBatch, dispatchReply, dispatchReviewed, dispatchThread } from "./work.js";
+import { handOver, release } from "./hand-over.js";
 
 const PALETTE_TOKENS = ["--color-primary", "--color-text", "--color-background"];
 
@@ -716,6 +718,23 @@ export async function buildMainApp(
     if (store.getThread(req.params.threadId)?.request) return reply.code(409).send({ error: "a request to the design system cannot be resolved" });
     const thread = store.resolveThread(req.params.threadId, req.person?.id ?? "");
     return thread ?? reply.code(404).send({ error: "thread not found" });
+  });
+
+  // "Libérer": the account that took the thread lets go of it; the thread follows the page's mode again.
+  app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/release", async (req, reply) => {
+    const thread = store.getThread(req.params.threadId);
+    if (!thread) return reply.code(404).send({ error: "thread not found" });
+    if (!release(store, pageLock, thread, req.person?.id ?? "")) return reply.code(409).send({ error: "this thread is not taken by your account" });
+    return store.getThread(thread.id);
+  });
+
+  // "Confier à l'agent": the thread goes to the agent without changing the page's mode. A thread taken by someone else needs `confirm`; refused when no agent runs.
+  app.post<{ Params: { threadId: string }; Body: HandOverRequest | undefined }>("/api/threads/:threadId/hand-over", async (req, reply) => {
+    const thread = store.getThread(req.params.threadId);
+    if (!thread) return reply.code(404).send({ error: "thread not found" });
+    const refusal = handOver(store, pageLock, thread, req.person, req.body?.confirm === true);
+    if (refusal) return reply.code(409).send(refusal);
+    return store.getThread(thread.id);
   });
 
   // A user action of the web UI too: a resolved thread goes back to the open threads, without starting a run.

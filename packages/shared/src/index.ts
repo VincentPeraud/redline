@@ -335,6 +335,19 @@ export interface SetCommentModeRequest {
 /** Answer of `POST /api/pages/:pageId/comment-mode`: the page, and how many threads changed hands (left to the agent, or turned back to take). */
 export type SetCommentModeResponse = Page & { movedThreads: number };
 
+/** Body of `POST /api/threads/:threadId/hand-over` ("Confier à l'agent"): `confirm` says the member saw who took the thread and still hands it over. */
+export interface HandOverRequest {
+  confirm?: boolean;
+}
+
+/** Why `POST /api/threads/:threadId/hand-over` answered 409: no agent would take the project's work, or the thread is taken by someone else and the request was not confirmed. */
+export interface HandOverRefusal {
+  error: string;
+  code: "no-agent" | "taken" | "not-open" | "already-agent";
+  /** With `taken`: the take the member did not confirm over. */
+  take?: ThreadTake;
+}
+
 /** An account's hold on a thread, made by `pending_comments`: it belongs to the account, whichever of its conversations answers. */
 export interface ThreadTake {
   /** The account that took the thread; absent without SSO (the shared token is one account). */

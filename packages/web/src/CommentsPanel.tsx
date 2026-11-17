@@ -14,7 +14,8 @@ import { queueLabel, waitingForOfflineAgent } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
-import { AgentWaitBlock, HandlerStatus, TakenBlock, useHandler } from "./ThreadTake.js";
+import { AgentStatus, AgentWaitBlock, HandlerStatus, TakenBlock, useHandler } from "./ThreadTake.js";
+import { useThreadHandOver } from "./HandOver.js";
 import { CommentModeHint } from "./CommentMode.js";
 import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
 import { useStickToBottom } from "./useStickToBottom.js";
@@ -53,6 +54,10 @@ interface Props {
   /** The line at the top saying where the page's comments go; absent where the page has no comment mode (design system, archived). */
   modeHint?: { mode: CommentMode; canWork: boolean };
   pageTitle?: string;
+  /** The viewer may hand threads over to the agent and release their own takes: a member working on the page (not a link visitor, not Commentaire). */
+  canHandOver?: boolean;
+  /** An agent would take the project's work: without one "Confier à l'agent" is disabled, with the reason. */
+  agentOnline?: boolean;
   /** Resolved threads unfolded in the list: their pins show again on the canvas. */
   unfolded: ReadonlySet<string>;
   onUnfold: (threadId: string, open: boolean) => void;
@@ -64,7 +69,7 @@ interface Props {
 
 const GROUP_ORDER: Record<Thread["status"], number> = { held: 0, review: 1, open: 2, resolved: 3 };
 
-function ThreadHeader({ thread, waitingForAgent, children }: { thread: Thread; waitingForAgent: boolean; children?: ReactNode }) {
+function ThreadHeader({ thread, waitingForAgent, withAgent, children }: { thread: Thread; waitingForAgent: boolean; withAgent: boolean; children?: ReactNode }) {
   return (
     <>
       <div className={styles.head}>
@@ -76,6 +81,7 @@ function ThreadHeader({ thread, waitingForAgent, children }: { thread: Thread; w
         {thread.request && <RequestTag />}
         {thread.status === "review" && <StatusBadge tone="warning" size="sm">À relire</StatusBadge>}
         {thread.status === "open" && <HandlerStatus thread={thread} />}
+        {withAgent && <AgentStatus />}
         {waitingForAgent && (
           <span data-testid="queued" className={cx(styles.status, styles.statusWait)}>
             En attente de l'agent (hors ligne)
@@ -223,6 +229,9 @@ function ThreadCard({
   onResolve,
   onSend,
   readOnly,
+  canHandOver,
+  agentOnline,
+  onChanged,
 }: {
   thread: Thread;
   queue: QueueEntry[];
@@ -235,14 +244,23 @@ function ThreadCard({
   /** "Envoyer à Claude", for an "À relire" thread: absent where the viewer does not work (Commentaire). */
   onSend?: () => void;
   readOnly: boolean;
+  canHandOver: boolean;
+  agentOnline: boolean;
+  /** A thread was released or handed over here: the list loads again at once. */
+  onChanged: () => void;
 }) {
   const [replying, setReplying] = useState(false);
+  const handOver = useThreadHandOver(thread, onChanged);
   const [refusing, setRefusing] = useState(false);
   const active = !queued && run !== undefined && run.status !== "answered" && run.status !== "failed";
   const failed = !queued && run?.status === "failed";
   const handler = useHandler(thread);
   const waitingForAgent = waitingForOfflineAgent(queue, thread.id) && !session?.sessionId;
   const stacked = handler !== undefined || waitingForAgent;
+  const withAgent = thread.status === "open" && !handler && !waitingForAgent && !thread.request && !queued && (session?.sessionId !== undefined || run !== undefined);
+  // An open thread to take or taken can be handed over (the agent's own and the "À relire" ones cannot); its taker can release it.
+  const canConfier = canHandOver && !readOnly && thread.status === "open" && !thread.request && (handler?.kind === "to-take" || handler?.kind === "taken");
+  const canRelease = canHandOver && !readOnly && handler?.kind === "taken" && handler.mine;
 
   const messages = <ThreadMessages thread={thread} />;
 
@@ -266,8 +284,8 @@ function ThreadCard({
   }
 
   return (
-    <article data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running, thread.status === "review" && styles.review, handler?.kind === "taken" && !handler.mine && !handler.relaunch && styles.takenOther, thread.removed && styles.removed)}>
-      <ThreadHeader thread={thread} waitingForAgent={waitingForAgent}>
+    <article data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running, thread.status === "review" && styles.review, handler?.kind === "taken" && !handler.mine && !handler.relaunch && !handler.question && styles.takenOther, thread.removed && styles.removed)}>
+      <ThreadHeader thread={thread} waitingForAgent={waitingForAgent} withAgent={withAgent}>
         {queued && !waitingForAgent && (
           <span data-testid="queued" className={styles.queued}>
             {queued}
@@ -286,28 +304,50 @@ function ThreadCard({
           {!stacked && thread.status !== "review" && <span className={styles.spacer} />}
           {!readOnly && (
             <div className={styles.footerActions}>
-              {thread.status === "review" && onSend && (
-                <Button size="sm" variant="primary" onClick={onSend}>
-                  Envoyer à Claude
-                </Button>
+              {(canRelease || canConfier) && (
+                <div className={styles.actionGroup}>
+                  {canRelease && (
+                    <Button size="sm" onClick={handOver.release}>
+                      Libérer
+                    </Button>
+                  )}
+                  {canConfier && (
+                    <Button size="sm" disabled={!agentOnline} title={agentOnline ? undefined : "Aucun agent ne tourne pour ce projet"} onClick={() => handOver.handOver(handler?.kind === "taken" && !handler.mine ? handler.take : undefined)}>
+                      Confier à l'agent
+                    </Button>
+                  )}
+                </div>
               )}
-              <Button size="sm" aria-expanded={replying} onClick={() => setReplying(!replying)}>
-                Répondre
-              </Button>
-              {thread.request && requestIsOpen(thread.request) && (
-                <Button size="sm" onClick={() => setRefusing(true)}>
-                  Refuser
+              <div className={styles.actionGroup}>
+                {thread.status === "review" && onSend && (
+                  <Button size="sm" variant="primary" className={styles.footPrimary} onClick={onSend}>
+                    Envoyer à Claude
+                  </Button>
+                )}
+                <Button size="sm" aria-expanded={replying} onClick={() => setReplying(!replying)}>
+                  Répondre
                 </Button>
-              )}
-              {!thread.request && onResolve && (
-                <Button size="sm" variant={thread.status === "review" ? "ghost" : "primary"} onClick={onResolve}>
-                  Résoudre
-                </Button>
-              )}
+                {thread.request && requestIsOpen(thread.request) && (
+                  <Button size="sm" onClick={() => setRefusing(true)}>
+                    Refuser
+                  </Button>
+                )}
+                {!thread.request && onResolve && (
+                  <Button size="sm" variant={thread.status === "review" ? "ghost" : "primary"} className={thread.status === "review" ? undefined : styles.footPrimary} onClick={onResolve}>
+                    Résoudre
+                  </Button>
+                )}
+              </div>
             </div>
+          )}
+          {canConfier && !agentOnline && (
+            <span data-testid="hand-over-why" className={styles.why}>
+              Aucun agent ne tourne : <a href="#/agents">lance-en un depuis la page Agents</a>
+            </span>
           )}
         </div>
       )}
+      {handOver.dialog}
       {replying && !active && <ThreadReplyForm threadId={thread.id} choice={choice} onDone={() => setReplying(false)} />}
       <ContextLine thread={thread} />
       {refusing && thread.request && <RefuseDialog target={refuseRequestTarget(thread.id, `${INSTANCE_TAG_PREFIX}${thread.request.component}`)} onClose={() => setRefusing(false)} onRefused={() => undefined} />}
@@ -316,7 +356,7 @@ function ThreadCard({
 }
 
 /** The "Commentaires" tab: held bar, thread cards and the composer of a new pinned comment. */
-export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, commentOnly = false, archivedLabel = "Projet archivé", modeHint, pageTitle = "", unfolded, onUnfold, onShowThread, onThreadsChanged }: Props) {
+export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, commentOnly = false, archivedLabel = "Projet archivé", modeHint, pageTitle = "", canHandOver = false, agentOnline = false, unfolded, onUnfold, onShowThread, onThreadsChanged }: Props) {
   // The list follows the answer itself: behind a proxy that holds the event stream back, the click would otherwise seem to do nothing.
   const act = (threadId: string, action: "resolve" | "reopen") =>
     void fetch(`/api/threads/${threadId}/${action}`, { method: "POST" }).then((res) => {
@@ -363,6 +403,9 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
               onResolve={commentOnly ? undefined : () => act(thread.id, "resolve")}
               onSend={commentOnly ? undefined : () => void sendToClaude(pageId, choice, [thread.id])}
               readOnly={readOnly}
+              canHandOver={canHandOver && !commentOnly}
+              agentOnline={agentOnline}
+              onChanged={() => onThreadsChanged?.()}
             />
           );
         })}
