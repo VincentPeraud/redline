@@ -166,7 +166,8 @@ it("asks before handing over a thread taken by someone else, then keeps the line
 
   await thomas.reply(thread.id, "Option d'expiration ajoutée.");
   await expect.poll(() => card.getByTestId("reply").innerText()).toContain("après le transfert");
-  expect(await card.getByTestId("thread-handler").innerText()).toBe("Agent du projet");
+  // The late answer also goes to the agent as work (queued behind its running one): the card shows it waits in the queue.
+  await expect.poll(() => card.getByTestId("queued").count()).toBe(1);
   await tab.close();
 }, 90_000);
 
