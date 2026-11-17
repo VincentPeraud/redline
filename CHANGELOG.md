@@ -9,6 +9,7 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 ### Changed
 
 - Comments on demand (first lot): a new comment thread is "À prendre" and goes to nobody while its page is in Conversation mode (the default of every page). Any Claude Code conversation of an account with Écriture takes a page's threads with `pending_comments {pageId}` ("traite les commentaires de Partager") and answers them with `reply_in_thread`, signed "Claude · conversation de <person> · <folder>". A take belongs to the account, so a compacted or resumed conversation finds its threads again. The card shows "À prendre", "Pris par <person>" or "Pris par toi". The page holds, the "Session terminal" pill, the `terminal` queue reason and `release_page` are gone; existing waiting threads become to take.
+- Comments on demand (conversation tools): `pending_comments` without a page only lists what waits, page by page; with `threadIds` it takes exactly those threads, `takeOver: true` takes over another account's (recorded "repris par", refused while an agent runs the thread); `release_comments` lets go of the account's takes; threads waiting for an offline agent can be taken; a message posted after a take is marked "new since your take"; a reminder line ends the answers of the pages a conversation published or checked out.
 
 ## [0.3.0] - 2026-11-17
 

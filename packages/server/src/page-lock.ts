@@ -124,6 +124,26 @@ export class PageLock {
     );
   }
 
+  /** The queued, never sent item that holds only this thread while no agent can run it: a conversation may take such a thread (see `withdrawWaiting`). */
+  private waitingItemOf(threadId: string): Queued | undefined {
+    return this.reasons().find(({ queued, reason }) => reason === "agent-offline" && queued.item.threads.length === 1 && queued.item.threads[0].threadId === threadId)?.queued;
+  }
+
+  /** Whether the thread only waits in the queue for an agent that is offline (no session, no other thread in its item). */
+  isWaitingForAgent(threadId: string): boolean {
+    return this.waitingItemOf(threadId) !== undefined && !this.store.getThreadSession(threadId);
+  }
+
+  /** Removes the thread's waiting item from the queue (the thread then follows the routing rule again). False when it does not wait for an offline agent. */
+  withdrawWaiting(threadId: string): boolean {
+    const queued = this.isWaitingForAgent(threadId) ? this.waitingItemOf(threadId) : undefined;
+    if (!queued) return false;
+    this.queue = this.queue.filter((q) => q !== queued);
+    this.save();
+    this.store.emit({ type: "queue-updated", pageId: queued.item.pageId });
+    return true;
+  }
+
   /** Waits for the page's turn like any work item (no agent needed); resolves with the function that releases the page. */
   acquire(pageId: string): Promise<() => void> {
     return new Promise((resolve) => {

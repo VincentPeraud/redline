@@ -116,7 +116,8 @@ describe("security fixes: links and capabilities", () => {
     expect((await call(arianeToken, "heartbeat")).status).toBe(204);
     expect((await call(thomasToken, "heartbeat")).status).toBe(403);
     expect((await call(thomasToken, "take")).status).toBe(403);
-    expect((await call(arianeToken, "take")).status).toBe(400);
+    // The owner gets through (a take with neither page nor thread ids only lists).
+    expect((await call(arianeToken, "take")).status).toBe(200);
   });
 
   it("S8: setup-style tokens are read from a header, never from the query string", async () => {
