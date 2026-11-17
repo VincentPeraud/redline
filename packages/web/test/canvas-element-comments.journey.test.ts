@@ -176,7 +176,7 @@ it("keeps the thread of a removed canvas element in the list, greyed and unpinne
   await publish(false);
   await tab.getByTestId("removed-tag").waitFor();
   await tab.getByRole("button", { name: "Résoudre" }).click();
-  await tab.getByText("Résolu", { exact: true }).waitFor();
+  await tab.getByText(/^Résolu · /).waitFor();
   expect(await tab.getByTestId("removed-tag").textContent()).toBe("retiré du canvas");
 
   await publish(true);
