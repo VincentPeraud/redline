@@ -327,6 +327,9 @@ export interface SetCommentModeRequest {
   mode: CommentMode;
 }
 
+/** Answer of `POST /api/pages/:pageId/comment-mode`: the page, and how many threads changed hands (left to the agent, or turned back to take). */
+export type SetCommentModeResponse = Page & { movedThreads: number };
+
 /** An account's hold on a thread, made by `pending_comments`: it belongs to the account, whichever of its conversations answers. */
 export interface ThreadTake {
   /** The account that took the thread; absent without SSO (the shared token is one account). */

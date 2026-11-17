@@ -139,7 +139,7 @@ it("shows a thread an agent owns as it was: no handler on the card", async () =>
   const thread = await post(ARIANE, "Mets le bouton en premier.");
   const tab = await commentsOf(ARIANE, pageId);
 
-  await expect.poll(() => tab.locator(`[data-thread="${thread.id}"]`).getByTestId("queued").innerText()).toMatch(/En file/);
+  await expect.poll(() => tab.locator(`[data-thread="${thread.id}"]`).getByTestId("queued").innerText()).toMatch(/En attente de l'agent/);
   expect(await tab.locator(`[data-thread="${thread.id}"]`).getByTestId("thread-handler").count()).toBe(0);
   await tab.close();
 }, 60_000);

@@ -1,5 +1,6 @@
 import { threadTargetLabel, type TakeCommentsResponse, type TakenComment, type TerminalCommentsPage, type TerminalWaitingComment, type Thread } from "@redline/shared";
 import type { SessionLabel } from "./terminal-sessions.js";
+import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 import { zoneSubject } from "./thread-subject.js";
 import { freshSessionMessage, threadMessage } from "./work.js";
@@ -15,18 +16,21 @@ function takenMessage(thread: Thread): string {
 }
 
 /**
- * `pending_comments { pageId }`: the account takes every thread to take of the page, with the label of the conversation that asks,
- * and is given them in the agent message form, followed by the page's threads it had already taken (a relaunch marked as such).
+ * `pending_comments { pageId }`: the account takes every thread to take of the page, and every thread waiting for an offline agent
+ * (which leaves the agent's queue), with the label of the conversation that asks, and is given them in the agent message form,
+ * followed by the page's threads it had already taken (a relaunch marked as such).
  */
-export function takeComments(store: Store, label: SessionLabel, pageId: string): TakeCommentsResponse {
+export function takeComments(store: Store, pageLock: PageLock, label: SessionLabel, pageId: string): TakeCommentsResponse {
   const page = store.getPage(pageId)!;
   const before = store.listThreads(pageId);
-  for (const thread of before.filter((t) => t.toTake)) store.takeThread(thread.id, label.accountId, label.folder, label.machine);
+  const waitingForAgent = new Set(pageLock.withdrawWaitingForAgent(pageId));
+  const fresh = (thread: Thread) => thread.toTake === true || waitingForAgent.has(thread.id);
+  for (const thread of before.filter(fresh)) store.takeThread(thread.id, label.accountId, label.folder, label.machine);
   const comments: TakenComment[] = [];
   for (const thread of store.listThreads(pageId)) {
     if (thread.status !== "open" || takerOf(thread) !== label.accountId) continue;
-    const wasToTake = before.find((t) => t.id === thread.id)?.toTake;
-    comments.push(wasToTake ? { threadId: thread.id, state: "new", message: threadMessage(thread) } : { threadId: thread.id, state: thread.relaunch ? "relaunch" : "taken", message: takenMessage(thread) });
+    const wasFresh = fresh(before.find((t) => t.id === thread.id) ?? thread);
+    comments.push(wasFresh ? { threadId: thread.id, state: "new", message: threadMessage(thread) } : { threadId: thread.id, state: thread.relaunch ? "relaunch" : "taken", message: takenMessage(thread) });
   }
   // What was just taken comes first.
   comments.sort((a, b) => Number(b.state === "new") - Number(a.state === "new"));

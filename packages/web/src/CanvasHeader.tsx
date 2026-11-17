@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DeletedArtboard, Gap, Page, PageGaps, Project, Thread } from "@redline/shared";
 import { DiffuseButton } from "./DiffusionDialog.js";
 import { DeletedArtboardsList } from "./DeletedArtboardsList.js";
@@ -258,6 +258,8 @@ interface Props {
   archived?: boolean;
   /** The viewer's level lets them comment but not work: the header keeps the comment mode and drops the agent controls (with `archived`). */
   commentOnly?: boolean;
+  /** The comment mode toggle, left of the agent pill (a link visitor's header too); absent on a design system's page, an archived page and a preview. */
+  commentMode?: ReactNode;
   /** Design system gaps of the page; the button shows only when there are some. */
   gaps: PageGaps | null;
   gapExceptionCount: number;
@@ -272,7 +274,7 @@ interface Props {
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, designSystemId, designSystemTitle, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf, archived = false, commentOnly = false }: Props) {
+export function CanvasHeader({ project, designSystemId, designSystemTitle, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf, archived = false, commentOnly = false, commentMode }: Props) {
   const me = useMe();
   const visitor = useVisitor();
   const owner: PageOwner | null = project
@@ -280,7 +282,7 @@ export function CanvasHeader({ project, designSystemId, designSystemTitle, versi
     : designSystemId && designSystemTitle
       ? { id: designSystemId, title: designSystemTitle, kind: "designSystem" }
       : null;
-  if (visitor) return <VisitorHeader visitor={visitor} pageId={pageId} pageTitle={pageTitle} firstArtboard={toc.items[0]?.file} picking={picking} onPickingChange={onPickingChange} />;
+  if (visitor) return <VisitorHeader commentMode={commentMode} visitor={visitor} pageId={pageId} pageTitle={pageTitle} firstArtboard={toc.items[0]?.file} picking={picking} onPickingChange={onPickingChange} />;
   // Same button as a share link's top bar: plays the page from its first artboard in reading order.
   const firstArtboard = toc.items[0]?.file;
   const present = (
@@ -333,10 +335,14 @@ export function CanvasHeader({ project, designSystemId, designSystemTitle, versi
       {previewOf !== undefined ? (
         <div className={styles.previewNote}>Commentaires et conversations désactivés pendant l'aperçu</div>
       ) : archived && !commentOnly ? (
-        present
+        <>
+          {commentMode && <div className={styles.commentMode}>{commentMode}</div>}
+          {present}
+        </>
       ) : (
         <>
           {!archived && <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />}
+          {commentMode && <div className={styles.commentMode}>{commentMode}</div>}
           {!archived && <AgentPill project={project} running={runningCount} />}
           {!archived && !designSystemId && <SharePageButton pageId={pageId} pageTitle={pageTitle} project={project} />}
           {present}

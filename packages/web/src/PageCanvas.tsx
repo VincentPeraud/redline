@@ -16,6 +16,7 @@ import {
   tweakGridLayout,
   versionPreviewPath,
   type AgentInfo,
+  type CommentMode,
   type CreateThreadRequest,
   type Gap,
   canvasElementSummary,
@@ -82,6 +83,7 @@ import { Tooltip, cx } from "./ui/index.js";
 import { usePageSessions } from "./usePageSessions.js";
 import { useRuns } from "./useRuns.js";
 import { LEVEL_LABEL } from "./ProjectSharingDialog.js";
+import { CommentModeToggle, useCommentModeSwitch } from "./CommentMode.js";
 import { PHONE_VISITOR_MAX_WIDTH, useVisitor } from "./visitor.js";
 import { VisitorComposer, VisitorThreadsPanel } from "./VisitorComments.js";
 import { useTweaks } from "./useTweaks.js";
@@ -169,9 +171,13 @@ interface Props {
   route: PageRoute;
   /** The page's project or design system is archived: the canvas is read-only behind its banner. */
   archived?: { kind: ArchiveKind; archivedAt: string; onUnarchived: () => void };
+  /** Who handles the page's new comments. */
+  commentMode: CommentMode;
+  /** Reads the page again, after this viewer switched the comment mode. */
+  onCommentModeChange: () => void;
 }
 
-export function PageCanvas({ pageId, pageTitle, project, projectId, designSystemPage, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, route, archived }: Props) {
+export function PageCanvas({ pageId, pageTitle, project, projectId, designSystemPage, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, route, archived, commentMode, onCommentModeChange }: Props) {
   const { artboard: addressedArtboard, play: playFile, renderingParam, previewOf } = route;
   /** Previewed with a design system's draft: read-only, nothing here comments, converses, saves or publishes. */
   const previewing = previewOf !== undefined;
@@ -615,6 +621,30 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   }
 
   const openCount = threads.filter((t) => t.status !== "resolved").length;
+  // A design system's pages always go to the agent: no mode to choose there (nor on an archived page, nor in a preview).
+  const hasCommentMode = !designSystemPage && archived === undefined && !previewing;
+  const commentModeSwitch = useCommentModeSwitch({
+    pageId,
+    pageTitle,
+    mode: commentMode,
+    threads,
+    agentOnline: project?.servedBy !== undefined,
+    onSwitched: () => {
+      onCommentModeChange();
+      void refresh();
+      void refreshQueue();
+    },
+  });
+  const commentModeToggle = (placement: "header" | "panel") => (
+    <CommentModeToggle
+      mode={commentMode}
+      canSwitch={!visitor && canWork}
+      whyNot={visitor ? "Tu consultes cette page avec un lien." : `Tu as le droit ${LEVEL_LABEL[level]}.`}
+      pageTitle={pageTitle}
+      onSelect={commentModeSwitch.select}
+      placement={placement}
+    />
+  );
   const runningCount = runs.filter((r) => r.status === "running" || r.status === "sent" || r.status === "retrying").length;
   const firstArtboard = manifest?.artboards[0]?.file;
   // Stable per pick: the comments panel focuses its textarea when this changes.
@@ -874,7 +904,9 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         onAskFixErrors={() => void askClaudeToFixErrors()}
         archived={frozen}
         commentOnly={archived === undefined && !canWork && canComment}
+        commentMode={hasCommentMode ? commentModeToggle("header") : undefined}
       />
+      {commentModeSwitch.dialog}
       {!visitor && canWork && !archived && <ReviewBanners pageId={pageId} />}
       {archived && (
         <ArchivedBanner
@@ -1381,6 +1413,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
             </div>
           ) : (
             <PageTweaksContext.Provider value={manifest?.tweaks ?? []}>
+              {hasCommentMode && commentModeToggle("panel")}
               <CommentsPanel
                 pageId={pageId}
                 threads={threads}
@@ -1400,6 +1433,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                 }}
                 readOnly={readOnly}
                 commentOnly={archived === undefined && !canWork}
+                modeHint={hasCommentMode ? { mode: commentMode, canWork } : undefined}
+                pageTitle={pageTitle}
                 archivedLabel={archivedLabel}
                 unfolded={unfoldedResolved}
                 onUnfold={unfoldResolved}

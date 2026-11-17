@@ -119,7 +119,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (!requiredString(pageId)) return reply.code(400).send({ error: "pageId is required" });
         if (!store.getPage(pageId)) return reply.code(404).send({ error: "page not found" });
         if (access.levelOf(req.viewer, { pageId }) !== "write") return reply.code(403).send({ error: "your account does not have Écriture on this project: ask a member who has it to handle the comments, or to give you Écriture" });
-        return takeComments(store, label, pageId);
+        return takeComments(store, pageLock, label, pageId);
       });
 
       // `request_review` and `review_feedback`: a terminal session declares a review of its changes, then reads its result.

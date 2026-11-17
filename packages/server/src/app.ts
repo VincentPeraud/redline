@@ -5,6 +5,7 @@ import fastifyStatic from "@fastify/static";
 import {
   type PageViewSettings,
   type SetCommentModeRequest,
+  type SetCommentModeResponse,
   COMMENT_MODES,
   type LinkAuthor,
   type ProjectLinkPage,
@@ -521,13 +522,20 @@ export async function buildMainApp(
     return { ...(req.viewer.kind === "link" ? withoutAuthor : page), viewSettings: store.getViewSettings(page.id), designSystem: store.isDesignSystemProject(page.projectId) };
   });
 
-  // Who handles the page's new comments. Members with Écriture and admins switch it; nothing is re-routed here (see `routeOf`).
-  app.post<{ Params: { pageId: string }; Body: SetCommentModeRequest }>("/api/pages/:pageId/comment-mode", async (req, reply) => {
-    if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+  // Who handles the page's new comments. Members with Écriture and admins switch it. To Agent, the threads to take go to the agent
+  // (taken ones stay with their taker); back to Conversation, the threads waiting for an offline agent are to take again
+  // (those an agent started stay with it). The answer counts the threads that changed hands.
+  app.post<{ Params: { pageId: string }; Body: SetCommentModeRequest }>("/api/pages/:pageId/comment-mode", async (req, reply): Promise<SetCommentModeResponse | void> => {
+    const page = store.getPage(req.params.pageId);
+    if (!page) return reply.code(404).send({ error: "page not found" });
     const mode = req.body?.mode;
     if (!COMMENT_MODES.includes(mode)) return reply.code(400).send({ error: "mode must be conversation or agent" });
-    store.setCommentMode(req.params.pageId, mode, req.person);
-    return store.getPage(req.params.pageId);
+    if (mode === page.commentMode) return { ...page, movedThreads: 0 };
+    const toTake = mode === "agent" ? store.listThreads(page.id).filter((thread) => thread.toTake) : [];
+    store.setCommentMode(page.id, mode, req.person);
+    const movedThreads = mode === "agent" ? toTake.length : pageLock.withdrawWaitingForAgent(page.id).length;
+    for (const thread of toTake) dispatchThread(store, pageLock, page.projectId, thread, modelChoiceOf({}));
+    return { ...store.getPage(page.id)!, movedThreads };
   });
 
   app.post<{ Params: { pageId: string }; Body: PageViewSettings }>("/api/pages/:pageId/view-settings", async (req, reply) => {

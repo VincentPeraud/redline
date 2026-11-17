@@ -9,6 +9,7 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 ### Changed
 
 - Comments on demand (first lot): a new comment thread is "À prendre" and goes to nobody while its page is in Conversation mode (the default of every page). Any Claude Code conversation of an account with Écriture takes a page's threads with `pending_comments {pageId}` ("traite les commentaires de Partager") and answers them with `reply_in_thread`, signed "Claude · conversation de <person> · <folder>". A take belongs to the account, so a compacted or resumed conversation finds its threads again. The card shows "À prendre", "Pris par <person>" or "Pris par toi". The page holds, the "Session terminal" pill, the `terminal` queue reason and `release_page` are gone; existing waiting threads become to take.
+- Comment mode toggle: the canvas header has a "Commentaires · Conversation / Agent" switch (members with Écriture and admins; disabled with the reason for the others). Switching to Agent asks a confirmation that counts the threads (to take leave for the agent, taken ones stay); switching back is immediate and a toast says how many threads waiting for the offline agent are to take again. Other viewers get a live toast and hint line. A thread sent to an offline agent shows "En attente de l'agent (hors ligne)" and `pending_comments {pageId}` can take it. On a phone the toggle moves to the top of the comments panel.
 
 ## [0.3.0] - 2026-11-17
 
