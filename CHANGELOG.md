@@ -6,6 +6,8 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-17
+
 ### Changed
 
 - Review mode, visual pass on the pins lot: the numbered frame of a target is kept inside the artboard, pins straddle their element's top-right corner like the mock-up, the shortcut reminder is centred on a tall artboard and clears a fitted one, the pin popover keeps its save error readable, and the pin undo row matches the remark one.
