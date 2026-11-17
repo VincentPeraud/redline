@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import { INSTANCE_TAG_PREFIX, requestIsOpen, type QueueEntry, type SessionRow, type Thread, type ThreadRun } from "@redline/shared";
+import { INSTANCE_TAG_PREFIX, requestIsOpen, type CommentMode, type QueueEntry, type SessionRow, type Thread, type ThreadRun } from "@redline/shared";
 import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
 import { RemovedTag } from "./RemovedTag.js";
@@ -10,11 +10,12 @@ import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from 
 import { InstanceThreadInfo } from "./InstanceThreads.js";
 import { RenderingChip } from "./RenderingChip.js";
 import { DESIGN_SYSTEM_CLAUDE, RequestOrigins, RequestStatePill, RequestTag, requestAskerName } from "./RequestThreads.js";
-import { queueLabel } from "./queueLabel.js";
+import { queueLabel, waitingForOfflineAgent } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
 import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
-import { HandlerStatus, TakenBlock, useHandler } from "./ThreadTake.js";
+import { AgentWaitBlock, HandlerStatus, TakenBlock, useHandler } from "./ThreadTake.js";
+import { CommentModeHint } from "./CommentMode.js";
 import { threadWhere, wholeArtboardOf } from "./threadLabel.js";
 import { useStickToBottom } from "./useStickToBottom.js";
 import { RefuseDialog, refuseRequestTarget } from "./RefuseDialog.js";
@@ -49,6 +50,9 @@ interface Props {
   archivedLabel?: string;
   /** The viewer comments but does not work (Commentaire level): no "Tout envoyer" bar, which is Écriture. */
   commentOnly?: boolean;
+  /** The line at the top saying where the page's comments go; absent where the page has no comment mode (design system, archived). */
+  modeHint?: { mode: CommentMode; canWork: boolean };
+  pageTitle?: string;
   /** Resolved threads unfolded in the list: their pins show again on the canvas. */
   unfolded: ReadonlySet<string>;
   onUnfold: (threadId: string, open: boolean) => void;
@@ -60,7 +64,7 @@ interface Props {
 
 const GROUP_ORDER: Record<Thread["status"], number> = { held: 0, review: 1, open: 2, resolved: 3 };
 
-function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNode }) {
+function ThreadHeader({ thread, waitingForAgent, children }: { thread: Thread; waitingForAgent: boolean; children?: ReactNode }) {
   return (
     <>
       <div className={styles.head}>
@@ -72,6 +76,11 @@ function ThreadHeader({ thread, children }: { thread: Thread; children?: ReactNo
         {thread.request && <RequestTag />}
         {thread.status === "review" && <StatusBadge tone="warning" size="sm">À relire</StatusBadge>}
         {thread.status === "open" && <HandlerStatus thread={thread} />}
+        {waitingForAgent && (
+          <span data-testid="queued" className={cx(styles.status, styles.statusWait)}>
+            En attente de l'agent (hors ligne)
+          </span>
+        )}
         {thread.status === "open" && thread.replies.at(-1)?.author === "redline" && <span data-testid="reopened" className={styles.reopened}>rouvert</span>}
         {children}
       </div>
@@ -182,6 +191,7 @@ function ResolvedThreadCard({ thread, session, readOnly, open, onOpen, onReopen 
 
 function ThreadCard({
   thread,
+  queue,
   queued,
   run,
   session,
@@ -191,6 +201,7 @@ function ThreadCard({
   readOnly,
 }: {
   thread: Thread;
+  queue: QueueEntry[];
   queued: string | undefined;
   run: ThreadRun | undefined;
   session: SessionRow | undefined;
@@ -206,7 +217,8 @@ function ThreadCard({
   const active = !queued && run !== undefined && run.status !== "answered" && run.status !== "failed";
   const failed = !queued && run?.status === "failed";
   const handler = useHandler(thread);
-  const stacked = handler !== undefined;
+  const waitingForAgent = waitingForOfflineAgent(queue, thread.id) && !session?.sessionId;
+  const stacked = handler !== undefined || waitingForAgent;
 
   const messages = <ThreadMessages thread={thread} />;
 
@@ -231,8 +243,8 @@ function ThreadCard({
 
   return (
     <article data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, active && styles.running, thread.status === "review" && styles.review, handler?.kind === "taken" && !handler.mine && !handler.relaunch && styles.takenOther, thread.removed && styles.removed)}>
-      <ThreadHeader thread={thread}>
-        {queued && (
+      <ThreadHeader thread={thread} waitingForAgent={waitingForAgent}>
+        {queued && !waitingForAgent && (
           <span data-testid="queued" className={styles.queued}>
             {queued}
           </span>
@@ -240,6 +252,7 @@ function ThreadCard({
       </ThreadHeader>
       {messages}
       <TakenBlock thread={thread} />
+      {waitingForAgent && <AgentWaitBlock />}
       {run && !queued && <RunProgress run={run} />}
       {active ? (
         sessionLabel(session) && <span className={styles.sessionMeta}>{sessionLabel(session)}</span>
@@ -279,7 +292,7 @@ function ThreadCard({
 }
 
 /** The "Commentaires" tab: held bar, thread cards and the composer of a new pinned comment. */
-export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, commentOnly = false, archivedLabel = "Projet archivé", unfolded, onUnfold, onShowThread, onThreadsChanged }: Props) {
+export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults, choice, onChoice, draft, text, onText, onSend, onCancel, readOnly = false, commentOnly = false, archivedLabel = "Projet archivé", modeHint, pageTitle = "", unfolded, onUnfold, onShowThread, onThreadsChanged }: Props) {
   // The list follows the answer itself: behind a proxy that holds the event stream back, the click would otherwise seem to do nothing.
   const act = (threadId: string, action: "resolve" | "reopen") =>
     void fetch(`/api/threads/${threadId}/${action}`, { method: "POST" }).then((res) => {
@@ -308,6 +321,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
           if (threadId) onShowThread?.(threadId);
         }}
       >
+        {modeHint && <CommentModeHint mode={modeHint.mode} toTake={threads.filter((thread) => thread.toTake).length} canWork={modeHint.canWork} pageTitle={pageTitle} />}
         {!readOnly && !commentOnly && <HeldBar pageId={pageId} count={heldCount} choice={choice} />}
         {!readOnly && <ReviewBar pageId={pageId} count={reviewCount} choice={choice} canSend={!commentOnly} />}
         {ordered.map((thread) => {
@@ -317,6 +331,7 @@ export function CommentsPanel({ pageId, threads, queue, runs, sessions, defaults
             <ThreadCard
               key={thread.id}
               thread={thread}
+              queue={queue}
               queued={queueLabel(queue, thread.id)}
               run={runs.filter((r) => r.threadIds.includes(thread.id)).slice(-1)[0]}
               session={sessions.get(thread.id)}

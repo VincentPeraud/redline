@@ -25,7 +25,7 @@ afterAll(async () => {
   rmSync(webDir, { recursive: true, force: true });
 });
 
-it("shows 'En file' with the reason on a thread whose agent is offline", async () => {
+it("shows that a thread waits for the offline agent", async () => {
   const page = await seam.createPage({ "home.html": "<!doctype html><h1>Title</h1>" });
   seam.agent.close();
   await expect
@@ -36,5 +36,5 @@ it("shows 'En file' with the reason on a thread whose agent is offline", async (
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
   await tab.getByRole("tab", { name: /^Commentaires/ }).click();
-  await expect.poll(() => tab.getByTestId("queued").textContent()).toBe("En file · agent hors ligne");
+  await expect.poll(() => tab.getByTestId("queued").textContent()).toBe("En attente de l'agent (hors ligne)");
 }, 60_000);
