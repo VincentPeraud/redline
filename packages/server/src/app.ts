@@ -536,8 +536,11 @@ export async function buildMainApp(
     if (mode === page.commentMode) return { ...page, movedThreads: 0 };
     const toTake = mode === "agent" ? store.listThreads(page.id).filter((thread) => thread.toTake) : [];
     store.setCommentMode(page.id, mode, req.person);
-    const movedThreads = mode === "agent" ? toTake.length : pageLock.withdrawWaitingForAgent(page.id).length;
-    for (const thread of toTake) dispatchThread(store, pageLock, page.projectId, thread, modelChoiceOf({}));
+    // One thread per call: each leaves in its own queue item, so one waiting for an offline agent can be taken or turned back alone.
+    for (const thread of toTake) dispatchReviewed(store, pageLock, page.projectId, [thread], modelChoiceOf({}));
+    const withdrawn = mode === "conversation" ? store.listThreads(page.id).filter((thread) => pageLock.withdrawWaiting(thread.id)) : [];
+    for (const thread of withdrawn) store.emit({ type: "thread-updated", pageId: page.id, threadId: thread.id });
+    const movedThreads = mode === "agent" ? toTake.length : withdrawn.length;
     return { ...store.getPage(page.id)!, movedThreads };
   });
 

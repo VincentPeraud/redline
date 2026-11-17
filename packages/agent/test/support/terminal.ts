@@ -17,8 +17,8 @@ export interface Terminal {
 }
 
 /** A terminal session: `redline mcp` in its own folder, present on the server. */
-export async function openTerminal(seam: Seam2, stops: (() => Promise<void>)[], machine: string, options: { heartbeatMs?: number; folder?: string; wrapApi?: (api: ServerApi) => ServerApi } = {}): Promise<Terminal> {
-  const { token } = (await (await seam.server.get("/api/agent-token")).json()) as AgentTokenResponse;
+export async function openTerminal(seam: Pick<Seam2, "folder" | "server">, stops: (() => Promise<void>)[], machine: string, options: { heartbeatMs?: number; folder?: string; wrapApi?: (api: ServerApi) => ServerApi; token?: string } = {}): Promise<Terminal> {
+  const token = options.token ?? ((await (await seam.server.get("/api/agent-token")).json()) as AgentTokenResponse).token;
   const base = new ServerApi(seam.server.url, token);
   const api = options.wrapApi?.(base) ?? base;
   const sessionId = randomUUID();

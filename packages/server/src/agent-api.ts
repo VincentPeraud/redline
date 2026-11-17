@@ -8,6 +8,7 @@ import {
   PROJECT_STYLE_PATH,
   MAX_ASSET_BYTES,
   folderName,
+  type AccessLevel,
   type AgentCheckout,
   type ChangeReviewFeedbackRequest,
   type RequestChangeReviewRequest,
@@ -19,6 +20,11 @@ import {
   type TerminalCommentsPage,
   type TakeCommentsRequest,
   type TakeCommentsResponse,
+  type CommentsOverview,
+  type CommentsReminder,
+  type RememberPageRequest,
+  type ReleaseCommentsRequest,
+  type ReleaseCommentsResponse,
   type MoveArtboardRequest,
   type RenamePageRequest,
   type MergeRequestRequest,
@@ -39,7 +45,7 @@ import { askToUndoRefused } from "./refusals.js";
 import { settleUndoneChanges } from "./undone-changes.js";
 import { changesError, mergeRequests } from "./change-records.js";
 import { ARCHIVED_PAGE_ERROR, archivableExists, archivePage, archiveProject, archivedError, projectOrDesignSystem } from "./archive.js";
-import type { Access } from "./access.js";
+import { accountLevelIn, type Access, type Viewer } from "./access.js";
 import { versionComponentsError } from "./components.js";
 import { removalsError } from "./removals.js";
 import { instanceChangesError } from "./instance-guards.js";
@@ -51,7 +57,8 @@ import { switchDesignSystem } from "./switch-design-system.js";
 import { changeReviewFeedback, declareChangeReview } from "./change-reviews.js";
 import type { PageLock } from "./page-lock.js";
 import type { TerminalSessions } from "./terminal-sessions.js";
-import { commentsToTake, takeComments, takerOf } from "./comment-takes.js";
+import { commentsOverview, commentsToTake, releaseComments, remindersOf, takePage, takerOf, takeThreads, writeRefusal, type TakeEnv } from "./comment-takes.js";
+import { dispatchReviewed } from "./work.js";
 import type { OriginRef, Store } from "./store.js";
 
 /** The thread or conversation a running work item answers, as version/DESIGN.md origin; none when the item is unknown or belongs to another page. */
@@ -111,15 +118,60 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       // The agents screen's Comments tab: every page with threads to take, read-only (unlike `take`, it takes nothing).
       api.get("/terminal-comments", async (req): Promise<TerminalCommentsPage[]> => commentsToTake(store, (projectId) => access.may(req.viewer, "read", { projectId })));
 
-      // `pending_comments { pageId }`: the account takes the page's threads to take, and is given them with the ones it already took.
-      api.post<{ Params: { sessionId: string }; Body: Partial<TakeCommentsRequest> }>("/terminal-sessions/:sessionId/take", async (req, reply): Promise<TakeCommentsResponse | void> => {
+      // An agent token only reaches where its person writes (`levelOf` says nothing else), so the refusal reads the person's real level.
+      const realLevelOf = (req: { viewer: Viewer }, projectId: string): AccessLevel | undefined =>
+        req.viewer.kind === "agent" && req.viewer.person ? accountLevelIn(store, { id: req.viewer.person.id, role: req.viewer.role }, projectId) : access.levelOf(req.viewer, { projectId });
+      const takeEnv = (req: { viewer: Viewer }): TakeEnv => ({ store, pageLock, levelOf: (projectId) => realLevelOf(req, projectId) });
+      const refusalOf = (req: { viewer: Viewer }, accountId: string, projectId: string) => writeRefusal(store, accountId, realLevelOf(req, projectId), projectId);
+
+      // `pending_comments`: with a page, the account takes its threads to take and is given them with the ones it already took; with thread ids, it takes those
+      // (and takes over another account's with `takeOver`); with neither, the projects' waiting threads are only listed.
+      api.post<{ Params: { sessionId: string }; Body: Partial<TakeCommentsRequest> }>("/terminal-sessions/:sessionId/take", async (req, reply): Promise<TakeCommentsResponse | CommentsOverview | void> => {
+        const label = terminalSessions.labelOf(req.params.sessionId);
+        if (!label) return reply.code(403).send({ error: notConnected });
+        const { pageId, threadIds, takeOver, projectIds } = req.body ?? {};
+        if (pageId !== undefined && !requiredString(pageId)) return reply.code(400).send({ error: "pageId must be a page id" });
+        if (threadIds !== undefined && (!Array.isArray(threadIds) || threadIds.length === 0 || !threadIds.every((id) => requiredString(id)))) return reply.code(400).send({ error: "threadIds must be a list of thread ids" });
+        if (takeOver !== undefined && typeof takeOver !== "boolean") return reply.code(400).send({ error: "takeOver must be a boolean" });
+        if (projectIds !== undefined && (!Array.isArray(projectIds) || !projectIds.every((id) => requiredString(id)))) return reply.code(400).send({ error: "projectIds must be a list of project ids" });
+        if (pageId !== undefined && threadIds !== undefined) return reply.code(400).send({ error: "give a pageId or threadIds, not both" });
+        if (pageId !== undefined) {
+          const projectId = store.projectIdOfPage(pageId);
+          if (!projectId) return reply.code(404).send({ error: "page not found" });
+          const refusal = refusalOf(req, label.accountId, projectId);
+          if (refusal) return reply.code(403).send({ error: refusal });
+          return takePage(takeEnv(req), label, pageId);
+        }
+        if (threadIds !== undefined) return takeThreads(takeEnv(req), label, threadIds, takeOver === true);
+        return commentsOverview(takeEnv(req), label, projectIds ?? [], (projectId) => realLevelOf(req, projectId));
+      });
+
+      // `release_comments`: the account lets go of its takes; the threads follow their page's mode again.
+      api.post<{ Params: { sessionId: string }; Body: Partial<ReleaseCommentsRequest> }>("/terminal-sessions/:sessionId/release", async (req, reply): Promise<ReleaseCommentsResponse | void> => {
+        const label = terminalSessions.labelOf(req.params.sessionId);
+        if (!label) return reply.code(403).send({ error: notConnected });
+        const { pageId, threadIds } = req.body ?? {};
+        if (pageId !== undefined && !requiredString(pageId)) return reply.code(400).send({ error: "pageId must be a page id" });
+        if (threadIds !== undefined && (!Array.isArray(threadIds) || !threadIds.every((id) => requiredString(id)))) return reply.code(400).send({ error: "threadIds must be a list of thread ids" });
+        if ((pageId === undefined) === (threadIds === undefined)) return reply.code(400).send({ error: "give a pageId or threadIds" });
+        if (pageId !== undefined && !store.getPage(pageId)) return reply.code(404).send({ error: "page not found" });
+        return releaseComments(takeEnv(req), label, { pageId, threadIds }, (thread) => dispatchReviewed(store, pageLock, store.getPage(thread.pageId)!.projectId, [thread]));
+      });
+
+      // This conversation published or checked out the page: its folder's reminder line is about the pages it knows.
+      api.post<{ Params: { sessionId: string }; Body: Partial<RememberPageRequest> }>("/terminal-sessions/:sessionId/pages", async (req, reply) => {
         const label = terminalSessions.labelOf(req.params.sessionId);
         if (!label) return reply.code(403).send({ error: notConnected });
         const { pageId } = req.body ?? {};
-        if (!requiredString(pageId)) return reply.code(400).send({ error: "pageId is required" });
-        if (!store.getPage(pageId)) return reply.code(404).send({ error: "page not found" });
-        if (access.levelOf(req.viewer, { pageId }) !== "write") return reply.code(403).send({ error: "your account does not have Écriture on this project: ask a member who has it to handle the comments, or to give you Écriture" });
-        return takeComments(store, pageLock, label, pageId);
+        if (!requiredString(pageId) || !store.getPage(pageId)) return reply.code(404).send({ error: "page not found" });
+        store.rememberTerminalPage(label.accountId, label.folder, pageId);
+        return reply.code(204).send();
+      });
+
+      api.get<{ Params: { sessionId: string } }>("/terminal-sessions/:sessionId/reminder", async (req, reply): Promise<CommentsReminder | void> => {
+        const label = terminalSessions.labelOf(req.params.sessionId);
+        if (!label) return reply.code(403).send({ error: notConnected });
+        return remindersOf(takeEnv(req), label);
       });
 
       // `request_review` and `review_feedback`: a terminal session declares a review of its changes, then reads its result.

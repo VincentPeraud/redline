@@ -357,6 +357,10 @@ export class Store {
     addColumn("threads", "taken_folder", "TEXT");
     addColumn("threads", "taken_machine", "TEXT");
     addColumn("threads", "taken_at", "TEXT");
+    // Set when the take was a takeover: the account it was taken from ('' when that holder had none), NULL for a plain take.
+    addColumn("threads", "taken_over_from", "TEXT");
+    // The pages a conversation's account published or checked out from a folder: what the reminder line is about.
+    this.db.exec("CREATE TABLE IF NOT EXISTS terminal_pages (account_id TEXT NOT NULL, folder TEXT NOT NULL, page_id TEXT NOT NULL, PRIMARY KEY (account_id, folder, page_id))");
     // A reply written by a Claude Code conversation: the account it works for and its folder.
     addColumn("thread_replies", "conversation_person_id", "TEXT");
     addColumn("thread_replies", "conversation_folder", "TEXT");
@@ -1550,7 +1554,8 @@ export class Store {
       const person = this.getPerson(take.accountId || null);
       const answered = thread.replies.some((reply) => reply.author === "claude");
       const waiting = answered && thread.replies.at(-1)?.author !== "claude";
-      return { ...thread, take: { ...(person ? { person } : {}), folder: take.folder, machine: take.machine, takenAt: take.takenAt }, ...(waiting && thread.status === "open" ? { relaunch: true as const } : {}) };
+      const from = take.takenOverFrom === undefined ? undefined : this.getPerson(take.takenOverFrom || null);
+      return { ...thread, take: { ...(person ? { person } : {}), folder: take.folder, machine: take.machine, takenAt: take.takenAt, ...(take.takenOverFrom === undefined ? {} : { takenOver: from ? { from } : {} }) }, ...(waiting && thread.status === "open" ? { relaunch: true as const } : {}) };
     }
     if (thread.status !== "open" || this.getThreadSession(thread.id) || this.threadHasWork(thread.id) || this.effectiveCommentMode(thread.pageId) !== "conversation") return thread;
     return { ...thread, toTake: true };
@@ -1879,24 +1884,40 @@ export class Store {
     this.db.prepare("UPDATE threads SET session_id = ?, agent_id = ? WHERE id = ?").run(sessionId, agentId, threadId);
   }
 
-  /** The account's take of a thread, whichever of its conversations made it. `accountId` is "" for the shared token (no SSO). */
-  takeOf(threadId: string): { accountId: string; folder: string; machine: string; takenAt: string } | undefined {
-    const row = this.db.prepare("SELECT taken_by, taken_folder, taken_machine, taken_at FROM threads WHERE id = ?").get(threadId) as
-      | { taken_by: string | null; taken_folder: string | null; taken_machine: string | null; taken_at: string | null }
-      | undefined;
-    return row && row.taken_by !== null && row.taken_at ? { accountId: row.taken_by, folder: row.taken_folder ?? "", machine: row.taken_machine ?? "", takenAt: row.taken_at } : undefined;
+  /** The thread no longer belongs to an agent session (an account takes it over). */
+  clearThreadSession(threadId: string): void {
+    this.db.prepare("UPDATE threads SET session_id = NULL, agent_id = NULL WHERE id = ?").run(threadId);
   }
 
-  /** The account takes the thread: a conversation of its own (at `folder` on `machine`) handles it from now on. */
-  takeThread(threadId: string, accountId: string, folder: string, machine: string): void {
-    this.db.prepare("UPDATE threads SET taken_by = ?, taken_folder = ?, taken_machine = ?, taken_at = ? WHERE id = ?").run(accountId, folder, machine, now(), threadId);
+  /** The account's take of a thread, whichever of its conversations made it. `accountId` is "" for the shared token (no SSO). */
+  takeOf(threadId: string): { accountId: string; folder: string; machine: string; takenAt: string; takenOverFrom?: string } | undefined {
+    const row = this.db.prepare("SELECT taken_by, taken_folder, taken_machine, taken_at, taken_over_from FROM threads WHERE id = ?").get(threadId) as
+      | { taken_by: string | null; taken_folder: string | null; taken_machine: string | null; taken_at: string | null; taken_over_from: string | null }
+      | undefined;
+    return row && row.taken_by !== null && row.taken_at
+      ? { accountId: row.taken_by, folder: row.taken_folder ?? "", machine: row.taken_machine ?? "", takenAt: row.taken_at, ...(row.taken_over_from === null ? {} : { takenOverFrom: row.taken_over_from }) }
+      : undefined;
+  }
+
+  /** The account takes the thread: a conversation of its own (at `folder` on `machine`) handles it from now on. `takenOverFrom` marks a takeover (the previous holder's account, "" when it had none). */
+  takeThread(threadId: string, accountId: string, folder: string, machine: string, takenOverFrom?: string): void {
+    this.db.prepare("UPDATE threads SET taken_by = ?, taken_folder = ?, taken_machine = ?, taken_at = ?, taken_over_from = ? WHERE id = ?").run(accountId, folder, machine, now(), takenOverFrom ?? null, threadId);
     this.emitThreadUpdated(threadId);
   }
 
   /** The thread has no take any more: it follows the routing rule again (to take, or to the agent). */
   releaseThreadTake(threadId: string): void {
-    this.db.prepare("UPDATE threads SET taken_by = NULL, taken_folder = NULL, taken_machine = NULL, taken_at = NULL WHERE id = ?").run(threadId);
+    this.db.prepare("UPDATE threads SET taken_by = NULL, taken_folder = NULL, taken_machine = NULL, taken_at = NULL, taken_over_from = NULL WHERE id = ?").run(threadId);
     this.emitThreadUpdated(threadId);
+  }
+
+  /** The conversation of `accountId` working in `folder` published or checked out the page. */
+  rememberTerminalPage(accountId: string, folder: string, pageId: string): void {
+    this.db.prepare("INSERT OR IGNORE INTO terminal_pages (account_id, folder, page_id) VALUES (?, ?, ?)").run(accountId, folder, pageId);
+  }
+
+  terminalPagesOf(accountId: string, folder: string): string[] {
+    return (this.db.prepare("SELECT page_id FROM terminal_pages WHERE account_id = ? AND folder = ? ORDER BY rowid").all(accountId, folder) as { page_id: string }[]).map((row) => row.page_id);
   }
 
   /** Asked by `withPerson` to know whether a work item (queued, running, retrying or failed) concerns a thread: set once by the page lock. */

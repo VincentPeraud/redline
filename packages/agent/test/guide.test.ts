@@ -138,6 +138,15 @@ it("tells terminal Claude to take comments on request only, for the account, and
   expect(REDLINE_GUIDE).not.toMatch(/holds? (the|a) page/);
 });
 
+it("tells terminal Claude to list before taking, take over only on request, release, and ask before drawing a new screen or rule", () => {
+  expect(REDLINE_GUIDE).toContain("Listing is not taking");
+  expect(REDLINE_GUIDE).toContain("pending_comments with no argument");
+  expect(REDLINE_GUIDE).toContain("pending_comments {threadIds, takeOver: true}");
+  expect(REDLINE_GUIDE).toContain("release_comments {pageId | threadIds}");
+  expect(REDLINE_GUIDE).toContain("Question de Claude");
+  expect(REDLINE_GUIDE).toContain("Redline : N commentaires à prendre");
+});
+
 it("tells Claude how to try variants of a design system component's look in a project", () => {
   expect(REDLINE_GUIDE).toContain("Trying looks of a component");
   expect(REDLINE_GUIDE).toContain('data-ds-libre="essai"');

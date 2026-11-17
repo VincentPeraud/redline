@@ -124,30 +124,24 @@ export class PageLock {
     );
   }
 
-  /**
-   * Takes out of the queue the threads of `pageId` that wait for an offline agent and that no agent ever started
-   * (a thread that was sent in Agent mode while the agent was away). Returns their ids: they are no longer the agent's.
-   */
-  withdrawWaitingForAgent(pageId: string): string[] {
-    const withdrawn = this.reasons().filter(
-      ({ queued, reason }) =>
-        reason === "agent-offline" &&
-        queued.item.pageId === pageId &&
-        queued.item.kind === "thread" &&
-        queued.item.threads.length > 0 &&
-        !queued.item.resume &&
-        !queued.agentId &&
-        !queued.onGranted &&
-        queued.item.threads.every((t) => !this.store.getThreadSession(t.threadId)),
-    );
-    if (withdrawn.length === 0) return [];
-    const gone = new Set(withdrawn.map(({ queued }) => queued));
-    this.queue = this.queue.filter((queued) => !gone.has(queued));
+  /** The queued, never sent item that holds only this thread while no agent can run it: a conversation may take such a thread (see `withdrawWaiting`). */
+  private waitingItemOf(threadId: string): Queued | undefined {
+    return this.reasons().find(({ queued, reason }) => reason === "agent-offline" && queued.item.threads.length === 1 && queued.item.threads[0].threadId === threadId)?.queued;
+  }
+
+  /** Whether the thread only waits in the queue for an agent that is offline (no session, no other thread in its item). */
+  isWaitingForAgent(threadId: string): boolean {
+    return this.waitingItemOf(threadId) !== undefined && !this.store.getThreadSession(threadId);
+  }
+
+  /** Removes the thread's waiting item from the queue (the thread then follows the routing rule again). False when it does not wait for an offline agent. */
+  withdrawWaiting(threadId: string): boolean {
+    const queued = this.isWaitingForAgent(threadId) ? this.waitingItemOf(threadId) : undefined;
+    if (!queued) return false;
+    this.queue = this.queue.filter((q) => q !== queued);
     this.save();
-    const threadIds = withdrawn.flatMap(({ queued }) => queued.item.threads.map((t) => t.threadId));
-    this.store.emit({ type: "queue-updated", pageId });
-    for (const threadId of threadIds) this.store.emit({ type: "thread-updated", pageId, threadId });
-    return threadIds;
+    this.store.emit({ type: "queue-updated", pageId: queued.item.pageId });
+    return true;
   }
 
   /** Waits for the page's turn like any work item (no agent needed); resolves with the function that releases the page. */
