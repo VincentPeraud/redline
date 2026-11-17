@@ -4,6 +4,8 @@ import { chooseAgent, globalAgentFor } from "./agent-selection.js";
 import type { AgentHub } from "./agents.js";
 import { RETRY_DELAYS_MS, UNKNOWN_RESET_WAIT_MS, isSubscriptionLimit, limitResetAt } from "./retry-policy.js";
 import type { PersistedWork, Store } from "./store.js";
+import { nameOf } from "./person-name.js";
+import { batchMessage, freshSessionMessage } from "./work.js";
 
 export interface SubmitOptions {
   projectId: string;
@@ -113,6 +115,23 @@ export class PageLock {
     this.pump();
   }
 
+  /** Whether an item still going to run (waiting, running or about to be retried, a failed one not) concerns the thread. */
+  hasLiveWorkFor(threadId: string): boolean {
+    const concerns = (queued: Queued) => queued.item.threads.some((t) => t.threadId === threadId);
+    return this.queue.some(concerns) || [...this.active.values()].some((held) => concerns(held.queued)) || [...this.retrying.values()].some((r) => concerns(r.queued));
+  }
+
+  /** Forgets the failed run of the thread (an account took it over): "Relancer" would not give it back to the agent. */
+  discardFailedWork(threadId: string): void {
+    for (const [workId, { queued }] of this.failed) {
+      if (!queued.item.threads.some((t) => t.threadId === threadId)) continue;
+      const threads = queued.item.threads.filter((t) => t.threadId !== threadId);
+      if (threads.length === 0) this.failed.delete(workId);
+      else queued.item = { ...queued.item, threads };
+    }
+    this.save();
+  }
+
   /** Whether a work item (waiting, running, retrying or failed) concerns the thread: an agent handles it. */
   hasWorkFor(threadId: string): boolean {
     const concerns = (queued: Queued) => queued.item.threads.some((t) => t.threadId === threadId);
@@ -124,21 +143,30 @@ export class PageLock {
     );
   }
 
-  /** The queued, never sent item that holds only this thread while no agent can run it: a conversation may take such a thread (see `withdrawWaiting`). */
+  /**
+   * The queued, never sent item that concerns this thread while no agent can run it: a conversation may take such a thread (see `withdrawWaiting`).
+   * An item handed over to the agent is never offered: the person who handed it over chose the agent.
+   */
   private waitingItemOf(threadId: string): Queued | undefined {
-    return this.reasons().find(({ queued, reason }) => reason === "agent-offline" && queued.item.threads.length === 1 && queued.item.threads[0].threadId === threadId)?.queued;
+    return this.reasons().find(({ queued, reason }) => reason === "agent-offline" && !queued.handedOverBy && queued.item.threads.some((t) => t.threadId === threadId))?.queued;
   }
 
-  /** Whether the thread only waits in the queue for an agent that is offline (no session, no other thread in its item). */
+  /** Whether the thread only waits in the queue for an agent that is offline (no session; alone in its item or in a batch). */
   isWaitingForAgent(threadId: string): boolean {
     return this.waitingItemOf(threadId) !== undefined && !this.store.getThreadSession(threadId);
   }
 
-  /** Removes the thread's waiting item from the queue (the thread then follows the routing rule again). False when it does not wait for an offline agent. */
+  /**
+   * Takes the thread out of its waiting item (the thread then follows the routing rule again); the item's other threads keep waiting
+   * together, with a message rebuilt from the threads as they are now. False when it does not wait for an offline agent.
+   */
   withdrawWaiting(threadId: string): boolean {
     const queued = this.isWaitingForAgent(threadId) ? this.waitingItemOf(threadId) : undefined;
     if (!queued) return false;
-    this.queue = this.queue.filter((q) => q !== queued);
+    const threads = queued.item.threads.filter((t) => t.threadId !== threadId);
+    const remaining = threads.flatMap((t) => this.store.getThread(t.threadId) ?? []);
+    if (remaining.length === 0) this.queue = this.queue.filter((q) => q !== queued);
+    else queued.item = { ...queued.item, threads, message: remaining.length === 1 ? freshSessionMessage(remaining[0]) : batchMessage(remaining) };
     this.save();
     this.store.emit({ type: "queue-updated", pageId: queued.item.pageId });
     return true;
@@ -370,7 +398,7 @@ export class PageLock {
   private labelsOf(item: WorkItem, requester: Person | undefined): WorkLabels {
     const page = this.store.getPage(item.pageId);
     const projectId = page?.projectId ?? "";
-    const author = requester && (requester.name || requester.email);
+    const author = requester && nameOf(requester);
     return {
       project: this.store.getProject(projectId)?.title ?? this.store.getDesignSystem(projectId)?.title ?? "",
       page: page?.title ?? "",

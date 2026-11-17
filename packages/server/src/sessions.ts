@@ -8,8 +8,9 @@ import {
   type SessionStatus,
   type ThreadRun,
 } from "@redline/shared";
-import type { Access } from "./access.js";
+import { isMyDraft, type Access, type Viewer } from "./access.js";
 import type { PageLock } from "./page-lock.js";
+import { nameOf } from "./person-name.js";
 import type { SessionOrigin, Store } from "./store.js";
 
 interface Derived extends Pick<SessionRow, "name" | "sessionId" | "model" | "effort" | "context" | "activityAt"> {
@@ -52,7 +53,7 @@ export function registerSessionRoutes(
             : thread.replies.some((r) => r.author === "claude")
               ? "answered"
               : "waiting-agent";
-      const taker = thread.take && (thread.take.person?.name || thread.take.person?.email);
+      const taker = thread.take && nameOf(thread.take.person);
       const conversationWait: Derived["conversationWait"] =
         thread.status !== "open" ? undefined : thread.toTake ? { reason: "to-take" } : thread.take && (idleStatus === "waiting-agent" || thread.relaunch) ? { reason: "taken", ...(taker ? { takenBy: taker } : {}) } : undefined;
       return {
@@ -149,17 +150,24 @@ export function registerSessionRoutes(
 
   const agentsById = () => new Map(store.listAgents().map((a) => [a.id, a]));
 
+  /** The viewer reads the project's sessions, and a draft only when it is theirs. */
+  const visibleTo = (viewer: Viewer) => (origin: SessionOrigin): boolean => {
+    if (!access.may(viewer, "read", { projectId: origin.projectId })) return false;
+    const thread = origin.kind === "thread" ? store.getThread(origin.id) : undefined;
+    return thread?.status !== "held" || isMyDraft(viewer, thread);
+  };
+
   app.get(SESSIONS_PATH, async (req): Promise<SessionRow[]> => {
     const agents = agentsById();
     return store
       .listSessionOrigins()
-      .filter((origin) => access.may(req.viewer, "read", { projectId: origin.projectId }))
+      .filter(visibleTo(req.viewer))
       .flatMap((origin) => toRow(origin, agents)?.row ?? [])
       .sort((a, b) => b.activityAt.localeCompare(a.activityAt));
   });
 
   app.get<{ Params: { id: string } }>(`${SESSIONS_PATH}/:id`, async (req, reply) => {
-    const origin = store.listSessionOrigins().find((o) => o.id === req.params.id && access.may(req.viewer, "read", { projectId: o.projectId }));
+    const origin = store.listSessionOrigins().find((o) => o.id === req.params.id && visibleTo(req.viewer)(o));
     const found = origin && toRow(origin, agentsById());
     if (!found) return reply.code(404).send({ error: "session not found" });
     const detail: SessionDetail = { ...found.row, messages: found.messages };

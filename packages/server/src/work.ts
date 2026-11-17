@@ -108,11 +108,10 @@ export function dispatchReviewed(store: Store, lock: PageLock, projectId: string
   for (const thread of threads.filter(answered)) {
     const lastAnswer = thread.replies.map((r) => r.author).lastIndexOf("claude");
     const since = thread.replies.slice(lastAnswer + 1).filter((r) => r.author === "user").map((r) => r.body);
-    dispatchReply(store, lock, projectId, thread, since.join("\n\n") || thread.body, choice);
+    queueReply(store, lock, projectId, thread, since.join("\n\n") || thread.body, choice);
   }
   const fresh = threads.filter((thread) => !answered(thread));
-  if (fresh.length === 1) lock.submit({ projectId }, { ...threadItem(fresh[0], freshSessionMessage(fresh[0]), randomUUID(), false), ...definedChoice(choice) });
-  else if (fresh.length > 1) dispatchBatch(store, lock, projectId, fresh, choice);
+  if (fresh.length > 0) submitTogether(lock, projectId, fresh, fresh.length === 1 ? freshSessionMessage(fresh[0]) : batchMessage(fresh), choice);
 }
 
 /**
@@ -121,9 +120,12 @@ export function dispatchReviewed(store: Store, lock: PageLock, projectId: string
  */
 export function dispatchBatch(store: Store, lock: PageLock, projectId: string, allThreads: Thread[], choice: ModelChoice = {}): void {
   const threads = goingToAgent(store, lock, allThreads);
-  if (threads.length === 0) return;
-  const item = { ...threadItem(threads[0], batchMessage(threads), randomUUID(), false), threads: threads.map(workThread), ...definedChoice(choice) };
-  lock.submit({ projectId }, item);
+  if (threads.length > 0) submitTogether(lock, projectId, threads, batchMessage(threads), choice);
+}
+
+/** One new session, one message, for threads the routing rule already sent to the agent. */
+function submitTogether(lock: PageLock, projectId: string, threads: Thread[], message: string, choice: ModelChoice): void {
+  lock.submit({ projectId }, { ...threadItem(threads[0], message, randomUUID(), false), threads: threads.map(workThread), ...definedChoice(choice) });
 }
 
 /**
@@ -140,7 +142,11 @@ export function dispatchReply(
   choice: ModelChoice = {},
   sender?: string,
 ): void {
-  if (routeOf(store, lock, thread) !== "agent") return;
+  if (routeOf(store, lock, thread) === "agent") queueReply(store, lock, projectId, thread, body, choice, sender);
+}
+
+/** `dispatchReply` for a thread the routing rule already sent to the agent. */
+function queueReply(store: Store, lock: PageLock, projectId: string, thread: Thread, body: string, choice: ModelChoice, sender?: string): void {
   const reply = replyMessage(thread, body, sender);
   const join = (item: WorkItem): WorkItem => ({
     ...item,

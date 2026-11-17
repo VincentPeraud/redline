@@ -183,7 +183,7 @@ function PageMenu({ owner, pageId, pageTitle, artboardOrigin, deleted, onPutBack
       )}
       {open && owner && (
         <div role="menu" aria-label={`${OWNER_LABELS[owner.kind].pages} ${owner.title}`} className={styles.menu}>
-          <div className={styles.menuTitle}>{OWNER_LABELS[owner.kind].pages}</div>
+          <div className={styles.menuTitle}>Pages de {owner.title}</div>
           <div className={styles.menuPages}>
           {pages.map((page) => (
             <a

@@ -1,10 +1,11 @@
 import type { HandOverCommentsResponse, HandOverRefusal, Person, Thread } from "@redline/shared";
+import { accountLevelIn } from "./access.js";
 import { chooseAgent } from "./agent-selection.js";
-import { otherTakeOf, takerOf, targetLabel } from "./comment-takes.js";
+import { isTakenBy, otherTakeOf, releaseTake, takerOf, targetLabel } from "./comment-takes.js";
 import type { PageLock } from "./page-lock.js";
 import { routeOf } from "./routing.js";
 import type { Store } from "./store.js";
-import { dispatchReviewed, handOverThread } from "./work.js";
+import { handOverThread } from "./work.js";
 
 export const NO_AGENT_REASON = "Aucun agent ne tourne : lance-en un depuis la page Agents";
 
@@ -27,9 +28,8 @@ export function handOver(store: Store, lock: PageLock, thread: Thread, by: Perso
 
 /** "Libérer": the account lets go of its take; the thread follows the page's mode again. False when the thread is not taken by `accountId`. */
 export function release(store: Store, lock: PageLock, thread: Thread, accountId: string): boolean {
-  if (thread.status !== "open" || takerOf(thread) !== accountId) return false;
-  store.releaseThreadTake(thread.id);
-  dispatchReviewed(store, lock, store.getPage(thread.pageId)!.projectId, [store.getThread(thread.id)!]);
+  if (thread.status !== "open" || !isTakenBy(thread, accountId)) return false;
+  releaseTake(store, lock, thread);
   return true;
 }
 
@@ -40,10 +40,21 @@ export function release(store: Store, lock: PageLock, thread: Thread, accountId:
  */
 export function freeTakesOf(store: Store, lock: PageLock, accountId: string, projectId?: string): void {
   for (const id of store.openThreadsTakenBy(accountId, projectId)) {
-    store.releaseThreadTake(id);
+    releaseTake(store, lock, store.getThread(id)!);
     store.addTrace(id, { kind: "released", takerId: accountId });
-    const thread = store.getThread(id)!;
-    dispatchReviewed(store, lock, store.getPage(thread.pageId)!.projectId, [thread]);
+  }
+}
+
+/**
+ * The takes of accounts that no longer have Écriture on their thread's project (a level lowered or removed, a project turned Private,
+ * an admin lowered to member) are freed like a deactivation's, in `projectId` or everywhere.
+ */
+export function freeTakesLostAccess(store: Store, lock: PageLock, projectId?: string): void {
+  const roles = new Map(store.accounts.activeAccounts().map((account) => [account.id, account.role]));
+  for (const take of store.openTakes(projectId)) {
+    if (take.accountId === "" || accountLevelIn(store, { id: take.accountId, role: roles.get(take.accountId) }, take.projectId) === "write") continue;
+    releaseTake(store, lock, store.getThread(take.threadId)!);
+    store.addTrace(take.threadId, { kind: "released", takerId: take.accountId });
   }
 }
 

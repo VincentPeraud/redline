@@ -61,6 +61,7 @@ import type { Access, Viewer } from "./access.js";
 import type { PinToStore, SeenNow, StoredMember, StoredPin, StoredReview, StoredStep } from "./change-review-store.js";
 import { contentChanges } from "./artboard-history.js";
 import type { PageLock } from "./page-lock.js";
+import { nameOf } from "./person-name.js";
 import type { Store, VersionRecord } from "./store.js";
 import type { SessionLabel, TerminalSessions } from "./terminal-sessions.js";
 import { MAX_TERMINAL_TEXT_LENGTH, artboardZoneError, canvasZoneError, createThreadRequestError, requiredString } from "./validation.js";
@@ -178,7 +179,7 @@ function baselineOf(
 
 /** "Claude (folder)" for a terminal publish, "Claude de Ana" for a thread or conversation, or the person or link visitor who made the version by hand. */
 function authorOf(record: VersionRecord): string | undefined {
-  const person = record.person?.name || record.person?.email;
+  const person = nameOf(record.person) || undefined;
   if (record.origin === "terminal" || record.origin === "thread" || record.origin === "conversation") {
     const folder = record.origin === "terminal" && record.originLabel ? ` (${record.originLabel})` : "";
     return `Claude${person ? ` de ${person}` : ""}${folder}`;
@@ -406,7 +407,6 @@ function bannersOf(store: Store, pageId: string, viewer: Viewer): PageChangeRevi
   });
 }
 
-const nameOf = (person: Person | undefined): string => person?.name || person?.email || "someone";
 
 /** A terminal session declares a review: a 4xx message, or the new review's id. Rights are checked here: the route names no project. */
 export function declareChangeReview({ store, access }: Pick<ReviewContext, "store" | "access">, viewer: Viewer, session: ReviewSession, body: Partial<RequestChangeReviewRequest> | undefined): { error: string; status: number } | RequestChangeReviewResponse {
@@ -546,7 +546,7 @@ export function changeReviewFeedback(ctx: ReviewContext, viewer: Viewer, session
   const mayFetch = (projectId: string) => store.projectOwnership(projectId) !== undefined && access.levelOf(viewer, { projectId }) === "write";
   const own = viewerPersonId(viewer) ?? "";
   const requestedByOther = (review: StoredReview) => (review.requesterPersonId ?? "") !== own && !store.isDeactivated(review.requesterPersonId);
-  const waiting = (review: StoredReview): WaitingChangeReview => ({ id: review.id, requester: nameOf(store.getPerson(review.requesterPersonId)), folder: folderNameOf(review), finishedAt: review.finishedAt ?? review.createdAt });
+  const waiting = (review: StoredReview): WaitingChangeReview => ({ id: review.id, requester: nameOf(store.getPerson(review.requesterPersonId), "someone"), folder: folderNameOf(review), finishedAt: review.finishedAt ?? review.createdAt });
   if (request.reviewId !== undefined) {
     const review = store.changeReviews.get(request.reviewId);
     if (!review) return { status: 404, error: "review not found" };
@@ -569,7 +569,7 @@ export function changeReviewFeedback(ctx: ReviewContext, viewer: Viewer, session
     const { seen, total } = progressOf(view.steps, -1);
     return {
       id: review.id,
-      requester: nameOf(view.requester.person),
+      requester: nameOf(view.requester.person, "someone"),
       folder: folderNameOf(review),
       seen,
       total,
@@ -579,14 +579,14 @@ export function changeReviewFeedback(ctx: ReviewContext, viewer: Viewer, session
   return { status: "none-finished", reviews, byOthers };
 }
 
-/** `tookOverFrom`: the requester's account id ("" without one) when another account fetches the review with a takeover. */
-function fetchReview(ctx: ReviewContext, viewer: Viewer, sessionId: string, review: StoredReview, tookOverFrom?: string): ChangeReviewFeedback {
+/** `takenOverFrom`: the requester's account id ("" without one) when another account fetches the review with a takeover. */
+function fetchReview(ctx: ReviewContext, viewer: Viewer, sessionId: string, review: StoredReview, takenOverFrom?: string): ChangeReviewFeedback {
   const { store, pageLock } = ctx;
   const view = viewOf(store, review, viewer);
   if (view.state === "filed") {
     const filedAt = review.filedAt ?? review.createdAt;
     const nothingLeft = activeSteps(view.steps).length === 0 && !view.steps.some((step) => step.pins.length > 0 || step.answers.some((answer) => answer.kind === "remark"));
-    return nothingLeft ? { status: "nothing-left", filedAt } : { status: "filed", filedBy: nameOf(view.filedBy), filedAt };
+    return nothingLeft ? { status: "nothing-left", filedAt } : { status: "filed", filedBy: nameOf(view.filedBy, "someone"), filedAt };
   }
   if (view.state === "open") {
     const { seen, total } = progressOf(view.steps, -1);
@@ -594,8 +594,8 @@ function fetchReview(ctx: ReviewContext, viewer: Viewer, sessionId: string, revi
   }
   if (review.state === "fetched") return { status: "finished", alreadyFetchedAt: review.fetchedAt, ...review.fetchedResult! };
   const result = reviewResult({
-    requester: nameOf(view.requester.person),
-    finishedBy: nameOf(view.finishedBy),
+    requester: nameOf(view.requester.person, "someone"),
+    finishedBy: nameOf(view.finishedBy, "someone"),
     steps: view.steps.map((step) => ({
       id: step.id,
       label: stepLabel(step),
@@ -606,7 +606,7 @@ function fetchReview(ctx: ReviewContext, viewer: Viewer, sessionId: string, revi
       ...(step.removed ? { removed: step.removed } : {}),
       ...(stepIsCanvasOnly(step) && step.canvasElements!.every((id) => step.canvas?.missing.includes(id)) ? { elementGone: true } : {}),
     })),
-    threadIds: openRemarkThreads(store, view, ctx.terminalSessions.labelOf(sessionId), tookOverFrom),
+    threadIds: openRemarkThreads(store, view, ctx.terminalSessions.labelOf(sessionId), takenOverFrom),
   });
   store.changeReviews.markFetched(review.id, viewerPersonId(viewer), sessionId, result);
   announceReviewChange(store, review.id);
@@ -623,10 +623,10 @@ const membersOf = (step: ChangeReview["steps"][number]) => [
  * One thread per remark on its artboard and one element thread per pin, signed by their author and taken by `sessionId` (so `reply_in_thread` works on them).
  * Thread ids by remark id and pin id. A pin whose element is lost keeps its last position.
  */
-function openRemarkThreads(store: Store, view: ChangeReview, label: SessionLabel | undefined, tookOverFrom?: string): Record<string, string> {
+function openRemarkThreads(store: Store, view: ChangeReview, label: SessionLabel | undefined, takenOverFrom?: string): Record<string, string> {
   const threadIds: Record<string, string> = {};
   const take = (_pageId: string, threadId: string) => {
-    if (label) store.takeThread(threadId, label.accountId, label.folder, label.machine, tookOverFrom);
+    if (label) store.takeThread(threadId, label, takenOverFrom);
     store.markThreadFromReview(threadId, view.finishedAt ?? new Date().toISOString());
   };
   for (const step of activeSteps(view.steps)) {

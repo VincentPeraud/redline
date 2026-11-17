@@ -114,19 +114,9 @@ function sessionLabel(session: SessionRow | undefined): string | undefined {
   return session?.sessionId ? `session ${shortSessionId(session.sessionId)}` : undefined;
 }
 
-/** "session 7c2e…a91" over "il y a 2 min", in a card's footer. */
+/** "il y a 2 min", in a card's footer. */
 function SessionMeta({ session, createdAt }: { session: SessionRow | undefined; createdAt?: string }) {
-  return (
-    <span className={styles.sessionMeta}>
-      {sessionLabel(session) && (
-        <>
-          {sessionLabel(session)}
-          <br />
-        </>
-      )}
-      {session ? relativeTime(session.activityAt) : createdAt && relativeTime(createdAt)}
-    </span>
-  );
+  return <span className={styles.sessionMeta}>{session ? relativeTime(session.activityAt) : createdAt && relativeTime(createdAt)}</span>;
 }
 
 /** The name a system line uses: always the person's own, never "toi" (the line is read by the others too). */

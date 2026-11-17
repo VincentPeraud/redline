@@ -14,14 +14,20 @@ import {
   type TerminalWaitingComment,
   type Thread,
 } from "@redline/shared";
+import { ARCHIVED_PAGE_ERROR, archivedError } from "./archive.js";
 import type { PageLock } from "./page-lock.js";
+import { nameOf } from "./person-name.js";
+import { accountName, writeRefusal } from "./write-refusal.js";
 import type { SessionLabel } from "./terminal-sessions.js";
 import type { Store } from "./store.js";
 import { zoneSubject } from "./thread-subject.js";
-import { freshSessionMessage } from "./work.js";
+import { dispatchReviewed, freshSessionMessage } from "./work.js";
 
 /** The account that took the thread: "" for the shared token (no SSO), undefined when nobody took it. */
 export const takerOf = (thread: Thread): string | undefined => (thread.take ? (thread.take.person?.id ?? "") : undefined);
+
+/** The thread is taken by this account. */
+export const isTakenBy = (thread: Thread, accountId: string): boolean => takerOf(thread) === accountId;
 
 export interface TakeEnv {
   store: Store;
@@ -41,21 +47,11 @@ function takenMessage(thread: Thread): string {
   return [freshSessionMessage(thread), ...(newSinceTake.length > 0 ? ["", "New since your take:", ...newSinceTake.flatMap((reply) => ["", reply.body])] : [])].join("\n");
 }
 
-/** The account's display name; its e-mail follows when another active account has the same name. */
-const accountName = (store: Store, accountId: string): string => {
-  const person = store.getPerson(accountId || null);
-  if (!person) return "the shared account";
-  const name = person.name || person.email;
-  const homonym = store.accounts.activeAccounts().some((other) => other.id !== person.id && other.name === person.name);
-  return homonym ? `${name} (${person.email})` : name;
-};
-
-/** Why the account cannot take or release comments on the project (undefined when it can). */
-export function writeRefusal(store: Store, accountId: string, level: AccessLevel | undefined, projectId: string): string | undefined {
-  if (level === "write") return undefined;
-  const title = store.getProject(projectId)?.title ?? "";
-  const has = level === "comment" ? "the Commentaire right" : level === "read" ? "the Lecture right" : "no access";
-  return `Refused: your account (${accountName(store, accountId)}) has ${has} on the project ${JSON.stringify(title)}. Taking a thread needs the Écriture right: ask an admin of the project for it.`;
+/** Why a page cannot be taken from or released into: it, or its project, is archived (read-only). */
+export function archivedRefusal(store: Store, pageId: string): string | undefined {
+  const projectId = store.projectIdOfPage(pageId);
+  if (projectId && store.isArchived(projectId)) return archivedError(store, projectId);
+  return store.isPageArchived(pageId) ? ARCHIVED_PAGE_ERROR : undefined;
 }
 
 export const targetLabel = (thread: Thread): string =>
@@ -67,7 +63,7 @@ export const targetLabel = (thread: Thread): string =>
         ? zoneSubject(thread.target).replace(/^the /, "")
         : threadTargetLabel(thread.target);
 
-export const otherTakeOf =(store: Store, thread: Thread, pageTitle: string): OtherTake => ({
+export const otherTakeOf = (store: Store, thread: Thread, pageTitle: string): OtherTake => ({
   threadId: thread.id,
   number: thread.number,
   pageId: thread.pageId,
@@ -78,13 +74,13 @@ export const otherTakeOf =(store: Store, thread: Thread, pageTitle: string): Oth
   takenAt: thread.take!.takenAt,
 });
 
-/** An open thread nobody handles that only waits in the queue for an offline agent. */
+/** An open thread nobody took that only waits in the queue for an offline agent (not handed over to it). */
 const waitsForAgent = (env: TakeEnv, thread: Thread): boolean => thread.status === "open" && !thread.take && env.pageLock.isWaitingForAgent(thread.id);
 
 /** Takes the thread for the account, withdrawing it from the queue first when it waited for an offline agent. */
 function take(env: TakeEnv, label: SessionLabel, thread: Thread, takenOverFrom?: string): void {
   env.pageLock.withdrawWaiting(thread.id);
-  env.store.takeThread(thread.id, label.accountId, label.folder, label.machine, takenOverFrom);
+  env.store.takeThread(thread.id, label, takenOverFrom);
 }
 
 function commentOf(env: TakeEnv, thread: Thread, state: TakenComment["state"], previous?: Thread): TakenComment {
@@ -98,8 +94,8 @@ function commentOf(env: TakeEnv, thread: Thread, state: TakenComment["state"], p
 
 /**
  * `pending_comments { pageId }`: the account takes every thread to take of the page (and those waiting for an offline agent), with the
- * label of the conversation that asks, and is given them in the agent message form, followed by the page's threads it had already taken.
- * The threads other accounts took are listed apart.
+ * label of the conversation that asks, and is given them in the agent message form, followed by the page's threads it had already taken
+ * from this folder. The threads the account took from another folder and those other accounts took are listed apart, never handled unasked.
  */
 export function takePage(env: TakeEnv, label: SessionLabel, pageId: string): TakeCommentsResponse {
   const { store } = env;
@@ -112,21 +108,23 @@ export function takePage(env: TakeEnv, label: SessionLabel, pageId: string): Tak
     take(env, label, thread);
   }
   const comments: TakenComment[] = [];
+  const mineElsewhere: OtherTake[] = [];
   const others: OtherTake[] = [];
   for (const thread of store.listThreads(pageId)) {
     if (thread.status !== "open" || !thread.take) continue;
-    if (takerOf(thread) === label.accountId) comments.push(commentOf(env, thread, fresh.get(thread.id) ?? (thread.relaunch ? "relaunch" : "taken")));
-    else others.push(otherTakeOf(store, thread, page.title));
+    if (!isTakenBy(thread, label.accountId)) others.push(otherTakeOf(store, thread, page.title));
+    else if (thread.take.folder !== label.folder) mineElsewhere.push(otherTakeOf(store, thread, page.title));
+    else comments.push(commentOf(env, thread, fresh.get(thread.id) ?? (thread.relaunch ? "relaunch" : "taken")));
   }
   // What was just taken comes first.
   const rank = (comment: TakenComment) => (comment.state === "new" ? 0 : comment.state === "waiting-agent" ? 1 : 2);
   comments.sort((a, b) => rank(a) - rank(b));
-  return { pageId, title: page.title, comments, others, refused: [] };
+  return { pageId, title: page.title, comments, mineElsewhere, others, refused: [] };
 }
 
 /**
  * `pending_comments { threadIds, takeOver? }`: takes those threads. A thread another account took needs `takeOver` (recorded as
- * "repris par"); a thread an agent is running is refused; the thread of an idle agent session can be taken over too.
+ * "repris par"); a thread an agent is running is refused (a run that failed does not count); the thread of an idle agent session can be taken over too.
  */
 export function takeThreads(env: TakeEnv, label: SessionLabel, threadIds: string[], takeOver: boolean): TakeCommentsResponse {
   const { store, pageLock } = env;
@@ -138,40 +136,44 @@ export function takeThreads(env: TakeEnv, label: SessionLabel, threadIds: string
     if (!thread) no("thread not found");
     else if (!canWritePage(env, thread.pageId)) no(writeRefusal(store, label.accountId, env.levelOf(store.projectIdOfPage(thread.pageId)!), store.projectIdOfPage(thread.pageId)!)!);
     else if (thread.status !== "open") no("this thread is not open (resolved or deleted): nothing to take");
-    else if (thread.take && takerOf(thread) === label.accountId) comments.push(commentOf(env, thread, thread.relaunch ? "relaunch" : "taken"));
+    else if (archivedRefusal(store, thread.pageId)) no(archivedRefusal(store, thread.pageId)!);
+    else if (thread.take && isTakenBy(thread, label.accountId)) comments.push(commentOf(env, thread, thread.relaunch ? "relaunch" : "taken"));
     else if (thread.toTake) {
       take(env, label, thread);
       comments.push(commentOf(env, thread, "new"));
     } else if (waitsForAgent(env, thread)) {
       take(env, label, thread);
       comments.push(commentOf(env, thread, "waiting-agent"));
-    } else if (pageLock.hasWorkFor(thread.id)) no("an agent is running this thread: wait for its run to end, nothing is taken meanwhile");
+    } else if (pageLock.hasLiveWorkFor(thread.id)) no("an agent is running this thread: wait for its run to end, nothing is taken meanwhile");
     else if (!takeOver) no(thread.take ? `taken by ${accountName(store, takerOf(thread)!)} (${thread.take.folder}): take it over only when the person asks, with takeOver: true` : "owned by an agent session: take it over only when the person asks, with takeOver: true");
     else {
       const previous = takerOf(thread);
       store.clearThreadSession(thread.id);
+      pageLock.discardFailedWork(thread.id);
       take(env, label, thread, previous ?? "");
       store.addTrace(thread.id, { kind: "taken-over", ...(previous === undefined ? {} : { takerId: previous }), byId: label.accountId });
       comments.push(commentOf(env, thread, "taken-over", thread));
     }
   }
-  return { comments, others: [], refused };
+  return { comments, mineElsewhere: [], others: [], refused };
 }
 
 /** `pending_comments` with neither a page nor thread ids: lists, page by page, what waits in the projects, and takes nothing. */
-export function commentsOverview(env: TakeEnv, label: SessionLabel, projectIds: string[], levelOf: (projectId: string) => AccessLevel | undefined): CommentsOverview {
+export function commentsOverview(env: TakeEnv, label: SessionLabel, projectIds: string[]): CommentsOverview {
   const { store } = env;
   const projects: OverviewProject[] = [];
   for (const projectId of projectIds) {
     const project = store.getProject(projectId);
     if (!project || project.archivedAt) continue;
     const pages = store.listPages(projectId, "active");
-    const base = { projectId, title: project.title, pageCount: pages.length };
-    const refusal = writeRefusal(store, label.accountId, levelOf(projectId), projectId);
+    const level = env.levelOf(projectId);
+    const refusal = writeRefusal(store, label.accountId, level, projectId);
     if (refusal) {
-      projects.push({ ...base, refused: refusal, pages: [] });
+      // A project the account cannot see is not described: no title, no page count.
+      projects.push({ projectId, title: level === undefined ? "" : project.title, pageCount: level === undefined ? 0 : pages.length, refused: refusal, pages: [] });
       continue;
     }
+    const base = { projectId, title: project.title, pageCount: pages.length };
     const listed: OverviewPage[] = [];
     for (const page of pages) {
       const entry: OverviewPage = { pageId: page.id, title: page.title, toTake: [], mine: [], mineElsewhere: [], others: [], waitingAgent: [] };
@@ -180,7 +182,7 @@ export function commentsOverview(env: TakeEnv, label: SessionLabel, projectIds: 
         const brief = { threadId: thread.id, number: thread.number, target: targetLabel(thread) };
         if (thread.toTake) entry.toTake.push(brief);
         else if (waitsForAgent(env, thread)) entry.waitingAgent.push(brief);
-        else if (thread.take && takerOf(thread) === label.accountId) {
+        else if (thread.take && isTakenBy(thread, label.accountId)) {
           if (thread.take.folder === label.folder) entry.mine.push({ ...brief, ...(thread.relaunch ? { relaunch: true as const } : {}) });
           else entry.mineElsewhere.push({ ...brief, folder: thread.take.folder, takenAt: thread.take.takenAt });
         } else if (thread.take) entry.others.push({ ...brief, by: accountName(store, takerOf(thread)!), folder: thread.take.folder, takenAt: thread.take.takenAt });
@@ -192,25 +194,30 @@ export function commentsOverview(env: TakeEnv, label: SessionLabel, projectIds: 
   return { projects };
 }
 
+/** The thread's take ends: it follows the routing rule again (a thread of a page in Agent mode is sent to the agent). */
+export function releaseTake(store: Store, pageLock: PageLock, thread: Thread): void {
+  store.releaseThreadTake(thread.id);
+  const after = store.getThread(thread.id)!;
+  if (after.status === "open") dispatchReviewed(store, pageLock, store.projectIdOfPage(thread.pageId)!, [after]);
+}
+
 /**
- * `release_comments`: the account lets go of its takes; each thread follows the page's mode again (`redispatch` sends it to the agent in Agent mode).
- * `threadIds` the account does not hold are reported, never touched.
+ * `release_comments`: the account lets go of its takes; each thread follows the page's mode again.
+ * `threadIds` the account did not take (or on an archived page) are reported, never touched.
  */
-export function releaseComments(env: TakeEnv, label: SessionLabel, request: { pageId?: string; threadIds?: string[] }, redispatch: (thread: Thread) => void): ReleaseCommentsResponse {
-  const { store } = env;
+export function releaseComments(env: TakeEnv, label: SessionLabel, request: { pageId?: string; threadIds?: string[] }): ReleaseCommentsResponse {
+  const { store, pageLock } = env;
   const wanted = request.threadIds ?? store.listThreads(request.pageId!).filter((thread) => thread.take && thread.status === "open").map((thread) => thread.id);
   const released: ReleaseCommentsResponse["released"] = [];
   const notYours: string[] = [];
   for (const threadId of wanted) {
     const thread = store.getThread(threadId);
-    if (!thread?.take || takerOf(thread) !== label.accountId) {
+    if (!thread?.take || !isTakenBy(thread, label.accountId) || archivedRefusal(store, thread.pageId)) {
       if (request.threadIds) notYours.push(threadId);
       continue;
     }
-    store.releaseThreadTake(threadId);
     released.push({ threadId, number: thread.number, pageTitle: store.getPage(thread.pageId)?.title ?? "" });
-    const after = store.getThread(threadId)!;
-    if (after.status === "open") redispatch(after);
+    releaseTake(store, pageLock, thread);
   }
   return { released, notYours };
 }
@@ -222,17 +229,17 @@ export function remindersOf(env: TakeEnv, label: SessionLabel): CommentsReminder
   for (const pageId of store.terminalPagesOf(label.accountId, label.folder)) {
     const page = store.getPage(pageId);
     if (!page || page.archivedAt || !canWritePage(env, pageId)) continue;
-    const count = store.listThreads(pageId).filter((thread) => thread.status === "open" && (thread.toTake || (thread.relaunch && takerOf(thread) === label.accountId && thread.take!.folder === label.folder))).length;
+    const count = store.listThreads(pageId).filter((thread) => thread.status === "open" && (thread.toTake || (thread.relaunch && isTakenBy(thread, label.accountId) && thread.take!.folder === label.folder))).length;
     if (count > 0) pages.push({ pageId, title: page.title, count });
   }
   return { pages };
 }
 
 const personLabel = (who: { person?: { name: string; email: string }; linkAuthor?: { name: string }; automatic?: true }): string =>
-  who.automatic ? "Redline" : who.person ? who.person.name || who.person.email : (who.linkAuthor?.name ?? "Someone");
+  who.automatic ? "Redline" : who.person ? nameOf(who.person) : (who.linkAuthor?.name ?? "Someone");
 
 function waitingCommentOf(thread: Thread): TerminalWaitingComment {
-  const taken = thread.take && { by: thread.take.person ? thread.take.person.name || thread.take.person.email : "", folder: thread.take.folder };
+  const taken = thread.take && { by: nameOf(thread.take.person), folder: thread.take.folder };
   return { author: personLabel(thread), at: thread.createdAt, target: targetLabel(thread), text: thread.body, ...(taken ? { taken } : {}) };
 }
 

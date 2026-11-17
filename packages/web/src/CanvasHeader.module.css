@@ -105,10 +105,8 @@
 
 .menuTitle {
   padding: 8px 10px 6px;
-  font-size: var(--font-size-2xs);
+  font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--color-text-muted);
 }
 

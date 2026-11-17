@@ -360,7 +360,7 @@ export class Store {
     addColumn("threads", "taken_folder", "TEXT");
     addColumn("threads", "taken_machine", "TEXT");
     addColumn("threads", "taken_at", "TEXT");
-    // Set when the take was a takeover: the account it was taken from ('' when that holder had none), NULL for a plain take.
+    // Set when the take was a takeover: the account it was taken from ('' when that taker had none), NULL for a plain take.
     addColumn("threads", "taken_over_from", "TEXT");
     // The pages a conversation's account published or checked out from a folder: what the reminder line is about.
     this.db.exec("CREATE TABLE IF NOT EXISTS terminal_pages (account_id TEXT NOT NULL, folder TEXT NOT NULL, page_id TEXT NOT NULL, PRIMARY KEY (account_id, folder, page_id))");
@@ -1885,16 +1885,19 @@ export class Store {
 
   /**
    * Resolves a thread; one that was waiting to be read ("À relire") remembers it and goes back there when reopened.
-   * `by` is the account that resolves it ("" without SSO; left out for a run of the agent): when another account holds the thread, a "Résolu par" line records it.
-   * The take stays: a late answer of its account is still added.
+   * `by` is the account that resolves it ("" without SSO; left out for a run of the agent): when another account took the thread, a "Résolu par" line records it.
+   * The take ends with the resolution (a late answer of its account is still added, as a late one: see `replyFromConversation`).
+   * A draft is never resolved: it is not public.
    */
   resolveThread(id: string, by?: string): Thread | undefined {
     const before = this.getThread(id);
+    if (before?.status === "held") return undefined;
     this.db.prepare("UPDATE threads SET reopen_to = CASE status WHEN 'review' THEN 'review' WHEN 'resolved' THEN reopen_to ELSE NULL END, status = 'resolved' WHERE id = ?").run(id);
     if (before && before.status !== "resolved") {
       this.db.prepare("UPDATE threads SET resolved_by = ?, resolved_at = ? WHERE id = ?").run(by ?? null, now(), id);
       const taker = this.takeOf(id);
       if (by !== undefined && taker && taker.accountId !== by) this.addTrace(id, { kind: "resolved", takerId: taker.accountId, byId: by });
+      if (taker) this.releaseThreadTake(id);
     }
     const thread = this.getThread(id);
     if (thread) this.emit({ type: "thread-updated", pageId: thread.pageId, threadId: id });
@@ -1922,7 +1925,7 @@ export class Store {
     this.db.prepare("UPDATE threads SET session_id = ?, agent_id = ? WHERE id = ?").run(sessionId, agentId, threadId);
   }
 
-  /** Adds a system line to the thread ("Pris par X, puis confié à l'agent par Y"): `takerId` is the account that held it before, `byId` who acted ("" without SSO). */
+  /** Adds a system line to the thread ("Pris par X, puis confié à l'agent par Y"): `takerId` is the account that took it before, `byId` who acted ("" without SSO). */
   addTrace(threadId: string, trace: { kind: ThreadTraceKind; takerId?: string; byId?: string }): void {
     this.db.prepare("INSERT INTO thread_traces (id, thread_id, kind, taker_id, by_id, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(randomUUID(), threadId, trace.kind, trace.takerId ?? null, trace.byId ?? null, now());
     this.emitThreadUpdated(threadId);
@@ -1937,12 +1940,19 @@ export class Store {
     });
   }
 
-  /** The open threads the account holds, in one project or everywhere. */
+  /** The open threads the account took, in one project or everywhere. */
   openThreadsTakenBy(accountId: string, projectId?: string): string[] {
     const rows = this.db
       .prepare("SELECT t.id FROM threads t JOIN pages p ON p.id = t.page_id WHERE t.status = 'open' AND t.taken_by = ? AND (? IS NULL OR p.project_id = ?) ORDER BY t.rowid")
       .all(accountId, projectId ?? null, projectId ?? null) as { id: string }[];
     return rows.map((row) => row.id);
+  }
+
+  /** Every open take, in one project or everywhere: the thread, the account that took it and the thread's project. */
+  openTakes(projectId?: string): { threadId: string; accountId: string; projectId: string }[] {
+    return this.db
+      .prepare("SELECT t.id AS threadId, t.taken_by AS accountId, p.project_id AS projectId FROM threads t JOIN pages p ON p.id = t.page_id WHERE t.status = 'open' AND t.taken_by IS NOT NULL AND (? IS NULL OR p.project_id = ?) ORDER BY t.rowid")
+      .all(projectId ?? null, projectId ?? null) as { threadId: string; accountId: string; projectId: string }[];
   }
 
   /** The thread no longer belongs to an agent session (an account takes it over). */
@@ -1960,9 +1970,9 @@ export class Store {
       : undefined;
   }
 
-  /** The account takes the thread: a conversation of its own (at `folder` on `machine`) handles it from now on. `takenOverFrom` marks a takeover (the previous holder's account, "" when it had none). */
-  takeThread(threadId: string, accountId: string, folder: string, machine: string, takenOverFrom?: string): void {
-    this.db.prepare("UPDATE threads SET taken_by = ?, taken_folder = ?, taken_machine = ?, taken_at = ?, taken_over_from = ? WHERE id = ?").run(accountId, folder, machine, now(), takenOverFrom ?? null, threadId);
+  /** The conversation `label` takes the thread: its account handles it from now on. `takenOverFrom` marks a takeover (the previous taker's account, "" when it had none). */
+  takeThread(threadId: string, label: { accountId: string; folder: string; machine: string }, takenOverFrom?: string): void {
+    this.db.prepare("UPDATE threads SET taken_by = ?, taken_folder = ?, taken_machine = ?, taken_at = ?, taken_over_from = ? WHERE id = ?").run(label.accountId, label.folder, label.machine, now(), takenOverFrom ?? null, threadId);
     this.emitThreadUpdated(threadId);
   }
 

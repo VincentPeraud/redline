@@ -489,6 +489,8 @@ export interface TakeCommentsResponse {
   pageId?: string;
   title?: string;
   comments: TakenComment[];
+  /** Threads of the page the account took from another folder (listed, not handled unless the person asks). */
+  mineElsewhere: OtherTake[];
   /** Threads of the page taken by other accounts (never taken). */
   others: OtherTake[];
   refused: RefusedThread[];

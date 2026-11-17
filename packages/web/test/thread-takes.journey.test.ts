@@ -117,7 +117,8 @@ it("shows a thread to take, then who took it, from where and since when, live, f
   await arianes.reply(mine.id, "Titre repris du nom de la page.");
   await expect.poll(() => card.getByTestId("reply").innerText()).toContain("Titre repris du nom de la page.");
   expect(await card.getByTestId("reply").locator("small").innerText()).toBe("· conversation de Ariane Martin · ~/claude-projects/redline");
-  expect(await card.getByTestId("thread-handler").innerText()).toBe("Pris par toi");
+  expect(await card.getByTestId("thread-handler").innerText()).toBe("Question de Claude");
+  expect(await card.getByTestId("thread-taken").innerText()).toBe("Ta réponse ira à une de tes conversations, qui a pris ce fil");
 
   // A message from Thomas relaunches the thread for the account that took it.
   await apiAs(THOMAS, "POST", `/api/threads/${mine.id}/messages`, { body: "Il touche encore le bord." });

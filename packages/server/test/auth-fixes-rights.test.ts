@@ -96,7 +96,7 @@ describe("rights fixes of the review", () => {
 
   it("gives resolve and reopen to Écriture only, not to Commentaire members", async () => {
     const { project, pageId } = await setup();
-    const thread = (await (await instance.ariane.send("POST", `/api/pages/${pageId}/threads`, { target, body: "Hi", held: true })).json()) as Thread;
+    const thread = (await (await instance.ariane.send("POST", `/api/pages/${pageId}/threads`, { target, body: "Hi" })).json()) as Thread;
     await setLevel(project.id, "thomas", "comment");
     expect((await instance.thomas.send("POST", `/api/threads/${thread.id}/resolve`)).status).toBe(403);
     expect((await instance.ariane.send("POST", `/api/threads/${thread.id}/resolve`)).status).toBe(200);

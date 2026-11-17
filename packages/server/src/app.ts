@@ -88,7 +88,7 @@ import { registerChangeReviewRoutes } from "./change-reviews.js";
 import { validTimeZone } from "./version-dates.js";
 import { registerGapRoutes } from "./gaps.js";
 import type { ArtboardCapabilities } from "./artboard-capabilities.js";
-import { createAccess, registerAccess, type Access, type AuthMode, type Viewer } from "./access.js";
+import { createAccess, isMyDraft, registerAccess, type Access, type AuthMode, type Viewer } from "./access.js";
 import { DEFAULT_IDENTITY, registerIdentity, personRef, type IdentityConfig } from "./identity.js";
 import { type CliBuild } from "./cli-build.js";
 import { registerHealthRoute, registerProxySecretCheck, type ProxySecrets } from "./proxy-secrets.js";
@@ -101,7 +101,7 @@ import { registerHomeRoutes } from "./home.js";
 import { archivedError, registerArchiveRoutes, registerArchivedGuard } from "./archive.js";
 import { moveArtboard } from "./move-artboard.js";
 import { dispatchBatch, dispatchReply, dispatchReviewed, dispatchThread } from "./work.js";
-import { freeTakesOf, handOver, release } from "./hand-over.js";
+import { freeTakesLostAccess, freeTakesOf, handOver, release } from "./hand-over.js";
 
 const PALETTE_TOKENS = ["--color-primary", "--color-text", "--color-background"];
 
@@ -162,10 +162,13 @@ export async function buildMainApp(
   const identity = options.identity ?? DEFAULT_IDENTITY;
   const authMode = options.authMode ?? (options.proxySecrets ? "proxy" : "none");
   const access = createAccess({ mode: authMode, store, secrets: options.proxySecrets, identity, firstAdminEmail: options.firstAdminEmail });
-  registerAccess(app, access);
+  registerAccess(app, access, store);
   registerIdentity(app, store, identity, authMode);
-  const onDeactivated: ((personId: string) => void)[] = [];
-  if (authMode === "local" || authMode === "proxy") registerAccountRoutes(app, store, authMode, (personId) => onDeactivated.forEach((listener) => listener(personId)), options.trustedProxy === true);
+  const accountChanges: { deactivated: ((personId: string) => void)[]; roleChanged: ((personId: string) => void)[] } = { deactivated: [], roleChanged: [] };
+  if (authMode === "local" || authMode === "proxy") {
+    const changes = { deactivated: (personId: string) => accountChanges.deactivated.forEach((listener) => listener(personId)), roleChanged: (personId: string) => accountChanges.roleChanged.forEach((listener) => listener(personId)) };
+    registerAccountRoutes(app, store, authMode, changes, options.trustedProxy === true);
+  }
   const { cliBuild } = options;
   store.setServerBuildHash(cliBuild?.hash);
   if (cliBuild) {
@@ -181,11 +184,12 @@ export async function buildMainApp(
   app.addHook("onClose", async () => pageLock.dispose());
   const terminalSessions = new TerminalSessions(options.terminalPresenceTimeoutMs);
   app.addHook("onClose", async () => terminalSessions.dispose());
-  onDeactivated.push((personId) => {
+  accountChanges.deactivated.push((personId) => {
     agents.disconnectPerson(personId);
     terminalSessions.releaseSessionsOf(personId);
     freeTakesOf(store, pageLock, personId);
   });
+  accountChanges.roleChanged.push(() => freeTakesLostAccess(store, pageLock));
   await registerAgentApi(app, store, pageLock, terminalSessions, access, config, options.publicUrl);
   await registerProjectFileRoutes(app, store);
   registerProjectDesignSystemRoutes(app, store);
@@ -273,6 +277,7 @@ export async function buildMainApp(
       if (!isVisibility(visibility)) return reply.code(400).send({ error: "visibility must be team or private" });
       if (!access.manages(req.viewer, req.params.projectId)) return reply.code(403).send({ error: "Only the creator of the project or an admin changes who sees it." });
       store.setProjectVisibility(req.params.projectId, visibility);
+      freeTakesLostAccess(store, pageLock, req.params.projectId);
     }
     if (title !== undefined) store.renameProject(req.params.projectId, title.trim());
     if (globalTakeoverOverride !== undefined) {
@@ -626,8 +631,7 @@ export async function buildMainApp(
   );
 
   /** A draft is its author's alone: everyone else, links included, never hears of it. */
-  const isMyDraft = (viewer: Viewer, person: Person | undefined, thread: Thread): boolean => viewer.kind !== "link" && thread.person?.id === person?.id;
-  const visibleTo = (viewer: Viewer, person: Person | undefined) => (thread: Thread): boolean => thread.status !== "held" || isMyDraft(viewer, person, thread);
+  const visibleTo = (viewer: Viewer) => (thread: Thread): boolean => thread.status !== "held" || isMyDraft(viewer, thread);
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/threads", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
@@ -636,13 +640,13 @@ export async function buildMainApp(
       const linkId = req.viewer.link.id;
       return store.listThreads(req.params.pageId).filter((thread) => thread.linkAuthor?.linkId === linkId);
     }
-    return store.listThreads(req.params.pageId).filter(visibleTo(req.viewer, req.person)).map((thread) => withLinkName(req.viewer, thread));
+    return store.listThreads(req.params.pageId).filter(visibleTo(req.viewer)).map((thread) => withLinkName(req.viewer, thread));
   });
 
   app.get<{ Params: { projectId: string } }>("/api/projects/:projectId/threads", async (req, reply) => {
     if (!store.projectExists(req.params.projectId)) return reply.code(404).send({ error: "project not found" });
     if (req.viewer.kind === "link" && req.viewer.link.scope !== "project") return reply.code(403).send({ error: "forbidden" });
-    return store.listProjectThreads(req.params.projectId).filter(visibleTo(req.viewer, req.person)).map((thread) => withLinkName(req.viewer, thread));
+    return store.listProjectThreads(req.params.projectId).filter(visibleTo(req.viewer)).map((thread) => withLinkName(req.viewer, thread));
   });
 
   // The user's reply in a thread: resumes the thread's session on the agent that opened it.
@@ -657,6 +661,7 @@ export async function buildMainApp(
     if (req.viewer.kind === "link" && req.viewer.link.level !== "write" && thread.linkAuthor?.linkId !== req.viewer.link.id) return reply.code(403).send({ error: "forbidden" });
     const nameError = visitorNameError(req.viewer, req.body.visitorName);
     if (nameError) return reply.code(400).send({ error: nameError });
+    if (thread.status === "held") return reply.code(409).send({ error: "a draft is not sent yet: only its author edits it" });
     const message = store.addReply(thread.id, body, "user", [], req.person, linkAuthorOf(req.viewer, req.body.visitorName))!;
     // A thread waiting to be read stays with the readers; any other reply, a Commentaire member's too, follows the thread's handler.
     if (thread.status === "review") return reply.code(201).send(message);
@@ -668,21 +673,21 @@ export async function buildMainApp(
     const body = req.body?.body;
     if (!requiredString(body)) return reply.code(400).send({ error: "body is required" });
     const current = store.getThread(req.params.threadId);
-    if (current?.status === "held" && !isMyDraft(req.viewer, req.person, current)) return reply.code(403).send({ error: "a draft belongs to its author" });
+    if (current?.status === "held" && !isMyDraft(req.viewer, current)) return reply.code(403).send({ error: "a draft belongs to its author" });
     const thread = store.updateHeldThread(req.params.threadId, body);
     return thread ?? reply.code(409).send({ error: "only a held comment can be edited" });
   });
 
   app.delete<{ Params: { threadId: string } }>("/api/threads/:threadId", async (req, reply) => {
     const current = store.getThread(req.params.threadId);
-    if (current?.status === "held" && !isMyDraft(req.viewer, req.person, current)) return reply.code(403).send({ error: "a draft belongs to its author" });
+    if (current?.status === "held" && !isMyDraft(req.viewer, current)) return reply.code(403).send({ error: "a draft belongs to its author" });
     if (!store.deleteHeldThread(req.params.threadId)) return reply.code(409).send({ error: "only a held comment can be deleted" });
     return reply.code(204).send();
   });
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId/held", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
-    return store.listHeldThreads(req.params.pageId).filter(visibleTo(req.viewer, req.person));
+    return store.listHeldThreads(req.params.pageId).filter(visibleTo(req.viewer));
   });
 
   // "Tout envoyer": the held comments of the page leave as one message to one session.
@@ -691,7 +696,7 @@ export async function buildMainApp(
     if (!page) return reply.code(404).send({ error: "page not found" });
     const invalidChoice = modelChoiceError(req.body ?? {});
     if (invalidChoice) return reply.code(400).send({ error: invalidChoice });
-    const held = store.listHeldThreads(page.id).filter(visibleTo(req.viewer, req.person));
+    const held = store.listHeldThreads(page.id).filter(visibleTo(req.viewer));
     if (held.length > 0) {
       // Someone who only comments sends their drafts to be read first.
       if (access.levelOf(req.viewer, { pageId: page.id }) === "comment") {
@@ -726,7 +731,9 @@ export async function buildMainApp(
   // A user action of the web UI. Agents resolve a thread only with the answer that handles it (`resolve` on `POST /agent-api/threads/:id/replies`).
   app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/resolve", async (req, reply) => {
     // A request closes by a diffusion or a refusal, never by "Résoudre".
-    if (store.getThread(req.params.threadId)?.request) return reply.code(409).send({ error: "a request to the design system cannot be resolved" });
+    const current = store.getThread(req.params.threadId);
+    if (current?.request) return reply.code(409).send({ error: "a request to the design system cannot be resolved" });
+    if (current?.status === "held") return reply.code(409).send({ error: "a draft is not sent yet: it cannot be resolved" });
     const thread = store.resolveThread(req.params.threadId, req.person?.id ?? "");
     return thread ?? reply.code(404).send({ error: "thread not found" });
   });

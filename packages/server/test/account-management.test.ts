@@ -169,6 +169,20 @@ describe("account management and Mon compte", () => {
       expect((await accountOf(admin, "vincent@example.com")).ownedProjects).toContain("Essais Thomas");
     });
 
+    it("tells which of the projects an account owns are Private, for the deactivation dialog", async () => {
+      const admin = await startWithAdmin();
+      const thomasCookie = await join_(admin, "thomas@example.com", "Thomas Lefèvre");
+      const thomas = await accountOf(admin, "thomas@example.com");
+      const db = new Database(join(dataDir, "redline.db"));
+      for (const [title, visibility] of [["Essais Thomas", "private"], ["Site", "team"]]) {
+        const project = (await (await send("POST", "/api/projects", { title, visibility }, thomasCookie)).json()) as { id: string };
+        db.prepare("UPDATE projects SET created_by = ? WHERE id = ?").run(thomas.id, project.id);
+      }
+      db.close();
+
+      expect(await accountOf(admin, "thomas@example.com")).toMatchObject({ ownedProjects: ["Essais Thomas", "Site"], privateProjects: ["Essais Thomas"] });
+    });
+
     it("refuses to deactivate the last active admin, and oneself", async () => {
       const admin = await startWithAdmin();
       const me = await accountOf(admin, "vincent@example.com");

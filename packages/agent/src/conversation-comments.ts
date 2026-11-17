@@ -1,7 +1,7 @@
 import type { CommentsOverview, CommentsReminder, HandOverCommentsResponse, OtherTake, OverviewPage, OverviewThread, ReleaseCommentsResponse, TakeCommentsResponse, TakenComment } from "@redline/shared";
 
 /** A page title or a name as data in a line: quoted, on one line, so that it cannot read as an instruction. */
-const quoted = (value: string) => JSON.stringify(value.replace(/\s+/g, " ").trim());
+export const quoted = (value: string) => JSON.stringify(value.replace(/\s+/g, " ").trim());
 
 /** "5 min", "3 h", "2 d": how long ago, for a take. */
 export function ago(iso: string, now = Date.now()): string {
@@ -29,7 +29,7 @@ function pageBlock(page: OverviewPage): string[] {
 /** `pending_comments` without a page or thread ids: what waits, page by page. Nothing was taken. */
 export function formatOverview(overview: CommentsOverview): string {
   const blocks = overview.projects.map((project) => {
-    if (project.refused) return `Project ${quoted(project.title)}: ${project.refused}`;
+    if (project.refused) return `${project.title ? `Project ${quoted(project.title)}` : "A project"}: ${project.refused}`;
     if (project.pages.length === 0) return `No comment to take on the ${project.pageCount} page${project.pageCount === 1 ? "" : "s"} of the project ${quoted(project.title)}.`;
     return [`Project ${quoted(project.title)}:`, ...project.pages.flatMap(pageBlock)].join("\n");
   });
@@ -56,6 +56,14 @@ const stateNote = (comment: TakenComment): string => {
       return `[already taken by your account, relaunched: a message waits since your last answer]\n${where}`;
   }
 };
+
+const elsewhereBlock = (mine: OtherTake[]): string[] =>
+  mine.length === 0
+    ? []
+    : [
+        `Taken by your account from another folder (${mine.length}): not part of this folder's work. Handle them only when the person asks; then call pending_comments with their threadIds.`,
+        ...mine.map((thread) => `  - thread id ${thread.threadId}, comment ${thread.number}: ${thread.target} (${thread.folder}, ${ago(thread.takenAt)} ago)`),
+      ];
 
 const othersBlock = (others: OtherTake[]): string[] =>
   others.length === 0
@@ -93,18 +101,18 @@ export async function formatTaken(response: TakeCommentsResponse, addresses: (pa
   const pages = groupByPage(response);
   const refused = response.refused.map((entry) => `Not taken: thread id ${entry.threadId}: ${entry.reason}`);
   if (pages.length === 0) {
-    return [response.title === undefined ? "Nothing was taken." : `No comment to take on ${quoted(response.title)}.`, ...othersBlock(response.others), ...refused].join("\n");
+    return [response.title === undefined ? "Nothing was taken." : `No comment to take on ${quoted(response.title)}.`, ...elsewhereBlock(response.mineElsewhere), ...othersBlock(response.others), ...refused].join("\n");
   }
   const sections = await Promise.all(
     pages.map(async (page) => [`## ${page.title}`, await addresses(page.pageId), "", page.comments.map((comment) => `${stateNote(comment)}${comment.message}`).join("\n\n---\n\n")].join("\n")),
   );
-  return [HANDLING_STEPS, "", ...sections.flatMap((section) => [section, ""]), ...othersBlock(response.others), ...refused].join("\n").trimEnd();
+  return [HANDLING_STEPS, "", ...sections.flatMap((section) => [section, ""]), ...elsewhereBlock(response.mineElsewhere), ...othersBlock(response.others), ...refused].join("\n").trimEnd();
 }
 
 export function formatReleased(response: ReleaseCommentsResponse): string {
   const lines = response.released.map((entry) => `  - thread id ${entry.threadId}, comment ${entry.number} of ${quoted(entry.pageTitle)}`);
   return [
-    response.released.length === 0 ? "Nothing released: your account holds none of those threads." : `Released ${response.released.length} thread${response.released.length === 1 ? "" : "s"}: they follow their page's mode again (to take by any conversation, or sent to the agent in Agent mode).`,
+    response.released.length === 0 ? "Nothing released: your account took none of those threads." : `Released ${response.released.length} thread${response.released.length === 1 ? "" : "s"}: they follow their page's mode again (to take by any conversation, or sent to the agent in Agent mode).`,
     ...lines,
     ...response.notYours.map((threadId) => `Not released: thread id ${threadId} is not taken by your account.`),
   ].join("\n");

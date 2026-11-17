@@ -231,6 +231,22 @@ describe("release_comments", () => {
   });
 });
 
+describe("pending_comments with a page lists the account's takes from another folder apart", () => {
+  it("does not hand them over with the page's comments", async () => {
+    const { partager } = await conversationSeam();
+    const thread = await seam!.pinThread(partager.id, "home.html", "Make it blue");
+    const away = await terminalOf("MacBook-Pro", { folder: "/Users/ana/crm" });
+    await away.call("pending_comments", { pageId: partager.id });
+    const here = await terminalOf("MacBook-Pro", { folder: "/Users/ana/site" });
+
+    const answer = await here.call("pending_comments", { pageId: partager.id });
+
+    expect(answer).toContain("Taken by your account from another folder (1)");
+    expect(answer).toContain(`thread id ${thread.id}, comment 1`);
+    expect(answer).not.toContain("Make the changes the comments ask for");
+  });
+});
+
 describe("the reminder line ends the answers of the pages this conversation published or checked out", () => {
   it("counts the threads to take on a page the conversation published, and only then", async () => {
     const { partager, visiteur } = await conversationSeam();

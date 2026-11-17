@@ -206,8 +206,10 @@ export class AccountStore {
 
   private accountEntries(onlyId?: string): AccountEntry[] {
     const owned = new Map<string, string[]>();
-    for (const { created_by, title } of this.db.prepare("SELECT created_by, title FROM projects WHERE created_by IS NOT NULL ORDER BY created_at, rowid").all() as { created_by: string; title: string }[]) {
+    const ownedPrivate = new Map<string, string[]>();
+    for (const { created_by, title, visibility } of this.db.prepare("SELECT created_by, title, visibility FROM projects WHERE created_by IS NOT NULL ORDER BY created_at, rowid").all() as { created_by: string; title: string; visibility: string }[]) {
       owned.set(created_by, [...(owned.get(created_by) ?? []), title]);
+      if (visibility === "private") ownedPrivate.set(created_by, [...(ownedPrivate.get(created_by) ?? []), title]);
     }
     const links = new Map<string, number>();
     const now = new Date().toISOString();
@@ -222,7 +224,7 @@ export class AccountStore {
       this.db.prepare("SELECT id, name, email, role, status, last_sign_in_at FROM people WHERE role IS NOT NULL ORDER BY created_at, rowid").all() as (AccountRow & { status: AccountEntry["status"]; last_sign_in_at: string | null })[]
     )
       .filter((row) => onlyId === undefined || row.id === onlyId)
-      .map((row) => ({ id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id), role: row.role, status: row.status, lastSignInAt: row.last_sign_in_at, ownedProjects: owned.get(row.id) ?? [], linkCount: links.get(row.id) ?? 0, takenThreads: taken.get(row.id) ?? 0 }));
+      .map((row) => ({ id: row.id, name: row.name, email: row.email, initials: initialsOf(row.name, row.id), role: row.role, status: row.status, lastSignInAt: row.last_sign_in_at, ownedProjects: owned.get(row.id) ?? [], privateProjects: ownedPrivate.get(row.id) ?? [], linkCount: links.get(row.id) ?? 0, takenThreads: taken.get(row.id) ?? 0 }));
   }
 
   /** Every account (people with a role) and the invitations still open, oldest first. */

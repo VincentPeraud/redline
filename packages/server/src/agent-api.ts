@@ -60,8 +60,9 @@ import { changeReviewFeedback, declareChangeReview } from "./change-reviews.js";
 import type { PageLock } from "./page-lock.js";
 import type { TerminalSessions } from "./terminal-sessions.js";
 import { replyFromConversation } from "./conversation-replies.js";
-import { commentsOverview, commentsToTake, releaseComments, remindersOf, takePage, takerOf, takeThreads, writeRefusal, type TakeEnv } from "./comment-takes.js";
-import { dispatchReviewed } from "./work.js";
+import { archivedRefusal, commentsOverview, commentsToTake, releaseComments, remindersOf, takePage, takeThreads, type TakeEnv } from "./comment-takes.js";
+import { writeRefusal } from "./write-refusal.js";
+import { nameOf } from "./person-name.js";
 import { handOverPage } from "./hand-over.js";
 import type { OriginRef, Store } from "./store.js";
 
@@ -144,10 +145,12 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           if (!projectId) return reply.code(404).send({ error: "page not found" });
           const refusal = refusalOf(req, label.accountId, projectId);
           if (refusal) return reply.code(403).send({ error: refusal });
+          const archived = archivedRefusal(store, pageId);
+          if (archived) return reply.code(409).send({ error: archived });
           return takePage(takeEnv(req), label, pageId);
         }
         if (threadIds !== undefined) return takeThreads(takeEnv(req), label, threadIds, takeOver === true);
-        return commentsOverview(takeEnv(req), label, projectIds ?? [], (projectId) => realLevelOf(req, projectId));
+        return commentsOverview(takeEnv(req), label, projectIds ?? []);
       });
 
       // `release_comments`: the account lets go of its takes; the threads follow their page's mode again.
@@ -159,7 +162,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (threadIds !== undefined && (!Array.isArray(threadIds) || !threadIds.every((id) => requiredString(id)))) return reply.code(400).send({ error: "threadIds must be a list of thread ids" });
         if ((pageId === undefined) === (threadIds === undefined)) return reply.code(400).send({ error: "give a pageId or threadIds" });
         if (pageId !== undefined && !store.getPage(pageId)) return reply.code(404).send({ error: "page not found" });
-        return releaseComments(takeEnv(req), label, { pageId, threadIds }, (thread) => dispatchReviewed(store, pageLock, store.getPage(thread.pageId)!.projectId, [thread]));
+        const archived = pageId === undefined ? undefined : archivedRefusal(store, pageId);
+        if (archived) return reply.code(409).send({ error: archived });
+        return releaseComments(takeEnv(req), label, { pageId, threadIds });
       });
 
       // This conversation published or checked out the page: its folder's reminder line is about the pages it knows.
@@ -359,6 +364,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const ref: OriginRef | undefined = from ? { originId: from.originId, originLabel: from.originLabel, person: from.person } : terminalFolder ? { originLabel: folderName(terminalFolder), terminalSessionId: req.body.terminalSessionId } : undefined;
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
+          // The folder of a conversation that publishes a page knows it for its reminder line, as after a checkout.
+          const label = origin === "terminal" && req.body.terminalSessionId !== undefined ? terminalSessions.labelOf(req.body.terminalSessionId) : undefined;
+          if (label) store.rememberTerminalPage(label.accountId, label.folder, req.params.pageId);
           if (changes?.length) askToUndoRefused(store, pageLock, store.recordChanges(projectId, version.id, changes));
           settleUndoneChanges(store, req.params.pageId);
           if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());
@@ -412,8 +420,9 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         // Commentaire never hands over: the writer may have been lowered since the message was sent.
         const writer = pageLock.requesterOf(item.id);
         const account = writer ? store.accounts.activeAccounts().find((a) => a.id === writer.id) : undefined;
+        if (writer && store.isDeactivated(writer.id)) return reply.code(403).send({ error: `${nameOf(writer)}'s account is deactivated: the threads are left alone.` });
         if (writer && accountLevelIn(store, { id: writer.id, role: account?.role }, store.getPage(item.pageId)!.projectId) !== "write") {
-          return reply.code(403).send({ error: `${writer.name || writer.email} no longer has Écriture on this project: the threads are left alone.` });
+          return reply.code(403).send({ error: `${nameOf(writer)} no longer has Écriture on this project: the threads are left alone.` });
         }
         return reply.send(handOverPage(store, pageLock, item.pageId, writer));
       });
@@ -495,13 +504,17 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (resolve !== undefined && typeof resolve !== "boolean") return reply.code(400).send({ error: "resolve must be a boolean" });
         const thread = store.getThread(req.params.threadId);
         if (!thread) return reply.code(404).send({ error: "This thread no longer exists: it was deleted with its page." });
+        // A draft is its author's: nobody answers it, a run never sees it.
+        if (thread.status === "held") return reply.code(409).send({ error: "This thread is a draft that was not sent yet: it cannot be answered." });
         // A conversation answers any thread of a project its account writes in: the answer is always added, never lost.
         const { terminalSessionId } = req.body;
         if (terminalSessionId !== undefined) {
           const label = terminalSessions.labelOf(terminalSessionId);
           if (!label) return reply.code(403).send({ error: notConnected });
-          if (access.levelOf(req.viewer, { pageId: thread.pageId }) !== "write") return reply.code(403).send({ error: "your account does not have Écriture on this project" });
-          const answered = replyFromConversation(store, thread, label, body, resolve);
+          if (label.accountId !== (req.viewer.kind === "agent" ? (req.viewer.person?.id ?? "") : "")) return reply.code(403).send({ error: "this terminal session belongs to another account" });
+          const refusal = refusalOf(req, label.accountId, store.projectIdOfPage(thread.pageId)!);
+          if (refusal) return reply.code(403).send({ error: refusal });
+          const answered = replyFromConversation(store, pageLock, thread, label, body, resolve);
           if ("error" in answered) return reply.code(409).send({ error: answered.error });
           const response: AgentReplyResponse = { ...answered.reply, ...(answered.note ? { note: answered.note } : {}) };
           return reply.code(201).send(response);
