@@ -7,6 +7,7 @@ import { z } from "zod";
 import { uploadChangedAssets } from "./assets.js";
 import { readLinkedProjectIds } from "./link.js";
 import { pageAddresses } from "./page-addresses.js";
+import { formatOverview, formatReleased, formatTaken, reminderLine } from "./conversation-comments.js";
 import { buildHash, cliVersion } from "./build-hash.js";
 import { addressOf, instanceLine, type InstanceLabel } from "./installations.js";
 import type { ServerApi } from "./server-api.js";
@@ -26,6 +27,7 @@ export const CREATE_DESIGN_SYSTEM_TOOL = "create_design_system";
 export const SET_PROJECT_DESIGN_SYSTEM_TOOL = "set_project_design_system";
 export const BROWSER_SIGN_IN_TOOL = "browser_sign_in";
 export const PENDING_COMMENTS_TOOL = "pending_comments";
+export const RELEASE_COMMENTS_TOOL = "release_comments";
 export const REQUEST_REVIEW_TOOL = "request_review";
 export const REVIEW_FEEDBACK_TOOL = "review_feedback";
 
@@ -88,10 +90,20 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     const extra = [notice].filter((line): line is string => line !== undefined);
     return extra.length > 0 ? { ...result, content: [...result.content, ...extra.map((line) => ({ type: "text" as const, text: line }))] } : result;
   };
+  // Set by the tools that just told the state of the comments: their answer does not repeat it in the reminder line.
+  let skipReminder = false;
+  // The pages this conversation's folder published or checked out that have threads to take or relaunches waiting.
+  const withReminder = async (result: ToolResult): Promise<ToolResult> => {
+    const skip = skipReminder;
+    skipReminder = false;
+    if (skip) return result;
+    const line = await api.commentsReminder(sessionId).then(reminderLine, () => undefined);
+    return line ? { ...result, content: [...result.content, { type: "text" as const, text: line }] } : result;
+  };
   const server = createRedlineMcpServer({
     api,
     instructions: instance ? `${instanceLine(instance)}\nEvery tool of this MCP works on this Redline instance only.` : undefined,
-    decorateResult: async (result) => withInstanceLine(await withNotices(result)),
+    decorateResult: async (result) => withInstanceLine(await withNotices(await withReminder(result))),
     // This installation was updated on disk under the running MCP: its code is the previous one until Claude Code reconnects it,
     // so no tool runs. "dev" (sources, or a file being replaced) never pauses; other instances' sessions are not concerned.
     refuseCall: () => {
@@ -135,20 +147,46 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     PENDING_COMMENTS_TOOL,
     {
       description:
-        "Take the Redline comments of a page for the user's account and handle them: every thread to take of the page is taken, and you are given it with the page's and artboard's addresses, followed by the threads of that page the account already took (also from another conversation, after a compaction or a resume). Call it only when the user asks you to handle the comments of a page. Answer each thread with reply_in_thread.",
-      inputSchema: { pageId: z.string().describe("Id of the page whose comments to take (see list_pages)") },
+        "Redline comments, on the person's request only. Without pageId and threadIds it only LISTS, page by page and with thread ids, what waits in the projects linked to this folder (to take, taken by the account, taken by others, waiting for an offline agent) and takes nothing: use it for \"y a-t-il des commentaires ?\", then offer to handle them. With pageId it takes every thread to take of that page for the user's account and gives them with the page's and artboard's addresses, followed by the threads of that page the account already took (also from another conversation, after a compaction or a resume) and, apart, the ones other accounts took (do not take those unless the person asks). With threadIds it takes exactly those threads; takeOver: true also takes threads another account took (the thread then shows \"repris par\" the user), only when the person asks for it, and is refused while an agent runs the thread. Needs the Écriture right on the project. Never call it on your own. Answer each thread with reply_in_thread.",
+      inputSchema: {
+        pageId: z.string().optional().describe("Id of the page whose comments to take (see list_pages)"),
+        threadIds: z.array(z.string()).optional().describe("Ids of the threads to take (as listed by pending_comments without arguments)"),
+        takeOver: z.boolean().optional().describe("With threadIds: also take threads another account took, because the person asked for it"),
+      },
     },
-    tool(async ({ pageId }: { pageId: string }) => {
-      const { title, comments } = await api.takeComments(sessionId, pageId);
-      if (comments.length === 0) return `No comment to take on ${quotedTitle(title)}.`;
-      // The comments are already taken: they are given even when the page's addresses cannot be fetched.
-      const addresses = await api.checkout(pageId).then(
-        ({ files }) => pageAddresses(api, pageId, files),
-        (error: Error) => `Page ${pageId}: its addresses could not be fetched (${error.message}); call checkout_page to get them.`,
+    tool(async ({ pageId, threadIds, takeOver }: { pageId?: string; threadIds?: string[]; takeOver?: boolean }) => {
+      if (pageId !== undefined && threadIds !== undefined) throw new Error("Give a pageId or threadIds, not both.");
+      if (takeOver && threadIds === undefined) throw new Error("takeOver applies to threadIds: list the threads first, then pass the ones the person named.");
+      skipReminder = true;
+      if (pageId === undefined && threadIds === undefined) {
+        const projectIds = readLinkedProjectIds(folder);
+        if (projectIds.length === 0) throw new Error("This folder is linked to no Redline project: pass a pageId (see list_pages) to take the comments of a page, or run redline link so that pending_comments can list the comments of its projects.");
+        return formatOverview(await api.commentsOverview(sessionId, projectIds));
+      }
+      const response = await api.takeComments(sessionId, pageId !== undefined ? { pageId } : { threadIds: threadIds!, ...(takeOver ? { takeOver } : {}) });
+      // The comments are already taken: they are given even when a page's addresses cannot be fetched.
+      return formatTaken(response, (id) =>
+        api.checkout(id).then(
+          ({ files }) => pageAddresses(api, id, files),
+          (error: Error) => `Page ${id}: its addresses could not be fetched (${error.message}); call checkout_page to get them.`,
+        ),
       );
-      const marked = { new: "", taken: "[already taken by your account]\n", relaunch: "[already taken by your account, relaunched: a message waits since your last answer]\n" };
-      const steps = "Make the changes the comments ask for (checkout_page, then publish_page once), then answer each thread once with reply_in_thread (threadId as given), with resolve: true when the comment is handled and your answer asks nothing back.";
-      return [steps, "", `## ${title}`, addresses, "", comments.map((comment) => `${marked[comment.state]}${comment.message}`).join("\n\n---\n\n")].join("\n");
+    }),
+  );
+  server.registerTool(
+    RELEASE_COMMENTS_TOOL,
+    {
+      description:
+        "Let go of the threads the user's account took (\"lâche ce fil\", \"lâche les commentaires de Partager\"): they follow their page's mode again (to take by any conversation, or the agent in Agent mode). Give a pageId (every thread the account took on it) or threadIds. Call it only when the person asks.",
+      inputSchema: {
+        pageId: z.string().optional().describe("Id of the page whose taken threads to release"),
+        threadIds: z.array(z.string()).optional().describe("Ids of the threads to release"),
+      },
+    },
+    tool(async ({ pageId, threadIds }: { pageId?: string; threadIds?: string[] }) => {
+      if ((pageId === undefined) === (threadIds === undefined)) throw new Error("Give a pageId or threadIds: ask the person which threads to let go of.");
+      skipReminder = true;
+      return formatReleased(await api.releaseComments(sessionId, pageId !== undefined ? { pageId } : { threadIds: threadIds! }));
     }),
   );
   server.registerTool(
@@ -284,6 +322,8 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     tool(async ({ pageId }: { pageId: string }) => {
       workingCopyDir(folder, pageId);
       const checkout = await api.checkout(pageId);
+      // Bookkeeping for the reminder line only: a checkout never fails because of it.
+      await api.rememberPage(sessionId, pageId).catch(() => undefined);
       const dir = writeWorkingCopy(folder, pageId, checkout);
       current = {
         pageId,

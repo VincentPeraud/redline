@@ -25,6 +25,11 @@ import {
   type Project,
   type ProjectAsset,
   type TakeCommentsRequest,
+  type CommentsOverview,
+  type CommentsReminder,
+  type RememberPageRequest,
+  type ReleaseCommentsRequest,
+  type ReleaseCommentsResponse,
   type TakeCommentsResponse,
   type TerminalCommentsPage,
   type TerminalHeartbeatRequest,
@@ -122,10 +127,32 @@ export class ServerApi {
     return url;
   }
 
-  /** The account of this terminal session takes the threads to take of a page, and is given them with the ones it already took. */
-  takeComments(sessionId: string, pageId: string): Promise<TakeCommentsResponse> {
-    const body: TakeCommentsRequest = { pageId };
+  /** The account of this terminal session takes the threads of a page, or the given threads (`takeOver` also those of another account), and is given them. */
+  takeComments(sessionId: string, request: { pageId: string } | { threadIds: string[]; takeOver?: boolean }): Promise<TakeCommentsResponse> {
+    const body: TakeCommentsRequest = request;
     return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/take`, body);
+  }
+
+  /** What waits in the projects, by page; nothing is taken. */
+  commentsOverview(sessionId: string, projectIds: string[]): Promise<CommentsOverview> {
+    const body: TakeCommentsRequest = { projectIds };
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/take`, body);
+  }
+
+  /** The account lets go of its takes of a page or of given threads. */
+  releaseComments(sessionId: string, request: ReleaseCommentsRequest): Promise<ReleaseCommentsResponse> {
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/release`, request);
+  }
+
+  /** This conversation published or checked out the page: the reminder line is about it from now on. */
+  rememberPage(sessionId: string, pageId: string): Promise<void> {
+    const body: RememberPageRequest = { pageId };
+    return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/pages`, body);
+  }
+
+  /** The pages of this conversation's folder with threads to take or relaunches waiting. */
+  commentsReminder(sessionId: string): Promise<CommentsReminder> {
+    return this.request("GET", `/terminal-sessions/${encodeURIComponent(sessionId)}/reminder`);
   }
 
   /** Tells the server this terminal session is closing. */

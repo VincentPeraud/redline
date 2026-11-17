@@ -72,6 +72,7 @@ async function conversation(email: string, folder: string) {
   await call(`/terminal-sessions/${sessionId}/heartbeat`, { folder, machine: "MacBook-Air" });
   return {
     take: (pageId: string) => call(`/terminal-sessions/${sessionId}/take`, { pageId }),
+    takeOver: (threadId: string) => call(`/terminal-sessions/${sessionId}/take`, { threadIds: [threadId], takeOver: true }),
     reply: (threadId: string, body: string, resolve?: boolean) => call(`/threads/${threadId}/replies`, { body, terminalSessionId: sessionId, ...(resolve ? { resolve } : {}) }),
   };
 }
@@ -130,8 +131,7 @@ it("shows the system line of a hand-over, then the late answer signed after the 
 
 it("shows \"puis repris par\" after a takeover", async () => {
   const { pageId, thread } = await takenThread();
-  write("UPDATE threads SET taken_by = ? WHERE id = ?", ids[THOMAS], thread.id);
-  write("INSERT INTO thread_traces (id, thread_id, kind, taker_id, by_id, created_at) VALUES (?, ?, 'taken-over', ?, ?, ?)", randomUUID(), thread.id, ids[ARIANE], ids[THOMAS], new Date().toISOString());
+  await (await conversation(THOMAS, "/Users/tom/site")).takeOver(thread.id);
 
   const tab = await open(THOMAS, pageId);
 

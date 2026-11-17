@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AGENT_API_PREFIX, type AgentReplyResponse, type AgentTokenResponse, type Thread } from "@redline/shared";
+import { AGENT_API_PREFIX, type AgentReplyResponse, type AgentTokenResponse, type TakeCommentsResponse, type Thread } from "@redline/shared";
 import { Store } from "../src/store.js";
 import { AccountsInstance, type SignedIn } from "./accounts-harness.js";
 
@@ -23,6 +23,7 @@ describe("a reply is never lost", () => {
     fetch(instance.server.url + AGENT_API_PREFIX + path, { method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
   const beat = (token: string, session: string, folder: string) => call(token, "POST", `/terminal-sessions/${session}/heartbeat`, { folder, machine: "MacBook-Air" });
   const take = (token: string, session: string, pageId: string) => call(token, "POST", `/terminal-sessions/${session}/take`, { pageId });
+  const takeOver = (token: string, session: string, threadId: string) => call(token, "POST", `/terminal-sessions/${session}/take`, { threadIds: [threadId], takeOver: true });
   const reply = async (token: string, session: string, threadId: string, extra: Record<string, unknown> = {}) => {
     const res = await call(token, "POST", `/threads/${threadId}/replies`, { body: "Done", terminalSessionId: session, ...extra });
     return { status: res.status, body: (await res.json()) as AgentReplyResponse };
@@ -80,10 +81,17 @@ describe("a reply is never lost", () => {
     expect(after.traces).toMatchObject([{ kind: "handed-over", taker: { name: "Ariane Martin" }, by: { name: "Thomas Lefevre" } }]);
   });
 
+  it("records the takeover trace for real through pending_comments takeOver", async () => {
+    const { thread, thomas, read } = await setup();
+
+    await takeOver(thomas, SESSION_B, thread.id);
+
+    expect((await read()).traces).toMatchObject([{ kind: "taken-over", taker: { name: "Ariane Martin" }, by: { name: "Thomas Lefevre" } }]);
+  });
+
   it("adds the answer after a takeover, and says who took the thread over", async () => {
-    const { thread, ariane, read } = await setup();
-    other.takeThread(thread.id, instance.people.thomas.id, "~/site", "MacBook-Air");
-    other.addTrace(thread.id, { kind: "taken-over", takerId: instance.people.ariane.id, byId: instance.people.thomas.id });
+    const { thread, ariane, thomas, read } = await setup();
+    expect(((await (await takeOver(thomas, SESSION_B, thread.id)).json()) as TakeCommentsResponse).comments).toMatchObject([{ state: "taken-over" }]);
 
     const answered = await reply(ariane, SESSION_A, thread.id);
 
