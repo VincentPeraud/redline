@@ -511,7 +511,10 @@ export async function buildMainApp(
         return { id: page.id, title: page.title, artboardCount: manifest === undefined ? 0 : parseManifest(manifest).artboards.length, updatedAt: store.listVersions(page.id)[0].createdAt };
       });
     }
-    return store.listPages(req.params.projectId, req.query.archived ? "archived" : "active");
+    return store.listPages(req.params.projectId, req.query.archived ? "archived" : "active").map((page) => {
+      const threads = store.listThreads(page.id);
+      return { ...page, openThreadCount: threads.filter((t) => t.status === "open").length, toTakeCount: threads.filter((t) => t.toTake).length };
+    });
   });
 
   app.get<{ Params: { pageId: string } }>("/api/pages/:pageId", async (req, reply) => {

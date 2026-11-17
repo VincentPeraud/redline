@@ -315,6 +315,10 @@ export interface Page {
   archivedAt?: string;
   /** Who handles the page's new comments: "conversation" (default, they wait to be taken) or "agent". */
   commentMode: CommentMode;
+  /** Only on a project's page list: the page's open threads. */
+  openThreadCount?: number;
+  /** Only on a project's page list: the open threads a conversation can take now (not taken, not waiting for an agent). */
+  toTakeCount?: number;
 }
 
 /** The comment mode of a page: new threads wait to be taken by a Claude Code conversation, or go to the agent. */
