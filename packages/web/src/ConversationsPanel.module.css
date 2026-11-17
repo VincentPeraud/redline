@@ -364,3 +364,7 @@
   line-height: 1.5;
   color: var(--color-text-secondary);
 }
+
+.noAgent {
+  padding: var(--space-3) var(--space-4) 0;
+}

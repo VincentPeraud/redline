@@ -22,6 +22,7 @@ import { RunProgress } from "./RunProgress.js";
 import { shortSessionId } from "./sessionLabel.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import { ElementChip } from "./ElementChip.js";
+import { NoAgentHint } from "./CommentMode.js";
 import { AddressPill, PlainLink } from "./AddressPill.js";
 import { splitMessageLinks } from "./messageLinks.js";
 import { rememberArtboardTitles } from "./otherPageArtboards.js";
@@ -88,6 +89,8 @@ interface Props {
   onRemoveChip: (index: number) => void;
   /** Called once the message is sent: the chips and their marks go. */
   onChipsSent: () => void;
+  /** An agent serves the project: without one the tab says another way to have the comments handled. */
+  agentOnline: boolean;
   /** An archived project's (or archived) page: conversations are read, none is started, sent to or deleted. */
   readOnly?: boolean;
   /** What is archived, opening the read-only note: "Projet archivé" (default) or "Page archivée". */
@@ -95,7 +98,7 @@ interface Props {
 }
 
 /** The "Conversation" tab: the page's conversations (create, switch, archive) and talking to Claude without a pin. */
-export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, focusedConversation, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent, readOnly = false, archivedLabel = "Projet archivé" }: Props) {
+export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount, artboards, onCenterArtboard, onMissingArtboard, focusedConversation, context, runs, queue, sessions, defaults, chips, selecting, onSelectingChange, onRemoveChip, onChipsSent, agentOnline, readOnly = false, archivedLabel = "Projet archivé" }: Props) {
   const personLabel = usePersonLabel();
   const messagesRef = useStickToBottom<HTMLDivElement>({ startAtBottom: true });
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -314,6 +317,12 @@ export function ConversationsPanel({ pageId, pageTitle, versionId, artboardCount
       {active && personLabel(active.startedBy, "history") && (
         <div data-testid="conversation-starter" className={styles.starter}>
           {personLabel(active.startedBy, "history")} · {activityLabel(active.lastActivityAt)}
+        </div>
+      )}
+
+      {!readOnly && !agentOnline && (
+        <div className={styles.noAgent}>
+          <NoAgentHint pageTitle={pageTitle} />
         </div>
       )}
 

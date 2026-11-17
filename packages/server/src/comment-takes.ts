@@ -54,7 +54,7 @@ export function writeRefusal(store: Store, accountId: string, level: AccessLevel
   return `Refused: your account (${accountName(store, accountId)}) has ${has} on the project ${JSON.stringify(title)}. Taking a thread needs the Écriture right: ask an admin of the project for it.`;
 }
 
-const targetLabel = (thread: Thread): string =>
+export const targetLabel = (thread: Thread): string =>
   thread.target.kind === "element"
     ? `${thread.target.artboard}, ${thread.target.elementName ?? thread.target.selector}`
     : thread.target.kind === "artboard"
@@ -63,7 +63,7 @@ const targetLabel = (thread: Thread): string =>
         ? zoneSubject(thread.target).replace(/^the /, "")
         : threadTargetLabel(thread.target);
 
-const otherTakeOf = (store: Store, thread: Thread, pageTitle: string): OtherTake => ({
+export const otherTakeOf =(store: Store, thread: Thread, pageTitle: string): OtherTake => ({
   threadId: thread.id,
   number: thread.number,
   pageId: thread.pageId,

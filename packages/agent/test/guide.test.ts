@@ -147,6 +147,15 @@ it("tells terminal Claude to list before taking, take over only on request, rele
   expect(REDLINE_GUIDE).toContain("Redline : N commentaires à prendre");
 });
 
+it("tells agent sessions to ask in the thread before drawing a new screen or rule, and to use hand_over_comments for the web chat", () => {
+  expect(REDLINE_GUIDE).toContain("## Comments in agent sessions");
+  expect(REDLINE_GUIDE).toContain("In an agent session too, a comment that asks for a new screen or a new rule");
+  expect(REDLINE_GUIDE).toContain("answer with the question in the thread (reply_in_thread without resolve), draw nothing for it");
+  expect(REDLINE_GUIDE).toContain('"traite les commentaires"');
+  expect(REDLINE_GUIDE).toContain("call hand_over_comments");
+  expect(REDLINE_GUIDE).toContain("list the threads it left alone");
+});
+
 it("tells Claude how to try variants of a design system component's look in a project", () => {
   expect(REDLINE_GUIDE).toContain("Trying looks of a component");
   expect(REDLINE_GUIDE).toContain('data-ds-libre="essai"');

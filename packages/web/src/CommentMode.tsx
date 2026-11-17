@@ -240,6 +240,18 @@ export function useCommentModeSwitch({ pageId, pageTitle, mode, threads, agentOn
   };
 }
 
+/** The line of the Conversation tab while no agent runs for the project: the other way to have the comments handled. */
+export function NoAgentHint({ pageTitle }: { pageTitle: string }) {
+  return (
+    <div data-testid="no-agent-hint" className={styles.hint}>
+      <span className={styles.hintIcon}>
+        <ConversationIcon />
+      </span>
+      <span>Aucun agent ne tourne pour ce projet. Demande « traite les commentaires de {pageTitle}&nbsp;» à une conversation Claude Code.</span>
+    </div>
+  );
+}
+
 /** The line at the top of the comments panel: where the page's comments go, per mode and level. */
 export function CommentModeHint({ mode, toTake, canWork, pageTitle }: { mode: CommentMode; toTake: number; canWork: boolean; pageTitle: string }) {
   if (mode === "agent") {

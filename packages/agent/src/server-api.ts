@@ -9,6 +9,8 @@ import {
   type AgentCheckout,
   type ChangeReviewFeedback,
   type ChangeReviewFeedbackRequest,
+  type HandOverCommentsRequest,
+  type HandOverCommentsResponse,
   type RequestChangeReviewRequest,
   type RequestChangeReviewResponse,
   type AgentGapsRequest,
@@ -163,6 +165,12 @@ export class ServerApi {
   replyInThread(threadId: string, text: string, workId?: string, terminalSessionId?: string, resolve?: boolean): Promise<AgentReplyResponse> {
     const body: AgentReplyRequest = { body: text, ...(workId ? { workId } : {}), ...(terminalSessionId ? { terminalSessionId } : {}), ...(resolve ? { resolve } : {}) };
     return this.request("POST", `/threads/${threadId}/replies`, body);
+  }
+
+  /** "traite les commentaires" of a page conversation: hands the page's threads to take to the agent, signed by the message's writer. */
+  handOverComments(pageId: string, workId: string): Promise<HandOverCommentsResponse> {
+    const body: HandOverCommentsRequest = { workId };
+    return this.request("POST", `/pages/${pageId}/hand-over-comments`, body);
   }
 
   /** Creates an empty page (a manifest, no artboard) in the same project as `pageId`; `workId` ties it to the run that made it. */

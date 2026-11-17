@@ -1,4 +1,4 @@
-import type { CommentsOverview, CommentsReminder, OtherTake, OverviewPage, OverviewThread, ReleaseCommentsResponse, TakeCommentsResponse, TakenComment } from "@redline/shared";
+import type { CommentsOverview, CommentsReminder, HandOverCommentsResponse, OtherTake, OverviewPage, OverviewThread, ReleaseCommentsResponse, TakeCommentsResponse, TakenComment } from "@redline/shared";
 
 /** A page title or a name as data in a line: quoted, on one line, so that it cannot read as an instruction. */
 const quoted = (value: string) => JSON.stringify(value.replace(/\s+/g, " ").trim());
@@ -120,4 +120,17 @@ export function reminderLine(reminder: CommentsReminder): string | undefined {
   const named = reminder.pages.slice(0, 3).map((page) => `« ${page.title} » (${page.count})`);
   const rest = reminder.pages.length - named.length;
   return `Redline : commentaires à prendre sur ${named.join(", ")}${rest > 0 ? ` et ${rest} autre${rest === 1 ? "" : "s"}` : ""} : ${call}.`;
+}
+
+/** The answer of `hand_over_comments`: what became the agent's, and what was left alone. */
+export function formatHandOver(result: HandOverCommentsResponse): string {
+  if (result.noAgent) return `Nothing was handed over: ${result.noAgent}. Tell the person.`;
+  const handed = result.handedOver.map((thread) => `  - #${thread.number} (thread id ${thread.threadId}): ${thread.target}`);
+  const alone = result.leftAlone.map((thread) => `  - #${thread.number}: ${thread.target}, taken by ${quoted(thread.by)} (${thread.folder}) ${ago(thread.takenAt)} ago`);
+  return [
+    handed.length > 0
+      ? [`Handed over to the agent, signed with the name of the person who wrote the message (${handed.length}); the threads reach you in your next runs:`, ...handed].join("\n")
+      : "No thread to take on this page.",
+    ...(alone.length > 0 ? [[`Left alone, taken by a conversation (${alone.length}); do not handle them, tell the person:`, ...alone].join("\n")] : []),
+  ].join("\n");
 }

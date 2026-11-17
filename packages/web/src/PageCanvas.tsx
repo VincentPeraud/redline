@@ -1404,6 +1404,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
               onSelectingChange={changeSelecting}
               onRemoveChip={(index) => setChips((current) => removeChip(current, index))}
               onChipsSent={() => setChips([])}
+              agentOnline={project?.servedBy !== undefined}
               readOnly={frozen}
               archivedLabel={archivedLabel}
             />
