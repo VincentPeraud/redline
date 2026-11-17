@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import { INSTANCE_TAG_PREFIX, requestIsOpen, type QueueEntry, type SessionRow, type Thread, type ThreadRun } from "@redline/shared";
+import { INSTANCE_TAG_PREFIX, requestIsOpen, threadTraceText, type QueueEntry, type SessionRow, type Thread, type Person, type ThreadReply, type ThreadRun, type ThreadTrace } from "@redline/shared";
 import { CreatedPageCards } from "./CreatedPageCards.js";
 import { ContextLine } from "./ContextLine.js";
 import { RemovedTag } from "./RemovedTag.js";
@@ -106,6 +106,23 @@ function SessionMeta({ session, createdAt }: { session: SessionRow | undefined; 
   );
 }
 
+/** The name a system line uses: always the person's own, never "toi" (the line is read by the others too). */
+const personName = (person: Person | undefined): string => person?.name || person?.email || "quelqu'un";
+
+/** The replies and the system lines of a thread, in the order they happened. */
+function timeline(thread: Thread): (ThreadReply | ThreadTrace)[] {
+  return [...thread.replies, ...(thread.traces ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+/** "Pris par Victor, puis confié à l'agent par Vincent": a line between two rules, in the discussion. */
+function ThreadSystemLine({ trace }: { trace: ThreadTrace }) {
+  return (
+    <div data-testid="thread-system" className={styles.system}>
+      {threadTraceText(trace, personName)}
+    </div>
+  );
+}
+
 /** The comment and its replies, as the card of an open or a resolved thread shows them. */
 function ThreadMessages({ thread }: { thread: Thread }) {
   return (
@@ -121,37 +138,44 @@ function ThreadMessages({ thread }: { thread: Thread }) {
         {thread.fromReviewAt && <span className={styles.reviewNote}>depuis la revue du {new Date(thread.fromReviewAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>}
         {thread.body}
       </div>
-      {thread.replies.map((reply) => (
-        <Fragment key={reply.id}>
-          <div data-testid="reply" className={cx(styles.message, reply.author === "claude" && styles.claudeReply, reply.author === "redline" && styles.redlineReply)}>
-            {reply.author === "user" ? (
-              <MessageAuthor person={reply.person} linkAuthor={reply.linkAuthor} />
-            ) : reply.author === "redline" ? (
-              <MessageAuthor redline />
-            ) : (
-              <MessageAuthor claude={thread.request ? DESIGN_SYSTEM_CLAUDE : true} conversation={reply.conversation} />
-            )}
-            {reply.body}
-          </div>
-          <CreatedPageCards pages={reply.createdPages} />
-        </Fragment>
-      ))}
+      {timeline(thread).map((entry) =>
+        "kind" in entry ? (
+          <ThreadSystemLine key={entry.id} trace={entry} />
+        ) : (
+          <Fragment key={entry.id}>
+            <div data-testid="reply" className={cx(styles.message, entry.author !== "redline" && styles.reply, entry.author === "claude" && styles.claudeReply, entry.author === "redline" && styles.redlineReply)}>
+              {entry.author === "user" ? (
+                <MessageAuthor person={entry.person} linkAuthor={entry.linkAuthor} />
+              ) : entry.author === "redline" ? (
+                <MessageAuthor redline />
+              ) : (
+                <MessageAuthor claude={thread.request ? DESIGN_SYSTEM_CLAUDE : true} conversation={entry.conversation} late={entry.late} />
+              )}
+              {entry.body}
+            </div>
+            <CreatedPageCards pages={entry.createdPages} />
+          </Fragment>
+        ),
+      )}
     </>
   );
 }
 
 /** A resolved thread: one line, which unfolds the discussion read-only, with "Rouvrir" to put it back among the open threads. */
 function ResolvedThreadCard({ thread, session, readOnly, open, onOpen, onReopen }: { thread: Thread; session: SessionRow | undefined; readOnly: boolean; open: boolean; onOpen: (open: boolean) => void; onReopen: () => void }) {
+  const resolvedLabel = thread.resolvedBy ? `Résolu par ${personName(thread.resolvedBy)} · ` : "Résolu · ";
   return (
     <article data-thread={thread.id} data-whole-artboard={wholeArtboardOf(thread)} className={cx(styles.card, styles.resolved, thread.removed && styles.removed)}>
       <button type="button" aria-expanded={open} className={styles.resolvedRow} onClick={() => onOpen(!open)}>
         <span className={cx(styles.badge, styles.badgeDone, thread.removed && styles.badgeRemoved)} aria-hidden="true">
           ✓
         </span>
-        <span className={styles.resolvedTitle}>{thread.title}</span>
+        <span className={styles.resolvedTitle}>
+          {resolvedLabel}
+          {thread.title}
+        </span>
         <span className={styles.spacer} />
         {thread.removed && <RemovedTag />}
-        <span className={styles.resolvedLabel}>Résolu</span>
         <svg aria-hidden="true" className={styles.resolvedChevron} width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
           <path d={open ? "M4 10l4-4 4 4" : "M4 6l4 4 4-4"} />
         </svg>

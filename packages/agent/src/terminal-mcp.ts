@@ -105,7 +105,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       ];
       return { isError: true, content: [{ type: "text", text: lines.join("\n") }] };
     },
-    // The server answers only for the threads this account took with pending_comments.
+    // The server adds the answer to any thread of a project this account writes in, and says what happened to it.
     postReply: (threadId, replyText, resolve) => api.replyInThread(threadId, replyText, undefined, sessionId, resolve),
     get pageId() {
       return checkedOut().pageId;

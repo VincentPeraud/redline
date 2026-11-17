@@ -700,7 +700,7 @@ export async function buildMainApp(
   app.post<{ Params: { threadId: string } }>("/api/threads/:threadId/resolve", async (req, reply) => {
     // A request closes by a diffusion or a refusal, never by "Résoudre".
     if (store.getThread(req.params.threadId)?.request) return reply.code(409).send({ error: "a request to the design system cannot be resolved" });
-    const thread = store.resolveThread(req.params.threadId);
+    const thread = store.resolveThread(req.params.threadId, req.person?.id ?? "");
     return thread ?? reply.code(404).send({ error: "thread not found" });
   });
 

@@ -11,6 +11,7 @@ export * from "./work.js";
 export * from "./sessions.js";
 export * from "./home.js";
 export * from "./people.js";
+export * from "./relativeTime.js";
 export * from "./readingOrder.js";
 export * from "./responsiveLayout.js";
 export * from "./tweakGrid.js";
@@ -338,6 +339,37 @@ export interface ThreadTake {
   takenAt: string;
 }
 
+/** What a system line of a thread records: how the thread changed hands, or who closed it. */
+export type ThreadTraceKind = "handed-over" | "taken-over" | "released" | "resolved";
+
+/**
+ * A system line of a thread ("Pris par Victor, puis confié à l'agent par Vincent"). `taker` is the account that held the thread
+ * before (absent when nobody did, or without SSO), `by` the person who acted (absent without SSO).
+ */
+export interface ThreadTrace {
+  id: string;
+  kind: ThreadTraceKind;
+  taker?: Person;
+  by?: Person;
+  createdAt: string;
+}
+
+/** The line a trace shows, as the card and the tool answers say it. `name` turns a person into what is shown ("quelqu'un" when absent). */
+export function threadTraceText(trace: Pick<ThreadTrace, "kind" | "taker" | "by">, name: (person: Person | undefined) => string): string {
+  const taker = name(trace.taker);
+  const by = name(trace.by);
+  switch (trace.kind) {
+    case "handed-over":
+      return trace.taker ? `Pris par ${taker}, puis confié à l'agent par ${by}` : `Confié à l'agent par ${by}`;
+    case "taken-over":
+      return `Pris par ${taker}, puis repris par ${by}`;
+    case "released":
+      return `Pris par ${taker}, puis libéré : ${taker} n'a plus accès`;
+    case "resolved":
+      return `Résolu par ${by}`;
+  }
+}
+
 export type PageCreator = "claude" | "user";
 
 /** `POST /agent-api/terminal-sessions/:id/heartbeat`: a terminal session says it is present. */
@@ -521,6 +553,12 @@ export interface Thread {
   status: ThreadStatus;
   /** An account's take: a conversation of that account handles the thread (see `ThreadTake`). Absent when nobody or an agent handles it. */
   take?: ThreadTake;
+  /** System lines (hand-over, takeover, release, resolution by someone else), oldest first. */
+  traces?: ThreadTrace[];
+  /** Who resolved the thread (set while it is resolved); absent without SSO, or when a run of the agent resolved it. */
+  resolvedBy?: Person;
+  /** When the thread was resolved (ISO time), while it is resolved. */
+  resolvedAt?: string;
   /** Derived, never stored: an open thread nobody handles ("À prendre"), waiting for a conversation to take it. */
   toTake?: true;
   /** Derived, never stored: a message of a user waits for the account that took the thread since its last answer ("Relance pour <person>"). */

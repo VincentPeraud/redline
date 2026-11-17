@@ -179,13 +179,29 @@ describe("a take belongs to the account, not to the process", () => {
     expect(answered).not.toHaveProperty("toTake");
   });
 
-  it("refuses a reply in a thread nobody took yet", async () => {
+  it("takes a thread nobody took yet when it answers it", async () => {
+    const { page, thread } = await threadToTake();
+    const terminal = await open("MacBook-Pro", { folder: `${homedir()}/crm` });
+
+    expect(await terminal.call("reply_in_thread", { threadId: thread.id, text: "Straight away" })).toBe("Reply posted.");
+
+    const answered = await threadOf(page.id, thread.id);
+    expect(answered.replies.map((r) => r.body)).toEqual(["Straight away"]);
+    expect(answered).toMatchObject({ take: { folder: "~/crm", machine: "MacBook-Pro" } });
+    expect(answered).not.toHaveProperty("toTake");
+  });
+
+  it("resolves the thread with the answer when asked, and a late answer to it is added without reopening it", async () => {
     const { page, thread } = await threadToTake();
     const terminal = await open("MacBook-Pro");
+    expect(await terminal.call("reply_in_thread", { threadId: thread.id, text: "Done", resolve: true })).toBe("Reply posted, thread resolved.");
 
-    expect(await terminal.call("reply_in_thread", { threadId: thread.id, text: "Too early" })).toMatch(/not taken by your account/);
+    const late = await terminal.call("reply_in_thread", { threadId: thread.id, text: "One more thing" });
 
-    expect((await threadOf(page.id, thread.id)).replies).toEqual([]);
+    expect(late).toMatch(/^Reply posted\. Ce fil est résolu .+\. Ta réponse est ajoutée, il reste résolu\.$/);
+    const after = await threadOf(page.id, thread.id);
+    expect(after.status).toBe("resolved");
+    expect(after.replies.map((r) => r.body)).toEqual(["Done", "One more thing"]);
   });
 
   it("keeps a later message in the thread for the account: no agent run, shown as a relaunch, given again to any of its conversations", async () => {
@@ -221,15 +237,17 @@ describe("a thread an agent owns stays with it", () => {
     expect(await threadOf(page.id, thread.id)).not.toHaveProperty("toTake");
   });
 
-  it("is not to take for a conversation, and refuses its reply", async () => {
+  it("is not to take for a conversation, and still adds its reply, saying the agent has the thread", async () => {
     const { page, thread } = await threadToTake("Make it blue", "agent");
     await seam!.waitForWorkEnd(1);
     await seam!.server.post(`/api/pages/${page.id}/comment-mode`, { mode: "conversation" });
     const terminal = await open("MacBook-Pro");
 
     expect(await terminal.call("pending_comments", { pageId: page.id })).toMatch(/No comment to take/);
-    expect(await terminal.call("reply_in_thread", { threadId: thread.id, text: "Not mine" })).toMatch(/not taken by your account/);
-    expect((await threadOf(page.id, thread.id)).replies.map((r) => r.body)).toEqual(["Agent answer"]);
+    expect(await terminal.call("reply_in_thread", { threadId: thread.id, text: "Not mine" })).toBe("Reply posted. Ce fil est à l'agent : ta réponse est ajoutée au fil, l'agent la verra.");
+    const after = await threadOf(page.id, thread.id);
+    expect(after.replies.map((r) => r.body)).toEqual(["Agent answer", "Not mine"]);
+    expect(after).not.toHaveProperty("take");
   });
 });
 

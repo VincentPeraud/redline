@@ -28,7 +28,7 @@ import {
   type TakeCommentsResponse,
   type TerminalCommentsPage,
   type TerminalHeartbeatRequest,
-  type ThreadReply,
+  type AgentReplyResponse,
   type VersionOrigin,
   type RenamePageRequest,
   type MergeRequestRequest,
@@ -133,7 +133,7 @@ export class ServerApi {
     return this.request("POST", `/terminal-sessions/${encodeURIComponent(sessionId)}/bye`, {});
   }
 
-  replyInThread(threadId: string, text: string, workId?: string, terminalSessionId?: string, resolve?: boolean): Promise<ThreadReply> {
+  replyInThread(threadId: string, text: string, workId?: string, terminalSessionId?: string, resolve?: boolean): Promise<AgentReplyResponse> {
     const body: AgentReplyRequest = { body: text, ...(workId ? { workId } : {}), ...(terminalSessionId ? { terminalSessionId } : {}), ...(resolve ? { resolve } : {}) };
     return this.request("POST", `/threads/${threadId}/replies`, body);
   }

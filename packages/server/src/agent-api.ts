@@ -13,6 +13,7 @@ import {
   type RequestChangeReviewRequest,
   type AgentGapsRequest,
   type AgentReplyRequest,
+  type AgentReplyResponse,
   type CreateSiblingRequest,
   type CreateVersionRequest,
   type TerminalHeartbeatRequest,
@@ -51,7 +52,8 @@ import { switchDesignSystem } from "./switch-design-system.js";
 import { changeReviewFeedback, declareChangeReview } from "./change-reviews.js";
 import type { PageLock } from "./page-lock.js";
 import type { TerminalSessions } from "./terminal-sessions.js";
-import { commentsToTake, takeComments, takerOf } from "./comment-takes.js";
+import { commentsToTake, takeComments } from "./comment-takes.js";
+import { replyFromConversation } from "./conversation-replies.js";
 import type { OriginRef, Store } from "./store.js";
 
 /** The thread or conversation a running work item answers, as version/DESIGN.md origin; none when the item is unknown or belongs to another page. */
@@ -423,22 +425,21 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
         if (resolve !== undefined && typeof resolve !== "boolean") return reply.code(400).send({ error: "resolve must be a boolean" });
         const thread = store.getThread(req.params.threadId);
         if (!thread) return reply.code(404).send({ error: "thread not found" });
-        // A conversation answers the threads its account took (any of its conversations, after a compaction or a resume too).
+        // A conversation answers any thread of a project its account writes in: the answer is always added, never lost.
         const { terminalSessionId } = req.body;
-        let conversation: { personId?: string; folder: string } | undefined;
         if (terminalSessionId !== undefined) {
           const label = terminalSessions.labelOf(terminalSessionId);
           if (!label) return reply.code(403).send({ error: notConnected });
           if (access.levelOf(req.viewer, { pageId: thread.pageId }) !== "write") return reply.code(403).send({ error: "your account does not have Écriture on this project" });
-          if (takerOf(thread) !== label.accountId) {
-            return reply.code(409).send({ error: `Thread ${thread.id} was not taken by your account: only the threads pending_comments gave to your account can be answered here.` });
-          }
-          conversation = { ...(label.accountId ? { personId: label.accountId } : {}), folder: label.folder };
+          const answered = replyFromConversation(store, thread, label, body, resolve);
+          if ("error" in answered) return reply.code(409).send({ error: answered.error });
+          const response: AgentReplyResponse = { ...answered.reply, ...(answered.note ? { note: answered.note } : {}) };
+          return reply.code(201).send(response);
         }
         // The pages the run created appear under its first answer.
         const workId = req.body.workId;
         const createdPageIds = workOrigin(store, pageLock, workId, thread.pageId) ? store.takeCreatedPages(workId!) : [];
-        const posted = store.addReply(thread.id, body, "claude", createdPageIds, undefined, undefined, conversation);
+        const posted = store.addReply(thread.id, body, "claude", createdPageIds);
         if (resolve) store.resolveThread(thread.id);
         return reply.code(201).send(posted);
       });
