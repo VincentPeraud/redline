@@ -348,6 +348,19 @@ export interface HandOverRefusal {
   take?: ThreadTake;
 }
 
+/** Body of `POST /agent-api/pages/:pageId/hand-over-comments`: the running conversation message ("traite les commentaires") on that page. */
+export interface HandOverCommentsRequest {
+  workId: string;
+}
+
+/** What "traite les commentaires" in the web chat did: threads now the agent's, threads left alone (taken by someone), or why nothing was handed over. */
+export interface HandOverCommentsResponse {
+  handedOver: { threadId: string; number: number; target: string }[];
+  leftAlone: OtherTake[];
+  /** Set when no agent could take the work: nothing was handed over. */
+  noAgent?: string;
+}
+
 /** An account's hold on a thread, made by `pending_comments`: it belongs to the account, whichever of its conversations answers. */
 export interface ThreadTake {
   /** The account that took the thread; absent without SSO (the shared token is one account). */

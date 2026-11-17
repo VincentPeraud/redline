@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AGENT_API_PREFIX, type AgentTokenResponse, type ShareLink, type Thread } from "@redline/shared";
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
@@ -168,6 +168,28 @@ describe("accounts and rights around takes", () => {
 
       expect(answer.others.map((other) => other.by)).toEqual(["Thomas Lefevre (thomas@example.com)"]);
       expect(await threadsOf(pageId)).toMatchObject([{ take: { person: { email: "thomas@example.com" }, sameName: true } }]);
+    });
+  });
+
+  describe("web chat hand-over", () => {
+    it("refuses to hand the page's comments over once the member who asked was lowered to Commentaire", async () => {
+      const { project, pageId } = await setup();
+      const agentToken = await tokenOf(instance.admin);
+      const agent = await instance.connectAgent(agentToken, { projectId: project.id });
+      await agent.hello;
+      const conversation = (await (await instance.thomas.send("POST", `/api/pages/${pageId}/conversations`, {})).json()) as { id: string };
+      const workIds = () => agent.messages.flatMap((m) => (m.type === "work" ? [m.item.id] : []));
+      const say = async (who: SignedIn, count: number) => {
+        expect((await who.send("POST", `/api/conversations/${conversation.id}/messages`, { body: "traite les commentaires" })).status).toBe(201);
+        await vi.waitFor(() => expect(workIds()).toHaveLength(count));
+      };
+
+      await say(instance.thomas, 1);
+      await instance.admin.send("PUT", `/api/projects/${project.id}/members/${instance.people.thomas.id}`, { level: "comment" });
+      const refused = await call(agentToken, "POST", `/pages/${pageId}/hand-over-comments`, { workId: workIds()[0] });
+      expect(refused.status).toBe(403);
+      expect(((await refused.json()) as { error: string }).error).toContain("Écriture");
+      agent.close();
     });
   });
 

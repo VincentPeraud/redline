@@ -95,6 +95,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send, r
       pageId: item.pageId,
       workingCopyDir: dir,
       workId: item.id,
+      handsOverComments: item.kind === "conversation",
       onRemovalsConfirmed: () => void (removalsConfirmed = true),
       onChangeRecorded: (change) => void changes.push(change),
       // The page changed under the run: what it publishes is measured against the page as it is now.
@@ -146,6 +147,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send, r
     }
     const version = await api.publish(item.pageId, files, versionMessage(item, result.summary), item.kind === "conversation" ? "conversation" : "thread", checkout.versionId, {
       workId: item.id,
+      handsOverComments: item.kind === "conversation",
       ...(removalsConfirmed ? { confirmRemovals: true } : {}),
       ...(changes.length ? { changes } : {}),
       ...(designMdChanged ? { designMd: { content: designMd, base: checkout.project.designMd } } : {}),

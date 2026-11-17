@@ -16,6 +16,7 @@ import {
   type AgentReplyRequest,
   type AgentReplyResponse,
   type CreateSiblingRequest,
+  type HandOverCommentsRequest,
   type CreateVersionRequest,
   type TerminalHeartbeatRequest,
   type TerminalCommentsPage,
@@ -61,6 +62,7 @@ import type { TerminalSessions } from "./terminal-sessions.js";
 import { replyFromConversation } from "./conversation-replies.js";
 import { commentsOverview, commentsToTake, releaseComments, remindersOf, takePage, takerOf, takeThreads, writeRefusal, type TakeEnv } from "./comment-takes.js";
 import { dispatchReviewed } from "./work.js";
+import { handOverPage } from "./hand-over.js";
 import type { OriginRef, Store } from "./store.js";
 
 /** The thread or conversation a running work item answers, as version/DESIGN.md origin; none when the item is unknown or belongs to another page. */
@@ -398,6 +400,22 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const asset = putProjectAsset(store, page.projectId, req.params["*"], req.body);
           return reply.code("error" in asset ? 400 : 201).send(asset);
         });
+      });
+
+      // "traite les commentaires" typed in a page's web chat: the running conversation message hands the page's threads to take to the agent, signed by its writer.
+      api.post<{ Params: { pageId: string }; Body: Partial<HandOverCommentsRequest> }>("/pages/:pageId/hand-over-comments", async (req, reply) => {
+        const workId = req.body?.workId;
+        const item = typeof workId === "string" ? pageLock.itemOf(workId) : undefined;
+        if (!item?.conversationId || item.pageId !== req.params.pageId) {
+          return reply.code(403).send({ error: "Only the session answering a message of this page's conversation can hand its comments over." });
+        }
+        // Commentaire never hands over: the writer may have been lowered since the message was sent.
+        const writer = pageLock.requesterOf(item.id);
+        const account = writer ? store.accounts.activeAccounts().find((a) => a.id === writer.id) : undefined;
+        if (writer && accountLevelIn(store, { id: writer.id, role: account?.role }, store.getPage(item.pageId)!.projectId) !== "write") {
+          return reply.code(403).send({ error: `${writer.name || writer.email} no longer has Écriture on this project: the threads are left alone.` });
+        }
+        return reply.send(handOverPage(store, pageLock, item.pageId, writer));
       });
 
       api.post<{ Params: { pageId: string }; Body: Partial<CreateSiblingRequest> }>("/pages/:pageId/siblings", async (req, reply) => {
