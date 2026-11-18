@@ -6,6 +6,8 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-18
+
 ### Added
 
 - Review zoom on artboard steps: a bar bottom right of the stage (− / % / + / Ajuster / 100 %) zooms the artboard, scrolling both ways when it overflows; a click on the % goes back to how the step opened. A step whose artboard stays readable whole (a carousel slide) now opens fitted; a long page still opens at its width, to scroll. The canvas step uses the same bar.
