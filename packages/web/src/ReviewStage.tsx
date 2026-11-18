@@ -2,12 +2,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { stepIsCanvasOnly, stepIsGroup, versionPreviewPath, type ChangeReview, type ChangeReviewMember, type ChangeReviewStep } from "@redline/shared";
 import { ArtboardIframe, useArtboardOrigin } from "./artboardCapability.js";
 import { PlayFrame } from "./PlayFrame.js";
-import { fitToStage, presentationOf, scrollTagLabel } from "./playFrames.js";
+import { presentationOf } from "./playFrames.js";
+import { openingZoom, reviewFit, stepZoom, zoomTagLabel, MAX_REVIEW_ZOOM, MIN_REVIEW_ZOOM, type ReviewZoom } from "./reviewZoom.js";
 import { relativeTime } from "./relativeTime.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { PinHint, PinLayer, type PinsController } from "./ReviewPins.js";
 import { ReviewCanvas } from "./ReviewCanvas.js";
 import { firstCanvasFrame, hasCanvasView } from "./reviewMixed.js";
+import { ReviewZoomBar, ZOOM_BAR_ROOM } from "./ReviewZoomBar.js";
 import { type StepControls } from "./useReviewControls.js";
 import { cx } from "./ui/index.js";
 import { formatWhen } from "./reviewView.js";
@@ -17,6 +19,7 @@ import styles from "./ReviewScreen.module.css";
 const DEVICE_BEZEL: Partial<Record<string, number>> = { phone: 10, tablet: 14 };
 /** Space kept above Claude's first frame when the stage scrolls to it. */
 const SCROLL_LEAD = 72;
+
 
 /** The artboard of the step at full size, in the same frame and fit as Present, with the Tweaks panel over its right side. */
 export function ReviewStage({
@@ -86,12 +89,46 @@ export function ReviewStage({
   /** The stage's own padding keeps the artboard off its edges, so the fit takes the space inside it. */
   const shown = entry && presentationOf(entry, controls.framed, windowWidth, entry.responsive ? controls.rendering : undefined);
   const presentation = shown && { ...shown, stagePadding: DEVICE_BEZEL[shown.frame] ?? 0 };
-  const fitted = presentation && fitToStage(presentation, size);
+  const stepKey = `${review.id}/${step.id}/${step.pageId}/${step.artboard}`;
+  // The zoom of the step: chosen once it is measured (fitted when the whole artboard stays readable), then by the person.
+  const [zoomState, setZoomState] = useState<{ key: string; opening: "natural" | "fit"; zoom: ReviewZoom }>();
+  const zoomKey = `${stepKey}/${presentation ? `${presentation.viewport.width}x${presentation.viewport.height}/${presentation.frame}` : ""}`;
+  // On a phone the bar is not offered: the step keeps today's fit.
+  const measuredOpening = presentation && size.width > 0 ? (phone ? "natural" : openingZoom(presentation, size)) : undefined;
+  useEffect(() => {
+    if (measuredOpening && zoomState?.key !== zoomKey) setZoomState({ key: zoomKey, opening: measuredOpening, zoom: measuredOpening });
+  }, [measuredOpening, zoomKey, zoomState?.key]);
+  const zoom = zoomState?.key === zoomKey ? zoomState.zoom : (measuredOpening ?? "natural");
+  // Scrolling or not changes the stage padding, so the measured stage: the decision holds until the window, the zoom or the layout change.
+  const scrollDecision = useRef<{ key: string; scrolling: boolean }>();
+  const decisionKey = [zoomKey, String(zoom), `${window.innerWidth}x${window.innerHeight}`, controls.tweaksOpen, controls.showBefore, modified, openedMember, canvasShown, phone].join("/");
+  const held = scrollDecision.current?.key === decisionKey ? scrollDecision.current.scrolling : undefined;
+  const fitted = presentation && reviewFit(presentation, size, zoom, held);
+  if (fitted && size.width > 0 && held === undefined) scrollDecision.current = { key: decisionKey, scrolling: fitted.scroll !== null };
   const scale = fitted?.scale ?? 1;
   const scrolling = fitted?.scroll ?? null;
   // A tall artboard opens on Claude's first frame, once per step: switching Avant / Après reloads the iframe but keeps the scroll position.
   const openedOn = useRef<string>();
-  const stepKey = `${review.id}/${step.id}/${step.pageId}/${step.artboard}`;
+  // A zoom from the bar keeps the point in the middle of the stage in the middle: its place on the artboard is noted before the zoom.
+  const anchor = useRef<{ x: number; y: number }>();
+  const setZoom = (next: ReviewZoom) => {
+    const area = stage.current?.getBoundingClientRect();
+    const shownBox = viewport.current?.getBoundingClientRect();
+    anchor.current = area && shownBox ? { x: (area.left + area.width / 2 - shownBox.left) / scale, y: (area.top + area.height / 2 - shownBox.top) / scale } : undefined;
+    // The person chose the view: the step no longer jumps to Claude's first frame.
+    openedOn.current = stepKey;
+    setZoomState((current) => current && { ...current, zoom: next });
+  };
+  useLayoutEffect(() => {
+    const point = anchor.current;
+    anchor.current = undefined;
+    const area = stage.current;
+    if (!point || !area || !viewport.current) return;
+    const areaBox = area.getBoundingClientRect();
+    const shownBox = viewport.current.getBoundingClientRect();
+    area.scrollLeft += shownBox.left + point.x * scale - (areaBox.left + areaBox.width / 2);
+    area.scrollTop += shownBox.top + point.y * scale - (areaBox.top + areaBox.height / 2);
+  }, [scale, zoomState]);
   const firstTarget = example.targets?.[0];
   useEffect(() => {
     if (bridgeEpoch === 0 || !scrolling || !firstTarget || openedOn.current === stepKey) return;
@@ -126,10 +163,11 @@ export function ReviewStage({
           Nouvelle version{step.modifiedBy ? ` de ${step.modifiedBy}` : ""} depuis ta revue{step.modifiedAt ? ` · ${relativeTime(step.modifiedAt)}` : ""}
         </span>
       )}
+      <div className={styles.shotBody}>
       <div ref={stage} className={cx(styles.shotArea, scrolling && styles.shotAreaScroll, !scrolling && !phone && styles.shotAreaHinted)} tabIndex={scrolling ? 0 : undefined} aria-label={scrolling ? "Artboard, fais défiler pour tout voir" : undefined}>
         {scrolling && presentation && (
           <div className={cx(styles.sizeTag, (modified || (controls.showBefore && step.baselineAt)) && styles.sizeTagLow)} data-testid="review-scroll-tag">
-            <span>{scrollTagLabel(scrolling, presentation.viewport)}</span>
+            <span>{zoomTagLabel(scrolling, scale, presentation.viewport)}</span>
           </div>
         )}
         {canvasOnly ? (
@@ -154,6 +192,27 @@ export function ReviewStage({
           <p className={styles.hint}>Cet artboard n'existe plus · {step.artboard}</p>
         )}
         <PinHint pins={pins} phone={phone} sticky={scrolling !== null} />
+      </div>
+      {!canvasOnly && fitted?.zoomable && !phone && (
+        <ReviewZoomBar
+          label="Zoom de l'artboard"
+          testId="review-artboard-zoom"
+          percent={scale}
+          canZoomOut={scale > MIN_REVIEW_ZOOM}
+          canZoomIn={scale < MAX_REVIEW_ZOOM}
+          onZoomOut={() => setZoom(stepZoom(scale, -1))}
+          onZoomIn={() => setZoom(stepZoom(scale, 1))}
+          onValue={() => setZoom(zoomState?.opening ?? "natural")}
+          raised={!pins.finished && size.width < ZOOM_BAR_ROOM}
+        >
+          <button type="button" className={cx(styles.canvasZoomReset, zoom === "fit" && styles.canvasZoomOn)} aria-pressed={zoom === "fit"} title="Voir tout l'artboard" onClick={() => setZoom("fit")}>
+            Ajuster
+          </button>
+          <button type="button" className={cx(styles.canvasZoomReset, zoom !== "fit" && Math.abs(scale - 1) < 0.005 && styles.canvasZoomOn)} aria-pressed={zoom !== "fit" && Math.abs(scale - 1) < 0.005} title="Taille réelle" onClick={() => setZoom(1)}>
+            100 %
+          </button>
+        </ReviewZoomBar>
+      )}
       </div>
       {viewsStrip && origin && <ViewsStrip example={example} origin={origin} canvasShown={canvasShown} onShowCanvas={onShowCanvas} />}
       {stepIsGroup(example) && <GroupThumbnails example={example} origin={origin} openedMember={openedMember} onOpenMember={onOpenMember} canvas={hasCanvas ? { shown: canvasShown, onShow: onShowCanvas } : undefined} />}
@@ -279,3 +338,4 @@ function Thumbnail({ member, origin }: { member: Pick<ChangeReviewMember, "pageI
     </span>
   );
 }
+

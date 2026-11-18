@@ -669,6 +669,35 @@ export const BRIDGE_SOURCE = `(function () {
     return (px > 0 ? px + 3 : 6) + "px";
   }
 
+  // Where an element can show: cut by every ancestor that clips its overflow (a scrolling list, a panel). The
+  // document itself does not cut: what is below its fold shows when the stage scrolls.
+  function visibleBox(el) {
+    var box = { left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity };
+    // Only the boxes the element is laid out in clip it: a fixed element escapes them all, an absolute one skips
+    // those that are not positioned (as CSS containing blocks go; a transformed ancestor is not handled).
+    var position = window.getComputedStyle(el).position;
+    if (position === "fixed") return box;
+    for (var node = el.parentElement; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
+      var style = window.getComputedStyle(node);
+      var skipped = position === "absolute" && style.position === "static";
+      if (!skipped) position = style.position;
+      if (position === "fixed") return box;
+      if (skipped || (style.overflowX === "visible" && style.overflowY === "visible")) continue;
+      var r = node.getBoundingClientRect();
+      if (style.overflowX !== "visible") { box.left = Math.max(box.left, r.left); box.right = Math.min(box.right, r.right); }
+      if (style.overflowY !== "visible") { box.top = Math.max(box.top, r.top); box.bottom = Math.min(box.bottom, r.bottom); }
+      if (box.right <= box.left || box.bottom <= box.top) return null;
+    }
+    return box;
+  }
+
+  var comparePending = false;
+  function drawCompareSoon() {
+    if (comparePending || !compareVisible) return;
+    comparePending = true;
+    requestAnimationFrame(function () { comparePending = false; drawCompare(); });
+  }
+
   function drawCompare() {
     var root = document.getElementById("__redline-compare");
     if (root) root.remove();
@@ -684,18 +713,22 @@ export const BRIDGE_SOURCE = `(function () {
       // A hidden element (display: none, or a closed state) has no box to frame.
       if (typeof found.el.checkVisibility === "function" && !found.el.checkVisibility()) return;
       var rect = found.el.getBoundingClientRect();
+      // Inside a scrolling box (a list, a panel), the frame keeps to what the box shows and leaves with the element.
+      var clip = visibleBox(found.el);
+      if (!clip || rect.bottom <= clip.top || rect.top >= clip.bottom || rect.right <= clip.left || rect.left >= clip.right) return;
       // The frame sits 5px outside its element: kept inside the document so an element flush with an edge is not cut.
       var docWidth = Math.max(document.documentElement.scrollWidth, document.documentElement.clientWidth);
-      var frameLeft = Math.max(1, rect.left + sx - 5);
-      var frameTop = Math.max(1, rect.top + sy - 5);
-      var frameRight = Math.min(docWidth - 1, rect.right + sx + 5);
+      var frameLeft = Math.max(1, Math.max(clip.left, rect.left - 5) + sx);
+      var frameTop = Math.max(1, Math.max(clip.top, rect.top - 5) + sy);
+      var frameRight = Math.min(docWidth - 1, Math.min(clip.right, rect.right + 5) + sx);
+      var frameBottom = Math.min(clip.bottom, rect.bottom + 5) + sy;
       var outline = document.createElement("div");
       outline.setAttribute("data-part", "outline");
-      outline.style.cssText = "position: absolute; box-sizing: border-box; left: " + frameLeft + "px; top: " + frameTop + "px; width: " + (frameRight - frameLeft) + "px; height: " + (rect.bottom + sy + 5 - frameTop) + "px; border: 2px dashed " + COMPARE_COLOR + "; border-radius: " + markerRadius(found.el, rect);
+      outline.style.cssText = "position: absolute; box-sizing: border-box; left: " + frameLeft + "px; top: " + frameTop + "px; width: " + (frameRight - frameLeft) + "px; height: " + (frameBottom - frameTop) + "px; border: 2px dashed " + COMPARE_COLOR + "; border-radius: " + markerRadius(found.el, rect);
       var badge = document.createElement("div");
       badge.setAttribute("data-part", "badge");
       badge.textContent = String(marker.number);
-      badge.style.cssText = "position: absolute; left: " + Math.min(rect.right + sx - 6, docWidth - 21) + "px; top: " + Math.max(1, rect.top + sy - 14) + "px; width: 20px; height: 20px; border-radius: 50%; background: " + COMPARE_COLOR + "; color: #FFFFFF; font: 600 11px/20px Inter, system-ui, sans-serif; text-align: center";
+      badge.style.cssText = "position: absolute; left: " + Math.min(frameRight - 11, docWidth - 21) + "px; top: " + Math.max(1, frameTop - 9) + "px; width: 20px; height: 20px; border-radius: 50%; background: " + COMPARE_COLOR + "; color: #FFFFFF; font: 600 11px/20px Inter, system-ui, sans-serif; text-align: center";
       root.appendChild(outline);
       root.appendChild(badge);
     });
@@ -754,10 +787,12 @@ export const BRIDGE_SOURCE = `(function () {
     altHeld = false;
     drawHover();
   });
-  window.addEventListener("scroll", function () {
+  window.addEventListener("scroll", function (event) {
     drawHover();
     drawMarks();
     reportTopColour();
+    // The document's own scroll moves the markers with it; a box scrolling inside the page does not.
+    if (event.target !== document) drawCompareSoon();
   }, true);
 
   function pagePoint(event) {
