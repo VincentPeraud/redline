@@ -109,20 +109,17 @@ describe("À relire comments", () => {
     expect(threads.map((t) => [t.status, t.replies.length])).toEqual([["review", 1], ["resolved", 0]]);
   });
 
-  it("puts a thread already sent to Claude back to À relire when a Commentaire member replies, without dispatching", async () => {
+  it("lets a Commentaire member's reply in a thread already sent to Claude follow the thread's handler", async () => {
     const { pageId, thomas, ariane, received } = await setup();
     const thread = await comment(thomas, pageId, "First");
     await ariane.send("POST", `/api/pages/${pageId}/send-review`, { threadIds: [thread.id] });
     await until(() => received().length === 1);
 
     expect((await thomas.send("POST", `/api/threads/${thread.id}/messages`, { body: "And also this" })).status).toBe(201);
-    await settle();
-    expect(received()).toHaveLength(1);
-    expect((await threadsOf(ariane, pageId))[0].status).toBe("review");
 
-    await ariane.send("POST", `/api/pages/${pageId}/send-review`, { threadIds: [thread.id] });
     await until(() => received().length === 2);
     expect(received()[1].message).toContain("And also this");
+    expect((await threadsOf(ariane, pageId))[0].status).toBe("open");
   });
 
   it("keeps À relire the threads of a member who was deactivated", async () => {

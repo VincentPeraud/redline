@@ -60,7 +60,7 @@ describe("signed thread and conversation messages", () => {
   it("returns the author of a held comment", async () => {
     const page = await createPage();
     await comment(page, ariane, "Shorten the title", true);
-    const held = await get<Thread[]>(`/api/pages/${page.id}/held`);
+    const held = (await (await send("GET", `/api/pages/${page.id}/held`, ariane)).json()) as Thread[];
     expect(held).toHaveLength(1);
     expect(held[0].person).toMatchObject({ id: "amartin", name: "Ariane Martin" });
   });

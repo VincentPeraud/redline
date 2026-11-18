@@ -6,6 +6,7 @@ import { mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { ARTBOARD_FRAMES, CHANGE_KINDS, type ChangeRecordInput, ARTBOARD_GAP, DEFAULT_ARTBOARD_HEIGHT, DEFAULT_ARTBOARD_WIDTH, MANIFEST_PATH, defaultManifest, isSafePath, parseManifest, type ArtboardFrame, type ManifestArtboard } from "@redline/shared";
+import { formatHandOver } from "./conversation-comments.js";
 import { gapsNote, layoutNote } from "./design-system-note.js";
 import { REDLINE_GUIDE } from "./guide.js";
 import { pathInside, readWorkingCopy } from "./working-copy.js";
@@ -23,6 +24,7 @@ export const ARCHIVE_PAGE_TOOL = "archive_page";
 export const CONFIRM_REMOVALS_TOOL = "confirm_removals";
 export const READ_GUIDE_TOOL = "read_guide";
 export const CHECK_PAGE_TOOL = "check_page";
+export const HAND_OVER_COMMENTS_TOOL = "hand_over_comments";
 
 export interface RedlineToolsContext {
   api: ServerApi;
@@ -34,7 +36,9 @@ export interface RedlineToolsContext {
   /** The work item being run, so what the session creates (pages, answers, versions) is tied to it. */
   workId?: string;
   /** Where `reply_in_thread` sends the text; default: the thread right away. A run holds replies back until it succeeds. */
-  postReply?: (threadId: string, text: string, resolve?: boolean) => Promise<unknown>;
+  postReply?: (threadId: string, text: string, resolve?: boolean) => Promise<{ note?: string } | void>;
+  /** True for the run of a page conversation message: only it can hand the page's comments over ("traite les commentaires"). */
+  handsOverComments?: boolean;
   /** Terminal mode registers its own `create_page`, which also works with no page checked out. */
   ownCreatePage?: boolean;
   /** Called after an artboard of the page was moved away and dropped from the working copy: the caller re-bases what it publishes later on the page as it is now. */
@@ -135,8 +139,9 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
       if (allowedThreadIds && !allowedThreadIds.includes(threadId)) {
         return { isError: true, content: [{ type: "text", text: `Thread ${threadId} is not part of this run.` }] };
       }
-      await postReply(threadId, text, resolve);
-      return { content: [{ type: "text", text: resolve ? "Reply posted, thread resolved." : "Reply posted." }] };
+      const posted = await postReply(threadId, text, resolve);
+      const note = posted?.note;
+      return { content: [{ type: "text", text: [resolve ? "Reply posted, thread resolved." : "Reply posted.", ...(note ? [note] : [])].join(" ") }] };
     },
   );
   server.registerTool(
@@ -329,6 +334,24 @@ export function createRedlineMcpServer(context: RedlineToolsContext): McpServer 
       }
     },
   );
+  if (context.handsOverComments && context.workId) {
+    const workId = context.workId;
+    server.registerTool(
+      HAND_OVER_COMMENTS_TOOL,
+      {
+        description:
+          "For \"traite les commentaires\" written in this page's conversation: hands every comment thread of the page waiting to be taken to the agent (you), signed with the name of the person who wrote the message. Threads taken by a conversation are left alone and listed. Take no thread yourself first: call this tool, then handle the threads you are given in the next run, and tell the person which threads were left alone.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          return text(formatHandOver(await api.handOverComments(context.pageId, workId)));
+        } catch (error) {
+          return text((error as Error).message, true);
+        }
+      },
+    );
+  }
   server.registerTool(
     READ_GUIDE_TOOL,
     { description: "Read the Redline guide: page manifest, artboards, design system tokens, tweaks and rules." },

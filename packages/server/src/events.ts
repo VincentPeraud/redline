@@ -1,7 +1,7 @@
 import type { ServerResponse } from "node:http";
 import type { FastifyInstance } from "fastify";
 import { SERVER_EVENTS_PATH, type ServerEvent } from "@redline/shared";
-import type { Access, Viewer } from "./access.js";
+import { isMyDraft, type Access, type Viewer } from "./access.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 
@@ -42,6 +42,11 @@ export function registerEventRoutes(app: FastifyInstance, store: Store, pageLock
     // An Écriture visitor also hears when agents come and go: it tells whether Claude can answer.
     if (viewer.kind === "link" && !LINK_EVENTS.has(event.type) && !(event.type === "agents-updated" && viewer.link.level === "write")) return undefined;
     if (event.type === "agents-updated") return event;
+    // A draft is personal: its changes are told to its author only.
+    if (event.type === "thread-updated") {
+      const thread = store.getThread(event.threadId);
+      if (thread?.status === "held" && !isMyDraft(viewer, thread)) return undefined;
+    }
     if (event.type === "review-updated") return access.may(viewer, "write", { projectId: event.projectId }) ? event : undefined;
     if (event.type === "design-system-updated") return { ...event, pageIds: event.pageIds.filter(seesPage) };
     if (event.type === "work") return seesPage(pageLock.itemOf(event.message.workId)?.pageId) ? event : undefined;

@@ -16,6 +16,7 @@ import {
   tweakGridLayout,
   versionPreviewPath,
   type AgentInfo,
+  type CommentMode,
   type CreateThreadRequest,
   type Gap,
   canvasElementSummary,
@@ -74,6 +75,7 @@ import { CommentsPanel, type Draft } from "./CommentsPanel.js";
 import { ConversationsPanel, type FocusedConversation } from "./ConversationsPanel.js";
 import type { AgentDefaults, ModelEffortChoice } from "./ModelEffortControls.js";
 import { PlayMode } from "./PlayMode.js";
+import { usePhone } from "./usePhone.js";
 import { addChip, marksFor, removeChip } from "./elementChips.js";
 import { messageContext } from "./messageContext.js";
 import { TweaksPanel } from "./TweaksPanel.js";
@@ -82,6 +84,7 @@ import { Tooltip, cx } from "./ui/index.js";
 import { usePageSessions } from "./usePageSessions.js";
 import { useRuns } from "./useRuns.js";
 import { LEVEL_LABEL } from "./ProjectSharingDialog.js";
+import { CommentModeToggle, useCommentModeSwitch } from "./CommentMode.js";
 import { PHONE_VISITOR_MAX_WIDTH, useVisitor } from "./visitor.js";
 import { VisitorComposer, VisitorThreadsPanel } from "./VisitorComments.js";
 import { useTweaks } from "./useTweaks.js";
@@ -169,9 +172,13 @@ interface Props {
   route: PageRoute;
   /** The page's project or design system is archived: the canvas is read-only behind its banner. */
   archived?: { kind: ArchiveKind; archivedAt: string; onUnarchived: () => void };
+  /** Who handles the page's new comments. */
+  commentMode: CommentMode;
+  /** Reads the page again, after this viewer switched the comment mode. */
+  onCommentModeChange: () => void;
 }
 
-export function PageCanvas({ pageId, pageTitle, project, projectId, designSystemPage, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, route, archived }: Props) {
+export function PageCanvas({ pageId, pageTitle, project, projectId, designSystemPage, files, artboardOrigin, versionId, onVersionChange, viewSettings: savedViewSettings, route, archived, commentMode, onCommentModeChange }: Props) {
   const { artboard: addressedArtboard, play: playFile, renderingParam, previewOf } = route;
   /** Previewed with a design system's draft: read-only, nothing here comments, converses, saves or publishes. */
   const previewing = previewOf !== undefined;
@@ -204,6 +211,18 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const [choice, setChoice] = useState<ModelEffortChoice>({});
   const [agentDefaults, setAgentDefaults] = useState<AgentDefaults>({});
   const [tab, setTab] = useState<SideTab>("conversation");
+  /** On a phone the side panel is a full-screen sheet over the canvas; it only shows while open. */
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const phone = usePhone();
+  // The phone sheet is a modal dialog: Escape closes it.
+  useEffect(() => {
+    if (!phone || !sheetOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSheetOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phone, sheetOpen]);
   /** Artboard whose whole-artboard threads the Commentaires tab scrolls to once shown. */
   const [scrollToArtboard, setScrollToArtboard] = useState<string | null>(null);
   const [scrollToThread, setScrollToThread] = useState<string | null>(null);
@@ -530,10 +549,18 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAfterRender]);
 
-  const openPinThread = useCallback((threadId: string) => {
+  const showComments = useCallback(() => {
     setTab("comments");
-    setScrollToThread(threadId);
+    setSheetOpen(true);
   }, []);
+
+  const openPinThread = useCallback(
+    (threadId: string) => {
+      showComments();
+      setScrollToThread(threadId);
+    },
+    [showComments],
+  );
 
   useEffect(() => {
     if (!selecting) return;
@@ -562,7 +589,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleGuides, toggleOverview, playing, readOnly]);
 
-  /** "Envoyer" sends the comment now; "Plus tard" (`held`) keeps it on the server until "Tout envoyer". */
+  /** "Envoyer" sends the comment now; "Brouillon" (`held`) keeps it on the server, for its author only, until "Tout envoyer". */
   async function send(held: boolean, visitorName?: string) {
     if (!draft || text.trim() === "") return;
     const request: CreateThreadRequest = visitor
@@ -615,6 +642,30 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   }
 
   const openCount = threads.filter((t) => t.status !== "resolved").length;
+  // A design system's pages always go to the agent: no mode to choose there (nor on an archived page, nor in a preview).
+  const hasCommentMode = !designSystemPage && archived === undefined && !previewing;
+  const commentModeSwitch = useCommentModeSwitch({
+    pageId,
+    pageTitle,
+    mode: commentMode,
+    threads,
+    agentOnline: project?.servedBy !== undefined,
+    onSwitched: () => {
+      onCommentModeChange();
+      void refresh();
+      void refreshQueue();
+    },
+  });
+  const commentModeToggle = (placement: "header" | "panel") => (
+    <CommentModeToggle
+      mode={commentMode}
+      canSwitch={!visitor && canWork}
+      whyNot={visitor ? "Tu consultes cette page avec un lien." : `Tu as le droit ${LEVEL_LABEL[level]}.`}
+      pageTitle={pageTitle}
+      onSelect={commentModeSwitch.select}
+      placement={placement}
+    />
+  );
   const runningCount = runs.filter((r) => r.status === "running" || r.status === "sent" || r.status === "retrying").length;
   const firstArtboard = manifest?.artboards[0]?.file;
   // Stable per pick: the comments panel focuses its textarea when this changes.
@@ -874,7 +925,9 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         onAskFixErrors={() => void askClaudeToFixErrors()}
         archived={frozen}
         commentOnly={archived === undefined && !canWork && canComment}
+        commentMode={hasCommentMode ? commentModeToggle("header") : undefined}
       />
+      {commentModeSwitch.dialog}
       {!visitor && canWork && !archived && <ReviewBanners pageId={pageId} />}
       {archived && (
         <ArchivedBanner
@@ -933,7 +986,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                   setChips((current) => addChip(current, { kind: "canvas-element", elementId: element.id!, elementKind: element.kind, elementSummary: canvasElementSummary(element) }));
                 } else if (element?.id !== undefined) {
                   setDraft({ target: { kind: "canvas-element", elementId: element.id, elementKind: element.kind } });
-                  setTab("comments");
+                  showComments();
                 }
               }
             }}
@@ -1030,7 +1083,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                         type="button"
                         className={styles.threadsChip}
                         onClick={() => {
-                          setTab("comments");
+                          showComments();
                           setScrollToArtboard(artboard.file);
                         }}
                       >
@@ -1061,7 +1114,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                         className={styles.iconButton}
                         onClick={() => {
                           setDraft({ target: { kind: "artboard", artboard: artboard.file } });
-                          setTab("comments");
+                          showComments();
                         }}
                       >
                         <BubbleIcon size={13} />
@@ -1142,7 +1195,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                         const where = { format: rendering.format, width: rendering.width };
                         if (selecting) return pickElement(pick, artboard.file, where);
                         setDraft({ ...pick, artboard: artboard.file, rendering: where });
-                        setTab("comments");
+                        showComments();
                       }}
                       onEscape={() => setSelecting(false)}
                       onDocHeight={(key, height) =>
@@ -1165,7 +1218,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       onPick={(pick, cell) => {
                         if (selecting) return pickElement(pick, artboard.file, undefined, cell);
                         setDraft({ ...pick, artboard: artboard.file, cell });
-                        setTab("comments");
+                        showComments();
                       }}
                       onEscape={() => setSelecting(false)}
                     />
@@ -1186,7 +1239,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                     onPick={(pick) => {
                       if (selecting) return pickElement(pick, artboard.file);
                       setDraft({ ...pick, artboard: artboard.file });
-                      setTab("comments");
+                      showComments();
                     }}
                     onEscape={() => setSelecting(false)}
                     onDocHeight={(height) => !previewed && measuredPageHeight(artboard, height)}
@@ -1353,7 +1406,18 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
           </>
         )}
         {!previewing && !visitor && (
-        <aside aria-label="Commentaires" className={styles.aside}>
+          <button type="button" data-testid="comments-opener" className={styles.opener} onClick={showComments}>
+            Commentaires · {openCount}
+          </button>
+        )}
+        {!previewing && !visitor && (
+        <aside aria-label="Commentaires" role={phone ? "dialog" : undefined} aria-modal={phone ? true : undefined} className={cx(styles.aside, sheetOpen && styles.asideOpen)}>
+          <div className={styles.sheetHead}>
+            <h1 className={styles.sheetTitle}>Commentaires · {openCount}</h1>
+            <button type="button" aria-label="Fermer" className={styles.sheetClose} onClick={() => setSheetOpen(false)}>
+              ×
+            </button>
+          </div>
           <div role="tablist" aria-label="Panneau latéral" className={styles.tabs}>
             <button type="button" role="tab" aria-selected={tab === "conversation"} className={cx(styles.tab, tab === "conversation" && styles.tabActive)} onClick={() => setTab("conversation")}>
               Conversation
@@ -1372,6 +1436,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
               onSelectingChange={changeSelecting}
               onRemoveChip={(index) => setChips((current) => removeChip(current, index))}
               onChipsSent={() => setChips([])}
+              agentOnline={project?.servedBy !== undefined}
               readOnly={frozen}
               archivedLabel={archivedLabel}
             />
@@ -1381,6 +1446,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
             </div>
           ) : (
             <PageTweaksContext.Provider value={manifest?.tweaks ?? []}>
+              {hasCommentMode && commentModeToggle("panel")}
               <CommentsPanel
                 pageId={pageId}
                 threads={threads}
@@ -1400,11 +1466,18 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                 }}
                 readOnly={readOnly}
                 commentOnly={archived === undefined && !canWork}
+                modeHint={hasCommentMode ? { mode: commentMode, canWork } : undefined}
+                pageTitle={pageTitle}
+                canHandOver={!visitor && canWork}
+                agentOnline={project?.servedBy !== undefined}
                 archivedLabel={archivedLabel}
                 unfolded={unfoldedResolved}
                 onUnfold={unfoldResolved}
                 onThreadsChanged={() => void refresh()}
-                onShowThread={showThread}
+                onShowThread={(threadId) => {
+                  showThread(threadId);
+                  setSheetOpen(false);
+                }}
               />
             </PageTweaksContext.Provider>
           )}

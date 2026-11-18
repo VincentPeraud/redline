@@ -8,7 +8,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /** What a link visitor has none of: the team's agents, runs, queue and gaps. The app is told "nothing" instead of being refused. */
 const EMPTY_FOR_VISITORS = [/^\/api\/agents$/, /^\/api\/sessions$/, /^\/api\/pages\/[^/]+\/(queue|runs|deleted-artboards|held)$/];
-const MISSING_FOR_VISITORS = [/^\/api\/pages\/[^/]+\/(gaps|terminal-holder)$/];
+const MISSING_FOR_VISITORS = [/^\/api\/pages\/[^/]+\/gaps$/];
 
 function answerForVisitor(method: string, path: string): Response | undefined {
   if (method !== "GET") return undefined;

@@ -37,7 +37,7 @@ it("unfolds a resolved thread to read its discussion, and reopens it among the o
   const tab = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   await tab.goto(`${seam.server.url}/#/pages/${page.id}`);
   await tab.getByRole("tab", { name: /Commentaires/ }).click();
-  const row = tab.getByRole("button", { name: /Start the week on Monday.*Résolu/ });
+  const row = tab.getByRole("button", { name: /Résolu · Start the week on Monday/ });
   await row.waitFor();
   expect(await row.getAttribute("aria-expanded")).toBe("false");
   expect(await tab.getByRole("button", { name: "Rouvrir" }).count()).toBe(0);

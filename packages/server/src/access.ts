@@ -1,11 +1,12 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { AGENT_SIGN_IN_PATH, AGENT_SIGN_IN_PREVIEW_PATH, INSUFFICIENT_LEVEL_CODE, levelRank, INVITATION_PATH, LINK_DEAD_CODE, type LinkDeadResponse, NO_ACCESS_CODE, PASSWORD_LINK_PATH, initialsOf, SESSION_PATH, SETUP_PATH, type AccessLevel, type AccountRole, type InsufficientLevelResponse, type NoAccessResponse, type Person } from "@redline/shared";
+import { AGENT_SIGN_IN_PATH, AGENT_SIGN_IN_PREVIEW_PATH, INSUFFICIENT_LEVEL_CODE, levelRank, INVITATION_PATH, LINK_DEAD_CODE, type LinkDeadResponse, NO_ACCESS_CODE, PASSWORD_LINK_PATH, initialsOf, SESSION_PATH, SETUP_PATH, type AccessLevel, type AccountRole, type InsufficientLevelResponse, type NoAccessResponse, type Person, type Thread } from "@redline/shared";
 import { HEALTH_PATH, hasHumanSecret, isMachinePath, type ProxySecrets } from "./proxy-secrets.js";
 import { isLocalHost } from "./public-deadline.js";
 import type { Store } from "./store.js";
 import type { StoredLink } from "./link-store.js";
 import { linkTokenOf } from "./link-url.js";
 import { personOf } from "./accounts.js";
+import { writeRefusal } from "./write-refusal.js";
 
 export type AuthMode = "local" | "proxy" | "none";
 
@@ -22,8 +23,8 @@ export type Viewer =
 /** What a request needs: a level of the project (`read` views, `comment` comments, `write` works on pages), or `manage` (creator and admins). */
 export type Action = AccessLevel | "manage";
 
-/** Writes a member at Commentaire may make: comment and reply. Resolving and reopening need Écriture. */
-const COMMENT_ROUTES = new Set(["POST /api/pages/:pageId/threads", "POST /api/threads/:threadId/messages"]);
+/** Writes a member at Commentaire may make: comment, reply, and edit, delete or send their own drafts (a member lowered to Commentaire keeps them). Resolving and reopening need Écriture. */
+const COMMENT_ROUTES = new Set(["POST /api/pages/:pageId/threads", "POST /api/threads/:threadId/messages", "PATCH /api/threads/:threadId", "DELETE /api/threads/:threadId", "POST /api/pages/:pageId/send-held"]);
 /** Writes that stay with the creator of the project and the admins. */
 const MANAGE_ROUTES = new Set(["POST /api/projects/:projectId/archive", "POST /api/projects/:projectId/unarchive", "DELETE /api/projects/:projectId", "PUT /api/projects/:projectId/members/:personId", "DELETE /api/projects/:projectId/members/:personId"]);
 
@@ -54,7 +55,6 @@ export const LINK_ROUTES: Record<string, AccessLevel> = {
   "POST /api/pages/:pageId/send-review": "write",
   "POST /api/pages/:pageId/send-held": "write",
   "PATCH /api/pages/:pageId": "write",
-  "POST /api/threads/:threadId/hand-over": "write",
 };
 /** Calls a project link may make but a page link may not: a page link reaches its own page, never the pages around it. */
 const LINK_PROJECT_ONLY_ROUTES = new Set(["POST /api/projects/:projectId/pages"]);
@@ -89,6 +89,8 @@ export interface Access {
   manages(viewer: Viewer, projectId: string): boolean;
   /** The creator of the project a resource belongs to, to name who to ask when `may` says no. */
   creatorOf(resource: Resource): Person | undefined;
+  /** The project a resource belongs to. */
+  projectIdOf(resource: Resource): string | undefined;
 }
 
 declare module "fastify" {
@@ -236,22 +238,27 @@ export function createAccess({ mode, store, secrets, identity, firstAdminEmail }
     const projectId = projectIdOf(resource);
     return projectId === undefined ? undefined : store.getProject(projectId)?.createdBy;
   };
-  return { mode, viewerOf, may, levelOf, manages, creatorOf };
+  return { mode, viewerOf, may, levelOf, manages, creatorOf, projectIdOf };
 }
 
-/** A copy of `value` where every `person` is reduced to its name and initials. */
+/** A draft is personal: only its author (the viewer without an account in a mode with no accounts) may see or touch it. A link visitor never does. */
+export function isMyDraft(viewer: Viewer, thread: Pick<Thread, "person">): boolean {
+  return viewer.kind !== "link" && thread.person?.id === (viewer.kind === "account" ? viewer.person.id : undefined);
+}
+
+const isPersonShaped = (value: object): value is Person => "email" in value && "initials" in value && "name" in value;
+const isTakeShaped = (value: object): boolean => "takenAt" in value && "folder" in value;
+
+/**
+ * A copy of `value` as a visitor may read it: every person (wherever it sits: author, taker, who resolved, who acted in a trace)
+ * is reduced to its name and initials, and a take loses the folder and the machine of the conversation that made it.
+ */
 function withoutAccountDetails(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withoutAccountDetails);
   if (typeof value !== "object" || value === null) return value;
-  return Object.fromEntries(
-    Object.entries(value).map(([key, inner]) => {
-      if (key === "person" && typeof inner === "object" && inner !== null) {
-        const { name, initials } = inner as Person;
-        return [key, { name, initials }];
-      }
-      return [key, withoutAccountDetails(inner)];
-    }),
-  );
+  if (isPersonShaped(value)) return { name: value.name, initials: value.initials };
+  const hidden = isTakeShaped(value) ? ["folder", "machine"] : [];
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !hidden.includes(key)).map(([key, inner]) => [key, withoutAccountDetails(inner)]));
 }
 
 function actionOf(req: FastifyRequest): Action {
@@ -273,7 +280,7 @@ export function unknownRouteKeys(registered: ReadonlySet<string>): string[] {
 }
 
 /** Resolves the viewer of every request, then refuses (403) what the viewer may not do, before any route runs. */
-export function registerAccess(app: FastifyInstance, access: Access): void {
+export function registerAccess(app: FastifyInstance, access: Access, store: Store): void {
   const registered = new Set<string>();
   app.addHook("onRoute", (route) => {
     for (const method of [route.method].flat()) registered.add(`${method} ${route.url}`);
@@ -311,7 +318,11 @@ export function registerAccess(app: FastifyInstance, access: Access): void {
     }
     if (!access.may(req.viewer, actionOf(req), resource)) {
       if (req.viewer.kind === "nobody" && access.mode === "local") return reply.code(401).send({ error: "sign-in required" });
-      if (req.viewer.kind === "agent" && req.viewer.person) return reply.code(403).send({ error: "your account does not have Écriture on this project, so your agent cannot work on it" });
+      if (req.viewer.kind === "agent" && req.viewer.person) {
+        const projectId = access.projectIdOf(resource);
+        const refusal = projectId && writeRefusal(store, req.viewer.person.id, accountLevelIn(store, { id: req.viewer.person.id, role: req.viewer.role }, projectId), projectId);
+        return reply.code(403).send({ error: refusal || "forbidden" });
+      }
       if (req.viewer.kind !== "account") return reply.code(403).send({ error: "forbidden" });
       const creator = access.creatorOf(resource);
       const found = creator ? { creator } : {};

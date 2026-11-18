@@ -9,11 +9,11 @@ const lumora: InstanceEntry = { id: "lumora", name: "Lumora", serverUrl: "https:
 const acme: InstanceEntry = { id: "acme", name: "Acme", serverUrl: "https://redline.acme.test", version: "0.2.0", tooOld: false };
 const at = (time: string) => new Date(`2026-11-11T${time}`).toISOString();
 
-const entry = (instance: InstanceEntry, id: string, title: string, projectTitle: string, comments: CommentsEntry["page"]["comments"], held = true): CommentsEntry => ({
+const entry = (instance: InstanceEntry, id: string, title: string, projectTitle: string, comments: CommentsEntry["page"]["comments"]): CommentsEntry => ({
   instanceId: instance.id,
   instance: instance.name,
   serverUrl: instance.serverUrl,
-  page: { pageId: id, title, projectTitle, comments, ...(held ? { holder: { folder: "~/lumora", machine: "Mac", since: at("10:12:00") } } : {}) },
+  page: { pageId: id, title, projectTitle, comments },
 });
 
 const accueil = entry(lumora, "p1", "Accueil", "Lumora · Site public", [
@@ -35,7 +35,7 @@ describe("the Comments tab", () => {
   it("counts the comments in the tab bar and lists the pages with their count", () => {
     const frame = text(open([accueil, tarifs, fiche]));
     expect(frame[4]).toMatch(/Comments {2}5 /);
-    expect(frame[6]).toMatch(/│ {2}waiting for a terminal session {2,}$/);
+    expect(frame[6]).toMatch(/│ {2}threads to take or taken {2,}$/);
     expect(frame[7]).toMatch(/│▎ › 2 Accueil {2,}$/);
     expect(frame[8]).toMatch(/│▎ {7}Lumora · Site public {2,}$/);
     expect(frame[10]).toMatch(/│ {4}2 Tarifs/);
@@ -43,11 +43,11 @@ describe("the Comments tab", () => {
     expect(frame[14]).toMatch(/│ {8}Acme · Boutique/);
   });
 
-  it("shows who holds the selected page and each comment, with the hint (left pane focused)", () => {
+  it("shows how many comments the selected page has to take and each comment, with the hint (left pane focused)", () => {
     const frame = text(press(open([accueil, tarifs, fiche]), "left"));
     expect(frame[1]).toMatch(/^ {2}redline {2}Lumora · redline\.lumora\.com/);
     expect(frame[7]).toMatch(/^ {2}Accueil {2}Lumora · Site public on Lumora {2,}│/);
-    expect(frame[8]).toMatch(/^ {2}Held by {4}the Claude Code session in ~\/lumora \(published 10:12\) {2,}│/);
+    expect(frame[8]).toMatch(/^ {2}Status {5}2 to take, no conversation has taken them yet {2,}│/);
     expect(frame[9]).toMatch(/^─+┤/);
     expect(frame[10]).toMatch(/^▎ 2 COMMENTS {2}focused: ↑↓ scroll, → back to the list {2,}│/);
     expect(frame[11]).toMatch(/^ {2}Ariane Martin {2}10:31 · accueil\.html, the hero title/);
@@ -55,7 +55,7 @@ describe("the Comments tab", () => {
     expect(frame[14]).toMatch(/^ {2}Vincent Peraud {2}10:40 · accueil\.html, whole artboard/);
     expect(frame[15]).toMatch(/^ {2}« Ajoute une variante sombre de cette section\. »/);
     expect(frame[16]).toMatch(/^─+┤/);
-    expect(frame[17]).toMatch(/^ {2}In that session, ask Claude: traite mes commentaires/);
+    expect(frame[17]).toMatch(/^ {2}Ask a Claude Code conversation: traite les commentaires d'Accueil/);
     expect(frame[18]).toMatch(/^ {2}o opens the page in Redline\./);
   });
 
@@ -72,23 +72,35 @@ describe("the Comments tab", () => {
     const top = text(focused, 24);
     expect(top.join("\n")).toContain("ligne0");
     expect(top.join("\n")).not.toContain("ligne39");
-    expect(top.join("\n")).toContain("traite mes commentaires");
+    expect(top.join("\n")).toContain("traite les commentaires d'Accueil");
     const scrolled = text(press(focused, ...Array<string>(100).fill("down")), 24).join("\n");
     expect(scrolled).toContain("ligne39");
     expect(scrolled).not.toContain("ligne0 ");
-    expect(scrolled).toContain("traite mes commentaires");
+    expect(scrolled).toContain("traite les commentaires d'Accueil");
+  });
+
+  it("marks each comment to take or taken, sums the page status by taker and says who took what", () => {
+    const mixed = entry(lumora, "p1", "Accueil", "Lumora · Site public", [
+      { author: "Ariane Martin", at: at("10:31:00"), target: "accueil.html, the hero title", text: "Un." },
+      { author: "Vincent Peraud", at: at("10:40:00"), target: "accueil.html, whole artboard", text: "Deux.", taken: { by: "Victor", folder: "~/crm" } },
+    ]);
+    const frame = text(press(open([mixed]), "left"));
+    expect(frame[8]).toMatch(/^ {2}Status {5}1 to take, 1 taken by Victor \(~\/crm\) {2,}│/);
+    expect(frame[11]).toMatch(/^ {2}Ariane Martin {2}10:31 · accueil\.html, the hero title · to take {2,}/);
+    expect(frame[14]).toMatch(/^ {2}Vincent Peraud {2}10:40 · accueil\.html, whole artboard · taken by Victor +│/);
+    const everyone = entry(lumora, "p1", "Tarifs", "Lumora", [
+      { author: "A", at: at("10:00:00"), target: "t.html, whole artboard", text: "x", taken: { by: "", folder: "~/c" } },
+      { author: "B", at: at("10:01:00"), target: "t.html, whole artboard", text: "y", taken: { by: "Victor", folder: "~/s" } },
+      { author: "C", at: at("10:02:00"), target: "t.html, whole artboard", text: "z", taken: { by: "Victor", folder: "~/s" } },
+    ]);
+    expect(text(press(open([everyone]), "left"))[8]).toMatch(/Status {5}1 taken by a conversation \(~\/c\), 2 taken by Victor \(~\/s\)/);
   });
 
   it("says so when no page waits, while loading, and when an instance cannot be read", () => {
     const empty = text(open([]));
-    expect(empty.join("\n")).toContain("No comment is waiting for a terminal session.");
+    expect(empty.join("\n")).toContain("No comment to take.");
     const loading = text(initialState({ agents: [], now: NOW, home: "/h", folder: "/h/a", instances: [lumora], tab: "comments" }));
     expect(loading.join("\n")).toContain("Loading the comments");
     expect(text(open([accueil], [{ instance: "Acme", message: "unreachable" }])).join("\n")).toContain("Acme: unreachable");
-  });
-
-  it("says nobody holds the page when no session is present", () => {
-    const orphan = entry(lumora, "p9", "Blog", "Lumora", [{ author: "Ana", at: at("10:00:00"), target: "b.html, whole artboard", text: "Hi" }], false);
-    expect(text(press(open([orphan]), "left")).join("\n")).toContain("no terminal session is present");
   });
 });

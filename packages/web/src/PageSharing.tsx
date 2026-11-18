@@ -407,7 +407,7 @@ function LinkFormDialog({ scope, mayWrite, link, onClose, onDone, onCloseAll }: 
                           if (event.target.checked) setLevel("comment");
                         }}
                       />
-                      Les commentaires de ce lien partent directement à Claude, sans relecture
+                      Les commentaires de ce lien deviennent directement à prendre, sans relecture
                     </label>
                   </span>
                 </div>

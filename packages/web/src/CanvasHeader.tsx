@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import type { DeletedArtboard, Gap, Page, PageGaps, Project, Thread } from "@redline/shared";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { DeletedArtboard, Gap, Page, PageGaps, Project } from "@redline/shared";
 import { DiffuseButton } from "./DiffusionDialog.js";
 import { DeletedArtboardsList } from "./DeletedArtboardsList.js";
 import { GapsButton } from "./GapsReport.js";
 import { ErrorsButton, type ArtboardErrorsEntry } from "./ArtboardErrors.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
 import { TocMenu } from "./TocMenu.js";
-import { TerminalPill } from "./TerminalPill.js";
+import { ToTakeBadge } from "./ToTakeBadge.js";
+import { subscribeServerEvents } from "./serverEvents.js";
 import { AccountMenu, displayName } from "./AccountMenu.js";
 import { avatarClassName } from "./Avatar.js";
 import { useMe, useWho } from "./useMe.js";
@@ -18,11 +19,6 @@ import { VisitorHeader } from "./VisitorHeader.js";
 import { SharePageButton } from "./PageSharing.js";
 import { useVisitor } from "./visitor.js";
 import styles from "./CanvasHeader.module.css";
-
-interface MenuPage {
-  page: Page;
-  openThreads: number;
-}
 
 /** "créée par Claude · pour Ariane Martin", "créée par Toi"; without SSO only Claude's pages say who made them. */
 function createdByLabel(page: Page, who: Who): string | null {
@@ -88,7 +84,7 @@ function PageMenu({ owner, pageId, pageTitle, artboardOrigin, deleted, onPutBack
   const [open, setOpen] = useState(false);
   const [deletedOpen, setDeletedOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
-  const [pages, setPages] = useState<MenuPage[]>([]);
+  const [pages, setPages] = useState<Page[]>([]);
   const root = useRef<HTMLDivElement>(null);
 
   // A long list opens on the current page, once: thread counts arriving later do not scroll it back.
@@ -99,25 +95,22 @@ function PageMenu({ owner, pageId, pageTitle, artboardOrigin, deleted, onPutBack
   useEffect(() => {
     if (!open || !owner) return;
     let cancelled = false;
-    // The pages show at once; each open thread count joins when it comes, and one that fails leaves its page without a count.
-    void (async () => {
+    // The list carries each page's thread counts; it loads again when a thread or a comment mode changes while the menu is open.
+    const load = async () => {
       const response = await fetch(`/api/projects/${owner.id}/pages`).catch(() => undefined);
       const list = response?.ok ? ((await response.json().catch(() => undefined)) as Page[] | undefined) : undefined;
-      if (!list || cancelled) return;
-      setPages(list.map((page) => ({ page, openThreads: 0 })));
-      for (const page of list) {
-        void fetch(`/api/pages/${page.id}/threads`)
-          .then((res) => (res.ok ? (res.json() as Promise<Thread[]>) : undefined))
-          .then((threads) => {
-            if (cancelled || !threads) return;
-            const openThreads = threads.filter((t) => t.status === "open").length;
-            setPages((current) => current.map((item) => (item.page.id === page.id ? { page: item.page, openThreads } : item)));
-          })
-          .catch(() => undefined);
-      }
-    })();
+      if (list && !cancelled) setPages(list);
+    };
+    void load();
+    const unsubscribe = subscribeServerEvents(
+      (event) => {
+        if (event.type === "thread-updated" || event.type === "comment-mode-changed" || event.type === "queue-updated") void load();
+      },
+      () => void load(),
+    );
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, [open, owner?.id]);
 
@@ -190,9 +183,9 @@ function PageMenu({ owner, pageId, pageTitle, artboardOrigin, deleted, onPutBack
       )}
       {open && owner && (
         <div role="menu" aria-label={`${OWNER_LABELS[owner.kind].pages} ${owner.title}`} className={styles.menu}>
-          <div className={styles.menuTitle}>{OWNER_LABELS[owner.kind].pages}</div>
+          <div className={styles.menuTitle}>Pages de {owner.title}</div>
           <div className={styles.menuPages}>
-          {pages.map(({ page, openThreads }) => (
+          {pages.map((page) => (
             <a
               key={page.id}
               role="menuitem"
@@ -204,7 +197,8 @@ function PageMenu({ owner, pageId, pageTitle, artboardOrigin, deleted, onPutBack
               <span className={styles.menuPageTitle}>{page.title}</span>
               <span className={styles.spacer} />
               {createdByLabel(page, who(page.createdByPerson)) ? <span className={styles.menuMuted}>{createdByLabel(page, who(page.createdByPerson))}</span> : null}
-              {openThreads > 0 ? <span className={styles.menuWarn}>{plural(openThreads, "fil", "fils")}</span> : null}
+              {(page.openThreadCount ?? 0) > 0 ? <span className={styles.menuWarn}>{plural(page.openThreadCount!, "fil", "fils")}</span> : null}
+              <ToTakeBadge count={page.toTakeCount ?? 0} />
             </a>
           ))}
           </div>
@@ -259,6 +253,8 @@ interface Props {
   archived?: boolean;
   /** The viewer's level lets them comment but not work: the header keeps the comment mode and drops the agent controls (with `archived`). */
   commentOnly?: boolean;
+  /** The comment mode toggle, left of the agent pill (a link visitor's header too); absent on a design system's page, an archived page and a preview. */
+  commentMode?: ReactNode;
   /** Design system gaps of the page; the button shows only when there are some. */
   gaps: PageGaps | null;
   gapExceptionCount: number;
@@ -273,7 +269,7 @@ interface Props {
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, designSystemId, designSystemTitle, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf, archived = false, commentOnly = false }: Props) {
+export function CanvasHeader({ project, designSystemId, designSystemTitle, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf, archived = false, commentOnly = false, commentMode }: Props) {
   const me = useMe();
   const visitor = useVisitor();
   const owner: PageOwner | null = project
@@ -281,7 +277,7 @@ export function CanvasHeader({ project, designSystemId, designSystemTitle, versi
     : designSystemId && designSystemTitle
       ? { id: designSystemId, title: designSystemTitle, kind: "designSystem" }
       : null;
-  if (visitor) return <VisitorHeader visitor={visitor} pageId={pageId} pageTitle={pageTitle} firstArtboard={toc.items[0]?.file} picking={picking} onPickingChange={onPickingChange} />;
+  if (visitor) return <VisitorHeader commentMode={commentMode} visitor={visitor} pageId={pageId} pageTitle={pageTitle} firstArtboard={toc.items[0]?.file} picking={picking} onPickingChange={onPickingChange} />;
   // Same button as a share link's top bar: plays the page from its first artboard in reading order.
   const firstArtboard = toc.items[0]?.file;
   const present = (
@@ -334,11 +330,14 @@ export function CanvasHeader({ project, designSystemId, designSystemTitle, versi
       {previewOf !== undefined ? (
         <div className={styles.previewNote}>Commentaires et conversations désactivés pendant l'aperçu</div>
       ) : archived && !commentOnly ? (
-        present
+        <>
+          {commentMode && <div className={styles.commentMode}>{commentMode}</div>}
+          {present}
+        </>
       ) : (
         <>
           {!archived && <DiffuseButton designSystemId={designSystemId} refreshKey={versionId} />}
-          {!archived && <TerminalPill pageId={pageId} />}
+          {commentMode && <div className={styles.commentMode}>{commentMode}</div>}
           {!archived && <AgentPill project={project} running={runningCount} />}
           {!archived && !designSystemId && <SharePageButton pageId={pageId} pageTitle={pageTitle} project={project} />}
           {present}

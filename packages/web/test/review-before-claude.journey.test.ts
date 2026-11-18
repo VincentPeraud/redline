@@ -96,12 +96,41 @@ it("shows À relire threads with a counter, sends one to Claude from the card, a
   await bar.waitFor();
   expect(await bar.innerText()).toContain("2 commentaires à relire");
   expect(await ariane.getByText("À relire", { exact: true }).count()).toBe(2);
-  // Each card says how long ago it was written.
-  await ariane.getByText(/membre en Commentaire sur ce projet · à l'instant/).first().waitFor();
+  // Each card names where it comes from, says Claude does not see it, and offers no hand-over to the agent.
+  await ariane.getByText("· membre en Commentaire").first().waitFor();
+  expect(await ariane.getByTestId("review-note").count()).toBe(2);
+  expect(await ariane.getByRole("button", { name: "Confier à l'agent" }).count()).toBe(0);
   await ariane.getByRole("button", { name: "Envoyer à Claude", exact: true }).first().click();
   await expect.poll(() => bar.innerText(), { timeout: 10_000 }).toContain("1 commentaire à relire");
   await ariane.getByRole("button", { name: "Résoudre" }).first().click();
   await bar.waitFor({ state: "detached" });
   const statuses = ((await (await apiAs("ariane@example.com", "GET", `/api/pages/${pageId}/threads`)).json()) as { status: string }[]).map((t) => t.status);
   expect(statuses).toEqual(["open", "resolved"]);
+}, 90_000);
+
+it("keeps Ariane's draft from the others until she sends it", async () => {
+  const { pageId } = await projectWithPage("Pixel");
+  const target = { kind: "artboard", artboard: "home.html" };
+  await apiAs("ariane@example.com", "POST", `/api/pages/${pageId}/threads`, { target, body: "Un brouillon à moi seule.", held: true });
+
+  const vincent = await tabFor("vincent@example.com");
+  await vincent.goto(`${server.url}/#/pages/${pageId}`);
+  await vincent.getByRole("tab", { name: /Commentaires/ }).click();
+  await vincent.getByText("Pas encore de commentaire").waitFor();
+  expect(await vincent.getByTestId("held-bar").count()).toBe(0);
+  expect(await vincent.getByTestId("held-thread").count()).toBe(0);
+
+  const ariane = await tabFor("ariane@example.com");
+  await ariane.goto(`${server.url}/#/pages/${pageId}`);
+  await ariane.getByRole("tab", { name: /Commentaires/ }).click();
+  const bar = ariane.getByTestId("held-bar");
+  await bar.waitFor();
+  expect(await bar.innerText()).toContain("1 brouillon, à toi seul");
+  expect(await bar.innerText()).toContain("ils seront à prendre par une conversation");
+  await ariane.getByRole("button", { name: "Tout envoyer", exact: true }).click();
+  await bar.waitFor({ state: "detached" });
+
+  await vincent.getByTestId("thread-handler").waitFor();
+  expect(await vincent.getByTestId("thread-handler").innerText()).toBe("À prendre");
+  expect(await vincent.getByTestId("held-thread").count()).toBe(0);
 }, 90_000);

@@ -125,7 +125,7 @@ describe("review of changes: rights", () => {
     });
   }
 
-  it("lets another member's conversation fetch a finished review with Écriture, by id or through the project, and refuses Commentaire and Lecture", async () => {
+  it("lists another account's finished review and fetches it by id with a takeover when the member has Écriture, and refuses Commentaire and Lecture", async () => {
     for (const level of ["comment", "read"] as const) {
       const { id, thomas } = await declared(level);
       await instance.ariane.send("POST", `/api/change-reviews/${id}/finish`);
@@ -140,7 +140,12 @@ describe("review of changes: rights", () => {
     const projectId = (await instance.ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).projectId;
     const thomasToken = ((await thomas.json<AgentTokenResponse>("/api/agent-token")) as AgentTokenResponse).token;
 
-    const fetched = await fetchAs(thomasToken, { projectIds: [projectId] });
+    const listed = await fetchAs(thomasToken, { projectIds: [projectId] });
+    expect(await listed.json()).toMatchObject({ status: "none-finished", byOthers: [{ id }] });
+    expect(await instance.ariane.json<ChangeReview>(`/api/change-reviews/${id}`)).toMatchObject({ state: "finished" });
+    expect(await (await fetchAs(thomasToken, { reviewId: id })).json()).toMatchObject({ status: "requested-by-other" });
+
+    const fetched = await fetchAs(thomasToken, { reviewId: id, takeOver: true });
 
     expect(fetched.status).toBe(200);
     expect(await fetched.json()).toMatchObject({ status: "finished" });

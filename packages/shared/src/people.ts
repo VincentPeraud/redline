@@ -54,8 +54,12 @@ export interface AccountEntry extends Person {
   lastSignInAt: string | null;
   /** Titles of the projects the account owns: they pass to the admin who deactivates it. */
   ownedProjects: string[];
+  /** Among those, the titles of the Private ones (the deactivation dialog says so). */
+  privateProjects: string[];
   /** How many share links the account created that work today: "Désactiver aussi ses liens". */
   linkCount: number;
+  /** How many open threads the account holds (taken by one of its conversations): they are freed when it is deactivated. */
+  takenThreads: number;
 }
 
 /** `POST /api/accounts/<id>/deactivate`: with `disableLinks`, the links the account created stop working too. */

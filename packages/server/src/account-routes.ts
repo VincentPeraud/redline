@@ -64,10 +64,16 @@ async function answering<T>(reply: FastifyReply, action: () => T | Promise<T>, s
 }
 
 /** Setup link, invitation, sign-in and sign-out of the built-in accounts, and the accounts screen. The setup, invitation and session paths are open to people who are not signed in. */
-export function registerAccountRoutes(app: FastifyInstance, store: Store, mode: "local" | "proxy", onDeactivated: (personId: string) => void, trustedProxy = false): void {
+export interface AccountChanges {
+  deactivated(personId: string): void;
+  /** The account's role changed (an admin lowered to member may lose access to projects). */
+  roleChanged(personId: string): void;
+}
+
+export function registerAccountRoutes(app: FastifyInstance, store: Store, mode: "local" | "proxy", changes: AccountChanges, trustedProxy = false): void {
   /** Behind an SSO the same screen adds people by e-mail, with no link and no password: the built-in sign-in routes are not there. */
   if (mode === "local") registerBuiltInSignIn(app, store, trustedProxy);
-  registerAccountManagement(app, store, mode, onDeactivated);
+  registerAccountManagement(app, store, mode, changes);
 }
 
 function registerBuiltInSignIn(app: FastifyInstance, store: Store, trustedProxy: boolean): void {
@@ -161,7 +167,7 @@ function registerBuiltInSignIn(app: FastifyInstance, store: Store, trustedProxy:
   });
 }
 
-function registerAccountManagement(app: FastifyInstance, store: Store, mode: "local" | "proxy", onDeactivated: (personId: string) => void): void {
+function registerAccountManagement(app: FastifyInstance, store: Store, mode: "local" | "proxy", changes: AccountChanges): void {
   app.get(ACCOUNTS_PATH, async (req, reply) => (isAdmin(req) ? { ...store.accounts.list(), sso: mode === "proxy" } : forbidden(reply)));
 
   app.post<{ Body: { email?: string; role?: string } }>(INVITATIONS_PATH, async (req, reply) => {
@@ -180,7 +186,13 @@ function registerAccountManagement(app: FastifyInstance, store: Store, mode: "lo
   });
 
   app.patch<{ Params: { id: string }; Body: { role?: string } }>(`${ACCOUNTS_PATH}/:id`, async (req, reply) =>
-    isAdmin(req) ? answering(reply, () => store.accounts.setRole(req.params.id, parseRole(req.body?.role))) : forbidden(reply),
+    isAdmin(req)
+      ? answering(reply, () => {
+          const entry = store.accounts.setRole(req.params.id, parseRole(req.body?.role));
+          changes.roleChanged(req.params.id);
+          return entry;
+        })
+      : forbidden(reply),
   );
 
   app.post<{ Params: { id: string }; Body: DeactivateRequest | undefined }>(`${ACCOUNTS_PATH}/:id/deactivate`, async (req, reply) =>
@@ -188,7 +200,7 @@ function registerAccountManagement(app: FastifyInstance, store: Store, mode: "lo
       ? answering(reply, () => {
           const entry = store.accounts.deactivate(req.person!.id, req.params.id);
           if (req.body?.disableLinks === true) store.links.disableCreatedBy(req.params.id, req.person!);
-          onDeactivated(req.params.id);
+          changes.deactivated(req.params.id);
           // Streams resolve their viewer again on every event: this one closes the deactivated account's at once.
           store.emit({ type: "agents-updated" });
           return entry;

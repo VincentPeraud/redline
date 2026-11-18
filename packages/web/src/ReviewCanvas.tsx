@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { ReviewZoomBar, ZOOM_BAR_ROOM } from "./ReviewZoomBar.js";
 import { HOVER_FINISH, type ChangeReviewStep, type ReviewPin, type ReviewZoneTarget } from "@redline/shared";
 import { ArtboardIframe } from "./artboardCapability.js";
 import { CanvasElements } from "./CanvasElements.js";
@@ -21,8 +22,6 @@ const STAGE_INSET = { x: 48, y: 72 };
 const PHONE_STAGE_INSET = { x: 16, y: 64 };
 /** One click on + or − (as on the page canvas). */
 const ZOOM_STEP = 1.25;
-/** Below this stage width the centred shortcuts reminder would reach the zoom bar on its line. */
-const ZOOM_BAR_ROOM = 860;
 /** Pixels per line of a wheel that scrolls by lines (Firefox with a mouse). */
 const LINE_HEIGHT = 16;
 
@@ -316,19 +315,20 @@ export function ReviewCanvas({ step, origin, stage, pins, phone, markersShown, f
       </div>
     </div>
     {measured && !allGone && (
-    <div className={cx(styles.canvasZoom, !phone && !pins.finished && stage.width < ZOOM_BAR_ROOM && styles.canvasZoomRaised)} role="group" aria-label="Zoom du canevas" data-testid="review-canvas-zoom">
-      <button type="button" className={styles.canvasZoomSign} aria-label="Dézoomer" title="Dézoomer" disabled={(view?.zoom ?? 1) <= limits.min} onClick={() => zoomBy(1 / ZOOM_STEP)}>
-        −
-      </button>
-      <span className={styles.canvasZoomValue}>{Math.round((view?.zoom ?? 1) * 100)} %</span>
-      <button type="button" className={styles.canvasZoomSign} aria-label="Zoomer" title="Zoomer" disabled={(view?.zoom ?? 1) >= limits.max} onClick={() => zoomBy(ZOOM_STEP)}>
-        +
-      </button>
-      <span aria-hidden="true" className={styles.canvasZoomSeparator} />
+    <ReviewZoomBar
+      label="Zoom du canevas"
+      testId="review-canvas-zoom"
+      percent={view?.zoom ?? 1}
+      canZoomOut={(view?.zoom ?? 1) > limits.min}
+      canZoomIn={(view?.zoom ?? 1) < limits.max}
+      onZoomOut={() => zoomBy(1 / ZOOM_STEP)}
+      onZoomIn={() => zoomBy(ZOOM_STEP)}
+      raised={!phone && !pins.finished && stage.width < ZOOM_BAR_ROOM}
+    >
       <button type="button" className={styles.canvasZoomReset} title="Revenir au cadrage de l'étape" onClick={() => setView(undefined)}>
         Recadrer
       </button>
-    </div>
+    </ReviewZoomBar>
     )}
     </>
   );

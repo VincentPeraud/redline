@@ -36,16 +36,17 @@ export function RoleDialog({ account, onClose, onConfirm }: { account: AccountEn
 }
 
 /** What deactivating an account does to its projects: they pass to the admin who deactivates. */
-function projectsLine(titles: string[]): string | undefined {
+function projectsLine(titles: string[], privateTitles: string[]): string | undefined {
   if (titles.length === 0) return undefined;
-  return titles.length === 1 ? `Son projet « ${titles[0]} » passe à toi.` : `Ses ${titles.length} projets passent à toi.`;
+  if (titles.length > 1) return `Ses ${titles.length} projets passent à toi.`;
+  return `Son projet${privateTitles.includes(titles[0]) ? " privé" : ""} « ${titles[0]} » passe à toi.`;
 }
 
 export function DeactivateDialog({ account, onClose, onDone }: { account: AccountEntry; onClose: () => void; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const first = account.name.split(/\s+/)[0] || account.name;
-  const projects = projectsLine(account.ownedProjects);
+  const projects = projectsLine(account.ownedProjects, account.privateProjects);
   const [disableLinks, setDisableLinks] = useState(false);
   const links = account.linkCount === 1 ? "lien de partage" : "liens de partage";
 
@@ -64,6 +65,7 @@ export function DeactivateDialog({ account, onClose, onDone }: { account: Accoun
         {projects && <li>{projects}</li>}
         <li>Son jeton d'agent est révoqué : son agent est déconnecté.</li>
         {account.linkCount > 0 && <li>{account.linkCount === 1 ? "Son lien de partage continue" : `Ses ${account.linkCount} liens de partage continuent`} de marcher.</li>}
+        {account.takenThreads > 0 && <li>{account.takenThreads === 1 ? "Son fil pris est libéré : il suit le mode de sa page." : `Ses ${account.takenThreads} fils pris sont libérés : ils suivent le mode de leur page.`}</li>}
       </ul>
       {account.linkCount > 0 && (
         <label className={styles.check}>

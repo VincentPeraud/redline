@@ -23,6 +23,8 @@ import { PageCanvasPhoto, usePageManifest } from "./CanvasPhoto.js";
 import { overrideCountLabel, projectComponentCountLabel } from "./diffusionLabels.js";
 import { counted } from "./plural.js";
 import { previewSwatches } from "./projectDesignSystemLabels.js";
+import { subscribeServerEvents } from "./serverEvents.js";
+import { ToTakeBadge } from "./ToTakeBadge.js";
 import { relativeTime } from "./relativeTime.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
 import { navigateTo, routeHref } from "./router.js";
@@ -30,7 +32,6 @@ import { Button, Logo, PageContent, SidePanel, SidePanelBody, StatusBadge, cx } 
 import styles from "./ProjectOverview.module.css";
 
 interface PageStats {
-  openThreads: number;
   threads: number;
   versions: number;
   updatedAt: string | null;
@@ -97,10 +98,15 @@ function PageCard({
             {!locked && <RenamePencil label="Renommer la page" size="page" onClick={() => setRenaming(true)} />}
             {!locked && <PageArchiveButton pageId={page.id} onArchived={onArchived} />}
             <span className={styles.spacer} />
-            {!readOnly && stats && stats.openThreads > 0 && (
-              <StatusBadge tone="warning" className={styles.chip}>
-                {counted(stats.openThreads, "fil", "fils")}
-              </StatusBadge>
+            {!readOnly && (
+              <span className={styles.badges}>
+                {(page.openThreadCount ?? 0) > 0 && (
+                  <StatusBadge tone="warning" className={styles.chip}>
+                    {counted(page.openThreadCount!, "fil", "fils")}
+                  </StatusBadge>
+                )}
+                <ToTakeBadge count={page.toTakeCount ?? 0} />
+              </span>
             )}
           </div>
         )}
@@ -247,7 +253,6 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
             return [
               page.id,
               {
-                openThreads: threads.filter((thread) => thread.status === "open").length,
                 threads: threads.length,
                 versions: versions.length,
                 updatedAt: versions[0]?.createdAt ?? null,
@@ -268,6 +273,20 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
       .then(setDesignMdInfo);
     void loadAssets();
   }, [projectId, reload]);
+
+  // The counters follow the threads (posted, taken, released, handed over) and the comment mode of the project's pages.
+  useEffect(() => {
+    const refreshCounts = () =>
+      fetch(`/api/projects/${projectId}/pages`)
+        .then((res) => res.json() as Promise<Page[]>)
+        .then((fresh) => setPages((current) => current.map((page) => fresh.find((each) => each.id === page.id) ?? page)));
+    return subscribeServerEvents(
+      (event) => {
+        if (event.type === "thread-updated" || event.type === "comment-mode-changed" || event.type === "queue-updated") void refreshCounts();
+      },
+      () => void refreshCounts(),
+    );
+  }, [projectId]);
 
   useDocumentTitle(project?.title);
 
@@ -304,7 +323,8 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
   // Archive and delete stay with the creator and the admins; without accounts everyone manages.
   const canManage = !hasAccounts || sharing?.canChange === true;
   const allStats = Object.values(pageStats);
-  const openThreads = allStats.reduce((sum, stats) => sum + stats.openThreads, 0);
+  const openThreads = pages.reduce((sum, page) => sum + (page.openThreadCount ?? 0), 0);
+  const toTake = pages.reduce((sum, page) => sum + (page.toTakeCount ?? 0), 0);
   const threadCount = allStats.reduce((sum, stats) => sum + stats.threads, 0);
   const versionCount = allStats.reduce((sum, stats) => sum + stats.versions, 0);
   const summary = readOnly
@@ -367,8 +387,14 @@ export function ProjectOverview({ projectId }: { projectId: string }) {
               {!locked && <RenamePencil label="Renommer le projet" size="project" onClick={() => setRenamingProject(true)} />}
             </div>
           )}
-          <div className={styles.summary}>
+          <div data-testid="project-summary" className={styles.summary}>
             {project.agent && !readOnly ? `Agent ${folderName(project.agent.folder)} · ${project.agent.folder} · ${summary}` : summary}
+            {!readOnly && toTake > 0 && (
+              <>
+                {" · "}
+                <b className={styles.summaryToTake}>{toTake} à prendre</b>
+              </>
+            )}
           </div>
         </div>
 

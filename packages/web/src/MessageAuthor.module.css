@@ -11,6 +11,13 @@
   color: var(--color-text-secondary);
 }
 
+/* "Claude · conversation de Vincent · ~/crm": what a Claude Code conversation signs its answers with. */
+.signature {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-muted);
+}
+
 .unknown {
   color: var(--color-text-muted);
 }

@@ -206,7 +206,7 @@ function ProjectSharingDialog({ project, sharing, reload, onChanged, onClose }: 
   }
   const firstName = (member: ProjectMember) => member.person.name.split(" ")[0];
   const readOnlyText = creator ? `Seuls ${creator.name} (créateur) et les admins changent la visibilité et les niveaux.` : "Seuls les admins changent la visibilité et les niveaux.";
-  const text = !editable ? readOnlyText : isPrivate ? "Seuls toi, les admins et les membres ajoutés ci-dessous voient ce projet." : "Tous les membres voient ce projet et y ont accès en Écriture. Tu peux baisser le niveau d'un membre.";
+  const text = !editable ? readOnlyText : isPrivate ? "Seuls toi, les admins et les membres ajoutés ci-dessous voient ce projet." : "Tous les membres voient ce projet et y ont accès en Écriture. Tu peux baisser le niveau d'un membre : sous Écriture, ses fils pris sont libérés et suivent le mode de leur page.";
   const memberLevels = isPrivate ? CHOOSING_LEVELS : LOWERING_LEVELS;
   const addLevels = isPrivate ? CHOOSING_LEVELS : (["comment", "read"] as AccessLevel[]);
 

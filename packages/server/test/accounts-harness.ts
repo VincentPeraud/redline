@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
-import { AGENT_ENDPOINT, MANIFEST_PATH, PROTOCOL_VERSION, type AgentHello, type Person, type Project, type ServerToAgentMessage } from "@redline/shared";
+import { AGENT_ENDPOINT, MANIFEST_PATH, type CommentMode, PROTOCOL_VERSION, type AgentHello, type Person, type Project, type ServerToAgentMessage } from "@redline/shared";
 import { hashPassword } from "../src/accounts.js";
 import { startServer, type RunningServer } from "../src/start.js";
 
@@ -87,8 +87,11 @@ export class AccountsInstance {
     return (await (await who.send("POST", "/api/projects", { title: "Acme", ...body })).json()) as Project;
   }
 
-  async createPage(who: SignedIn, projectId: string, title = "Home"): Promise<string> {
-    return ((await (await who.send("POST", `/api/projects/${projectId}/pages`, { title, files: FILES })).json()) as { id: string }).id;
+  /** Creates a page. It starts in "agent" comment mode (these tests are about what the agent does with a comment) unless `commentMode` says otherwise. */
+  async createPage(who: SignedIn, projectId: string, title = "Home", commentMode: CommentMode = "agent"): Promise<string> {
+    const { id } = (await (await who.send("POST", `/api/projects/${projectId}/pages`, { title, files: FILES })).json()) as { id: string };
+    if (commentMode !== "conversation") await who.send("POST", `/api/pages/${id}/comment-mode`, { mode: commentMode });
+    return id;
   }
 
   async close(): Promise<void> {

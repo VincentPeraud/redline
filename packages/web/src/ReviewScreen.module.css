@@ -1221,9 +1221,10 @@
 }
 
 .shotAreaScroll {
+  --scroll-pad: var(--space-8);
   display: block;
   overflow: auto;
-  padding: 0 var(--space-8) var(--space-8);
+  padding: 0 var(--scroll-pad) var(--scroll-pad);
 }
 
 .stageScroll.stageGroup .others {
@@ -1242,6 +1243,9 @@
 .sizeTag {
   position: sticky;
   top: 0;
+  /* A zoomed artboard also scrolls sideways: the band stays over the visible part of the stage, padding included. */
+  left: calc(-1 * var(--scroll-pad, 0px));
+  margin: 0 calc(-1 * var(--scroll-pad, 0px));
   z-index: 2;
   display: flex;
   justify-content: center;
@@ -1635,6 +1639,7 @@
   }
 
   .shotAreaScroll {
+    --scroll-pad: var(--space-4);
     padding: var(--space-4);
   }
 
@@ -2361,4 +2366,26 @@
   height: 16px;
   margin: 0 2px;
   background: var(--play-border-strong);
+}
+
+/* The stage area and what floats over it without scrolling with the artboard (the zoom bar). */
+.shotBody {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The chosen fit of the artboard ("Ajuster", "100 %"). */
+.canvasZoom .canvasZoomOn {
+  background: var(--review-seg-hover);
+  color: var(--play-text);
+}
+
+/* The % is a button (back to how the step opened) that reads like the canvas bar's value. */
+.canvasZoom button.canvasZoomValue {
+  min-width: 44px;
+  padding: 0 4px;
 }

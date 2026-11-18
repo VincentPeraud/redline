@@ -24,14 +24,14 @@ let plain: TestServer;
 
 const files = { "home.html": "<h1>Home</h1>", [MANIFEST_PATH]: JSON.stringify({ artboards: [{ file: "home.html", x: 0, y: 0 }] }) };
 
-/** Creates a project and page, then one held thread per title, each written with the headers at the same index. */
+/** Creates a project and page, then one thread per title (sent: drafts are personal and would not all show), each written with the headers at the same index. */
 async function seed(base: string, authors: Record<string, string>[], titles: string[]): Promise<void> {
   const post = async <T,>(headers: Record<string, string>, path: string, body: unknown) =>
     (await (await fetch(base + path, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) })).json()) as T;
   const project = await post<{ id: string }>(authors[0], "/api/projects", { title: "Acme" });
   const page = await post<{ id: string }>(authors[0], `/api/projects/${project.id}/pages`, { title: "Home", files });
   for (const [i, title] of titles.entries()) {
-    await post(authors[i], `/api/pages/${page.id}/threads`, { artboard: "home.html", selector: "h1", xPct: 10, yPct: 20, body: title, held: true });
+    await post(authors[i], `/api/pages/${page.id}/threads`, { artboard: "home.html", selector: "h1", xPct: 10, yPct: 20, body: title });
   }
 }
 

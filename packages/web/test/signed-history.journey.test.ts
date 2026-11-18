@@ -73,7 +73,11 @@ beforeAll(async () => {
   const beforeSsoServer = await startServer({ dataDir, port: 0, artboardPort: 0, host: "127.0.0.1" });
   const old = call(beforeSsoServer.url, beforeSso);
   projectId = (await old<{ id: string }>("POST", "/api/projects", { title: "Acme" })).id;
-  const oldPage = (title: string, files = filesOf(title, "home.html")) => old<{ id: string; version: { id: string } }>("POST", `/api/projects/${projectId}/pages`, { title, files });
+  const oldPage = async (title: string, files = filesOf(title, "home.html")) => {
+    const created = await old<{ id: string; version: { id: string } }>("POST", `/api/projects/${projectId}/pages`, { title, files });
+    await old("POST", `/api/pages/${created.id}/comment-mode`, { mode: "agent" });
+    return created;
+  };
   await old("PUT", `/api/projects/${projectId}/design-md`, { content: rules[0] });
   const history = await oldPage("Parcours");
   await oldPage("Hier");
@@ -97,8 +101,12 @@ beforeAll(async () => {
 
   await admitSsoPeople(sso.url, [ariane, vincent]);
 
-  const page = (title: string, headers: Record<string, string>, files = filesOf(title, "home.html")) =>
-    call(sso.url, headers)<{ id: string; version: { id: string } }>("POST", `/api/projects/${projectId}/pages`, { title, files });
+  const page = async (title: string, headers: Record<string, string>, files = filesOf(title, "home.html")) => {
+    const created = await call(sso.url, headers)<{ id: string; version: { id: string } }>("POST", `/api/projects/${projectId}/pages`, { title, files });
+    // This journey is about what Claude's runs are signed with: the comments go to the agent.
+    await call(sso.url, headers)("POST", `/api/pages/${created.id}/comment-mode`, { mode: "agent" });
+    return created;
+  };
 
   // DESIGN.md: Ariane's rule follows the one from before the SSO (Claude's and Vincent's follow below).
   const designMd = (headers: Record<string, string>, content: string) => call(sso.url, headers)("PUT", `/api/projects/${projectId}/design-md`, { content });

@@ -18,7 +18,7 @@ export interface StoredReview {
   filedAt?: string;
   /** What the first fetch gave (threads included), so a second fetch gives the same; absent until the review is fetched. */
   fetchedResult?: ChangeReviewResult;
-  /** The terminal session that fetched it, and holds the threads of its remarks. */
+  /** The terminal session that fetched it, and took the threads of its remarks. */
   fetchedSessionId?: string;
 }
 

@@ -1,7 +1,7 @@
 import { INSTANCE_TAG_PREFIX, requestIsOpen, type RequestOrigin, type Thread } from "@redline/shared";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
-import { dispatchReply, dispatchThread, type TerminalPresence } from "./work.js";
+import { dispatchReply, dispatchThread } from "./work.js";
 import { modelChoiceOf } from "./validation.js";
 
 /** An open request that a pending change answers: it closes with the next diffusion. */
@@ -46,7 +46,7 @@ const isArchived = (store: Store, pageId: string): boolean => {
  * Redline message; an origin with no such comment gets a thread on the instance, signed Redline. Either way it goes to
  * the project's agent. Returns false when the page is archived or gone (nothing is written).
  */
-export function returnToOrigin(store: Store, pageLock: PageLock, terminal: TerminalPresence, origin: RequestOrigin, message: string): boolean {
+export function returnToOrigin(store: Store, pageLock: PageLock, origin: RequestOrigin, message: string): boolean {
   const page = store.getPage(origin.pageId);
   if (!page || isArchived(store, origin.pageId)) return false;
   const existing = origin.threadId ? store.getThread(origin.threadId) : undefined;
@@ -54,12 +54,12 @@ export function returnToOrigin(store: Store, pageLock: PageLock, terminal: Termi
     store.reopenThread(existing.id);
     store.addReply(existing.id, message, "redline");
     // Routed like a reply: it resumes the session that owns the thread, else a session starts from the thread's history.
-    dispatchReply(store, pageLock, page.projectId, existing, message, modelChoiceOf({}), terminal, "Redline");
+    dispatchReply(store, pageLock, page.projectId, existing, message, modelChoiceOf({}), "Redline");
     return true;
   }
   const target = origin.selector ? { artboard: origin.artboard, selector: origin.selector, xPct: 0, yPct: 0 } : { target: { kind: "artboard" as const, artboard: origin.artboard } };
   const thread: Thread = store.createThread(origin.pageId, { ...target, title: "Disponible dans le design system", body: message }, undefined, true);
-  dispatchThread(pageLock, page.projectId, thread, modelChoiceOf({}), terminal);
+  dispatchThread(store, pageLock, page.projectId, thread, modelChoiceOf({}));
   return true;
 }
 
@@ -68,12 +68,12 @@ export function returnToOrigin(store: Store, pageLock: PageLock, terminal: Termi
  * of its origins. An origin on an archived page keeps its message until the page is unarchived (`returnPendingOn`);
  * the request's thread says so.
  */
-export function closeDiffusedRequests(store: Store, pageLock: PageLock, terminal: TerminalPresence, closing: ClosingRequest[], diffusionNumber: number): void {
+export function closeDiffusedRequests(store: Store, pageLock: PageLock, closing: ClosingRequest[], diffusionNumber: number): void {
   for (const request of closing) {
     const message = returnMessage(request, diffusionNumber);
     store.setRequestState(request.threadId, "diffused");
     store.resolveThread(request.threadId);
-    tellOrigins(store, pageLock, terminal, request.threadId, message);
+    tellOrigins(store, pageLock, request.threadId, message);
   }
 }
 
@@ -81,18 +81,18 @@ export function closeDiffusedRequests(store: Store, pageLock: PageLock, terminal
  * Tells every origin of a request `message` (a diffusion, a refusal). An origin on an archived page keeps its message until
  * the page is unarchived (`returnPendingOn`); the request's thread says so.
  */
-export function tellOrigins(store: Store, pageLock: PageLock, terminal: TerminalPresence, threadId: string, message: string): void {
+export function tellOrigins(store: Store, pageLock: PageLock, threadId: string, message: string): void {
   store.getThread(threadId)!.request!.origins.forEach((origin, index) => {
-    if (returnToOrigin(store, pageLock, terminal, origin, message)) return;
+    if (returnToOrigin(store, pageLock, origin, message)) return;
     store.addPendingReturn(threadId, index, message);
     store.addReply(threadId, `Pas de fil de retour pour ${origin.projectTitle} · ${origin.pageTitle} : page archivée. Il s'ouvrira si la page est désarchivée.`, "redline");
   });
 }
 
 /** The pages are back: the messages their origins were waiting for are delivered. */
-export function returnPendingOn(store: Store, pageLock: PageLock, terminal: TerminalPresence, pageIds: ReadonlySet<string>): void {
+export function returnPendingOn(store: Store, pageLock: PageLock, pageIds: ReadonlySet<string>): void {
   for (const { threadId, originIndex, origin, messages } of store.pendingReturnsOn(pageIds)) {
-    if (!messages.every((message) => returnToOrigin(store, pageLock, terminal, origin, message))) continue;
+    if (!messages.every((message) => returnToOrigin(store, pageLock, origin, message))) continue;
     store.clearPendingReturns(threadId, originIndex);
   }
 }
