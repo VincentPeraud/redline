@@ -13,7 +13,7 @@ import { addressOf, instanceLine, type InstanceLabel } from "./installations.js"
 import type { ServerApi } from "./server-api.js";
 import { CREATE_PAGE_TOOL, createRedlineMcpServer, type ToolResult } from "./session-mcp.js";
 import { designSystemHint, designSystemNote, gapsNote, layoutNote } from "./design-system-note.js";
-import { readDesignMd, readDesignSystemEdits, readProjectStyle, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
+import { followsDraftOf, readDesignMd, readDesignSystemEdits, readProjectStyle, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
 
 export const CHECKOUT_PAGE_TOOL = "checkout_page";
 export const PUBLISH_PAGE_TOOL = "publish_page";
@@ -44,6 +44,8 @@ interface Checkout {
   projectStyle: string | undefined;
   /** Files of `.design-system/` as downloaded (project pages only): what an edit of that read-only folder is measured against. */
   designSystemFiles: Record<string, string> | undefined;
+  /** Whether `.design-system/` held the draft (undefined without a design system): the publish is refused when the setting changed since. */
+  followsDraft: boolean | undefined;
   /** Files of `.project-components/` as downloaded (project pages only), measured the same way. */
   projectComponents: Record<string, string> | undefined;
   /** Project assets as uploaded or downloaded last (name -> base64). */
@@ -130,7 +132,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       const { pageId } = checkedOut();
       const fresh = await api.checkout(pageId);
       const dir = writeWorkingCopy(folder, pageId, fresh);
-      current = { pageId, dir, files: fresh.files, designMd: fresh.project.designMd, projectStyle: fresh.project.projectStyle, designSystemFiles: fresh.project.designSystem?.files, projectComponents: fresh.project.projectComponents, assets: fresh.project.assets, versionId: fresh.versionId };
+      current = { pageId, dir, files: fresh.files, designMd: fresh.project.designMd, projectStyle: fresh.project.projectStyle, designSystemFiles: fresh.project.designSystem?.files, followsDraft: followsDraftOf(fresh), projectComponents: fresh.project.projectComponents, assets: fresh.project.assets, versionId: fresh.versionId };
     },
   });
   const tool = <T,>(run: (args: T) => Promise<string>) => async (args: T) => {
@@ -329,6 +331,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
         designMd: checkout.project.designMd,
         projectStyle: checkout.project.projectStyle,
         designSystemFiles: checkout.project.designSystem?.files,
+        followsDraft: followsDraftOf(checkout),
         projectComponents: checkout.project.projectComponents,
         assets: checkout.project.assets,
         versionId: checkout.versionId,
@@ -344,7 +347,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
     },
     tool(async ({ message }: { message: string }) => {
       const checkout = checkedOut();
-      const { pageId, dir, files: base, designMd: baseDesignMd, projectStyle: baseStyle, designSystemFiles, projectComponents, versionId } = checkout;
+      const { pageId, dir, files: base, designMd: baseDesignMd, projectStyle: baseStyle, designSystemFiles, followsDraft, projectComponents, versionId } = checkout;
       const pageFiles = readWorkingCopy(dir, baseStyle !== undefined);
       // Edits of the read-only `.design-system/` and `.project-components/` go up with the page files so that the server refuses them.
       const files = { ...pageFiles, ...readDesignSystemEdits(dir, designSystemFiles, projectComponents) };
@@ -364,6 +367,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       const version = await api.publish(pageId, files, message, "terminal", versionId, {
         terminalSessionId: sessionId,
         ...(confirmRemovals ? { confirmRemovals: true } : {}),
+        ...(followsDraft !== undefined ? { followsDraft } : {}),
         ...(changes.length ? { changes } : {}),
         ...(designMd !== baseDesignMd ? { designMd: { content: designMd, base: baseDesignMd } } : {}),
         ...(projectStyle !== baseStyle ? { projectStyle: { content: projectStyle!, base: baseStyle! } } : {}),
@@ -371,7 +375,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
       changes = [];
       const hintAfter = [hint, gapsNote(version.gaps ?? []), layoutNote(pageFiles)].map((note) => (note ? `\n${note}` : "")).join("");
       if (!version.merged) {
-        current = { pageId, dir, files, designMd, projectStyle, designSystemFiles, projectComponents, assets, versionId: version.id };
+        current = { pageId, dir, files, designMd, projectStyle, designSystemFiles, followsDraft, projectComponents, assets, versionId: version.id };
         return `${uploadedNote}Published version ${version.id}: ${api.pageUrl(pageId)}.${hintAfter}`;
       }
       // The page moved on since the checkout: the new version also holds those changes, so download it again.
@@ -384,6 +388,7 @@ export function createTerminalMcpServer({ api, folder, sessionId = randomUUID(),
         designMd: fresh.project.designMd,
         projectStyle: fresh.project.projectStyle,
         designSystemFiles: fresh.project.designSystem?.files,
+        followsDraft: followsDraftOf(fresh),
         projectComponents: fresh.project.projectComponents,
         assets: fresh.project.assets,
         versionId: fresh.versionId,

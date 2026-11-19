@@ -6,7 +6,7 @@ import { pageAddresses } from "./page-addresses.js";
 import { startSessionMcp } from "./session-mcp.js";
 import type { ServerApi } from "./server-api.js";
 import { designSystemNote } from "./design-system-note.js";
-import { readDesignMd, readDesignSystemEdits, readProjectStyle, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
+import { followsDraftOf, readDesignMd, readDesignSystemEdits, readProjectStyle, readWorkingCopy, sameFiles, workingCopyDir, writeWorkingCopy } from "./working-copy.js";
 
 export interface RunContext {
   folder: string;
@@ -148,6 +148,7 @@ export async function runWorkItem(item: WorkItem, { folder, api, engine, send, r
     const version = await api.publish(item.pageId, files, versionMessage(item, result.summary), item.kind === "conversation" ? "conversation" : "thread", checkout.versionId, {
       workId: item.id,
       ...(removalsConfirmed ? { confirmRemovals: true } : {}),
+      ...(followsDraftOf(checkout) !== undefined ? { followsDraft: followsDraftOf(checkout) } : {}),
       ...(changes.length ? { changes } : {}),
       ...(designMdChanged ? { designMd: { content: designMd, base: checkout.project.designMd } } : {}),
       ...(projectStyleChanged && baseStyle !== undefined ? { projectStyle: { content: projectStyle, base: baseStyle } } : {}),
