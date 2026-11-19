@@ -384,6 +384,8 @@ export class Store {
     addColumn("versions", "origin_label", "TEXT");
     addColumn("versions", "terminal_session_id", "TEXT");
     addColumn("versions", "diffusion", "INTEGER");
+    addColumn("versions", "on_draft", "INTEGER NOT NULL DEFAULT 0");
+    addColumn("projects", "follows_draft", "INTEGER NOT NULL DEFAULT 0");
     addColumn("threads", "element_name", "TEXT");
     addColumn("threads", "reopen_to", "TEXT");
     addColumn("threads", "rendering", "TEXT");
@@ -1037,6 +1039,7 @@ export class Store {
       if (style !== undefined) this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(style, "utf8"), { origin: "user", ...(person && { person }) });
     }
     this.db.prepare("UPDATE projects SET design_system = ? WHERE id = ?").run(designSystem, projectId);
+    if (designSystem !== previous) this.setProjectFollowsDraft(projectId, false);
     if (designSystem === null && !this.readProjectFile(projectId, PROJECT_STYLE_PATH)) {
       this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.alloc(0));
     }
@@ -1053,6 +1056,16 @@ export class Store {
       else manifest.designSystem = designSystem;
       this.addVersion(page.id, { ...files, [MANIFEST_PATH]: `${JSON.stringify(manifest, null, 2)}\n` }, designSystem === null ? "No shared design system" : "Design system changed", origin, person && { person });
     }
+  }
+
+  /** Whether the project sees its shared design system draft instead of the current diffusion (never without a shared design system). */
+  projectFollowsDraft(projectId: string): boolean {
+    const row = this.db.prepare("SELECT follows_draft AS followsDraft FROM projects WHERE id = ?").get(projectId) as { followsDraft: number } | undefined;
+    return row?.followsDraft === 1 && this.sharedDesignSystemIdOfProject(projectId) !== undefined;
+  }
+
+  setProjectFollowsDraft(projectId: string, followsDraft: boolean): void {
+    this.db.prepare("UPDATE projects SET follows_draft = ? WHERE id = ?").run(followsDraft ? 1 : 0, projectId);
   }
 
   /** Components a design system switch left out of the project: their instances render broken, by component name, with the design system they were not taken from. */
@@ -2245,9 +2258,9 @@ export class Store {
   /** Every version of a page with its file hashes, OLDEST first. */
   listVersionRecords(pageId: string): VersionRecord[] {
     const rows = this.db
-      .prepare("SELECT id, files, message, origin, origin_id, origin_label, terminal_session_id, person_id, link_id, link_name, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
-      .all(pageId) as (VersionRow & { files: string; diffusion: number | null })[];
-    return rows.map((row) => ({ ...this.toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1, ...(row.terminal_session_id ? { terminalSessionId: row.terminal_session_id } : {}) }));
+      .prepare("SELECT id, files, message, origin, origin_id, origin_label, terminal_session_id, person_id, link_id, link_name, created_at, diffusion, on_draft FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
+      .all(pageId) as (VersionRow & { files: string; diffusion: number | null; on_draft: number })[];
+    return rows.map((row) => ({ ...this.toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1, onDraft: row.on_draft === 1, ...(row.terminal_session_id ? { terminalSessionId: row.terminal_session_id } : {}) }));
   }
 
   /** One file of one version of a page, or undefined if either is unknown. */
@@ -2361,9 +2374,10 @@ export class Store {
 
   private insertVersion(pageId: string, filesJson: string, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
     const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, terminal_session_id: ref?.terminalSessionId ?? null, person_id: ref?.person?.id ?? null, link_id: ref?.link?.linkId ?? null, link_name: ref?.link?.name ?? null, created_at: now() };
+    const drawnWith = this.drawnWithForNewVersion(pageId, filesJson);
     this.db
-      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, terminal_session_id, person_id, link_id, link_name, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, row.terminal_session_id, row.person_id, row.link_id, row.link_name, this.diffusionForNewVersion(pageId, filesJson) ?? null);
+      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, terminal_session_id, person_id, link_id, link_name, diffusion, on_draft) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, row.terminal_session_id, row.person_id, row.link_id, row.link_name, drawnWith?.number ?? null, drawnWith?.onDraft ? 1 : 0);
     this.emit({ type: "page-updated", pageId, versionId: row.id });
     return this.toSummary(row);
   }
@@ -2382,12 +2396,24 @@ export class Store {
     };
   }
 
-  /** The diffusion a version recorded now is drawn with: the current one of the design system its manifest names; none for a design system's own pages (they read the draft). */
-  private diffusionForNewVersion(pageId: string, filesJson: string): number | undefined {
+  /**
+   * What a version recorded now is drawn with: the current diffusion of the design system its manifest names, flagged `onDraft` when
+   * the project follows that design system's draft (the number is then the diffusion the draft comes after); none for a design
+   * system's own pages (they read the draft).
+   */
+  private drawnWithForNewVersion(pageId: string, filesJson: string): { number: number; onDraft: boolean } | undefined {
     if (this.isDesignSystemPage(pageId)) return undefined;
     const manifestHash = (JSON.parse(filesJson) as Record<string, string>)[MANIFEST_PATH];
     const designSystemId = this.sharedDesignSystemIdForManifest(pageId, manifestHash === undefined ? undefined : this.blobText(manifestHash));
-    return designSystemId === undefined ? undefined : this.currentDiffusion(designSystemId)?.number;
+    const number = designSystemId === undefined ? undefined : this.currentDiffusion(designSystemId)?.number;
+    if (number === undefined) return undefined;
+    const projectId = this.projectIdOfPage(pageId);
+    return { number, onDraft: projectId !== undefined && designSystemId === this.sharedDesignSystemIdOfProject(projectId) && this.projectFollowsDraft(projectId) };
+  }
+
+  /** Whether the version was published while its project followed the design system draft. */
+  versionOnDraft(pageId: string, versionId: string): boolean {
+    return (this.db.prepare("SELECT on_draft AS onDraft FROM versions WHERE id = ? AND page_id = ?").get(versionId, pageId) as { onDraft: number } | undefined)?.onDraft === 1;
   }
 
   /**
@@ -2689,6 +2715,8 @@ export interface VersionRecord extends PageVersionSummary {
   files: Record<string, string>;
   /** Diffusion recorded with the version (1 for versions from before diffusions); meaningless on a design system's own pages. */
   diffusion: number;
+  /** Published while the project followed the draft: drawn with the current draft (no snapshot), `diffusion` being the one it came after. */
+  onDraft: boolean;
   /** The terminal session that published it, when it was a terminal publish made by a session that announced itself. */
   terminalSessionId?: string;
 }

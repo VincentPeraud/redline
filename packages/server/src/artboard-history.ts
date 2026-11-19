@@ -68,7 +68,7 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
       const hash = record.files[MANIFEST_PATH];
       const designSystemId = store.sharedDesignSystemIdForManifest(req.params.pageId, hash === undefined ? undefined : store.blobText(hash));
       const designSystem = designSystemId === undefined ? undefined : store.getDesignSystem(designSystemId);
-      return designSystem && { designSystemTitle: designSystem.title, number: record.diffusion };
+      return designSystem && { designSystemTitle: designSystem.title, number: record.diffusion, ...(record.onDraft ? { onDraft: true } : {}) };
     };
     return changes
       .map((record): ArtboardVersion => {

@@ -26,7 +26,8 @@ import {
   type SetProjectDesignSystemRequest,
 } from "@redline/shared";
 import { componentFilesOf, instanceNamesByPage, projectComponents } from "./components.js";
-import { designSystemSeenBy } from "./design-system-view.js";
+import { currentDiffusionOf, designSystemSeenBy } from "./design-system-view.js";
+import { pendingChangeCount } from "./diffusion-review.js";
 import { assetsUsedBy, moveUpComponent, removeComponentCopies, useDesignSystemComponent } from "./move-up.js";
 import { personRef, editorAuthor } from "./identity.js";
 import { excludedComponents, switchDesignSystem, switchPreview } from "./switch-design-system.js";
@@ -40,7 +41,9 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
   const sharedId = store.sharedDesignSystemIdOfProject(projectId);
   const shared = sharedId === undefined ? undefined : store.getDesignSystem(sharedId);
   const diffusion = shared ? store.currentDiffusion(shared.id) : undefined;
+  const followsDraft = store.projectFollowsDraft(projectId);
   const designSystemTokens = new Map(parseTokens(designSystemSeenBy(store, projectId, shared?.id)?.tokensCss() ?? "").map((t) => [t.name, t]));
+  const diffusedTokens = followsDraft && shared ? new Set(parseTokens(currentDiffusionOf(store, shared.id)?.tokensCss() ?? "").map((t) => t.name)) : undefined;
   const projectTokens = parseTokens(store.readProjectText(projectId, PROJECT_STYLE_PATH));
   const projectValues = new Map(projectTokens.map((t) => [t.name, t]));
   const names = [...designSystemTokens.keys(), ...projectTokens.map((t) => t.name).filter((name) => !designSystemTokens.has(name))];
@@ -59,6 +62,7 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
       core: CORE_TOKENS.includes(name as (typeof CORE_TOKENS)[number]),
       ...(deprecatedFor ? { deprecatedFor } : {}),
       status: !shared ? "own" : !fromDesignSystem ? "new" : fromProject ? "overridden" : "inherited",
+      ...(fromDesignSystem && diffusedTokens && !diffusedTokens.has(name) ? { draftOnly: true } : {}),
     };
   });
 
@@ -82,6 +86,8 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
   return {
     designSystem: shared ? { id: shared.id, title: shared.title } : null,
     diffusion: diffusion ?? null,
+    followsDraft,
+    pendingChanges: shared ? pendingChangeCount(store, shared.id) : 0,
     tokens,
     styleDefinesTokens: styleDefinesTokens(store.readProjectText(projectId, PROJECT_STYLE_PATH)),
     components,
@@ -163,10 +169,18 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
   app.put<{ Params: { projectId: string }; Body: SetProjectDesignSystemRequest }>("/api/projects/:projectId/design-system", async (req, reply) => {
     const { projectId } = req.params;
     if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
-    const designSystem = req.body?.designSystem ?? null;
-    const invalid = designSystemChangeError(store, designSystem);
-    if (invalid) return reply.code(400).send({ error: invalid });
-    switchDesignSystem(store, projectId, designSystem, "user", req.person, req.body?.ticked);
+    const { followsDraft } = req.body ?? {};
+    if (followsDraft !== undefined && typeof followsDraft !== "boolean") return reply.code(400).send({ error: "followsDraft must be true or false" });
+    if (req.body?.designSystem !== undefined || followsDraft === undefined) {
+      const designSystem = req.body?.designSystem ?? null;
+      const invalid = designSystemChangeError(store, designSystem);
+      if (invalid) return reply.code(400).send({ error: invalid });
+      switchDesignSystem(store, projectId, designSystem, "user", req.person, req.body?.ticked);
+    }
+    if (followsDraft !== undefined) {
+      if (store.sharedDesignSystemIdOfProject(projectId) === undefined) return reply.code(400).send({ error: "the project has no shared design system to follow" });
+      store.setProjectFollowsDraft(projectId, followsDraft);
+    }
     return projectDesignSystem(store, projectId);
   });
 

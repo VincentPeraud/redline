@@ -235,7 +235,7 @@ export interface ArtboardVersion {
   /** The content the page shows now. At most one entry per artboard is current. */
   current: boolean;
   /** Design system and diffusion the version is drawn with (1 for versions from before diffusions); absent on a design system's own pages, which read the draft. */
-  diffusion?: { designSystemTitle: string; number: number };
+  diffusion?: { designSystemTitle: string; number: number; /** Published while the project followed the draft: `number` is the diffusion the draft came after. */ onDraft?: boolean };
 }
 
 /** `GET /api/pages/:pageId/artboard-versions?file=<artboard file>` -> ArtboardVersion[], newest first (tweaks excluded). */

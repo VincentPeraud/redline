@@ -94,8 +94,10 @@ export interface ProjectContext {
 export interface DesignSystemContext {
   id: string;
   title: string;
-  /** Number of the current diffusion. */
+  /** Number of the current diffusion, or of the one the draft comes after when `draft`. */
   diffusion: number;
+  /** The project follows the draft: `files` hold the draft, not the diffusion. */
+  draft?: boolean;
   /** Files of `.design-system/`: `index.md`, `pages/<page>.md`, `tokens.css`, `DESIGN.md`, `components/<name>.html`. */
   files: Record<string, string>;
   /** Pages of the design system, with their component count and whether the project's pages use one of their components. */

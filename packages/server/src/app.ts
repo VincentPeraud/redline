@@ -1007,12 +1007,13 @@ function registerArtboardRoutes(app: FastifyInstance, store: Store): void {
     return projectId !== undefined && !store.isDesignSystemProject(projectId) ? projectId : undefined;
   }
 
-  /** Diffusion a page is rendered with: the current one for a project's pages, the one recorded with the version for a version preview, none (the draft) for a design system's own pages. */
+  /** Diffusion a page is rendered with: the current one for a project's pages (none, the draft, when the project follows it), the one recorded with the version for a version preview (none when it was published on the draft), none (the draft) for a design system's own pages. */
   function diffusionOf(pageId: string, versionId?: string): number | undefined {
     if (store.isDesignSystemPage(pageId)) return undefined;
-    if (versionId !== undefined) return store.versionDiffusion(pageId, versionId) ?? 1;
+    if (versionId !== undefined) return store.versionOnDraft(pageId, versionId) ? undefined : (store.versionDiffusion(pageId, versionId) ?? 1);
     const designSystemId = store.sharedDesignSystemIdOfPage(pageId);
-    return designSystemId === undefined ? undefined : designSystemSeenBy(store, store.getPage(pageId)!.projectId, designSystemId)?.diffusion;
+    const seen = designSystemId === undefined ? undefined : designSystemSeenBy(store, store.getPage(pageId)!.projectId, designSystemId);
+    return seen?.state.kind === "draft" ? undefined : seen?.diffusion;
   }
 
   function serveArtboardFile(
