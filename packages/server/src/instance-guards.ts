@@ -126,13 +126,15 @@ export interface BrokenPage {
   breaks: string[];
 }
 
-/** The pages whose instances break when the draft of the design system becomes its next diffusion. */
+/** The pages of projects on the diffusion whose instances break when the draft of the design system becomes its next diffusion. */
 export function brokenPagesAtDiffusion(store: Store, designSystemId: string): BrokenPage[] {
   const before = store.diffusionDefinitions(designSystemId, store.currentDiffusion(designSystemId)!.number);
   const after = projectComponents(store, designSystemId).definitions;
   const pages = new Map<string, BrokenPage>();
   for (const { site, breaks } of brokenUses(useSites(store, designSystemId, []), before, after)) {
     const { id, file } = site.page!;
+    // A project on the draft was told when the removal was published.
+    if (store.projectFollowsDraft(store.getPage(id)!.projectId)) continue;
     const page = pages.get(id) ?? { pageId: id, artboard: "", breaks: [] };
     if (page.artboard === "" && store.hasArtboard(id, file)) page.artboard = file;
     for (const text of breaks.map(breakText)) if (!page.breaks.includes(text)) page.breaks.push(text);
