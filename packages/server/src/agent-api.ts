@@ -313,7 +313,12 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       });
 
       api.post<{ Params: { pageId: string }; Body: CreateVersionRequest }>("/pages/:pageId/versions", async (req, reply) => {
-        if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+        const checkedOutPage = store.getPage(req.params.pageId);
+        if (!checkedOutPage) return reply.code(404).send({ error: "page not found" });
+        // Checked first: a refusal about a design system element would be wrong when the setting it was made under changed.
+        if (req.body.followsDraft !== undefined && req.body.followsDraft !== store.projectFollowsDraft(checkedOutPage.projectId)) {
+          return reply.code(409).send({ error: `The project's design system setting changed since this page was checked out: it now follows ${store.projectFollowsDraft(checkedOutPage.projectId) ? "the design system draft" : "the latest diffusion"}. Check the page out again.` });
+        }
         const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId), true) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files);
         if (invalid) return reply.code(400).send({ error: invalid });
         const invalidChanges = changesError(store, req.params.pageId, req.body.changes);

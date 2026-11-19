@@ -70,6 +70,7 @@ it("lists the used components with their match, counts the broken instances and 
   const dialog = tab.getByRole("dialog", { name: "Passer App sur Réseaux sociaux" });
   await dialog.waitFor();
   expect(await dialog.textContent()).toContain("Composants de Lumora utilisés dans App · 4");
+  expect(await dialog.getByTestId("switch-follows-latest").count()).toBe(0);
   const row = (name: string) => dialog.getByTestId(`switch-${name}`);
   expect(await row("button").textContent()).toContain("2 instances · Planning");
   expect(await row("button").textContent()).toContain("même nom, mêmes réglages");
@@ -109,5 +110,28 @@ it("cancels without changing anything", async () => {
   await dialog.getByRole("button", { name: "Annuler" }).click();
   await dialog.waitFor({ state: "detached" });
   expect((await detail(project)).designSystem?.title).toBe("Lumora");
+  await tab.close();
+});
+
+it("tells a project on the draft that it will follow the latest diffusion of the new design system", async () => {
+  const { social, project } = await seed();
+  await fetch(`${server.url}/api/projects/${project.id}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ followsDraft: true }) });
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await tab.goto(`${server.url}/#/projects/${project.id}/design-system`);
+  await tab.locator("#ds-select").selectOption(social.id);
+  const dialog = tab.getByRole("dialog", { name: "Passer App sur Réseaux sociaux" });
+  await dialog.waitFor();
+  expect(await dialog.getByTestId("switch-follows-latest").textContent()).toBe("Le projet suivra la dernière diffusion de Réseaux sociaux.");
+  await dialog.getByRole("button", { name: "Changer de design system" }).click();
+  await dialog.waitFor({ state: "detached" });
+  await expect.poll(async () => (await detail(project)).followsDraft).toBe(false);
+  await tab.close();
+});
+
+it("states on the design system overview that a rollback only concerns the projects on the latest diffusion", async () => {
+  const { lumora } = await seed();
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await tab.goto(`${server.url}/#/design-systems/${lumora.id}`);
+  await tab.getByText("Revenir à une diffusion la renvoie à tous les projets qui suivent la dernière diffusion.").waitFor();
   await tab.close();
 });
