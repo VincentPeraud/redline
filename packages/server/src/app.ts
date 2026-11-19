@@ -406,7 +406,7 @@ export async function buildMainApp(
   app.get<{ Params: { changeId: string } }>("/api/changes/:changeId/draft-users", async (req, reply) => {
     const change = store.getChange(req.params.changeId);
     if (!change) return reply.code(404).send({ error: "change not found" });
-    return draftPagesUsing(store, change.designSystemId, change.component);
+    return draftPagesUsing(store, change.designSystemId, change.component, (projectId) => access.may(req.viewer, "read", { projectId }));
   });
   app.post<{ Params: { changeId: string }; Body: { answer?: unknown } | undefined }>("/api/changes/:changeId/refuse", async (req, reply) => {
     const outcome = refuseChange(store, pageLock, req.params.changeId, req.body?.answer);
@@ -527,7 +527,7 @@ export async function buildMainApp(
     const files = Object.fromEntries(
       Object.keys(page.version.files).map((path) => [path, store.readPageFile(page.id, path)!.toString("utf8")]),
     );
-    return { files, ...projectContext(store, page.id) };
+    return { files, ...projectContext(store, page.id, (projectId) => access.may(req.viewer, "read", { projectId })) };
   });
 
   // The project's pages; `?archived=1` lists its archived pages instead, the most recently archived first.
@@ -826,14 +826,14 @@ export async function buildMainApp(
       const files = store.readVersionFiles(req.params.pageId, req.params.versionId);
       // Restoring publishes the old files again: the same checks as a publish apply.
       const onDraft = restoresDraftVersionOnDiffusion(store, req.params.pageId, req.params.versionId);
-      const invalid = files && (versionComponentsError(store, req.params.pageId, files, !onDraft) ?? removalsError(store, req.params.pageId, files, undefined, false) ?? instanceChangesError(store, req.params.pageId, files, false));
+      const invalid = files && (versionComponentsError(store, req.params.pageId, files, onDraft) ?? removalsError(store, req.params.pageId, files, undefined, false) ?? instanceChangesError(store, req.params.pageId, files, false));
       if (invalid) return reply.code(400).send({ error: invalid });
       const reportRemovals = watchDraftRemovals(store, pageLock, req.params.pageId);
       const restored = store.restoreVersion(req.params.pageId, req.params.versionId, personRef(req), timeZone);
       if (restored) {
         settleUndoneChanges(store, req.params.pageId);
         reportRemovals();
-        if (onDraft && files) openDraftRestoreThread(store, pageLock, req.params.pageId, files);
+        if (onDraft) openDraftRestoreThread(store, pageLock, req.params.pageId);
       }
       return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });
     },

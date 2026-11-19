@@ -1,19 +1,16 @@
 import {
   PROJECT_STYLE_PATH,
-  MANIFEST_PATH,
   breaksOf,
-  componentNameOf,
-  defaultManifest,
   instanceTagOf,
   instanceUsesIn,
-  parseManifest,
   parseTokens,
   type BrokenElement,
   type BrokenPage,
   type InstanceBreak,
 } from "@redline/shared";
-import { projectComponents } from "./components.js";
-import { designSystemInState, currentDiffusionOf, type DesignSystemView } from "./design-system-view.js";
+import { projectComponentNames } from "./components.js";
+import { currentDiffusionOf, draftOf, type DesignSystemView } from "./design-system-view.js";
+import { pageArtboards } from "./page-artboards.js";
 import { referencesToken } from "./removals.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
@@ -42,11 +39,12 @@ function renamedTo(value: string, from: Set<string>, to: ReturnType<typeof parse
  * The pages of a project that use something `from` offers and `to` does not: a component, a setting, a setting value or a slot
  * (these refuse publishing) or a token (the page renders without it). Only the pages' artboards are read, and what the project
  * defines itself (components of its own, tokens of its project style) is never broken. Pages and artboards keep their order.
+ * `only` narrows it to one page, and to some of its artboards (files) when listed: what a restore just put back.
  */
-export function brokenPagesBetween(store: Store, projectId: string, from: DesignSystemView, to: DesignSystemView): BrokenPage[] {
+export function brokenPagesBetween(store: Store, projectId: string, from: DesignSystemView, to: DesignSystemView, only?: { pageId: string; artboards?: string[] }): BrokenPage[] {
   const fromDefinitions = from.definitions();
   const toDefinitions = to.definitions();
-  const own = new Set(projectComponents(store, projectId).definitions.map((d) => d.name));
+  const own = projectComponentNames(store, projectId);
   const projectTokens = new Set(parseTokens(store.readProjectText(projectId, PROJECT_STYLE_PATH)).map((t) => t.name));
   const fromTokens = parseTokens(from.tokensCss());
   const toTokens = parseTokens(to.tokensCss());
@@ -56,14 +54,11 @@ export function brokenPagesBetween(store: Store, projectId: string, from: Design
 
   const pages: BrokenPage[] = [];
   for (const page of store.listPages(projectId)) {
-    const files = store.readPageFiles(page.id)?.files ?? {};
-    const manifest = files[MANIFEST_PATH] === undefined ? defaultManifest(Object.keys(files)) : parseManifest(files[MANIFEST_PATH]);
+    if (only && only.pageId !== page.id) continue;
     const elements = new Map<string, BrokenElement>();
     let artboard = "";
-    for (const entry of manifest.artboards) {
-      const content = files[entry.file];
-      if (content === undefined || !entry.file.endsWith(".html") || componentNameOf(entry.file) !== null) continue;
-      const place = entry.title ?? entry.file;
+    for (const { file, place, content } of pageArtboards(store.readPageFiles(page.id)?.files ?? {})) {
+      if (only?.artboards && !only.artboards.includes(file)) continue;
       const note = (element: Omit<BrokenElement, "places">, instances?: number) => {
         const key = keyOf(element);
         const known = elements.get(key) ?? { ...element, places: [] };
@@ -71,7 +66,7 @@ export function brokenPagesBetween(store: Store, projectId: string, from: Design
         if (!at) known.places.push({ artboard: place, ...(instances !== undefined && { instances }) });
         else if (instances !== undefined) at.instances = (at.instances ?? 0) + instances;
         elements.set(key, known);
-        if (artboard === "") artboard = entry.file;
+        if (artboard === "") artboard = file;
       };
       for (const use of instanceUsesIn(content)) {
         if (own.has(use.name)) continue;
@@ -96,8 +91,8 @@ export function brokenPagesBetween(store: Store, projectId: string, from: Design
 export function brokenPagesOnFollowChange(store: Store, projectId: string, followsDraft: boolean): BrokenPage[] {
   const designSystemId = store.sharedDesignSystemIdOfProject(projectId);
   const diffusion = designSystemId === undefined ? undefined : currentDiffusionOf(store, designSystemId);
-  if (!designSystemId || !diffusion) return [];
-  const draft = designSystemInState(store, designSystemId, { kind: "draft", afterDiffusion: diffusion.diffusion });
+  const draft = designSystemId === undefined ? undefined : draftOf(store, designSystemId);
+  if (!diffusion || !draft) return [];
   return followsDraft ? brokenPagesBetween(store, projectId, diffusion, draft) : brokenPagesBetween(store, projectId, draft, diffusion);
 }
 
@@ -112,15 +107,19 @@ export function brokenElementText(element: BrokenElement): string {
   }
 }
 
-/** Whether an open thread, signed Redline, with this title already names every broken element (same name, setting, value or slot). */
+/** Whether the body of a thread written by `openBrokenPageThreads` words this element, whole (`ui-button` is not `ui-button-group`). */
+const wordsElement = (body: string, element: BrokenElement): boolean => {
+  const text = brokenElementText(element);
+  for (let at = body.indexOf(text); at !== -1; at = body.indexOf(text, at + 1)) {
+    const next = body[at + text.length];
+    if (next === "," || next === ".") return true;
+  }
+  return false;
+};
+
+/** Whether an open thread, signed Redline, with this title already names every broken element. */
 function openThreadFor(store: Store, pageId: string, title: string, elements: BrokenElement[]) {
-  return store.listThreads(pageId).find(
-    (thread) =>
-      thread.automatic === true &&
-      thread.status === "open" &&
-      thread.title === title &&
-      elements.every((e) => [e.name, e.setting, e.value, e.slot].every((part) => part === undefined || thread.body.includes(part))),
-  );
+  return store.listThreads(pageId).find((thread) => thread.automatic === true && thread.status === "open" && thread.title === title && elements.every((element) => wordsElement(thread.body, element)));
 }
 
 /**

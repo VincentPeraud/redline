@@ -310,7 +310,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       api.get<{ Params: { pageId: string } }>("/pages/:pageId/files", async (req, reply): Promise<AgentCheckout> => {
         const checkout = store.readPageFiles(req.params.pageId);
         if (!checkout) return reply.code(404).send({ error: "page not found" });
-        return { ...checkout, project: projectContext(store, req.params.pageId) };
+        return { ...checkout, project: projectContext(store, req.params.pageId, (projectId) => realLevelOf(req, projectId) !== undefined) };
       });
 
       api.post<{ Params: { pageId: string }; Body: CreateVersionRequest }>("/pages/:pageId/versions", async (req, reply) => {

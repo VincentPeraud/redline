@@ -1,7 +1,8 @@
-import { MANIFEST_PATH, componentNameOf, defaultManifest, instanceUsesIn, parseManifest, type DraftChangeUsers } from "@redline/shared";
+import { instanceUsesIn, type DraftChangeUsers } from "@redline/shared";
 import { brokenPagesBetween, openBrokenPageThreads } from "./broken-pages.js";
-import { currentDiffusionOf, designSystemInState, type DesignSystemView } from "./design-system-view.js";
-import { projectComponents } from "./components.js";
+import { draftOf, type DesignSystemView } from "./design-system-view.js";
+import { projectComponentNames } from "./components.js";
+import { pageArtboards } from "./page-artboards.js";
 import { returnToOrigin } from "./diffusion-returns.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
@@ -20,10 +21,9 @@ const frozen = (view: DesignSystemView): DesignSystemView => {
  */
 export function watchDraftRemovals(store: Store, pageLock: PageLock, pageId: string): () => void {
   const designSystem = store.designSystemOfPage(pageId);
-  const current = designSystem && currentDiffusionOf(store, designSystem.id);
   const followers = designSystem ? store.projectsUsingDesignSystem(designSystem.id).filter((project) => !project.archived && store.projectFollowsDraft(project.id)) : [];
-  if (!designSystem || !current || followers.length === 0) return () => undefined;
-  const draftNow = () => designSystemInState(store, designSystem.id, { kind: "draft", afterDiffusion: current.diffusion });
+  if (!designSystem || !draftOf(store, designSystem.id) || followers.length === 0) return () => undefined;
+  const draftNow = () => draftOf(store, designSystem.id)!;
   const before = frozen(draftNow());
   const refusedBefore = store.listChanges(designSystem.id).filter((change) => change.state === "refused");
 
@@ -53,20 +53,14 @@ export function watchDraftRemovals(store: Store, pageLock: PageLock, pageId: str
   };
 }
 
-/** The pages of projects following the draft of `designSystemId` that write an instance of `component` (the project's own components left out). */
-export function draftPagesUsing(store: Store, designSystemId: string, component: string): DraftChangeUsers {
+/** The pages of projects following the draft of `designSystemId` that write an instance of `component` (the project's own components left out), for the projects `canRead` accepts. */
+export function draftPagesUsing(store: Store, designSystemId: string, component: string, canRead: (projectId: string) => boolean): DraftChangeUsers {
   const pages: DraftChangeUsers["pages"] = [];
   for (const project of store.projectsUsingDesignSystem(designSystemId)) {
-    if (project.archived || !store.projectFollowsDraft(project.id)) continue;
-    const own = new Set(projectComponents(store, project.id).definitions.map((definition) => definition.name));
-    if (own.has(component)) continue;
+    if (project.archived || !store.projectFollowsDraft(project.id) || !canRead(project.id)) continue;
+    if (projectComponentNames(store, project.id).has(component)) continue;
     for (const page of store.listPages(project.id)) {
-      const files = store.readPageFiles(page.id)?.files ?? {};
-      const manifest = files[MANIFEST_PATH] === undefined ? defaultManifest(Object.keys(files)) : parseManifest(files[MANIFEST_PATH]);
-      const used = manifest.artboards.some((entry) => {
-        const content = files[entry.file];
-        return content !== undefined && entry.file.endsWith(".html") && componentNameOf(entry.file) === null && instanceUsesIn(content).some((use) => use.name === component);
-      });
+      const used = pageArtboards(store.readPageFiles(page.id)?.files ?? {}).some(({ content }) => instanceUsesIn(content).some((use) => use.name === component));
       if (used) pages.push({ pageId: page.id, projectTitle: project.title, pageTitle: page.title });
     }
   }

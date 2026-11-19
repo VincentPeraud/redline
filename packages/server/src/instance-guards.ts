@@ -29,9 +29,10 @@ export interface UseSite {
  * The instances written in the current version of the pages of the projects following `designSystemId` (leaving out the
  * instances of a name the project defines itself) and in the templates of `templates`.
  */
-export function useSites(store: Store, designSystemId: string, templates: ComponentDefinition[]): UseSite[] {
+export function useSites(store: Store, designSystemId: string, templates: ComponentDefinition[], { skipDraftFollowers = false }: { skipDraftFollowers?: boolean } = {}): UseSite[] {
   const sites: UseSite[] = [];
   for (const project of store.projectsUsingDesignSystem(designSystemId)) {
+    if (skipDraftFollowers && store.projectFollowsDraft(project.id)) continue;
     const own = new Set(projectComponents(store, project.id).definitions.map((d) => d.name));
     for (const page of componentPages(store, project.id)) {
       for (const [file, content] of Object.entries(page.files)) {
@@ -114,7 +115,7 @@ export function instanceChangesError(store: Store, pageId: string, files: Record
 export function rollbackInstancesError(store: Store, designSystemId: string, target: number): string | null {
   const before = store.diffusionDefinitions(designSystemId, store.currentDiffusion(designSystemId)!.number);
   const after = store.diffusionDefinitions(designSystemId, target);
-  const lines = removalLines(brokenUses(useSites(store, designSystemId, before.filter((d) => after.some((a) => a.name === d.name))), before, after), "is used by");
+  const lines = removalLines(brokenUses(useSites(store, designSystemId, before.filter((d) => after.some((a) => a.name === d.name)), { skipDraftFollowers: true }), before, after), "is used by");
   return lines.length === 0 ? null : `Rollback refused: ${lines.join("; ")}. Update those pages first.`;
 }
 
