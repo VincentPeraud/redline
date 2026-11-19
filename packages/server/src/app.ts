@@ -88,6 +88,7 @@ import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
+import { openDraftRestoreThread, restoresDraftVersionOnDiffusion } from "./draft-restore.js";
 import { registerChangeReviewRoutes } from "./change-reviews.js";
 import { validTimeZone } from "./version-dates.js";
 import { registerGapRoutes } from "./gaps.js";
@@ -208,7 +209,7 @@ export async function buildMainApp(
   registerContextTracking(app, store, pageLock, knownWindows);
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
   registerSessionRoutes(app, store, pageLock, runs, lastConversationWork, access);
-  registerArtboardHistoryRoutes(app, store);
+  registerArtboardHistoryRoutes(app, store, pageLock);
   registerChangeReviewRoutes(app, store);
   registerGapRoutes(app, store);
   pageLock.restore();
@@ -808,10 +809,14 @@ export async function buildMainApp(
       if (!validTimeZone(timeZone)) return reply.code(400).send({ error: "invalid timeZone" });
       const files = store.readVersionFiles(req.params.pageId, req.params.versionId);
       // Restoring publishes the old files again: the same checks as a publish apply.
-      const invalid = files && (versionComponentsError(store, req.params.pageId, files) ?? removalsError(store, req.params.pageId, files, undefined, false) ?? instanceChangesError(store, req.params.pageId, files, false));
+      const onDraft = restoresDraftVersionOnDiffusion(store, req.params.pageId, req.params.versionId);
+      const invalid = files && (versionComponentsError(store, req.params.pageId, files, !onDraft) ?? removalsError(store, req.params.pageId, files, undefined, false) ?? instanceChangesError(store, req.params.pageId, files, false));
       if (invalid) return reply.code(400).send({ error: invalid });
       const restored = store.restoreVersion(req.params.pageId, req.params.versionId, personRef(req), timeZone);
-      if (restored) settleUndoneChanges(store, req.params.pageId);
+      if (restored) {
+        settleUndoneChanges(store, req.params.pageId);
+        if (onDraft && files) openDraftRestoreThread(store, pageLock, req.params.pageId, files);
+      }
       return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });
     },
   );

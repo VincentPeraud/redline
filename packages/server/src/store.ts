@@ -405,6 +405,8 @@ export class Store {
     addColumn("design_md_versions", "origin", "TEXT NOT NULL DEFAULT 'user'");
     addColumn("design_md_versions", "origin_id", "TEXT");
     addColumn("design_md_versions", "origin_label", "TEXT");
+    addColumn("design_md_versions", "setting_follows", "TEXT");
+    addColumn("design_md_versions", "setting_design_system", "TEXT");
     const threadColumns = this.db.prepare("PRAGMA table_info(threads)").all() as { name: string }[];
     if (!threadColumns.some((c) => c.name === "session_id")) this.db.exec("ALTER TABLE threads ADD COLUMN session_id TEXT");
     if (!threadColumns.some((c) => c.name === "agent_id")) this.db.exec("ALTER TABLE threads ADD COLUMN agent_id TEXT");
@@ -1034,12 +1036,16 @@ export class Store {
   setProjectDesignSystem(projectId: string, chosenDesignSystem: string | null, origin: VersionOrigin, person?: Person): void {
     const designSystem = chosenDesignSystem === NEUTRAL_DESIGN_SYSTEM_ID ? null : chosenDesignSystem;
     const previous = this.sharedDesignSystemIdOfProject(projectId) ?? null;
+    const wasFollowingDraft = this.projectFollowsDraft(projectId);
     if (designSystem === null && previous !== null) {
       const style = this.startingStyle(projectId, previous);
       if (style !== undefined) this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(style, "utf8"), { origin: "user", ...(person && { person }) });
     }
     this.db.prepare("UPDATE projects SET design_system = ? WHERE id = ?").run(designSystem, projectId);
-    if (designSystem !== previous) this.setProjectFollowsDraft(projectId, false);
+    if (designSystem !== previous) {
+      this.setProjectFollowsDraft(projectId, false);
+      if (wasFollowingDraft && designSystem !== null) this.logFollowsDraft(projectId, false, person);
+    }
     if (designSystem === null && !this.readProjectFile(projectId, PROJECT_STYLE_PATH)) {
       this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.alloc(0));
     }
@@ -1066,6 +1072,24 @@ export class Store {
 
   setProjectFollowsDraft(projectId: string, followsDraft: boolean): void {
     this.db.prepare("UPDATE projects SET follows_draft = ? WHERE id = ?").run(followsDraft ? 1 : 0, projectId);
+  }
+
+  /** Changes the setting and logs it in the project style history under `person`; nothing happens when it already has that value. The one entry point for a manual change and for an automatic one (return after a diffusion, by the member who diffused). */
+  changeFollowsDraft(projectId: string, followsDraft: boolean, person?: Person): void {
+    if (this.projectFollowsDraft(projectId) === followsDraft) return;
+    this.setProjectFollowsDraft(projectId, followsDraft);
+    this.logFollowsDraft(projectId, followsDraft, person);
+  }
+
+  /** Records, in the project style history, that the project now follows the draft or the latest diffusion of its design system. */
+  private logFollowsDraft(projectId: string, followsDraft: boolean, person?: Person): void {
+    const designSystemId = this.sharedDesignSystemIdOfProject(projectId);
+    const title = designSystemId && this.getDesignSystem(designSystemId)?.title;
+    if (!title) return;
+    const hash = this.setProjectFile(projectId, PROJECT_STYLE_PATH, this.readProjectFile(projectId, PROJECT_STYLE_PATH) ?? Buffer.alloc(0));
+    this.db
+      .prepare("INSERT INTO design_md_versions (id, project_id, path, hash, created_at, origin, person_id, setting_follows, setting_design_system) VALUES (?, ?, ?, ?, ?, 'user', ?, ?, ?)")
+      .run(randomUUID(), projectId, PROJECT_STYLE_PATH, hash, now(), person?.id ?? null, followsDraft ? "draft" : "diffusion", title);
   }
 
   /** Components a design system switch left out of the project: their instances render broken, by component name, with the design system they were not taken from. */
@@ -1318,9 +1342,9 @@ export class Store {
   listDesignMdVersions(projectId: string, path: string = DESIGN_MD_PATH): DesignMdVersion[] {
     const rows = this.db
       .prepare(
-        "SELECT id, hash, created_at, origin, origin_id, origin_label, person_id FROM design_md_versions WHERE project_id = ? AND path = ? ORDER BY created_at DESC, rowid DESC",
+        "SELECT id, hash, created_at, origin, origin_id, origin_label, person_id, setting_follows, setting_design_system FROM design_md_versions WHERE project_id = ? AND path = ? ORDER BY created_at DESC, rowid DESC",
       )
-      .all(projectId, path) as { id: string; hash: string; created_at: string; origin: DesignMdVersion["origin"]; origin_id: string | null; origin_label: string | null; person_id: string | null }[];
+      .all(projectId, path) as { id: string; hash: string; created_at: string; origin: DesignMdVersion["origin"]; origin_id: string | null; origin_label: string | null; person_id: string | null; setting_follows: "draft" | "diffusion" | null; setting_design_system: string | null }[];
     return rows.map((r) => {
       const person = this.getPerson(r.person_id);
       return {
@@ -1331,6 +1355,7 @@ export class Store {
         ...(r.origin_id ? { originId: r.origin_id } : {}),
         ...(r.origin_label ? { originLabel: r.origin_label } : {}),
         ...(person ? { person } : {}),
+        ...(r.setting_follows && r.setting_design_system ? { setting: { follows: r.setting_follows, designSystem: r.setting_design_system } } : {}),
       };
     });
   }

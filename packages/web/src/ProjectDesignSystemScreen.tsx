@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { instanceTagOf } from "@redline/shared";
 import type { DesignMdVersion, DesignSystemSummary, DesignSystemSwitchPreview, ExcludedComponent, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
 import type { MoveUpComponentRequest } from "@redline/shared";
-import { dayLabel, designMdStatus, metaLine, originLabel } from "./historyLabels.js";
+import { dayLabel, designMdStatus, metaLine, originLabel, settingChangeLabel } from "./historyLabels.js";
 import { useWho } from "./useMe.js";
 import { agree, counted } from "./plural.js";
 import { followStatus, followsLabel, pickerHex, type Follows } from "./projectDesignSystemLabels.js";
@@ -244,16 +244,17 @@ function ExcludedCard({ component, onTake }: { component: ExcludedComponent; onT
 
 function HistoryDialog({ versions, onRestore, onClose }: { versions: DesignMdVersion[]; onRestore: (version: DesignMdVersion) => void; onClose: () => void }) {
   const who = useWho();
+  const current = versions.find((version) => !version.setting);
   return (
     <Dialog title="Historique du style du projet" onClose={onClose} width={520}>
       <ol className={styles.versions}>
-        {versions.map((version, index) => (
+        {versions.map((version) => (
           <li key={version.id} className={styles.version}>
             <span className={styles.versionText}>
               <span>{relativeTime(version.createdAt)}</span>
-              <span className={styles.versionMeta}>{originLabel(version.origin, version.originLabel, who(version.person))}</span>
+              <span className={styles.versionMeta}>{version.setting ? settingChangeLabel(version.setting, who(version.person)) : originLabel(version.origin, version.originLabel, who(version.person))}</span>
             </span>
-            {index === 0 ? (
+            {version.setting ? null : version.id === current?.id ? (
               <span className={styles.versionMeta}>Actuelle</span>
             ) : (
               <Button size="sm" onClick={() => onRestore(version)}>

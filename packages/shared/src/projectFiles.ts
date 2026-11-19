@@ -43,6 +43,8 @@ export interface DesignMdVersion extends DesignMdAuthor {
   id: string;
   content: string;
   createdAt: string;
+  /** Set on an entry that only records a change of the project's "follows" setting (its `content` is the style as it stood): not a state to restore. */
+  setting?: { follows: "draft" | "diffusion"; designSystem: string };
 }
 
 /**
