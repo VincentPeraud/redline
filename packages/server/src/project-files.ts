@@ -18,6 +18,7 @@ import {
   type SaveDesignMdRequest,
 } from "@redline/shared";
 import { componentFilesOf } from "./components.js";
+import { designSystemSeenBy } from "./design-system-view.js";
 import { editorAuthor } from "./identity.js";
 import type { Store } from "./store.js";
 
@@ -26,16 +27,16 @@ const slugOf = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-"
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /**
- * What a project session gets of its design system: the CURRENT diffusion (never the draft) as the files of
+ * What a project session gets of its design system, as the project sees it, as the files of
  * `.design-system/`, and which of the design system's pages the project's pages use (through component classes).
  */
 function designSystemContext(store: Store, projectId: string, designSystemId: string): DesignSystemContext {
   const designSystem = store.getDesignSystem(designSystemId)!;
-  const { number } = store.currentDiffusion(designSystemId)!;
-  const read = (file: Parameters<Store["readDiffusionFile"]>[2]) => store.readDiffusionFile(designSystemId, number, file);
-  const components = store.diffusionComponents(designSystemId, number);
-  const indexes = store.diffusionPageIndexes(designSystemId, number);
-  const componentFiles = store.diffusionComponentFiles(designSystemId, number);
+  const seen = designSystemSeenBy(store, projectId, designSystemId)!;
+  const number = seen.diffusion;
+  const components = seen.components();
+  const indexes = seen.pageIndexes();
+  const componentFiles = seen.componentFiles();
 
   const classesOfPage = new Map<string, Set<string>>();
   for (const component of components) {
@@ -62,8 +63,8 @@ function designSystemContext(store: Store, projectId: string, designSystemId: st
     return { id, title, slug, own };
   });
   const files: Record<string, string> = {
-    "tokens.css": read("tokens.css") ?? "",
-    "DESIGN.md": read("DESIGN.md") ?? "",
+    "tokens.css": seen.tokensCss(),
+    "DESIGN.md": seen.designMd(),
     ...componentFiles,
   };
   for (const { id, title, slug } of pages) {

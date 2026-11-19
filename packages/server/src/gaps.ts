@@ -13,17 +13,17 @@ import {
   type PageGaps,
 } from "@redline/shared";
 import { componentFilesOf } from "./components.js";
+import { designSystemSeenBy } from "./design-system-view.js";
 import type { Store } from "./store.js";
 
-/** Tokens and components a page's artboards can use: the design system's current diffusion with the project's own style over it. */
+/** Tokens and components a page's artboards can use: the design system as the project sees it with the project's own style over it. */
 function gapContext(store: Store, designSystemId: string, projectId: string): GapContext {
-  const diffusion = store.currentDiffusion(designSystemId);
-  const read = (file: Parameters<Store["readDiffusionFile"]>[2]) => (diffusion ? store.readDiffusionFile(designSystemId, diffusion.number, file) : undefined);
+  const seen = designSystemSeenBy(store, projectId, designSystemId);
 
-  const tokens = new Map(parseTokens(read("tokens.css") ?? "").map((t) => [t.name, t]));
+  const tokens = new Map(parseTokens(seen?.tokensCss() ?? "").map((t) => [t.name, t]));
   for (const token of parseTokens(store.readProjectText(projectId, PROJECT_STYLE_PATH))) tokens.set(token.name, token);
 
-  const sharedFiles = diffusion ? store.diffusionComponentFiles(designSystemId, diffusion.number) : {};
+  const sharedFiles = seen?.componentFiles() ?? {};
   const components = new Map<string, string[]>();
   for (const [path, content] of [...Object.entries(sharedFiles), ...Object.entries(componentFilesOf(store, projectId))]) {
     components.set(componentNameOf(path)!, componentClassesOf(content));
