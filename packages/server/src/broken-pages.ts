@@ -18,7 +18,7 @@ import { referencesToken } from "./removals.js";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 import { modelChoiceOf } from "./validation.js";
-import { dispatchThread } from "./work.js";
+import { dispatchReply, dispatchThread } from "./work.js";
 
 const elementOf = (item: InstanceBreak): Omit<BrokenElement, "places"> => {
   const name = instanceTagOf(item.component);
@@ -112,11 +112,32 @@ export function brokenElementText(element: BrokenElement): string {
   }
 }
 
-/** Opens, on each broken page, a thread signed Redline that lists its broken elements, routed like any thread. */
-export function openBrokenPageThreads(store: Store, lock: PageLock, pages: BrokenPage[], title: string, intro: string): void {
+/** Whether an open thread, signed Redline, with this title already names every broken element (same name, setting, value or slot). */
+function openThreadFor(store: Store, pageId: string, title: string, elements: BrokenElement[]) {
+  return store.listThreads(pageId).find(
+    (thread) =>
+      thread.automatic === true &&
+      thread.status === "open" &&
+      thread.title === title &&
+      elements.every((e) => [e.name, e.setting, e.value, e.slot].every((part) => part === undefined || thread.body.includes(part))),
+  );
+}
+
+/**
+ * Opens, on each broken page, a thread signed Redline that lists its broken elements, routed like any thread.
+ * With `replyIn` (a title), a page that already has an open thread of that title for the same elements gets a reply in it instead.
+ */
+export function openBrokenPageThreads(store: Store, lock: PageLock, pages: BrokenPage[], title: string, intro: string, replyIn?: string): void {
   for (const { pageId, artboard, elements } of pages) {
     const body = `${intro} : ${elements.map(brokenElementText).join(", ")}. Mets à jour la page en conséquence.`;
+    const projectId = store.getPage(pageId)!.projectId;
+    const open = replyIn === undefined ? undefined : openThreadFor(store, pageId, replyIn, elements);
+    if (open) {
+      store.addReply(open.id, body, "redline");
+      dispatchReply(store, lock, projectId, open, body, modelChoiceOf({}), "Redline");
+      continue;
+    }
     const thread = store.createThread(pageId, { target: { kind: "artboard", artboard }, title, body }, undefined, true);
-    dispatchThread(store, lock, store.getPage(pageId)!.projectId, thread, modelChoiceOf({}));
+    dispatchThread(store, lock, projectId, thread, modelChoiceOf({}));
   }
 }
