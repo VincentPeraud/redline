@@ -79,6 +79,7 @@ export function threadTargetError(target: unknown, use: "request" | "chip"): str
       typeof target.yPct === "number";
     if (!valid) return "invalid target";
     const invalidRendering = target.rendering === undefined ? null : threadRenderingError(target.rendering);
+    if (target.sandbox !== undefined && (target.cell !== undefined || target.rendering !== undefined)) return "a sandbox element has no cell or rendering";
     return invalidRendering ?? (target.cell === undefined ? null : threadCellError(target.cell)) ?? (target.sandbox === undefined ? null : sandboxTrialError(target.sandbox));
   }
   return "invalid target";

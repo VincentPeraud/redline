@@ -131,14 +131,18 @@ const STAGE_STYLE =
 
 /** The component file as a sandbox document for `tag` (see SANDBOX_SOURCE); the instance is built on the card's first message. */
 export function sandboxDocument(html: string, tag: string): string {
-  const head = /<head\b[^>]*>([\s\S]*?)<\/head>/i.exec(html)?.[1] ?? "";
-  const body = /<body\b[^>]*>([\s\S]*)<\/body>/i.exec(html)?.[1] ?? "";
+  const headMatch = /<head\b[^>]*>([\s\S]*?)<\/head>/i.exec(html);
+  const head = headMatch?.[1] ?? "";
+  // A file without a <body> tag: everything but its head is the body.
+  const body = /<body\b[^>]*>([\s\S]*?)(?:<\/body>|$)/i.exec(html)?.[1] ?? (headMatch ? html.slice(headMatch.index + headMatch[0].length) : html).replace(/<!doctype[^>]*>|<\/?html\b[^>]*>/gi, "");
   const headWithoutScripts = head.replace(/<script\b[\s\S]*?<\/script>/gi, "");
-  const lang = /<html\b[^>]*\blang\s*=\s*"([^"]*)"/i.exec(html)?.[1];
+  // The component's style may hang on the page's theme (html[data-theme], body.dark): keep those attributes, never the body's own layout.
+  const htmlAttributes = /<html\b([^>]*)>/i.exec(html)?.[1] ?? "";
+  const bodyAttributes = [...(/<body\b([^>]*)>/i.exec(html)?.[1] ?? "").matchAll(/\s((?:class|data-[\w-]+)\s*=\s*(?:"[^"]*"|'[^']*'))/gi)].map((m) => ` ${m[1]}`).join("");
   // Templates nest, so the file's own <template data-component> stays inside the inert copy; its scripts never run there anyway.
   const inert = body.replace(/<script\b[\s\S]*?<\/script>/gi, "");
   return (
-    `<!doctype html><html${lang ? ` lang="${lang}"` : ""}><head>${headWithoutScripts}${STAGE_STYLE}</head><body>` +
+    `<!doctype html><html${htmlAttributes}><head>${headWithoutScripts}${STAGE_STYLE}</head><body${bodyAttributes}>` +
     `<template data-redline-sandbox-source>${inert}</template>` +
     `<div data-redline-sandbox-stage data-tag="${tag}"></div>` +
     `</body></html>`

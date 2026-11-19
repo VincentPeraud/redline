@@ -1,10 +1,10 @@
-import { CANVAS_ELEMENT_KIND_LABELS, cellKey, renderingKey, type SandboxTrial, type ThreadTarget, type TweakValues } from "@redline/shared";
+import { CANVAS_ELEMENT_KIND_LABELS, cellKey, renderingKey, sandboxTrialKey, type SandboxTrial, type ThreadTarget, type TweakValues } from "@redline/shared";
 
 /** Identity of a target: selecting it twice gives one chip. */
 function targetKey(target: ThreadTarget): string {
   switch (target.kind) {
     case "element":
-      return `element|${target.artboard}|${target.rendering ? renderingKey(target.rendering) : ""}|${target.cell ? cellKey(target.cell) : ""}|${target.sandbox ? JSON.stringify(target.sandbox) : ""}|${target.selector}`;
+      return `element|${target.artboard}|${target.rendering ? renderingKey(target.rendering) : ""}|${target.cell ? cellKey(target.cell) : ""}|${target.sandbox ? sandboxTrialKey(target.sandbox) : ""}|${target.selector}`;
     case "artboard":
       return `artboard|${target.artboard}`;
     case "canvas-element":

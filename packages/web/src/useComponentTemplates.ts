@@ -16,12 +16,18 @@ export function useComponentTemplates(pageId: string, files: Record<string, stri
     let cancelled = false;
     const stale = components.filter(([file, hash]) => known[file]?.hash !== hash);
     void Promise.all(
+      // A file that could not be read stays unknown (no button), never "no template".
       stale.map(async ([file, hash]) => {
-        const res = await fetch(`/api/pages/${pageId}/files/${file}`);
-        return [file, { hash, template: res.ok && TEMPLATE.test(await res.text()) }] as const;
+        try {
+          const res = await fetch(`/api/pages/${pageId}/files/${file}`);
+          return res.ok ? [[file, { hash, template: TEMPLATE.test(await res.text()) }] as const] : [];
+        } catch {
+          return [];
+        }
       }),
     ).then((read) => {
-      if (!cancelled && read.length > 0) setKnown((current) => ({ ...current, ...Object.fromEntries(read) }));
+      const entries = read.flat();
+      if (!cancelled && entries.length > 0) setKnown((current) => ({ ...current, ...Object.fromEntries(entries) }));
     });
     return () => {
       cancelled = true;

@@ -836,7 +836,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     if (!thread) return;
     // A sandbox thread opens the sandbox on the trial it was written on.
     if (thread.sandbox) {
-      if (!phone && !previewing) setSandbox({ file: thread.artboard, replay: { trial: thread.sandbox, nonce: Date.now() } });
+      if (!phone && !previewing && preview?.file !== thread.artboard) setSandbox({ file: thread.artboard, replay: { trial: thread.sandbox, nonce: Date.now() } });
       return;
     }
     const pin = document.querySelector<HTMLElement>(`[data-pin-thread="${CSS.escape(threadId)}"]`);
@@ -897,7 +897,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
    * moving it), as wide as one cell of the artboard; kept inside the canvas when there is no room on the right.
    */
   function sandboxCard() {
-    if (!sandbox || phone || previewing) return null;
+    // An old version previewed in place of the artboard: the sandbox, which shows the live component, steps aside.
+    if (!sandbox || phone || previewing || preview?.file === sandbox.file) return null;
     const artboard = placedArtboards.find((a) => a.file === sandbox.file);
     const box = artboard && artboardBoxes.get(artboard.file);
     const name = componentNameOf(sandbox.file);
@@ -915,6 +916,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         name={name}
         file={sandbox.file}
         src={`${artboardOrigin}/pages/${pageId}/${sandbox.file}?sandbox=1`}
+        version={`${files[sandbox.file]}@${tokensVersion}`}
         cellWidth={cellWidth}
         width={width}
         style={{ left, top, maxHeight: viewportSize.height - top - margin }}

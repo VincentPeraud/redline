@@ -96,3 +96,14 @@ describe("component sandbox document", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("sandbox document of an unusual file", () => {
+  it("reads a file without a body tag, and keeps the theme attributes of html and body but not the body's layout", async () => {
+    const { sandboxDocument } = await import("../src/sandbox.js");
+    const bare = sandboxDocument(`<html><template data-component><b><slot></slot></b></template><ui-x>Texte</ui-x></html>`, "ui-x");
+    expect(bare).toContain(`<template data-redline-sandbox-source><template data-component><b><slot></slot></b></template><ui-x>Texte</ui-x></template>`);
+    const themed = sandboxDocument(`<!doctype html><html lang="fr" data-theme="dark"><head></head><body class="dark" style="display:grid" data-density="compact"><ui-x></ui-x></body></html>`, "ui-x");
+    expect(themed).toContain(`<html lang="fr" data-theme="dark">`);
+    expect(themed).toContain(`<body class="dark" data-density="compact">`);
+  });
+});

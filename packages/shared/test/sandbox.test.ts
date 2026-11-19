@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { replaySandboxTrial, sandboxSettings, sandboxSlots, sandboxStart, sandboxStates, sandboxTrialError, sandboxTrialText, type ManifestTweak } from "@redline/shared";
+import { replaySandboxTrial, sameSandboxTrial, sandboxSettings, sandboxSlots, sandboxStart, sandboxStates, sandboxTrialError, sandboxTrialText, type ManifestTweak } from "@redline/shared";
 
 const tweaks: ManifestTweak[] = [
   { id: "variant", type: "choice", label: "Variante", options: ["primary", "secondary", "ghost"] },
@@ -77,6 +77,11 @@ describe("sandbox trial", () => {
     const { trial, notice } = replaySandboxTrial(recorded, settings, ["open"], slots);
     expect(trial).toEqual({ values: { variant: "primary", size: "md", fullWidth: false }, states: { open: true }, slots: { "": "Voir" } });
     expect(notice).toBe("Le composant a changé : Taille « xl » n'existe plus, retour à md ; le réglage gone n'existe plus ; l'état Sélectionné n'existe plus ; le slot footer n'existe plus.");
+  });
+
+  it("compares trials whatever the key order, a blank text counting as absent", () => {
+    expect(sameSandboxTrial({ values: { a: 1, b: "x" }, slots: { "": " Hi ", t: " " } }, { values: { b: "x", a: 1 }, slots: { "": "Hi" } })).toBe(true);
+    expect(sameSandboxTrial({ values: { a: 1 }, states: { open: true } }, { values: { a: 1 }, states: { open: false } })).toBe(false);
   });
 
   it("refuses a malformed trial", () => {

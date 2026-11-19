@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   SANDBOX_STATE_LABELS,
   replaySandboxTrial,
@@ -73,6 +73,8 @@ interface Props {
   file: string;
   /** The sandbox document (`…/components/<name>.html?sandbox=1`). */
   src: string;
+  /** Changes with the component's file and the tokens: the document loads again, the trial is kept and checked against the new component. */
+  version: string;
   /** Width of one cell of the component's artboard: the preview's width at 100 %. */
   cellWidth: number;
   /** Width the card gets on screen (narrower than the cell when the canvas lacks room: the preview then scrolls). */
@@ -98,7 +100,7 @@ interface Props {
  * The component sandbox: one live instance of the component at 100 %, next to its artboard, with its settings, states and
  * slot texts set locally (never saved: the grid does not change). Comments pinned in the preview keep the trial.
  */
-export function SandboxCard({ name, file, src, cellWidth, width, style, tweaks, threads, picking, selecting, marks, replay, onTrial, onPick, onEscape, onClose }: Props) {
+export function SandboxCard({ name, file, src, version, cellWidth, width, style, tweaks, threads, picking, selecting, marks, replay, onTrial, onPick, onEscape, onClose }: Props) {
   const [info, setInfo] = useState<SandboxFrameInfo | null>(null);
   const [trial, setTrial] = useState<SandboxTrial | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -107,21 +109,29 @@ export function SandboxCard({ name, file, src, cellWidth, width, style, tweaks, 
   /** Bumped by "Valeurs par défaut": a fresh document forgets the errors of the earlier trials. */
   const [frameKey, setFrameKey] = useState(0);
 
-  const settings = useMemo(() => sandboxSettings(tweaks), [tweaks]);
-  const states = useMemo(() => (info ? sandboxStates(tweaks, info.sources) : []), [tweaks, info]);
+  // The canvas hands a new array on every render: the declarations themselves decide.
+  const tweaksKey = JSON.stringify(tweaks);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const settings = useMemo(() => sandboxSettings(tweaks), [tweaksKey]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const states = useMemo(() => (info ? sandboxStates(tweaks, info.sources) : []), [tweaksKey, info]);
   const slots = useMemo(() => (info ? sandboxSlots(info.slots, info.firstFills) : []), [info]);
   const slotLabels = useMemo(() => Object.fromEntries(slots.map((slot) => [slot.name, slot.label])), [slots]);
 
   // Once the document says what the component has: start from the defaults, or bring the current trial (or the one to
   // replay) to the component as it is now, saying what no longer exists.
+  const trialRef = useRef(trial);
+  trialRef.current = trial;
   useEffect(() => {
     if (!info) return;
-    setTrial((current) => {
-      if (current === null && !replay) return sandboxStart(settings, states, slots);
-      const replayed = replaySandboxTrial(current ?? replay!.trial, settings, states, slots);
-      setNotice(replayed.notice);
-      return replayed.trial;
-    });
+    const current = trialRef.current;
+    if (current === null && !replay) {
+      setTrial(sandboxStart(settings, states, slots));
+      return;
+    }
+    const replayed = replaySandboxTrial(current ?? replay!.trial, settings, states, slots);
+    setNotice(replayed.notice);
+    if (current === null || !sameSandboxTrial(current, replayed.trial)) setTrial(replayed.trial);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `replay` is handled below once the trial exists
   }, [info, settings, states, slots]);
 
@@ -206,7 +216,7 @@ export function SandboxCard({ name, file, src, cellWidth, width, style, tweaks, 
         <div className={cx(styles.frameScroll, (info === null || gone || errors.length > 0) && styles.frameHidden)} style={{ height: previewHeight }}>
           <ArtboardErrorsContext.Provider value={reportErrors}>
             <ArtboardFrame
-              key={frameKey}
+              key={`${version}:${frameKey}`}
               title={`Bac à sable · ${name}`}
               src={src}
               width={cellWidth}
