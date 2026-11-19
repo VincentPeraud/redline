@@ -85,7 +85,7 @@ export function switchPreview(store: Store, projectId: string, targetId: string)
       ...(match === "different" ? { difference: differenceOf(before, wanted!, usage) } : {}),
     });
   }
-  return { from: source ? { id: source.id, title: source.title } : null, to: { id: target.id, title: target.title }, components, own: [...own].map(instanceTagOf) };
+  return { from: source ? { id: source.id, title: source.title } : null, to: { id: target.id, title: target.title }, components, own: [...own].map(instanceTagOf), followsDraft: store.projectFollowsDraft(projectId) };
 }
 
 /**

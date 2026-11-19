@@ -292,7 +292,7 @@ export function DesignSystemOverview({ designSystemId, viaProjectId, review }: {
               ))}
             </div>
             <div className={styles.diffusionNote}>
-              Revenir à une diffusion la renvoie à tous les projets. Les pages du design system gardent leur version actuelle, pour que tu puisses la corriger.
+              Revenir à une diffusion la renvoie à tous les projets qui suivent la dernière diffusion. Les pages du design system gardent leur version actuelle, pour que tu puisses la corriger.
             </div>
           </section>
 

@@ -162,6 +162,8 @@ export interface DesignSystemSwitchPreview {
   components: SwitchComponent[];
   /** Tags of the project's own components, which a switch leaves alone. */
   own: string[];
+  /** The project follows the draft of its current design system: the switch puts it back on the latest diffusion of the target. */
+  followsDraft: boolean;
 }
 
 /** `POST /api/projects/:id/design-system/promote`: makes the project's own style a shared design system (201 `DesignSystem`). */
