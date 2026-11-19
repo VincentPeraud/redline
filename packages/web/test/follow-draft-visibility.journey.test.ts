@@ -96,7 +96,7 @@ it("shows on the design system overview who follows the draft, in the band, the 
   await tab.goto(`${server.url}/#/pages/${ds.pageId}`);
   const header = tab.getByRole("banner");
   await header.getByText("Publié ici, visible tout de suite dans Lumora App").waitFor();
-  await put(`/api/projects/${app.id}/design-system`, { followsDraft: false });
+  await put(`/api/projects/${app.id}/design-system`, { followsDraft: false, confirm: true });
   await tab.reload();
   await header.getByRole("link", { name: "Lumora" }).waitFor();
   expect(await header.getByText(/Publié ici/).count()).toBe(0);

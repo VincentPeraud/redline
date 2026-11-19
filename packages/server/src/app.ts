@@ -64,7 +64,8 @@ import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
 import { TerminalSessions } from "./terminal-sessions.js";
-import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
+import { brokenPagesOnFollowChange } from "./broken-pages.js";
+import { openReturnThreads, projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
 import { projectContext, readPageAsset, readProjectAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
 import { linkAuthorOf, registerLinkRoutes, visitorNameError } from "./link-routes.js";
@@ -198,7 +199,7 @@ export async function buildMainApp(
   accountChanges.roleChanged.push(() => freeTakesLostAccess(store, pageLock));
   await registerAgentApi(app, store, pageLock, terminalSessions, access, config, options.publicUrl);
   await registerProjectFileRoutes(app, store);
-  registerProjectDesignSystemRoutes(app, store, pageLock);
+  registerProjectDesignSystemRoutes(app, store, pageLock, access);
   registerEventRoutes(app, store, pageLock, access, options.eventsKeepAliveMs);
   registerLinkRoutes(app, store, access);
   registerProjectSharingRoutes(app, store, access, pageLock);
@@ -428,6 +429,7 @@ export async function buildMainApp(
     if (store.listChanges(designSystem.id).some((change) => change.state === "refused")) return reply.code(409).send({ error: "A refused change is not undone in the draft yet." });
     const broken = brokenPagesAtDiffusion(store, designSystem.id);
     const closing = requestsClosedBy(store, designSystem.id);
+    const returning = store.projectsReturningAfterDiffusion(designSystem.id);
     const created = store.createDiffusion(designSystem.id, "user");
     closeDiffusedRequests(store, pageLock, closing, created.number);
     settleMovedUp(store, designSystem.id);
@@ -437,6 +439,12 @@ export async function buildMainApp(
       const body = `Le design system « ${designSystem.title} » a retiré ce que cette page utilise : ${breaks.join(", ")}. Mets à jour les instances concernées.`;
       const thread = store.createThread(pageId, { target: { kind: "artboard", artboard }, title: "Retrait dans le design system", body }, undefined, true);
       dispatchThread(store, pageLock, store.getPage(pageId)!.projectId, thread, modelChoiceOf({}));
+    }
+    // "Diffuser d'abord": the projects that asked go back to the latest diffusion, as the member who diffused, with the same check as a manual return.
+    for (const project of returning) {
+      const brokenPages = brokenPagesOnFollowChange(store, project.id, false);
+      store.changeFollowsDraft(project.id, false, req.person);
+      openReturnThreads(store, pageLock, project.id, brokenPages);
     }
     return reply.code(201).send(created);
   });

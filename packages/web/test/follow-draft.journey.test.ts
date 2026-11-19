@@ -54,6 +54,7 @@ it("shows the Ce projet suit line in its four states and compares the variables 
   expect(await tab.getByText(/^Brouillon de Lumora ·/).count()).toBe(1);
   expect((await detail(project)).followsDraft).toBe(true);
   await tab.getByRole("radio", { name: "La dernière diffusion" }).click();
+  await tab.getByRole("button", { name: "Revenir à la diffusion 1" }).click();
   await tab.getByText("Les pages voient Lumora").waitFor();
 
   // Draft ahead of the diffusion: a new token and the count.

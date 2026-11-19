@@ -12,6 +12,7 @@ import { Button, DIALOG_EXIT_MS, Dialog, DialogActions, Field, Logo, SegmentedCo
 import styles from "./ProjectDesignSystemScreen.module.css";
 import { useDocumentTitle } from "./documentTitle.js";
 import { BrokenPagesDialog } from "./BrokenPagesDialog.js";
+import { useDiffusionVersion, useOpenDiffusionDialog } from "./DiffusionDialog.js";
 import { SwitchDesignSystemDialog } from "./SwitchDesignSystemDialog.js";
 
 const CHEVRON = (
@@ -314,7 +315,10 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   /** The follow setting a save did not reach the server with: the line says so and offers to retry it. */
   const [failedFollow, setFailedFollow] = useState<Follows | null>(null);
   /** Turning on the draft would break these pages: the dialog asks before switching anyway; `failed` once the confirmation did not reach the server. */
-  const [breaking, setBreaking] = useState<{ pages: BrokenPage[]; failed: boolean } | null>(null);
+  const [breaking, setBreaking] = useState<{ direction: Follows; pages: BrokenPage[] | null; failed: boolean; otherProjects: string[]; canDiffuse: boolean } | null>(null);
+  const openDiffusion = useOpenDiffusionDialog();
+  const diffusionVersion = useDiffusionVersion();
+  const seenDiffusionVersion = useRef(diffusionVersion);
 
   const loadVersions = useCallback(
     () =>
@@ -342,6 +346,16 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
     void loadDesignSystems();
     void loadVersions();
   }, [projectId, loadVersions, loadDesignSystems]);
+
+  // A diffusion may have sent the project back to the latest diffusion ("Diffuser d'abord").
+  useEffect(() => {
+    if (seenDiffusionVersion.current === diffusionVersion) return;
+    seenDiffusionVersion.current = diffusionVersion;
+    fetch(`/api/projects/${projectId}/design-system`)
+      .then((res) => res.json() as Promise<ProjectDesignSystem>)
+      .then(setDetail);
+    void loadVersions();
+  }, [diffusionVersion, projectId, loadVersions]);
 
   const change = useCallback(
     async (request: Promise<Response>) => {
@@ -385,18 +399,35 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   /** Whether the change reached the server (a 409 asks the dialog first and counts as not applied). */
   async function applyFollow(target: Follows, confirm = false): Promise<boolean> {
     const body: SetProjectDesignSystemRequest = { followsDraft: target === "draft", ...(confirm && { confirm }) };
+    // Going back always asks: the dialog opens at once and waits for the pages the server computes.
+    if (target === "diffusion" && !confirm) setBreaking({ direction: "diffusion", pages: null, failed: false, otherProjects: [], canDiffuse: false });
     const res = await fetch(`/api/projects/${projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
     if (res?.status === 409) {
       setFailedFollow(null);
-      setBreaking({ pages: ((await res.json()) as BrokenPagesAnswer).brokenPages, failed: false });
+      const answer = (await res.json()) as BrokenPagesAnswer;
+      setBreaking({ direction: target, pages: answer.brokenPages, failed: false, otherProjects: answer.otherProjects ?? [], canDiffuse: answer.canDiffuse ?? false });
       return false;
     }
     const saved = res?.ok ? ((await res.json()) as ProjectDesignSystem) : null;
     if (confirm) setBreaking((current) => current && { ...current, failed: !saved });
-    else setFailedFollow(saved ? null : target);
+    else {
+      if (!saved) setBreaking(null);
+      setFailedFollow(saved ? null : target);
+    }
     if (!saved) return false;
     setDetail(saved);
     await loadVersions();
+    return true;
+  }
+
+  /** "Diffuser d'abord": the project goes back by itself once the diffusion succeeds. Resolves true when the review opened. */
+  async function diffuseFirst(): Promise<boolean> {
+    const res = await fetch(`/api/projects/${projectId}/design-system/return-after-diffusion`, { method: "POST" }).catch(() => null);
+    if (!res?.ok) {
+      setBreaking((current) => current && { ...current, failed: true });
+      return false;
+    }
+    openDiffusion(shared!.id, projectId);
     return true;
   }
 
@@ -666,8 +697,9 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
           pendingChanges={detail.pendingChanges}
           pages={breaking.pages}
           failed={breaking.failed}
-          onConfirm={() => applyFollow("draft", true)}
+          onConfirm={() => applyFollow(breaking.direction, true)}
           onClose={() => setBreaking(null)}
+          back={breaking.direction === "diffusion" && detail.diffusion ? { diffusion: detail.diffusion.number, otherProjects: breaking.otherProjects, canDiffuse: breaking.canDiffuse, onDiffuseFirst: diffuseFirst } : undefined}
         />
       )}
       {movingUp && shared && (

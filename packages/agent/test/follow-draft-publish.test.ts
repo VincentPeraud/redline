@@ -43,7 +43,7 @@ describe("publishing after the design system setting changed", () => {
     await call("checkout_page", { pageId: page.id });
     const copy = join(seam.folder, ".redline", page.id);
 
-    await put(`/api/projects/${seam.project.id}/design-system`, { followsDraft: false });
+    await put(`/api/projects/${seam.project.id}/design-system`, { followsDraft: false, confirm: true });
     writeFileSync(join(copy, "home.html"), "<h1>Changed</h1>");
     const refused = await call("publish_page", { message: "Rework home" });
     expect(refused.isError).toBe(true);

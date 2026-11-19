@@ -11,8 +11,8 @@ const TOAST_MS = 10_000;
 const UNDO_POLL_MS = 3_000;
 
 interface DiffusionControls {
-  /** Opens the "Diffuser la version N de <design system>" dialog. */
-  open: (designSystemId: string) => void;
+  /** Opens the "Diffuser la version N de <design system>" dialog. With `returningProjectId` (the project asked to go back to the latest diffusion, "Diffuser d'abord"), closing it without diffusing drops that intent. */
+  open: (designSystemId: string, returningProjectId?: string) => void;
   /** Bumped after every diffusion, so views of a design system reload what is pending. */
   version: number;
 }
@@ -20,8 +20,13 @@ interface DiffusionControls {
 const DiffusionContext = createContext<DiffusionControls | null>(null);
 
 /** Entry point of the diffusion dialog: `useOpenDiffusionDialog()(designSystemId)` from the header button, the card under Claude's answer or the design system overview. */
-export function useOpenDiffusionDialog(): (designSystemId: string) => void {
+export function useOpenDiffusionDialog(): (designSystemId: string, returningProjectId?: string) => void {
   return useContext(DiffusionContext)!.open;
+}
+
+/** Bumped after every diffusion (and undo), for views that must reload what a diffusion may have changed. */
+export function useDiffusionVersion(): number {
+  return useContext(DiffusionContext)!.version;
 }
 
 /**
@@ -57,10 +62,10 @@ async function openPreview(designSystemId: string, projectId: string) {
 }
 
 export function DiffusionProvider({ children }: { children: ReactNode }) {
-  const [openFor, setOpenFor] = useState<string | null>(null);
+  const [openFor, setOpenFor] = useState<{ designSystemId: string; returningProjectId?: string } | null>(null);
   const [toast, setToast] = useState<{ message: string; designSystemId: string; error?: string } | null>(null);
   const [version, setVersion] = useState(0);
-  const open = useCallback((designSystemId: string) => setOpenFor(designSystemId), []);
+  const open = useCallback((designSystemId: string, returningProjectId?: string) => setOpenFor({ designSystemId, returningProjectId }), []);
   const controls = useMemo(() => ({ open, version }), [open, version]);
 
   useEffect(() => {
@@ -74,12 +79,16 @@ export function DiffusionProvider({ children }: { children: ReactNode }) {
       {children}
       {openFor && (
         <DiffusionDialog
-          designSystemId={openFor}
-          onClose={() => setOpenFor(null)}
-          onOpenPreview={(projectId) => void openPreview(openFor, projectId)}
+          designSystemId={openFor.designSystemId}
+          onClose={() => {
+            // Closed without diffusing: the project stays on the draft.
+            if (openFor.returningProjectId) void fetch(`/api/projects/${openFor.returningProjectId}/design-system/return-after-diffusion`, { method: "DELETE" });
+            setOpenFor(null);
+          }}
+          onOpenPreview={(projectId) => void openPreview(openFor.designSystemId, projectId)}
           onDiffused={(diffusion, projects) => {
             setOpenFor(null);
-            setToast({ message: diffusionToastMessage(diffusion.number, projects), designSystemId: openFor });
+            setToast({ message: diffusionToastMessage(diffusion.number, projects), designSystemId: openFor.designSystemId });
             setVersion((v) => v + 1);
           }}
         />

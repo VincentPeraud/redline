@@ -17,6 +17,7 @@ import {
   type ManifestArtboard,
   type ManifestTitleElement,
   type ManifestTweak,
+  type BrokenPage,
   type BrokenPagesAnswer,
   type MoveUpComponentRequest,
   type ProjectComponentInfo,
@@ -36,6 +37,7 @@ import { personRef, editorAuthor } from "./identity.js";
 import { excludedComponents, switchDesignSystem, switchPreview } from "./switch-design-system.js";
 import type { OriginRef, Store } from "./store.js";
 import { titleError } from "./validation.js";
+import type { Access } from "./access.js";
 
 const TOKEN_NAME = /^--[A-Za-z0-9_-]+$/;
 
@@ -155,7 +157,15 @@ export function designSystemChangeError(store: Store, designSystem: unknown): st
   return null;
 }
 
-export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: Store, pageLock: PageLock): void {
+/** The threads of a project that went back to the latest diffusion: one per page that uses what the draft had and the diffusion lacks. */
+export function openReturnThreads(store: Store, pageLock: PageLock, projectId: string, brokenPages: BrokenPage[]): void {
+  const sharedId = store.sharedDesignSystemIdOfProject(projectId);
+  const diffusion = sharedId === undefined ? undefined : currentDiffusionOf(store, sharedId);
+  if (!sharedId || !diffusion) return;
+  openBrokenPageThreads(store, pageLock, brokenPages, "Retour à la dernière diffusion", `Le projet est repassé sur la diffusion ${diffusion.diffusion} du design system « ${store.getDesignSystem(sharedId)!.title} », qui n'a pas ce que cette page utilise`, "Retrait dans le design system");
+}
+
+export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: Store, pageLock: PageLock, access: Access): void {
   const hasProjectStyle = (projectId: string) => store.projectExists(projectId) && !store.isDesignSystemProject(projectId);
   const styleOf = (projectId: string) => store.readProjectText(projectId, PROJECT_STYLE_PATH);
   const save = (req: FastifyRequest, projectId: string, css: string) => store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(css, "utf8"), editorAuthor(req));
@@ -191,10 +201,41 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
         }
         store.changeFollowsDraft(projectId, true, req.person);
         openBrokenPageThreads(store, pageLock, brokenPages, "Retrait dans le design system", `Le brouillon du design system « ${store.getDesignSystem(sharedId)!.title} » a retiré ce que cette page utilise`);
+      } else if (!followsDraft && store.projectFollowsDraft(projectId)) {
+        const brokenPages = brokenPagesOnFollowChange(store, projectId, false);
+        if (req.body?.confirm !== true) {
+          const answer: BrokenPagesAnswer = {
+            error: "going back to the latest diffusion loses the pending changes: confirm to switch",
+            brokenPages,
+            otherProjects: store.projectsUsingDesignSystem(sharedId).filter((p) => p.id !== projectId && !p.archived).map((p) => p.title),
+            canDiffuse: access.may(req.viewer, "write", { projectId: sharedId }),
+          };
+          return reply.code(409).send(answer);
+        }
+        store.changeFollowsDraft(projectId, false, req.person);
+        openReturnThreads(store, pageLock, projectId, brokenPages);
       } else {
         store.changeFollowsDraft(projectId, followsDraft, req.person);
       }
     }
+    return projectDesignSystem(store, projectId);
+  });
+
+  // "Diffuser d'abord": the project goes back to the latest diffusion after the design system's next diffusion; dropped when the review closes without diffusing.
+  app.post<{ Params: { projectId: string } }>("/api/projects/:projectId/design-system/return-after-diffusion", async (req, reply) => {
+    const { projectId } = req.params;
+    if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
+    const sharedId = store.sharedDesignSystemIdOfProject(projectId);
+    if (sharedId === undefined || !store.projectFollowsDraft(projectId)) return reply.code(409).send({ error: "the project does not follow a design system draft" });
+    if (!access.may(req.viewer, "write", { projectId: sharedId })) return reply.code(403).send({ error: "forbidden" });
+    store.setReturnAfterDiffusion(projectId, true);
+    return projectDesignSystem(store, projectId);
+  });
+
+  app.delete<{ Params: { projectId: string } }>("/api/projects/:projectId/design-system/return-after-diffusion", async (req, reply) => {
+    const { projectId } = req.params;
+    if (!hasProjectStyle(projectId)) return reply.code(404).send({ error: "project not found" });
+    store.setReturnAfterDiffusion(projectId, false);
     return projectDesignSystem(store, projectId);
   });
 

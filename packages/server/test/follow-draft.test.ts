@@ -35,7 +35,7 @@ describe("a project that follows the design system draft", () => {
     expect(response.status).toBe(201);
   };
   const project = async (ds: DesignSystem) => ((await (await server.post("/api/projects", { title: "Acme", designSystem: ds.id })).json()) as { id: string }).id;
-  const follow = (projectId: string, followsDraft: boolean) => put(`/api/projects/${projectId}/design-system`, { followsDraft });
+  const follow = (projectId: string, followsDraft: boolean, confirm = false) => put(`/api/projects/${projectId}/design-system`, { followsDraft, ...(confirm && { confirm }) });
   const detail = async (projectId: string) => (await (await server.get(`/api/projects/${projectId}/design-system`)).json()) as ProjectDesignSystem;
   const files = (ds: DesignSystem, body: string) => ({ "manifest.json": manifestOf(["a.html"], ds.id), "a.html": mockup(body) });
   const publishCard = (projectId: string, ds: DesignSystem) => server.post(`/api/projects/${projectId}/pages`, { title: "Flow", files: files(ds, `<ui-card>x</ui-card>`) });
@@ -59,7 +59,7 @@ describe("a project that follows the design system draft", () => {
     const after = (await response.json()) as ProjectDesignSystem;
     expect(after.followsDraft).toBe(true);
     expect(after.tokens.find((t) => t.name === "--brand")).toMatchObject({ status: "inherited", designSystemValue: "#123456", draftOnly: true });
-    expect((await follow(projectId, false)).status).toBe(200);
+    expect((await follow(projectId, false, true)).status).toBe(200);
     expect((await detail(projectId)).followsDraft).toBe(false);
   });
 

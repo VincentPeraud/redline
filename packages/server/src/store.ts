@@ -386,6 +386,7 @@ export class Store {
     addColumn("versions", "diffusion", "INTEGER");
     addColumn("versions", "on_draft", "INTEGER NOT NULL DEFAULT 0");
     addColumn("projects", "follows_draft", "INTEGER NOT NULL DEFAULT 0");
+    addColumn("projects", "returns_after_diffusion", "INTEGER NOT NULL DEFAULT 0");
     addColumn("threads", "element_name", "TEXT");
     addColumn("threads", "reopen_to", "TEXT");
     addColumn("threads", "rendering", "TEXT");
@@ -1075,8 +1076,20 @@ export class Store {
     return this.projectsUsingDesignSystem(designSystemId).filter((project) => !project.archived && this.projectFollowsDraft(project.id));
   }
 
+  /** Raw setter, no log. Any change of the setting drops the "Diffuser d'abord" intent. */
   setProjectFollowsDraft(projectId: string, followsDraft: boolean): void {
-    this.db.prepare("UPDATE projects SET follows_draft = ? WHERE id = ?").run(followsDraft ? 1 : 0, projectId);
+    this.db.prepare("UPDATE projects SET follows_draft = ?, returns_after_diffusion = 0 WHERE id = ?").run(followsDraft ? 1 : 0, projectId);
+  }
+
+  /** "Diffuser d'abord": the project goes back to the latest diffusion once the next diffusion of its design system succeeds. */
+  setReturnAfterDiffusion(projectId: string, returning: boolean): void {
+    this.db.prepare("UPDATE projects SET returns_after_diffusion = ? WHERE id = ?").run(returning ? 1 : 0, projectId);
+  }
+
+  /** The active projects of the design system that asked to go back after its next diffusion and still follow the draft. */
+  projectsReturningAfterDiffusion(designSystemId: string): { id: string; title: string }[] {
+    const asked = new Set((this.db.prepare("SELECT id FROM projects WHERE returns_after_diffusion = 1").all() as { id: string }[]).map((row) => row.id));
+    return this.projectsFollowingDraft(designSystemId).filter((project) => asked.has(project.id));
   }
 
   /** Changes the setting and logs it in the project style history under `person`; nothing happens when it already has that value. The one entry point for a manual change and for an automatic one (return after a diffusion, by the member who diffused). */

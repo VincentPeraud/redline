@@ -28,7 +28,7 @@ describe("history of a project that follows the draft", () => {
       origin: "thread",
     });
   const project = async (ds: DesignSystem) => ((await (await server.post("/api/projects", { title: "Acme", designSystem: ds.id })).json()) as { id: string }).id;
-  const follow = (projectId: string, followsDraft: boolean) => put(`/api/projects/${projectId}/design-system`, { followsDraft });
+  const follow = (projectId: string, followsDraft: boolean) => put(`/api/projects/${projectId}/design-system`, { followsDraft, ...(followsDraft ? {} : { confirm: true }) });
   const files = (ds: DesignSystem, body: string) => ({ "manifest.json": manifestOf(["a.html"], ds.id), "a.html": mockup(body) });
   const versionsOf = async (pageId: string) => (await (await server.get(`/api/pages/${pageId}/artboard-versions?file=a.html`)).json()) as { versionId: string; diffusion?: { onDraft?: boolean } }[];
   const threadsOf = async (pageId: string) => (await (await server.get(`/api/pages/${pageId}/threads`)).json()) as Thread[];

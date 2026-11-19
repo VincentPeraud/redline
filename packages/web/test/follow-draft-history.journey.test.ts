@@ -35,7 +35,7 @@ it("labels a version published on the draft, and logs the setting changes in the
   const project = (await (await server.post("/api/projects", { title: "Halloween", designSystem: ds.id })).json()) as Project;
   await put(`/api/projects/${project.id}/design-system`, { followsDraft: true });
   const page = (await (await server.post(`/api/projects/${project.id}/pages`, { title: "Landing", files: { "manifest.json": manifestOf(ds.id), "home.html": html("One") } })).json()) as Page;
-  await put(`/api/projects/${project.id}/design-system`, { followsDraft: false });
+  await put(`/api/projects/${project.id}/design-system`, { followsDraft: false, confirm: true });
   await server.post(`/api/pages/${page.id}/versions`, { files: { "manifest.json": manifestOf(ds.id), "home.html": html("Two") }, message: "Two", origin: "thread" });
 
   const tab = await browser.newPage();

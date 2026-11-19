@@ -31,7 +31,7 @@ describe("crossings of the follow-the-draft setting with existing rules", () => 
   const designSystem = async (title: string) =>
     (await (await server.post("/api/design-systems", { title, files: { "tokens.css": tokensCss, "manifest.json": manifestOf(["components/modal.html"]), "components/modal.html": componentFile("modal") } })).json()) as DesignSystem;
   const put = (path: string, body: unknown) => fetch(server.url + path, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const follow = (followsDraft: boolean) => put(`/api/projects/${projectId}/design-system`, { followsDraft });
+  const follow = (followsDraft: boolean) => put(`/api/projects/${projectId}/design-system`, { followsDraft, ...(followsDraft ? {} : { confirm: true }) });
   const detail = async () => (await (await server.get(`/api/projects/${projectId}/design-system`)).json()) as ProjectDesignSystem;
   const agent = (path: string, body?: object) =>
     fetch(`${server.url}${AGENT_API_PREFIX}${path}`, { method: body ? "POST" : "GET", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
