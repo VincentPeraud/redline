@@ -110,12 +110,66 @@
 
 .chooser {
   display: flex;
-  align-items: center;
-  gap: 14px;
+  flex-direction: column;
+  gap: var(--space-3);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   padding: var(--space-4) 18px;
+}
+
+.chooserRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.follow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.followLabel {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.followChoice {
+  display: flex;
+  border-radius: var(--radius-md);
+}
+
+.followStatus {
+  flex: 1 1 280px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.followLead {
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.followError {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--color-danger-text);
+}
+
+.draftPill {
+  font-size: var(--font-size-2xs);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  color: var(--color-accent-ink);
+  background: var(--color-accent-soft);
+  white-space: nowrap;
 }
 
 .chooserLabel {

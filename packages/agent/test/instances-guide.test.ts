@@ -85,3 +85,19 @@ it("the session note says to use instances, never copy markup, and to send a req
   expect(note).toContain("never copy their markup");
   expect(note).toContain("send_request");
 });
+
+it("the session note names the draft and the diffusion it comes after when the project follows the draft", () => {
+  const note = designSystemNote({
+    designMd: "",
+    assets: {},
+    designSystem: { id: "ds", title: "Brand", diffusion: 2, draft: true, files: {}, pages: [{ title: "Buttons", components: 1, used: false }] },
+  });
+  expect(note).toContain("Design system: Brand (brouillon, après la diffusion 2)");
+  expect(note).not.toContain("(diffusion 2)");
+});
+
+it("the guide says a project sees the current diffusion, or the draft when it follows it", () => {
+  const text = section("Design system and components");
+  expect(text).toContain("CURRENT diffusion, or the design system draft");
+  expect(text).not.toContain("never the draft");
+});

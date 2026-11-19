@@ -37,3 +37,18 @@ export function switchMatchLabel(component: SwitchComponent, targetTitle: string
   if (difference?.kind === "setting") return `même nom, réglage ${difference.name} absent`;
   return "même nom, réglages différents";
 }
+
+export type Follows = "diffusion" | "draft";
+
+export const followsLabel = (follows: Follows) => (follows === "draft" ? "le brouillon" : "la dernière diffusion");
+
+/** The line after the "Ce projet suit" choice: what the pages see, and for the draft how far it is from the diffusion (`lead` is the bold start). */
+export function followStatus(follows: Follows, designSystemTitle: string, diffusion: number, pendingChanges: number): { lead?: string; text: string } {
+  if (follows === "diffusion") return { text: `Les pages voient ${designSystemTitle} tel qu'il a été diffusé. Les modifications en cours n'arrivent qu'à la prochaine diffusion.` };
+  if (pendingChanges === 0) return { text: `Le brouillon est identique à la diffusion ${diffusion} : rien de plus pour l'instant.` };
+  const one = pendingChanges === 1;
+  return {
+    lead: `${pendingChanges} ${one ? "modification pas encore diffusée" : "modifications pas encore diffusées"}`,
+    text: ` ${one ? "est déjà visible" : "sont déjà visibles"} dans ce projet, et ses pages se publient avec ${one ? "elle" : "elles"}.`,
+  };
+}

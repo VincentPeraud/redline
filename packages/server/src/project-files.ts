@@ -71,7 +71,7 @@ function designSystemContext(store: Store, projectId: string, designSystemId: st
     files[`pages/${slug}.md`] = `# ${title}\n\n${indexes[id].trim() === "" ? "No component on this page.\n" : indexes[id]}`;
   }
   files["index.md"] = [
-    `# ${designSystem.title} (diffusion ${number})`,
+    `# ${designSystem.title} (${seen.state.kind === "draft" ? `draft, after diffusion ${number}` : `diffusion ${number}`})`,
     "",
     "Pages of the design system (read the page file to see its components; the full files are in components/):",
     "",
@@ -82,6 +82,7 @@ function designSystemContext(store: Store, projectId: string, designSystemId: st
     id: designSystem.id,
     title: designSystem.title,
     diffusion: number,
+    ...(seen.state.kind === "draft" ? { draft: true } : {}),
     files,
     pages: pages.map(({ id, title, own }) => ({ title, components: own.length, used: used.has(id) })),
   };

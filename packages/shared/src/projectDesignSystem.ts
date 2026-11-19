@@ -21,6 +21,8 @@ export interface ProjectStyleToken {
    * `new`: only in the project style, next to a shared design system. `own`: a project without a shared design system.
    */
   status: "overridden" | "inherited" | "new" | "own";
+  /** Following the draft: the token exists in the draft and not in the current diffusion ("nouveau dans le brouillon"). */
+  draftOnly?: boolean;
 }
 
 export interface ProjectComponentInfo {
@@ -55,6 +57,10 @@ export interface ProjectDesignSystem {
   designSystem: { id: string; title: string } | null;
   /** Its current diffusion; null without a shared design system. */
   diffusion: DiffusionInfo | null;
+  /** The project sees the design system draft instead of its current diffusion. */
+  followsDraft: boolean;
+  /** Changes of the design system not diffused yet (the design system's total, whoever follows what). */
+  pendingChanges: number;
   tokens: ProjectStyleToken[];
   /** True when the project style itself declares at least one token (`styleDefinesTokens`). */
   styleDefinesTokens: boolean;
@@ -76,7 +82,10 @@ export interface SetProjectTokenRequest {
 
 /** `PUT /api/projects/:id/design-system`: a shared design system id, or null for "Aucun : style propre au projet". */
 export interface SetProjectDesignSystemRequest {
-  designSystem: string | null;
+  /** Omitted: the design system stays and only `followsDraft` changes. */
+  designSystem?: string | null;
+  /** What the project follows: true = the draft, false = the latest diffusion. Switching to another design system resets it to false. */
+  followsDraft?: boolean;
   /**
    * Tags (`ui-name`) of the used components that take the new design system's version. Absent ones cannot be taken;
    * every other used component is left out. Omitted: the pre-ticked ones (same name, same settings and slots).

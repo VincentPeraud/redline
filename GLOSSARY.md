@@ -41,8 +41,11 @@ _Avoid_: Global CLI
 A special project whose tokens, components and pages define a style that other projects use.
 _Avoid_: DS (in code and docs), theme, style guide
 
+**Design system draft** (UI word "brouillon du design system"; not the held comment **Draft**):
+The design system as its own pages and files stand now, ahead of its current diffusion. A project follows either the latest diffusion (the default) or the draft, a per-project setting ("Ce projet suit") on its design system screen; on the draft it renders, publishes, checks out and measures gaps against the draft, and records "published on the draft" on its page versions. Nothing is snapshotted: the draft can still change under the project.
+
 **Diffusion**:
-A numbered (1, 2, ...), immutable snapshot of a shared design system (its `tokens.css`, `components.css`, DESIGN.md, component list and index) that projects use. The design system points at its current diffusion; its own pages and everything edited since are the **draft**, and the changes between the draft and the current diffusion are **pending** until the user creates a new diffusion. Projects only ever see diffused files.
+A numbered (1, 2, ...), immutable snapshot of a shared design system (its `tokens.css`, `components.css`, DESIGN.md, component list and index) that projects use. The design system points at its current diffusion; its own pages and everything edited since are the **design system draft**, and the changes between the draft and the current diffusion are **pending** until the user creates a new diffusion. A project sees the current diffusion, or the **design system draft** when it follows the draft.
 _Avoid_: Release, publish, version (a version is a saved state of one page)
 
 **Project style**:
@@ -70,11 +73,11 @@ A `<slot>` of a component's template: one default slot and named ones (`<slot na
 _Avoid_: Placeholder, region
 
 **Component definition**:
-What an instance renders from, produced by the component assembly for each component with a `<template data-component>`: tag, template, slots, settings (values and defaults), behaviour script and the components it contains. A diffusion snapshots the definitions; a project page sees the current diffusion's, a design system page the draft's.
+What an instance renders from, produced by the component assembly for each component with a `<template data-component>`: tag, template, slots, settings (values and defaults), behaviour script and the components it contains. A diffusion snapshots the definitions; a project page sees the current diffusion's (the draft's when its project follows the draft), a design system page the draft's.
 _Avoid_: Schema, spec
 
 **Gap** (UI word "écart"):
-An element of an artboard that bypasses the design system: a hard-coded colour or font, a `<button>`, `<input>`, `<select>` or `<textarea>` without any component class when components of that kind exist, or the use of a deprecated token. Measured only for pages of a project that follows a shared design system, against its design system (current diffusion) and project style (a project without one has no gaps); listed in the page header with the closest token or the component meant for the case. A gap never blocks a publish; an element carrying `data-ds-libre`, and its descendants, is outside the analysis.
+An element of an artboard that bypasses the design system: a hard-coded colour or font, a `<button>`, `<input>`, `<select>` or `<textarea>` without any component class when components of that kind exist, or the use of a deprecated token. Measured only for pages of a project that follows a shared design system, against its design system (current diffusion, or the draft when the project follows it) and project style (a project without one has no gaps); listed in the page header with the closest token or the component meant for the case. A gap never blocks a publish; an element carrying `data-ds-libre`, and its descendants, is outside the analysis.
 _Avoid_: Violation, lint error, warning
 
 **Core tokens**:

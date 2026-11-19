@@ -57,7 +57,13 @@ export function designSystemInState(store: Store, designSystemId: string, state:
  * decides which state a project reads. Undefined when the project has no shared design system.
  */
 export function designSystemSeenBy(store: Store, projectId: string, designSystemId: string | undefined = store.sharedDesignSystemIdOfProject(projectId)): DesignSystemView | undefined {
-  return designSystemId === undefined ? undefined : currentDiffusionOf(store, designSystemId);
+  if (designSystemId === undefined) return undefined;
+  const current = currentDiffusionOf(store, designSystemId);
+  // The setting is about the project's own shared design system: a page that names another one sees that one's diffusion.
+  if (current && designSystemId === store.sharedDesignSystemIdOfProject(projectId) && store.projectFollowsDraft(projectId)) {
+    return designSystemInState(store, designSystemId, { kind: "draft", afterDiffusion: current.diffusion });
+  }
+  return current;
 }
 
 /** The current diffusion of a design system, for what is not about a project's own setting (the target of a switch, a diffusion's follow-up). */
