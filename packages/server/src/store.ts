@@ -35,6 +35,7 @@ import {
   NEUTRAL_TOKENS_PAGE_HTML,
   type DesignSystem,
   type InstanceState,
+  type SandboxTrial,
   type DesignMdAuthor,
   type DesignMdVersion,
   type ProjectAsset,
@@ -388,6 +389,7 @@ export class Store {
     addColumn("threads", "rendering", "TEXT");
     addColumn("threads", "cell", "TEXT");
     addColumn("threads", "instance_state", "TEXT");
+    addColumn("threads", "sandbox", "TEXT");
     addColumn("threads", "target_kind", "TEXT NOT NULL DEFAULT 'element'");
     addColumn("threads", "element_id", "TEXT");
     addColumn("threads", "element_kind", "TEXT");
@@ -1479,7 +1481,7 @@ export class Store {
     const placement =
       "target" in request
         ? request.target.kind === "artboard"
-          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, cell: null, instanceState: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null, zone: null }
+          ? { kind: "artboard", artboard: request.target.artboard, selector: "", elementName: null, rendering: null, cell: null, instanceState: null, sandbox: null, xPct: 0, yPct: 0, elementId: null, elementKind: null, elementSummary: null, zone: null }
           : request.target.kind === "zone"
             ? this.zonePlacement(request.target)
             : this.canvasElementPlacement(pageId, request.target)
@@ -1491,6 +1493,7 @@ export class Store {
             rendering: request.rendering ? JSON.stringify({ format: request.rendering.format, width: request.rendering.width }) : null,
             cell: request.cell ? JSON.stringify(request.cell) : null,
             instanceState: request.instanceState ? JSON.stringify(request.instanceState) : null,
+            sandbox: request.sandbox ? JSON.stringify(request.sandbox) : null,
             xPct: request.xPct,
             yPct: request.yPct,
             elementId: null,
@@ -1500,10 +1503,10 @@ export class Store {
           };
     this.db
       .prepare(
-        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, zone, artboard, selector, element_name, rendering, cell, instance_state, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request, link_id, link_author)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO threads (id, page_id, number, target_kind, element_id, element_kind, element_summary, zone, artboard, selector, element_name, rendering, cell, instance_state, sandbox, x_pct, y_pct, title, body, status, created_at, person_id, via_project_id, automatic, request, link_id, link_author)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.zone, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.xPct, placement.yPct, title, request.body, toReview ? "review" : request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null, linkAuthor?.linkId ?? null, linkAuthor?.name ?? null);
+      .run(id, pageId, next, placement.kind, placement.elementId, placement.elementKind, placement.elementSummary, placement.zone, placement.artboard, placement.selector, placement.elementName, placement.rendering, placement.cell, placement.instanceState, placement.sandbox, placement.xPct, placement.yPct, title, request.body, toReview ? "review" : request.held ? "held" : "open", now(), person?.id ?? null, this.viaProjectOf(pageId, request.viaProjectId), automatic ? 1 : 0, designSystemRequest ? JSON.stringify(designSystemRequest) : null, linkAuthor?.linkId ?? null, linkAuthor?.name ?? null);
     this.emit({ type: "thread-updated", pageId, threadId: id });
     return this.getThread(id)!;
   }
@@ -1526,6 +1529,7 @@ export class Store {
       rendering: onArtboard && target.rendering ? JSON.stringify({ format: target.rendering.format, width: target.rendering.width }) : null,
       cell: onArtboard && target.cell ? JSON.stringify(target.cell) : null,
       instanceState: null,
+      sandbox: null,
       xPct: onArtboard ? target.xPct : 0,
       yPct: onArtboard ? target.yPct : 0,
       elementId: null,
@@ -1546,6 +1550,7 @@ export class Store {
       rendering: null,
       cell: null,
       instanceState: null,
+      sandbox: null,
       xPct: 0,
       yPct: 0,
       elementId,
@@ -1842,7 +1847,7 @@ export class Store {
   private listThreadsWithStatus(pageId: string, status: ThreadStatus, withReplies = false): Thread[] {
     const rows = this.db
       .prepare(
-        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.instance_state, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.zone, t.from_review_at, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id, t.created_at
+        `SELECT t.id, t.page_id, t.number, t.artboard, t.selector, t.element_name, t.rendering, t.cell, t.instance_state, t.sandbox, t.target_kind, t.element_id, t.element_kind, t.element_summary, t.zone, t.from_review_at, t.x_pct, t.y_pct, t.title, t.body, t.status, t.person_id, t.created_at
          FROM threads t WHERE t.page_id = ? AND t.status = ? ORDER BY t.created_at, t.rowid`,
       )
       .all(pageId, status) as ThreadRow[];
@@ -2534,7 +2539,7 @@ function toDesignSystem({ archivedAt, ...designSystem }: DesignSystemRow): Desig
 const PROJECT_SELECT = "SELECT id, title, instructions, design_system AS designSystem FROM projects";
 
 const THREAD_SELECT =
-  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, instance_state, target_kind, element_id, element_kind, element_summary, zone, from_review_at, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request, link_id, link_author, created_at FROM threads";
+  "SELECT id, page_id, number, artboard, selector, element_name, rendering, cell, instance_state, sandbox, target_kind, element_id, element_kind, element_summary, zone, from_review_at, x_pct, y_pct, title, body, status, context, new_session, person_id, automatic, request, link_id, link_author, created_at FROM threads";
 
 interface ThreadRow {
   id: string;
@@ -2546,6 +2551,7 @@ interface ThreadRow {
   rendering: string | null;
   cell: string | null;
   instance_state: string | null;
+  sandbox: string | null;
   target_kind: ThreadTarget["kind"];
   element_id: string | null;
   element_kind: ManifestElementKind | null;
@@ -2586,6 +2592,7 @@ function targetOf(row: ThreadRow): ThreadTarget {
     ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
     ...(row.cell ? { cell: JSON.parse(row.cell) as TweakValues } : {}),
     ...(row.instance_state ? { instanceState: JSON.parse(row.instance_state) as InstanceState[] } : {}),
+    ...(row.sandbox ? { sandbox: JSON.parse(row.sandbox) as SandboxTrial } : {}),
   };
 }
 
@@ -2611,6 +2618,7 @@ function toThread(row: ThreadRow, replies: ThreadReply[]): Thread {
     ...(row.rendering ? { rendering: JSON.parse(row.rendering) as ThreadRendering } : {}),
     ...(row.cell ? { cell: JSON.parse(row.cell) as TweakValues } : {}),
     ...(row.instance_state ? { instanceState: JSON.parse(row.instance_state) as InstanceState[] } : {}),
+    ...(row.sandbox ? { sandbox: JSON.parse(row.sandbox) as SandboxTrial } : {}),
     xPct: row.x_pct,
     yPct: row.y_pct,
     title: row.title,

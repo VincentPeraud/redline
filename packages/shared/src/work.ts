@@ -1,3 +1,4 @@
+import type { SandboxTrial } from "./sandbox.js";
 // Engine events and work items: the contract between server, agent and engine adapters (ticket 07).
 
 import type { CommentMode, CreatedPage, ThreadRendering, ThreadTarget } from "./index.js";
@@ -275,6 +276,8 @@ export interface MessageContext {
   tweaks: { label: string; value: string }[];
   /** Elements the user points at, in order (numbered from 1 for Claude); same kinds as a thread's target. */
   targets?: ThreadTarget[];
+  /** The component sandbox open beside an artboard when the message was sent: its artboard and what it shows. */
+  sandbox?: { artboard: string; trial: SandboxTrial };
 }
 
 /** Body of `POST /api/conversations/:id/messages`; model and effort apply from this message on. */

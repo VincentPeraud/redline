@@ -89,6 +89,15 @@ describe("running a thread with the fake engine", () => {
     expect(engine.runs[0].message).toContain("vu avec confirm ouverte");
   });
 
+  it("tells the session what the component sandbox showed when the comment was written in it", async () => {
+    const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
+    seam = await startSeam2(engine);
+    const page = await seam.createPage(PAGE_FILES);
+    await seam.pinThread(page.id, "home.html", "Padding off", { sandbox: { values: { variant: "secondary", fullWidth: false }, slots: { "": "Enregistrer" } } });
+    await engine.finished(1);
+    expect(engine.runs[0].message).toContain("on artboard home.html (vu en bac à sable : secondary · fullWidth off, slot default « Enregistrer »: the user commented a lone instance");
+  });
+
   it("does not mention a rendering for a comment on a plain artboard", async () => {
     const engine = new FakeEngine([{ type: "result", summary: "Nothing to change" }]);
     seam = await startSeam2(engine);
