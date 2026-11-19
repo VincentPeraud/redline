@@ -219,7 +219,8 @@ export function SandboxCard({ name, file, src, cellWidth, width, style, tweaks, 
               marks={shownMarks}
               tweaks={EMPTY_TWEAKS}
               sandbox={sandboxProp}
-              onPick={(pick) => trial && onPick(pick, trial)}
+              // The lone instance is built after load: the bridge sees its attributes as a state of its own, which the trial already holds.
+              onPick={({ instanceState: _state, ...pick }) => trial && onPick(pick, trial)}
               onEscape={onEscape}
               onDocHeight={setDocHeight}
             />

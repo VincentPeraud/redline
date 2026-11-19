@@ -104,7 +104,8 @@ function ThreadHeader({ thread, waitingForAgent, withAgent, children }: { thread
         </>
       )}
       <SandboxSeen thread={thread} />
-      <InstanceThreadInfo thread={thread} />
+      {/* In the sandbox the element is always inside the lone instance, whose state the trial already says. */}
+      {!thread.sandbox && <InstanceThreadInfo thread={thread} />}
     </>
   );
 }

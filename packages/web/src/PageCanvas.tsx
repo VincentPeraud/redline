@@ -906,7 +906,8 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     const cellWidth = artboard.width;
     const width = Math.min(Math.max(SANDBOX_MIN_WIDTH, cellWidth + 2), viewportSize.width - 2 * margin);
     const left = Math.max(margin, Math.min(view.x + (box.x + box.width) * view.zoom + 12, viewportSize.width - width - margin));
-    const top = Math.max(margin, Math.min(view.y + box.y * view.zoom, viewportSize.height - 240));
+    // Hooked to the artboard's top, kept on screen with room for the preview and a few settings; the settings scroll below.
+    const top = Math.max(margin, Math.min(view.y + box.y * view.zoom, viewportSize.height - 420));
     const pinnable = (t: Thread) => t.status !== "resolved" || unfoldedResolved.has(t.id);
     return (
       <SandboxCard
@@ -916,7 +917,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         src={`${artboardOrigin}/pages/${pageId}/${sandbox.file}?sandbox=1`}
         cellWidth={cellWidth}
         width={width}
-        style={{ left, top }}
+        style={{ left, top, maxHeight: viewportSize.height - top - margin }}
         tweaks={artboardTweaks(sandbox.file)}
         threads={threads.filter((t) => t.sandbox && t.artboard === sandbox.file && pinnable(t))}
         picking={picking}
