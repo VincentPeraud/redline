@@ -149,6 +149,13 @@ export function SandboxCard({ name, file, src, version, cellWidth, width, style,
   }, [trial, slotLabels]);
   useEffect(() => () => onTrial(null, {}), [onTrial]);
 
+  // A cell wider than the card: the preview opens on its middle, where the stage centres the instance.
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = scroller.current;
+    if (info && box) box.scrollLeft = (box.scrollWidth - box.clientWidth) / 2;
+  }, [info]);
+
   const reportErrors = useCallback((_frameId: string, reported: string[]) => setErrors(reported), []);
   const sandboxProp = useMemo(() => ({ trial, onInfo: setInfo }), [trial]);
 
@@ -213,7 +220,7 @@ export function SandboxCard({ name, file, src, version, cellWidth, width, style,
             )}
           </div>
         )}
-        <div className={cx(styles.frameScroll, (info === null || gone || errors.length > 0) && styles.frameHidden)} style={{ height: previewHeight }}>
+        <div ref={scroller} className={cx(styles.frameScroll, (info === null || gone || errors.length > 0) && styles.frameHidden)} style={{ height: previewHeight }}>
           <ArtboardErrorsContext.Provider value={reportErrors}>
             <ArtboardFrame
               key={`${version}:${frameKey}`}
