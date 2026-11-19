@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { instanceTagOf } from "@redline/shared";
-import type { DesignMdVersion, DesignSystemSummary, DesignSystemSwitchPreview, ExcludedComponent, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
+import type { BrokenPage, BrokenPagesAnswer, DesignMdVersion, DesignSystemSummary, DesignSystemSwitchPreview, ExcludedComponent, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
 import type { MoveUpComponentRequest } from "@redline/shared";
 import { dayLabel, designMdStatus, metaLine, originLabel } from "./historyLabels.js";
 import { useWho } from "./useMe.js";
@@ -11,6 +11,7 @@ import { routeHref } from "./router.js";
 import { Button, DIALOG_EXIT_MS, Dialog, DialogActions, Field, Logo, SegmentedControl, Select, TextInput, Tooltip, cx } from "./ui/index.js";
 import styles from "./ProjectDesignSystemScreen.module.css";
 import { useDocumentTitle } from "./documentTitle.js";
+import { BrokenPagesDialog } from "./BrokenPagesDialog.js";
 import { SwitchDesignSystemDialog } from "./SwitchDesignSystemDialog.js";
 
 const CHEVRON = (
@@ -311,6 +312,8 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   const [error, setError] = useState<string | null>(null);
   /** The follow setting a save did not reach the server with: the line says so and offers to retry it. */
   const [failedFollow, setFailedFollow] = useState<Follows | null>(null);
+  /** Turning on the draft would break these pages: the dialog asks before switching anyway; `failed` once the confirmation did not reach the server. */
+  const [breaking, setBreaking] = useState<{ pages: BrokenPage[]; failed: boolean } | null>(null);
 
   const loadVersions = useCallback(
     () =>
@@ -378,16 +381,22 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
     await change(fetch(`/api/projects/${projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
   }
 
-  async function applyFollow(target: Follows) {
-    const body: SetProjectDesignSystemRequest = { followsDraft: target === "draft" };
-    const saved = await fetch(`/api/projects/${projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then(
-      (res) => (res.ok ? (res.json() as Promise<ProjectDesignSystem>) : null),
-      () => null,
-    );
-    setFailedFollow(saved ? null : target);
-    if (!saved) return;
+  /** Whether the change reached the server (a 409 asks the dialog first and counts as not applied). */
+  async function applyFollow(target: Follows, confirm = false): Promise<boolean> {
+    const body: SetProjectDesignSystemRequest = { followsDraft: target === "draft", ...(confirm && { confirm }) };
+    const res = await fetch(`/api/projects/${projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+    if (res?.status === 409) {
+      setFailedFollow(null);
+      setBreaking({ pages: ((await res.json()) as BrokenPagesAnswer).brokenPages, failed: false });
+      return false;
+    }
+    const saved = res?.ok ? ((await res.json()) as ProjectDesignSystem) : null;
+    if (confirm) setBreaking((current) => current && { ...current, failed: !saved });
+    else setFailedFollow(saved ? null : target);
+    if (!saved) return false;
     setDetail(saved);
     await loadVersions();
+    return true;
   }
 
   const takeComponent = (name: string) => change(fetch(`/api/projects/${projectId}/design-system/components/${encodeURIComponent(name)}/take`, { method: "POST" }));
@@ -648,6 +657,16 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
             setSwitching(null);
             await applyDesignSystem(switching.to.id, ticked);
           }}
+        />
+      )}
+      {breaking && shared && (
+        <BrokenPagesDialog
+          designSystemTitle={shared.title}
+          pendingChanges={detail.pendingChanges}
+          pages={breaking.pages}
+          failed={breaking.failed}
+          onConfirm={() => applyFollow("draft", true)}
+          onClose={() => setBreaking(null)}
         />
       )}
       {movingUp && shared && (

@@ -91,6 +91,49 @@ export interface SetProjectDesignSystemRequest {
    * every other used component is left out. Omitted: the pre-ticked ones (same name, same settings and slots).
    */
   ticked?: string[];
+  /** Applies a change of `followsDraft` even though it breaks pages (`brokenPages` of the 409 answer), and opens a thread on each. */
+  confirm?: boolean;
+}
+
+/** What a page uses that the state a project is switching to no longer offers. */
+export type BrokenElementKind = "component" | "setting" | "value" | "slot" | "token";
+
+/** Where a broken element is written: an artboard of the page (its title, or its file) and, for an instance, how many times. */
+export interface BrokenPlace {
+  artboard: string;
+  instances?: number;
+}
+
+export interface BrokenElement {
+  kind: BrokenElementKind;
+  /** What to show in code font: the tag (`ui-badge`) of an instance's component, or the token (`--color-accent-soft`). */
+  name: string;
+  /** The setting of a `setting` or `value` element. */
+  setting?: string;
+  /** The choice value of a `value` element. */
+  value?: string;
+  /** The slot of a `slot` element. */
+  slot?: string;
+  /** For a token: the one new token with the same value in the target state, when there is exactly one. */
+  renamedTo?: string;
+  /** A component, setting, value or slot makes publishing the page refuse; a token only renders without it. */
+  blocksPublishing: boolean;
+  places: BrokenPlace[];
+}
+
+/** A page of a project that breaks when the project switches between the latest diffusion and the draft of its design system. */
+export interface BrokenPage {
+  pageId: string;
+  title: string;
+  /** The first artboard (file) of the page writing a broken element: where the thread opens. */
+  artboard: string;
+  elements: BrokenElement[];
+}
+
+/** 409 answer of `PUT /api/projects/:id/design-system` when the change breaks pages and the request does not confirm: nothing was switched. */
+export interface BrokenPagesAnswer {
+  error: string;
+  brokenPages: BrokenPage[];
 }
 
 /** How a used component compares with the target design system's current diffusion. */
