@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { DraftChangeUsers } from "@redline/shared";
 import { Button, DIALOG_EXIT_MS, Dialog, DialogActions, Field, Textarea } from "./ui/index.js";
 import styles from "./RefuseDialog.module.css";
 
@@ -7,9 +8,11 @@ export interface RefusalTarget {
   /** « Refuser « <label> » », or « Refuser la demande sur ui-x » for a whole request. */
   title: string;
   url: string;
+  /** Route listing the pages of projects on the draft that use the change; absent for a whole request. */
+  usersUrl?: string;
 }
 
-export const refuseChangeTarget = (changeId: string, label: string): RefusalTarget => ({ title: `Refuser « ${label} »`, url: `/api/changes/${changeId}/refuse` });
+export const refuseChangeTarget = (changeId: string, label: string): RefusalTarget => ({ title: `Refuser « ${label} »`, url: `/api/changes/${changeId}/refuse`, usersUrl: `/api/changes/${changeId}/draft-users` });
 export const refuseRequestTarget = (threadId: string, tag: string): RefusalTarget => ({ title: `Refuser la demande sur ${tag}`, url: `/api/threads/${threadId}/refuse` });
 
 /** Small dialog over the content: the user may explain a refusal (facultatif); Annuler refuses nothing. */
@@ -17,6 +20,18 @@ export function RefuseDialog({ target, onClose, onRefused }: { target: RefusalTa
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [draftPages, setDraftPages] = useState<DraftChangeUsers["pages"]>([]);
+
+  useEffect(() => {
+    if (!target.usersUrl) return;
+    let current = true;
+    void fetch(target.usersUrl)
+      .then((response) => response.json() as Promise<DraftChangeUsers>)
+      .then((users) => current && setDraftPages(users.pages));
+    return () => {
+      current = false;
+    };
+  }, [target.usersUrl]);
 
   const close = (after: () => void) => {
     setClosing(true);
@@ -45,6 +60,18 @@ export function RefuseDialog({ target, onClose, onRefused }: { target: RefusalTa
 
   return (
     <Dialog title={target.title} onClose={() => close(onClose)} width={480} gap={16} closing={closing}>
+      {draftPages.length > 0 && (
+        <div className={styles.draftPages} data-testid="refuse-draft-pages">
+          <p>Ces pages de projets sur le brouillon utilisent ce composant, elles seront touchées :</p>
+          <ul>
+            {draftPages.map((page) => (
+              <li key={page.pageId}>
+                {page.projectTitle} · {page.pageTitle}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <Field label="Ta réponse" optional>
         <Textarea value={answer} onChange={(event) => setAnswer(event.target.value)} rows={4} className={styles.answer} autoFocus data-testid="refuse-answer" />
       </Field>

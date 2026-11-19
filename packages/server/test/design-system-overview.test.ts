@@ -74,8 +74,8 @@ describe("design system overview data", () => {
     });
 
     const usedBy = (await detailOf(ds.id)).usedBy;
-    expect(usedBy.find((p) => p.id === halloween.id)).toEqual({ id: halloween.id, title: "Halloween", overrideCount: 2, componentCount: 1 });
-    expect(usedBy.find((p) => p.id === plain.id)).toEqual({ id: plain.id, title: "Plain", overrideCount: 0, componentCount: 0 });
+    expect(usedBy.find((p) => p.id === halloween.id)).toEqual({ id: halloween.id, title: "Halloween", overrideCount: 2, componentCount: 1, followsDraft: false });
+    expect(usedBy.find((p) => p.id === plain.id)).toEqual({ id: plain.id, title: "Plain", overrideCount: 0, componentCount: 0, followsDraft: false });
   });
 
   it("lists each diffusion with what it changed since the previous one", async () => {
