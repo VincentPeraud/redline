@@ -20,7 +20,7 @@ import { useDocumentTitle } from "./documentTitle.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
 import { NewPageDialog } from "./NewPageDialog.js";
 import { PageCanvasPhoto, usePageManifest } from "./CanvasPhoto.js";
-import { overrideCountLabel, projectComponentCountLabel } from "./diffusionLabels.js";
+import { draftStatusLine, overrideCountLabel, projectComponentCountLabel } from "./diffusionLabels.js";
 import { counted } from "./plural.js";
 import { previewSwatches } from "./projectDesignSystemLabels.js";
 import { subscribeServerEvents } from "./serverEvents.js";
@@ -145,8 +145,9 @@ function DesignSystemBox({ projectId, detail, readOnly }: { projectId: string; d
             <>
               <div className={styles.dsNameRow}>
                 <span className={styles.dsName}>{detail.designSystem.title}</span>
-                <span className={styles.dsDiffusion}>diffusion {detail.diffusion.number}</span>
+                {detail.followsDraft ? <span className={styles.dsDraftBadge}>suit le brouillon</span> : <span className={styles.dsDiffusion}>diffusion {detail.diffusion.number}</span>}
               </div>
+              {detail.followsDraft && <span className={styles.dsMeta}>{draftStatusLine(detail.pendingChanges, detail.diffusion.number)}</span>}
               <div className={styles.dsPills}>
                 <span className={styles.dsPillWarning}>{overrideCountLabel(detail.overrideCount)}</span>
                 <span className={styles.dsPillNeutral}>{components}</span>

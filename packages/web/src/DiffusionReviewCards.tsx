@@ -4,7 +4,7 @@ import { routeHref, type Route } from "./router.js";
 import { agree } from "./plural.js";
 import { RelaunchClaude } from "./RelaunchClaude.js";
 import { RefuseDialog, refuseChangeTarget } from "./RefuseDialog.js";
-import { changeLabel, componentsHeading, keptByText, movedUpText, nowhereYetText, originText, tokensWhereText, whereSummary } from "./reviewLabels.js";
+import { alreadyVisibleText, changeLabel, componentsHeading, keptByText, movedUpText, nowhereYetText, originText, tokensWhereText, whereSummary } from "./reviewLabels.js";
 import { cx } from "./ui/index.js";
 import styles from "./DiffusionReviewCards.module.css";
 
@@ -102,6 +102,9 @@ function WhereLine({ title, children, aside }: { title: string; children: ReactN
   );
 }
 
+/** " · déjà visible dans App": the where-line ending for projects that follow the draft; nothing when none does. */
+const withDraftProjects = (titles: string[]): string => (titles.length === 0 ? "" : ` · ${alreadyVisibleText(titles)}`);
+
 const KIND_PILL = { changed: ["modifié", styles.pillChanged], added: ["nouveau", styles.pillAdded], removed: ["supprimé", styles.pillRemoved] } as const;
 
 /** A link of a card header; it leaves the dialog behind (`onNavigate`) when it goes to another screen of the same tab. */
@@ -113,7 +116,7 @@ function CardLink({ route, onNavigate, children }: { route: Route; onNavigate: (
   );
 }
 
-function ComponentCard({ component, designSystemId, onRefused, onNavigate }: { component: ReviewComponent; designSystemId: string; onRefused: () => void; onNavigate: () => void }) {
+function ComponentCard({ component, designSystemId, onDraft, onRefused, onNavigate }: { component: ReviewComponent; designSystemId: string; /** Titles of the projects that follow the draft. */ onDraft: string[]; onRefused: () => void; onNavigate: () => void }) {
   const [open, setOpen] = useState(false);
   const { where } = component;
   const [pillText, pillClass] = KIND_PILL[component.kind];
@@ -144,6 +147,7 @@ function ComponentCard({ component, designSystemId, onRefused, onNavigate }: { c
                 }
               >
                 {whereSummary(where.instances, where.pages.length)}
+                {withDraftProjects(onDraft.filter((title) => where.pages.some((page) => page.projectTitle === title)))}
               </WhereLine>
               {open && (
                 <div className={styles.rows}>
@@ -176,6 +180,7 @@ function ComponentCard({ component, designSystemId, onRefused, onNavigate }: { c
 /** The cards of the Diffuse dialog: tokens and DESIGN.md first, then one card per component whose definition differs. */
 export function DiffusionReviewCards({ review, detail, onRefused, onNavigate }: { review: DiffusionReview; detail: DesignSystemDetail; /** A change was refused: the review has to be read again. */ onRefused: () => void; /** A card link opens another screen: the dialog has to close. */ onNavigate: () => void }) {
   const designMdRoute: Route = { name: "designMd", projectId: detail.id };
+  const onDraft = detail.usedBy.filter((user) => user.followsDraft).map((user) => user.title);
   const hasTokenCards = review.tokens.length > 0 || review.designMdChanged;
   return (
     <section className={styles.section}>
@@ -192,7 +197,10 @@ export function DiffusionReviewCards({ review, detail, onRefused, onNavigate }: 
             ))}
           </ChangesList>
           <div className={styles.block}>
-            <WhereLine title="Où ça change">{tokensWhereText(review.projects)}</WhereLine>
+            <WhereLine title="Où ça change">
+              {tokensWhereText(review.projects)}
+              {withDraftProjects(onDraft.filter((title) => review.projects.includes(title)))}
+            </WhereLine>
             {detail.overrides.map((project) => (
               <div key={project.id} className={styles.warning} data-testid="diffusion-override">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={styles.warningIcon}>
@@ -228,7 +236,7 @@ export function DiffusionReviewCards({ review, detail, onRefused, onNavigate }: 
         </ReviewCard>
       )}
       {review.components.length > 0 && <h3 className={cx(styles.sectionTitle, hasTokenCards && styles.afterCards)}>{componentsHeading(review.components.length)}</h3>}
-      {review.components.map((component) => <ComponentCard key={component.name} component={component} designSystemId={detail.id} onRefused={onRefused} onNavigate={onNavigate} />)}
+      {review.components.map((component) => <ComponentCard key={component.name} component={component} designSystemId={detail.id} onDraft={onDraft} onRefused={onRefused} onNavigate={onNavigate} />)}
     </section>
   );
 }
