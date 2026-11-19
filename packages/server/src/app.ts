@@ -79,6 +79,7 @@ import { brokenPagesAtDiffusion, instanceChangesError, rollbackInstancesError } 
 import { settleMovedUp } from "./move-up.js";
 import { refuseChange, refuseRequest, relaunchUndo } from "./refusals.js";
 import { settleUndoneChanges } from "./undone-changes.js";
+import { draftPagesUsing, watchDraftRemovals } from "./draft-removals.js";
 import { closeDiffusedRequests, requestsClosedBy, returnPendingOn } from "./diffusion-returns.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
@@ -401,6 +402,11 @@ export async function buildMainApp(
   });
 
   // "Refuser" is a user action of the web UI: on a change born of a request, or on a whole request.
+  app.get<{ Params: { changeId: string } }>("/api/changes/:changeId/draft-users", async (req, reply) => {
+    const change = store.getChange(req.params.changeId);
+    if (!change) return reply.code(404).send({ error: "change not found" });
+    return draftPagesUsing(store, change.designSystemId, change.component);
+  });
   app.post<{ Params: { changeId: string }; Body: { answer?: unknown } | undefined }>("/api/changes/:changeId/refuse", async (req, reply) => {
     const outcome = refuseChange(store, pageLock, req.params.changeId, req.body?.answer);
     return reply.code(outcome.status).send(outcome.body);
@@ -780,8 +786,10 @@ export async function buildMainApp(
       const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files) ?? removalsError(store, req.params.pageId, req.body.files, req.body.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true) ?? instanceChangesError(store, req.params.pageId, req.body.files, req.body.confirmRemovals === true);
       if (invalid) return reply.code(400).send({ error: invalid });
       const { files, message, origin } = req.body;
+      const reportRemovals = watchDraftRemovals(store, pageLock, req.params.pageId);
       const version = store.addVersion(req.params.pageId, files, message, origin, personRef(req));
       settleUndoneChanges(store, req.params.pageId);
+      reportRemovals();
       return reply.code(201).send(version);
     },
   );
@@ -812,9 +820,11 @@ export async function buildMainApp(
       const onDraft = restoresDraftVersionOnDiffusion(store, req.params.pageId, req.params.versionId);
       const invalid = files && (versionComponentsError(store, req.params.pageId, files, !onDraft) ?? removalsError(store, req.params.pageId, files, undefined, false) ?? instanceChangesError(store, req.params.pageId, files, false));
       if (invalid) return reply.code(400).send({ error: invalid });
+      const reportRemovals = watchDraftRemovals(store, pageLock, req.params.pageId);
       const restored = store.restoreVersion(req.params.pageId, req.params.versionId, personRef(req), timeZone);
       if (restored) {
         settleUndoneChanges(store, req.params.pageId);
+        reportRemovals();
         if (onDraft && files) openDraftRestoreThread(store, pageLock, req.params.pageId, files);
       }
       return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });

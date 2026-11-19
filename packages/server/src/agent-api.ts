@@ -45,6 +45,7 @@ import { moveArtboard } from "./move-artboard.js";
 import { sendRequest } from "./requests.js";
 import { askToUndoRefused } from "./refusals.js";
 import { settleUndoneChanges } from "./undone-changes.js";
+import { watchDraftRemovals } from "./draft-removals.js";
 import { changesError, mergeRequests } from "./change-records.js";
 import { ARCHIVED_PAGE_ERROR, archivableExists, archivePage, archiveProject, archivedError, projectOrDesignSystem } from "./archive.js";
 import { accountLevelIn, type Access, type Viewer } from "./access.js";
@@ -363,6 +364,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const terminalFolder = origin === "terminal" && req.body.terminalSessionId !== undefined ? terminalSessions.folderOf(req.body.terminalSessionId) : undefined;
           const ref: OriginRef | undefined = from ? { originId: from.originId, originLabel: from.originLabel, person: from.person } : terminalFolder ? { originLabel: folderName(terminalFolder), terminalSessionId: req.body.terminalSessionId } : undefined;
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
+          const reportRemovals = watchDraftRemovals(store, pageLock, req.params.pageId);
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
           // The folder of a conversation that publishes a page knows it for its reminder line, as after a checkout.
           const label = origin === "terminal" && req.body.terminalSessionId !== undefined ? terminalSessions.labelOf(req.body.terminalSessionId) : undefined;
@@ -371,6 +373,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           settleUndoneChanges(store, req.params.pageId);
           if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());
           if (styleChanged) store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(projectStyle.content, "utf8"), author());
+          reportRemovals();
           const { gaps } = agentGaps(store, req.params.pageId, result.files);
           return reply.code(201).send({ ...version, ...(result.merged ? { merged: true } : {}), gaps });
         };
