@@ -82,7 +82,7 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
     }),
   );
 
-  const last = store.listDesignMdVersions(projectId, PROJECT_STYLE_PATH)[0];
+  const last = store.listDesignMdVersions(projectId, PROJECT_STYLE_PATH).find((version) => !version.setting);
   return {
     designSystem: shared ? { id: shared.id, title: shared.title } : null,
     diffusion: diffusion ?? null,
@@ -179,7 +179,7 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
     }
     if (followsDraft !== undefined) {
       if (store.sharedDesignSystemIdOfProject(projectId) === undefined) return reply.code(400).send({ error: "the project has no shared design system to follow" });
-      store.setProjectFollowsDraft(projectId, followsDraft);
+      store.changeFollowsDraft(projectId, followsDraft, req.person);
     }
     return projectDesignSystem(store, projectId);
   });
