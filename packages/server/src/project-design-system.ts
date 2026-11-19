@@ -17,6 +17,7 @@ import {
   type ManifestArtboard,
   type ManifestTitleElement,
   type ManifestTweak,
+  type BrokenPagesAnswer,
   type MoveUpComponentRequest,
   type ProjectComponentInfo,
   type ProjectDesignSystem,
@@ -25,6 +26,8 @@ import {
   type SetProjectTokenRequest,
   type SetProjectDesignSystemRequest,
 } from "@redline/shared";
+import { brokenPagesOnFollowChange, openBrokenPageThreads } from "./broken-pages.js";
+import type { PageLock } from "./page-lock.js";
 import { componentFilesOf, instanceNamesByPage, projectComponents } from "./components.js";
 import { currentDiffusionOf, designSystemSeenBy } from "./design-system-view.js";
 import { pendingChangeCount } from "./diffusion-review.js";
@@ -152,7 +155,7 @@ export function designSystemChangeError(store: Store, designSystem: unknown): st
   return null;
 }
 
-export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: Store): void {
+export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: Store, pageLock: PageLock): void {
   const hasProjectStyle = (projectId: string) => store.projectExists(projectId) && !store.isDesignSystemProject(projectId);
   const styleOf = (projectId: string) => store.readProjectText(projectId, PROJECT_STYLE_PATH);
   const save = (req: FastifyRequest, projectId: string, css: string) => store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(css, "utf8"), editorAuthor(req));
@@ -178,8 +181,19 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
       switchDesignSystem(store, projectId, designSystem, "user", req.person, req.body?.ticked);
     }
     if (followsDraft !== undefined) {
-      if (store.sharedDesignSystemIdOfProject(projectId) === undefined) return reply.code(400).send({ error: "the project has no shared design system to follow" });
-      store.changeFollowsDraft(projectId, followsDraft, req.person);
+      const sharedId = store.sharedDesignSystemIdOfProject(projectId);
+      if (sharedId === undefined) return reply.code(400).send({ error: "the project has no shared design system to follow" });
+      if (followsDraft && !store.projectFollowsDraft(projectId)) {
+        const brokenPages = brokenPagesOnFollowChange(store, projectId, true);
+        if (brokenPages.length > 0 && req.body?.confirm !== true) {
+          const answer: BrokenPagesAnswer = { error: "the draft removes what pages of the project use: confirm to switch anyway", brokenPages };
+          return reply.code(409).send(answer);
+        }
+        store.changeFollowsDraft(projectId, true, req.person);
+        openBrokenPageThreads(store, pageLock, brokenPages, "Retrait dans le design system", `Le brouillon du design system « ${store.getDesignSystem(sharedId)!.title} » a retiré ce que cette page utilise`);
+      } else {
+        store.changeFollowsDraft(projectId, followsDraft, req.person);
+      }
     }
     return projectDesignSystem(store, projectId);
   });

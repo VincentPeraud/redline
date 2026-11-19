@@ -197,7 +197,7 @@ export async function buildMainApp(
   accountChanges.roleChanged.push(() => freeTakesLostAccess(store, pageLock));
   await registerAgentApi(app, store, pageLock, terminalSessions, access, config, options.publicUrl);
   await registerProjectFileRoutes(app, store);
-  registerProjectDesignSystemRoutes(app, store);
+  registerProjectDesignSystemRoutes(app, store, pageLock);
   registerEventRoutes(app, store, pageLock, access, options.eventsKeepAliveMs);
   registerLinkRoutes(app, store, access);
   registerProjectSharingRoutes(app, store, access, pageLock);
