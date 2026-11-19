@@ -1070,6 +1070,11 @@ export class Store {
     return row?.followsDraft === 1 && this.sharedDesignSystemIdOfProject(projectId) !== undefined;
   }
 
+  /** The active projects that follow the draft of `designSystemId`: the ones that see its pages' changes right away. */
+  projectsFollowingDraft(designSystemId: string): ProjectUsingDesignSystem[] {
+    return this.projectsUsingDesignSystem(designSystemId).filter((project) => !project.archived && this.projectFollowsDraft(project.id));
+  }
+
   setProjectFollowsDraft(projectId: string, followsDraft: boolean): void {
     this.db.prepare("UPDATE projects SET follows_draft = ? WHERE id = ?").run(followsDraft ? 1 : 0, projectId);
   }
@@ -1736,7 +1741,7 @@ export class Store {
 
   /**
    * Records what a design system's session changed in the version it published. A change linked to a request that is still
-   * `in_progress` turns it to `done_in_draft`; a refused or closed request keeps its state.
+   * `in_progress` turns it to `done_in_draft` (and closes it when every requester follows the draft); a refused or closed request keeps its state.
    */
   recordChanges(designSystemId: string, versionId: string, changes: ChangeRecordInput[]): ChangeRecord[] {
     const createdAt = now();
@@ -1753,6 +1758,7 @@ export class Store {
       createdAt,
     }));
     const kept: ChangeRecord[] = [];
+    const servedInDraft: string[] = [];
     this.db.transaction(() => {
       const insert = this.db.prepare("INSERT INTO component_changes (id, design_system_id, component, label, kind, state, thread_id, anchor, version_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       for (const record of records) {
@@ -1769,9 +1775,18 @@ export class Store {
         if (refusedRequest) record.state = "refused";
         insert.run(record.id, designSystemId, record.component, record.label, record.kind, record.state, record.threadId ?? null, record.anchor ? JSON.stringify(record.anchor) : null, versionId, createdAt);
         kept.push(record);
-        if (answered && !refusedRequest) this.updateRequest(answered, (request) => (request.state === "in_progress" ? { ...request, state: "done_in_draft" } : request));
+        if (answered && !refusedRequest) {
+          // A request whose requesters all follow the draft already has what it asked for: it closes now, and the diffusion only moves it to "diffused".
+          this.updateRequest(answered, (request) => {
+            if (request.state !== "in_progress") return request;
+            const served = request.origins.every((origin) => this.projectFollowsDraft(origin.projectId));
+            if (served && !servedInDraft.includes(answered)) servedInDraft.push(answered);
+            return { ...request, state: "done_in_draft", ...(served ? { closedInDraft: true } : {}) };
+          });
+        }
       }
     })();
+    for (const threadId of servedInDraft) this.resolveThread(threadId);
     return kept;
   }
 

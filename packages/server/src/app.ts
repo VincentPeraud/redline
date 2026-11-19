@@ -358,7 +358,7 @@ export async function buildMainApp(
       }),
       usedBy: usedBy.map((project) => {
         const style = projectDesignSystem(store, project.id);
-        return { ...project, overrideCount: style.overrideCount, componentCount: style.components.length };
+        return { ...project, overrideCount: style.overrideCount, componentCount: style.components.length, followsDraft: !project.archived && store.projectFollowsDraft(project.id) };
       }),
       componentCount: components.length,
       tokenCount: draftTokens.length,

@@ -89,7 +89,7 @@ export interface ProjectContext {
   /** Project sessions: the component files (`components/<name>.html`) of every page of the project, written to `.project-components/` (read-only). Absent for a design system's own pages. */
   projectComponents?: Record<string, string>;
   /** Design system sessions: the design system whose draft (tokens, DESIGN.md, pages) the session edits. */
-  editsDesignSystem?: { id: string; title: string };
+  editsDesignSystem?: { id: string; title: string; /** Active projects that follow its draft: they see a published change right away. */ followedBy: { id: string; title: string }[] };
 }
 
 /** What a project session is told about its design system. */

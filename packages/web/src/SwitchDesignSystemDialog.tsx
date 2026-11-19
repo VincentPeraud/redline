@@ -41,6 +41,11 @@ export function SwitchDesignSystemDialog({
       <p className={styles.lead}>
         Les composants cochés prennent la version de {preview.to.title}. Les autres s'afficheront en erreur dans leurs pages, jusqu'à ce que tu décides quoi en faire. Rien n'est converti automatiquement.
       </p>
+      {preview.followsDraft && (
+        <p className={styles.lead} data-testid="switch-follows-latest">
+          Le projet suivra la dernière diffusion de {preview.to.title}.
+        </p>
+      )}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>
           Composants de {fromTitle} utilisés dans {projectTitle} · {preview.components.length}

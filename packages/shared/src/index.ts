@@ -213,6 +213,8 @@ export interface CreateVersionRequest {
    * of pages, unless this is true (Claude asks the user first).
    */
   confirmRemovals?: boolean;
+  /** Whether the project followed the design system draft when the page was checked out; the publish is refused when the setting changed since. */
+  followsDraft?: boolean;
   /** `/agent-api` design system pages only: the changes the session made per component, recorded with the version. */
   changes?: ChangeRecordInput[];
 }

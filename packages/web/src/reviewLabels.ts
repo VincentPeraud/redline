@@ -1,7 +1,7 @@
 import type { ReviewChange, ReviewOrigin } from "@redline/shared";
 import { agree, counted } from "./plural.js";
 
-const list = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}` : (items[0] ?? ""));
+export const list = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}` : (items[0] ?? ""));
 
 export function originText(origin: ReviewOrigin): string {
   if (origin.kind === "direct") return "fait directement dans le design system";
@@ -14,6 +14,9 @@ const de = (title: string) => (/^[aeiouyhàâéèêëîïôû]/i.test(title) ? `
 export function tokensWhereText(projects: string[]): string {
   return projects.length === 0 ? "Aucun projet n’utilise encore ce design system" : `Toutes les pages ${list(projects.map(de))}`;
 }
+
+/** "déjà visible dans App et Site": projects that follow the draft already show the change. */
+export const alreadyVisibleText = (projects: string[]): string => `déjà visible dans ${list(projects)}`;
 
 /** "12 instances dans 6 pages de projets". */
 export const whereSummary = (instances: number, pages: number): string =>

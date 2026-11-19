@@ -14,6 +14,12 @@ import {
 } from "@redline/shared";
 import { ensureGitignored } from "./link.js";
 
+/** Whether the checkout's `.design-system/` holds the draft; undefined when the project has no shared design system. */
+export function followsDraftOf(checkout: AgentCheckout): boolean | undefined {
+  const { designSystem } = checkout.project;
+  return designSystem === undefined ? undefined : designSystem.draft === true;
+}
+
 /** Location of a page's working copy inside the agent's folder: `.redline/<pageId>/`. */
 export function workingCopyDir(folder: string, pageId: string): string {
   if (!isUuid(pageId)) throw new Error(`Invalid page id: ${pageId}`);

@@ -103,7 +103,7 @@ export function projectContext(store: Store, pageId: string): ProjectContext {
     // A project's style, or the draft tokens of a design system's own project: the same root file either way.
     projectStyle: store.readProjectText(page.projectId, PROJECT_STYLE_PATH),
     ...(own
-      ? { editsDesignSystem: { id: own.id, title: own.title } }
+      ? { editsDesignSystem: { id: own.id, title: own.title, followedBy: store.projectsFollowingDraft(own.id).map(({ id, title }) => ({ id, title })) } }
       : {
           projectComponents: componentFilesOf(store, page.projectId),
           ...(sharedDesignSystemId === undefined ? {} : { designSystem: designSystemContext(store, page.projectId, sharedDesignSystemId) }),

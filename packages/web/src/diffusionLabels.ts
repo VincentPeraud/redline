@@ -50,9 +50,25 @@ export function usedByHeading(count: number): string {
   return count === 0 ? "Utilisé par aucun projet" : `Utilisé par ${projectCountLabel(count)}`;
 }
 
-export function userSummary(user: DesignSystemUser): string {
+/** "· 1 sur le brouillon", after the "Utilisé par N projets" heading; empty when no project follows the draft. */
+export const onDraftCountLabel = (count: number): string => (count === 0 ? "" : `· ${count} sur le brouillon`);
+
+export function userSummary(user: DesignSystemUser, diffusion: number): string {
   const overrides = user.overrideCount === 0 ? "Aucune surcharge" : overrideCountLabel(user.overrideCount);
-  return user.componentCount === 0 ? overrides : `${overrides} · ${projectComponentCountLabel(user.componentCount)}`;
+  const own = user.componentCount === 0 ? overrides : `${overrides} · ${projectComponentCountLabel(user.componentCount)}`;
+  return `${own} · ${user.followsDraft ? "voit les modifications en cours" : `diffusion ${diffusion}`}`;
+}
+
+/** "Déjà visibles dans App, qui suit le brouillon.": the end of the pending-changes band. */
+export function alreadyVisibleBandLabel(pendingCount: number, projects: string[]): string {
+  return `${agree(pendingCount, "Déjà visible", "Déjà visibles")} dans ${projects.length > 1 ? `${projects.slice(0, -1).join(", ")} et ${projects[projects.length - 1]}` : projects[0]}, qui ${agree(projects.length, "suit", "suivent")} le brouillon.`;
+}
+
+/** The project overview's design system card when the project follows the draft. */
+export function draftStatusLine(pendingChanges: number, diffusion: number): string {
+  return pendingChanges === 0
+    ? `À jour avec la diffusion ${diffusion}`
+    : `${pendingCountLabel(pendingChanges)}, ${agree(pendingChanges, "déjà visible", "déjà visibles")} ici · dernière diffusion : ${diffusion}`;
 }
 
 export function pendingCountLabel(count: number): string {

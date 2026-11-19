@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { DesignMdResponse, DesignSystemDetail, DiffusionListItem, RollbackImpact } from "@redline/shared";
 import { useDesignSystemDetail, useOpenDiffusionDialog } from "./DiffusionDialog.js";
-import { componentCountLabel, diffusionChangeParts, pageCountLabel, pendingCountLabel, pendingNames, tokenCountLabel, usagePlaceLabel, usedByHeading, userSummary } from "./diffusionLabels.js";
+import { componentCountLabel, diffusionChangeParts, pageCountLabel, pendingCountLabel, pendingNames, tokenCountLabel, usagePlaceLabel, onDraftCountLabel, usedByHeading, userSummary, alreadyVisibleBandLabel } from "./diffusionLabels.js";
 import { agree, counted } from "./plural.js";
 import { ArchiveFooter, ArchivedBanner, DeleteSection } from "./ArchiveControls.js";
 import { MarkdownPreview } from "./MarkdownPreview.js";
@@ -185,6 +185,7 @@ export function DesignSystemOverview({ designSystemId, viaProjectId, review }: {
   const readOnly = archivedAt !== undefined;
   const pendingCount = readOnly ? 0 : detail.pending.count;
   const listed = pendingNames(detail.pending);
+  const followers = detail.usedBy.filter((user) => user.followsDraft);
   const reload = () => setReloads((n) => n + 1);
 
   return (
@@ -234,6 +235,12 @@ export function DesignSystemOverview({ designSystemId, viaProjectId, review }: {
               <span aria-hidden="true" className={styles.bannerDot} />
               <span>
                 {pendingCountLabel(pendingCount)} : <Names names={listed.names} more={listed.more} />
+                {followers.length > 0 && (
+                  <>
+                    {" "}
+                    <strong>{alreadyVisibleBandLabel(pendingCount, followers.map((user) => user.title))}</strong>
+                  </>
+                )}
               </span>
               <div className={styles.grow} />
               <button type="button" className={styles.bannerLink} onClick={() => openDiffusion(detail.id)}>
@@ -285,7 +292,7 @@ export function DesignSystemOverview({ designSystemId, viaProjectId, review }: {
               ))}
             </div>
             <div className={styles.diffusionNote}>
-              Revenir à une diffusion la renvoie à tous les projets. Les pages du design system gardent leur version actuelle, pour que tu puisses la corriger.
+              Revenir à une diffusion la renvoie à tous les projets qui suivent la dernière diffusion. Les pages du design system gardent leur version actuelle, pour que tu puisses la corriger.
             </div>
           </section>
 
@@ -305,7 +312,10 @@ export function DesignSystemOverview({ designSystemId, viaProjectId, review }: {
 
         <aside aria-label="Contexte du design system" className={styles.side}>
           <section className={styles.sideSection}>
-            <h2 className={styles.sideTitle}>{usedByHeading(detail.usedBy.length)}</h2>
+            <h2 className={styles.sideTitle}>
+              {usedByHeading(detail.usedBy.length)}
+              {followers.length > 0 && <span className={styles.sideTitleNote}> {onDraftCountLabel(followers.length)}</span>}
+            </h2>
             <div className={styles.users}>
               {detail.usedBy.map((user) => (
                 <a
@@ -314,15 +324,15 @@ export function DesignSystemOverview({ designSystemId, viaProjectId, review }: {
                   data-testid="ds-user"
                   className={styles.user}
                 >
-                  {user.archived ? (
+                  {user.archived || user.followsDraft ? (
                     <span className={styles.userTitleRow}>
                       <span className={styles.userTitle}>{user.title}</span>
-                      <span className={styles.archivedPill}>Archivé</span>
+                      <span className={cx(styles.userPill, !user.archived && styles.userPillDraft)}>{user.archived ? "Archivé" : "suit le brouillon"}</span>
                     </span>
                   ) : (
                     <span className={styles.userTitle}>{user.title}</span>
                   )}
-                  <span className={cx(styles.userSummary, user.overrideCount > 0 && styles.userOverridden)}>{userSummary(user)}</span>
+                  <span className={cx(styles.userSummary, user.overrideCount > 0 && styles.userOverridden)}>{userSummary(user, detail.current.number)}</span>
                 </a>
               ))}
             </div>

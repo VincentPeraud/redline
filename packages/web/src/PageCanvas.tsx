@@ -964,6 +964,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         project={project}
         designSystemId={designSystemId}
         designSystemTitle={designSystemDetail?.title}
+        followedBy={designSystemDetail?.usedBy.filter((user) => user.followsDraft).map((user) => user.title)}
         versionId={versionId}
         pageId={pageId}
         pageTitle={pageTitle}
