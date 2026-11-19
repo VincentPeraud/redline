@@ -15,6 +15,7 @@ export * from "./relativeTime.js";
 export * from "./readingOrder.js";
 export * from "./responsiveLayout.js";
 export * from "./tweakGrid.js";
+export * from "./sandbox.js";
 export * from "./addresses.js";
 
 export const PROTOCOL_VERSION = 1;

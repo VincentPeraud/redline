@@ -368,3 +368,61 @@ describe("interactive instances", () => {
     expect(window.location.origin).not.toBe(server.origin);
   });
 });
+
+describe("tweak values copied onto the component's own instances", () => {
+  let server: TestServer;
+  const windows: JSDOM["window"][] = [];
+
+  beforeEach(async () => {
+    server = await startTestServer();
+  });
+  afterEach(async () => {
+    for (const window of windows.splice(0)) window.close();
+    await server.stop();
+  });
+
+  const OPEN_TWEAK = { id: "open", type: "toggle", label: "Ouvert", default: true, artboard: "components/modal.html" };
+  const WIDE_TWEAK = { id: "fullWidth", type: "toggle", label: "Pleine largeur", default: false, artboard: "components/modal.html" };
+  const componentFile = (body: string) =>
+    `<!doctype html><html><head></head><body><template data-component><div class="modal"><slot></slot></div></template>${body}</body></html>`;
+
+  const CARD = `<!doctype html><html><head></head><body><template data-component><div class="card"><ui-modal id="inner"></ui-modal></div></template></body></html>`;
+
+  async function componentArtboard(body: string, tweaks: object[] = [SIZE_TWEAK, WIDE_TWEAK, OPEN_TWEAK]) {
+    const ds = (await (await server.post("/api/design-systems", { title: "Acme DS", files: { "tokens.css": tokensCss, "manifest.json": modalManifest(tweaks), "components/modal.html": componentFile(body), "components/card.html": CARD } })).json()) as DesignSystem;
+    const dom = await JSDOM.fromURL(`${server.artboardOrigin}/pages/${ds.pageId}/components/modal.html`, { runScripts: "dangerously", resources: "usable", pretendToBeVisual: true });
+    windows.push(dom.window);
+    await new Promise<void>((resolve) => (dom.window.document.readyState === "complete" ? resolve() : dom.window.addEventListener("load", () => resolve())));
+    const window = dom.window;
+    const setTweaks = (values: object) => window.dispatchEvent(new window.MessageEvent("message", { data: { type: "redline:set-tweaks", values }, source: window.parent }));
+    return { window, setTweaks };
+  }
+
+  it("writes the artboard's tweak values on its instances, a toggle as a boolean attribute", async () => {
+    const { window, setTweaks } = await componentArtboard(`<ui-modal id="a"><p>x</p></ui-modal>`);
+    const a = window.document.getElementById("a")!;
+    setTweaks({ size: "sm", fullWidth: true });
+    expect(a.getAttribute("size")).toBe("sm");
+    expect(a.hasAttribute("fullwidth")).toBe(true);
+    setTweaks({ size: "md", fullWidth: false });
+    expect(a.getAttribute("size")).toBe("md");
+    expect(a.hasAttribute("fullwidth")).toBe(false);
+    expect(a.querySelector("p")!.textContent).toBe("x");
+  });
+
+  it("keeps an attribute written in the markup, and never copies open or selected", async () => {
+    const { window, setTweaks } = await componentArtboard(`<ui-modal id="a" size="sm"></ui-modal><ui-modal id="b"></ui-modal>`);
+    setTweaks({ size: "md", open: false });
+    expect(window.document.getElementById("a")!.getAttribute("size")).toBe("sm");
+    expect(window.document.getElementById("b")!.getAttribute("size")).toBe("md");
+    expect(window.document.getElementById("b")!.hasAttribute("open")).toBe(true);
+  });
+
+  it("leaves instances that the component's template renders, and other artboards, alone", async () => {
+    const { window, setTweaks } = await componentArtboard(`<ui-modal id="a"></ui-modal><ui-card></ui-card>`);
+    setTweaks({ size: "sm" });
+    expect(window.document.getElementById("a")!.getAttribute("size")).toBe("sm");
+    const inner = window.document.getElementById("inner")!;
+    expect(inner.getAttribute("size")).toBe("md");
+  });
+});

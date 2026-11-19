@@ -990,6 +990,11 @@ export const BRIDGE_SOURCE = `(function () {
     observer.observe(document.documentElement);
     if (document.body) observer.observe(document.body);
   }
+  // The sandbox script (sandbox.ts) builds its instance again on every change: pins, marks and height follow it.
+  window.__redlineRefresh = function () {
+    reportPins();
+    reportHeight();
+  };
   send({ type: "redline:ready" });
   if (window.__redlineErrors) window.__redlineErrors.report();
   reportHeight();
