@@ -53,9 +53,12 @@ import {
   type ProjectVisibility,
   CLI_TARBALL_PATH,
   ARTBOARD_CAPABILITY_SEGMENT,
+  componentNameOf,
+  instanceTagOf,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
 import { INSTANCES_PATH, INSTANCES_SOURCE, injectInstances, instanceLayersOf } from "./instances.js";
+import { SANDBOX_PATH, SANDBOX_SOURCE, injectSandbox, sandboxDocument } from "./sandbox.js";
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
@@ -897,6 +900,7 @@ function registerArtboardRoutes(app: FastifyInstance, store: Store): void {
   app.get(INSTANCES_PATH, async (_req, reply) =>
     reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(INSTANCES_SOURCE),
   );
+  app.get(SANDBOX_PATH, async (_req, reply) => reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[".js"]).send(SANDBOX_SOURCE));
 
   app.get(ERRORS_PATH, async (_req, reply) =>
     reply.header("content-security-policy", "sandbox allow-scripts").header("cache-control", "no-cache").type(MIME[".js"]).send(ERRORS_SOURCE),
@@ -976,9 +980,15 @@ function registerArtboardRoutes(app: FastifyInstance, store: Store): void {
 
   // `?preview=draft`: the viewer's preview of a project with the design system draft; it is the same call without a diffusion number.
   // `?diffusion=n` on a design system page's component file: the file as that diffusion froze it (the "before" of the before / after view).
-  app.get<{ Params: { pageId: string; "*": string }; Querystring: { preview?: string; diffusion?: string } }>("/pages/:pageId/*", async (req, reply) => {
+  // `?sandbox=1` on a component's file: the component as one lone instance, for the sandbox card (see sandbox.ts).
+  app.get<{ Params: { pageId: string; "*": string }; Querystring: { preview?: string; diffusion?: string; sandbox?: string } }>("/pages/:pageId/*", async (req, reply) => {
     const { pageId } = req.params;
     const path = req.params["*"];
+    if (req.query.sandbox !== undefined) {
+      const name = componentNameOf(path);
+      if (name === null) return reply.code(404).send("not found");
+      return serveArtboardFile(pageId, path, reply, store.readPageFile(pageId, path), { sandbox: instanceTagOf(name), base: baseOf(req) });
+    }
     if (req.query.diffusion === undefined) return serveArtboardFile(pageId, path, reply, store.readPageFile(pageId, path), { draftPreview: req.query.preview === "draft", base: baseOf(req) });
     const designSystemId = store.isDesignSystemPage(pageId) ? store.getPage(pageId)?.projectId : undefined;
     if (designSystemId === undefined || !/^\d+$/.test(req.query.diffusion)) return reply.code(404).send("not found");
@@ -1004,7 +1014,13 @@ function registerArtboardRoutes(app: FastifyInstance, store: Store): void {
     return designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId)?.number;
   }
 
-  function serveArtboardFile(pageId: string, path: string, reply: FastifyReply, pageFile: Buffer | undefined, { versionId, draftPreview = false, frozenDiffusion, base = "" }: { versionId?: string; draftPreview?: boolean; frozenDiffusion?: number; base?: string } = {}) {
+  function serveArtboardFile(
+    pageId: string,
+    path: string,
+    reply: FastifyReply,
+    pageFile: Buffer | undefined,
+    { versionId, draftPreview = false, frozenDiffusion, sandbox, base = "" }: { versionId?: string; draftPreview?: boolean; frozenDiffusion?: number; sandbox?: string; base?: string } = {},
+  ) {
     const asset = pageFile ?? (path.startsWith("assets/") ? readPageAsset(store, pageId, path.slice("assets/".length)) : undefined);
     if (!asset) return reply.code(404).send("not found");
     // Artboards are opaque-origin, so fonts of the project assets need CORS to load.
@@ -1012,10 +1028,13 @@ function registerArtboardRoutes(app: FastifyInstance, store: Store): void {
     const isHtml = extname(path) === ".html";
     if (!isHtml) return reply.header("content-security-policy", "sandbox allow-scripts").type(MIME[extname(path)] ?? "application/octet-stream").send(asset);
     const diffusion = frozenDiffusion ?? (draftPreview ? undefined : diffusionOf(pageId, versionId));
-    const withDesignSystem = injectDesignSystem(asset.toString("utf8"), store.sharedDesignSystemIdOfPage(pageId, versionId), projectStyleProjectOf(pageId), diffusion, base);
+    const source = asset.toString("utf8");
+    const withDesignSystem = injectDesignSystem(sandbox === undefined ? source : sandboxDocument(source, sandbox), store.sharedDesignSystemIdOfPage(pageId, versionId), projectStyleProjectOf(pageId), diffusion, base);
+    // The sandbox instance takes the card's values, never the artboard's tweaks: its layers have no `own`.
+    const withInstances = injectInstances(withDesignSystem, instanceLayersOf(store, pageId, diffusion, versionId, sandbox === undefined ? path : undefined), base);
     return reply
       .header("content-security-policy", "sandbox allow-scripts")
       .type(MIME[".html"])
-      .send(injectBridge(injectInstances(withDesignSystem, instanceLayersOf(store, pageId, diffusion, versionId), base), base));
+      .send(injectBridge(sandbox === undefined ? withInstances : injectSandbox(withInstances, base), base));
   }
 }

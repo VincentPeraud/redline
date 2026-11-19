@@ -252,6 +252,42 @@
   font-weight: var(--font-weight-semibold);
 }
 
+.sandboxButton {
+  padding: 0 8px;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background 120ms;
+}
+
+.sandboxButton:has(.sandboxCount) {
+  padding-right: 4px;
+}
+
+.sandboxButton:hover {
+  background: var(--color-surface-muted);
+}
+
+.sandboxButtonOn,
+.sandboxButtonOn:hover {
+  background: var(--color-text);
+  border-color: transparent;
+  color: var(--color-text-inverse);
+}
+
+.sandboxButtonOff,
+.sandboxButtonOff:hover {
+  background: var(--color-surface-muted);
+  border-color: transparent;
+  color: var(--color-text-placeholder);
+  cursor: not-allowed;
+}
+
+/* Sandbox threads: the warm colour of the pins, so the badge reads as comments and not as a count of settings. */
+.sandboxCount {
+  background: var(--color-warning-strong);
+  color: var(--color-text-inverse);
+}
+
 .iconButton {
   width: 24px;
   height: 24px;

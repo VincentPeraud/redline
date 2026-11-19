@@ -6,6 +6,11 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+### Added
+
+- Component sandbox: "Essayer" on a component's artboard opens one live instance at 100 % beside the grid, with its settings, Ouvert / Sélectionné states and slot texts set locally (never saved). A comment pinned in it keeps that trial, shows it as "Vu en bac à sable : …" and replays it on click; the button counts those threads. A slot can be named in the card with `data-label`.
+- On a component's own artboard, the artboard's tweak values are written on its instances (an attribute written in the markup wins, `open` and `selected` are never copied): grid cells show their combination without a demo script.
+
 ### Fixed
 
 - Review pins and zones on an artboard taller than its window (a long page scrolling inside the iframe): Alt + click and Alt + drag now land where the cursor is, and pins and zones move with the artboard's scroll, a box scrolling inside the page included. Closing a pin's panel right after typing no longer saves the pin twice.

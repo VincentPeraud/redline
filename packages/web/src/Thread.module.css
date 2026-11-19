@@ -95,6 +95,25 @@
   font-size: var(--font-size-2xs);
 }
 
+.sandboxSeen {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
+.sandboxSeenIcon {
+  display: flex;
+  align-items: center;
+  height: 1lh;
+  flex-shrink: 0;
+}
+
 .badge {
   flex-shrink: 0;
   display: flex;

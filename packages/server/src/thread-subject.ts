@@ -1,4 +1,4 @@
-import { cellText, describeZone, instanceStateLabel, renderingLabel, type InstanceState, type Thread, type ThreadRendering, type TweakValues } from "@redline/shared";
+import { cellText, describeZone, instanceStateLabel, renderingLabel, sandboxTrialText, type InstanceState, type SandboxTrial, type Thread, type ThreadRendering, type TweakValues } from "@redline/shared";
 import { canvasElementText } from "./canvas-element-text.js";
 
 /** A line of the conversation so far, for a session that starts afresh: "User: …", "Redline: …" or "Claude: …". */
@@ -22,6 +22,13 @@ export function cellSeenText(cell: TweakValues | undefined, explain = false): st
   return ` (vu en ${cellText(cell)}${explain ? ": the user commented that combination of tweak values, shown with those values applied" : ""})`;
 }
 
+/** " (vu en bac à sable : secondary · lg, slot default « Publier »)" for something seen in a component's sandbox; `explain` adds what it means. */
+export function sandboxSeenText(trial: SandboxTrial | undefined, explain = false): string {
+  if (!trial) return "";
+  const text = sandboxTrialText(trial);
+  return ` (vu en bac à sable${text ? ` : ${text}` : ""}${explain ? ": the user commented a lone instance of this component tried in the sandbox beside its artboard, with those settings, states and slot texts; the element is inside that instance, not in the artboard's own markup, so fix the component (its template, style or script)" : ""})`;
+}
+
 /** " (vu avec confirm ouverte)" for something seen while component instances were in a state of their own; `explain` adds what it means for a comment. */
 export function instanceStateSeenText(state: InstanceState[] | undefined, explain = false): string {
   if (!state) return "";
@@ -39,5 +46,6 @@ export function threadSubject(thread: Thread): string {
   if (thread.target.kind === "canvas-element") return `on ${canvasElementText(thread.target, thread.removed)}`;
   if (thread.target.kind === "zone") return `on ${zoneSubject(thread.target)}`;
   if (thread.target.kind === "artboard") return `on the whole artboard ${thread.artboard} (no specific element)`;
+  if (thread.sandbox) return `on artboard ${thread.artboard}${sandboxSeenText(thread.sandbox, true)}, ${elementText(thread)}`;
   return `on artboard ${thread.artboard}${renderingText(thread.rendering, true)}${cellSeenText(thread.cell, true)}${instanceStateSeenText(thread.instanceState, true)}, ${elementText(thread)} (position ${thread.xPct}% / ${thread.yPct}% of the artboard)`;
 }

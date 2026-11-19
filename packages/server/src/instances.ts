@@ -1,4 +1,4 @@
-import { INSTANCE_TAG_PREFIX, instanceTagOf, type InstanceLayers } from "@redline/shared";
+import { INSTANCE_TAG_PREFIX, componentNameOf, instanceTagOf, type InstanceLayers } from "@redline/shared";
 import { projectComponents } from "./components.js";
 import { excludedComponents } from "./switch-design-system.js";
 import type { Store } from "./store.js";
@@ -20,6 +20,10 @@ import type { Store } from "./store.js";
  *     receives the instance as `host` (it reacts to attributes such as `open` and dispatches events);
  *   - a click on an element with `opens`, `closes` or `toggles` set to an instance id sets, removes or toggles that
  *     instance's `open` attribute (the component's script may handle it its own way);
+ *   - on the artboard of a component (`layers.own`), the artboard's tweak values (the bridge's "redline:tweaks" event) are
+ *     written on that component's instances written in the page: a choice as its value, a toggle as a boolean attribute.
+ *     An attribute written in the markup wins, `open` and `selected` are never copied, and instances a template renders
+ *     are left alone. This replaces the demo script that copied `data-tweak-*` onto the instances;
  *   - a tag written in the page resolves to the project's definition, then the design system's; a tag inside a design
  *     system template resolves to the design system's definition only. Nesting stops at MAX_DEPTH.
  *
@@ -38,6 +42,7 @@ export const INSTANCES_SOURCE = `(function () {
   if (!data || typeof customElements === "undefined") return;
   var layers = JSON.parse(data.textContent || "{}");
   var designSystemScoped = new WeakSet();
+  var fromTemplate = new WeakSet();
   var tags = [];
 
   function definitionIn(list, tag) {
@@ -130,10 +135,27 @@ export const INSTANCES_SOURCE = `(function () {
     });
   }
 
+  // Tweak values of the artboard (tweak id to value) written on an instance of its own component; see the header.
+  function copyTweaks(host, values) {
+    if (!values || host.localName !== layers.own || fromTemplate.has(host)) return;
+    var byName = {};
+    Object.keys(values).forEach(function (id) { byName[id.toLowerCase()] = values[id]; });
+    host.__redlineInstance.definition.settings.forEach(function (setting) {
+      var value = byName[setting.name];
+      if (value === undefined || STATE_ATTRIBUTES.indexOf(setting.name) !== -1 || host.__written.indexOf(setting.name) !== -1) return;
+      if (setting.type === "toggle") {
+        if (Boolean(value) !== host.hasAttribute(setting.name)) host.toggleAttribute(setting.name, Boolean(value));
+      } else if (host.getAttribute(setting.name) !== String(value)) {
+        host.setAttribute(setting.name, String(value));
+      }
+    });
+  }
+
   function render(host, resolved) {
     var holder = document.createElement("template");
     holder.innerHTML = resolved.definition.template;
     var fragment = holder.content;
+    Array.prototype.slice.call(fragment.querySelectorAll("*")).forEach(function (element) { fromTemplate.add(element); });
     var bySlot = {};
     host.__authored.forEach(function (node) {
       var name = slotOf(node);
@@ -171,7 +193,9 @@ export const INSTANCES_SOURCE = `(function () {
         if (!resolved || depthOf(this) >= MAX_DEPTH) return;
         this.__redlineInstance = resolved;
         this.__authored = Array.prototype.slice.call(this.childNodes);
+        this.__written = this.getAttributeNames();
         applyDefaults(this, resolved.definition);
+        copyTweaks(this, window.redlineTweaks);
         fixUnknownValues(this, tag, resolved.definition);
         render(this, resolved);
         this.__rendered = true;
@@ -198,6 +222,13 @@ export const INSTANCES_SOURCE = `(function () {
     });
   });
 
+  if (layers.own) {
+    window.addEventListener("redline:tweaks", function (event) {
+      Array.prototype.slice.call(document.getElementsByTagName(layers.own)).forEach(function (host) {
+        if (host.__rendered) copyTweaks(host, event.detail);
+      });
+    });
+  }
 
   [layers.project, layers.designSystem].forEach(function (list) {
     (list || []).forEach(function (definition) { if (tags.indexOf(definition.tag) === -1) tags.push(definition.tag); });
@@ -223,14 +254,16 @@ export function injectInstances(html: string, layers: InstanceLayers, base = "")
  * its design system's definitions as of `diffusion` (the draft when undefined: the "preview=draft" request) plus the
  * project's own components.
  */
-export function instanceLayersOf(store: Store, pageId: string, diffusion: number | undefined, versionId?: string): InstanceLayers {
+export function instanceLayersOf(store: Store, pageId: string, diffusion: number | undefined, versionId?: string, file?: string): InstanceLayers {
   const page = store.getPage(pageId);
   if (!page) return { designSystem: [], project: [] };
-  if (store.isDesignSystemPage(pageId)) return { designSystem: diffusion === undefined ? projectComponents(store, page.projectId).definitions : store.diffusionDefinitions(page.projectId, diffusion), project: [] };
+  const name = file === undefined ? null : componentNameOf(file);
+  const own = name === null ? {} : { own: instanceTagOf(name) };
+  if (store.isDesignSystemPage(pageId)) return { designSystem: diffusion === undefined ? projectComponents(store, page.projectId).definitions : store.diffusionDefinitions(page.projectId, diffusion), project: [], ...own };
   const designSystemId = store.sharedDesignSystemIdOfPage(pageId, versionId);
   const designSystem =
     designSystemId === undefined ? [] : diffusion === undefined ? projectComponents(store, designSystemId).definitions : store.diffusionDefinitions(designSystemId, diffusion);
   const from = designSystemId === undefined ? undefined : store.getDesignSystem(designSystemId)?.title;
   const excluded = designSystemId === undefined ? [] : excludedComponents(store, page.projectId, designSystemId).map(({ tag, from, available }) => ({ tag, from, available }));
-  return { designSystem, project: projectComponents(store, page.projectId).definitions, ...(excluded.length > 0 && { excluded }), ...(diffusion !== undefined && { diffusion }) };
+  return { designSystem, project: projectComponents(store, page.projectId).definitions, ...own, ...(excluded.length > 0 && { excluded }), ...(diffusion !== undefined && { diffusion }) };
 }
