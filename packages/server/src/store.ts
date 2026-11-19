@@ -1064,6 +1064,11 @@ export class Store {
     return row?.followsDraft === 1 && this.sharedDesignSystemIdOfProject(projectId) !== undefined;
   }
 
+  /** The active projects that follow the draft of `designSystemId`: the ones that see its pages' changes right away. */
+  projectsFollowingDraft(designSystemId: string): ProjectUsingDesignSystem[] {
+    return this.projectsUsingDesignSystem(designSystemId).filter((project) => !project.archived && this.projectFollowsDraft(project.id));
+  }
+
   setProjectFollowsDraft(projectId: string, followsDraft: boolean): void {
     this.db.prepare("UPDATE projects SET follows_draft = ? WHERE id = ?").run(followsDraft ? 1 : 0, projectId);
   }
