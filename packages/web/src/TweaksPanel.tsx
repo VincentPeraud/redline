@@ -1,4 +1,4 @@
-import { DEFAULT_TWEAK_MAX, DEFAULT_TWEAK_MIN, TWEAK_SCOPES, type ManifestTweak, type TweakValue, type TweakValues } from "@redline/shared";
+import { DEFAULT_TWEAK_MAX, DEFAULT_TWEAK_MIN, TWEAK_SCOPES, resolveDeclaredTweakValues, type ManifestTweak, type TweakValue, type TweakValues } from "@redline/shared";
 import { Tooltip, cx } from "./ui/index.js";
 import { TweakPreview, type PreviewSource } from "./TweakPreview.js";
 import styles from "./TweaksPanel.module.css";
@@ -12,6 +12,8 @@ interface Props {
   heading?: string;
   /** Needed by `choice` tweaks with display "previews"; without it they fall back to buttons. */
   previews?: PreviewSource;
+  /** "défaut : md" after each label but a toggle's (the sandbox card). */
+  showDefaults?: boolean;
 }
 
 interface ControlProps {
@@ -20,6 +22,7 @@ interface ControlProps {
   values: TweakValues;
   onChange: (value: TweakValue) => void;
   previews?: PreviewSource;
+  showDefaults?: boolean;
 }
 
 function scopeRank(tweak: ManifestTweak): number {
@@ -197,6 +200,7 @@ function Tweak(props: ControlProps) {
             {tweak.unit ? ` ${tweak.unit}` : ""}
           </output>
         )}
+        {props.showDefaults && <span className={styles.defaultValue}>défaut : {String(resolveDeclaredTweakValues([tweak], {})[tweak.id])}</span>}
       </div>
       {control}
     </div>
@@ -204,14 +208,14 @@ function Tweak(props: ControlProps) {
 }
 
 /** One control per declared tweak, listed element, artboard, then page scope; shared by the canvas sidebar and play mode. */
-export function TweaksPanel({ tweaks, values, onChange, theme = "light", heading, previews }: Props) {
+export function TweaksPanel({ tweaks, values, onChange, theme = "light", heading, previews, showDefaults }: Props) {
   if (tweaks.length === 0) return null;
   const ordered = [...tweaks].sort((a, b) => scopeRank(a) - scopeRank(b));
   return (
     <div data-testid="tweaks" className={cx(styles.panel, theme === "dark" && styles.dark)}>
       {heading && <h4 className={styles.heading}>{heading}</h4>}
       {ordered.map((tweak) => (
-        <Tweak key={tweak.id} tweak={tweak} value={values[tweak.id]!} values={values} previews={previews} onChange={(next) => onChange(tweak.id, next)} />
+        <Tweak key={tweak.id} tweak={tweak} value={values[tweak.id]!} values={values} previews={previews} showDefaults={showDefaults} onChange={(next) => onChange(tweak.id, next)} />
       ))}
     </div>
   );

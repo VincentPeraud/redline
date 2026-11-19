@@ -1,10 +1,10 @@
-import { CANVAS_ELEMENT_KIND_LABELS, cellKey, renderingKey, type ThreadTarget, type TweakValues } from "@redline/shared";
+import { CANVAS_ELEMENT_KIND_LABELS, cellKey, renderingKey, type SandboxTrial, type ThreadTarget, type TweakValues } from "@redline/shared";
 
 /** Identity of a target: selecting it twice gives one chip. */
 function targetKey(target: ThreadTarget): string {
   switch (target.kind) {
     case "element":
-      return `element|${target.artboard}|${target.rendering ? renderingKey(target.rendering) : ""}|${target.cell ? cellKey(target.cell) : ""}|${target.selector}`;
+      return `element|${target.artboard}|${target.rendering ? renderingKey(target.rendering) : ""}|${target.cell ? cellKey(target.cell) : ""}|${target.sandbox ? JSON.stringify(target.sandbox) : ""}|${target.selector}`;
     case "artboard":
       return `artboard|${target.artboard}`;
     case "canvas-element":
@@ -47,9 +47,16 @@ export function marksFor(chips: ThreadTarget[], artboard: string, rendering?: st
   return chips.flatMap((chip, index) =>
     chip.kind === "element" &&
     chip.artboard === artboard &&
+    // A chip taken in the component sandbox marks the sandbox's preview only (see `sandboxMarksFor`).
+    !chip.sandbox &&
     (chip.rendering ? renderingKey(chip.rendering) : undefined) === rendering &&
     (chip.cell ? cellKey(chip.cell) : undefined) === (cell && cellKey(cell))
       ? [{ number: index + 1, selector: chip.selector }]
       : [],
   );
+}
+
+/** Numbered marks of the chips taken in the sandbox of `artboard`, each with the trial it was taken on. */
+export function sandboxMarksFor(chips: ThreadTarget[], artboard: string): { number: number; selector: string; trial: SandboxTrial }[] {
+  return chips.flatMap((chip, index) => (chip.kind === "element" && chip.artboard === artboard && chip.sandbox ? [{ number: index + 1, selector: chip.selector, trial: chip.sandbox }] : []));
 }

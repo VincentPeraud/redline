@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
-import type { ArtboardGuides as Guides, InstanceState, Thread, TweakValues } from "@redline/shared";
+import type { ArtboardGuides as Guides, InstanceState, SandboxFrameInfo, SandboxTrial, Thread, TweakValues } from "@redline/shared";
 import { ArtboardIframe, sameArtboard } from "./artboardCapability.js";
 import { ArtboardErrorsContext } from "./ArtboardErrors.js";
 import { ArtboardGuides } from "./ArtboardGuides.js";
@@ -70,6 +70,8 @@ interface Props {
   onEscape?: () => void;
   /** Called with the real height of the artboard's page whenever the bridge reports it. */
   onDocHeight?: (height: number) => void;
+  /** A sandbox document (`?sandbox=1`): the trial its lone instance is built with, and what it reports once loaded. */
+  sandbox?: { trial: SandboxTrial | null; onInfo: (info: SandboxFrameInfo) => void };
 }
 
 /**
@@ -77,7 +79,7 @@ interface Props {
  * and pin placement go through the bridge script the server injects (see conventions.md).
  * Messages are trusted only when `event.source` is this iframe's window.
  */
-export function ArtboardFrame({ src, title, width, height, zoom, guides, threads, picking, selecting, marks, tweaks, bare, onPick, onEscape, onDocHeight }: Props) {
+export function ArtboardFrame({ src, title, width, height, zoom, guides, threads, picking, selecting, marks, tweaks, bare, onPick, onEscape, onDocHeight, sandbox }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const alt = useAltKey();
   const [positions, setPositions] = useState<PinPosition[]>([]);
@@ -88,6 +90,8 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
   onEscapeRef.current = onEscape;
   const onDocHeightRef = useRef(onDocHeight);
   onDocHeightRef.current = onDocHeight;
+  const onSandboxInfoRef = useRef(sandbox?.onInfo);
+  onSandboxInfoRef.current = sandbox?.onInfo;
 
   const zones = threads.filter((t) => t.target.kind === "zone");
   const pinned = threads.filter((t) => t.target.kind !== "zone");
@@ -121,6 +125,7 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
         reportMissingRef.current(frameId, reported.filter((p) => p.elementGone || p.elementLost).map((p) => p.id));
         reportUnavailableRef.current(frameId, Object.fromEntries(reported.flatMap((p) => (p.missingState ? [[p.id, p.missingState]] : []))));
       }
+      else if (data.type === "redline:sandbox-info") onSandboxInfoRef.current?.(data as unknown as SandboxFrameInfo);
       else if (data.type === "redline:doc-height") onDocHeightRef.current?.((data as unknown as { height: number }).height);
       else if (data.type === "redline:errors") reportErrorsRef.current(frameId, (data as unknown as { errors: string[] }).errors);
       else if (data.type === "redline:gap-rect") onRectRef.current(data as unknown as { x: number; y: number; width: number; height: number });
@@ -172,6 +177,13 @@ export function ArtboardFrame({ src, title, width, height, zoom, guides, threads
     if (bridgeEpoch === 0) return;
     frame.current?.contentWindow?.postMessage({ type: "redline:set-tweaks", values: tweaks }, "*");
   }, [tweaks, bridgeEpoch]);
+
+  const trialKey = JSON.stringify(sandbox?.trial ?? null);
+  useEffect(() => {
+    if (bridgeEpoch === 0 || !sandbox?.trial) return;
+    frame.current?.contentWindow?.postMessage({ type: "redline:sandbox-set", trial: sandbox.trial }, "*");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trialKey, bridgeEpoch]);
 
   useEffect(() => {
     if (bridgeEpoch === 0) return;

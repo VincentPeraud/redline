@@ -48,6 +48,27 @@ export interface SandboxSlot {
   fallback: string;
 }
 
+/** What the sandbox document reports once loaded (`redline:sandbox-info`, see the server's sandbox.ts). */
+export interface SandboxFrameInfo {
+  tag: string;
+  /** False when no definition has the tag (the component lost its template). */
+  defined: boolean;
+  slots: SandboxSlotSource[];
+  firstFills: Record<string, SlotContent>;
+  /** Template, script and style blocks, where `sandboxStates` looks for open and selected. */
+  sources: string[];
+}
+
+/** Same trial, whatever the key order: a sandbox thread's pin shows only while the sandbox shows its trial. */
+export function sameSandboxTrial(a: SandboxTrial, b: SandboxTrial): boolean {
+  const key = (trial: SandboxTrial) => {
+    const sorted = (record: Record<string, unknown> | undefined) => JSON.stringify(Object.keys(record ?? {}).sort().map((k) => [k, record![k]]));
+    const slots = Object.fromEntries(Object.entries(trial.slots ?? {}).filter(([, text]) => text.trim() !== "").map(([name, text]) => [name, text.trim()]));
+    return `${sorted(trial.values)}|${sorted(trial.states)}|${sorted(slots)}`;
+  };
+  return key(a) === key(b);
+}
+
 /** The sandbox's settings: the artboard's tweaks, the states aside (they get their own switches). */
 export const sandboxSettings = (tweaks: readonly ManifestTweak[]): ManifestTweak[] => tweaks.filter((tweak) => !(SANDBOX_STATES as readonly string[]).includes(tweak.id.toLowerCase()));
 

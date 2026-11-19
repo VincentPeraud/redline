@@ -72,6 +72,11 @@
   color: var(--tw-label-color);
 }
 
+.defaultValue {
+  font-size: var(--font-size-2xs);
+  color: var(--tw-muted);
+}
+
 .value {
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);

@@ -644,7 +644,7 @@ export const CANVAS_ELEMENT_KIND_LABELS: Record<ManifestElementKind, string> = {
 export function threadTargetLabel(target: ThreadTarget): string {
   switch (target.kind) {
     case "element":
-      return `${target.artboard} · ${target.elementName ?? target.selector}`;
+      return target.sandbox ? `${target.artboard} · bac à sable` : `${target.artboard} · ${target.elementName ?? target.selector}`;
     case "artboard":
       return `${target.artboard} · Artboard entier`;
     case "canvas-element":
