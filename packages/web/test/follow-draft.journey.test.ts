@@ -103,3 +103,13 @@ it("hides the line without a shared design system and disables it for a member w
   expect(await tab.getByRole("radio", { name: "Le brouillon" }).isDisabled()).toBe(true);
   await tab.close();
 });
+
+it("shows another member's change of the setting without a reload", async () => {
+  const { project } = await seed();
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await tab.goto(`${server.url}/#/projects/${project.id}/design-system`);
+  expect(await tab.getByRole("radio", { name: "La dernière diffusion" }).getAttribute("aria-checked")).toBe("true");
+  await fetch(`${server.url}/api/projects/${project.id}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ followsDraft: true }) });
+  await expect.poll(() => tab.getByRole("radio", { name: "Le brouillon" }).getAttribute("aria-checked")).toBe("true");
+  await tab.close();
+});

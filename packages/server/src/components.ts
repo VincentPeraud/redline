@@ -1,5 +1,5 @@
 import { assembleComponents, componentClassesOf, componentNameOf, DS_FREE_ATTRIBUTE, instanceTagOf, instanceUsesIn, INSTANCE_TAG_PREFIX, MANIFEST_PATH, parseManifest, type ComponentAssembly, type ComponentDefinition, type ComponentPage } from "@redline/shared";
-import { designSystemSeenBy } from "./design-system-view.js";
+import { designSystemSeenBy, draftOf } from "./design-system-view.js";
 import type { Store } from "./store.js";
 
 /** The pages of a project (a design system is one) as the component assembly takes them, `replacing` the files of one page. */
@@ -9,6 +9,11 @@ export function componentPages(store: Store, projectId: string, replacing?: { pa
     title: page.title,
     files: replacing?.pageId === page.id ? replacing.files : (store.readPageFiles(page.id)?.files ?? {}),
   }));
+}
+
+/** The names of the components a project defines itself (its shared design system's are not in it). */
+export function projectComponentNames(store: Store, projectId: string): Set<string> {
+  return new Set(projectComponents(store, projectId).definitions.map((definition) => definition.name));
 }
 
 /** Components assembled from the current pages of a project or design system. */
@@ -35,25 +40,29 @@ export function instanceNamesByPage(store: Store, projectId: string): string[][]
 const componentsError =(assembly: ComponentAssembly) => assembly.duplicates[0] ?? assembly.cycles[0] ?? null;
 
 /** The checks every set of project pages goes through: duplicate names and loops, a project component taking a design system name, then the instances `files` write. */
-function pagesComponentsError(store: Store, projectId: string, designSystemId: string | undefined, before: ComponentPage[], after: ComponentPage[], files: Record<string, string>, checkInstances = true): string | null {
+function pagesComponentsError(store: Store, projectId: string, designSystemId: string | undefined, before: ComponentPage[], after: ComponentPage[], files: Record<string, string>, alsoDraft = false): string | null {
   const assembly = assembleComponents(after);
   const invalid = componentsError(assembly);
   if (invalid) return invalid;
   const taken = takenNameError(store, projectId, designSystemId, before, after);
   if (taken) return taken;
-  if (!checkInstances) return null;
-  return instanceUsageError(files, designSystemSeenBy(store, projectId, designSystemId)?.definitions() ?? [], assembly.definitions, classesByTag(store, projectId, designSystemId, after));
+  const seen = designSystemSeenBy(store, projectId, designSystemId)?.definitions() ?? [];
+  const drafted = alsoDraft && designSystemId !== undefined ? (draftOf(store, designSystemId)?.definitions() ?? []) : [];
+  return instanceUsageError(files, [...seen, ...drafted], assembly.definitions, classesByTag(store, projectId, designSystemId, after));
 }
 
-/** Error message when publishing `files` on `pageId` would define a component name twice in its project or make components contain each other in a loop, else null. */
-export function versionComponentsError(store: Store, pageId: string, files: Record<string, string>, checkInstances = true): string | null {
+/**
+ * Error message when publishing `files` on `pageId` would define a component name twice in its project or make components contain each other in a loop, else null.
+ * `alsoDraft`: the files may use what the design system draft offers besides what the project sees (restoring a version drawn with the draft).
+ */
+export function versionComponentsError(store: Store, pageId: string, files: Record<string, string>, alsoDraft = false): string | null {
   const page = store.getPage(pageId)!;
   const after = componentPages(store, page.projectId, { pageId, files });
   if (store.isDesignSystemPage(pageId)) {
     const assembly = assembleComponents(after);
     return componentsError(assembly) ?? instanceUsageError(files, [], assembly.definitions, new Map());
   }
-  return pagesComponentsError(store, page.projectId, store.sharedDesignSystemIdForManifest(pageId, files[MANIFEST_PATH]), componentPages(store, page.projectId), after, files, checkInstances);
+  return pagesComponentsError(store, page.projectId, store.sharedDesignSystemIdForManifest(pageId, files[MANIFEST_PATH]), componentPages(store, page.projectId), after, files, alsoDraft);
 }
 
 /** Error message when a new page with `files` would define a component name twice in the project, else null. */

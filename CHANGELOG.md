@@ -8,6 +8,7 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ### Added
 
+- Follow the design system draft: a project can choose to see its design system draft instead of the latest diffusion ("Ce projet suit" on its Design system screen). Its pages, history, requests and the design system's own screens follow the setting, with a band on pages while the draft has changes not diffused yet, a warning with the pages that would break when turning it on or off, and "Diffuser d'abord" to go back after the next diffusion.
 - Component sandbox: "Essayer" on a component's artboard opens one live instance at 100 % beside the grid, with its settings, Ouvert / Sélectionné states and slot texts set locally (never saved). A comment pinned in it keeps that trial, shows it as "Vu en bac à sable : …" and replays it on click; the button counts those threads. A slot can be named in the card with `data-label`.
 - On a component's own artboard, the artboard's tweak values are written on its instances (an attribute written in the markup wins, `open` and `selected` are never copied): grid cells show their combination without a demo script.
 

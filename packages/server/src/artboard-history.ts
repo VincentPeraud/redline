@@ -18,6 +18,7 @@ import { restoredVersionMessage, validTimeZone } from "./version-dates.js";
 import type { Store, VersionRecord } from "./store.js";
 import type { PageLock } from "./page-lock.js";
 import { openDraftRestoreThread, restoresDraftVersionOnDiffusion } from "./draft-restore.js";
+import { watchDraftRemovals } from "./draft-removals.js";
 
 const CREATED_TITLE = "Artboard créé";
 const PUT_BACK_MESSAGE = "Remis depuis les artboards supprimés";
@@ -160,8 +161,10 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
     const previousVersionId = head.files[file] === undefined ? head.id : changes[changes.length - 1].id;
     const message =
       targetHash === undefined ? PUT_BACK_UNDONE_MESSAGE : !onPage ? PUT_BACK_MESSAGE : restoredVersionMessage(target.createdAt, timeZone);
+    const reportRemovals = watchDraftRemovals(store, pageLock, req.params.pageId);
     const version = store.addVersionFromHashes(req.params.pageId, files, message, "restore", personRef(req));
-    if (targetHash !== undefined && restoresDraftVersionOnDiffusion(store, req.params.pageId, versionId)) openDraftRestoreThread(store, pageLock, req.params.pageId, Object.fromEntries(Object.entries(files).map(([path, hash]) => [path, store.blobText(hash)])), [file]);
+    reportRemovals();
+    if (targetHash !== undefined && restoresDraftVersionOnDiffusion(store, req.params.pageId, versionId)) openDraftRestoreThread(store, pageLock, req.params.pageId, [file]);
     const response: RestoreArtboardResponse = { version, previousVersionId };
     return reply.code(201).send(response);
   });

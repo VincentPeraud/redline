@@ -134,8 +134,10 @@ export interface BrokenPage {
 export interface BrokenPagesAnswer {
   error: string;
   brokenPages: BrokenPage[];
-  /** Going back to the latest diffusion only (it always asks): the titles of the other projects that receive a diffusion of the design system. */
+  /** Going back to the latest diffusion only (it always asks): the titles of the other projects the viewer may read that receive a diffusion of the design system. */
   otherProjects?: string[];
+  /** Going back only: how many other projects receive a diffusion without the viewer being allowed to read them (counted, never named). */
+  hiddenProjects?: number;
   /** Going back only: whether the viewer may diffuse the design system ("Diffuser d'abord"). */
   canDiffuse?: boolean;
 }

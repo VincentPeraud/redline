@@ -1,79 +1,20 @@
 import { useState } from "react";
-import type { BrokenElement, BrokenPage, BrokenPlace } from "@redline/shared";
+import type { BrokenElement, BrokenPage } from "@redline/shared";
+import { brokenElementPieces, otherProjectsText, placesText, type FollowDirection } from "./brokenPagesLabels.js";
 import { agree, counted } from "./plural.js";
 import { Button, DIALOG_EXIT_MS, Dialog, DialogActions } from "./ui/index.js";
 import styles from "./BrokenPagesDialog.module.css";
 
 const Mono = ({ children }: { children: string }) => <span className={styles.mono}>{children}</span>;
 
-const BLOCKS_ON = "la page ne pourra plus être publiée tant qu'elle l'utilise";
-const BLOCKS_OFF = "la page ne pourra plus être publiée tant qu'il n'est pas diffusé";
-const RENDERS_WITHOUT = "s'affiche sans elle";
-
-/** Which way the project switches: onto the draft (the draft removed what pages use) or back to the latest diffusion (the diffusion lacks it). */
-export type FollowDirection = "draft" | "diffusion";
-
 /** One broken element of a page, as the dialog words it. */
 function ElementLine({ element, direction }: { element: BrokenElement; direction: FollowDirection }) {
-  const back = direction === "diffusion";
-  const blocks = back ? BLOCKS_OFF : BLOCKS_ON;
-  switch (element.kind) {
-    case "component":
-      return (
-        <span>
-          <Mono>{element.name}</Mono> · composant {back ? "absent" : "retiré du brouillon"} : {blocks}
-        </span>
-      );
-    case "setting":
-      return (
-        <span>
-          <Mono>{element.name}</Mono> · réglage « {element.setting} » {back ? "absent" : "retiré du brouillon"} : {blocks}
-        </span>
-      );
-    case "value":
-      return back ? (
-        <span>
-          <Mono>{element.name}</Mono> · réglage <Mono>{`${element.setting}="${element.value}"`}</Mono> absent : {blocks}
-        </span>
-      ) : (
-        <span>
-          <Mono>{`${element.name} ${element.setting}="${element.value}"`}</Mono> · valeur retirée du brouillon : {blocks}
-        </span>
-      );
-    case "slot":
-      return (
-        <span>
-          <Mono>{element.name}</Mono> · emplacement « {element.slot} » {back ? "absent" : "retiré du brouillon"} : {blocks}
-        </span>
-      );
-    case "token":
-      return (
-        <span>
-          <Mono>{element.name}</Mono> ·{" "}
-          {element.renamedTo ? (
-            <>
-              variable renommée en <Mono>{element.renamedTo}</Mono>
-            </>
-          ) : back ? (
-            "variable absente"
-          ) : (
-            "variable retirée du brouillon"
-          )}{" "}
-          : {RENDERS_WITHOUT}
-        </span>
-      );
-  }
+  return (
+    <span>
+      {brokenElementPieces(element, direction).map((piece, index) => (typeof piece === "string" ? piece : <Mono key={index}>{piece.code}</Mono>))}
+    </span>
+  );
 }
-
-/** "Connexion, Compte créé · 4 instances": where the element is, with its instances counted once. */
-const placesText = (places: BrokenPlace[]) => {
-  const instances = places.reduce((sum, place) => sum + (place.instances ?? 0), 0);
-  const where = places.map((place) => place.artboard).join(", ");
-  return places.some((place) => place.instances !== undefined) ? `${where} · ${counted(instances, "instance", "instances")}` : where;
-};
-
-/** "A, B et C". */
-const listed = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} et ${names.at(-1)}`);
 
 function BrokenList({ pages, direction }: { pages: BrokenPage[]; direction: FollowDirection }) {
   return (
@@ -100,8 +41,10 @@ function BrokenList({ pages, direction }: { pages: BrokenPage[]; direction: Foll
 
 export interface BackToDiffusion {
   diffusion: number;
-  /** Titles of the other projects that receive a diffusion of the design system. */
+  /** Titles of the other projects (readable by the viewer) that receive a diffusion of the design system. */
   otherProjects: string[];
+  /** How many other projects the viewer may not read: they are counted, not named. */
+  hiddenProjects: number;
   /** Whether the viewer may diffuse the design system: "Diffuser d'abord" is shown only then. */
   canDiffuse: boolean;
   /** Opens the diffusion review with the return intent; resolves true when it did. */
@@ -177,7 +120,7 @@ export function BrokenPagesDialog({
             <p className={styles.hint}>
               Si tu reviens quand même, chaque page touchée reçoit un fil « Redline » qui liste ses éléments cassés.
               {back.canDiffuse &&
-                ` « Diffuser d'abord » ouvre la revue de diffusion${back.otherProjects.length > 0 ? ` : la diffusion part aussi vers ${listed(back.otherProjects)}` : ""}, puis ce projet repasse tout seul sur la dernière diffusion.`}
+                ` « Diffuser d'abord » ouvre la revue de diffusion${back.otherProjects.length + back.hiddenProjects > 0 ? ` : la diffusion part aussi vers ${otherProjectsText(back.otherProjects, back.hiddenProjects)}` : ""}, puis ce projet repasse tout seul sur la dernière diffusion.`}
             </p>
           </>
         )}

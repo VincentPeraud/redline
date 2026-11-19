@@ -1045,7 +1045,10 @@ export class Store {
     this.db.prepare("UPDATE projects SET design_system = ? WHERE id = ?").run(designSystem, projectId);
     if (designSystem !== previous) {
       this.setProjectFollowsDraft(projectId, false);
-      if (wasFollowingDraft && designSystem !== null) this.logFollowsDraft(projectId, false, person);
+      if (wasFollowingDraft && designSystem !== null) {
+        this.logFollowsDraft(projectId, false, person);
+        this.announceFollowChange(projectId);
+      }
     }
     if (designSystem === null && !this.readProjectFile(projectId, PROJECT_STYLE_PATH)) {
       this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.alloc(0));
@@ -1097,6 +1100,13 @@ export class Store {
     if (this.projectFollowsDraft(projectId) === followsDraft) return;
     this.setProjectFollowsDraft(projectId, followsDraft);
     this.logFollowsDraft(projectId, followsDraft, person);
+    this.announceFollowChange(projectId);
+  }
+
+  /** The setting changed: the project's open pages (artboards and draft band) and the design system screens that count its followers reload. */
+  private announceFollowChange(projectId: string): void {
+    const designSystemId = this.sharedDesignSystemIdOfProject(projectId);
+    this.emit({ type: "design-system-updated", ...(designSystemId ? { designSystemId } : {}), projectId, pageIds: this.listPages(projectId).map((page) => page.id) });
   }
 
   /** Records, in the project style history, that the project now follows the draft or the latest diffusion of its design system. */

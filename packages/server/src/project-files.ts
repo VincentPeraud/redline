@@ -89,7 +89,7 @@ function designSystemContext(store: Store, projectId: string, designSystemId: st
 }
 
 /** DESIGN.md, assets, project style and design system that go into the working copy of a page. */
-export function projectContext(store: Store, pageId: string): ProjectContext {
+export function projectContext(store: Store, pageId: string, canRead: (projectId: string) => boolean): ProjectContext {
   const page = store.getPage(pageId)!;
   const assets: Record<string, string> = {};
   for (const { name } of store.listProjectFiles(page.projectId, `${ASSETS_DIR}/`)) {
@@ -103,7 +103,7 @@ export function projectContext(store: Store, pageId: string): ProjectContext {
     // A project's style, or the draft tokens of a design system's own project: the same root file either way.
     projectStyle: store.readProjectText(page.projectId, PROJECT_STYLE_PATH),
     ...(own
-      ? { editsDesignSystem: { id: own.id, title: own.title, followedBy: store.projectsFollowingDraft(own.id).map(({ id, title }) => ({ id, title })) } }
+      ? { editsDesignSystem: { id: own.id, title: own.title, followedBy: store.projectsFollowingDraft(own.id).filter((project) => canRead(project.id)).map(({ id, title }) => ({ id, title })) } }
       : {
           projectComponents: componentFilesOf(store, page.projectId),
           ...(sharedDesignSystemId === undefined ? {} : { designSystem: designSystemContext(store, page.projectId, sharedDesignSystemId) }),

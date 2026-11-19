@@ -204,10 +204,13 @@ export function registerProjectDesignSystemRoutes(app: FastifyInstance, store: S
       } else if (!followsDraft && store.projectFollowsDraft(projectId)) {
         const brokenPages = brokenPagesOnFollowChange(store, projectId, false);
         if (req.body?.confirm !== true) {
+          const others = store.projectsUsingDesignSystem(sharedId).filter((p) => p.id !== projectId && !p.archived);
+          const readable = others.filter((p) => access.may(req.viewer, "read", { projectId: p.id }));
           const answer: BrokenPagesAnswer = {
             error: "going back to the latest diffusion loses the pending changes: confirm to switch",
             brokenPages,
-            otherProjects: store.projectsUsingDesignSystem(sharedId).filter((p) => p.id !== projectId && !p.archived).map((p) => p.title),
+            otherProjects: readable.map((p) => p.title),
+            hiddenProjects: others.length - readable.length,
             canDiffuse: access.may(req.viewer, "write", { projectId: sharedId }),
           };
           return reply.code(409).send(answer);

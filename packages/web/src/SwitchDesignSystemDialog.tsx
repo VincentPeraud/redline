@@ -38,35 +38,39 @@ export function SwitchDesignSystemDialog({
 
   return (
     <Dialog title={`Passer ${projectTitle} sur ${preview.to.title}`} onClose={() => close(onClose)} width={680} gap={20} closing={closing}>
-      <p className={styles.lead}>
-        Les composants cochés prennent la version de {preview.to.title}. Les autres s'afficheront en erreur dans leurs pages, jusqu'à ce que tu décides quoi en faire. Rien n'est converti automatiquement.
-      </p>
+      {preview.components.length > 0 && (
+        <p className={styles.lead}>
+          Les composants cochés prennent la version de {preview.to.title}. Les autres s'afficheront en erreur dans leurs pages, jusqu'à ce que tu décides quoi en faire. Rien n'est converti automatiquement.
+        </p>
+      )}
       {preview.followsDraft && (
         <p className={styles.lead} data-testid="switch-follows-latest">
           Le projet suivra la dernière diffusion de {preview.to.title}.
         </p>
       )}
-      <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>
-          Composants de {fromTitle} utilisés dans {projectTitle} · {preview.components.length}
-        </h3>
-        <div className={styles.list} data-testid="switch-components">
-          {preview.components.map((component) => {
-            const absent = component.match === "absent";
-            return (
-              <label key={component.tag} className={cx(styles.row, absent && styles.rowAbsent)} data-testid={`switch-${component.name}`}>
-                <input type="checkbox" className={styles.checkbox} checked={!absent && ticked.has(component.tag)} disabled={absent} onChange={() => toggle(component.tag)} />
-                <span className={styles.tag}>{component.tag}</span>
-                <span className={styles.uses}>{usesOf(component)}</span>
-                <span className={cx(styles.pill, styles[component.match])}>{switchMatchLabel(component, preview.to.title)}</span>
-              </label>
-            );
-          })}
-        </div>
-        <div className={styles.note}>
-          « Mêmes réglages » : mêmes variantes et mêmes emplacements de contenu. Redline ne sait pas si le composant a le même rôle : décoche-le si ce n'est pas le même.
-        </div>
-      </section>
+      {preview.components.length > 0 && (
+        <section className={styles.section}>
+          <h3 className={styles.sectionTitle}>
+            Composants de {fromTitle} utilisés dans {projectTitle} · {preview.components.length}
+          </h3>
+          <div className={styles.list} data-testid="switch-components">
+            {preview.components.map((component) => {
+              const absent = component.match === "absent";
+              return (
+                <label key={component.tag} className={cx(styles.row, absent && styles.rowAbsent)} data-testid={`switch-${component.name}`}>
+                  <input type="checkbox" className={styles.checkbox} checked={!absent && ticked.has(component.tag)} disabled={absent} onChange={() => toggle(component.tag)} />
+                  <span className={styles.tag}>{component.tag}</span>
+                  <span className={styles.uses}>{usesOf(component)}</span>
+                  <span className={cx(styles.pill, styles[component.match])}>{switchMatchLabel(component, preview.to.title)}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div className={styles.note}>
+            « Mêmes réglages » : mêmes variantes et mêmes emplacements de contenu. Redline ne sait pas si le composant a le même rôle : décoche-le si ce n'est pas le même.
+          </div>
+        </section>
+      )}
       {preview.own.length > 0 && <div className={styles.own}>{`Les composants propres au projet (${preview.own.join(", ")}) ne changent pas.`}</div>}
       <div className={styles.footer}>
         <span data-testid="switch-broken" className={styles.broken}>

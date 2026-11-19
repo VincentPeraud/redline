@@ -71,3 +71,9 @@ export function currentDiffusionOf(store: Store, designSystemId: string): Design
   const current = store.currentDiffusion(designSystemId);
   return current ? designSystemInState(store, designSystemId, { kind: "diffusion", number: current.number }) : undefined;
 }
+
+/** The draft of a design system as it stands after its current diffusion, whatever any project follows (the design system's own side, what a restore or a switch of the setting compares). */
+export function draftOf(store: Store, designSystemId: string): DesignSystemView | undefined {
+  const current = currentDiffusionOf(store, designSystemId);
+  return current && designSystemInState(store, designSystemId, { kind: "draft", afterDiffusion: current.diffusion });
+}

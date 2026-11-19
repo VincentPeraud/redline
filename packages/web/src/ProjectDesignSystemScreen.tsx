@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { subscribeServerEvents } from "./serverEvents.js";
 import { instanceTagOf } from "@redline/shared";
 import type { BrokenPage, BrokenPagesAnswer, DesignMdVersion, DesignSystemSummary, DesignSystemSwitchPreview, ExcludedComponent, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
 import type { MoveUpComponentRequest } from "@redline/shared";
@@ -315,7 +316,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   /** The follow setting a save did not reach the server with: the line says so and offers to retry it. */
   const [failedFollow, setFailedFollow] = useState<Follows | null>(null);
   /** Turning on the draft would break these pages: the dialog asks before switching anyway; `failed` once the confirmation did not reach the server. */
-  const [breaking, setBreaking] = useState<{ direction: Follows; pages: BrokenPage[] | null; failed: boolean; otherProjects: string[]; canDiffuse: boolean } | null>(null);
+  const [breaking, setBreaking] = useState<{ direction: Follows; pages: BrokenPage[] | null; failed: boolean; otherProjects: string[]; hiddenProjects: number; canDiffuse: boolean } | null>(null);
   const openDiffusion = useOpenDiffusionDialog();
   const diffusionVersion = useDiffusionVersion();
   const seenDiffusionVersion = useRef(diffusionVersion);
@@ -357,6 +358,19 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
     void loadVersions();
   }, [diffusionVersion, projectId, loadVersions]);
 
+  // Another member (or a session) turned the setting on or off: the screen shows it without a reload.
+  useEffect(() => {
+    const reloadSetting = () => {
+      fetch(`/api/projects/${projectId}/design-system`)
+        .then((res) => res.json() as Promise<ProjectDesignSystem>)
+        .then(setDetail);
+      void loadVersions();
+    };
+    return subscribeServerEvents((event) => {
+      if (event.type === "design-system-updated" && event.projectId === projectId) reloadSetting();
+    }, reloadSetting);
+  }, [projectId, loadVersions]);
+
   const change = useCallback(
     async (request: Promise<Response>) => {
       const res = await request;
@@ -386,7 +400,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
       const res = await fetch(`/api/projects/${projectId}/design-system/switch?to=${encodeURIComponent(id)}`);
       if (!res.ok) return setError(((await res.json()) as { error: string }).error);
       const preview = (await res.json()) as DesignSystemSwitchPreview;
-      if (preview.components.length > 0) return setSwitching(preview);
+      if (preview.components.length > 0 || preview.followsDraft) return setSwitching(preview);
     }
     await applyDesignSystem(id);
   }
@@ -400,12 +414,12 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   async function applyFollow(target: Follows, confirm = false): Promise<boolean> {
     const body: SetProjectDesignSystemRequest = { followsDraft: target === "draft", ...(confirm && { confirm }) };
     // Going back always asks: the dialog opens at once and waits for the pages the server computes.
-    if (target === "diffusion" && !confirm) setBreaking({ direction: "diffusion", pages: null, failed: false, otherProjects: [], canDiffuse: false });
+    if (target === "diffusion" && !confirm) setBreaking({ direction: "diffusion", pages: null, failed: false, otherProjects: [], hiddenProjects: 0, canDiffuse: false });
     const res = await fetch(`/api/projects/${projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
     if (res?.status === 409) {
       setFailedFollow(null);
       const answer = (await res.json()) as BrokenPagesAnswer;
-      setBreaking({ direction: target, pages: answer.brokenPages, failed: false, otherProjects: answer.otherProjects ?? [], canDiffuse: answer.canDiffuse ?? false });
+      setBreaking({ direction: target, pages: answer.brokenPages, failed: false, otherProjects: answer.otherProjects ?? [], hiddenProjects: answer.hiddenProjects ?? 0, canDiffuse: answer.canDiffuse ?? false });
       return false;
     }
     const saved = res?.ok ? ((await res.json()) as ProjectDesignSystem) : null;
@@ -699,7 +713,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
           failed={breaking.failed}
           onConfirm={() => applyFollow(breaking.direction, true)}
           onClose={() => setBreaking(null)}
-          back={breaking.direction === "diffusion" && detail.diffusion ? { diffusion: detail.diffusion.number, otherProjects: breaking.otherProjects, canDiffuse: breaking.canDiffuse, onDiffuseFirst: diffuseFirst } : undefined}
+          back={breaking.direction === "diffusion" && detail.diffusion ? { diffusion: detail.diffusion.number, otherProjects: breaking.otherProjects, hiddenProjects: breaking.hiddenProjects, canDiffuse: breaking.canDiffuse, onDiffuseFirst: diffuseFirst } : undefined}
         />
       )}
       {movingUp && shared && (

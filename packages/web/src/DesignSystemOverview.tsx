@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { subscribeServerEvents } from "./serverEvents.js";
 import type { DesignMdResponse, DesignSystemDetail, DiffusionListItem, RollbackImpact } from "@redline/shared";
 import { useDesignSystemDetail, useOpenDiffusionDialog } from "./DiffusionDialog.js";
 import { componentCountLabel, diffusionChangeParts, pageCountLabel, pendingCountLabel, pendingNames, tokenCountLabel, usagePlaceLabel, onDraftCountLabel, usedByHeading, userSummary, alreadyVisibleBandLabel } from "./diffusionLabels.js";
@@ -171,6 +172,15 @@ export function DesignSystemOverview({ designSystemId, viaProjectId, review }: {
   }, [designSystemId]);
 
   useDocumentTitle(detail?.title);
+
+  // A project started or stopped following the draft: the followers count and the user summary change.
+  useEffect(
+    () =>
+      subscribeServerEvents((event) => {
+        if (event.type === "design-system-updated" && event.projectId !== undefined && event.designSystemId === designSystemId) setReloads((n) => n + 1);
+      }),
+    [designSystemId],
+  );
 
   // "Relire et diffuser" lands here with `?relire=1`: open the review once, then drop the flag so closing it does not reopen it.
   useEffect(() => {
