@@ -25,7 +25,8 @@ import {
   type SetProjectTokenRequest,
   type SetProjectDesignSystemRequest,
 } from "@redline/shared";
-import { componentFilesOf, currentDefinitions, instanceNamesByPage, projectComponents } from "./components.js";
+import { componentFilesOf, instanceNamesByPage, projectComponents } from "./components.js";
+import { designSystemSeenBy } from "./design-system-view.js";
 import { assetsUsedBy, moveUpComponent, removeComponentCopies, useDesignSystemComponent } from "./move-up.js";
 import { personRef, editorAuthor } from "./identity.js";
 import { excludedComponents, switchDesignSystem, switchPreview } from "./switch-design-system.js";
@@ -39,9 +40,7 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
   const sharedId = store.sharedDesignSystemIdOfProject(projectId);
   const shared = sharedId === undefined ? undefined : store.getDesignSystem(sharedId);
   const diffusion = shared ? store.currentDiffusion(shared.id) : undefined;
-  const designSystemTokens = new Map(
-    parseTokens(shared && diffusion ? (store.readDiffusionFile(shared.id, diffusion.number, "tokens.css") ?? "") : "").map((t) => [t.name, t]),
-  );
+  const designSystemTokens = new Map(parseTokens(designSystemSeenBy(store, projectId, shared?.id)?.tokensCss() ?? "").map((t) => [t.name, t]));
   const projectTokens = parseTokens(store.readProjectText(projectId, PROJECT_STYLE_PATH));
   const projectValues = new Map(projectTokens.map((t) => [t.name, t]));
   const names = [...designSystemTokens.keys(), ...projectTokens.map((t) => t.name).filter((name) => !designSystemTokens.has(name))];
@@ -64,7 +63,7 @@ export function projectDesignSystem(store: Store, projectId: string): ProjectDes
   });
 
   const usesByPage = instanceNamesByPage(store, projectId);
-  const sharedNames = new Set(currentDefinitions(store, sharedId).map((d) => d.name));
+  const sharedNames = new Set((designSystemSeenBy(store, projectId, sharedId)?.definitions() ?? []).map((d) => d.name));
   const moved = store.movedUpComponents(projectId);
   const components = projectComponents(store, projectId).components.map(
     (c): ProjectComponentInfo => ({

@@ -57,6 +57,7 @@ import {
   instanceTagOf,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
+import { designSystemSeenBy } from "./design-system-view.js";
 import { INSTANCES_PATH, INSTANCES_SOURCE, injectInstances, instanceLayersOf } from "./instances.js";
 import { SANDBOX_PATH, SANDBOX_SOURCE, injectSandbox, sandboxDocument } from "./sandbox.js";
 import type { Store } from "./store.js";
@@ -1011,7 +1012,7 @@ function registerArtboardRoutes(app: FastifyInstance, store: Store): void {
     if (store.isDesignSystemPage(pageId)) return undefined;
     if (versionId !== undefined) return store.versionDiffusion(pageId, versionId) ?? 1;
     const designSystemId = store.sharedDesignSystemIdOfPage(pageId);
-    return designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId)?.number;
+    return designSystemId === undefined ? undefined : designSystemSeenBy(store, store.getPage(pageId)!.projectId, designSystemId)?.diffusion;
   }
 
   function serveArtboardFile(
