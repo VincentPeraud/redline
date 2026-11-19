@@ -79,6 +79,32 @@ export function zoneFromDrag(start: { x: number; y: number }, end: { x: number; 
   return { kind: "zone", space: "artboard", xPct: pct(left, box.width), yPct: pct(top, box.height), wPct: pct(right - left, box.width), hPct: pct(bottom - top, box.height) };
 }
 
+/** Where an artboard's window stands over its document, as the bridge reports it (`redline:view`), in pixels. */
+export interface DocView {
+  x: number;
+  y: number;
+  docW: number;
+  docH: number;
+  viewW: number;
+  viewH: number;
+}
+
+/**
+ * A point kept in percent of the artboard's document, in percent of its window: the pin layer covers the window, and a
+ * document taller than it scrolls inside. Without a view yet, the document is taken to fit its window.
+ */
+export function docToView(point: { xPct: number; yPct: number }, view: DocView | undefined): { xPct: number; yPct: number } {
+  if (!view) return { xPct: point.xPct, yPct: point.yPct };
+  return { xPct: ((point.xPct / 100) * view.docW - view.x) / view.viewW * 100, yPct: ((point.yPct / 100) * view.docH - view.y) / view.viewH * 100 };
+}
+
+/** An artboard zone (in percent of the document) in percent of the window, moved by its scroll. */
+export function zoneToView<Z extends { xPct: number; yPct: number; wPct: number; hPct: number }>(zone: Z, view: DocView | undefined): Z {
+  if (!view) return zone;
+  const at = docToView(zone, view);
+  return { ...zone, ...at, wPct: (zone.wPct / 100) * view.docW / view.viewW * 100, hPct: (zone.hPct / 100) * view.docH / view.viewH * 100 };
+}
+
 /** What the phone sheet shows of a pin. A zone is drawn on a computer, so a phone only names it. */
 export function phonePinText(pin: Pick<ReviewPin, "target" | "text">): string {
   const target: object = pin.target;

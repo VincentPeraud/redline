@@ -4,7 +4,7 @@ import type { Pick } from "./ArtboardFrame.js";
 import { cx } from "./ui/index.js";
 import { useAltKey } from "./useAltKey.js";
 import { personName } from "./ReviewRemark.js";
-import { type DraftPin, type PinView, isArtboardElementTarget, phonePinText, pinHiddenWhy, pinIsShown, pinOffsets, pinTargetLabel, zoneFromDrag } from "./reviewPinRules.js";
+import { type DocView, type DraftPin, type PinView, docToView, isArtboardElementTarget, phonePinText, pinHiddenWhy, pinIsShown, pinOffsets, pinTargetLabel, zoneFromDrag, zoneToView } from "./reviewPinRules.js";
 import { PIN_HALF, PIN_SHIFT, PinMarker, PinTooltip, overlayStyle, pinLabel } from "./ReviewPinParts.js";
 import { type StepControls } from "./useReviewControls.js";
 import { titleOfArtboard } from "./reviewView.js";
@@ -213,7 +213,7 @@ export function useReviewPins({ review, step, shown, controls, api }: { review: 
 
 type Point = { x: number; y: number };
 
-/** An artboard zone laid over the stage: its rectangle in percent of the artboard. */
+/** An artboard zone laid over the stage: its rectangle in percent of the window (see `zoneToView`). */
 const zoneStyle = (zone: Extract<ReviewZoneTarget, { space: "artboard" }>) => ({ left: `${zone.xPct}%`, top: `${zone.yPct}%`, width: `${zone.wPct}%`, height: `${zone.hPct}%` });
 
 interface Reported {
@@ -229,6 +229,8 @@ interface Reported {
 export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins, phone }: { phone: boolean; frame: RefObject<HTMLIFrameElement>; bridgeEpoch: number; size: { width: number; height: number }; example: ChangeReviewStep; shown: ChangeReviewStep; pins: PinsController }) {
   const alt = useAltKey();
   const [positions, setPositions] = useState<Reported[]>([]);
+  /** The iframe's scroll over its document: pins and zones are kept in percent of the document, the layer covers the window. */
+  const [view, setView] = useState<DocView | undefined>();
   /** The rectangle being drawn with Alt + drag, in percent of the artboard. */
   const [drawing, setDrawing] = useState<ReviewZoneTarget | undefined>();
   const onPlaceRef = useRef(pins.place);
@@ -247,8 +249,9 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins, phone
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow) return;
-      const data = event.data as { type?: string; positions?: Reported[]; from?: Point; to?: Point; doc?: { w: number; h: number } } & Partial<Pick>;
+      const data = event.data as { type?: string; positions?: Reported[]; from?: Point; to?: Point; doc?: { w: number; h: number } } & Partial<Pick> & Partial<DocView>;
       if (data.type === "redline:pin-positions") setPositions(data.positions ?? []);
+      else if (data.type === "redline:view") setView({ x: data.x ?? 0, y: data.y ?? 0, docW: data.docW || 1, docH: data.docH || 1, viewW: data.viewW || 1, viewH: data.viewH || 1 });
       else if (data.type === "redline:picked") onPlaceRef.current(data as Pick);
       else if (data.type === "redline:zone-drag" || data.type === "redline:zone") {
         const zone = zoneFromDrag(data.from!, data.to!, { width: data.doc!.w, height: data.doc!.h });
@@ -297,12 +300,16 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins, phone
     const stored = pin?.target ?? draftElement!;
     const reported = positions.find((position) => position.id === entry.id);
     if (reported?.hidden) return [];
-    return [{ id: entry.id, pin, xPct: reported?.matched ? reported.xPct : stored.xPct, yPct: reported?.matched ? reported.yPct : stored.yPct, matched: reported?.matched === true, lost: reported !== undefined && (!reported.matched || reported.elementLost === true) }];
+    const at = docToView(reported?.matched ? reported : stored, view);
+    return [{ id: entry.id, pin, ...at, matched: reported?.matched === true, lost: reported !== undefined && (!reported.matched || reported.elementLost === true) }];
   });
+  // A pin scrolled out of the window is not drawn (it would stick to the edge); its panel stays open if it is being edited.
+  const inWindow = (entry: { xPct: number; yPct: number }) => entry.xPct >= -1 && entry.xPct <= 101 && entry.yPct >= -1 && entry.yPct <= 101;
   const offsets = pinOffsets(resolved);
   const [hovered, setHovered] = useState<string | undefined>();
   const editingZone = pins.editor && zones.find((zone) => zone.id === (pins.editor!.pinId ?? "draft"));
-  const editing = pins.editor && (editingZone && editingZone.target.space === "artboard" ? { id: editingZone.id, pin: editingZone.pin, xPct: editingZone.target.xPct + editingZone.target.wPct, yPct: editingZone.target.yPct + editingZone.target.hPct } : resolved.find((entry) => entry.id === (pins.editor!.pinId ?? "draft")));
+  const editingRect = editingZone && editingZone.target.space === "artboard" ? zoneToView(editingZone.target, view) : undefined;
+  const editing = pins.editor && (editingZone && editingRect ? { id: editingZone.id, pin: editingZone.pin, xPct: editingRect.xPct + editingRect.wPct, yPct: editingRect.yPct + editingRect.hPct } : resolved.find((entry) => entry.id === (pins.editor!.pinId ?? "draft")));
   // On a phone the text field lives in the sheet, which leaves a thin strip of artboard: bring the pin into it.
   const layer = useRef<HTMLDivElement>(null);
   const editingId = phone && pins.editor ? (pins.editor.pinId ?? "draft") : undefined;
@@ -312,7 +319,7 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins, phone
     layer.current?.querySelector(`[data-pin-id="${editingId}"]`)?.scrollIntoView({ block: "center", inline: "nearest" });
   }, [editingId, editingMatched]);
   const hoverZone = hovered === undefined ? undefined : zones.find((zone) => zone.id === hovered && zone.pin && !zone.pin.mine);
-  const hover = hovered === undefined ? undefined : (resolved.find((entry) => entry.id === hovered && entry.pin && !entry.pin.mine) ?? (hoverZone && hoverZone.target.space === "artboard" ? { pin: hoverZone.pin, xPct: hoverZone.target.xPct, yPct: hoverZone.target.yPct } : undefined));
+  const hover = hovered === undefined ? undefined : (resolved.find((entry) => entry.id === hovered && entry.pin && !entry.pin.mine) ?? (hoverZone && hoverZone.target.space === "artboard" ? { pin: hoverZone.pin, ...docToView(hoverZone.target, view) } : undefined));
   // The pin straddles its element's top-right corner (as in the mock-up), pulled back inside the artboard when the corner touches an edge.
   const anchorStyle = (entry: { xPct: number; yPct: number; matched: boolean }, offset: number) =>
     entry.matched
@@ -321,20 +328,20 @@ export function PinLayer({ frame, bridgeEpoch, size, example, shown, pins, phone
 
   return (
     <div ref={layer} className={styles.pinLayer} data-testid="review-pin-layer">
-      {drawing && drawing.space === "artboard" && <div className={styles.zone} style={zoneStyle(drawing)} data-testid="review-zone-drawing" />}
+      {drawing && drawing.space === "artboard" && <div className={styles.zone} style={zoneStyle(zoneToView(drawing, view))} data-testid="review-zone-drawing" />}
       {zones.map((zone) => {
         if (zone.target.space !== "artboard") return null;
         const pin = zone.pin;
         const mine = pin?.mine ?? true;
         const number = pin?.number ?? pins.draftNumber;
         return (
-          <div key={zone.id} className={cx(styles.zone, !mine && styles.zoneTheirs)} style={zoneStyle(zone.target)} data-zone={number} data-zone-mine={mine}>
+          <div key={zone.id} className={cx(styles.zone, !mine && styles.zoneTheirs)} style={zoneStyle(zoneToView(zone.target, view))} data-zone={number} data-zone-mine={mine}>
             <PinMarker number={number} id={zone.id} pin={pin} label={pinLabel(pin, "Zone")} className={styles.zonePin} finished={pins.finished} setHovered={setHovered} onEdit={pins.openEdit} tapReads={false} markId={false} />
             {!pin && <span className={styles.zoneSize}>Zone</span>}
           </div>
         );
       })}
-      {resolved.map((entry) => {
+      {resolved.filter(inWindow).map((entry) => {
         const pin = entry.pin;
         const number = pin?.number ?? pins.draftNumber;
         const label = pinLabel(pin, "Épingle");
@@ -385,6 +392,8 @@ export function PinPopover({ number, zone, label, saved, pins, phone = false }: 
   const [text, setText] = useState(savedText ?? "");
   const [copied, setCopied] = useState(false);
   const saving = useRef(false);
+  /** The text this panel last saved: the pin it created may not have reached `saved` yet when the panel closes. */
+  const lastSaved = useRef(savedText);
   const field = useRef<HTMLTextAreaElement>(null);
   const latest = useRef({ text, savedText, save: pins.save, failed: pins.failed });
   latest.current = { text, savedText, save: pins.save, failed: pins.failed };
@@ -395,7 +404,9 @@ export function PinPopover({ number, zone, label, saved, pins, phone = false }: 
   const saveNow = useCallback(async () => {
     if (saving.current) return false;
     saving.current = true;
-    const ok = await latest.current.save(latest.current.text);
+    const typed = latest.current.text;
+    const ok = await latest.current.save(typed);
+    if (ok) lastSaved.current = typed;
     saving.current = false;
     return ok;
   }, []);
@@ -417,7 +428,7 @@ export function PinPopover({ number, zone, label, saved, pins, phone = false }: 
   useEffect(
     () => () => {
       const { text: typed, savedText: stored, failed } = latest.current;
-      if (typed.trim() !== "" && typed !== stored && !failed && !saving.current) void latest.current.save(typed);
+      if (typed.trim() !== "" && typed !== stored && typed !== lastSaved.current && !failed && !saving.current) void latest.current.save(typed);
     },
     [],
   );

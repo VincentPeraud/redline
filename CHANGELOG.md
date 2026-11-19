@@ -6,6 +6,10 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+### Fixed
+
+- Review pins and zones on an artboard taller than its window (a long page scrolling inside the iframe): Alt + click and Alt + drag now land where the cursor is, and pins and zones move with the artboard's scroll, a box scrolling inside the page included. Closing a pin's panel right after typing no longer saves the pin twice.
+
 ## [0.4.0] - 2026-11-18
 
 ### Added

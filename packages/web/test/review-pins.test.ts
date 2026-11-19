@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReviewPin } from "@redline/shared";
-import { zoneFromDrag, feedbackReplacesOk, phonePinText, popoverPlacement, pinHiddenWhy, pinIsShown, pinOffsets } from "../src/reviewPinRules.js";
+import { docToView, zoneToView, zoneFromDrag, feedbackReplacesOk, phonePinText, popoverPlacement, pinHiddenWhy, pinIsShown, pinOffsets } from "../src/reviewPinRules.js";
 
 const pin = (extra: Partial<ReviewPin> = {}): ReviewPin => ({ id: "p1", number: 1, text: "Fix", target: { selector: "h1", xPct: 10, yPct: 10 }, at: "2026-11-16T10:00:00Z", mine: true, ...extra });
 const example = { pageId: "p", artboard: "a.html" };
@@ -95,5 +95,24 @@ describe("pins in the phone sheet", () => {
   it("names a zone drawn on a computer, since a phone cannot draw or show it", () => {
     const zone = pin({ text: "Les participants sous les décisions", target: { kind: "zone", xPct: 10, yPct: 10 } as unknown as ReviewPin["target"] });
     expect(phonePinText(zone)).toBe("Zone (tracée sur ordinateur) : Les participants sous les décisions");
+  });
+});
+
+describe("pins over an artboard taller than its window", () => {
+  // A 1000 × 2000 document in a 1000 × 800 window, scrolled down by 400.
+  const scrolled = { x: 0, y: 400, docW: 1000, docH: 2000, viewW: 1000, viewH: 800 };
+
+  it("places a point of the document where the window shows it", () => {
+    expect(docToView({ xPct: 50, yPct: 50 }, scrolled)).toEqual({ xPct: 50, yPct: 75 });
+    expect(docToView({ xPct: 50, yPct: 10 }, scrolled)).toEqual({ xPct: 50, yPct: -25 });
+  });
+
+  it("keeps percents as they are while the document fits its window", () => {
+    expect(docToView({ xPct: 30, yPct: 60 }, undefined)).toEqual({ xPct: 30, yPct: 60 });
+  });
+
+  it("moves and scales a zone with the scroll", () => {
+    const zone = { kind: "zone" as const, space: "artboard" as const, xPct: 10, yPct: 25, wPct: 20, hPct: 10 };
+    expect(zoneToView(zone, scrolled)).toEqual({ ...zone, xPct: 10, yPct: 12.5, wPct: 20, hPct: 25 });
   });
 });
