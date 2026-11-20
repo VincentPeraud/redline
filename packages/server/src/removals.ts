@@ -18,10 +18,13 @@ export function designSystemUsages(
   store: Store,
   designSystemId: string,
   wanted: { tokens: string[]; components: { name: string; classes: string[] }[] },
+  /** `skipDraftFollowers`: projects that follow the draft are left out (what they see does not depend on a diffusion). */
+  { skipDraftFollowers = false }: { skipDraftFollowers?: boolean } = {},
 ): { tokens: Map<string, UsagePlace[]>; components: Map<string, UsagePlace[]> } {
   const tokens = new Map<string, UsagePlace[]>(wanted.tokens.map((name) => [name, []]));
   const components = new Map<string, UsagePlace[]>(wanted.components.map((c) => [c.name, []]));
   for (const project of store.projectsUsingDesignSystem(designSystemId)) {
+    if (skipDraftFollowers && store.projectFollowsDraft(project.id)) continue;
     const style = store.readProjectText(project.id, PROJECT_STYLE_PATH);
     for (const name of wanted.tokens) if (referencesToken(style, name)) tokens.get(name)!.push({ project: project.title });
     for (const page of store.listPages(project.id)) {
@@ -83,6 +86,6 @@ export function rollbackImpact(store: Store, designSystemId: string, target: num
   const files = store.diffusionComponentFiles(designSystemId, current.number);
   const listed = store.diffusionComponents(designSystemId, current.number);
   const wanted = listed.filter((c) => !kept.has(c.name)).map((c) => ({ name: c.name, classes: componentClassesOf(files[c.file] ?? "") }));
-  const used = designSystemUsages(store, designSystemId, { tokens: [], components: wanted });
+  const used = designSystemUsages(store, designSystemId, { tokens: [], components: wanted }, { skipDraftFollowers: true });
   return { components: wanted.filter((c) => used.components.get(c.name)!.length > 0).map((c) => ({ name: c.name, usedBy: used.components.get(c.name)! })) };
 }

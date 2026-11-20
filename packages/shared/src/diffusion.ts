@@ -112,6 +112,8 @@ export interface DesignSystemUser {
   /** An archived project still following the design system (it blocks archiving the design system). */
   archived?: true;
   componentCount: number;
+  /** The project follows the design system draft: it sees the changes not diffused yet. */
+  followsDraft: boolean;
 }
 
 /** `GET /api/design-systems/:id`: the design system with its pages, current diffusion and what is pending. */

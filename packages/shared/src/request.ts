@@ -36,10 +36,15 @@ export interface ThreadRequest {
   refusalAnswer?: string;
   /** Thread of the request this one was attached to: its origins moved there and this one is closed. */
   mergedInto?: string;
+  /** Every project that asked followed the design system draft when the change was published there: the request is closed as far as the lists go, and only waits for the diffusion. */
+  closedInDraft?: boolean;
 }
 
-/** An open request is still waiting for a diffusion or a refusal: it counts on the artboard header and on the overview. */
-export const requestIsOpen = (request: Pick<ThreadRequest, "state" | "mergedInto">): boolean => !request.mergedInto && (request.state === "in_progress" || request.state === "done_in_draft");
+/** A request the next diffusion will close, or the user can still refuse: neither refused, diffused nor merged. */
+export const requestAwaitsDiffusion = (request: Pick<ThreadRequest, "state" | "mergedInto">): boolean => !request.mergedInto && (request.state === "in_progress" || request.state === "done_in_draft");
+
+/** An open request is still waiting for an answer: it counts on the artboard header and on the overview. One already served in the draft of its requesters is not open. */
+export const requestIsOpen = (request: Pick<ThreadRequest, "state" | "mergedInto" | "closedInDraft">): boolean => requestAwaitsDiffusion(request) && !request.closedInDraft;
 
 /** "ui-modal" and "modal" are the same component: the name without the prefix, lower-cased. */
 export const requestComponentName = (component: string): string => component.trim().replace(/^ui-/i, "").toLowerCase();

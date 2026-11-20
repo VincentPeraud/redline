@@ -1,5 +1,6 @@
 import { INSTANCE_TAG_PREFIX, componentNameOf, instanceTagOf, type InstanceLayers } from "@redline/shared";
 import { projectComponents } from "./components.js";
+import { designSystemSeenBy } from "./design-system-view.js";
 import { excludedComponents } from "./switch-design-system.js";
 import type { Store } from "./store.js";
 
@@ -262,7 +263,13 @@ export function instanceLayersOf(store: Store, pageId: string, diffusion: number
   if (store.isDesignSystemPage(pageId)) return { designSystem: diffusion === undefined ? projectComponents(store, page.projectId).definitions : store.diffusionDefinitions(page.projectId, diffusion), project: [], ...own };
   const designSystemId = store.sharedDesignSystemIdOfPage(pageId, versionId);
   const designSystem =
-    designSystemId === undefined ? [] : diffusion === undefined ? projectComponents(store, designSystemId).definitions : store.diffusionDefinitions(designSystemId, diffusion);
+    designSystemId === undefined
+      ? []
+      : diffusion === undefined
+        ? projectComponents(store, designSystemId).definitions
+        : versionId === undefined
+          ? (designSystemSeenBy(store, page.projectId, designSystemId)?.definitions() ?? [])
+          : store.diffusionDefinitions(designSystemId, diffusion);
   const from = designSystemId === undefined ? undefined : store.getDesignSystem(designSystemId)?.title;
   const excluded = designSystemId === undefined ? [] : excludedComponents(store, page.projectId, designSystemId).map(({ tag, from, available }) => ({ tag, from, available }));
   return { designSystem, project: projectComponents(store, page.projectId).definitions, ...own, ...(excluded.length > 0 && { excluded }), ...(diffusion !== undefined && { diffusion }) };

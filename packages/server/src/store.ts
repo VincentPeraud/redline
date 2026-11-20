@@ -384,6 +384,9 @@ export class Store {
     addColumn("versions", "origin_label", "TEXT");
     addColumn("versions", "terminal_session_id", "TEXT");
     addColumn("versions", "diffusion", "INTEGER");
+    addColumn("versions", "on_draft", "INTEGER NOT NULL DEFAULT 0");
+    addColumn("projects", "follows_draft", "INTEGER NOT NULL DEFAULT 0");
+    addColumn("projects", "returns_after_diffusion", "INTEGER NOT NULL DEFAULT 0");
     addColumn("threads", "element_name", "TEXT");
     addColumn("threads", "reopen_to", "TEXT");
     addColumn("threads", "rendering", "TEXT");
@@ -403,6 +406,8 @@ export class Store {
     addColumn("design_md_versions", "origin", "TEXT NOT NULL DEFAULT 'user'");
     addColumn("design_md_versions", "origin_id", "TEXT");
     addColumn("design_md_versions", "origin_label", "TEXT");
+    addColumn("design_md_versions", "setting_follows", "TEXT");
+    addColumn("design_md_versions", "setting_design_system", "TEXT");
     const threadColumns = this.db.prepare("PRAGMA table_info(threads)").all() as { name: string }[];
     if (!threadColumns.some((c) => c.name === "session_id")) this.db.exec("ALTER TABLE threads ADD COLUMN session_id TEXT");
     if (!threadColumns.some((c) => c.name === "agent_id")) this.db.exec("ALTER TABLE threads ADD COLUMN agent_id TEXT");
@@ -1032,11 +1037,19 @@ export class Store {
   setProjectDesignSystem(projectId: string, chosenDesignSystem: string | null, origin: VersionOrigin, person?: Person): void {
     const designSystem = chosenDesignSystem === NEUTRAL_DESIGN_SYSTEM_ID ? null : chosenDesignSystem;
     const previous = this.sharedDesignSystemIdOfProject(projectId) ?? null;
+    const wasFollowingDraft = this.projectFollowsDraft(projectId);
     if (designSystem === null && previous !== null) {
       const style = this.startingStyle(projectId, previous);
       if (style !== undefined) this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(style, "utf8"), { origin: "user", ...(person && { person }) });
     }
     this.db.prepare("UPDATE projects SET design_system = ? WHERE id = ?").run(designSystem, projectId);
+    if (designSystem !== previous) {
+      this.setProjectFollowsDraft(projectId, false);
+      if (wasFollowingDraft && designSystem !== null) {
+        this.logFollowsDraft(projectId, false, person);
+        this.announceFollowChange(projectId);
+      }
+    }
     if (designSystem === null && !this.readProjectFile(projectId, PROJECT_STYLE_PATH)) {
       this.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.alloc(0));
     }
@@ -1053,6 +1066,58 @@ export class Store {
       else manifest.designSystem = designSystem;
       this.addVersion(page.id, { ...files, [MANIFEST_PATH]: `${JSON.stringify(manifest, null, 2)}\n` }, designSystem === null ? "No shared design system" : "Design system changed", origin, person && { person });
     }
+  }
+
+  /** Whether the project sees its shared design system draft instead of the current diffusion (never without a shared design system). */
+  projectFollowsDraft(projectId: string): boolean {
+    const row = this.db.prepare("SELECT follows_draft AS followsDraft FROM projects WHERE id = ?").get(projectId) as { followsDraft: number } | undefined;
+    return row?.followsDraft === 1 && this.sharedDesignSystemIdOfProject(projectId) !== undefined;
+  }
+
+  /** The active projects that follow the draft of `designSystemId`: the ones that see its pages' changes right away. */
+  projectsFollowingDraft(designSystemId: string): ProjectUsingDesignSystem[] {
+    return this.projectsUsingDesignSystem(designSystemId).filter((project) => !project.archived && this.projectFollowsDraft(project.id));
+  }
+
+  /** Raw setter, no log. Any change of the setting drops the "Diffuser d'abord" intent. */
+  setProjectFollowsDraft(projectId: string, followsDraft: boolean): void {
+    this.db.prepare("UPDATE projects SET follows_draft = ?, returns_after_diffusion = 0 WHERE id = ?").run(followsDraft ? 1 : 0, projectId);
+  }
+
+  /** "Diffuser d'abord": the project goes back to the latest diffusion once the next diffusion of its design system succeeds. */
+  setReturnAfterDiffusion(projectId: string, returning: boolean): void {
+    this.db.prepare("UPDATE projects SET returns_after_diffusion = ? WHERE id = ?").run(returning ? 1 : 0, projectId);
+  }
+
+  /** The active projects of the design system that asked to go back after its next diffusion and still follow the draft. */
+  projectsReturningAfterDiffusion(designSystemId: string): { id: string; title: string }[] {
+    const asked = new Set((this.db.prepare("SELECT id FROM projects WHERE returns_after_diffusion = 1").all() as { id: string }[]).map((row) => row.id));
+    return this.projectsFollowingDraft(designSystemId).filter((project) => asked.has(project.id));
+  }
+
+  /** Changes the setting and logs it in the project style history under `person`; nothing happens when it already has that value. The one entry point for a manual change and for an automatic one (return after a diffusion, by the member who diffused). */
+  changeFollowsDraft(projectId: string, followsDraft: boolean, person?: Person): void {
+    if (this.projectFollowsDraft(projectId) === followsDraft) return;
+    this.setProjectFollowsDraft(projectId, followsDraft);
+    this.logFollowsDraft(projectId, followsDraft, person);
+    this.announceFollowChange(projectId);
+  }
+
+  /** The setting changed: the project's open pages (artboards and draft band) and the design system screens that count its followers reload. */
+  private announceFollowChange(projectId: string): void {
+    const designSystemId = this.sharedDesignSystemIdOfProject(projectId);
+    this.emit({ type: "design-system-updated", ...(designSystemId ? { designSystemId } : {}), projectId, pageIds: this.listPages(projectId).map((page) => page.id) });
+  }
+
+  /** Records, in the project style history, that the project now follows the draft or the latest diffusion of its design system. */
+  private logFollowsDraft(projectId: string, followsDraft: boolean, person?: Person): void {
+    const designSystemId = this.sharedDesignSystemIdOfProject(projectId);
+    const title = designSystemId && this.getDesignSystem(designSystemId)?.title;
+    if (!title) return;
+    const hash = this.setProjectFile(projectId, PROJECT_STYLE_PATH, this.readProjectFile(projectId, PROJECT_STYLE_PATH) ?? Buffer.alloc(0));
+    this.db
+      .prepare("INSERT INTO design_md_versions (id, project_id, path, hash, created_at, origin, person_id, setting_follows, setting_design_system) VALUES (?, ?, ?, ?, ?, 'user', ?, ?, ?)")
+      .run(randomUUID(), projectId, PROJECT_STYLE_PATH, hash, now(), person?.id ?? null, followsDraft ? "draft" : "diffusion", title);
   }
 
   /** Components a design system switch left out of the project: their instances render broken, by component name, with the design system they were not taken from. */
@@ -1305,9 +1370,9 @@ export class Store {
   listDesignMdVersions(projectId: string, path: string = DESIGN_MD_PATH): DesignMdVersion[] {
     const rows = this.db
       .prepare(
-        "SELECT id, hash, created_at, origin, origin_id, origin_label, person_id FROM design_md_versions WHERE project_id = ? AND path = ? ORDER BY created_at DESC, rowid DESC",
+        "SELECT id, hash, created_at, origin, origin_id, origin_label, person_id, setting_follows, setting_design_system FROM design_md_versions WHERE project_id = ? AND path = ? ORDER BY created_at DESC, rowid DESC",
       )
-      .all(projectId, path) as { id: string; hash: string; created_at: string; origin: DesignMdVersion["origin"]; origin_id: string | null; origin_label: string | null; person_id: string | null }[];
+      .all(projectId, path) as { id: string; hash: string; created_at: string; origin: DesignMdVersion["origin"]; origin_id: string | null; origin_label: string | null; person_id: string | null; setting_follows: "draft" | "diffusion" | null; setting_design_system: string | null }[];
     return rows.map((r) => {
       const person = this.getPerson(r.person_id);
       return {
@@ -1318,6 +1383,7 @@ export class Store {
         ...(r.origin_id ? { originId: r.origin_id } : {}),
         ...(r.origin_label ? { originLabel: r.origin_label } : {}),
         ...(person ? { person } : {}),
+        ...(r.setting_follows && r.setting_design_system ? { setting: { follows: r.setting_follows, designSystem: r.setting_design_system } } : {}),
       };
     });
   }
@@ -1698,7 +1764,7 @@ export class Store {
 
   /**
    * Records what a design system's session changed in the version it published. A change linked to a request that is still
-   * `in_progress` turns it to `done_in_draft`; a refused or closed request keeps its state.
+   * `in_progress` turns it to `done_in_draft` (and closes it when every requester follows the draft); a refused or closed request keeps its state.
    */
   recordChanges(designSystemId: string, versionId: string, changes: ChangeRecordInput[]): ChangeRecord[] {
     const createdAt = now();
@@ -1715,6 +1781,7 @@ export class Store {
       createdAt,
     }));
     const kept: ChangeRecord[] = [];
+    const servedInDraft: string[] = [];
     this.db.transaction(() => {
       const insert = this.db.prepare("INSERT INTO component_changes (id, design_system_id, component, label, kind, state, thread_id, anchor, version_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       for (const record of records) {
@@ -1731,9 +1798,18 @@ export class Store {
         if (refusedRequest) record.state = "refused";
         insert.run(record.id, designSystemId, record.component, record.label, record.kind, record.state, record.threadId ?? null, record.anchor ? JSON.stringify(record.anchor) : null, versionId, createdAt);
         kept.push(record);
-        if (answered && !refusedRequest) this.updateRequest(answered, (request) => (request.state === "in_progress" ? { ...request, state: "done_in_draft" } : request));
+        if (answered && !refusedRequest) {
+          // A request whose requesters all follow the draft already has what it asked for: it closes now, and the diffusion only moves it to "diffused".
+          this.updateRequest(answered, (request) => {
+            if (request.state !== "in_progress") return request;
+            const served = request.origins.every((origin) => this.projectFollowsDraft(origin.projectId));
+            if (served && !servedInDraft.includes(answered)) servedInDraft.push(answered);
+            return { ...request, state: "done_in_draft", ...(served ? { closedInDraft: true } : {}) };
+          });
+        }
       }
     })();
+    for (const threadId of servedInDraft) this.resolveThread(threadId);
     return kept;
   }
 
@@ -2245,9 +2321,9 @@ export class Store {
   /** Every version of a page with its file hashes, OLDEST first. */
   listVersionRecords(pageId: string): VersionRecord[] {
     const rows = this.db
-      .prepare("SELECT id, files, message, origin, origin_id, origin_label, terminal_session_id, person_id, link_id, link_name, created_at, diffusion FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
-      .all(pageId) as (VersionRow & { files: string; diffusion: number | null })[];
-    return rows.map((row) => ({ ...this.toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1, ...(row.terminal_session_id ? { terminalSessionId: row.terminal_session_id } : {}) }));
+      .prepare("SELECT id, files, message, origin, origin_id, origin_label, terminal_session_id, person_id, link_id, link_name, created_at, diffusion, on_draft FROM versions WHERE page_id = ? ORDER BY created_at, rowid")
+      .all(pageId) as (VersionRow & { files: string; diffusion: number | null; on_draft: number })[];
+    return rows.map((row) => ({ ...this.toSummary(row), files: JSON.parse(row.files) as Record<string, string>, diffusion: row.diffusion ?? 1, onDraft: row.on_draft === 1, ...(row.terminal_session_id ? { terminalSessionId: row.terminal_session_id } : {}) }));
   }
 
   /** One file of one version of a page, or undefined if either is unknown. */
@@ -2361,9 +2437,10 @@ export class Store {
 
   private insertVersion(pageId: string, filesJson: string, message: string, origin: VersionOrigin, ref?: OriginRef): PageVersionSummary {
     const row: VersionRow = { id: randomUUID(), message, origin, origin_id: ref?.originId ?? null, origin_label: ref?.originLabel ?? null, terminal_session_id: ref?.terminalSessionId ?? null, person_id: ref?.person?.id ?? null, link_id: ref?.link?.linkId ?? null, link_name: ref?.link?.name ?? null, created_at: now() };
+    const drawnWith = this.drawnWithForNewVersion(pageId, filesJson);
     this.db
-      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, terminal_session_id, person_id, link_id, link_name, diffusion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, row.terminal_session_id, row.person_id, row.link_id, row.link_name, this.diffusionForNewVersion(pageId, filesJson) ?? null);
+      .prepare("INSERT INTO versions (id, page_id, files, created_at, message, origin, origin_id, origin_label, terminal_session_id, person_id, link_id, link_name, diffusion, on_draft) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(row.id, pageId, filesJson, row.created_at, message, origin, row.origin_id, row.origin_label, row.terminal_session_id, row.person_id, row.link_id, row.link_name, drawnWith?.number ?? null, drawnWith?.onDraft ? 1 : 0);
     this.emit({ type: "page-updated", pageId, versionId: row.id });
     return this.toSummary(row);
   }
@@ -2382,12 +2459,24 @@ export class Store {
     };
   }
 
-  /** The diffusion a version recorded now is drawn with: the current one of the design system its manifest names; none for a design system's own pages (they read the draft). */
-  private diffusionForNewVersion(pageId: string, filesJson: string): number | undefined {
+  /**
+   * What a version recorded now is drawn with: the current diffusion of the design system its manifest names, flagged `onDraft` when
+   * the project follows that design system's draft (the number is then the diffusion the draft comes after); none for a design
+   * system's own pages (they read the draft).
+   */
+  private drawnWithForNewVersion(pageId: string, filesJson: string): { number: number; onDraft: boolean } | undefined {
     if (this.isDesignSystemPage(pageId)) return undefined;
     const manifestHash = (JSON.parse(filesJson) as Record<string, string>)[MANIFEST_PATH];
     const designSystemId = this.sharedDesignSystemIdForManifest(pageId, manifestHash === undefined ? undefined : this.blobText(manifestHash));
-    return designSystemId === undefined ? undefined : this.currentDiffusion(designSystemId)?.number;
+    const number = designSystemId === undefined ? undefined : this.currentDiffusion(designSystemId)?.number;
+    if (number === undefined) return undefined;
+    const projectId = this.projectIdOfPage(pageId);
+    return { number, onDraft: projectId !== undefined && designSystemId === this.sharedDesignSystemIdOfProject(projectId) && this.projectFollowsDraft(projectId) };
+  }
+
+  /** Whether the version was published while its project followed the design system draft. */
+  versionOnDraft(pageId: string, versionId: string): boolean {
+    return (this.db.prepare("SELECT on_draft AS onDraft FROM versions WHERE id = ? AND page_id = ?").get(versionId, pageId) as { onDraft: number } | undefined)?.onDraft === 1;
   }
 
   /**
@@ -2689,6 +2778,8 @@ export interface VersionRecord extends PageVersionSummary {
   files: Record<string, string>;
   /** Diffusion recorded with the version (1 for versions from before diffusions); meaningless on a design system's own pages. */
   diffusion: number;
+  /** Published while the project followed the draft: drawn with the current draft (no snapshot), `diffusion` being the one it came after. */
+  onDraft: boolean;
   /** The terminal session that published it, when it was a terminal publish made by a session that announced itself. */
   terminalSessionId?: string;
 }

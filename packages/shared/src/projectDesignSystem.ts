@@ -21,6 +21,8 @@ export interface ProjectStyleToken {
    * `new`: only in the project style, next to a shared design system. `own`: a project without a shared design system.
    */
   status: "overridden" | "inherited" | "new" | "own";
+  /** Following the draft: the token exists in the draft and not in the current diffusion ("nouveau dans le brouillon"). */
+  draftOnly?: boolean;
 }
 
 export interface ProjectComponentInfo {
@@ -55,6 +57,10 @@ export interface ProjectDesignSystem {
   designSystem: { id: string; title: string } | null;
   /** Its current diffusion; null without a shared design system. */
   diffusion: DiffusionInfo | null;
+  /** The project sees the design system draft instead of its current diffusion. */
+  followsDraft: boolean;
+  /** Changes of the design system not diffused yet (the design system's total, whoever follows what). */
+  pendingChanges: number;
   tokens: ProjectStyleToken[];
   /** True when the project style itself declares at least one token (`styleDefinesTokens`). */
   styleDefinesTokens: boolean;
@@ -76,12 +82,64 @@ export interface SetProjectTokenRequest {
 
 /** `PUT /api/projects/:id/design-system`: a shared design system id, or null for "Aucun : style propre au projet". */
 export interface SetProjectDesignSystemRequest {
-  designSystem: string | null;
+  /** Omitted: the design system stays and only `followsDraft` changes. */
+  designSystem?: string | null;
+  /** What the project follows: true = the draft, false = the latest diffusion. Switching to another design system resets it to false. */
+  followsDraft?: boolean;
   /**
    * Tags (`ui-name`) of the used components that take the new design system's version. Absent ones cannot be taken;
    * every other used component is left out. Omitted: the pre-ticked ones (same name, same settings and slots).
    */
   ticked?: string[];
+  /** Applies a change of `followsDraft` even though it breaks pages (`brokenPages` of the 409 answer), and opens a thread on each. */
+  confirm?: boolean;
+}
+
+/** What a page uses that the state a project is switching to no longer offers. */
+export type BrokenElementKind = "component" | "setting" | "value" | "slot" | "token";
+
+/** Where a broken element is written: an artboard of the page (its title, or its file) and, for an instance, how many times. */
+export interface BrokenPlace {
+  artboard: string;
+  instances?: number;
+}
+
+export interface BrokenElement {
+  kind: BrokenElementKind;
+  /** What to show in code font: the tag (`ui-badge`) of an instance's component, or the token (`--color-accent-soft`). */
+  name: string;
+  /** The setting of a `setting` or `value` element. */
+  setting?: string;
+  /** The choice value of a `value` element. */
+  value?: string;
+  /** The slot of a `slot` element. */
+  slot?: string;
+  /** For a token: the one new token with the same value in the target state, when there is exactly one. */
+  renamedTo?: string;
+  /** A component, setting, value or slot makes publishing the page refuse; a token only renders without it. */
+  blocksPublishing: boolean;
+  places: BrokenPlace[];
+}
+
+/** A page of a project that breaks when the project switches between the latest diffusion and the draft of its design system. */
+export interface BrokenPage {
+  pageId: string;
+  title: string;
+  /** The first artboard (file) of the page writing a broken element: where the thread opens. */
+  artboard: string;
+  elements: BrokenElement[];
+}
+
+/** 409 answer of `PUT /api/projects/:id/design-system` when the change breaks pages and the request does not confirm: nothing was switched. */
+export interface BrokenPagesAnswer {
+  error: string;
+  brokenPages: BrokenPage[];
+  /** Going back to the latest diffusion only (it always asks): the titles of the other projects the viewer may read that receive a diffusion of the design system. */
+  otherProjects?: string[];
+  /** Going back only: how many other projects receive a diffusion without the viewer being allowed to read them (counted, never named). */
+  hiddenProjects?: number;
+  /** Going back only: whether the viewer may diffuse the design system ("Diffuser d'abord"). */
+  canDiffuse?: boolean;
 }
 
 /** How a used component compares with the target design system's current diffusion. */
@@ -110,6 +168,8 @@ export interface DesignSystemSwitchPreview {
   components: SwitchComponent[];
   /** Tags of the project's own components, which a switch leaves alone. */
   own: string[];
+  /** The project follows the draft of its current design system: the switch puts it back on the latest diffusion of the target. */
+  followsDraft: boolean;
 }
 
 /** `POST /api/projects/:id/design-system/promote`: makes the project's own style a shared design system (201 `DesignSystem`). */

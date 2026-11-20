@@ -372,6 +372,15 @@
   font-weight: var(--font-weight-semibold);
 }
 
+.userPillDraft {
+  font-weight: var(--font-weight-medium);
+}
+
+.sideTitleNote {
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-muted);
+}
+
 .userSummary {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
@@ -469,7 +478,7 @@
   justify-content: space-between;
 }
 
-.archivedPill {
+.userPill {
   flex-shrink: 0;
   padding: 2px var(--space-2);
   border-radius: var(--radius-pill);

@@ -102,3 +102,20 @@ it("refuses a request from its card", async () => {
   await expect.poll(async () => tab.locator(`[data-thread="${request}"]`).getByRole("button", { name: "Refuser" }).count()).toBe(0);
   await tab.close();
 }, 30_000);
+
+it("names, in the Refuser dialog, the pages of projects on the draft that use the change", async () => {
+  const { ds, planning, ask, publish } = await setup();
+  await fetch(`${server.url}/api/projects/${planning.projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ followsDraft: true }) });
+  await publish([{ component: "modal", label: "Taille 720 px", kind: "added", threadId: await ask("Ajouter une taille 720 px") }]);
+
+  const tab = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await tab.goto(`${server.url}/#/pages/${ds.pageId}`);
+  await tab.getByRole("button", { name: /Diffuser aux projets/ }).click();
+  const dialog = tab.getByRole("dialog");
+  await dialog.getByTestId("review-change").getByRole("button", { name: "Refuser" }).click();
+  const refuse = tab.getByRole("dialog", { name: /^Refuser/ });
+  await refuse.getByTestId("refuse-draft-pages").waitFor();
+  expect(await refuse.getByTestId("refuse-draft-pages").textContent()).toContain("App · Planning");
+  if (captures) await tab.screenshot({ path: join(captures, "refuse-draft-pages.png") });
+  await tab.close();
+}, 30_000);

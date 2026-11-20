@@ -46,7 +46,7 @@ import { useGaps } from "./useGaps.js";
 import { UndoToast } from "./UndoToast.js";
 import { CanvasHeader } from "./CanvasHeader.js";
 import { PreviewBanner } from "./PreviewBanner.js";
-import { ReviewBanners } from "./ReviewBanners.js";
+import { DraftBand, ReviewBanners } from "./ReviewBanners.js";
 import { ArchivedBanner, type ArchiveKind } from "./ArchiveControls.js";
 import { useStoredToggle } from "./useStoredToggle.js";
 import { GuidesButton } from "./GuidesButton.js";
@@ -964,6 +964,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         project={project}
         designSystemId={designSystemId}
         designSystemTitle={designSystemDetail?.title}
+        followedBy={designSystemDetail?.usedBy.filter((user) => user.followsDraft).map((user) => user.title)}
         versionId={versionId}
         pageId={pageId}
         pageTitle={pageTitle}
@@ -1015,6 +1016,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
           className={styles.archivedBanner}
         />
       )}
+      {!designSystemPage && !previewing && <DraftBand pageId={pageId} projectId={projectId} visitor={visitor !== null} />}
       <div className={styles.body}>
         <main className={styles.stage}>
           {manifestError && <div role="alert" className={styles.error}>{manifestError}</div>}

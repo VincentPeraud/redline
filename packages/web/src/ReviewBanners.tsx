@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { pageChangeReviewsPath, reviewPlace, type PageChangeReview } from "@redline/shared";
+import { pageChangeReviewsPath, reviewPlace, type PageChangeReview, type ProjectDesignSystem } from "@redline/shared";
 import { navigateTo } from "./router.js";
 import { counted } from "./plural.js";
 import { relativeTime } from "./relativeTime.js";
@@ -147,5 +147,48 @@ export function ReviewBanners({ pageId }: { pageId: string }) {
           <Band key={review.id} review={review} onHide={() => setHidden(new Set([...hidden, review.id]))} />
         ))}
     </>
+  );
+}
+
+/** The design system a project follows in draft while its draft differs from the diffusion; kept up to date by the server events. */
+function useDraftBand(pageId: string, projectId: string): { id: string; title: string; pendingChanges: number } | null {
+  const [band, setBand] = useState<{ id: string; title: string; pendingChanges: number } | null>(null);
+  const load = useCallback(async () => {
+    const response = await fetch(`/api/projects/${projectId}/design-system`).catch(() => undefined);
+    if (!response?.ok) return;
+    const detail = (await response.json()) as ProjectDesignSystem;
+    setBand(detail.followsDraft && detail.designSystem && detail.pendingChanges > 0 ? { ...detail.designSystem, pendingChanges: detail.pendingChanges } : null);
+  }, [projectId]);
+  useEffect(() => {
+    void load();
+    return subscribeServerEvents((event) => {
+      if (event.type === "design-system-updated" && event.pageIds.includes(pageId)) void load();
+    }, () => void load());
+  }, [load, pageId]);
+  return band;
+}
+
+/** Grey band under the canvas header of a page of a project that follows the design system draft, while the draft has changes not diffused yet. Link visitors see it without the button. */
+export function DraftBand({ pageId, projectId, visitor }: { pageId: string; projectId: string; visitor: boolean }) {
+  const band = useDraftBand(pageId, projectId);
+  if (!band) return null;
+  return (
+    <div role="status" data-testid="draft-banner" className={`${styles.band} ${styles.draft}`}>
+      <svg className={styles.draftIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+      <span className={styles.text}>
+        <strong>Cette page utilise le brouillon de {band.title}</strong>
+        <span>
+          {counted(band.pendingChanges, "modification", "modifications")} de {band.title} {band.pendingChanges > 1 ? "pas encore diffusées s'appliquent" : "pas encore diffusée s'applique"} à ce projet. {band.pendingChanges > 1 ? "Elles peuvent" : "Elle peut"} encore changer.
+        </span>
+      </span>
+      {!visitor && (
+        <Button className={styles.draftAction} onClick={() => navigateTo({ name: "designSystem", designSystemId: band.id, viaProjectId: projectId })}>
+          Ouvrir {band.title}
+        </Button>
+      )}
+    </div>
   );
 }

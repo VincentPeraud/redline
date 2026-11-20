@@ -156,7 +156,7 @@ export type ServerEvent =
   /** The page was archived or unarchived (from the web UI or a session's archive_page): an open canvas turns read-only, or back. */
   | { type: "page-archive-changed"; pageId: string; projectId: string }
   /** A design system got a new version: the pages that use it (`pageIds`) reload their artboards to pick up the tokens. */
-  | { type: "design-system-updated"; designSystemId?: string; pageIds: string[] }
+  | { type: "design-system-updated"; designSystemId?: string; /** Set when a project started or stopped following the draft: its design system screen reloads too. */ projectId?: string; pageIds: string[] }
   | { type: "thread-updated"; pageId: string; threadId: string }
   /** A conversation of the page, or one of its messages, changed. */
   | { type: "conversation-updated"; pageId: string; conversationId: string }

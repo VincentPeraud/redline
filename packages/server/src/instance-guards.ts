@@ -29,9 +29,10 @@ export interface UseSite {
  * The instances written in the current version of the pages of the projects following `designSystemId` (leaving out the
  * instances of a name the project defines itself) and in the templates of `templates`.
  */
-export function useSites(store: Store, designSystemId: string, templates: ComponentDefinition[]): UseSite[] {
+export function useSites(store: Store, designSystemId: string, templates: ComponentDefinition[], { skipDraftFollowers = false }: { skipDraftFollowers?: boolean } = {}): UseSite[] {
   const sites: UseSite[] = [];
   for (const project of store.projectsUsingDesignSystem(designSystemId)) {
+    if (skipDraftFollowers && store.projectFollowsDraft(project.id)) continue;
     const own = new Set(projectComponents(store, project.id).definitions.map((d) => d.name));
     for (const page of componentPages(store, project.id)) {
       for (const [file, content] of Object.entries(page.files)) {
@@ -114,7 +115,7 @@ export function instanceChangesError(store: Store, pageId: string, files: Record
 export function rollbackInstancesError(store: Store, designSystemId: string, target: number): string | null {
   const before = store.diffusionDefinitions(designSystemId, store.currentDiffusion(designSystemId)!.number);
   const after = store.diffusionDefinitions(designSystemId, target);
-  const lines = removalLines(brokenUses(useSites(store, designSystemId, before.filter((d) => after.some((a) => a.name === d.name))), before, after), "is used by");
+  const lines = removalLines(brokenUses(useSites(store, designSystemId, before.filter((d) => after.some((a) => a.name === d.name)), { skipDraftFollowers: true }), before, after), "is used by");
   return lines.length === 0 ? null : `Rollback refused: ${lines.join("; ")}. Update those pages first.`;
 }
 
@@ -126,13 +127,15 @@ export interface BrokenPage {
   breaks: string[];
 }
 
-/** The pages whose instances break when the draft of the design system becomes its next diffusion. */
+/** The pages of projects on the diffusion whose instances break when the draft of the design system becomes its next diffusion. */
 export function brokenPagesAtDiffusion(store: Store, designSystemId: string): BrokenPage[] {
   const before = store.diffusionDefinitions(designSystemId, store.currentDiffusion(designSystemId)!.number);
   const after = projectComponents(store, designSystemId).definitions;
   const pages = new Map<string, BrokenPage>();
   for (const { site, breaks } of brokenUses(useSites(store, designSystemId, []), before, after)) {
     const { id, file } = site.page!;
+    // A project on the draft was told when the removal was published.
+    if (store.projectFollowsDraft(store.getPage(id)!.projectId)) continue;
     const page = pages.get(id) ?? { pageId: id, artboard: "", breaks: [] };
     if (page.artboard === "" && store.hasArtboard(id, file)) page.artboard = file;
     for (const text of breaks.map(breakText)) if (!page.breaks.includes(text)) page.breaks.push(text);

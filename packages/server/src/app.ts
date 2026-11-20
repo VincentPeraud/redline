@@ -57,13 +57,15 @@ import {
   instanceTagOf,
 } from "@redline/shared";
 import { BRIDGE_PATH, BRIDGE_SOURCE, ERRORS_PATH, ERRORS_SOURCE, injectBridge, injectDesignSystem } from "./bridge.js";
+import { designSystemSeenBy } from "./design-system-view.js";
 import { INSTANCES_PATH, INSTANCES_SOURCE, injectInstances, instanceLayersOf } from "./instances.js";
 import { SANDBOX_PATH, SANDBOX_SOURCE, injectSandbox, sandboxDocument } from "./sandbox.js";
 import type { Store } from "./store.js";
 import { registerAgentRoutes } from "./agents.js";
 import { registerAgentApi } from "./agent-api.js";
 import { TerminalSessions } from "./terminal-sessions.js";
-import { projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
+import { brokenPagesOnFollowChange } from "./broken-pages.js";
+import { openReturnThreads, projectDesignSystem, registerProjectDesignSystemRoutes } from "./project-design-system.js";
 import { projectContext, readPageAsset, readProjectAsset, registerProjectFileRoutes } from "./project-files.js";
 import { registerEventRoutes } from "./events.js";
 import { linkAuthorOf, registerLinkRoutes, visitorNameError } from "./link-routes.js";
@@ -78,6 +80,7 @@ import { brokenPagesAtDiffusion, instanceChangesError, rollbackInstancesError } 
 import { settleMovedUp } from "./move-up.js";
 import { refuseChange, refuseRequest, relaunchUndo } from "./refusals.js";
 import { settleUndoneChanges } from "./undone-changes.js";
+import { draftPagesUsing, watchDraftRemovals } from "./draft-removals.js";
 import { closeDiffusedRequests, requestsClosedBy, returnPendingOn } from "./diffusion-returns.js";
 import { newPageComponentsError, projectComponents, versionComponentsError } from "./components.js";
 import { crossPageReferencesError } from "./cross-page-references.js";
@@ -87,6 +90,7 @@ import { sourcePagesMessage } from "./design-system-source.js";
 import { registerConversationRoutes } from "./conversations.js";
 import { registerRunRoutes } from "./runs.js";
 import { registerArtboardHistoryRoutes } from "./artboard-history.js";
+import { openDraftRestoreThread, restoresDraftVersionOnDiffusion } from "./draft-restore.js";
 import { registerChangeReviewRoutes } from "./change-reviews.js";
 import { validTimeZone } from "./version-dates.js";
 import { registerGapRoutes } from "./gaps.js";
@@ -195,7 +199,7 @@ export async function buildMainApp(
   accountChanges.roleChanged.push(() => freeTakesLostAccess(store, pageLock));
   await registerAgentApi(app, store, pageLock, terminalSessions, access, config, options.publicUrl);
   await registerProjectFileRoutes(app, store);
-  registerProjectDesignSystemRoutes(app, store);
+  registerProjectDesignSystemRoutes(app, store, pageLock, access);
   registerEventRoutes(app, store, pageLock, access, options.eventsKeepAliveMs);
   registerLinkRoutes(app, store, access);
   registerProjectSharingRoutes(app, store, access, pageLock);
@@ -207,7 +211,7 @@ export async function buildMainApp(
   registerContextTracking(app, store, pageLock, knownWindows);
   const { sendMessage, lastWorkOf: lastConversationWork } = registerConversationRoutes(app, store, pageLock, knownWindows);
   registerSessionRoutes(app, store, pageLock, runs, lastConversationWork, access);
-  registerArtboardHistoryRoutes(app, store);
+  registerArtboardHistoryRoutes(app, store, pageLock);
   registerChangeReviewRoutes(app, store);
   registerGapRoutes(app, store);
   pageLock.restore();
@@ -355,7 +359,7 @@ export async function buildMainApp(
       }),
       usedBy: usedBy.map((project) => {
         const style = projectDesignSystem(store, project.id);
-        return { ...project, overrideCount: style.overrideCount, componentCount: style.components.length };
+        return { ...project, overrideCount: style.overrideCount, componentCount: style.components.length, followsDraft: !project.archived && store.projectFollowsDraft(project.id) };
       }),
       componentCount: components.length,
       tokenCount: draftTokens.length,
@@ -399,6 +403,11 @@ export async function buildMainApp(
   });
 
   // "Refuser" is a user action of the web UI: on a change born of a request, or on a whole request.
+  app.get<{ Params: { changeId: string } }>("/api/changes/:changeId/draft-users", async (req, reply) => {
+    const change = store.getChange(req.params.changeId);
+    if (!change) return reply.code(404).send({ error: "change not found" });
+    return draftPagesUsing(store, change.designSystemId, change.component, (projectId) => access.may(req.viewer, "read", { projectId }));
+  });
   app.post<{ Params: { changeId: string }; Body: { answer?: unknown } | undefined }>("/api/changes/:changeId/refuse", async (req, reply) => {
     const outcome = refuseChange(store, pageLock, req.params.changeId, req.body?.answer);
     return reply.code(outcome.status).send(outcome.body);
@@ -420,6 +429,7 @@ export async function buildMainApp(
     if (store.listChanges(designSystem.id).some((change) => change.state === "refused")) return reply.code(409).send({ error: "A refused change is not undone in the draft yet." });
     const broken = brokenPagesAtDiffusion(store, designSystem.id);
     const closing = requestsClosedBy(store, designSystem.id);
+    const returning = store.projectsReturningAfterDiffusion(designSystem.id);
     const created = store.createDiffusion(designSystem.id, "user");
     closeDiffusedRequests(store, pageLock, closing, created.number);
     settleMovedUp(store, designSystem.id);
@@ -429,6 +439,12 @@ export async function buildMainApp(
       const body = `Le design system « ${designSystem.title} » a retiré ce que cette page utilise : ${breaks.join(", ")}. Mets à jour les instances concernées.`;
       const thread = store.createThread(pageId, { target: { kind: "artboard", artboard }, title: "Retrait dans le design system", body }, undefined, true);
       dispatchThread(store, pageLock, store.getPage(pageId)!.projectId, thread, modelChoiceOf({}));
+    }
+    // "Diffuser d'abord": the projects that asked go back to the latest diffusion, as the member who diffused, with the same check as a manual return.
+    for (const project of returning) {
+      const brokenPages = brokenPagesOnFollowChange(store, project.id, false);
+      store.changeFollowsDraft(project.id, false, req.person);
+      openReturnThreads(store, pageLock, project.id, brokenPages);
     }
     return reply.code(201).send(created);
   });
@@ -511,7 +527,7 @@ export async function buildMainApp(
     const files = Object.fromEntries(
       Object.keys(page.version.files).map((path) => [path, store.readPageFile(page.id, path)!.toString("utf8")]),
     );
-    return { files, ...projectContext(store, page.id) };
+    return { files, ...projectContext(store, page.id, (projectId) => access.may(req.viewer, "read", { projectId })) };
   });
 
   // The project's pages; `?archived=1` lists its archived pages instead, the most recently archived first.
@@ -778,8 +794,10 @@ export async function buildMainApp(
       const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId)) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files) ?? removalsError(store, req.params.pageId, req.body.files, req.body.files[DESIGN_SYSTEM_TOKENS_PATH], req.body.confirmRemovals === true) ?? instanceChangesError(store, req.params.pageId, req.body.files, req.body.confirmRemovals === true);
       if (invalid) return reply.code(400).send({ error: invalid });
       const { files, message, origin } = req.body;
+      const reportRemovals = watchDraftRemovals(store, pageLock, req.params.pageId);
       const version = store.addVersion(req.params.pageId, files, message, origin, personRef(req));
       settleUndoneChanges(store, req.params.pageId);
+      reportRemovals();
       return reply.code(201).send(version);
     },
   );
@@ -807,10 +825,16 @@ export async function buildMainApp(
       if (!validTimeZone(timeZone)) return reply.code(400).send({ error: "invalid timeZone" });
       const files = store.readVersionFiles(req.params.pageId, req.params.versionId);
       // Restoring publishes the old files again: the same checks as a publish apply.
-      const invalid = files && (versionComponentsError(store, req.params.pageId, files) ?? removalsError(store, req.params.pageId, files, undefined, false) ?? instanceChangesError(store, req.params.pageId, files, false));
+      const onDraft = restoresDraftVersionOnDiffusion(store, req.params.pageId, req.params.versionId);
+      const invalid = files && (versionComponentsError(store, req.params.pageId, files, onDraft) ?? removalsError(store, req.params.pageId, files, undefined, false) ?? instanceChangesError(store, req.params.pageId, files, false));
       if (invalid) return reply.code(400).send({ error: invalid });
+      const reportRemovals = watchDraftRemovals(store, pageLock, req.params.pageId);
       const restored = store.restoreVersion(req.params.pageId, req.params.versionId, personRef(req), timeZone);
-      if (restored) settleUndoneChanges(store, req.params.pageId);
+      if (restored) {
+        settleUndoneChanges(store, req.params.pageId);
+        reportRemovals();
+        if (onDraft) openDraftRestoreThread(store, pageLock, req.params.pageId);
+      }
       return restored ? reply.code(201).send(restored) : reply.code(404).send({ error: "version not found" });
     },
   );
@@ -1006,12 +1030,13 @@ function registerArtboardRoutes(app: FastifyInstance, store: Store): void {
     return projectId !== undefined && !store.isDesignSystemProject(projectId) ? projectId : undefined;
   }
 
-  /** Diffusion a page is rendered with: the current one for a project's pages, the one recorded with the version for a version preview, none (the draft) for a design system's own pages. */
+  /** Diffusion a page is rendered with: the current one for a project's pages (none, the draft, when the project follows it), the one recorded with the version for a version preview (none when it was published on the draft), none (the draft) for a design system's own pages. */
   function diffusionOf(pageId: string, versionId?: string): number | undefined {
     if (store.isDesignSystemPage(pageId)) return undefined;
-    if (versionId !== undefined) return store.versionDiffusion(pageId, versionId) ?? 1;
+    if (versionId !== undefined) return store.versionOnDraft(pageId, versionId) ? undefined : (store.versionDiffusion(pageId, versionId) ?? 1);
     const designSystemId = store.sharedDesignSystemIdOfPage(pageId);
-    return designSystemId === undefined ? undefined : store.currentDiffusion(designSystemId)?.number;
+    const seen = designSystemId === undefined ? undefined : designSystemSeenBy(store, store.getPage(pageId)!.projectId, designSystemId);
+    return seen?.state.kind === "draft" ? undefined : seen?.diffusion;
   }
 
   function serveArtboardFile(
