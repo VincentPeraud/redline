@@ -6,6 +6,8 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-21
+
 ### Added
 
 - Follow the design system draft: a project can choose to see its design system draft instead of the latest diffusion ("Ce projet suit" on its Design system screen). Its pages, history, requests and the design system's own screens follow the setting, with a band on pages while the draft has changes not diffused yet, a warning with the pages that would break when turning it on or off, and "Diffuser d'abord" to go back after the next diffusion.
