@@ -8,7 +8,7 @@ import { ReviewBar, sendToClaude } from "./ReviewComments.js";
 import { MessageAuthor } from "./MessageAuthor.js";
 import { ModelEffortControls, type AgentDefaults, type ModelEffortChoice } from "./ModelEffortControls.js";
 import { InstanceThreadInfo } from "./InstanceThreads.js";
-import { RenderingChip } from "./RenderingChip.js";
+import { RenderingChip, SandboxSeen } from "./RenderingChip.js";
 import { DESIGN_SYSTEM_CLAUDE, RequestOrigins, RequestStatePill, RequestTag, requestAskerName } from "./RequestThreads.js";
 import { queueLabel, waitingForOfflineAgent } from "./queueLabel.js";
 import { relativeTime } from "./relativeTime.js";
@@ -103,7 +103,9 @@ function ThreadHeader({ thread, waitingForAgent, withAgent, children }: { thread
           <RequestOrigins request={thread.request} />
         </>
       )}
-      <InstanceThreadInfo thread={thread} />
+      <SandboxSeen thread={thread} />
+      {/* In the sandbox the element is always inside the lone instance, whose state the trial already says. */}
+      {!thread.sandbox && <InstanceThreadInfo thread={thread} />}
     </>
   );
 }

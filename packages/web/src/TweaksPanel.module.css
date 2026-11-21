@@ -72,6 +72,11 @@
   color: var(--tw-label-color);
 }
 
+.defaultValue {
+  font-size: var(--font-size-2xs);
+  color: var(--tw-muted);
+}
+
 .value {
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
@@ -137,15 +142,19 @@
 }
 
 /* choice: buttons */
+/* Many or long options wrap to a second row instead of running out of the panel. */
 .segmented {
   display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
   padding: 3px;
   background: var(--tw-track);
   border-radius: var(--radius-md);
 }
 
 .segment {
-  flex: 1 1 0;
+  flex: 1 1 auto;
+  white-space: nowrap;
   height: var(--tw-seg-height);
   padding: 0 var(--space-3);
   border: none;

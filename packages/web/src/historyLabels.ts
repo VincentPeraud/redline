@@ -95,3 +95,14 @@ export function historyDate(iso: string, { now = Date.now(), withTime = false }:
     ? date.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })
     : date.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
 }
+
+/** What an artboard version is drawn with: its diffusion, or the current draft when it was published while the project followed it. */
+export function drawnWithLabel({ designSystemTitle, number, onDraft }: { designSystemTitle: string; number: number; onDraft?: boolean }): string {
+  return onDraft ? `affichée avec le brouillon actuel de ${designSystemTitle} · publiée après la diffusion ${number}` : `affichée avec ${designSystemTitle} · diffusion ${number}`;
+}
+
+/** An entry of the project style history that records a change of the "follows" setting: "Suit le brouillon de X, par Ariane Martin" (the author only when an SSO names one). */
+export function settingChangeLabel({ follows, designSystem }: { follows: "draft" | "diffusion"; designSystem: string }, who: Who = NOBODY): string {
+  const what = follows === "draft" ? `Suit le brouillon de ${designSystem}` : `Suit la dernière diffusion de ${designSystem}`;
+  return who.sso && who.name ? `${what}, par ${who.name}` : what;
+}

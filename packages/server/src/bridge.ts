@@ -28,6 +28,7 @@ import { designSystemComponentsUrlPath, diffusionFileUrlPath, designSystemTokens
  *                     { type: "redline:gap-rect", x, y, width, height }  (box of the element outlined by redline:set-gap, in page pixels)
  *                     { type: "redline:doc-height", height }  (height of the whole page in pixels; sent on load and whenever it changes)
  *                     { type: "redline:top-colour", colour }  (background drawn at the top of the viewport, as Safari on iOS 26 tints its status bar with it; sent on load and whenever it changes, scrolling included)
+ *                     { type: "redline:view", x, y, docW, docH, viewW, viewH }  (the window's scroll over the document and both sizes, in pixels; pins and zones are in percent of the document; sent on load and whenever it changes)
  *                     { type: "redline:errors", errors: string[] }  (sent by the errors catcher, see ERRORS_SOURCE)
  *
  * Plain ES5 on purpose: it is served as-is to the browser.
@@ -118,6 +119,7 @@ export const BRIDGE_SOURCE = `(function () {
       lastHeight = height;
       send({ type: "redline:doc-height", height: height });
     }
+    reportView();
     reportTopColour();
   }
 
@@ -496,6 +498,29 @@ export const BRIDGE_SOURCE = `(function () {
     send({ type: "redline:pin-positions", positions: pins.map(locate) });
   }
 
+  // Where the window stands over the document: pins and zones are kept in percent of the document, the review draws
+  // them over the window, so it needs the scroll and both sizes to place them.
+  var lastView = "";
+  function reportView() {
+    var size = docSize();
+    var view = { type: "redline:view", x: window.scrollX || 0, y: window.scrollY || 0, docW: size.w, docH: size.h, viewW: window.innerWidth || size.w, viewH: window.innerHeight || size.h };
+    var key = [view.x, view.y, view.docW, view.docH, view.viewW, view.viewH].join(",");
+    if (key === lastView) return;
+    lastView = key;
+    send(view);
+  }
+
+  // A box scrolling inside the page moves the pinned elements in it: report them again, once per frame at most.
+  var pinsPending = false;
+  function reportPinsSoon() {
+    if (pinsPending || pins.length === 0) return;
+    pinsPending = true;
+    (window.requestAnimationFrame || function (fn) { return setTimeout(fn, 16); })(function () {
+      pinsPending = false;
+      reportPins();
+    });
+  }
+
   var tweakIds = [];
 
   function applyTweaks(values) {
@@ -791,6 +816,8 @@ export const BRIDGE_SOURCE = `(function () {
     drawHover();
     drawMarks();
     reportTopColour();
+    reportView();
+    reportPinsSoon();
     // The document's own scroll moves the markers with it; a box scrolling inside the page does not.
     if (event.target !== document) drawCompareSoon();
   }, true);
@@ -946,8 +973,9 @@ export const BRIDGE_SOURCE = `(function () {
     drawGap();
     reportPins();
     reportHeight();
+    reportView();
   });
-  window.addEventListener("load", function () { reportHeight(); drawCompare(); });
+  window.addEventListener("load", function () { reportHeight(); drawCompare(); reportView(); });
   // A pin with a remembered state shows and hides as the instances enter and leave that state.
   if (typeof MutationObserver === "function") {
     var statePending = false;
@@ -962,6 +990,11 @@ export const BRIDGE_SOURCE = `(function () {
     observer.observe(document.documentElement);
     if (document.body) observer.observe(document.body);
   }
+  // The sandbox script (sandbox.ts) builds its instance again on every change: pins, marks and height follow it.
+  window.__redlineRefresh = function () {
+    reportPins();
+    reportHeight();
+  };
   send({ type: "redline:ready" });
   if (window.__redlineErrors) window.__redlineErrors.report();
   reportHeight();

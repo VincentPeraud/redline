@@ -46,7 +46,7 @@ describe("pin bridge inside an artboard", () => {
     const sent: Sent[] = [];
     window.addEventListener("message", (e) => {
       const data = e.data as Sent;
-      if (data.type.startsWith("redline:") && ["ready", "picked", "pin-positions"].includes(data.type.slice(8))) {
+      if (data.type.startsWith("redline:") && ["ready", "picked", "pin-positions", "view"].includes(data.type.slice(8))) {
         sent.push(data);
       }
     });
@@ -110,6 +110,29 @@ describe("pin bridge inside an artboard", () => {
     await flush();
     const positions = sent.find((m) => m.type === "redline:pin-positions")!.positions;
     expect(positions).toEqual([{ id: "t1", xPct: 20, yPct: 10, matched: true }]);
+  });
+
+  it("tells the review how far the document is scrolled, so pins and zones follow it", async () => {
+    const { window, sent } = load();
+    Object.defineProperty(window, "scrollY", { value: 300, configurable: true });
+    Object.defineProperty(window, "innerWidth", { value: 1000, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+    window.dispatchEvent(new window.Event("scroll"));
+    await flush();
+    const views = sent.filter((m) => m.type === "redline:view");
+    expect(views.at(-1)).toMatchObject({ x: 0, y: 300, docW: 1000, docH: 2000, viewW: 1000, viewH: 800 });
+  });
+
+  it("reports the pins again when a box inside the page scrolls", async () => {
+    const { window, sent, place, post } = load();
+    place("#title", 100, 200);
+    post({ type: "redline:set-pins", pins: [{ id: "t1", selector: "#title", xPct: 90, yPct: 90 }] });
+    await flush();
+    place("#title", 100, 100);
+    window.document.querySelector("ul")!.dispatchEvent(new window.Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    const last = sent.filter((m) => m.type === "redline:pin-positions").at(-1)!.positions;
+    expect(last).toEqual([{ id: "t1", xPct: 20, yPct: 5, matched: true }]);
   });
 
   const FORM = `<!doctype html><html><body><form><div class="f"><label>Plan de vol</label></div><div class="f"><label>Nom</label></div></form></body></html>`;

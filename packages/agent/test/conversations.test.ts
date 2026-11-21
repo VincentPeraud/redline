@@ -97,12 +97,13 @@ describe("page conversations", () => {
         { label: "Thème", value: "sombre" },
         { label: "Densité", value: "compacte" },
       ],
+      sandbox: { artboard: "home.html", trial: { values: { size: "lg" }, states: { open: true } } },
     };
     expect((await send(seam, conversation.id, "Change the title", { context })).status).toBe(201);
     await seam.waitForWorkEnd(1);
 
     const message = engine.runs[0].message;
-    expect(message).toContain("Change the title\n\nThe user is looking at: home.html, pay.html (Mobile · 390)\nTweak values: Thème: sombre, Densité: compacte");
+    expect(message).toContain("Change the title\n\nThe user is looking at: home.html, pay.html (Mobile · 390)\nTweak values: Thème: sombre, Densité: compacte\nSandbox open beside home.html (a lone instance of its component, set locally and never saved): lg · open on");
     expect((await getConversation(seam, conversation.id)).messages[0].body).toBe("Change the title");
   });
 
@@ -116,6 +117,7 @@ describe("page conversations", () => {
       { kind: "artboard", artboard: "pay.html" },
       { kind: "canvas-element", elementId: "note-1", elementKind: "sticky", elementSummary: "« Parcours »" },
       { kind: "element", artboard: "home.html", selector: "button", elementName: null, xPct: 1, yPct: 2, cell: { state: "Hover", icon: true } },
+      { kind: "element", artboard: "home.html", selector: "ui-button > button", elementName: null, xPct: 0, yPct: 0, sandbox: { values: { size: "lg" } } },
     ];
     const context = { visibleArtboards: [{ file: "home.html" }], tweaks: [], targets };
     expect((await send(seam, conversation.id, "Give 2 the style of 1", { context })).status).toBe(201);
@@ -123,7 +125,7 @@ describe("page conversations", () => {
 
     const message = engine.runs[0].message;
     expect(message).toContain(
-      "Elements the user points at:\n1: element `h1` (named « Titre · Old title ») on artboard home.html (vu en Mobile · 390 px)\n2: the whole artboard pay.html\n3: the canvas element `note-1` (sticky, « Parcours ») of manifest.json\n4: element `button` on artboard home.html (vu en Hover · icon on)",
+      "Elements the user points at:\n1: element `h1` (named « Titre · Old title ») on artboard home.html (vu en Mobile · 390 px)\n2: the whole artboard pay.html\n3: the canvas element `note-1` (sticky, « Parcours ») of manifest.json\n4: element `button` on artboard home.html (vu en Hover · icon on)\n5: element `ui-button > button` on artboard home.html (vu en bac à sable : lg)",
     );
     expect((await getConversation(seam, conversation.id)).messages[0].targets).toEqual(targets);
   });

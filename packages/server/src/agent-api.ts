@@ -45,6 +45,7 @@ import { moveArtboard } from "./move-artboard.js";
 import { sendRequest } from "./requests.js";
 import { askToUndoRefused } from "./refusals.js";
 import { settleUndoneChanges } from "./undone-changes.js";
+import { watchDraftRemovals } from "./draft-removals.js";
 import { changesError, mergeRequests } from "./change-records.js";
 import { ARCHIVED_PAGE_ERROR, archivableExists, archivePage, archiveProject, archivedError, projectOrDesignSystem } from "./archive.js";
 import { accountLevelIn, type Access, type Viewer } from "./access.js";
@@ -309,11 +310,16 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       api.get<{ Params: { pageId: string } }>("/pages/:pageId/files", async (req, reply): Promise<AgentCheckout> => {
         const checkout = store.readPageFiles(req.params.pageId);
         if (!checkout) return reply.code(404).send({ error: "page not found" });
-        return { ...checkout, project: projectContext(store, req.params.pageId) };
+        return { ...checkout, project: projectContext(store, req.params.pageId, (projectId) => realLevelOf(req, projectId) !== undefined) };
       });
 
       api.post<{ Params: { pageId: string }; Body: CreateVersionRequest }>("/pages/:pageId/versions", async (req, reply) => {
-        if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
+        const checkedOutPage = store.getPage(req.params.pageId);
+        if (!checkedOutPage) return reply.code(404).send({ error: "page not found" });
+        // Checked first: a refusal about a design system element would be wrong when the setting it was made under changed.
+        if (req.body.followsDraft !== undefined && req.body.followsDraft !== store.projectFollowsDraft(checkedOutPage.projectId)) {
+          return reply.code(409).send({ error: `The project's design system setting changed since this page was checked out: it now follows ${store.projectFollowsDraft(checkedOutPage.projectId) ? "the design system draft" : "the latest diffusion"}. Check the page out again.` });
+        }
         const invalid = versionRequestError(req.body, store.isDesignSystemPage(req.params.pageId), true) ?? crossPageReferencesError(store, req.params.pageId, req.body.files) ?? versionComponentsError(store, req.params.pageId, req.body.files);
         if (invalid) return reply.code(400).send({ error: invalid });
         const invalidChanges = changesError(store, req.params.pageId, req.body.changes);
@@ -363,6 +369,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           const terminalFolder = origin === "terminal" && req.body.terminalSessionId !== undefined ? terminalSessions.folderOf(req.body.terminalSessionId) : undefined;
           const ref: OriginRef | undefined = from ? { originId: from.originId, originLabel: from.originLabel, person: from.person } : terminalFolder ? { originLabel: folderName(terminalFolder), terminalSessionId: req.body.terminalSessionId } : undefined;
           const author = (): DesignMdAuthor => (from ? { origin: from.kind, ...ref } : { origin: origin === "terminal" ? "terminal" : "user" });
+          const reportRemovals = watchDraftRemovals(store, pageLock, req.params.pageId);
           const version = store.addVersion(req.params.pageId, result.files, message, origin, ref);
           // The folder of a conversation that publishes a page knows it for its reminder line, as after a checkout.
           const label = origin === "terminal" && req.body.terminalSessionId !== undefined ? terminalSessions.labelOf(req.body.terminalSessionId) : undefined;
@@ -371,6 +378,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
           settleUndoneChanges(store, req.params.pageId);
           if (designMdChanged) store.saveDesignMd(projectId, DESIGN_MD_PATH, Buffer.from(designMd.content, "utf8"), author());
           if (styleChanged) store.saveDesignMd(projectId, PROJECT_STYLE_PATH, Buffer.from(projectStyle.content, "utf8"), author());
+          reportRemovals();
           const { gaps } = agentGaps(store, req.params.pageId, result.files);
           return reply.code(201).send({ ...version, ...(result.merged ? { merged: true } : {}), gaps });
         };

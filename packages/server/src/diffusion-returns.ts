@@ -1,4 +1,4 @@
-import { INSTANCE_TAG_PREFIX, requestIsOpen, type RequestOrigin, type Thread } from "@redline/shared";
+import { INSTANCE_TAG_PREFIX, requestAwaitsDiffusion, type RequestOrigin, type Thread } from "@redline/shared";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 import { dispatchReply, dispatchThread } from "./work.js";
@@ -22,7 +22,7 @@ export function requestsClosedBy(store: Store, designSystemId: string): ClosingR
     // A change linked to a request merged into another answers the one that stayed open.
     const threadId = store.keptRequestId(change.threadId);
     const request = store.getThread(threadId)?.request;
-    if (!request || !requestIsOpen(request)) continue;
+    if (!request || !requestAwaitsDiffusion(request)) continue;
     const entry = closing.get(threadId) ?? { threadId, component: request.component, labels: [], refused: request.refusedLabels ?? [] };
     if (!entry.labels.includes(change.label)) entry.labels.push(change.label);
     closing.set(threadId, entry);
@@ -73,7 +73,8 @@ export function closeDiffusedRequests(store: Store, pageLock: PageLock, closing:
     const message = returnMessage(request, diffusionNumber);
     store.setRequestState(request.threadId, "diffused");
     store.resolveThread(request.threadId);
-    tellOrigins(store, pageLock, request.threadId, message);
+    // A project on the draft already sees what the diffusion makes available: nothing to tell it.
+    tellOrigins(store, pageLock, request.threadId, message, (origin) => store.projectFollowsDraft(origin.projectId));
   }
 }
 
@@ -81,8 +82,9 @@ export function closeDiffusedRequests(store: Store, pageLock: PageLock, closing:
  * Tells every origin of a request `message` (a diffusion, a refusal). An origin on an archived page keeps its message until
  * the page is unarchived (`returnPendingOn`); the request's thread says so.
  */
-export function tellOrigins(store: Store, pageLock: PageLock, threadId: string, message: string): void {
+export function tellOrigins(store: Store, pageLock: PageLock, threadId: string, message: string, skip: (origin: RequestOrigin) => boolean = () => false): void {
   store.getThread(threadId)!.request!.origins.forEach((origin, index) => {
+    if (skip(origin)) return;
     if (returnToOrigin(store, pageLock, origin, message)) return;
     store.addPendingReturn(threadId, index, message);
     store.addReply(threadId, `Pas de fil de retour pour ${origin.projectTitle} · ${origin.pageTitle} : page archivée. Il s'ouvrira si la page est désarchivée.`, "redline");

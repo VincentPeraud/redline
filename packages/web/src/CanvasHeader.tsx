@@ -5,6 +5,7 @@ import { DeletedArtboardsList } from "./DeletedArtboardsList.js";
 import { GapsButton } from "./GapsReport.js";
 import { ErrorsButton, type ArtboardErrorsEntry } from "./ArtboardErrors.js";
 import { RenameForm, RenamePencil, renameHost } from "./Rename.js";
+import { list } from "./reviewLabels.js";
 import { TocMenu } from "./TocMenu.js";
 import { ToTakeBadge } from "./ToTakeBadge.js";
 import { subscribeServerEvents } from "./serverEvents.js";
@@ -236,6 +237,8 @@ interface Props {
   designSystemId?: string;
   /** The design system's title, on its own pages: the breadcrumb and the page menu name it. */
   designSystemTitle?: string;
+  /** Design system pages: titles of the projects that follow its draft and so see a publish right away. */
+  followedBy?: string[];
   versionId: string;
   pageId: string;
   pageTitle: string;
@@ -269,7 +272,7 @@ interface Props {
 }
 
 /** Top bar of the page canvas: logo, project / page breadcrumb with the page switcher, agent status and the interact / comment toggle. */
-export function CanvasHeader({ project, designSystemId, designSystemTitle, versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf, archived = false, commentOnly = false, commentMode }: Props) {
+export function CanvasHeader({ project, designSystemId, designSystemTitle, followedBy = [], versionId, pageId, pageTitle, picking, onPickingChange, runningCount, artboardOrigin, deleted, onPutBack, onRenamePage, toc, gaps, gapExceptionCount, onSeeGap, onGapException, onShowGapExceptions, onAskFixGaps, errors, onSeeErrors, onAskFixErrors, previewOf, archived = false, commentOnly = false, commentMode }: Props) {
   const me = useMe();
   const visitor = useVisitor();
   const owner: PageOwner | null = project
@@ -324,6 +327,7 @@ export function CanvasHeader({ project, designSystemId, designSystemTitle, versi
             </div>
           )}
           <TocMenu {...toc} />
+          {followedBy.length > 0 && !archived && <span className={styles.draftVisibility}>Publié ici, visible tout de suite dans {list(followedBy)}</span>}
         </>
       )}
       <div className={styles.spacer} />

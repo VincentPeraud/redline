@@ -1,3 +1,4 @@
+import type { SandboxTrial } from "./sandbox.js";
 // Engine events and work items: the contract between server, agent and engine adapters (ticket 07).
 
 import type { CommentMode, CreatedPage, ThreadRendering, ThreadTarget } from "./index.js";
@@ -155,7 +156,7 @@ export type ServerEvent =
   /** The page was archived or unarchived (from the web UI or a session's archive_page): an open canvas turns read-only, or back. */
   | { type: "page-archive-changed"; pageId: string; projectId: string }
   /** A design system got a new version: the pages that use it (`pageIds`) reload their artboards to pick up the tokens. */
-  | { type: "design-system-updated"; designSystemId?: string; pageIds: string[] }
+  | { type: "design-system-updated"; designSystemId?: string; /** Set when a project started or stopped following the draft: its design system screen reloads too. */ projectId?: string; pageIds: string[] }
   | { type: "thread-updated"; pageId: string; threadId: string }
   /** A conversation of the page, or one of its messages, changed. */
   | { type: "conversation-updated"; pageId: string; conversationId: string }
@@ -275,6 +276,8 @@ export interface MessageContext {
   tweaks: { label: string; value: string }[];
   /** Elements the user points at, in order (numbered from 1 for Claude); same kinds as a thread's target. */
   targets?: ThreadTarget[];
+  /** The component sandbox open beside an artboard when the message was sent: its artboard and what it shows. */
+  sandbox?: { artboard: string; trial: SandboxTrial };
 }
 
 /** Body of `POST /api/conversations/:id/messages`; model and effort apply from this message on. */

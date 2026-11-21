@@ -1,3 +1,4 @@
+import type { SandboxTrial } from "./sandbox.js";
 import type { AgentWorkMessage, Effort, ModelChoice, ThreadContext, ThreadReply, WorkItem } from "./work.js";
 import { tweakGridError, type TweakGridDeclaration } from "./tweakGrid.js";
 import type { Gap } from "./gaps.js";
@@ -15,6 +16,7 @@ export * from "./relativeTime.js";
 export * from "./readingOrder.js";
 export * from "./responsiveLayout.js";
 export * from "./tweakGrid.js";
+export * from "./sandbox.js";
 export * from "./addresses.js";
 
 export const PROTOCOL_VERSION = 1;
@@ -211,6 +213,8 @@ export interface CreateVersionRequest {
    * of pages, unless this is true (Claude asks the user first).
    */
   confirmRemovals?: boolean;
+  /** Whether the project followed the design system draft when the page was checked out; the publish is refused when the setting changed since. */
+  followsDraft?: boolean;
   /** `/agent-api` design system pages only: the changes the session made per component, recorded with the version. */
   changes?: ChangeRecordInput[];
 }
@@ -233,7 +237,7 @@ export interface ArtboardVersion {
   /** The content the page shows now. At most one entry per artboard is current. */
   current: boolean;
   /** Design system and diffusion the version is drawn with (1 for versions from before diffusions); absent on a design system's own pages, which read the draft. */
-  diffusion?: { designSystemTitle: string; number: number };
+  diffusion?: { designSystemTitle: string; number: number; /** Published while the project followed the draft: `number` is the diffusion the draft came after. */ onDraft?: boolean };
 }
 
 /** `GET /api/pages/:pageId/artboard-versions?file=<artboard file>` -> ArtboardVersion[], newest first (tweaks excluded). */
@@ -619,6 +623,7 @@ export type ThreadTarget =
       rendering?: ThreadRendering;
       cell?: TweakValues;
       instanceState?: InstanceState[];
+      sandbox?: SandboxTrial;
     }
   | { kind: "artboard"; artboard: string }
   | { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind; /** What the element shows now (`canvasElementSummary`); what it showed when the user commented it once the element is removed. */ elementSummary?: string }
@@ -641,7 +646,7 @@ export const CANVAS_ELEMENT_KIND_LABELS: Record<ManifestElementKind, string> = {
 export function threadTargetLabel(target: ThreadTarget): string {
   switch (target.kind) {
     case "element":
-      return `${target.artboard} · ${target.elementName ?? target.selector}`;
+      return target.sandbox ? `${target.artboard} · bac à sable` : `${target.artboard} · ${target.elementName ?? target.selector}`;
     case "artboard":
       return `${target.artboard} · Artboard entier`;
     case "canvas-element":
@@ -673,6 +678,8 @@ export interface Thread {
   cell?: TweakValues;
   /** Component instances that were in a state of their own (an open modal) when the thread was written; clicking the thread replays it. */
   instanceState?: InstanceState[];
+  /** Written in the component's sandbox (not on its artboard): what the sandbox showed; clicking the thread opens the sandbox on it. */
+  sandbox?: SandboxTrial;
   /** First line of the comment, kept visible when the thread is resolved. */
   title: string;
   body: string;
@@ -737,6 +744,8 @@ export interface CreateElementThreadRequest extends CreateThreadCommon {
   cell?: TweakValues;
   /** Instances that were in a state of their own when the comment was written (the bridge reports them with the pick). */
   instanceState?: InstanceState[];
+  /** Pinned in the component's sandbox: the settings, states and slot texts it showed. */
+  sandbox?: SandboxTrial;
 }
 
 /** A comment on a whole artboard: no element, no pin, no rendering. The artboard must be on the page. */

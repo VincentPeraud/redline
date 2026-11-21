@@ -1,4 +1,4 @@
-import { INSTANCE_TAG_PREFIX, requestIsOpen, type ChangeRecord } from "@redline/shared";
+import { INSTANCE_TAG_PREFIX, requestAwaitsDiffusion, requestIsOpen, type ChangeRecord } from "@redline/shared";
 import type { PageLock } from "./page-lock.js";
 import type { Store } from "./store.js";
 import { tellOrigins } from "./diffusion-returns.js";
@@ -60,7 +60,7 @@ function openRequestOf(store: Store, change: ChangeRecord): string | undefined {
   if (!change.threadId) return undefined;
   const threadId = store.keptRequestId(change.threadId);
   const request = store.getThread(threadId)?.request;
-  return request && requestIsOpen(request) ? threadId : undefined;
+  return request && requestAwaitsDiffusion(request) ? threadId : undefined;
 }
 
 /** "Refuser" on one change born of a request (review, before / after). The request turns refused when none of its changes is left. */

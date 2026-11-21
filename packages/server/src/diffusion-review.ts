@@ -42,6 +42,11 @@ export function reviewLineCount(review: DiffusionReview): number {
   return review.tokens.length + (review.designMdChanged ? 1 : 0) + review.components.reduce((sum, card) => sum + card.changes.filter((change) => !change.undoing).length, 0);
 }
 
+/** Changes of a design system not diffused yet, as the design system overview counts them. */
+export function pendingChangeCount(store: Store, designSystemId: string): number {
+  return reviewLineCount(diffusionReview(store, designSystemId));
+}
+
 /** Everything changed since the current diffusion of a design system, for the Diffuse dialog. */
 export function diffusionReview(store: Store, designSystemId: string): DiffusionReview {
   const { pending } = store.pendingDiffusion(designSystemId);

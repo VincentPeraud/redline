@@ -46,6 +46,8 @@ export interface InstanceLayers {
   project: ComponentDefinition[];
   /** Tags a design system switch left out: written in a page, they render broken even if a definition exists. */
   excluded?: ExcludedInstance[];
+  /** Tag of the component whose artboard this is (`components/<name>.html`): its instances there take the artboard's tweak values. */
+  own?: string;
   /** Diffusion the instances render with; absent for a design system's draft. Broken-instance messages name it. */
   diffusion?: number;
 }

@@ -13,9 +13,9 @@ import {
   type ServerEvent,
   type WorkItem,
 } from "@redline/shared";
-import { renderingLabel } from "@redline/shared";
+import { renderingLabel, sandboxTrialText } from "@redline/shared";
 import { canvasElementText } from "./canvas-element-text.js";
-import { cellSeenText, elementText, renderingText, zoneSubject } from "./thread-subject.js";
+import { cellSeenText, elementText, renderingText, sandboxSeenText, zoneSubject } from "./thread-subject.js";
 import { contextOf, usageContext } from "./context.js";
 import { definedChoice, isMessageContext, modelChoiceError, modelChoiceOf, requiredString } from "./validation.js";
 import type { PageLock } from "./page-lock.js";
@@ -41,7 +41,7 @@ export function conversationMessage(pageTitle: string, pageId: string, bodies: s
 function chipLine(target: ThreadTarget, number: number): string {
   switch (target.kind) {
     case "element":
-      return `${number}: ${elementText(target)} on artboard ${target.artboard}${renderingText(target.rendering)}${cellSeenText(target.cell)}`;
+      return `${number}: ${elementText(target)} on artboard ${target.artboard}${renderingText(target.rendering)}${cellSeenText(target.cell)}${sandboxSeenText(target.sandbox)}`;
     case "artboard":
       return `${number}: the whole artboard ${target.artboard}`;
     case "canvas-element":
@@ -57,6 +57,7 @@ export function contextBlock(context: MessageContext): string {
   return [
     `The user is looking at: ${files.length > 0 ? files.join(", ") : "no artboard on screen"}`,
     ...(context.tweaks.length > 0 ? [`Tweak values: ${context.tweaks.map((t) => `${t.label}: ${t.value}`).join(", ")}`] : []),
+    ...(context.sandbox ? [`Sandbox open beside ${context.sandbox.artboard} (a lone instance of its component, set locally and never saved): ${sandboxTrialText(context.sandbox.trial) || "default settings"}`] : []),
     ...(context.targets && context.targets.length > 0 ? ["Elements the user points at:", ...context.targets.map((t, i) => chipLine(t, i + 1))] : []),
   ].join("\n");
 }

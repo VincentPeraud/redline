@@ -10,6 +10,7 @@ import {
   TWEAKS_PATH,
   VERSION_ORIGINS,
   isSafePath,
+  sandboxTrialError,
   missingCoreTokens,
   publishManifestError,
   savedManifestError,
@@ -78,7 +79,8 @@ export function threadTargetError(target: unknown, use: "request" | "chip"): str
       typeof target.yPct === "number";
     if (!valid) return "invalid target";
     const invalidRendering = target.rendering === undefined ? null : threadRenderingError(target.rendering);
-    return invalidRendering ?? (target.cell === undefined ? null : threadCellError(target.cell));
+    if (target.sandbox !== undefined && (target.cell !== undefined || target.rendering !== undefined)) return "a sandbox element has no cell or rendering";
+    return invalidRendering ?? (target.cell === undefined ? null : threadCellError(target.cell)) ?? (target.sandbox === undefined ? null : sandboxTrialError(target.sandbox));
   }
   return "invalid target";
 }
@@ -136,6 +138,11 @@ export function createThreadRequestError(request: unknown): string | null {
     const invalidState = instanceStateError(pin.instanceState);
     if (invalidState) return invalidState;
   }
+  if (pin.sandbox !== undefined) {
+    if (pin.cell !== undefined || pin.rendering !== undefined) return "a sandbox comment has no cell or rendering";
+    const invalidSandbox = sandboxTrialError(pin.sandbox);
+    if (invalidSandbox) return invalidSandbox;
+  }
   return modelChoiceError(pin);
 }
 
@@ -144,7 +151,8 @@ export function isMessageContext(value: unknown): value is MessageContext {
   if (!isObject(value) || !Array.isArray(value.visibleArtboards) || !Array.isArray(value.tweaks)) return false;
   const artboardsOk = value.visibleArtboards.every((a) => isObject(a) && requiredString(a.file) && (a.rendering === undefined || threadRenderingError(a.rendering) === null));
   const targetsOk = value.targets === undefined || (Array.isArray(value.targets) && value.targets.every((t) => threadTargetError(t, "chip") === null));
-  return artboardsOk && targetsOk && value.tweaks.every((t) => isObject(t) && typeof t.label === "string" && typeof t.value === "string");
+  const sandboxOk = value.sandbox === undefined || (isObject(value.sandbox) && requiredString(value.sandbox.artboard) && sandboxTrialError(value.sandbox.trial) === null);
+  return artboardsOk && targetsOk && sandboxOk && value.tweaks.every((t) => isObject(t) && typeof t.label === "string" && typeof t.value === "string");
 }
 
 /** The choice without its absent fields, so it can be spread over a work item without erasing what the item has. */

@@ -45,3 +45,8 @@ export interface MergeRequestRequest {
   into: string;
   workId?: string;
 }
+
+/** The pages of projects following the design system draft that use the component of a change: who a refusal would break. */
+export interface DraftChangeUsers {
+  pages: { pageId: string; projectTitle: string; pageTitle: string }[];
+}

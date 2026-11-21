@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { artboardVersionsPath, type ArtboardVersion } from "@redline/shared";
-import { historyDate, metaLine, originLabel } from "./historyLabels.js";
+import { drawnWithLabel, historyDate, metaLine, originLabel } from "./historyLabels.js";
 import { useWho } from "./useMe.js";
 import { Tooltip, cx } from "./ui/index.js";
 import styles from "./ArtboardHistory.module.css";
@@ -130,7 +130,7 @@ export function ArtboardHistory({ pageId, file, pageVersionId, open, onOpenChang
           {(versions ?? []).map((version) => {
             const previewing = version.versionId === previewVersionId;
             const meta = metaLine(originLabel(version.origin, version.originLabel, version.linkAuthor ? { sso: true, name: `${version.linkAuthor.name} (lien)` } : who(version.person)), historyDate(version.createdAt, { withTime: true }));
-            const diffusion = version.diffusion && `affichée avec ${version.diffusion.designSystemTitle} · diffusion ${version.diffusion.number}`;
+            const diffusion = version.diffusion && drawnWithLabel(version.diffusion);
             if (previewing) {
               return (
                 <div key={version.versionId} data-testid="history-preview" className={styles.previewRow}>

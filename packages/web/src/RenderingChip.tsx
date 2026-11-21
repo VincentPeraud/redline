@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
-import { cellText, renderingLabel, type ManifestTweak, type Thread } from "@redline/shared";
+import { cellText, renderingLabel, sandboxTrialText, type ManifestTweak, type Thread } from "@redline/shared";
+import { FlaskIcon } from "./SandboxCard.js";
 import styles from "./Thread.module.css";
 
 /** The page's tweaks: a toggle value in a grid cell reads with its label ("Icône : non"). */
@@ -21,5 +22,20 @@ export function RenderingChip({ thread }: { thread: Pick<Thread, "rendering" | "
         </span>
       )}
     </>
+  );
+}
+
+/** "Vu en bac à sable : secondary · lg · Contenu « … »": what the component sandbox showed when the thread was written in it. */
+export function SandboxSeen({ thread }: { thread: Pick<Thread, "sandbox"> }) {
+  const tweaks = useContext(PageTweaksContext);
+  if (!thread.sandbox) return null;
+  const text = sandboxTrialText(thread.sandbox, tweaks);
+  return (
+    <div data-testid="thread-sandbox" className={styles.sandboxSeen}>
+      <span className={styles.sandboxSeenIcon}>
+        <FlaskIcon />
+      </span>
+      <span>Vu en bac à sable{text ? ` : ${text}` : ""}</span>
+    </div>
   );
 }

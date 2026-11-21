@@ -32,6 +32,7 @@ import {
   type ThreadRendering,
   type ThreadTarget,
   type TweakValues,
+  type SandboxTrial,
 } from "@redline/shared";
 import { useDesignSystemDetail } from "./DiffusionDialog.js";
 import { ArtboardFrame, PinClickContext, type Pick } from "./ArtboardFrame.js";
@@ -45,7 +46,7 @@ import { useGaps } from "./useGaps.js";
 import { UndoToast } from "./UndoToast.js";
 import { CanvasHeader } from "./CanvasHeader.js";
 import { PreviewBanner } from "./PreviewBanner.js";
-import { ReviewBanners } from "./ReviewBanners.js";
+import { DraftBand, ReviewBanners } from "./ReviewBanners.js";
 import { ArchivedBanner, type ArchiveKind } from "./ArchiveControls.js";
 import { useStoredToggle } from "./useStoredToggle.js";
 import { GuidesButton } from "./GuidesButton.js";
@@ -76,7 +77,9 @@ import { ConversationsPanel, type FocusedConversation } from "./ConversationsPan
 import type { AgentDefaults, ModelEffortChoice } from "./ModelEffortControls.js";
 import { PlayMode } from "./PlayMode.js";
 import { usePhone } from "./usePhone.js";
-import { addChip, marksFor, removeChip } from "./elementChips.js";
+import { addChip, marksFor, removeChip, sandboxMarksFor } from "./elementChips.js";
+import { FlaskIcon, SANDBOX_MIN_WIDTH, SandboxCard, type SandboxReplay } from "./SandboxCard.js";
+import { useComponentTemplates } from "./useComponentTemplates.js";
 import { messageContext } from "./messageContext.js";
 import { TweaksPanel } from "./TweaksPanel.js";
 import { subscribeServerEvents } from "./serverEvents.js";
@@ -127,7 +130,7 @@ function BubbleIcon({ size }: { size: number }) {
 
 /** A comment being written: pinned on an element of an artboard, or on a whole artboard. */
 type PageDraft =
-  | (Pick & { artboard: string; rendering?: ThreadRendering; cell?: TweakValues })
+  | (Pick & { artboard: string; rendering?: ThreadRendering; cell?: TweakValues; sandbox?: SandboxTrial })
   | { target: { kind: "artboard"; artboard: string } }
   | { target: { kind: "canvas-element"; elementId: string; elementKind: ManifestElementKind } };
 
@@ -231,6 +234,11 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   /** A thread to glide to once its pin is drawn (a resolved thread just unfolded). */
   const [showAfterRender, setShowAfterRender] = useState<string | null>(null);
   const [tweaksOpenFor, setTweaksOpenFor] = useState<string | null>(null);
+  /** The component sandbox open beside one artboard (one at a time), and the trial a clicked thread asks it to show. */
+  const [sandbox, setSandbox] = useState<{ file: string; replay: SandboxReplay | null } | null>(null);
+  /** What the open sandbox shows, as it reports it: for the conversation's context. */
+  const [sandboxTrial, setSandboxTrial] = useState<SandboxTrial | null>(null);
+  const onSandboxTrial = useCallback((trial: SandboxTrial | null) => setSandboxTrial(trial), []);
   const [moreOpenFor, setMoreOpenFor] = useState<string | null>(null);
   /** Bumped when the page's design system changed: artboards remount to load the new tokens. */
   const [tokensVersion, setTokensVersion] = useState(0);
@@ -632,8 +640,10 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
     if (next) setPicking(false);
   }
 
-  const pickElement = (pick: Pick, artboard: string, rendering?: ThreadRendering, cell?: TweakValues) =>
-    setChips((current) => addChip(current, { kind: "element", artboard, selector: pick.selector, elementName: pick.elementName ?? null, xPct: pick.xPct, yPct: pick.yPct, ...(rendering && { rendering }), ...(cell && { cell }) }));
+  const pickElement = (pick: Pick, artboard: string, rendering?: ThreadRendering, cell?: TweakValues, sandboxed?: SandboxTrial) =>
+    setChips((current) =>
+      addChip(current, { kind: "element", artboard, selector: pick.selector, elementName: pick.elementName ?? null, xPct: pick.xPct, yPct: pick.yPct, ...(rendering && { rendering }), ...(cell && { cell }), ...(sandboxed && { sandbox: sandboxed }) }),
+    );
 
   async function renamePage(title: string) {
     const res = await fetch(`/api/pages/${pageId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) });
@@ -672,7 +682,10 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   const draftInfo: Draft | null = useMemo(() => draft && { label: draftLabel(draft) }, [draft]);
   // A resolved thread no longer marks the canvas, unless it is unfolded in the comments panel.
   const pinnedThreads = threads.filter((t) => t.status !== "resolved" || unfoldedResolved.has(t.id));
-  const pinnedOn = (file: string) => pinnedThreads.filter((t) => (t.target.kind === "element" || (t.target.kind === "zone" && t.target.space === "artboard")) && t.artboard === file);
+  // A thread written in the component sandbox pins in the sandbox only, never on the artboard.
+  const pinnedOn = (file: string) => pinnedThreads.filter((t) => (t.target.kind === "element" || (t.target.kind === "zone" && t.target.space === "artboard")) && t.artboard === file && !t.sandbox);
+  const sandboxThreadsOn = (file: string) => threads.filter((t) => t.sandbox && t.artboard === file && t.status !== "resolved");
+  const componentTemplates = useComponentTemplates(pageId, files);
   const wholeArtboardThreads = (file: string) => threads.filter((t) => t.target.kind === "artboard" && t.artboard === file && t.status !== "resolved");
   const hiddenOf = (artboard: Manifest["artboards"][number]) => (artboard.responsive ? hiddenRenderingKeys(artboard.responsive, viewSettings, artboard.file) : new Set<string>());
   const layoutOf = (artboard: Manifest["artboards"][number]) =>
@@ -821,6 +834,11 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
   function showThread(threadId: string) {
     const thread = threads.find((t) => t.id === threadId);
     if (!thread) return;
+    // A sandbox thread opens the sandbox on the trial it was written on.
+    if (thread.sandbox) {
+      if (!phone && !previewing && preview?.file !== thread.artboard) setSandbox({ file: thread.artboard, replay: { trial: thread.sandbox, nonce: Date.now() } });
+      return;
+    }
     const pin = document.querySelector<HTMLElement>(`[data-pin-thread="${CSS.escape(threadId)}"]`);
     const stage = viewport.current?.getBoundingClientRect();
     // The pin waits hidden for the instances to take the state the thread was written in; show it once they have.
@@ -874,13 +892,59 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
       ? `${artboardOrigin}${versionPreviewPath(pageId, preview.versionId, file)}`
       : `${artboardOrigin}/pages/${pageId}/${file}${previewing ? `?${DRAFT_PREVIEW_QUERY}` : ""}`;
   }
+  /**
+   * The open sandbox: fixed on screen at 100 %, hooked to the right edge of its artboard (it covers the neighbour without
+   * moving it), as wide as one cell of the artboard; kept inside the canvas when there is no room on the right.
+   */
+  function sandboxCard() {
+    // An old version previewed in place of the artboard: the sandbox, which shows the live component, steps aside.
+    if (!sandbox || phone || previewing || preview?.file === sandbox.file) return null;
+    const artboard = placedArtboards.find((a) => a.file === sandbox.file);
+    const box = artboard && artboardBoxes.get(artboard.file);
+    const name = componentNameOf(sandbox.file);
+    if (!artboard || !box || name === null || viewportSize.width === 0) return null;
+    const margin = 16;
+    const cellWidth = artboard.width;
+    const width = Math.min(Math.max(SANDBOX_MIN_WIDTH, cellWidth + 2), viewportSize.width - 2 * margin);
+    const left = Math.max(margin, Math.min(view.x + (box.x + box.width) * view.zoom + 12, viewportSize.width - width - margin));
+    // Hooked to the artboard's top, kept on screen with room for the preview and a few settings; the settings scroll below.
+    const top = Math.max(margin, Math.min(view.y + box.y * view.zoom, viewportSize.height - 420));
+    const pinnable = (t: Thread) => t.status !== "resolved" || unfoldedResolved.has(t.id);
+    return (
+      <SandboxCard
+        key={sandbox.file}
+        name={name}
+        file={sandbox.file}
+        src={`${artboardOrigin}/pages/${pageId}/${sandbox.file}?sandbox=1`}
+        version={`${files[sandbox.file]}@${tokensVersion}`}
+        cellWidth={cellWidth}
+        width={width}
+        style={{ left, top, maxHeight: viewportSize.height - top - margin }}
+        tweaks={artboardTweaks(sandbox.file)}
+        threads={threads.filter((t) => t.sandbox && t.artboard === sandbox.file && pinnable(t))}
+        picking={picking}
+        selecting={selecting}
+        marks={sandboxMarksFor(chips, sandbox.file)}
+        replay={sandbox.replay}
+        onTrial={onSandboxTrial}
+        onPick={(pick, trial) => {
+          if (selecting) return pickElement(pick, sandbox.file, undefined, undefined, trial);
+          setDraft({ ...pick, artboard: sandbox.file, sandbox: trial });
+          showComments();
+        }}
+        onEscape={() => setSelecting(false)}
+        onClose={() => setSandbox(null)}
+      />
+    );
+  }
   /** "Tout voir (F)": glides to the view that shows the whole canvas. */
   function fitAll() {
     if (contentBounds && viewportSize.width > 0) glideTo(fitView(contentBounds, viewportSize));
   }
   fitAllRef.current = fitAll;
   fitViewRef.current = contentBounds && viewportSize.width > 0 ? fitView(contentBounds, viewportSize) : null;
-  const conversationContext = messageContext({ view, viewport: viewportSize, boxes: artboardBoxes, manifest, tweakValues: tweaks.values });
+  const baseContext = messageContext({ view, viewport: viewportSize, boxes: artboardBoxes, manifest, tweakValues: tweaks.values });
+  const conversationContext = sandbox && sandboxTrial ? { ...baseContext, sandbox: { artboard: sandbox.file, trial: sandboxTrial } } : baseContext;
   const artboardTweaks = (file: string) => (manifest?.tweaks ?? []).filter((tweak) => (tweak.artboard ? tweak.artboard === file : file === firstArtboard));
 
   const canvasMarks = chips.flatMap((chip, index) => (chip.kind === "canvas-element" ? [{ number: index + 1, elementId: chip.elementId }] : []));
@@ -900,6 +964,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
         project={project}
         designSystemId={designSystemId}
         designSystemTitle={designSystemDetail?.title}
+        followedBy={designSystemDetail?.usedBy.filter((user) => user.followsDraft).map((user) => user.title)}
         versionId={versionId}
         pageId={pageId}
         pageTitle={pageTitle}
@@ -951,6 +1016,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
           className={styles.archivedBanner}
         />
       )}
+      {!designSystemPage && !previewing && <DraftBand pageId={pageId} projectId={projectId} visitor={visitor !== null} />}
       <div className={styles.body}>
         <main className={styles.stage}>
           {manifestError && <div role="alert" className={styles.error}>{manifestError}</div>}
@@ -1092,6 +1158,33 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
                       </button>
                     )}
                     <span className={styles.spacer} />
+                    {componentNameOf(artboard.file) !== null && !previewing && !previewed && !phone && componentTemplates[artboard.file] !== undefined && (
+                      <Tooltip
+                        label={
+                          componentTemplates[artboard.file]
+                            ? sandbox?.file === artboard.file
+                              ? "Fermer le bac à sable"
+                              : "Essayer le composant en direct, à côté de la grille"
+                            : "Ce composant n'a pas de <template data-component> : il ne peut pas être utilisé comme instance, donc pas essayé."
+                        }
+                      >
+                        <button
+                          type="button"
+                          data-testid="sandbox-button"
+                          aria-pressed={sandbox?.file === artboard.file}
+                          aria-disabled={!componentTemplates[artboard.file]}
+                          className={cx(styles.tweaksButton, styles.sandboxButton, sandbox?.file === artboard.file && styles.sandboxButtonOn, !componentTemplates[artboard.file] && styles.sandboxButtonOff)}
+                          onClick={() => {
+                            if (!componentTemplates[artboard.file]) return;
+                            setSandbox(sandbox?.file === artboard.file ? null : { file: artboard.file, replay: null });
+                          }}
+                        >
+                          <FlaskIcon size={12} />
+                          Essayer
+                          {sandboxThreadsOn(artboard.file).length > 0 && <span className={cx(styles.tweaksCount, styles.sandboxCount)}>{sandboxThreadsOn(artboard.file).length}</span>}
+                        </button>
+                      </Tooltip>
+                    )}
                     {!readOnly && !frozen && artboardTweaks(artboard.file).length > 0 && (
                       <button
                         type="button"
@@ -1276,6 +1369,7 @@ export function PageCanvas({ pageId, pageTitle, project, projectId, designSystem
               )}
             </div>
           </div>
+          {sandboxCard()}
           {manifest?.artboards.length === 0 && manifest.elements.length === 0 && (
             <div className={styles.emptyWrap}>
               <div data-testid="canvas-empty" className={styles.empty}>

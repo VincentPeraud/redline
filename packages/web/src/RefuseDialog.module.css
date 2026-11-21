@@ -2,3 +2,17 @@
   resize: vertical;
   min-height: 96px;
 }
+
+.draftPages {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-body);
+}
+
+.draftPages p {
+  margin: 0 0 6px;
+}
+
+.draftPages ul {
+  margin: 0;
+  padding-left: 18px;
+}

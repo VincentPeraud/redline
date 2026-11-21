@@ -43,6 +43,8 @@ export interface DesignMdVersion extends DesignMdAuthor {
   id: string;
   content: string;
   createdAt: string;
+  /** Set on an entry that only records a change of the project's "follows" setting (its `content` is the style as it stood): not a state to restore. */
+  setting?: { follows: "draft" | "diffusion"; designSystem: string };
 }
 
 /**
@@ -87,15 +89,17 @@ export interface ProjectContext {
   /** Project sessions: the component files (`components/<name>.html`) of every page of the project, written to `.project-components/` (read-only). Absent for a design system's own pages. */
   projectComponents?: Record<string, string>;
   /** Design system sessions: the design system whose draft (tokens, DESIGN.md, pages) the session edits. */
-  editsDesignSystem?: { id: string; title: string };
+  editsDesignSystem?: { id: string; title: string; /** Active projects that follow its draft: they see a published change right away. */ followedBy: { id: string; title: string }[] };
 }
 
 /** What a project session is told about its design system. */
 export interface DesignSystemContext {
   id: string;
   title: string;
-  /** Number of the current diffusion. */
+  /** Number of the current diffusion, or of the one the draft comes after when `draft`. */
   diffusion: number;
+  /** The project follows the draft: `files` hold the draft, not the diffusion. */
+  draft?: boolean;
   /** Files of `.design-system/`: `index.md`, `pages/<page>.md`, `tokens.css`, `DESIGN.md`, `components/<name>.html`. */
   files: Record<string, string>;
   /** Pages of the design system, with their component count and whether the project's pages use one of their components. */

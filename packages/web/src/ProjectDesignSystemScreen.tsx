@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { subscribeServerEvents } from "./serverEvents.js";
 import { instanceTagOf } from "@redline/shared";
-import type { DesignMdVersion, DesignSystemSummary, DesignSystemSwitchPreview, ExcludedComponent, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
+import type { BrokenPage, BrokenPagesAnswer, DesignMdVersion, DesignSystemSummary, DesignSystemSwitchPreview, ExcludedComponent, Project, ProjectComponentInfo, ProjectDesignSystem, ProjectStyleToken, PromoteProjectStyleRequest, SaveDesignMdRequest, SetProjectDesignSystemRequest } from "@redline/shared";
 import type { MoveUpComponentRequest } from "@redline/shared";
-import { dayLabel, designMdStatus, metaLine, originLabel } from "./historyLabels.js";
+import { dayLabel, designMdStatus, metaLine, originLabel, settingChangeLabel } from "./historyLabels.js";
 import { useWho } from "./useMe.js";
 import { agree, counted } from "./plural.js";
-import { pickerHex } from "./projectDesignSystemLabels.js";
+import { followStatus, followsLabel, pickerHex, type Follows } from "./projectDesignSystemLabels.js";
 import { relativeTime } from "./relativeTime.js";
 import { routeHref } from "./router.js";
-import { Button, DIALOG_EXIT_MS, Dialog, DialogActions, Field, Logo, Select, TextInput, Tooltip, cx } from "./ui/index.js";
+import { Button, DIALOG_EXIT_MS, Dialog, DialogActions, Field, Logo, SegmentedControl, Select, TextInput, Tooltip, cx } from "./ui/index.js";
 import styles from "./ProjectDesignSystemScreen.module.css";
 import { useDocumentTitle } from "./documentTitle.js";
+import { BrokenPagesDialog } from "./BrokenPagesDialog.js";
+import { useDiffusionVersion, useOpenDiffusionDialog } from "./DiffusionDialog.js";
 import { SwitchDesignSystemDialog } from "./SwitchDesignSystemDialog.js";
 
 const CHEVRON = (
@@ -84,6 +87,7 @@ function TokenRow({
             base
           </span>
         )}
+        {token.draftOnly && <span className={styles.draftPill}>nouveau dans le brouillon</span>}
       </span>
       {designSystemTitle !== null && (
         <span className={cx(styles.designSystemCell, overridden && styles.designSystemOverridden)}>
@@ -243,16 +247,17 @@ function ExcludedCard({ component, onTake }: { component: ExcludedComponent; onT
 
 function HistoryDialog({ versions, onRestore, onClose }: { versions: DesignMdVersion[]; onRestore: (version: DesignMdVersion) => void; onClose: () => void }) {
   const who = useWho();
+  const current = versions.find((version) => !version.setting);
   return (
     <Dialog title="Historique du style du projet" onClose={onClose} width={520}>
       <ol className={styles.versions}>
-        {versions.map((version, index) => (
+        {versions.map((version) => (
           <li key={version.id} className={styles.version}>
             <span className={styles.versionText}>
               <span>{relativeTime(version.createdAt)}</span>
-              <span className={styles.versionMeta}>{originLabel(version.origin, version.originLabel, who(version.person))}</span>
+              <span className={styles.versionMeta}>{version.setting ? settingChangeLabel(version.setting, who(version.person)) : originLabel(version.origin, version.originLabel, who(version.person))}</span>
             </span>
-            {index === 0 ? (
+            {version.setting ? null : version.id === current?.id ? (
               <span className={styles.versionMeta}>Actuelle</span>
             ) : (
               <Button size="sm" onClick={() => onRestore(version)}>
@@ -308,6 +313,13 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   const [switching, setSwitching] = useState<DesignSystemSwitchPreview | null>(null);
   const [movingUp, setMovingUp] = useState<{ component: ProjectComponentInfo; closing: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The follow setting a save did not reach the server with: the line says so and offers to retry it. */
+  const [failedFollow, setFailedFollow] = useState<Follows | null>(null);
+  /** Turning on the draft would break these pages: the dialog asks before switching anyway; `failed` once the confirmation did not reach the server. */
+  const [breaking, setBreaking] = useState<{ direction: Follows; pages: BrokenPage[] | null; failed: boolean; otherProjects: string[]; hiddenProjects: number; canDiffuse: boolean } | null>(null);
+  const openDiffusion = useOpenDiffusionDialog();
+  const diffusionVersion = useDiffusionVersion();
+  const seenDiffusionVersion = useRef(diffusionVersion);
 
   const loadVersions = useCallback(
     () =>
@@ -335,6 +347,29 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
     void loadDesignSystems();
     void loadVersions();
   }, [projectId, loadVersions, loadDesignSystems]);
+
+  // A diffusion may have sent the project back to the latest diffusion ("Diffuser d'abord").
+  useEffect(() => {
+    if (seenDiffusionVersion.current === diffusionVersion) return;
+    seenDiffusionVersion.current = diffusionVersion;
+    fetch(`/api/projects/${projectId}/design-system`)
+      .then((res) => res.json() as Promise<ProjectDesignSystem>)
+      .then(setDetail);
+    void loadVersions();
+  }, [diffusionVersion, projectId, loadVersions]);
+
+  // Another member (or a session) turned the setting on or off: the screen shows it without a reload.
+  useEffect(() => {
+    const reloadSetting = () => {
+      fetch(`/api/projects/${projectId}/design-system`)
+        .then((res) => res.json() as Promise<ProjectDesignSystem>)
+        .then(setDetail);
+      void loadVersions();
+    };
+    return subscribeServerEvents((event) => {
+      if (event.type === "design-system-updated" && event.projectId === projectId) reloadSetting();
+    }, reloadSetting);
+  }, [projectId, loadVersions]);
 
   const change = useCallback(
     async (request: Promise<Response>) => {
@@ -365,7 +400,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
       const res = await fetch(`/api/projects/${projectId}/design-system/switch?to=${encodeURIComponent(id)}`);
       if (!res.ok) return setError(((await res.json()) as { error: string }).error);
       const preview = (await res.json()) as DesignSystemSwitchPreview;
-      if (preview.components.length > 0) return setSwitching(preview);
+      if (preview.components.length > 0 || preview.followsDraft) return setSwitching(preview);
     }
     await applyDesignSystem(id);
   }
@@ -373,6 +408,41 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   async function applyDesignSystem(id: string, ticked?: string[]) {
     const body: SetProjectDesignSystemRequest = { designSystem: id === "none" ? null : id, ...(ticked && { ticked }) };
     await change(fetch(`/api/projects/${projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+  }
+
+  /** Whether the change reached the server (a 409 asks the dialog first and counts as not applied). */
+  async function applyFollow(target: Follows, confirm = false): Promise<boolean> {
+    const body: SetProjectDesignSystemRequest = { followsDraft: target === "draft", ...(confirm && { confirm }) };
+    // Going back always asks: the dialog opens at once and waits for the pages the server computes.
+    if (target === "diffusion" && !confirm) setBreaking({ direction: "diffusion", pages: null, failed: false, otherProjects: [], hiddenProjects: 0, canDiffuse: false });
+    const res = await fetch(`/api/projects/${projectId}/design-system`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+    if (res?.status === 409) {
+      setFailedFollow(null);
+      const answer = (await res.json()) as BrokenPagesAnswer;
+      setBreaking({ direction: target, pages: answer.brokenPages, failed: false, otherProjects: answer.otherProjects ?? [], hiddenProjects: answer.hiddenProjects ?? 0, canDiffuse: answer.canDiffuse ?? false });
+      return false;
+    }
+    const saved = res?.ok ? ((await res.json()) as ProjectDesignSystem) : null;
+    if (confirm) setBreaking((current) => current && { ...current, failed: !saved });
+    else {
+      if (!saved) setBreaking(null);
+      setFailedFollow(saved ? null : target);
+    }
+    if (!saved) return false;
+    setDetail(saved);
+    await loadVersions();
+    return true;
+  }
+
+  /** "Diffuser d'abord": the project goes back by itself once the diffusion succeeds. Resolves true when the review opened. */
+  async function diffuseFirst(): Promise<boolean> {
+    const res = await fetch(`/api/projects/${projectId}/design-system/return-after-diffusion`, { method: "POST" }).catch(() => null);
+    if (!res?.ok) {
+      setBreaking((current) => current && { ...current, failed: true });
+      return false;
+    }
+    openDiffusion(shared!.id, projectId);
+    return true;
   }
 
   const takeComponent = (name: string) => change(fetch(`/api/projects/${projectId}/design-system/components/${encodeURIComponent(name)}/take`, { method: "POST" }));
@@ -421,6 +491,8 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
   const selectedId = switching?.to.id ?? shared?.id ?? "none";
   const overridden = detail.overrideCount;
   const fresh = !shared && !detail.styleDefinesTokens;
+  const follows: Follows = detail.followsDraft ? "draft" : "diffusion";
+  const readOnly = (project.viewerLevel ?? "write") !== "write";
 
   return (
     <div className={styles.screen}>
@@ -452,41 +524,92 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
       <div className={styles.body}>
         <main className={styles.main}>
           <section className={styles.chooser}>
-            <label htmlFor="ds-select" className={styles.chooserLabel}>
-              Design system
-            </label>
-            <span className={styles.selectWrap}>
-              <select id="ds-select" className={styles.select} value={selectedId} onChange={(event) => void changeDesignSystem(event.target.value)}>
-                {designSystems.map((system) => (
-                  <option key={system.id} value={system.id}>
-                    {system.title}
-                  </option>
-                ))}
-                <option value="none">Aucun : style propre au projet</option>
-              </select>
-              {CHEVRON}
-            </span>
-            {shared && detail.diffusion ? (
-              <span className={styles.chooserNote}>
-                Diffusion {detail.diffusion.number} du {new Date(detail.diffusion.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} ·{" "}
-                <a href={routeHref({ name: "designSystem", designSystemId: shared.id, viaProjectId: projectId })}>ouvrir {shared.title}</a>
+            <div className={styles.chooserRow}>
+              <label htmlFor="ds-select" className={styles.chooserLabel}>
+                Design system
+              </label>
+              <span className={styles.selectWrap}>
+                <select id="ds-select" className={styles.select} value={selectedId} onChange={(event) => void changeDesignSystem(event.target.value)}>
+                  {designSystems.map((system) => (
+                    <option key={system.id} value={system.id}>
+                      {system.title}
+                    </option>
+                  ))}
+                  <option value="none">Aucun : style propre au projet</option>
+                </select>
+                {CHEVRON}
               </span>
-            ) : (
-              <>
-                <span className={styles.chooserNote}>Ce style n'est pas partagé et n'apparaît pas dans la liste des design systems.</span>
-                <div className={styles.grow} />
-                {detail.styleDefinesTokens ? (
-                  <button type="button" className={styles.promote} onClick={() => setPromoteOpen(true)}>
-                    En faire un design system…
-                  </button>
-                ) : (
-                  <Tooltip label="Le style du projet est encore vide">
-                    <button type="button" className={styles.promote} aria-disabled="true">
+              {shared && detail.diffusion ? (
+                <span className={styles.chooserNote}>
+                  {follows === "draft" ? `Brouillon de ${shared.title}` : `Diffusion ${detail.diffusion.number} du ${new Date(detail.diffusion.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}`} ·{" "}
+                  <a href={routeHref({ name: "designSystem", designSystemId: shared.id, viaProjectId: projectId })}>ouvrir {shared.title}</a>
+                </span>
+              ) : (
+                <>
+                  <span className={styles.chooserNote}>Ce style n'est pas partagé et n'apparaît pas dans la liste des design systems.</span>
+                  <div className={styles.grow} />
+                  {detail.styleDefinesTokens ? (
+                    <button type="button" className={styles.promote} onClick={() => setPromoteOpen(true)}>
                       En faire un design system…
                     </button>
-                  </Tooltip>
-                )}
-              </>
+                  ) : (
+                    <Tooltip label="Le style du projet est encore vide">
+                      <button type="button" className={styles.promote} aria-disabled="true">
+                        En faire un design system…
+                      </button>
+                    </Tooltip>
+                  )}
+                </>
+              )}
+            </div>
+            {shared && detail.diffusion && (
+              <div className={styles.follow}>
+                <span className={styles.followLabel}>Ce projet suit</span>
+                {(() => {
+                  const choice = (
+                    <SegmentedControl
+                      size="md"
+                      ariaLabel="Ce projet suit"
+                      disabled={readOnly}
+                      value={follows}
+                      options={[
+                        { value: "diffusion", label: "La dernière diffusion" },
+                        { value: "draft", label: "Le brouillon" },
+                      ]}
+                      onChange={(next) => void applyFollow(next)}
+                    />
+                  );
+                  return readOnly ? (
+                    <Tooltip label="Il faut le droit d'écriture pour changer ce réglage">
+                      <span tabIndex={0} className={styles.followChoice}>
+                        {choice}
+                      </span>
+                    </Tooltip>
+                  ) : (
+                    choice
+                  );
+                })()}
+                <span className={styles.followStatus} data-testid="follow-status">
+                  {failedFollow ? (
+                    <span role="alert" className={styles.followError}>
+                      <span>{`Le changement n'a pas été enregistré (connexion perdue). Le projet suit toujours ${followsLabel(follows)}.`}</span>
+                      <Button size="sm" onClick={() => void applyFollow(failedFollow)}>
+                        Réessayer
+                      </Button>
+                    </span>
+                  ) : (
+                    (() => {
+                      const { lead, text } = followStatus(follows, shared.title, detail.diffusion.number, detail.pendingChanges);
+                      return (
+                        <>
+                          {lead && <strong className={styles.followLead}>{lead}</strong>}
+                          {text}
+                        </>
+                      );
+                    })()
+                  )}
+                </span>
+              </div>
             )}
           </section>
 
@@ -495,7 +618,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
               <h2 className={styles.variablesTitle}>Variables</h2>
               <span className={styles.variablesHint}>
                 {shared
-                  ? `${overridden} ${agree(overridden, "surchargée", "surchargées")} · les autres suivent ${shared.title}`
+                  ? `${overridden} ${agree(overridden, "surchargée", "surchargées")} · les autres suivent ${shared.title}${follows === "draft" ? " (brouillon)" : ""}`
                   : fresh
                     ? "Aucune pour l'instant"
                     : "Le style du projet : modifiables ici ou en le demandant à Claude"}
@@ -517,7 +640,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
               <div className={styles.table}>
                 <div className={styles.headRow}>
                   <span className={styles.nameCol}>Variable</span>
-                  {title !== null && <span className={styles.designSystemCol}>{title}</span>}
+                  {title !== null && <span className={styles.designSystemCol}>{follows === "draft" ? `${title} · brouillon` : title}</span>}
                   <span className={styles.grow}>{shared ? "Ce projet" : "Valeur"}</span>
                 </div>
                 {detail.tokens.map((token) => (
@@ -565,7 +688,7 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
               <div className={styles.grow} />
               <a href={routeHref({ name: "designMd", projectId })}>Modifier</a>
             </div>
-            <div className={styles.sideText}>{shared ? `Règles du projet. Elles l'emportent sur celles de ${shared.title}.` : "Règles du projet."}</div>
+            <div className={styles.sideText}>{shared ? `Règles du projet. Elles l'emportent sur celles de ${shared.title}${follows === "draft" ? " (DESIGN.md du brouillon)" : ""}.` : "Règles du projet."}</div>
           </section>
         </aside>
       </div>
@@ -580,6 +703,17 @@ export function ProjectDesignSystemScreen({ projectId }: { projectId: string }) 
             setSwitching(null);
             await applyDesignSystem(switching.to.id, ticked);
           }}
+        />
+      )}
+      {breaking && shared && (
+        <BrokenPagesDialog
+          designSystemTitle={shared.title}
+          pendingChanges={detail.pendingChanges}
+          pages={breaking.pages}
+          failed={breaking.failed}
+          onConfirm={() => applyFollow(breaking.direction, true)}
+          onClose={() => setBreaking(null)}
+          back={breaking.direction === "diffusion" && detail.diffusion ? { diffusion: detail.diffusion.number, otherProjects: breaking.otherProjects, hiddenProjects: breaking.hiddenProjects, canDiffuse: breaking.canDiffuse, onDiffuseFirst: diffuseFirst } : undefined}
         />
       )}
       {movingUp && shared && (

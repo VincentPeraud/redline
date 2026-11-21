@@ -11,7 +11,8 @@ import {
   type SwitchMatch,
   type VersionOrigin,
 } from "@redline/shared";
-import { currentDefinitions, instanceNamesByPage, projectComponents } from "./components.js";
+import { instanceNamesByPage, projectComponents } from "./components.js";
+import { currentDiffusionOf, designSystemSeenBy } from "./design-system-view.js";
 import type { Store } from "./store.js";
 
 /** What makes two components "the same settings": the variants and the content slots (defaults are not compared). */
@@ -65,8 +66,8 @@ export function switchPreview(store: Store, projectId: string, targetId: string)
   const sourceId = store.sharedDesignSystemIdOfProject(projectId);
   const source = sourceId === undefined ? undefined : store.getDesignSystem(sourceId);
   const own = new Set(projectComponents(store, projectId).definitions.map((d) => d.name));
-  const sourceDefinitions = new Map(currentDefinitions(store, sourceId).map((d) => [d.name, d]));
-  const targetDefinitions = new Map(currentDefinitions(store, targetId).map((d) => [d.name, d]));
+  const sourceDefinitions = new Map((designSystemSeenBy(store, projectId, sourceId)?.definitions() ?? []).map((d) => [d.name, d]));
+  const targetDefinitions = new Map((currentDiffusionOf(store, targetId)?.definitions() ?? []).map((d) => [d.name, d]));
   const leftOut = store.excludedComponents(projectId);
   const components: SwitchComponent[] = [];
   for (const usage of usageOf(store, projectId).values()) {
@@ -84,7 +85,7 @@ export function switchPreview(store: Store, projectId: string, targetId: string)
       ...(match === "different" ? { difference: differenceOf(before, wanted!, usage) } : {}),
     });
   }
-  return { from: source ? { id: source.id, title: source.title } : null, to: { id: target.id, title: target.title }, components, own: [...own].map(instanceTagOf) };
+  return { from: source ? { id: source.id, title: source.title } : null, to: { id: target.id, title: target.title }, components, own: [...own].map(instanceTagOf), followsDraft: store.projectFollowsDraft(projectId) };
 }
 
 /**
@@ -117,7 +118,7 @@ export function switchDesignSystem(store: Store, projectId: string, designSystem
  */
 export function excludedComponents(store: Store, projectId: string, designSystem = store.sharedDesignSystemIdOfProject(projectId)): ExcludedComponent[] {
   if (designSystem === undefined) return [];
-  const defined = new Set(currentDefinitions(store, designSystem).map((d) => d.name));
+  const defined = new Set((designSystemSeenBy(store, projectId, designSystem)?.definitions() ?? []).map((d) => d.name));
   const own = new Set(projectComponents(store, projectId).definitions.map((d) => d.name));
   const title = store.getDesignSystem(designSystem)!.title;
   const stored = Object.entries(store.excludedComponents(projectId)).filter(([, from]) => from === designSystem).map(([name]) => name);

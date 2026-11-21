@@ -16,6 +16,9 @@ import { requiredString } from "./validation.js";
 import { personRef } from "./identity.js";
 import { restoredVersionMessage, validTimeZone } from "./version-dates.js";
 import type { Store, VersionRecord } from "./store.js";
+import type { PageLock } from "./page-lock.js";
+import { openDraftRestoreThread, restoresDraftVersionOnDiffusion } from "./draft-restore.js";
+import { watchDraftRemovals } from "./draft-removals.js";
 
 const CREATED_TITLE = "Artboard créé";
 const PUT_BACK_MESSAGE = "Remis depuis les artboards supprimés";
@@ -53,7 +56,7 @@ export function contentChanges(records: VersionRecord[], file: string): VersionR
 }
 
 /** Per-artboard history, deleted artboards and artboard restore: views and edits derived from the page versions. */
-export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store): void {
+export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store, pageLock: PageLock): void {
   app.get<{ Params: { pageId: string }; Querystring: { file?: string } }>("/api/pages/:pageId/artboard-versions", async (req, reply) => {
     if (!store.getPage(req.params.pageId)) return reply.code(404).send({ error: "page not found" });
     const file = req.query.file;
@@ -68,7 +71,7 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
       const hash = record.files[MANIFEST_PATH];
       const designSystemId = store.sharedDesignSystemIdForManifest(req.params.pageId, hash === undefined ? undefined : store.blobText(hash));
       const designSystem = designSystemId === undefined ? undefined : store.getDesignSystem(designSystemId);
-      return designSystem && { designSystemTitle: designSystem.title, number: record.diffusion };
+      return designSystem && { designSystemTitle: designSystem.title, number: record.diffusion, ...(record.onDraft ? { onDraft: true } : {}) };
     };
     return changes
       .map((record): ArtboardVersion => {
@@ -158,7 +161,10 @@ export function registerArtboardHistoryRoutes(app: FastifyInstance, store: Store
     const previousVersionId = head.files[file] === undefined ? head.id : changes[changes.length - 1].id;
     const message =
       targetHash === undefined ? PUT_BACK_UNDONE_MESSAGE : !onPage ? PUT_BACK_MESSAGE : restoredVersionMessage(target.createdAt, timeZone);
+    const reportRemovals = watchDraftRemovals(store, pageLock, req.params.pageId);
     const version = store.addVersionFromHashes(req.params.pageId, files, message, "restore", personRef(req));
+    reportRemovals();
+    if (targetHash !== undefined && restoresDraftVersionOnDiffusion(store, req.params.pageId, versionId)) openDraftRestoreThread(store, pageLock, req.params.pageId, [file]);
     const response: RestoreArtboardResponse = { version, previousVersionId };
     return reply.code(201).send(response);
   });
