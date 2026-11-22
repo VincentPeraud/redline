@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { stepIsCanvasOnly, stepIsGroup, versionPreviewPath, type ChangeReview, type ChangeReviewMember, type ChangeReviewStep } from "@redline/shared";
 import { ArtboardIframe, useArtboardOrigin } from "./artboardCapability.js";
+import { useFitHeight } from "./useFitHeight.js";
 import { PlayFrame } from "./PlayFrame.js";
 import { presentationOf } from "./playFrames.js";
 import { openingZoom, reviewFit, stepZoom, zoomTagLabel, MAX_REVIEW_ZOOM, MIN_REVIEW_ZOOM, type ReviewZoom } from "./reviewZoom.js";
@@ -85,11 +86,11 @@ export function ReviewStage({
     const markers = (JSON.parse(targetsKey) as string[]).map((selector, index) => ({ number: index + 1, selector }));
     frame.current?.contentWindow?.postMessage({ type: "redline:set-compare-markers", visible: controls.markersShown && markers.length > 0, markers }, "*");
   }, [targetsKey, controls.markersShown, bridgeEpoch]);
-  const entry = step.artboardEntry;
+  const stepKey = `${review.id}/${step.id}/${step.pageId}/${step.artboard}`;
+  const entry = useFitHeight(step.artboardEntry, frame, `${stepKey}/${controls.showBefore ? "before" : "after"}`);
   /** The stage's own padding keeps the artboard off its edges, so the fit takes the space inside it. */
   const shown = entry && presentationOf(entry, controls.framed, windowWidth, entry.responsive ? controls.rendering : undefined);
   const presentation = shown && { ...shown, stagePadding: DEVICE_BEZEL[shown.frame] ?? 0 };
-  const stepKey = `${review.id}/${step.id}/${step.pageId}/${step.artboard}`;
   // The zoom of the step: chosen once it is measured (fitted when the whole artboard stays readable), then by the person.
   const [zoomState, setZoomState] = useState<{ key: string; opening: "natural" | "fit"; zoom: ReviewZoom }>();
   const zoomKey = `${stepKey}/${presentation ? `${presentation.viewport.width}x${presentation.viewport.height}/${presentation.frame}` : ""}`;
