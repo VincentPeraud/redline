@@ -1,4 +1,5 @@
 import { ArtboardIframe } from "./artboardCapability.js";
+import { useFitHeight } from "./useFitHeight.js";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { RESPONSIVE_FORMATS, renderingKey, renderingLabel, type ArtboardRendering, type CreateThreadRequest, type Manifest, type Project, type Thread, type TweakValue, type TweakValues } from "@redline/shared";
 import { PlayStepper } from "./PlayStepper.js";
@@ -69,7 +70,7 @@ export function PlayMode({ pageId, pageTitle, manifest, tocItems, file: current,
   const frame = useRef<HTMLIFrameElement>(null);
   const stage = useRef<HTMLElement>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
-  const artboard = manifest.artboards.find((a) => a.file === current);
+  const artboard = useFitHeight(manifest.artboards.find((a) => a.file === current), frame, `${pageId}/${current}`);
   const [framed, toggleFramed] = useStoredToggle("redline:play-framed", true);
   const [tweaksOpen, toggleTweaks] = useStoredToggle("redline:play-tweaks", true);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);

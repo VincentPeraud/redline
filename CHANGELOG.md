@@ -6,6 +6,12 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-22
+
+### Fixed
+
+- Review steps and Present mode show a `height: "fit"` artboard at its real page height, as the canvas does, instead of cutting it at the 500 px placeholder of the manifest.
+
 ## [0.5.0] - 2026-11-21
 
 ### Added
