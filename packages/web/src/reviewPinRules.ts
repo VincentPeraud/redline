@@ -120,11 +120,20 @@ export function pinOffsets(positions: readonly { id: string; xPct: number; yPct:
   return offsets;
 }
 
-/** The panel opens below and to the right of the pin, and flips to the left or above when it would leave the stage. */
-export function popoverPlacement(at: { xPct: number; yPct: number }, box: { width: number; height: number }, panel: { width: number; height: number }): { horizontal: "left" | "right"; vertical: "above" | "below" } {
+/** Space kept between a panel squeezed inside a narrow stage and the stage's edges. */
+const STAGE_MARGIN = 8;
+
+export type PopoverPlacement = { vertical: "above" | "below" } & ({ horizontal: "left" | "right" } | { horizontal: "inside"; left: number });
+
+/** The panel opens below and to the right of the pin, and flips to the left or above when it would leave the stage. When neither side has room (a phone-wide artboard), it stays inside the stage, `left` px from its left edge, under or over the pin. */
+export function popoverPlacement(at: { xPct: number; yPct: number }, box: { width: number; height: number }, panel: { width: number; height: number }): PopoverPlacement {
   const x = (at.xPct / 100) * box.width;
   const y = (at.yPct / 100) * box.height;
-  return { horizontal: x + panel.width > box.width ? "left" : "right", vertical: y + panel.height > box.height ? "above" : "below" };
+  const vertical = y + panel.height > box.height ? "above" : "below";
+  if (x + panel.width <= box.width) return { horizontal: "right", vertical };
+  if (x - panel.width >= 0) return { horizontal: "left", vertical };
+  const left = Math.max(STAGE_MARGIN, Math.min(x - panel.width / 2, box.width - panel.width - STAGE_MARGIN));
+  return { horizontal: "inside", left: Math.round(left), vertical };
 }
 
 /** "Tes épingles, ta zone et ta remarque remplacent ton OK pour cette étape." */

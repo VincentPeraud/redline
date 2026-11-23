@@ -55,6 +55,11 @@ describe("the pin panel placement", () => {
   it("flips to the left or above when it would leave the stage", () => {
     expect(popoverPlacement({ xPct: 90, yPct: 90 }, box, panel)).toEqual({ horizontal: "left", vertical: "above" });
   });
+  it("stays inside a narrow stage when neither side has room, under the pin", () => {
+    const phone = { width: 390, height: 760 };
+    expect(popoverPlacement({ xPct: 70, yPct: 10 }, phone, panel)).toEqual({ horizontal: "inside", left: 82, vertical: "below" });
+    expect(popoverPlacement({ xPct: 10, yPct: 10 }, phone, panel).horizontal).toBe("right");
+  });
 });
 
 describe("what the step says about feedback and the OK", () => {
