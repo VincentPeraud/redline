@@ -6,6 +6,16 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-23
+
+### Added
+
+- Review mode: the left and right arrow keys move to the previous or next step (also while the artboard holds the focus, never while typing), and a top-bar button opens the step's artboard on its canvas in a new tab.
+
+### Fixed
+
+- Review mode: on a phone-wide artboard, the panel of a pin near the middle no longer opens cut off past the frame edge; it stays inside the frame, under or over the pin.
+
 ## [0.5.2] - 2026-11-23
 
 ### Fixed

@@ -19,10 +19,13 @@ export function overlayStyle(kind: "popover" | "tooltip", at: { xPct: number; yP
   const gap = kind === "popover" ? POPOVER_GAP : 8;
   const below = kind === "popover" ? POPOVER_GAP : 24;
   const place = popoverPlacement(at, size, box);
+  // Squeezed inside the stage, the panel sits under or over the pin: it clears the whole pin, not just its centre.
+  const inside = place.horizontal === "inside";
+  const clear = inside ? PIN_HALF + gap : 0;
   return {
     width: box.width,
-    ...(place.horizontal === "right" ? { left: `calc(${at.xPct}% + ${gap}px)` } : { right: `calc(${100 - at.xPct}% + ${gap}px)` }),
-    ...(place.vertical === "below" ? { top: `calc(${at.yPct}% + ${below}px)` } : { bottom: `calc(${100 - at.yPct}% + ${gap}px)` }),
+    ...(place.horizontal === "inside" ? { left: place.left } : place.horizontal === "right" ? { left: `calc(${at.xPct}% + ${gap}px)` } : { right: `calc(${100 - at.xPct}% + ${gap}px)` }),
+    ...(place.vertical === "below" ? { top: `calc(${at.yPct}% + ${Math.max(below, clear)}px)` } : { bottom: `calc(${100 - at.yPct}% + ${Math.max(gap, clear)}px)` }),
   };
 }
 

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { activeSteps, stepIsSeen, type ArtboardRef, type ChangeReview, type ChangeReviewPresence, type ChangeReviewStep } from "@redline/shared";
 import { navigateTo } from "./router.js";
+import { isEditableTarget } from "./isEditableTarget.js";
 import { subscribeServerEvents } from "./serverEvents.js";
 import { useReviewControls } from "./useReviewControls.js";
 import { useDocumentTitle } from "./documentTitle.js";
 import { counted } from "./plural.js";
 import { ConfirmDialog, LeaveDialog, personName } from "./ReviewRemark.js";
-import { type Load, type RemovedRemark, type View, nextUnanswered, reviewPath, shownStep, stepRoute } from "./reviewView.js";
+import { type Load, type RemovedRemark, type View, neighbour, nextUnanswered, reviewPath, shownStep, stepRoute } from "./reviewView.js";
 import { RemovedStep, StateScreen } from "./ReviewStates.js";
 import { ReviewTopBar } from "./ReviewTopBar.js";
 import { StepView } from "./ReviewStep.js";
@@ -41,6 +42,8 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   const pendingRuns = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => Promise<unknown> }>());
   const mounted = useRef(true);
   const viewRef = useRef<View>("recap");
+  /** Left / right arrow: the step before or after (set on each render, read by the key listener). */
+  const arrowRef = useRef<((direction: 1 | -1) => void) | undefined>();
   const changeRef = useRef<(method: "PUT" | "DELETE" | "POST", path: string, body?: unknown) => Promise<ChangeReview | undefined>>();
 
   const schedule = (key: string, entry: PendingChange, run: () => Promise<unknown>) => {
@@ -136,6 +139,26 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
     if (review && step === undefined) navigateTo(stepRoute(reviewId, review.state !== "open" ? "recap" : nextUnanswered(review, -1)), "replace");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [review?.id, step]);
+  // Left / right arrows move between steps, also when the artboard iframe holds the focus (its bridge relays the key).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.key !== "ArrowLeft" && event.key !== "ArrowRight") || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.defaultPrevented || isEditableTarget(event.target)) return;
+      if ((event.target as HTMLElement | null)?.closest?.('[role="menu"], [role="dialog"], [role="slider"]')) return;
+      arrowRef.current?.(event.key === "ArrowLeft" ? -1 : 1);
+    };
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; key?: string } | null;
+      if (data?.type !== "redline:key" || (data.key !== "ArrowLeft" && data.key !== "ArrowRight")) return;
+      if (!Array.from(document.querySelectorAll("iframe")).some((frame) => frame.contentWindow === event.source)) return;
+      arrowRef.current?.(data.key === "ArrowLeft" ? -1 : 1);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("message", onMessage);
+    };
+  }, []);
   useDocumentTitle(review ? `Revue · ${review.projectTitle}` : "Revue");
 
   /** Sends one change of the member's answer; the answer is the review as it stands then. */
@@ -165,6 +188,14 @@ export function ReviewScreen({ reviewId, step }: { reviewId: string; step?: numb
   const navigate = (target: View) => navigateTo(stepRoute(reviewId, target), "replace");
   const go = (target: View) => guard(() => navigate(target));
   viewRef.current = view;
+  // A dialog on screen keeps the arrows; from the recap, left goes back to the last step.
+  arrowRef.current =
+    confirming || filing || leaving
+      ? undefined
+      : (direction) => {
+          const target = view === "recap" ? (direction === -1 ? neighbour(review!, review!.steps.length, -1) : undefined) : direction === -1 ? neighbour(review!, view, -1) : (neighbour(review!, view, 1) ?? "recap");
+          if (target !== undefined) go(target);
+        };
 
   const answerOk = async (index: number) => {
     const next = await change("PUT", `/steps/${review!.steps[index]!.id}/ok`);

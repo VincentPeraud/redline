@@ -12,7 +12,8 @@
 /* The review identity: a red top bar, never mistaken for Present. */
 .top {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  /* The controls on the right keep their width: the title on the left gives way first (ellipsis). */
+  grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
   align-items: center;
   gap: var(--space-4);
   height: 56px;
@@ -33,6 +34,19 @@
 
 .trail {
   justify-content: flex-end;
+}
+
+.trail > *,
+.lead > :not(.title) {
+  flex-shrink: 0;
+}
+
+/* Too narrow for every control: the red bar already says "review", the pill and the title go first. */
+@media (min-width: 701px) and (max-width: 1279px) {
+  .lead .mode,
+  .lead .title {
+    display: none;
+  }
 }
 
 .counterWrap {
@@ -101,6 +115,11 @@
 
 .button:hover:not(:disabled) {
   background: var(--review-bar-hover);
+}
+
+/* A link styled as a bar button keeps its colour over the global link hover. */
+a.button:hover {
+  color: var(--color-surface);
 }
 
 .button:disabled {
