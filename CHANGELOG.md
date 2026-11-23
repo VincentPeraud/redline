@@ -6,6 +6,8 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-23
+
 ### Added
 
 - Review mode: the left and right arrow keys move to the previous or next step (also while the artboard holds the focus, never while typing), and a top-bar button opens the step's artboard on its canvas in a new tab.
