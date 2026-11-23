@@ -6,6 +6,10 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+### Added
+
+- Review mode: the left and right arrow keys move to the previous or next step (also while the artboard holds the focus, never while typing), and a top-bar button opens the step's artboard on its canvas in a new tab.
+
 ### Fixed
 
 - Review mode: an unframed phone artboard on a short stage (a grouped step, with its thumbnails under it) keeps its own height and the stage scrolls, instead of being squashed.

@@ -103,6 +103,11 @@
   background: var(--review-bar-hover);
 }
 
+/* A link styled as a bar button keeps its colour over the global link hover. */
+a.button:hover {
+  color: var(--color-surface);
+}
+
 .button:disabled {
   opacity: 0.4;
   cursor: default;

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { RESPONSIVE_FORMATS, activeSteps, stepIsCanvasOnly, progressOf, renderingKey, renderingLabel, reviewPlace, stepIsMultiPage, stepLabel, type ArtboardRendering, type ChangeReview, type ChangeReviewStep } from "@redline/shared";
-import { navigateTo, type Route } from "./router.js";
+import { navigateTo, routeHref, type Route } from "./router.js";
 import { type StepControls } from "./useReviewControls.js";
 import { usePhone } from "./usePhone.js";
 import { presentationOf } from "./playFrames.js";
@@ -218,6 +218,20 @@ export function ReviewTopBar({ review, view, shown, controls, onGo, onLeave, onF
               <circle cx="10" cy="17" r="2" />
             </svg>
           </button>
+        )}
+        {!phone && controls && step && !step.removed && step.artboard !== "" && !stepIsCanvasOnly(step) && (
+          <a
+            href={routeHref({ name: "page", pageId: step.pageId, artboard: step.artboard })}
+            target="_blank"
+            rel="noopener"
+            aria-label="Ouvrir l'artboard dans un nouvel onglet"
+            title="Ouvrir l'artboard dans un nouvel onglet"
+            className={cx(styles.button, styles.iconButton)}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+            </svg>
+          </a>
         )}
         {!phone && review.state === "open" && view !== "recap" && (
           <button type="button" className={cx(styles.button, styles.buttonLight)} onClick={onFinish}>
