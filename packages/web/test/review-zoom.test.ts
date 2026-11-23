@@ -41,6 +41,14 @@ describe("reviewFit", () => {
     expect(reviewFit(plain(800, 600), stage, 1.1, false).scroll).toBeNull();
   });
 
+  it("scrolls an unframed phone on a stage shorter than the phone, instead of squashing it", () => {
+    const phone = presentationOf({ width: 390, height: 844, frame: "phone" }, false);
+    expect(reviewFit(phone, { width: 1000, height: 600 }, "natural")).toMatchObject({ viewport: { width: 390, height: 760 }, scale: 1, scroll: "real" });
+    expect(reviewFit(phone, { width: 1000, height: 900 }, "natural")).toMatchObject({ viewport: { width: 390, height: 900 }, scroll: null });
+    expect(reviewFit(phone, { width: 1000, height: 900 }, "natural", true).scroll).toBe("real");
+    expect(reviewFit(phone, { width: 1000, height: 600 }, "natural", false).scroll).toBeNull();
+  });
+
   it("does not zoom a presentation that stretches to the stage", () => {
     const fill = presentationOf({ width: 1440, height: 900, expand: "fill" });
     expect(reviewFit(fill, stage, 2)).toMatchObject({ viewport: stage, scale: 1, scroll: null, zoomable: false });
