@@ -46,6 +46,11 @@ export function openingZoom(presentation: Presentation, stage: { width: number; 
  */
 export function reviewFit(presentation: Presentation, stage: { width: number; height: number }, zoom: ReviewZoom, scrolling?: boolean): ReviewFit {
   const natural = fitToStage(presentation, stage);
+  // An unframed phone / tablet takes the stage's height, but never less than its own: a short stage (group thumbnails under it) scrolls instead of squashing it.
+  // The held decision wins: scrolling drops the stage padding, so the measured stage would make it flip back.
+  if (presentation.fill === "height" && stage.width > 0 && (scrolling ?? natural.viewport.height < presentation.viewport.height)) {
+    return { viewport: presentation.viewport, scale: natural.scale, scroll: natural.scale < 1 ? "width" : "real", fitScale: natural.scale, zoomable: false };
+  }
   if (presentation.fill !== "none" || stage.width === 0) return { ...natural, fitScale: natural.scale, zoomable: false };
   const fitScale = fitScaleOf(presentation, stage);
   if (zoom === "natural") {

@@ -6,6 +6,12 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-23
+
+### Fixed
+
+- Review mode: an unframed phone artboard on a short stage (a grouped step, with its thumbnails under it) keeps its own height and the stage scrolls, instead of being squashed.
+
 ## [0.5.1] - 2026-11-22
 
 ### Fixed
