@@ -142,7 +142,7 @@ One member's OK on a step, signed with their name and kept in the review (never 
 _Avoid_: Vote, validation
 
 **Requester**:
-The person and folder of the terminal session that declared a review.
+The person, folder and terminal session that declared a review; a later session of the same folder takes it over once that session is gone.
 _Avoid_: Author
 
 **Fetch**:

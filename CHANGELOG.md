@@ -6,6 +6,10 @@ Add a line under **Unreleased** with every change worth telling (a merged lot, a
 
 ## [Unreleased]
 
+### Fixed
+
+- Reviews: two Claude sessions working in the same folder no longer merge their `request_review` into one review; each live session gets its own review and banner, and a reconnected session takes over its previous open review.
+
 ## [0.6.0] - 2026-11-23
 
 ### Added
