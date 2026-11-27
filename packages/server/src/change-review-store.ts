@@ -20,6 +20,8 @@ export interface StoredReview {
   fetchedResult?: ChangeReviewResult;
   /** The terminal session that fetched it, and took the threads of its remarks. */
   fetchedSessionId?: string;
+  /** The terminal session that declared it (or took it over after its own was gone); absent on reviews declared before sessions were recorded. */
+  sessionId?: string;
 }
 
 /** The tables whose rows record the artboard versions their author saw (answers and pins share those columns). */
@@ -113,6 +115,7 @@ interface ReviewRow {
   filed_at: string | null;
   fetched_result: string | null;
   fetched_session: string | null;
+  session_id: string | null;
 }
 
 /** The other artboards of a group as stored: JSON, or nothing for a single step. */
@@ -201,7 +204,7 @@ export class ChangeReviewStore {
     for (const column of ["member_versions", "on_page_id", "on_artboard"]) if (!answerColumns.includes(column)) db.exec(`ALTER TABLE change_review_answers ADD COLUMN ${column} TEXT`);
     if (!answerColumns.includes("stale")) db.exec("ALTER TABLE change_review_answers ADD COLUMN stale INTEGER NOT NULL DEFAULT 0");
     const columns = (db.prepare("PRAGMA table_info(change_reviews)").all() as { name: string }[]).map((column) => column.name);
-    for (const column of ["fetched_by", "fetched_at", "filed_by", "filed_at", "fetched_result", "fetched_session"]) if (!columns.includes(column)) db.exec(`ALTER TABLE change_reviews ADD COLUMN ${column} TEXT`);
+    for (const column of ["fetched_by", "fetched_at", "filed_by", "filed_at", "fetched_result", "fetched_session", "session_id"]) if (!columns.includes(column)) db.exec(`ALTER TABLE change_reviews ADD COLUMN ${column} TEXT`);
   }
 
   /** Open and finished reviews with a step on the page, plus those fetched since `fetchedSince` (ISO), oldest first. */
@@ -226,13 +229,13 @@ export class ChangeReviewStore {
   }
 
   /** `steps` are already in review order. */
-  create(projectId: string, requester: { personId?: string; folder: string; label?: string }, steps: StepToStore[]): StoredReview {
+  create(projectId: string, requester: { personId?: string; folder: string; sessionId?: string; label?: string }, steps: StepToStore[]): StoredReview {
     const id = randomUUID();
     const createdAt = new Date().toISOString();
     this.db.transaction(() => {
       this.db
-        .prepare("INSERT INTO change_reviews (id, project_id, state, requester_person_id, folder, label, created_at) VALUES (?, ?, 'open', ?, ?, ?, ?)")
-        .run(id, projectId, requester.personId ?? null, requester.folder, requester.label ?? null, createdAt);
+        .prepare("INSERT INTO change_reviews (id, project_id, state, requester_person_id, folder, session_id, label, created_at) VALUES (?, ?, 'open', ?, ?, ?, ?, ?)")
+        .run(id, projectId, requester.personId ?? null, requester.folder, requester.sessionId ?? null, requester.label ?? null, createdAt);
       const insert = this.db.prepare("INSERT INTO change_review_steps (id, review_id, position, page_id, artboard, changed, look_at, question, tweaks, mobile, baseline_version, others, title, targets, canvas_elements) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       steps.forEach((step, position) =>
         insert.run(randomUUID(), id, position, step.pageId, step.artboard, step.changed, step.lookAt, step.question, tweaksColumn(step), step.mobile ? 1 : 0, step.baseline ?? null, othersColumn(step), step.title ?? null, targetsColumn(step), canvasElementsColumn(step)),
@@ -241,12 +244,22 @@ export class ChangeReviewStore {
     return this.get(id)!;
   }
 
-  /** The latest review of this requester (person and folder) on the project in `state`. */
-  latestOf(projectId: string, requester: { personId?: string; folder: string }, state: ChangeReviewState): StoredReview | undefined {
-    const row = this.db
-      .prepare("SELECT id FROM change_reviews WHERE project_id = ? AND state = ? AND folder = ? AND COALESCE(requester_person_id, '') = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
-      .get(projectId, state, requester.folder, requester.personId ?? "") as { id: string } | undefined;
+  /**
+   * The latest review of this requester (person and folder) on the project in `state` that `sessionId` may count as its own:
+   * one it declared, else one whose session is not live any more (a reconnected conversation gets a new session id) or unknown.
+   * Another live session of the same folder keeps its review: two conversations in one folder never share one.
+   */
+  latestOf(projectId: string, requester: { personId?: string; folder: string; sessionId: string }, state: ChangeReviewState, isLive: (sessionId: string) => boolean): StoredReview | undefined {
+    const rows = this.db
+      .prepare("SELECT id, session_id FROM change_reviews WHERE project_id = ? AND state = ? AND folder = ? AND COALESCE(requester_person_id, '') = ? ORDER BY created_at DESC, rowid DESC")
+      .all(projectId, state, requester.folder, requester.personId ?? "") as { id: string; session_id: string | null }[];
+    const row = rows.find((candidate) => candidate.session_id === requester.sessionId) ?? rows.find((candidate) => candidate.session_id === null || !isLive(candidate.session_id));
     return row && this.get(row.id);
+  }
+
+  /** `sessionId` takes the review over: later declarations of its old session open their own. */
+  claim(reviewId: string, sessionId: string): void {
+    this.db.prepare("UPDATE change_reviews SET session_id = ? WHERE id = ?").run(sessionId, reviewId);
   }
 
   /**
@@ -304,6 +317,7 @@ export class ChangeReviewStore {
         ...(row.filed_at ? { filedAt: row.filed_at } : {}),
         ...(row.fetched_result ? { fetchedResult: JSON.parse(row.fetched_result) as ChangeReviewResult } : {}),
         ...(row.fetched_session ? { fetchedSessionId: row.fetched_session } : {}),
+        ...(row.session_id ? { sessionId: row.session_id } : {}),
       }
     );
   }

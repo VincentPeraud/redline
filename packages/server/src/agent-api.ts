@@ -187,7 +187,7 @@ export async function registerAgentApi(app: FastifyInstance, store: Store, pageL
       // `request_review` and `review_feedback`: a terminal session declares a review of its changes, then reads its result.
       api.post<{ Params: { sessionId: string }; Body: Partial<RequestChangeReviewRequest> }>("/terminal-sessions/:sessionId/reviews", async (req, reply) => {
         if (!terminalSessions.isPresent(req.params.sessionId)) return reply.code(403).send({ error: notConnected });
-        const result = declareChangeReview({ store, access }, req.viewer, { id: req.params.sessionId, folder: terminalSessions.folderOf(req.params.sessionId) }, req.body);
+        const result = declareChangeReview({ store, access, terminalSessions }, req.viewer, { id: req.params.sessionId, folder: terminalSessions.folderOf(req.params.sessionId) }, req.body);
         return "error" in result ? reply.code(result.status).send({ error: result.error }) : reply.code(201).send(result);
       });
 

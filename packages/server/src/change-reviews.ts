@@ -409,7 +409,7 @@ function bannersOf(store: Store, pageId: string, viewer: Viewer): PageChangeRevi
 
 
 /** A terminal session declares a review: a 4xx message, or the new review's id. Rights are checked here: the route names no project. */
-export function declareChangeReview({ store, access }: Pick<ReviewContext, "store" | "access">, viewer: Viewer, session: ReviewSession, body: Partial<RequestChangeReviewRequest> | undefined): { error: string; status: number } | RequestChangeReviewResponse {
+export function declareChangeReview({ store, access, terminalSessions }: Pick<ReviewContext, "store" | "access" | "terminalSessions">, viewer: Viewer, session: ReviewSession, body: Partial<RequestChangeReviewRequest> | undefined): { error: string; status: number } | RequestChangeReviewResponse {
   const { folder, label, steps } = body ?? {};
   if (!requiredString(folder) || folder.length > MAX_TERMINAL_TEXT_LENGTH) return { status: 400, error: "folder is required" };
   if (label !== undefined && (!requiredString(label) || label.length > MAX_TERMINAL_TEXT_LENGTH)) return { status: 400, error: "label must be a non-empty string" };
@@ -495,7 +495,8 @@ export function declareChangeReview({ store, access }: Pick<ReviewContext, "stor
   });
   if (tweakErrors.length > 0) return { status: 400, error: `Invalid tweak values, fix the declaration: ${tweakErrors.join("; ")}.` };
 
-  const requester = { personId: viewerPersonId(viewer), folder };
+  const requester = { personId: viewerPersonId(viewer), folder, sessionId: session.id };
+  const isLive = (sessionId: string) => terminalSessions.isPresent(sessionId);
   const pages = store.listPages(projectId, "active");
   const orderOf = <T extends ChangeReviewStepInput>(steps: readonly T[]) => {
     const readingOrderByPage: Record<string, string[]> = {};
@@ -503,7 +504,7 @@ export function declareChangeReview({ store, access }: Pick<ReviewContext, "stor
     return orderSteps(steps, pages.map((page) => page.id), readingOrderByPage);
   };
 
-  const open = store.changeReviews.latestOf(projectId, requester, "open");
+  const open = store.changeReviews.latestOf(projectId, requester, "open", isLive);
   // A step of this artboard already in the open review keeps its baseline: the oldest automatic one is the start of the series.
   const known = open ? store.changeReviews.steps(open.id) : [];
   const baselineRequester = { folder: folderName(session.folder ?? folder), sessionId: session.id };
@@ -521,10 +522,11 @@ export function declareChangeReview({ store, access }: Pick<ReviewContext, "stor
   if (open) {
     const merged = orderOf(mergeSteps(known, withBaselines));
     store.changeReviews.merge(open.id, merged, label);
+    if (open.sessionId !== session.id) store.changeReviews.claim(open.id, session.id);
     announceReviewChange(store, open.id);
     return { id: open.id, merged: true, stepCount: merged.length };
   }
-  const unfetched = store.changeReviews.latestOf(projectId, requester, "finished");
+  const unfetched = store.changeReviews.latestOf(projectId, requester, "finished", isLive);
   const review = store.changeReviews.create(projectId, { ...requester, ...(label ? { label } : {}) }, orderOf(withBaselines));
   announceReviewChange(store, review.id);
   return { id: review.id, merged: false, stepCount: declared.length, ...(unfetched ? { warning: "your previous review is finished but was not fetched" } : {}) };

@@ -107,6 +107,42 @@ describe("merging a declaration", () => {
     expect((await bannersOf(home.id)).map((banner) => banner.id)).toEqual([first, second]);
   });
 
+  it("opens a second review for another live session in the same folder", async () => {
+    const { terminal, home } = await start();
+    const first = idOf(await terminal.call("request_review", { steps: [step(home.id, "list.html")] }));
+    const sameFolder = await openTerminal(seam!, stops, "MacBook-Pro");
+
+    const answer = await sameFolder.call("request_review", { steps: [step(home.id, "empty.html")] });
+
+    expect(idOf(answer)).not.toBe(first);
+    expect(answer).not.toMatch(/merged/i);
+    expect(stepNames(await reviewOf(first))).toEqual(["Home/list.html"]);
+    expect((await bannersOf(home.id)).map((banner) => banner.id)).toEqual([first, idOf(answer)]);
+  });
+
+  it("lets a session of the same folder take over an open review whose session is gone (reconnection)", async () => {
+    const { terminal, home } = await start();
+    const first = idOf(await terminal.call("request_review", { steps: [step(home.id, "list.html")] }));
+    await terminal.quit();
+    const reconnected = await openTerminal(seam!, stops, "MacBook-Pro");
+
+    const answer = await reconnected.call("request_review", { steps: [step(home.id, "empty.html")] });
+
+    expect(idOf(answer)).toBe(first);
+    expect(answer).toMatch(/merged/i);
+    const other = await openTerminal(seam!, stops, "MacBook-Pro");
+    expect(idOf(await other.call("request_review", { steps: [step(home.id, "empty.html")] }))).not.toBe(first);
+  });
+
+  it("does not warn a live session about another live session's unfetched review", async () => {
+    const { terminal, home } = await start();
+    const first = idOf(await terminal.call("request_review", { steps: [step(home.id, "list.html")] }));
+    await send("POST", `/api/change-reviews/${first}/finish`);
+    const sameFolder = await openTerminal(seam!, stops, "MacBook-Pro");
+
+    expect(await sameFolder.call("request_review", { steps: [step(home.id, "empty.html")] })).not.toContain("was not fetched");
+  });
+
   it("creates a new review and warns when the previous one is finished but not fetched", async () => {
     const { terminal, home } = await start();
     const first = idOf(await terminal.call("request_review", { steps: [step(home.id, "list.html")] }));
